@@ -809,11 +809,15 @@ async def test_sync_linkedin_org_ads_path(_li_patches, monkeypatch):
         "get_settings",
         lambda: SimpleNamespace(LINKEDIN_AD_ACCOUNT_ID="urn:li:sponsoredAccount:1"),
     )
-    A._fetch_linkedin_ad_stats = AsyncMock(
-        return_value={
-            "urn:li:sponsoredCampaign:7": A.MetricBundle(impressions=9),
-            "_error": A.MetricBundle(notes="adAnalytics error"),
-        }
+    monkeypatch.setattr(
+        A,
+        "_fetch_linkedin_ad_stats",
+        AsyncMock(
+            return_value={
+                "urn:li:sponsoredCampaign:7": A.MetricBundle(impressions=9),
+                "_error": A.MetricBundle(notes="adAnalytics error"),
+            }
+        ),
     )
     acc = _li_org(scopes=["r_ads_reporting"])
     db = _DB(results=[[]])
@@ -858,7 +862,7 @@ async def test_sync_linkedin_member_scrape(_li_patches, monkeypatch):
         "LinkedInSidecarClient",
         lambda: SimpleNamespace(get_profile_activity=AsyncMock(return_value=activity)),
     )
-    A._fetch_member_post_analytics = AsyncMock(return_value={"status": 403})
+    monkeypatch.setattr(A, "_fetch_member_post_analytics", AsyncMock(return_value={"status": 403}))
     acc = _account(platform="linkedin", access_token_enc="enc", meta_data={}, scopes=["w_member_social"])
     r = await A.sync_linkedin_account(db, acc)
     assert r.synced >= 1
@@ -878,7 +882,7 @@ async def test_sync_linkedin_member_scrape_fails(_li_patches, monkeypatch):
         lambda: SimpleNamespace(get_profile_activity=AsyncMock(side_effect=RuntimeError("sidecar down"))),
     )
     probe = AsyncMock(return_value={"status": 403})
-    A._fetch_member_post_analytics = probe
+    monkeypatch.setattr(A, "_fetch_member_post_analytics", probe)
     acc = _account(platform="linkedin", access_token_enc="enc", meta_data={}, scopes=[])  # unrecorded → probes, gets 403
     r = await A.sync_linkedin_account(db, acc)
     assert any("member scrape" in e for e in r.errors)
@@ -940,7 +944,7 @@ async def test_sync_twitter_happy(_tw_patches):
 
 @pytest.mark.asyncio
 async def test_sync_twitter_quota_then_web(_tw_patches, monkeypatch):
-    A._fetch_twitter_metrics = AsyncMock(return_value=A.MetricBundle(notes="quota_exhausted"))
+    monkeypatch.setattr(A, "_fetch_twitter_metrics", AsyncMock(return_value=A.MetricBundle(notes="quota_exhausted")))
     import app.services.x_web as xw
 
     monkeypatch.setattr(xw, "is_configured", lambda: True)
@@ -958,11 +962,15 @@ async def test_sync_twitter_quota_then_web(_tw_patches, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sync_twitter_scrape_fallback(_tw_patches, monkeypatch):
-    A._scrape_twitter_timeline = AsyncMock(
-        return_value={
-            "followers": 55,
-            "posts": [{"id": "777", "posted": datetime.now(UTC).isoformat(), "views": 10, "likes": 1, "replies": 0, "reposts": 0}],
-        }
+    monkeypatch.setattr(
+        A,
+        "_scrape_twitter_timeline",
+        AsyncMock(
+            return_value={
+                "followers": 55,
+                "posts": [{"id": "777", "posted": datetime.now(UTC).isoformat(), "views": 10, "likes": 1, "replies": 0, "reposts": 0}],
+            }
+        ),
     )
     db = _DB(results=[[]])
     r = await A.sync_twitter_account(db, _tw_acc())
@@ -970,7 +978,7 @@ async def test_sync_twitter_scrape_fallback(_tw_patches, monkeypatch):
     A._record_follower_snapshot.assert_awaited_once()
 
     # scrape failure → error recorded, non-fatal
-    A._scrape_twitter_timeline = AsyncMock(side_effect=RuntimeError("boom"))
+    monkeypatch.setattr(A, "_scrape_twitter_timeline", AsyncMock(side_effect=RuntimeError("boom")))
     db2 = _DB(results=[[]])
     r2 = await A.sync_twitter_account(db2, _tw_acc())
     assert any("timeline scrape" in e for e in r2.errors)
@@ -1058,16 +1066,20 @@ async def test_sync_ig_scope_missing(_ig_patches):
 
 @pytest.mark.asyncio
 async def test_sync_ig_happy(_ig_patches, monkeypatch):
-    A._meta_insights_get = AsyncMock(
-        return_value=_resp(
-            200,
-            {
-                "data": [
-                    {"name": "reach", "values": [{"value": 100}]},
-                    {"name": "follower_count", "values": [{"value": 42}]},
-                ]
-            },
-        )
+    monkeypatch.setattr(
+        A,
+        "_meta_insights_get",
+        AsyncMock(
+            return_value=_resp(
+                200,
+                {
+                    "data": [
+                        {"name": "reach", "values": [{"value": 100}]},
+                        {"name": "follower_count", "values": [{"value": 42}]},
+                    ]
+                },
+            )
+        ),
     )
     _Client.get = AsyncMock(
         side_effect=[
@@ -1140,8 +1152,8 @@ async def test_sync_threads_happy(_th_patches):
 
 
 @pytest.mark.asyncio
-async def test_sync_threads_platform_deleted(_th_patches):
-    A._fetch_threads_media_metrics = AsyncMock(return_value=A.MetricBundle(notes="platform_deleted"))
+async def test_sync_threads_platform_deleted(_th_patches, monkeypatch):
+    monkeypatch.setattr(A, "_fetch_threads_media_metrics", AsyncMock(return_value=A.MetricBundle(notes="platform_deleted")))
     t = _target("gone1")
     db = _DB(results=[[t]])
     r = await A.sync_threads_account(db, _th_acc())
@@ -1151,12 +1163,156 @@ async def test_sync_threads_platform_deleted(_th_patches):
 
 
 @pytest.mark.asyncio
-async def test_sync_threads_error_paths(_th_patches):
+async def test_sync_threads_error_paths(_th_patches, monkeypatch):
     _Client.get = AsyncMock(return_value=_resp(500))
-    A._fetch_threads_account_insights = AsyncMock(side_effect=RuntimeError("insights down"))
-    A._fetch_threads_profile = AsyncMock(side_effect=RuntimeError("profile down"))
+    monkeypatch.setattr(A, "_fetch_threads_account_insights", AsyncMock(side_effect=RuntimeError("insights down")))
+    monkeypatch.setattr(A, "_fetch_threads_profile", AsyncMock(side_effect=RuntimeError("profile down")))
     db = _DB(results=[[]])
     r = await A.sync_threads_account(db, _th_acc())
     assert any("discovery HTTP 500" in e for e in r.errors)
     assert any("account insights" in e for e in r.errors)
     assert any("profile sync" in e for e in r.errors)
+
+
+# ── sync_facebook_account (page path) ─────────────────────────────────
+
+
+@pytest.fixture
+def _fb_patches(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok" if t else None)
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", _counting_persist())
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_fetch_facebook_post_metrics", AsyncMock(return_value=A.MetricBundle(likes=7)))
+    monkeypatch.setattr(A, "_meta_insights_get", AsyncMock(return_value=_resp(200, {"data": [{"name": "page_views_total", "values": [{"value": 55}]}]})))
+
+
+def _fb_page(**kw):
+    kw.setdefault("meta_data", {"page_token": "page-tok", "account_type": "page"})
+    kw.setdefault("account_type", "page")
+    kw.setdefault("scopes", [])
+    kw.setdefault("account_id", "pg-1")
+    kw.setdefault("username", "cloudless.gr")
+    return _account(platform="facebook", access_token_enc="enc", **kw)
+
+
+@pytest.mark.asyncio
+async def test_sync_facebook_page_happy(_fb_patches):
+    _Client.get = AsyncMock(
+        side_effect=[
+            # published_posts discovery → one native post
+            _resp(200, {"data": [{"id": "pg-1_99", "created_time": datetime.now(UTC).isoformat()}]}),
+            # follower attribution insights
+            _resp(200, {"data": [{"name": "x", "values": [{"value": {"paid": 2, "non_paid": 8}, "end_time": "2026-10-10"}]}]}),
+        ]
+    )
+    db = _DB(results=[[_target("pg-1_1")]])
+    r = await A.sync_facebook_account(db, _fb_page())
+    assert r.synced == 2
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_facebook_page_token_lookup(_fb_patches):
+    # no stored page_token → me/accounts lookup first
+    acc = _fb_page(meta_data={"account_type": "page"}, account_type="page")
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(200, {"data": [{"id": "pg-1", "access_token": "pt"}]}),
+            _resp(200, {"data": []}),  # discovery
+        ]
+    )
+    db = _DB(results=[[]])
+    await A.sync_facebook_account(db, acc)
+    assert _Client.get.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_sync_facebook_page_discovery_error(_fb_patches):
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(500),  # discovery
+            _resp(200, {"data": []}),  # attribution
+        ]
+    )
+    db = _DB(results=[[]])
+    r = await A.sync_facebook_account(db, _fb_page())
+    assert any("HTTP 500" in e for e in r.errors)
+
+
+# ── LinkedIn fetch-helper bodies ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fetch_linkedin_follower_stats():
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(200, {"elements": [{"followerCountsByCountry": [{"GR": 10}]}]}),
+            _resp(200, {"elements": [{"followerGains": {"organicFollowerGain": 3, "paidFollowerGain": 1}}]}),
+            _resp(200, {"firstDegreeSize": 42}),
+        ]
+    )
+    out = await A._fetch_linkedin_follower_stats(_Client(), "tok", "urn:li:organization:9")
+    assert out["total_followers"] == 42
+    assert out["follower_gains"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_linkedin_page_stats_and_errors():
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(200, {"elements": [{"a": 1}]}),
+            _resp(500),
+        ]
+    )
+    out = await A._fetch_linkedin_page_stats(_Client(), "tok", "urn:li:organization:9")
+    assert out["lifetime"] and "period_error" in out
+
+
+@pytest.mark.asyncio
+async def test_fetch_member_post_analytics():
+    n_types = len(A._MEMBER_POST_QUERY_TYPES)
+    _Client.get = AsyncMock(side_effect=[_resp(200, {"elements": [{"metricDataResults": [{"metricValue": 7}]}]})] * (n_types + 1))
+    out = await A._fetch_member_post_analytics(_Client(), "tok", "urn:li:share:1")
+    assert "data" in out
+    # 403 → caller sees scope-missing
+    _Client.get = AsyncMock(return_value=_resp(403))
+    out2 = await A._fetch_member_post_analytics(_Client(), "tok", "urn:li:share:1")
+    assert out2["status"] == 403
+
+
+@pytest.mark.asyncio
+async def test_fetch_org_lifetime_stats():
+    _Client.get = AsyncMock(
+        return_value=_resp(
+            200,
+            {
+                "elements": [
+                    {"totalShareStatistics": {"impressionCount": 50, "likeCount": 2, "commentCount": 1, "shareCount": 3, "clickCount": 4, "engagement": 0.1}}
+                ]
+            },
+        )
+    )
+    b = await A._fetch_org_lifetime_stats(_Client(), "tok", "urn:li:organization:9")
+    assert b.impressions == 50 and b.notes == "organization_lifetime"
+    _Client.get = AsyncMock(return_value=_resp(403))
+    b2 = await A._fetch_org_lifetime_stats(_Client(), "tok", "urn")
+    assert b2.notes.startswith("org lifetime HTTP 403")
+    _Client.get = AsyncMock(return_value=_resp(200, {"elements": []}))
+    b3 = await A._fetch_org_lifetime_stats(_Client(), "tok", "urn")
+    assert b3.raw.get("note") == "empty_org_lifetime"
+
+
+@pytest.mark.asyncio
+async def test_fetch_linkedin_org_stats_batch():
+    el = {
+        "share": "urn:li:share:1",
+        "totalShareStatistics": {"impressionCount": 20, "likeCount": 1, "commentCount": 0, "shareCount": 0, "clickCount": 2, "engagement": 0.1},
+    }
+    _Client.get = AsyncMock(return_value=_resp(200, {"elements": [el]}))
+    out = await A._fetch_linkedin_org_stats(_Client(), "tok", "urn:li:organization:9", ["urn:li:share:1"])
+    assert out["urn:li:share:1"].impressions == 20
+    # empty urn list → no calls
+    out2 = await A._fetch_linkedin_org_stats(_Client(), "tok", "urn", [])
+    assert out2 == {}
