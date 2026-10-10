@@ -145,6 +145,9 @@
     "metabase": {
       "command": "/home/tbaltzakis/cu130-slim/.devin/skills/metabase-ops/scripts/metabase-mcp.sh"
     },
+    "polar": {
+      "command": "/home/tbaltzakis/cu130-slim/.devin/skills/polar-ops/scripts/polar-mcp.sh"
+    },
     "deepwiki": {
       "url": "https://mcp.deepwiki.com/mcp"
     }

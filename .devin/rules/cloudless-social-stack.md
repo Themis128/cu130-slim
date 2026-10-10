@@ -33,7 +33,8 @@ funnel, quality gate) plus `linkedin-content-ops`, `facebook-content-ops`,
 
 Platform API ops skills — `meta-graph-ops`, `linkedin-graph-ops`,
 `instagram-graph-ops`, `tiktok-api-ops`, `x-api-ops`, `whatsapp-ops`,
-`viber-ops`, `bluesky-ops`, `slack-ops`, `monetization-ops` — each wraps a
+`viber-ops`, `bluesky-ops`, `slack-ops`, `monetization-ops`,
+`polar-ops` — each wraps a
 `backend/scripts/*_tool.py` CLI for token/credential/endpoint diagnostics.
 
 ## Safety
