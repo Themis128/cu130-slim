@@ -587,3 +587,82 @@ async def test_instagram_web_session(monkeypatch):
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _HTTP(err=httpx.ConnectError("x")))
     out5 = await P.get_instagram_web_session_status(current_user=u, db=_DB(results=[[acc3]]))
     assert out5["valid"] is False
+
+
+# ── TikTok browser-settings endpoints (1556-1790) ────────────────────
+
+
+class _TTSvc:
+    """Fake TikTokBrowserService — records calls, close() is async."""
+
+    def __init__(self, raise_err=False):
+        self.closed = 0
+        self.calls = []
+        self.raise_err = raise_err
+
+    async def close(self):
+        self.closed += 1
+
+    def __getattr__(self, name):
+        async def _m(*a, **kw):
+            self.calls.append((name, a, kw))
+            if self.raise_err:
+                raise TikTokBrowserError(503, "sidecar down")
+            return {"status": "ok", "op": name}
+
+        return _m
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "endpoint,req_factory,svc_method",
+    [
+        (P.set_tiktok_browser_session, lambda: P.TikTokSessionRequest(session_id="sid", user_id="u"), "set_session"),
+        (P.set_tiktok_private_account, lambda: P.TikTokToggleRequest(enabled=True), "set_private_account"),
+        (P.set_tiktok_comments, lambda: P.TikTokCommentsRequest(permission="Friends"), "set_comments"),
+        (P.set_tiktok_direct_messages, lambda: P.TikTokDirectMessagesRequest(potential_connections="Friends", others="No one"), "set_direct_messages"),
+        (P.set_tiktok_desktop_notifications, lambda: P.TikTokToggleRequest(enabled=False), "set_desktop_notifications"),
+        (P.set_tiktok_interaction_notifications, lambda: P.TikTokInteractionNotificationsRequest(likes=True, comments=False), "set_interaction_notifications"),
+        (P.set_tiktok_personalized_ads, lambda: P.TikTokToggleRequest(enabled=False), "set_personalized_ads"),
+        (P.set_tiktok_color_contrast, lambda: P.TikTokToggleRequest(enabled=True), "set_color_contrast"),
+        (
+            P.fill_tiktok_business_verification,
+            lambda: P.TikTokBusinessVerificationRequest(company_name="Cloudless", website="https://cloudless.gr"),
+            "fill_business_verification",
+        ),
+    ],
+)
+async def test_tiktok_settings_endpoints(monkeypatch, endpoint, req_factory, svc_method):
+    svc = _TTSvc()
+    monkeypatch.setattr(P, "_get_tiktok_browser_service", lambda: svc)
+    out = await endpoint(req=req_factory(), current_user=object())
+    assert out["status"] == "ok"
+    assert svc.calls[0][0] == svc_method
+    assert svc.closed == 1
+
+    # error path → HTTPException with the sidecar's status, close still runs
+    svc2 = _TTSvc(raise_err=True)
+    monkeypatch.setattr(P, "_get_tiktok_browser_service", lambda: svc2)
+    with pytest.raises(HTTPException) as exc:
+        await endpoint(req=req_factory(), current_user=object())
+    assert exc.value.status_code == 503 and svc2.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_tiktok_get_endpoints(monkeypatch):
+    for ep, meth in (
+        (P.check_tiktok_browser_session, "check_session"),
+        (P.get_tiktok_all_settings, "read_all_settings"),
+        (P.get_tiktok_business_verification_status, "get_business_verification_status"),
+    ):
+        svc = _TTSvc()
+        monkeypatch.setattr(P, "_get_tiktok_browser_service", lambda: svc)
+        out = await ep(current_user=object())
+        assert out["status"] == "ok" and svc.calls[0][0] == meth
+        assert svc.closed == 1
+
+        svc2 = _TTSvc(raise_err=True)
+        monkeypatch.setattr(P, "_get_tiktok_browser_service", lambda: svc2)
+        with pytest.raises(HTTPException):
+            await ep(current_user=object())
+        assert svc2.closed == 1
