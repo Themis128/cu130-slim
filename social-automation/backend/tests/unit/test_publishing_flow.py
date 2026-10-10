@@ -1657,3 +1657,217 @@ async def test_ig_resolve_user_token(monkeypatch):
 
     # no db → stored token
     assert await P._resolve_ig_user_token("tok", acc3, None) == "tok"
+
+
+# ── facebook sidecar + page-token ─────────────────────────────────────
+
+
+def _fb_sidecar(**over):
+    base = dict(
+        set_session=AsyncMock(return_value={}),
+        post_text=AsyncMock(return_value={"url": "https://fb/t1", "post_id": "t1"}),
+        post_link=AsyncMock(return_value={"url": "https://fb/l1"}),
+        post_photo=AsyncMock(return_value={"post_id": "ph1", "url": "https://fb/ph1"}),
+        post_video=AsyncMock(return_value={"post_id": "v1"}),
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+async def test_fbs_no_session():
+    r = await P._publish_facebook_via_sidecar(_account("facebook", meta_data={}), "hi", _post(), [])
+    assert "browser session" in r.error
+
+
+@pytest.mark.asyncio
+async def test_fbs_post_types(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"\x00" * 12000)
+    client = _fb_sidecar()
+    monkeypatch.setattr(P, "FacebookSidecarClient", lambda: client)
+    acc = _account("facebook", meta_data={"browser_storage_state": {"s": 1}})
+
+    r = await P._publish_facebook_via_sidecar(acc, "hi", _post(), [])
+    assert r.success and r.platform_post_id == "t1"
+    assert client.post_text.await_args.kwargs["privacy"] == "public"
+
+    r2 = await P._publish_facebook_via_sidecar(acc, "hi", _post(link_url="https://x.io"), [])
+    assert r2.success and r2.platform_url == "https://fb/l1"
+
+    r3 = await P._publish_facebook_via_sidecar(acc, "hi", _post(), [str(img)])
+    assert r3.platform_post_id == "ph1"
+    imgs = client.post_photo.await_args.kwargs["images"]
+    assert imgs[0]["filename"] == "p.png"
+
+    r4 = await P._publish_facebook_via_sidecar(acc, "hi", _post(), [str(vid)])
+    assert r4.platform_post_id == "v1"
+
+    # privacy override
+    await P._publish_facebook_via_sidecar(acc, "hi", _post(platform_specific={"facebook_privacy": "friends"}), [])
+    assert client.post_text.await_args.kwargs["privacy"] == "friends"
+
+
+@pytest.mark.asyncio
+async def test_fbs_no_id_and_error(monkeypatch):
+    client = _fb_sidecar(post_text=AsyncMock(return_value={}))
+    monkeypatch.setattr(P, "FacebookSidecarClient", lambda: client)
+    acc = _account("facebook", meta_data={"browser_storage_state": {"s": 1}})
+    r = await P._publish_facebook_via_sidecar(acc, "hi", _post(), [])
+    assert not r.success and "cannot confirm" in r.error
+
+    client2 = _fb_sidecar(set_session=AsyncMock(side_effect=P.FacebookSidecarError(401, "expired")))
+    monkeypatch.setattr(P, "FacebookSidecarClient", lambda: client2)
+    r2 = await P._publish_facebook_via_sidecar(acc, "hi", _post(), [])
+    assert r2.error == "expired"
+
+
+@pytest.mark.asyncio
+async def test_fb_page_token_cached_and_lookup(monkeypatch):
+    resp_accounts = SimpleNamespace(
+        status_code=200,
+        json=lambda: {"data": [{"id": "pg1", "access_token": "PAGE_TOK"}]},
+    )
+
+    class _Http:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, params=None):
+            return resp_accounts
+
+    monkeypatch.setattr(P.httpx, "AsyncClient", _Http)
+    tok = await P._facebook_page_token("usertok", "pg1")
+    assert tok == "PAGE_TOK"
+
+
+# ── instagram web API (rupload) path ──────────────────────────────────
+
+
+class _IGWebHttp:
+    """Fake httpx.AsyncClient recording calls, routing by URL substring."""
+
+    responses: dict = {}
+    calls: list = []
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, **kw):
+        _IGWebHttp.calls.append(url)
+        for key, (status, payload) in _IGWebHttp.responses.items():
+            if key in url:
+                return SimpleNamespace(status_code=status, text=str(payload), json=lambda: payload)
+        return SimpleNamespace(status_code=500, text="unrouted", json=lambda: {})
+
+
+def _ig_web_account():
+    return _account(
+        "instagram",
+        meta_data={
+            "private_api_session_id": "sid",
+            "private_api_csrf_token": "csrf",
+            "private_api_ds_user_id": "uid",
+        },
+    )
+
+
+@pytest.mark.asyncio
+async def test_igweb_session_incomplete():
+    acc = _account("instagram", meta_data={"private_api_session_id": "s"})
+    r = await P._publish_instagram_via_web(acc, "hi", _post(), ["p.png"])
+    assert "session incomplete" in r.error
+
+
+@pytest.mark.asyncio
+async def test_igweb_rejects_video(tmp_path):
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"\x00" * 12000)
+    monkey = _ig_web_account()
+    r = await P._publish_instagram_via_web(monkey, "hi", _post(), [str(vid)])
+    assert "not yet supported" in r.error
+
+
+@pytest.mark.asyncio
+async def test_igweb_single_photo_happy(monkeypatch, tmp_path):
+    from PIL import Image
+
+    img = tmp_path / "p.png"
+    Image.new("RGB", (100, 100), (255, 0, 0)).save(img)
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    monkeypatch.setattr(P.httpx, "AsyncClient", _IGWebHttp)
+    _IGWebHttp.calls = []
+    _IGWebHttp.responses = {
+        "rupload_igphoto": (200, {"status": "ok"}),
+        "media/configure": (200, {"media": {"id": "ig1", "code": "CXY"}}),
+    }
+    r = await P._publish_instagram_via_web(_ig_web_account(), "hi", _post(), [str(img)])
+    assert r.success and r.platform_post_id == "ig1"
+    assert r.platform_url == "https://www.instagram.com/p/CXY/"
+    assert any("rupload_igphoto" in u for u in _IGWebHttp.calls)
+    assert any("media/configure/" in u for u in _IGWebHttp.calls)
+    assert not any("configure_sidecar" in u for u in _IGWebHttp.calls)
+
+
+@pytest.mark.asyncio
+async def test_igweb_carousel_happy(monkeypatch, tmp_path):
+    from PIL import Image
+
+    i1 = tmp_path / "a.png"
+    i2 = tmp_path / "b.png"
+    Image.new("RGB", (100, 100), (255, 0, 0)).save(i1)
+    Image.new("RGB", (100, 100), (0, 255, 0)).save(i2)
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    monkeypatch.setattr(P.httpx, "AsyncClient", _IGWebHttp)
+    _IGWebHttp.calls = []
+    _IGWebHttp.responses = {
+        "rupload_igphoto": (200, {"status": "ok"}),
+        "configure_sidecar": (200, {"media": {"id": "alb9", "code": "CS"}}),
+    }
+    r = await P._publish_instagram_via_web(_ig_web_account(), "hi", _post(), [str(i1), str(i2)])
+    assert r.success and r.platform_post_id == "alb9"
+    assert sum("rupload_igphoto" in u for u in _IGWebHttp.calls) == 2
+    assert any("configure_sidecar" in u for u in _IGWebHttp.calls)
+
+
+@pytest.mark.asyncio
+async def test_igweb_upload_and_configure_failures(monkeypatch, tmp_path):
+    from PIL import Image
+
+    img = tmp_path / "p.png"
+    Image.new("RGB", (100, 100), (255, 0, 0)).save(img)
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    monkeypatch.setattr(P.httpx, "AsyncClient", _IGWebHttp)
+
+    # rupload non-200
+    _IGWebHttp.calls = []
+    _IGWebHttp.responses = {"rupload_igphoto": (500, {"err": 1})}
+    r = await P._publish_instagram_via_web(_ig_web_account(), "hi", _post(), [str(img)])
+    assert not r.success and "rupload 1 failed" in r.error
+
+    # rupload status not ok
+    _IGWebHttp.responses = {"rupload_igphoto": (200, {"status": "fail"})}
+    r2 = await P._publish_instagram_via_web(_ig_web_account(), "hi", _post(), [str(img)])
+    assert "status not ok" in r2.error
+
+    # configure non-200
+    _IGWebHttp.responses = {
+        "rupload_igphoto": (200, {"status": "ok"}),
+        "media/configure": (400, {"err": "bad configure"}),
+    }
+    r3 = await P._publish_instagram_via_web(_ig_web_account(), "hi", _post(), [str(img)])
+    assert "configure failed" in r3.error
