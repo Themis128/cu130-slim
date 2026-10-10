@@ -53,7 +53,7 @@ from app.services.instagrapi_client import InstagrapiClient, InstagrapiError
 from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION, facebook_graph_url
-from app.services.spellcheck import auto_correct
+from app.services.spellcheck import auto_correct, detect_gibberish
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
@@ -587,6 +587,26 @@ async def publish_to_platform(
                 "Post has no text content (empty content_text, no platform "
                 "override, no hashtags, no link) — refusing to publish an "
                 "empty caption. Add copy or generate content first."
+            ),
+        )
+
+    # Gibberish guard (owner rule: corrupted copy must never publish — the
+    # "cloudless.g GGr clientsget" LinkedIn post shipped because generation
+    # bypassed the quality pipeline). Advisory: still flags the local
+    # mixed-case signal when LanguageTool is down. Skipped, not retried —
+    # the fix is editing the post text.
+    try:
+        gibberish = await detect_gibberish(text)
+    except Exception:
+        gibberish = []
+    if gibberish:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                "Suspected mangled copy — refusing to publish. Suspicious "
+                f"token(s): {', '.join(gibberish[:5])} (usually a dropped "
+                "space or stray capital). Fix the post text and retry."
             ),
         )
 

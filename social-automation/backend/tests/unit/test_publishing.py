@@ -251,6 +251,58 @@ async def test_publish_to_platform_rejects_empty_copy(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_publish_to_platform_gibberish_is_skipped(monkeypatch):
+    """Mangled LLM copy must never reach a platform — the "cloudless.g GGr
+    clientsget" LinkedIn post shipped because generation bypassed the
+    quality pipeline."""
+    monkeypatch.setattr(pub, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(pub, "auto_correct", AsyncMock(side_effect=lambda t: t))
+    monkeypatch.setattr(
+        pub,
+        "_build_post_text",
+        lambda post, platform: "Speed + security so cloudless.g GGr clientsget",
+    )
+    monkeypatch.setattr(
+        pub, "detect_gibberish", AsyncMock(return_value=["GGr", "clientsget"])
+    )
+    account = SimpleNamespace(platform="linkedin", access_token_enc=b"enc")
+    post = SimpleNamespace()
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is False
+    assert result.skipped is True
+    assert "mangled" in (result.error or "").lower()
+    assert "GGr" in (result.error or "")
+
+
+@pytest.mark.asyncio
+async def test_publish_to_platform_gibberish_detector_failure_allows_flow(
+    monkeypatch,
+):
+    """A gibberish-detector exception must be advisory, never a publish
+    blocker — the flow continues to the duplicate/media checks."""
+    monkeypatch.setattr(pub, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(pub, "auto_correct", AsyncMock(side_effect=lambda t: t))
+    monkeypatch.setattr(
+        pub, "_build_post_text", lambda post, platform: "Perfectly good copy."
+    )
+    monkeypatch.setattr(
+        pub, "detect_gibberish", AsyncMock(side_effect=RuntimeError("boom"))
+    )
+    monkeypatch.setattr(pub, "_find_duplicate_post", AsyncMock(return_value=None))
+    monkeypatch.setattr(pub, "_resolve_media_paths", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        pub, "_resolve_media_storage_paths", AsyncMock(return_value=[])
+    )
+    account = SimpleNamespace(platform="linkedin", access_token_enc=b"enc")
+    post = SimpleNamespace(media_ids=[])
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    # LinkedIn requires media → the flow should reach the media pre-flight
+    # (not die on the detector) and skip for missing media instead.
+    assert "mangled" not in (result.error or "").lower()
+    assert "media" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
 async def test_publish_twitter_thread(account, post):
     fake = _FakeAsyncClient([
         _FakeResponse(200, {"data": {"id": "1111111111"}}),
@@ -1372,6 +1424,7 @@ _REPO_ROOT = _find_repo_root()
 def _repo_file(*parts: str) -> _pathlib.Path:
     if _REPO_ROOT is None:
         pytest.skip("repo root (notebooks/ + scripts/) not found — not running from a checkout")
+    assert _REPO_ROOT is not None  # pytest.skip raises; narrows for mypy
     path = _REPO_ROOT.joinpath(*parts)
     if not path.exists():
         pytest.skip(f"{'/'.join(parts)} not present in this checkout")
