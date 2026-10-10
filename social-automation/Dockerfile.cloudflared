@@ -1,4 +1,4 @@
-FROM alpine:3.20
+FROM public.ecr.aws/docker/library/alpine:3.20
 RUN apk add --no-cache curl ca-certificates && \
     curl -fsSL -o /usr/local/bin/cloudflared \
       https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 && \
