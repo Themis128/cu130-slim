@@ -100,12 +100,12 @@ def secrets(monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestHelpers:
-    pytestmark = pytest.mark.asyncio
-
+    @pytest.mark.asyncio
     async def test_get_account_found(self):
         a = _account()
         assert await profile._get_account(a.id, _user(), FakeDB(accounts=[a])) is a
 
+    @pytest.mark.asyncio
     async def test_get_account_missing_404(self):
         with pytest.raises(HTTPException) as e:
             await profile._get_account(uuid.uuid4(), _user(), FakeDB())
