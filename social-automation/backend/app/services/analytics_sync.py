@@ -89,6 +89,8 @@ def _normalize_post_urn(platform_post_id: str | None) -> str | None:
     from urllib.parse import unquote
 
     pid = unquote(platform_post_id.strip())
+    if not pid:
+        return None
     if pid.startswith("urn:li:"):
         return pid
     # Bare numeric ids are ambiguous (share vs ugcPost); discovery/alt tries both.
