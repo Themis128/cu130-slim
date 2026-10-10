@@ -94,6 +94,9 @@
     "airbyte": {
       "url": "http://127.0.0.1:9228/mcp"
     },
+    "nextcloud": {
+      "url": "http://127.0.0.1:9231/mcp"
+    },
     "cloudflare-docs": {
       "command": "/home/tbaltzakis/.local/bin/node",
       "args": [
