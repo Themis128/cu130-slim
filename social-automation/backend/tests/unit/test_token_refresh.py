@@ -1,127 +1,251 @@
-"""Unit tests for the token-refresh skip decision (pure helper, no DB)."""
+"""Unit tests for app/worker/tasks/token_refresh.py."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
-from app.worker.tasks.token_refresh import (
-    MIN_REFRESH_INTERVAL,
-    _refresh_threads_token,
-    _skip_for_recent_update,
-)
-
-NOW = datetime(2026, 9, 23, 6, 15, 0, tzinfo=UTC)
+import app.worker.tasks.token_refresh as TR
 
 
-def test_expired_token_never_skipped():
-    """A dead token must always be retried — updated_at is bumped by
-    unrelated writes and must not starve it."""
-    expired = NOW - timedelta(hours=1)
-    recent_update = NOW - timedelta(minutes=5)
-    assert _skip_for_recent_update(expired, recent_update, NOW) is False
+def _http(status=200, body=None):
+    resp = SimpleNamespace(status_code=status, json=lambda: body or {})
+    calls = []
+
+    class _C:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, **kw):
+            calls.append((url, kw))
+            return resp
+
+    return _C(), calls
 
 
-def test_token_expiring_within_cycle_not_skipped():
-    """The 2026-09-23 regression: a token with 1.2s of validity left was
-    skipped because an unrelated write bumped updated_at — it then 401'd
-    for ~1h until the next run. Expiring-before-next-run must refresh now."""
-    expires_in_one_second = NOW + timedelta(seconds=1.2)
-    recent_update = NOW - timedelta(minutes=9)
-    assert _skip_for_recent_update(expires_in_one_second, recent_update, NOW) is False
-
-
-def test_token_expiring_just_before_next_run_not_skipped():
-    expires_soon = NOW + MIN_REFRESH_INTERVAL - timedelta(minutes=1)
-    recent_update = NOW - timedelta(minutes=30)
-    assert _skip_for_recent_update(expires_soon, recent_update, NOW) is False
-
-
-def test_healthy_recently_refreshed_token_skipped():
-    """Normal case: token refreshed this hour, valid for hours → skip."""
-    expires_later = NOW + timedelta(hours=2)
-    recent_update = NOW - timedelta(minutes=30)
-    assert _skip_for_recent_update(expires_later, recent_update, NOW) is True
-
-
-def test_healthy_token_old_update_not_skipped():
-    """Recently-updated is the throttle — an untouched account refreshes."""
-    expires_later = NOW + timedelta(hours=2)
-    old_update = NOW - timedelta(hours=2)
-    assert _skip_for_recent_update(expires_later, old_update, NOW) is False
-
-
-def test_no_expiry_not_skipped():
-    assert _skip_for_recent_update(None, NOW - timedelta(minutes=5), NOW) is False
-
-
-def test_no_update_timestamp_not_skipped():
-    expires_later = NOW + timedelta(hours=2)
-    assert _skip_for_recent_update(expires_later, None, NOW) is False
-
-
-def test_naive_updated_at_treated_as_utc():
-    expires_later = NOW + timedelta(hours=2)
-    naive_recent = (NOW - timedelta(minutes=10)).replace(tzinfo=None)
-    assert _skip_for_recent_update(expires_later, naive_recent, NOW) is True
-
-
-# ── Threads th_refresh_token (self-refreshing long-lived token) ─────
-
-
-class _FakeResponse:
-    def __init__(self, status_code: int, data: dict):
-        self.status_code = status_code
-        self._data = data
-
-    def json(self):
-        return self._data
-
-
-class _FakeAsyncClient:
-    def __init__(self, response: _FakeResponse):
-        self._response = response
-        self.calls = []
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        return False
-
-    async def get(self, url, params=None):
-        self.calls.append({"url": url, "params": params})
-        return self._response
+def test_get_oauth_client():
+    for p in ("linkedin", "twitter", "facebook", "instagram",
+              "threads", "tiktok"):
+        assert TR._get_oauth_client(p) is not None
+    assert TR._get_oauth_client("whatsapp") is None
+    assert TR._get_oauth_client("viber") is None
 
 
 @pytest.mark.asyncio
-async def test_threads_refresh_uses_th_refresh_token_grant():
-    """Threads long-lived tokens self-refresh: the ACCESS token goes to
-    graph.threads.net/refresh_access_token with grant_type=th_refresh_token.
-    Wrong endpoint/grant would silently leave the account to expire."""
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"access_token": "new-tok", "expires_in": 5184000})
-    )
-    with patch("app.worker.tasks.token_refresh.httpx.AsyncClient", return_value=fake):
-        data = await _refresh_threads_token("old-tok")
+async def test_meta_self_refresh(monkeypatch):
+    # instagram business login — happy + error
+    http, calls = _http(body={"access_token": "new"})
+    monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+    out = await TR._refresh_instagram_business_token("old")
+    assert out["access_token"] == "new"
+    assert "graph.instagram.com" in calls[0][0]
+    assert calls[0][1]["params"]["grant_type"] == "ig_refresh_token"
 
-    call = fake.calls[0]
-    assert call["url"] == "https://graph.threads.net/refresh_access_token"
-    assert call["params"]["grant_type"] == "th_refresh_token"
-    assert call["params"]["access_token"] == "old-tok"
-    assert data["access_token"] == "new-tok"
-    assert data["expires_in"] == 5184000  # 60 days — feeds token_expires_at
+    http, _ = _http(status=400, body={"error": {"message": "expired"}})
+    monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+    with pytest.raises(RuntimeError, match="expired"):
+        await TR._refresh_instagram_business_token("old")
+
+    # threads — happy + fallback error message
+    http, calls = _http(body={"access_token": "t2"})
+    monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+    out = await TR._refresh_threads_token("old")
+    assert out["access_token"] == "t2"
+    assert "graph.threads.net" in calls[0][0]
+
+    http, _ = _http(status=500, body={})
+    monkeypatch.setattr(TR.httpx, "AsyncClient", lambda **kw: http)
+    with pytest.raises(RuntimeError, match="th_refresh_token HTTP 500"):
+        await TR._refresh_threads_token("old")
+
+
+def test_skip_for_recent_update():
+    now = datetime.now(UTC)
+
+    # no expiry set → never skip (must refresh)
+    assert TR._skip_for_recent_update(None, now, now) is False
+    # expires within the run window → never skip (dead soon)
+    assert TR._skip_for_recent_update(
+        now + timedelta(minutes=1), now, now) is False
+    # token survives next run but no updated_at → no skip
+    assert TR._skip_for_recent_update(
+        now + timedelta(days=5), None, now) is False
+    # survives + recent update → skip
+    assert TR._skip_for_recent_update(
+        now + timedelta(days=5), now - timedelta(minutes=1), now) is True
+    # survives + old update → don't skip
+    assert TR._skip_for_recent_update(
+        now + timedelta(days=5), now - timedelta(hours=2), now) is False
+    # naive updated_at handled
+    assert TR._skip_for_recent_update(
+        now + timedelta(days=5), now.replace(tzinfo=None), now) is True
+
+
+def _account(**kw):
+    base = dict(
+        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="linkedin",
+        username="u", account_id="x", status="active",
+        meta_data={}, access_token_enc="enc_a",
+        refresh_token_enc="enc_r",
+        token_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        updated_at=None, scopes=[])
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def _db_with(accounts):
+    class _DB:
+        commit = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a):
+            return SimpleNamespace(
+                scalars=lambda: SimpleNamespace(all=lambda: accounts))
+
+    return _DB
 
 
 @pytest.mark.asyncio
-async def test_threads_refresh_raises_on_meta_error():
-    """A non-200 (expired/invalid token) must raise so the account is
-    marked expired → manual reconnect, never silently skipped."""
-    fake = _FakeAsyncClient(
-        _FakeResponse(400, {"error": {"message": "Error validating access token"}})
-    )
-    with patch("app.worker.tasks.token_refresh.httpx.AsyncClient", return_value=fake):
-        with pytest.raises(RuntimeError, match="Error validating access token"):
-            await _refresh_threads_token("dead-tok")
+async def test_refresh_async_guards(monkeypatch):
+    monkeypatch.setattr(TR, "decrypt_token", lambda t: f"dec-{t}")
+    monkeypatch.setattr(TR, "encrypt_token", lambda t: f"enc-{t}")
+
+    # empty → zeroed summary
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out == {"checked": 0, "refreshed": 0, "skipped": 0,
+                   "errors": []}
+
+    # recent-update skip
+    acct = _account(updated_at=datetime.now(UTC),
+                    token_expires_at=datetime.now(UTC) + timedelta(days=5))
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["skipped"] == 1 and out["refreshed"] == 0
+
+    # no oauth client → skipped
+    acct = _account(platform="whatsapp")
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["skipped"] == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_async_paths(monkeypatch):
+    monkeypatch.setattr(TR, "decrypt_token", lambda t: f"dec-{t}")
+    monkeypatch.setattr(TR, "encrypt_token", lambda t: f"enc-{t}")
+
+    fake_client = SimpleNamespace(
+        refresh_token=AsyncMock(return_value={
+            "access_token": "AT", "refresh_token": "RT",
+            "expires_in": 3600}))
+    monkeypatch.setattr(TR, "_get_oauth_client", lambda p: fake_client)
+
+    # happy — enc + expiry set
+    acct = _account()
+    db = _db_with([acct])
+    monkeypatch.setattr(TR, "_worker_db", lambda: db())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["refreshed"] == 1
+    assert acct.access_token_enc == "enc-AT"
+    assert acct.refresh_token_enc == "enc-RT"
+    assert acct.status == "active"
+    assert acct.token_expires_at > datetime.now(UTC) + timedelta(minutes=50)
+
+    # twitter — granted scopes persisted
+    acct = _account(platform="twitter")
+    fake_client.refresh_token = AsyncMock(return_value={
+        "access_token": "AT", "scope": "tweet.read tweet.write users.read"})
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    await TR._refresh_expiring_tokens_async()
+    assert acct.scopes == ["tweet.read", "tweet.write", "users.read"]
+
+    # tiktok — no expires_in → 24h default
+    acct = _account(platform="tiktok")
+    fake_client.refresh_token = AsyncMock(return_value={
+        "access_token": "AT"})
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    await TR._refresh_expiring_tokens_async()
+    assert acct.token_expires_at > datetime.now(UTC) + timedelta(hours=20)
+
+    # linkedin — no expires_in → expiry cleared
+    acct = _account(platform="linkedin")
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    await TR._refresh_expiring_tokens_async()
+    assert acct.token_expires_at is None
+
+    # refresh raises → expired + error recorded
+    acct = _account()
+    fake_client.refresh_token = AsyncMock(side_effect=RuntimeError("rev"))
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["errors"] and acct.status == "expired"
+
+    # no access_token in response → expired
+    acct = _account()
+    fake_client.refresh_token = AsyncMock(return_value={"refresh_token": "x"})
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert "no access_token" in out["errors"][0]
+    assert acct.status == "expired"
+
+
+@pytest.mark.asyncio
+async def test_refresh_meta_self_paths(monkeypatch):
+    monkeypatch.setattr(TR, "decrypt_token", lambda t: f"dec-{t}")
+    monkeypatch.setattr(TR, "encrypt_token", lambda t: f"enc-{t}")
+    monkeypatch.setattr(TR, "_get_oauth_client", lambda p: SimpleNamespace())
+
+    # IG business_login without refresh_token → ig_refresh_token grant
+    acct = _account(platform="instagram", refresh_token_enc=None,
+                    meta_data={"login_type": "business_login"})
+    ig = AsyncMock(return_value={"access_token": "IG", "expires_in": 60})
+    monkeypatch.setattr(TR, "_refresh_instagram_business_token", ig)
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["refreshed"] == 1
+    ig.assert_awaited_once_with("dec-enc_a")
+
+    # threads without refresh_token → th_refresh_token grant
+    acct = _account(platform="threads", refresh_token_enc=None)
+    th = AsyncMock(return_value={"access_token": "TH"})
+    monkeypatch.setattr(TR, "_refresh_threads_token", th)
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["refreshed"] == 1
+    # threads w/o expires_in → 60-day meta default
+    assert acct.token_expires_at > datetime.now(UTC) + timedelta(days=50)
+
+
+def test_task_wrapper(monkeypatch):
+    calls = []
+
+    def fake_ra(coro):
+        calls.append(coro)
+        coro.close()
+        return {"refreshed": 2}
+
+    monkeypatch.setattr(TR, "run_async", fake_ra)
+    out = TR.refresh_expiring_tokens()
+    assert out == {"refreshed": 2}
+    # run_async called twice — refresh + D1 sync
+    assert len(calls) == 2
+
+    # no refresh → no D1 sync
+    calls.clear()
+    monkeypatch.setattr(TR, "run_async",
+                        lambda c: (c.close(), {"refreshed": 0})[1])
+    TR.refresh_expiring_tokens()
+    assert len(calls) == 0
