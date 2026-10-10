@@ -66,6 +66,27 @@ callers log and continue.
 `SLACK_PADDLE_*` (webhook EMPTY), `SLACK_ADS_*`, `SLACK_APPROVALS_*`,
 `SLACK_DIGEST_HOUR`, `SLACK_BILLING_DIGEST_HOUR`, `SLACK_PADDLE_DIGEST_HOUR`.
 
+
+## Rebuilding after webhook revocation (2026-10-10 incident)
+
+All six `SLACK_*_WEBHOOK_URL`s returned `404 no_service` and `SLACK_BOT_TOKEN`
+was empty — the underlying Slack app had been deleted/revoked. Recovery:
+
+1. Recreate the app: https://api.slack.com/apps → Create New App →
+   **From a manifest** → paste `scripts/slack-app-manifest.yaml` (bundled
+   with this skill — scopes match every Web API call the backend makes).
+2. Install to workspace → copy `xoxb-` bot token → `SLACK_BOT_TOKEN` in `.env`.
+3. App page → **Incoming Webhooks** → toggle ON → "Add New Webhook to
+   Workspace" once per channel (`#socialauto`, `#socialauto-alerts`,
+   `#socialauto-publishing`, `#socialauto-leads`, `#socialauto-approvals`,
+   `#socialauto-support`, `#socialauto-billing`) → paste each URL into the
+   matching `SLACK_*_WEBHOOK_URL`.
+4. `docker compose up -d social-api` then verify:
+   `python3 /app/scripts/slack_tool.py` → all probes `live`.
+
+With `SLACK_BOT_TOKEN` set, digest delivery uses `chat.postMessage` and no
+longer depends on webhooks at all — dead webhooks can't silently kill it.
+
 ## Related
 
 - `publish-ops` — digest alert triage (platform-limit vs session vs config)
