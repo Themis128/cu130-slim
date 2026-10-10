@@ -1581,3 +1581,233 @@ class TestOAuthCallbackMorePlatforms:
         assert acct.platform == "tiktok" and acct.account_id == "oid-1"
         assert "video.publish" in acct.scopes
         assert "user.info.stats" not in acct.scopes
+
+
+class TestOAuthCallbackFacebookWhatsApp:
+    pytestmark = pytest.mark.asyncio
+
+    _FB = "https://graph.facebook.com/v26.0"
+
+    def _fb_client(self):
+        class FakeClient:
+            async def get_access_token(self, *a, **kw):
+                return {
+                    "access_token": "short_at",
+                    "scope": "public_profile,email,pages_show_list",
+                }
+
+        return FakeClient()
+
+    def _fb_routes(self, **overrides):
+        routes = {
+            f"{self._FB}/me/accounts": _FakeResp(200, {"data": []}),
+            f"{self._FB}/me/businesses": _FakeResp(200, {"data": []}),
+            f"{self._FB}/me": _FakeResp(
+                200,
+                {
+                    "id": "fb-1",
+                    "name": "Themis",
+                    "email": "t@x.io",
+                    "picture": {"data": {"url": "pic"}},
+                },
+            ),
+            f"{self._FB}/oauth/access_token": _FakeResp(200, {"access_token": "ll_at", "expires_in": 5184000}),
+        }
+        routes.update(overrides)
+        return routes
+
+    async def test_facebook_callback_creates_user_and_page_accounts(self, monkeypatch, _silence_connect_email):
+        team_id = uuid.uuid4()
+        http = _FakeAsyncHTTPClient(
+            self._fb_routes(
+                **{
+                    f"{self._FB}/me/accounts": _FakeResp(
+                        200,
+                        {
+                            "data": [
+                                {"id": "pg1", "name": "cloudless.gr", "access_token": "pt1", "category": "App"},
+                                {"id": "pg2", "name": "Blog", "access_token": "pt2"},
+                            ]
+                        },
+                    ),
+                }
+            )
+        )
+        monkeypatch.setattr(auth, "facebook_client", self._fb_client())
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        db = FakeDB(users=[_user()])
+        state = sign_oauth_state({"t": str(team_id)})
+        out = await auth.oauth_callback("facebook", state=state, db=db, code="c")
+        assert "connected successfully" in out["message"]
+        accounts = [a for a in db.added if isinstance(a, SocialAccount)]
+        user_acct = next(a for a in accounts if a.account_id == "fb-1")
+        pages = [a for a in accounts if a.account_id in ("pg1", "pg2")]
+        assert user_acct.platform == "facebook" and user_acct.account_type == "user"
+        assert len(pages) == 2
+        assert all(p.account_type == "page" and p.is_business for p in pages)
+        assert all(p.parent_account_id == user_acct.id for p in pages)
+        assert user_acct.scopes == ["public_profile", "email", "pages_show_list"]
+        assert db.commits >= 2  # main commit + pages commit
+
+    async def test_facebook_callback_existing_page_updated(self, monkeypatch, _silence_connect_email):
+        team_id = uuid.uuid4()
+        existing_page = SocialAccount(
+            team_id=team_id,
+            platform="facebook",
+            account_id="pg1",
+            username="old",
+            status="revoked",
+            meta_data={},
+        )
+        http = _FakeAsyncHTTPClient(
+            self._fb_routes(
+                **{
+                    f"{self._FB}/me/accounts": _FakeResp(
+                        200,
+                        {"data": [{"id": "pg1", "name": "cloudless.gr", "access_token": "pt_new"}]},
+                    ),
+                }
+            )
+        )
+        monkeypatch.setattr(auth, "facebook_client", self._fb_client())
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        db = FakeDB(users=[_user()], accounts=[existing_page])
+        state = sign_oauth_state({"t": str(team_id)})
+        await auth.oauth_callback("facebook", state=state, db=db, code="c")
+        assert existing_page.status == "active"
+        assert existing_page.username == "cloudless.gr"
+        assert existing_page.meta_data["page_token"] == "pt_new"
+        page_adds = [a for a in db.added if isinstance(a, SocialAccount) and a.account_id == "pg1"]
+        assert page_adds == []  # updated, not re-created
+
+    async def test_facebook_callback_me_error_400(self, monkeypatch, _silence_connect_email):
+        http = _FakeAsyncHTTPClient(self._fb_routes(**{f"{self._FB}/me": _FakeResp(200, {"error": {"message": "bad token"}})}))
+        monkeypatch.setattr(auth, "facebook_client", self._fb_client())
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        state = sign_oauth_state({"t": str(uuid.uuid4())})
+        with pytest.raises(HTTPException) as e:
+            await auth.oauth_callback("facebook", state=state, db=FakeDB(), code="c")
+        assert e.value.status_code == 400
+        assert "Facebook /me failed" in e.value.detail
+
+    async def test_facebook_ig_onboarding_discovers_ig_account(self, monkeypatch, _silence_connect_email):
+        team_id = uuid.uuid4()
+        http = _FakeAsyncHTTPClient(
+            self._fb_routes(
+                **{
+                    f"{self._FB}/me/accounts": _FakeResp(
+                        200,
+                        {
+                            "data": [
+                                {
+                                    "id": "pg1",
+                                    "name": "cloudless.gr",
+                                    "access_token": "pt1",
+                                    "instagram_business_account": {
+                                        "id": "ig-9",
+                                        "username": "cloudless.gr",
+                                        "name": "Cloudless",
+                                        "profile_picture_url": "igpic",
+                                    },
+                                }
+                            ]
+                        },
+                    ),
+                }
+            )
+        )
+        monkeypatch.setattr(auth, "facebook_client", self._fb_client())
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        db = FakeDB(users=[_user()])
+        state = sign_oauth_state({"t": str(team_id), "p": "instagram-onboarding"})
+        out = await auth.oauth_callback("facebook", state=state, db=db, code="c")
+        assert "connected successfully" in out["message"]
+        acct = next(a for a in db.added if isinstance(a, SocialAccount))
+        assert acct.platform == "instagram" and acct.account_id == "ig-9"
+        assert acct.username == "cloudless.gr"
+        assert "instagram_content_publish" in acct.scopes
+
+    async def test_facebook_ig_onboarding_page_backed_fallback(self, monkeypatch, _silence_connect_email):
+        team_id = uuid.uuid4()
+        http = _FakeAsyncHTTPClient(
+            self._fb_routes(
+                **{
+                    f"{self._FB}/me/accounts": _FakeResp(
+                        200,
+                        {"data": [{"id": "pg1", "name": "P", "access_token": "pt1"}]},
+                    ),
+                    f"{self._FB}/pg1/page_backed_instagram_accounts": _FakeResp(
+                        200,
+                        {"data": [{"id": "ig-pb", "username": "cloudless.gr", "name": "Cloudless"}]},
+                    ),
+                }
+            )
+        )
+        monkeypatch.setattr(auth, "facebook_client", self._fb_client())
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        db = FakeDB(users=[_user()])
+        state = sign_oauth_state({"t": str(team_id), "p": "instagram-onboarding"})
+        await auth.oauth_callback("facebook", state=state, db=db, code="c")
+        acct = next(a for a in db.added if isinstance(a, SocialAccount))
+        assert acct.platform == "instagram" and acct.account_id == "ig-pb"
+
+    async def test_facebook_ig_onboarding_no_ig_400(self, monkeypatch, _silence_connect_email):
+        http = _FakeAsyncHTTPClient(
+            self._fb_routes(
+                **{
+                    f"{self._FB}/me/accounts": _FakeResp(200, {"data": [{"id": "pg1", "access_token": "pt"}]}),
+                    f"{self._FB}/pg1/page_backed_instagram_accounts": _FakeResp(200, {"data": []}),
+                }
+            )
+        )
+        monkeypatch.setattr(auth, "facebook_client", self._fb_client())
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        state = sign_oauth_state({"t": str(uuid.uuid4()), "p": "instagram-onboarding"})
+        with pytest.raises(HTTPException) as e:
+            await auth.oauth_callback("facebook", state=state, db=FakeDB(), code="c")
+        assert "no Instagram Business account" in e.value.detail
+
+    async def test_whatsapp_callback_discovers_waba_and_phones(self, monkeypatch, _silence_connect_email):
+        team_id = uuid.uuid4()
+        http = _FakeAsyncHTTPClient(
+            self._fb_routes(
+                **{
+                    f"{self._FB}/me/businesses": _FakeResp(200, {"data": [{"id": "biz1", "name": "Cloudless"}]}),
+                    f"{self._FB}/biz1/owned_whatsapp_business_accounts": _FakeResp(200, {"data": [{"id": "waba1"}]}),
+                    f"{self._FB}/waba1/phone_numbers": _FakeResp(
+                        200,
+                        {
+                            "data": [
+                                {
+                                    "id": "ph1",
+                                    "display_phone_number": "+30 555",
+                                    "verified_name": "Cloudless",
+                                    "quality_rating": "GREEN",
+                                }
+                            ]
+                        },
+                    ),
+                }
+            )
+        )
+        monkeypatch.setattr(auth, "facebook_client", self._fb_client())
+        monkeypatch.setattr(auth.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        db = FakeDB(users=[_user()])
+        state = sign_oauth_state({"t": str(team_id), "p": "whatsapp"})
+        out = await auth.oauth_callback("facebook", state=state, db=db, code="c")
+        assert "connected successfully" in out["message"]
+        acct = next(a for a in db.added if isinstance(a, SocialAccount))
+        assert acct.platform == "whatsapp"
+        assert acct.meta_data["waba_id"] == "waba1"
+        assert acct.meta_data["phone_numbers"][0]["id"] == "ph1"
+        assert "whatsapp_business_messaging" in acct.scopes
+        # No Facebook Page accounts should be created for a WhatsApp connect
+        page_adds = [a for a in db.added if isinstance(a, SocialAccount) and a.platform == "facebook" and a.account_type == "page"]
+        assert page_adds == []
