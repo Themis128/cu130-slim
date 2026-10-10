@@ -736,3 +736,150 @@ async def test_persist_follower_snapshot_swallows_errors(monkeypatch):
 
     monkeypatch.setattr(AA, "_follower_count", AsyncMock(side_effect=RuntimeError("x")))
     await A._persist_follower_snapshot(_DB(), _account(platform="twitter"))
+
+
+# ── sync_linkedin_account ─────────────────────────────────────────────
+
+
+def _counting_persist():
+    async def _p(db, **kw):
+        kw["result"].synced += 1
+
+    return AsyncMock(side_effect=_p)
+
+
+@pytest.fixture
+def _li_patches(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok" if t else None)
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", _counting_persist())
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_list_org_post_urns", AsyncMock(return_value=[]))
+    monkeypatch.setattr(A, "_fetch_linkedin_org_stats", AsyncMock(return_value={}))
+    monkeypatch.setattr(
+        A,
+        "_fetch_org_lifetime_stats",
+        AsyncMock(return_value=A.MetricBundle(impressions=100, likes=5)),
+    )
+    monkeypatch.setattr(
+        A,
+        "_fetch_linkedin_follower_stats",
+        AsyncMock(return_value={"total_followers": 42, "follower_gains": 3, "demographics": {}}),
+    )
+    monkeypatch.setattr(
+        A,
+        "_fetch_linkedin_page_stats",
+        AsyncMock(return_value={"period": {"days": 7}, "lifetime": {}}),
+    )
+
+
+def _li_org(**kw):
+    kw.setdefault("scopes", [])
+    return _account(
+        platform="linkedin",
+        access_token_enc="enc",
+        meta_data={"account_type": "organization", "organization_id": "99"},
+        **kw,
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_linkedin_org_happy(_li_patches):
+    t = _target("urn:li:share:111")
+    db = _DB(results=[[t]])
+    A._list_org_post_urns.return_value = [{"urn": "urn:li:share:222", "commentary": "c", "published_at": datetime.now(UTC), "raw": {"x": 1}}]
+    A._fetch_linkedin_org_stats.return_value = {
+        "urn:li:share:111": A.MetricBundle(impressions=10, likes=1),
+        "urn:li:share:222": A.MetricBundle(impressions=5),
+    }
+    r = await A.sync_linkedin_account(db, _li_org())
+    # 2 post snapshots + lifetime + follower + page = 5 persists
+    assert r.synced == 5
+    A._record_follower_snapshot.assert_awaited_once()
+    call = A._record_follower_snapshot.await_args
+    assert call.args[2] == "linkedin" and call.args[3] == 42
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_linkedin_org_ads_path(_li_patches, monkeypatch):
+    monkeypatch.setattr(
+        A,
+        "get_settings",
+        lambda: SimpleNamespace(LINKEDIN_AD_ACCOUNT_ID="urn:li:sponsoredAccount:1"),
+    )
+    A._fetch_linkedin_ad_stats = AsyncMock(
+        return_value={
+            "urn:li:sponsoredCampaign:7": A.MetricBundle(impressions=9),
+            "_error": A.MetricBundle(notes="adAnalytics error"),
+        }
+    )
+    acc = _li_org(scopes=["r_ads_reporting"])
+    db = _DB(results=[[]])
+    r = await A.sync_linkedin_account(db, acc)
+    A._fetch_linkedin_ad_stats.assert_awaited_once()
+    assert "adAnalytics error" in r.errors
+    # campaign persist + lifetime + follower + page = 4
+    assert r.synced == 4
+
+
+@pytest.mark.asyncio
+async def test_sync_linkedin_org_lifetime_http_fail(_li_patches):
+    A._fetch_org_lifetime_stats.return_value = A.MetricBundle(notes="org lifetime HTTP 403")
+    db = _DB(results=[[]])
+    r = await A.sync_linkedin_account(db, _li_org())
+    # lifetime block skipped entirely — no persists, no follower snapshot
+    assert r.synced == 0 and r.skipped == 0
+    A._record_follower_snapshot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_linkedin_member_scrape(_li_patches, monkeypatch):
+    t = _target("urn:li:share:555")
+    db = _DB(results=[[t]])
+    activity = {
+        "profile_url": "https://li/in/x",
+        "followers": 77,
+        "posts": [
+            {
+                "urn": "urn:li:activity:555",
+                "impressions": 12,
+                "reactions": 3,
+                "comments": 1,
+                "text": "original",
+            }
+        ],
+    }
+    import app.services.linkedin_sidecar as lsc
+
+    monkeypatch.setattr(
+        lsc,
+        "LinkedInSidecarClient",
+        lambda: SimpleNamespace(get_profile_activity=AsyncMock(return_value=activity)),
+    )
+    A._fetch_member_post_analytics = AsyncMock(return_value={"status": 403})
+    acc = _account(platform="linkedin", access_token_enc="enc", meta_data={}, scopes=["w_member_social"])
+    r = await A.sync_linkedin_account(db, acc)
+    assert r.synced >= 1
+    A._record_follower_snapshot.assert_awaited_once()
+    # scope recorded without r_member_postAnalytics → no API probe
+    A._fetch_member_post_analytics.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_linkedin_member_scrape_fails(_li_patches, monkeypatch):
+    db = _DB(results=[[_target("urn:li:share:9")]])
+    import app.services.linkedin_sidecar as lsc
+
+    monkeypatch.setattr(
+        lsc,
+        "LinkedInSidecarClient",
+        lambda: SimpleNamespace(get_profile_activity=AsyncMock(side_effect=RuntimeError("sidecar down"))),
+    )
+    probe = AsyncMock(return_value={"status": 403})
+    A._fetch_member_post_analytics = probe
+    acc = _account(platform="linkedin", access_token_enc="enc", meta_data={}, scopes=[])  # unrecorded → probes, gets 403
+    r = await A.sync_linkedin_account(db, acc)
+    assert any("member scrape" in e for e in r.errors)
+    probe.assert_awaited_once()  # first 403 breaks the loop
