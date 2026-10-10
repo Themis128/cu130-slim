@@ -306,11 +306,22 @@ def section_queue() -> list[str]:
 
 def section_env() -> list[str]:
     out = []
-    env_path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".env")
+    # Walk up from scripts/ until a .env is found (repo root or compose dir),
+    # so the check works regardless of which skills dir mirror hosts this file.
+    env_path = None
+    d = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(8):
+        cand = os.path.join(d, ".env")
+        if os.path.isfile(cand):
+            env_path = cand
+            break
+        d = os.path.dirname(d)
     keys = {"MEDIA_PUBLIC_BASE_URL": "TikTok PULL_FROM_URL base",
             "SOCIAL_TOTP_SECRET": "n8n workflow login",
             "N8N_API_KEY": "n8n API access"}
     try:
+        if env_path is None:
+            raise OSError("no .env found above script dir")
         with open(env_path, encoding="utf-8") as f:
             text = f.read()
         for k, desc in keys.items():
