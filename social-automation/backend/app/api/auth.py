@@ -2470,8 +2470,8 @@ async def meta_data_deletion_callback(request: Request):
     import asyncio
 
     async def _delete_user_data():
-        from app.db.session import async_session_factory
-        async with async_session_factory() as db:
+        from app.db.session import async_session_maker
+        async with async_session_maker() as db:
             # Find social accounts linked to this Facebook user
             result = await db.execute(
                 select(SocialAccount).where(
