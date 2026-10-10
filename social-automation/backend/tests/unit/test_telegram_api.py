@@ -134,3 +134,114 @@ def test_extract_inbound_ignores_sticker():
 def test_telegram_api_error_detail_alias():
     exc = api.TelegramAPIError(400, "Bad Request", method="sendMessage")
     assert exc.detail == "Bad Request"
+
+
+# ── Media / poll / keyboard additions ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_photo_payload(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": {"message_id": 5}}))
+    with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
+        await client.send_photo(
+            42, "https://x.test/p.png", caption="cap",
+            reply_markup={"inline_keyboard": [[{"text": "Go", "url": "https://x.test"}]]},
+        )
+    body = fake.calls[0]["json"]
+    assert fake.calls[0]["url"].endswith("/sendPhoto")
+    assert body["photo"] == "https://x.test/p.png"
+    assert body["caption"] == "cap"
+    assert body["reply_markup"]["inline_keyboard"][0][0]["url"] == "https://x.test"
+
+
+@pytest.mark.asyncio
+async def test_send_media_group_validation(client):
+    with pytest.raises(ValueError, match="2-10"):
+        await client.send_media_group(42, [{"type": "photo", "media": "https://x/1.png"}])
+    with pytest.raises(ValueError, match="photo or video"):
+        await client.send_media_group(
+            42,
+            [
+                {"type": "photo", "media": "https://x/1.png"},
+                {"type": "audio", "media": "https://x/2.mp3"},
+            ],
+        )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": [{}, {}]}))
+    with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
+        result = await client.send_media_group(
+            42,
+            [
+                {"type": "photo", "media": "https://x/1.png"},
+                {"type": "photo", "media": "https://x/2.png", "caption": "c"},
+            ],
+        )
+    assert len(result) == 2
+    assert fake.calls[0]["json"]["media"][1]["caption"] == "c"
+
+
+@pytest.mark.asyncio
+async def test_send_poll_payload(client):
+    with pytest.raises(ValueError, match="2-10"):
+        await client.send_poll(42, "q?", ["only one"])
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": {"poll": {"id": "p1"}}}))
+    with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
+        await client.send_poll(42, "Pick one", ["a", "b"], allows_multiple_answers=True)
+    body = fake.calls[0]["json"]
+    assert body["options"] == [{"text": "a"}, {"text": "b"}]
+    assert body["allows_multiple_answers"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_message_with_markup(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": {"message_id": 9}}))
+    with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
+        await client.send_message_with_markup(
+            42, "click", {"inline_keyboard": [[{"text": "B", "callback_data": "d"}]]}
+        )
+    body = fake.calls[0]["json"]
+    assert body["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "d"
+
+
+@pytest.mark.asyncio
+async def test_answer_callback_and_pin_delete(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": True}))
+    with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
+        assert await client.answer_callback_query("cb1", text="thanks") is True
+        assert await client.pin_chat_message(42, 10) is True
+        assert await client.delete_message(42, 10) is True
+        assert await client.send_chat_action(42, "typing") is True
+    assert fake.calls[0]["json"]["text"] == "thanks"
+    assert fake.calls[3]["json"]["action"] == "typing"
+
+
+@pytest.mark.asyncio
+async def test_send_chat_action_rejects_unknown(client):
+    with pytest.raises(ValueError, match="unknown chat action"):
+        await client.send_chat_action(42, "exploding")
+
+
+def test_inline_keyboard_builder():
+    kb = api.inline_keyboard([[{"text": "Audit", "url": "https://c.test"}]])
+    assert kb["inline_keyboard"][0][0]["url"] == "https://c.test"
+    with pytest.raises(ValueError, match="needs url"):
+        api.inline_keyboard([[{"text": "no action"}]])
+    with pytest.raises(ValueError, match="text is required"):
+        api.inline_keyboard([[{"url": "https://c.test"}]])
+
+
+def test_extract_callback_query():
+    update = {
+        "update_id": 3,
+        "callback_query": {
+            "id": "cb-1",
+            "from": {"id": 7, "username": "ada"},
+            "data": "cta:audit",
+            "message": {"message_id": 20, "chat": {"id": 99}},
+        },
+    }
+    cb = api.extract_callback_query(update)
+    assert cb is not None
+    assert cb["callback_id"] == "cb-1"
+    assert cb["data"] == "cta:audit"
+    assert cb["chat_id"] == 99
+    assert api.extract_callback_query({"update_id": 4}) is None
