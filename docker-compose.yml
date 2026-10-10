@@ -1535,7 +1535,11 @@ services:
       - NEXTCLOUD_HOST=https://cloud.cloudless.gr
       - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
       - NEXTCLOUD_PASSWORD=${NEXTCLOUD_APP_PASSWORD:-}
+      - TOKEN_STORAGE_DB=/data/tokens.db
+      - TOKEN_ENCRYPTION_KEY=${NEXTCLOUD_MCP_TOKEN_KEY:-}
       - TZ=Europe/Athens
+    volumes:
+      - nextcloud_mcp_data:/data
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(5); s.connect(('127.0.0.1',8000)); s.close()\" || exit 1"]
       interval: 30s
@@ -1837,6 +1841,7 @@ volumes:
   linkedin_mcp_data: null
   facebook_browser_data: null
   airbyte_mcp_data: null
+  nextcloud_mcp_data: null
 
 # Explicit network topology (restored 2026-09-06 to match runtime state).
 # Names are pinned so compose adopts the existing networks instead of
