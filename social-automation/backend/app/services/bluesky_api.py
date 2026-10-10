@@ -19,6 +19,7 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -44,6 +45,24 @@ _MENTION_RE = re.compile(
     r"(?<![\w@])@([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+)"
 )
 _HASHTAG_RE = re.compile(r"(?<!\w)#(\w+)")
+
+
+def _normalize_pds_url(pds_url: str) -> str:
+    """Validate a user-supplied PDS base URL and return a clean
+    ``scheme://host[:port]`` origin. Self-hosted PDS instances are a
+    supported feature, so the host itself is user-configured — but the
+    scheme must be http(s) and credentials/path/query/fragment are
+    rejected so the value cannot smuggle anything beyond the origin."""
+    parsed = urlparse(pds_url.strip())
+    if parsed.scheme not in {"https", "http"} or not parsed.hostname:
+        raise ValueError(f"invalid pds_url {pds_url!r}: expected http(s)://host[:port]")
+    if parsed.username or parsed.password:
+        raise ValueError("pds_url must not embed credentials")
+    host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"  # IPv6 literal
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme}://{host}{port}"
 
 
 def build_facets(text: str) -> list[dict[str, Any]]:
@@ -94,7 +113,7 @@ class BlueskyClient:
     ):
         self.identifier = identifier
         self.app_password = app_password
-        self.pds_url = pds_url.rstrip("/")
+        self.pds_url = _normalize_pds_url(pds_url)
         self._access_jwt: str | None = None
         self._refresh_jwt: str | None = None
         self.did: str | None = None
