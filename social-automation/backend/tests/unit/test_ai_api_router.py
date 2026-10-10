@@ -1247,3 +1247,163 @@ async def test_generate_blog_article_no_usable_json(monkeypatch):
     with pytest.raises(HTTPException) as e:
         await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB(team=None))
     assert e.value.status_code == 502
+
+
+# ── generate_carousel / pipeline / run-and-publish ───────────────────
+
+
+def _carousel_patches(monkeypatch, *, similar=None, inference=None):
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "query_similar", AsyncMock(return_value=similar or []))
+    monkeypatch.setattr(ai.chroma_client, "add_content", AsyncMock())
+    monkeypatch.setattr(
+        ai,
+        "call_inference",
+        AsyncMock(
+            return_value=inference
+            or {
+                "slides": [
+                    {"title": "T1", "body": "b1", "slide_type": "cover"},
+                    {"title": "T2", "body": "b2", "slide_type": "content"},
+                ],
+                "suggested_caption": "cap",
+                "hashtags": ["cloud", "devops"],
+            }
+        ),
+    )
+    import app.services.brand_compliance as bc
+
+    monkeypatch.setattr(bc, "load_brand_context", AsyncMock(return_value=(None, None, "brand-ctx")))
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(
+        pe,
+        "run_nlp_check_and_fix",
+        AsyncMock(return_value=([{"title": "T1", "body": "b1", "slide_type": "cover"}], "clean cap", SimpleNamespace(to_dict=lambda: {"nlp": 1}))),
+    )
+    import app.services.spellcheck as sp
+
+    monkeypatch.setattr(sp, "auto_correct", AsyncMock(side_effect=lambda s: s))
+    import app.services.seo as seomod
+
+    monkeypatch.setattr(seomod, "analyze_seo", AsyncMock(return_value={"score": {"total": 88}}))
+
+
+def _carousel_req(**kw):
+    return ai.GenerateCarouselRequest(topic="cloud ops", **kw)
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_happy(monkeypatch):
+    _carousel_patches(monkeypatch)
+    out = await ai.generate_carousel(_carousel_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert len(out.slides) == 1 and out.slides[0].title == "T1"
+    assert out.suggested_caption == "clean cap"
+    assert out.seo_score == {"total": 88}
+    assert out.nlp_report == {"nlp": 1}
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_similar_injects_note(monkeypatch):
+    _carousel_patches(monkeypatch, similar=["old-carousel"])
+    req = _carousel_req()
+    await ai.generate_carousel(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    call = ai.call_inference.call_args
+    assert "avoid repeating" in call.args[0]
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_inference_timeout_504(monkeypatch):
+    _carousel_patches(monkeypatch)
+    import httpx as _h
+
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(side_effect=_h.ReadTimeout("slow")))
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_carousel(_carousel_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 504
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_inference_error_500(monkeypatch):
+    _carousel_patches(monkeypatch)
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(side_effect=RuntimeError("boom")))
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_carousel(_carousel_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_pipeline_happy(monkeypatch):
+    # Inner generate_carousel is patched wholesale — exercise the
+    # per-slide image + compose + persist orchestration.
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "add_content", AsyncMock())
+    copy = SimpleNamespace(slides=[SimpleNamespace(slide_type="cover", title="T", body="b", highlight=None)], suggested_caption="cap", hashtags=["a"])
+    monkeypatch.setattr(ai, "generate_carousel", AsyncMock(return_value=copy))
+
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(
+        pe, "run_nlp_check_and_fix", AsyncMock(return_value=([{"slide_type": "cover", "title": "T", "body": "b"}], "cap", SimpleNamespace(to_dict=lambda: {})))
+    )
+
+    monkeypatch.setattr(ai, "_call_cf_image_pipeline", AsyncMock(side_effect=RuntimeError("bg down")))
+
+
+    from PIL import Image as _Img
+
+    import app.services.carousel_pipeline as cp
+
+    monkeypatch.setattr(cp, "compose_branded_slide", lambda *a, **kw: _Img.new("RGB", (64, 64)))
+    monkeypatch.setattr(ai, "persist_generated_image", AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4(), storage_path="c.png")))
+
+    import app.services.spellcheck as sp
+
+    monkeypatch.setattr(sp, "auto_correct", AsyncMock(side_effect=lambda s: s))
+    import app.services.seo as seomod
+
+    monkeypatch.setattr(seomod, "analyze_seo", AsyncMock(return_value={"score": {"total": 90}}))
+    monkeypatch.setattr(ai, "_save_generation_template", AsyncMock())
+
+    req = ai.GenerateCarouselPipelineRequest(topic="cloud ops")
+    out = await ai.generate_carousel_pipeline(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert len(out.slides) == 1 and out.media_ids
+    assert out.seo_score == {"total": 90}
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_pipeline_no_team_400(monkeypatch):
+    req = ai.GenerateCarouselPipelineRequest(topic="t")
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_carousel_pipeline(req, _team_id(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_run_carousel_and_publish(monkeypatch):
+    import app.services.carousel_pipeline as cp
+
+    monkeypatch.setattr(cp, "run_cloudless_carousel_pipeline", AsyncMock(return_value={"post_id": "p1", "published": True}))
+    monkeypatch.setattr(ai, "_save_generation_template", AsyncMock())
+    req = SimpleNamespace(
+        topic="ops",
+        num_slides=5,
+        tone="pro",
+        include_cta=True,
+        text_model="m",
+        text_provider="dmr",
+        txt2img_model="f",
+        target_account_id=None,
+        publish=True,
+        wait_for_publish=False,
+        custom_slides=None,
+        custom_caption=None,
+        custom_hashtags=None,
+    )
+    out = await ai.run_carousel_and_publish(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out["published"] is True
+    ai._save_generation_template.assert_awaited_once()
+
+    with pytest.raises(HTTPException) as e:
+        await ai.run_carousel_and_publish(req, _team_id(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 400
