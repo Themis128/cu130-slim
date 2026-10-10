@@ -1017,9 +1017,9 @@ async def _update_facebook_user_profile(
         if updates.work is not None:
             for w in updates.work:
                 await client.update_work(
-                    company=w.company,
+                    company=w.employer,
                     position=w.position,
-                    description=w.summary,
+                    description=w.description,
                 )
             updated.append("work")
         if updates.education is not None:
