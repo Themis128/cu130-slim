@@ -173,6 +173,9 @@ x-worker-volumes: &worker-volumes
   # Live test tree — lets pytest run against the mounted source instead of
   # the stale copy baked into the image.
   - ./social-automation/backend/tests:/app/tests
+  # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
+  # slack_tool, monetization_tool, viber_tool, dedup_scan) — read-only.
+  - ./social-automation/backend/scripts:/app/scripts:ro
   - ./social-automation/uploads:/app/uploads
   - tunnel_url:/run/tunnel
   # Report notebooks — papermill executes /notebooks/reports/*.ipynb inside
@@ -894,6 +897,9 @@ services:
       - ./social-automation/backend/app:/app/app
       - ./social-automation/backend/alembic:/app/alembic
       - ./social-automation/backend/tests:/app/tests
+      # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
+      # slack_tool, monetization_tool, viber_tool) — read-only.
+      - ./social-automation/backend/scripts:/app/scripts:ro
       - ./social-automation/uploads:/app/uploads
       # Read-only access to notebook reports output for /api/v1/reports.
       - ./notebooks:/notebooks:ro
