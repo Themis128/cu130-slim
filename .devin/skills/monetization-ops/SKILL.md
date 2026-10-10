@@ -38,7 +38,7 @@ platform UI can answer (Premium state, invites, standing).
 |---|---|---|---|
 | facebook (user/professional) | FB Stars | followers ≥500, held 30d | country, standing, CM invite (waitlisted) |
 | facebook (page) | Content Monetization / Subscriptions | followers ≥10k band | invite |
-| tiktok | Creator Rewards | 10k followers, 100k views/30d | country |
+| tiktok | Creator Rewards | 10k followers, 100k views/30d | **geo-blocked — Greece not eligible** |
 | twitter | Ads Revenue Share | followers ≥500 | Premium active, 5M imp/90d (pay-per-use endpoint) |
 | instagram | Subscriptions/Gifts | 10k band | invite |
 | linkedin/threads/bluesky + messaging | — | — | funnel surfaces → Polar/audit CTA |
@@ -52,6 +52,15 @@ Monetization is a waitlist, not an application — already on it).
 runs **Creator Fast Track** (2026-03): ≥100k followers on IG/TikTok/YouTube
 → $1k–$3k/mo ×3mo + instant CM access — US/CA/UK/AU only, not actionable
 for us yet.
+
+**TikTok Creator Rewards geo-block (verified 2026-10, Creator Academy):**
+program is restricted to US/UK/DE/JP/KR/FR/BR — **Greece-based accounts
+cannot join at all**, so @cloudless.gr's TikTok gates are academic.
+JP/KR terms need ≥50k followers. Business accounts are ineligible.
+Even where eligible, only >1min original videos with ≥1,000 For-You-feed
+views earn — Duets/Stitches/Photo Mode/sponsored don't. Consequence:
+TikTok stays a product-funnel surface (Polar/audit CTA), not a creator
+revenue path — the same role as LinkedIn/Threads.
 
 ## Verified baseline (2026-10)
 

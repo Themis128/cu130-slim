@@ -22,7 +22,12 @@ Threshold sources (verify before relying — programs change):
 - Creator Fast Track (announced 2026-03): ≥100k followers on an eligible
   external platform (IG/TikTok/YouTube) → $1k–$3k/month for 3 months +
   instant Content Monetization access. US/CA/UK/AU only.
-- TikTok Creator Rewards: ≥10,000 followers + ≥100k video views in 30 days.
+- TikTok Creator Rewards: ≥10,000 followers + ≥100k video views in 30 days,
+  BUT country-gated to US/UK/DE/JP/KR/FR/BR — Greece is NOT eligible
+  (verified 2026-10, TikTok Creator Academy). JP/KR terms require ≥50,000
+  followers. Personal accounts only — Business accounts are ineligible.
+  Rewardable content: >1min original videos with ≥1,000 For-You-feed views;
+  Duets/Stitches/Photo Mode/sponsored content don't earn.
 - X Ads Revenue Sharing: Premium/Premium+ + ≥500 followers + ≥5M organic
   impressions in trailing 3 months.
 - Instagram Subscriptions/Gifts: invite-gated; ~10k followers is the
@@ -81,7 +86,9 @@ PLATFORM_PROGRAMS: dict[str, dict[str, Any]] = {
             ("views_30d", "≥100,000 video views in last 30 days", 100_000,
              "sum video play counts from Display API (video.list)"),
             ("country_eligible", "eligible country", True,
-             "manual — program is region-gated"),
+             "BLOCKED — program is restricted to US/UK/DE/JP/KR/FR/BR;"
+             " Greece is not eligible (verified 2026-10); Business"
+             " accounts are also excluded"),
         ],
     },
     "twitter": {
