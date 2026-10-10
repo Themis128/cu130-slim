@@ -13,6 +13,8 @@ import struct
 import time
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import HTTPException, Request
@@ -1811,3 +1813,263 @@ class TestOAuthCallbackFacebookWhatsApp:
         # No Facebook Page accounts should be created for a WhatsApp connect
         page_adds = [a for a in db.added if isinstance(a, SocialAccount) and a.platform == "facebook" and a.account_type == "page"]
         assert page_adds == []
+
+
+class TestInstagram2Callback:
+    pytestmark = pytest.mark.asyncio
+
+    def _ig2_http(self, ll_post=None, ll_get=None, profile=None):
+        """Route token exchange + LL exchange + profile fetch."""
+        routes_post = {
+            "https://api.instagram.com/oauth/access_token": _FakeResp(200, {"user_id": "ig-42", "access_token": "short_ig"}),
+            "https://graph.instagram.com/v21.0/access_token": (ll_post or _FakeResp(200, {"access_token": "ll_ig", "expires_in": 5184000})),
+        }
+        routes_get = {
+            "https://graph.instagram.com/access_token": (ll_get or _FakeResp(200, {"access_token": "ll_ig", "expires_in": 5184000})),
+            "https://graph.instagram.com/ig-42": (
+                profile or _FakeResp(200, {"id": "ig-42", "username": "cloudless.gr", "account_type": "BUSINESS", "media_count": 12})
+            ),
+        }
+
+        class _C(_FakeAsyncHTTPClient):
+            async def get(self, url, **kw):
+                for p, r in routes_get.items():
+                    if url.startswith(p):
+                        return r
+                return _FakeResp(404, {})
+
+            async def post(self, url, **kw):
+                for p, r in routes_post.items():
+                    if url.startswith(p):
+                        return r
+                return _FakeResp(404, {})
+
+        return _C({})
+
+    async def test_ig2_happy_creates_business_account(self, monkeypatch, _silence_connect_email):
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: self._ig2_http())
+        db = FakeDB()
+        state = sign_oauth_state({"t": str(uuid.uuid4())})
+        out = await auth.instagram2_callback(state=state, db=db, code="c")
+        assert "connected successfully" in out["message"]
+        acct = next(a for a in db.added if isinstance(a, SocialAccount))
+        assert acct.platform == "instagram" and acct.account_id == "ig-42"
+        assert acct.username == "cloudless.gr" and acct.is_business
+        assert acct.account_type == "business"
+        assert acct.meta_data["login_type"] == "business_login"
+        assert acct.token_expires_at is not None
+        assert "instagram_business_basic" in acct.scopes
+
+    async def test_ig2_ll_fallback_get_attempt(self, monkeypatch, _silence_connect_email):
+        # POST attempt fails → documented GET attempt succeeds
+        http = self._ig2_http(
+            ll_post=_FakeResp(404, {"error": {"message": "does not exist"}}),
+        )
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        db = FakeDB()
+        state = sign_oauth_state({"t": str(uuid.uuid4())})
+        out = await auth.instagram2_callback(state=state, db=db, code="c")
+        assert "connected successfully" in out["message"]
+
+    async def test_ig2_ll_exchange_total_failure_502(self, monkeypatch, _silence_connect_email):
+        http = self._ig2_http(
+            ll_post=_FakeResp(500, {"error": {"message": "x"}}),
+            ll_get=_FakeResp(500, {"error": {"message": "y"}}),
+        )
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        state = sign_oauth_state({"t": str(uuid.uuid4())})
+        with pytest.raises(HTTPException) as e:
+            await auth.instagram2_callback(state=state, db=FakeDB(), code="c")
+        assert e.value.status_code == 502
+        assert "long-lived token exchange failed" in e.value.detail
+
+    async def test_ig2_existing_account_meta_scrub(self, monkeypatch, _silence_connect_email):
+        from app.core.security import encrypt_token
+
+        existing = SocialAccount(
+            team_id=uuid.uuid4(),
+            platform="instagram",
+            account_id="ig-42",
+            username="old",
+            status="revoked",
+            access_token_enc=encrypt_token("x"),
+            meta_data={"instagram_token_status": "expired", "reconnect_required": True},
+        )
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: self._ig2_http())
+        db = FakeDB(accounts=[existing])
+        state = sign_oauth_state({"t": str(existing.team_id)})
+        await auth.instagram2_callback(state=state, db=db, code="c")
+        assert existing.status == "active" and existing.username == "cloudless.gr"
+        assert "instagram_token_status" not in existing.meta_data
+        assert "reconnect_required" not in existing.meta_data
+        assert "instagram_token_expires_at" in existing.meta_data
+
+    async def test_ig2_no_code_400(self):
+        with pytest.raises(HTTPException) as e:
+            await auth.instagram2_callback(state="x", db=FakeDB(), code=None)
+        assert e.value.status_code == 400
+
+    async def test_ig2_bad_state_400(self):
+        with pytest.raises(HTTPException) as e:
+            await auth.instagram2_callback(state="bogus", db=FakeDB(), code="c")
+        assert e.value.status_code == 400
+
+
+class TestLinkedInSyncOrgs:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_no_account_404(self):
+        db = FakeDB()
+        with pytest.raises(HTTPException) as e:
+            await auth.linkedin_sync_orgs(db=db, current_user=_user())
+        assert e.value.status_code == 404
+
+    async def test_happy_path(self, monkeypatch):
+        from app.core.security import encrypt_token
+
+        acct = SocialAccount(
+            team_id=uuid.uuid4(),
+            platform="linkedin",
+            account_id="li-1",
+            access_token_enc=encrypt_token("tok"),
+            refresh_token_enc=encrypt_token("rt"),
+            scopes=["rw_organization_admin"],
+            meta_data={"account_type": "person"},
+        )
+        http = _FakeAsyncHTTPClient(
+            {
+                "https://api.linkedin.com/rest/organizationAcls": _FakeResp(200, {"elements": []}),
+            }
+        )
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        synced_acct = SimpleNamespace(id=uuid.uuid4(), display_name="Org", account_id="777")
+        monkeypatch.setattr(auth, "_sync_linkedin_organizations", AsyncMock(return_value=[synced_acct]))
+        db = FakeDB(accounts=[acct])
+        db.execute = AsyncMock(return_value=_Result([acct]))
+        out = await auth.linkedin_sync_orgs(db=db, current_user=_user())
+        assert out["synced"] == 1
+        assert out["organizations"][0]["display_name"] == "Org"
+        assert out["raw_acl_response"] == {"elements": []}
+
+    async def test_acl_error_propagates(self, monkeypatch):
+        from app.core.security import encrypt_token
+
+        acct = SocialAccount(
+            team_id=uuid.uuid4(),
+            platform="linkedin",
+            account_id="li-1",
+            access_token_enc=encrypt_token("tok"),
+            meta_data={},
+        )
+        http = _FakeAsyncHTTPClient(
+            {
+                "https://api.linkedin.com/rest/organizationAcls": _FakeResp(401, {"message": "expired"}),
+            }
+        )
+        monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
+        db = FakeDB(accounts=[acct])
+        db.execute = AsyncMock(return_value=_Result([acct]))
+        with pytest.raises(HTTPException) as e:
+            await auth.linkedin_sync_orgs(db=db, current_user=_user())
+        assert e.value.status_code == 401
+
+
+class TestRbacHelpers:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_get_user_role(self):
+        db = FakeDB()
+        db.execute = AsyncMock(return_value=_Result(UserRole.ADMIN))
+        assert await auth.get_user_role(_user(), db) == UserRole.ADMIN
+        db.execute = AsyncMock(return_value=_Result(None))
+        assert await auth.get_user_role(_user(), db) == UserRole.VIEWER
+
+    async def test_require_role_allows_and_denies(self):
+        checker = auth.require_role(auth.UserRole.EDITOR)
+        db = FakeDB()
+        u = _user()
+        db.execute = AsyncMock(return_value=_Result(auth.UserRole.ADMIN))
+        assert await checker(current_user=u, db=db) is u
+        db.execute = AsyncMock(return_value=_Result(auth.UserRole.VIEWER))
+        with pytest.raises(HTTPException) as e:
+            await checker(current_user=u, db=db)
+        assert e.value.status_code == 403
+
+    async def test_log_action_writes_audit(self):
+        db = FakeDB()
+        db.execute = AsyncMock(return_value=_Result(uuid.uuid4()))
+        await auth.log_action(db, user=_user(), action="login", resource_type="session", detail="ok", ip_address="1.2.3.4")
+        assert len(db.added) == 1
+        entry = db.added[0]
+        assert entry.action == "login" and entry.user_email == "u@x.io"
+
+    async def test_log_action_no_team_noop(self):
+        db = FakeDB()
+        db.execute = AsyncMock(return_value=_Result(None))
+        await auth.log_action(db, user=_user(), action="x", resource_type="y")
+        assert db.added == []
+
+
+class TestMetaDataDeletion:
+    pytestmark = pytest.mark.asyncio
+
+    def _signed(self, payload, secret="appsecret"):
+        import base64 as b64
+        import hashlib as hl
+        import hmac as hm
+
+        body = b64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
+        sig = b64.urlsafe_b64encode(hm.new(secret.encode(), body.encode(), hl.sha256).digest()).rstrip(b"=").decode()
+        return f"{sig}.{body}"
+
+    def _req(self, payload, secret="appsecret"):
+        body = json.dumps({"signed_request": self._signed(payload, secret)})
+        r = AsyncMock()
+        r.body = AsyncMock(return_value=body.encode())
+        return r
+
+    async def test_invalid_payload_400(self, monkeypatch):
+        monkeypatch.setattr(auth.settings, "FACEBOOK_APP_SECRET", "s")
+        r = AsyncMock()
+        r.body = AsyncMock(return_value=b"not-json")
+        with pytest.raises(HTTPException) as e:
+            await auth.meta_data_deletion_callback(r)
+        assert e.value.status_code == 400
+
+    async def test_bad_signature_403(self, monkeypatch):
+        monkeypatch.setattr(auth.settings, "FACEBOOK_APP_SECRET", "s")
+        r = self._req({"user_id": "u1"}, secret="wrong")
+        with pytest.raises(HTTPException) as e:
+            await auth.meta_data_deletion_callback(r)
+        assert e.value.status_code == 403
+
+    async def test_no_user_id_400(self, monkeypatch):
+        monkeypatch.setattr(auth.settings, "FACEBOOK_APP_SECRET", "appsecret")
+        r = self._req({"algorithm": "HMAC-SHA256"})
+        with pytest.raises(HTTPException) as e:
+            await auth.meta_data_deletion_callback(r)
+        assert e.value.status_code == 400
+
+    async def test_happy_deletes_accounts(self, monkeypatch):
+        import asyncio
+
+        monkeypatch.setattr(auth.settings, "FACEBOOK_APP_SECRET", "appsecret")
+        acct = SimpleNamespace(id=uuid.uuid4(), team_id=uuid.uuid4(), account_id="u1")
+        del_db = FakeDB(accounts=[acct])
+
+        class _Factory:
+            async def __aenter__(self):
+                return del_db
+
+            async def __aexit__(self, *a):
+                return False
+
+        import app.db.session as dbs
+
+        monkeypatch.setattr(dbs, "async_session_maker", lambda: _Factory())
+        r = self._req({"user_id": "u1", "page_id": "pg1"})
+        out = await auth.meta_data_deletion_callback(r)
+        assert out["confirmation_code"].startswith("deleted_")
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        assert len(del_db.deleted) >= 1
