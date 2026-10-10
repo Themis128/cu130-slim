@@ -988,3 +988,108 @@ async def test_sync_twitter_usersme_error(_tw_patches):
     r = await A.sync_twitter_account(db, _tw_acc())
     assert any("users/me HTTP 401" in e for e in r.errors)
     assert any("timeline discovery HTTP 403" in e for e in r.errors)
+
+
+# ── sync_facebook_account (personal-profile path) ─────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sync_facebook_personal_profile(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok")
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    events = []
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: events.append(a))
+    import app.services.facebook_sidecar as fsc
+
+    monkeypatch.setattr(
+        fsc,
+        "FacebookSidecarClient",
+        lambda **kw: SimpleNamespace(get_profile_stats=AsyncMock(return_value={"followers": 66, "profile_views": 12, "posts": "n"})),
+    )
+    acc = _account(platform="facebook", access_token_enc="enc", meta_data={"account_type": "user"}, username="themis", scopes=[])
+    db = _DB()
+    await A.sync_facebook_account(db, acc)
+    A._record_follower_snapshot.assert_awaited_once()
+    assert events and events[0][3] == "profile_dashboard"
+    # scrape failure → non-fatal error, still returns
+    monkeypatch.setattr(fsc, "FacebookSidecarClient", lambda **kw: SimpleNamespace(get_profile_stats=AsyncMock(side_effect=RuntimeError("sidecar down"))))
+    r2 = await A.sync_facebook_account(_DB(), acc)
+    assert any("dashboard scrape" in e for e in r2.errors)
+
+
+# ── sync_instagram_account ────────────────────────────────────────────
+
+
+@pytest.fixture
+def _ig_patches(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok" if t else None)
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", _counting_persist())
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_fetch_instagram_media_metrics", AsyncMock(return_value=A.MetricBundle(reach=9)))
+    _Client.get = AsyncMock(return_value=_resp(200, {"data": []}))
+
+
+def _ig_acc(**kw):
+    kw.setdefault("meta_data", {"account_type": "business"})
+    kw.setdefault("scopes", [])
+    kw.setdefault("username", "cloudless.gr")
+    kw.setdefault("account_id", "ig-1")
+    return _account(platform="instagram", access_token_enc="enc", **kw)
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_personal_skip(_ig_patches):
+    acc = _ig_acc(meta_data={"account_type": "person"})
+    r = await A.sync_instagram_account(_DB(), acc)
+    assert r.skipped == 1 and "Business/Creator" in r.notes
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_scope_missing(_ig_patches):
+    acc = _ig_acc(scopes=["instagram_basic"])  # no insights scope
+    db = _DB(results=[[_target("m1")]])
+    r = await A.sync_instagram_account(db, acc)
+    # per-media insights skipped with a clear note; API metrics not called
+    A._fetch_instagram_media_metrics.assert_not_awaited()
+    assert r.synced >= 1  # scope-missing bundle still persisted as marker
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_happy(_ig_patches, monkeypatch):
+    A._meta_insights_get = AsyncMock(
+        return_value=_resp(
+            200,
+            {
+                "data": [
+                    {"name": "reach", "values": [{"value": 100}]},
+                    {"name": "follower_count", "values": [{"value": 42}]},
+                ]
+            },
+        )
+    )
+    _Client.get = AsyncMock(
+        side_effect=[
+            # media discovery — one native post not in local targets
+            _resp(200, {"data": [{"id": "native1", "timestamp": datetime.now(UTC).isoformat(), "caption": "c", "media_type": "IMAGE", "permalink": "p"}]}),
+            # demographics
+            _resp(200, {"data": [{"total_value": {"breakdowns": [{"results": [{"dimension_values": ["GR"], "value": 30}]}]}}]}),
+            # follow_type split
+            _resp(200, {"data": [{"total_value": {"breakdowns": [{"results": [{"dimension_values": ["NON_FOLLOWERS"], "value": 60}]}]}}]}),
+            # online_followers heatmap
+            _resp(200, {"data": [{"values": [{"value": {"9": 5, "18": 20}}]}]}),
+        ]
+    )
+    db = _DB(results=[[_target("m1")]])
+    r = await A.sync_instagram_account(db, _ig_acc())
+    assert r.synced == 2  # local target + discovered native media
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_discovery_error(_ig_patches):
+    _Client.get = AsyncMock(return_value=_resp(500))
+    db = _DB(results=[[]])
+    r = await A.sync_instagram_account(db, _ig_acc())
+    assert any("media discovery HTTP 500" in e for e in r.errors)
