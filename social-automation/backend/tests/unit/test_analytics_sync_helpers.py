@@ -883,3 +883,108 @@ async def test_sync_linkedin_member_scrape_fails(_li_patches, monkeypatch):
     r = await A.sync_linkedin_account(db, acc)
     assert any("member scrape" in e for e in r.errors)
     probe.assert_awaited_once()  # first 403 breaks the loop
+
+
+# ── sync_twitter_account ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def _tw_patches(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok" if t else None)
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", _counting_persist())
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_fetch_twitter_metrics", AsyncMock(return_value=A.MetricBundle(likes=2)))
+    monkeypatch.setattr(A, "_persist_x_web_analytics", AsyncMock())
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "is_configured", lambda: False)
+    monkeypatch.setattr(xw, "fetch_x_web_analytics", AsyncMock(return_value=(None, None)))
+    _Client.get = AsyncMock(return_value=_resp(402))
+
+
+def _tw_acc(**kw):
+    kw.setdefault("meta_data", {})
+    kw.setdefault("scopes", [])
+    kw.setdefault("username", "handle")
+    kw.setdefault("account_id", "123")
+    return _account(platform="twitter", access_token_enc="enc", **kw)
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_happy(_tw_patches):
+    t = _target("999")
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(
+                200,
+                {
+                    "data": [
+                        {
+                            "id": "888",
+                            "created_at": datetime.now(UTC).isoformat(),
+                            "public_metrics": {"impression_count": 5, "like_count": 1, "reply_count": 0, "retweet_count": 1, "quote_count": 0},
+                        }
+                    ]
+                },
+            ),
+            _resp(200, {"data": {"public_metrics": {"followers_count": 10, "following_count": 3, "tweet_count": 50, "listed_count": 1}}}),
+        ]
+    )
+    db = _DB(results=[[t]])
+    r = await A.sync_twitter_account(db, _tw_acc())
+    assert r.synced == 2  # local target + discovered tweet
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_quota_then_web(_tw_patches, monkeypatch):
+    A._fetch_twitter_metrics = AsyncMock(return_value=A.MetricBundle(notes="quota_exhausted"))
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "is_configured", lambda: True)
+    monkeypatch.setattr(xw, "fetch_x_web_analytics", AsyncMock(return_value=({"posts": []}, None)))
+    db = _DB(results=[[_target("1"), _target("2")]])
+    r = await A.sync_twitter_account(db, _tw_acc())
+    assert r.skipped >= 2  # uncovered targets + timeline 402 + users/me 402
+    A._persist_x_web_analytics.assert_awaited_once()
+    # web fallback skip_reason surfaces
+    monkeypatch.setattr(xw, "fetch_x_web_analytics", AsyncMock(return_value=(None, "breaker tripped")))
+    db2 = _DB(results=[[_target("3")]])
+    r2 = await A.sync_twitter_account(db2, _tw_acc())
+    assert "breaker tripped" in r2.errors[0] or "breaker tripped" in r2.notes
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_scrape_fallback(_tw_patches, monkeypatch):
+    A._scrape_twitter_timeline = AsyncMock(
+        return_value={
+            "followers": 55,
+            "posts": [{"id": "777", "posted": datetime.now(UTC).isoformat(), "views": 10, "likes": 1, "replies": 0, "reposts": 0}],
+        }
+    )
+    db = _DB(results=[[]])
+    r = await A.sync_twitter_account(db, _tw_acc())
+    assert r.synced == 1
+    A._record_follower_snapshot.assert_awaited_once()
+
+    # scrape failure → error recorded, non-fatal
+    A._scrape_twitter_timeline = AsyncMock(side_effect=RuntimeError("boom"))
+    db2 = _DB(results=[[]])
+    r2 = await A.sync_twitter_account(db2, _tw_acc())
+    assert any("timeline scrape" in e for e in r2.errors)
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_usersme_error(_tw_patches):
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(403),  # timeline discovery
+            _resp(401),  # users/me
+        ]
+    )
+    db = _DB(results=[[]])
+    r = await A.sync_twitter_account(db, _tw_acc())
+    assert any("users/me HTTP 401" in e for e in r.errors)
+    assert any("timeline discovery HTTP 403" in e for e in r.errors)
