@@ -1349,7 +1349,6 @@ async def test_generate_carousel_pipeline_happy(monkeypatch):
 
     monkeypatch.setattr(ai, "_call_cf_image_pipeline", AsyncMock(side_effect=RuntimeError("bg down")))
 
-
     from PIL import Image as _Img
 
     import app.services.carousel_pipeline as cp
@@ -1412,36 +1411,87 @@ async def test_run_carousel_and_publish(monkeypatch):
 @pytest.mark.asyncio
 async def test_generate_image_flux_paths(monkeypatch):
     import app.services.inference as inf
+
     monkeypatch.setattr(ai, "check_quota", AsyncMock())
     monkeypatch.setattr(ai.chroma_client, "add_content", AsyncMock())
-    monkeypatch.setattr(
-        inf, "_get_provider_config",
-        AsyncMock(return_value=("http://nv", "m", None)))
+    monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=("http://nv", "m", None)))
 
     req = ai.GenerateImageFluxRequest(prompt="p")
     with pytest.raises(HTTPException) as e:
-        await ai.generate_image_flux(
-            req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+        await ai.generate_image_flux(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
     assert e.value.status_code == 400
 
     # happy path: FLUX bytes → b64 → persist → quality
+    monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=("http://nv", "m", "key")))
+    monkeypatch.setattr(ai, "_call_nvidia_flux", AsyncMock(return_value=b"flux-img"))
     monkeypatch.setattr(
-        inf, "_get_provider_config",
-        AsyncMock(return_value=("http://nv", "m", "key")))
-    monkeypatch.setattr(
-        ai, "_call_nvidia_flux", AsyncMock(return_value=b"flux-img"))
-    monkeypatch.setattr(
-        ai, "persist_generated_image",
-        AsyncMock(return_value=SimpleNamespace(
-            id=uuid.uuid4(), storage_path="f.png",
-            generation_prompt="p", ai_caption="", alt_text="", tags=[])))
+        ai,
+        "persist_generated_image",
+        AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4(), storage_path="f.png", generation_prompt="p", ai_caption="", alt_text="", tags=[])),
+    )
     import app.services.media_quality as mq
-    monkeypatch.setattr(
-        mq, "apply_media_quality",
-        AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"q": 2})))
+
+    monkeypatch.setattr(mq, "apply_media_quality", AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"q": 2})))
     monkeypatch.setattr(mq, "persist_media_quality_metadata", AsyncMock())
-    out = await ai.generate_image_flux(
-        req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    out = await ai.generate_image_flux(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
     import base64 as b64
+
     assert out.image_base64 == b64.b64encode(b"flux-img").decode()
     assert out.quality == {"q": 2}
+
+
+@pytest.mark.asyncio
+async def test_save_generation_template_upsert():
+    # new template → added
+    db = _DB()
+    db.refresh = AsyncMock()
+    team, user = _team(), _user()
+    tmpl = await ai._save_generation_template(db=db, team=team, user=user, name="t1", category="image", prompt_template="p", settings={"k": 1}, tags=["a"])
+    assert tmpl.name == "t1" and len(db.added) == 1
+
+    # existing → updated in place
+    existing = SimpleNamespace(name="t1", n8n_workflow_json=None, tags=[])
+    db2 = _DB(results=[existing])
+    db2.refresh = AsyncMock()
+    tmpl = await ai._save_generation_template(db=db2, team=team, user=user, name="t1", category="image", prompt_template="p", settings={"k": 2}, tags=["b"])
+    assert tmpl is existing
+    assert tmpl.n8n_workflow_json == {"k": 2} and tmpl.tags == ["b"]
+    assert not db2.added
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_batch(monkeypatch):
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai, "generate_emoji", AsyncMock(return_value=SimpleNamespace(image_base64="e1", provider="d", quality_check=None)))
+    payload = SimpleNamespace(
+        concepts=["happy", "sad"],
+        style="flat",
+        size=256,
+        background="transparent",
+        bg_color="#fff",
+        seed=0,
+        steps=25,
+        cfg_scale=8.0,
+        provider="local-diffusers",
+        enhance_prompt=True,
+        remove_bg=True,
+    )
+    out = await ai.generate_emoji_batch(_REQ, payload, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert len(out.emojis) == 2
+    assert all(e["success"] for e in out.emojis)
+
+    # per-concept failure is captured, not fatal
+    monkeypatch.setattr(
+        ai, "generate_emoji", AsyncMock(side_effect=[SimpleNamespace(image_base64="e1", provider="d", quality_check=None), RuntimeError("boom")])
+    )
+    out = await ai.generate_emoji_batch(_REQ, payload, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.emojis[0]["success"] and not out.emojis[1]["success"]
+    assert "boom" in out.emojis[1]["error"]
+
+    # validation gates
+    payload.concepts = ["x"] * 11
+    with pytest.raises(HTTPException):
+        await ai.generate_emoji_batch(_REQ, payload, _team_id(), current_user=_user(), db=_DB())
+    payload.concepts = []
+    with pytest.raises(HTTPException):
+        await ai.generate_emoji_batch(_REQ, payload, _team_id(), current_user=_user(), db=_DB())
