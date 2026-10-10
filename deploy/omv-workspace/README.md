@@ -179,6 +179,58 @@ docker exec nextcloud-db pg_dump -U nextcloud nextcloud   # DB only
 sudo /usr/local/sbin/nas-backup                          # full nightly job
 ```
 
+## Host-level services (outside the workspace compose)
+
+WeTTY and Filebrowser run as separate OMV-compose pods, not in
+`workspace.yml` — document the live host config here so a rebuild doesn't
+lose it.
+
+### WeTTY (web SSH terminal, :2222)
+
+- Pod units: `pod-wetty`, `wetty-app`, `wetty-proxy` (systemd). Caddy inside
+  the pod proxies `:8443 → wetty:3000` with `auto_https off` — test with
+  **plain HTTP**: `curl -s http://127.0.0.1:2222` (HTTPS probes report 000).
+- **After every wetty image update**: newer images crash-loop with
+  `Configure at least one allowed origin` unless `allowedOrigins` is set.
+  The fix lives in a systemd drop-in
+  `/etc/systemd/system/wetty-app.service.d/allowed-origins.conf`
+  (`Environment=ALLOWEDORIGINS=...` listing the LAN name, tailscale name and
+  `http://192.168.1.200:2222`). If `wetty-app` exits in <1s after an update,
+  check this drop-in first.
+
+### Filebrowser (:3670)
+
+- Pod units: `pod-filebrowser`, `filebrowser-app`.
+- **UID trap**: the container runs as `filebrowser` **uid 1000**, but the
+  host `filebrowser` account is **uid 994**. Bind-mounted
+  `/var/lib/filebrowser` must be owned `1000:1000` or the app crash-loops on
+  `could not open database: permission denied`.
+
+### openmediavault-writecache tmpfs
+
+`/run/omv-writecache` is a 2 GB tmpfs (25% of RAM) holding overlay uppers for
+`/var/log`, apt caches, `/var/lib/dpkg/updates`, rrd, monit, samba. When it
+fills, failures show up far away: dpkg `No space left`, rsyslog
+write-error storms, apt install breakage — while the root disk looks fine.
+
+- **Cause of the 2026-10-10 fill**: `daemon.log` had *no* logrotate coverage
+  (the rsyslog logrotate.d file only lists syslog/mail/kern/auth/user/cron)
+  and grew to 1.1 GB via k3s/systemd churn + pod crash-loops.
+- Fix deployed: `/etc/logrotate.d/omv-writecache-logs`
+  (`daemon/syslog/user/kern/ufw/pi-alert-remediation`, `maxsize 40M`,
+  rotate 2) + `/etc/cron.d/logrotate-writecache` (hourly enforcement —
+  daily `cron.daily` runs are too slow for a runaway logger).
+- Quick health: `df -h /run/omv-writecache` — if >80%, check
+  `du -sh /run/omv-writecache/*/upper | sort -rh` for the offender.
+- `tmpfs_size` lives in `/etc/omv-writecache/config.yaml` (25%) — raise it
+  there rather than fighting log growth if RAM headroom allows.
+
+### Rootless podman
+
+`uidmap` is installed (provides `newuidmap`/`newgidmap`); `tbaltzakis` has
+`subuid/subgid 100000:65536`. Rootless `podman` works for the tbaltzakis
+user — the pod units above run as root regardless.
+
 ## Headroom notes
 
 k3s + monitoring (~800Mi) + espocrm + uptime-kuma remain on omv. Dead
