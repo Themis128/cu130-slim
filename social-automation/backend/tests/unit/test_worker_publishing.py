@@ -37,7 +37,7 @@ class _FakeDB:
         self.commits = 0
         self.rollbacks = 0
 
-    async def execute(self, q):
+    async def execute(self, q, *args):
         return self._results.popleft()
 
     async def scalar(self, q):
@@ -838,3 +838,168 @@ def test_reconcile_task_retry(monkeypatch):
 
     monkeypatch.setattr(W, "run_async", _fake_ok)
     assert task.run("p", "a") == {"recovered": True}
+
+
+# ── rollup / notify / summary tails ──────────────────────────────────
+# NOTE: the autouse _patch_edges fixture replaces these helpers with
+# AsyncMock — reload the module to get the real implementations.
+
+
+def _real_worker(monkeypatch):
+    import importlib
+
+    importlib.reload(W)
+    monkeypatch.setattr(W, "flag_modified", lambda *a, **kw: None)
+    return W
+
+
+@pytest.mark.asyncio
+async def test_rollup_post_status_all_published(monkeypatch):
+    W = _real_worker(monkeypatch)
+    post = _post(status=PostStatus.PUBLISHING)
+    t1 = _target(post_id=post.id, status="published")
+    t2 = _target(post_id=post.id, status="published")
+    db = _FakeDB(
+        results=[
+            _res(scalars_all=[t1, t2]),  # targets
+            _res(one=None),  # in-flight queue row
+        ]
+    )
+    await W._rollup_post_status(post, db)
+    assert post.status == PostStatus.PUBLISHED
+    assert post.published_at is not None
+    assert post.meta_data["publish_summary"]["published"] == 2
+
+
+@pytest.mark.asyncio
+async def test_rollup_post_status_partial_and_failed(monkeypatch):
+    W = _real_worker(monkeypatch)
+    post = _post(status=PostStatus.PUBLISHING)
+    t1 = _target(post_id=post.id, status="published")
+    t2 = _target(post_id=post.id, status="failed", error_message="quota")
+    db = _FakeDB(
+        results=[
+            _res(scalars_all=[t1, t2]),
+            _res(one=None),
+        ]
+    )
+    await W._rollup_post_status(post, db)
+    assert post.status == PostStatus.PUBLISHED
+    assert post.meta_data["publish_summary"]["partial"] is True
+
+    # all failed → FAILED with reason
+    post2 = _post(status=PostStatus.PUBLISHING)
+    db2 = _FakeDB(
+        results=[
+            _res(scalars_all=[_target(post_id=post2.id, status="failed", error_message="bad creds")]),
+            _res(one=None),
+        ]
+    )
+    await W._rollup_post_status(post2, db2)
+    assert post2.status == PostStatus.FAILED
+    assert post2.failure_reason == "bad creds"
+    assert post2.failed_at is not None
+
+
+@pytest.mark.asyncio
+async def test_rollup_in_flight_stays_publishing(monkeypatch):
+    W = _real_worker(monkeypatch)
+    post = _post(status=PostStatus.PUBLISHING)
+    db = _FakeDB(
+        results=[
+            _res(scalars_all=[_target(post_id=post.id, status="pending")]),
+            _res(one=SimpleNamespace()),  # still in flight
+        ]
+    )
+    await W._rollup_post_status(post, db)
+    assert post.status == PostStatus.PUBLISHING
+
+
+@pytest.mark.asyncio
+async def test_notify_publish_success_webhook(monkeypatch):
+    W = _real_worker(monkeypatch)
+    calls = []
+
+    class _C:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None):
+            calls.append((url, json))
+            return SimpleNamespace(status_code=200)
+
+    monkeypatch.setenv("PUBLISH_SUCCESS_WEBHOOK_URL", "https://hook/x")
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda *a, **kw: _C())
+    post = _post(user_id=None, workflow_run_id=None, workflow_id=None)
+    await W._notify_publish_success(post, _acct(platform="linkedin"), "https://li/post")
+    assert calls and calls[0][1]["platform"] == "linkedin"
+    assert calls[0][1]["platform_url"] == "https://li/post"
+
+
+@pytest.mark.asyncio
+async def test_post_publish_summary_to_slack(monkeypatch):
+    W = _real_worker(monkeypatch)
+    sent = []
+    monkeypatch.setattr(W, "post_publishing_to_slack", AsyncMock(side_effect=sent.append))
+    post = _post(content_text="hello <@all> world")
+    await W._post_publish_summary_to_slack(post, [("linkedin", "https://li/p"), ("x", None)])
+    msg = sent[0]
+    assert "*Published*" in msg and "linkedin" in msg
+    assert "&lt;@all&gt;" in msg  # mrkdwn escaped — no pings
+    assert "n/a" in msg
+
+    # slack failure swallowed
+    monkeypatch.setattr(W, "post_publishing_to_slack", AsyncMock(side_effect=RuntimeError("down")))
+    await W._post_publish_summary_to_slack(post, [("x", None)])
+
+
+@pytest.mark.asyncio
+async def test_maybe_send_publish_summary(monkeypatch):
+    W = _real_worker(monkeypatch)
+    sent = []
+    monkeypatch.setattr(W, "_post_publish_summary_to_slack", AsyncMock(side_effect=lambda p, r: sent.append(r)))
+    post = _post()
+    rows = [SimpleNamespace(id=uuid.uuid4(), platform="linkedin", platform_url="https://li/p")]
+    # scalar→0 active, execute→rows, execute→claimed rowcount 1
+    db = _FakeDB(results=[_res(all_=rows), _res(rowcount=1)], scalars=[0])
+    await W._maybe_send_publish_summary(db, post)
+    assert sent and sent[0] == [("linkedin", "https://li/p")]
+    assert db.commits == 1
+
+    # still-active queue rows → no summary
+    db2 = _FakeDB(scalars=[2])
+    await W._maybe_send_publish_summary(db2, post)
+    assert db2.commits == 0
+
+    # claim lost (rowcount 0) → no slack
+    db3 = _FakeDB(results=[_res(all_=rows), _res(rowcount=0)], scalars=[0])
+    sent.clear()
+    await W._maybe_send_publish_summary(db3, post)
+    assert not sent
+
+
+@pytest.mark.asyncio
+async def test_target_status_line(monkeypatch):
+    W = _real_worker(monkeypatch)
+    aid1, aid2 = uuid.uuid4(), uuid.uuid4()
+    post = _post()
+    targets = [
+        _target(post_id=post.id, social_account_id=aid1, status="published"),
+        _target(post_id=post.id, social_account_id=aid2, status="failed"),
+    ]
+    accts = [SimpleNamespace(id=aid1, platform="linkedin"), SimpleNamespace(id=aid2, platform="twitter")]
+    db = _FakeDB(
+        results=[
+            _res(scalars_all=targets),
+            _res(scalars_all=accts),
+        ]
+    )
+    line = await W._target_status_line(post, db)
+    assert "published: linkedin" in line and "failed: twitter" in line
+
+    # no targets → None
+    db2 = _FakeDB(results=[_res(scalars_all=[]), _res(scalars_all=[])])
+    assert await W._target_status_line(post, db2) is None
