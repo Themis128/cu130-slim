@@ -32,13 +32,15 @@ def _account(platform="twitter", **kw):
 
 def _post(**kw):
     kw.setdefault("media_ids", [])
+    kw.setdefault("link_url", None)
+    kw.setdefault("link_preview_override", None)
+    kw.setdefault("title", None)
+    kw.setdefault("platform_specific", {})
+    kw.setdefault("hashtags", [])
     return SimpleNamespace(
         id=uuid.uuid4(),
         team_id=uuid.uuid4(),
         content_text="hello world",
-        hashtags=[],
-        title=None,
-        platform_specific={},
         scheduled_at=None,
         status="draft",
         **kw,
@@ -357,3 +359,796 @@ async def test_publish_bluesky_video_and_errors(monkeypatch, tmp_path):
     monkeypatch.setattr(bapi, "BlueskyClient", _BskyFail)
     r2 = await P._publish_bluesky("pw", "t", _account("bluesky"), _post(), [], None)
     assert not r2.success and "login failed" in r2.error.lower()
+
+
+# ── instagram 5-path chain ────────────────────────────────────────────
+
+
+def _r(success, error=None, ambiguous=False, skipped=False, pid="x1"):
+    return P.PublishResult(
+        success=success,
+        error=error,
+        ambiguous=ambiguous,
+        skipped=skipped,
+        platform_post_id=pid if success else None,
+    )
+
+
+def _ig_account(**meta):
+    m = {"login_type": "fb", **meta}
+    return _account("instagram", meta_data=m)
+
+
+@pytest.mark.asyncio
+async def test_ig_no_media_skipped():
+    r = await P._publish_instagram("t", "hi", _ig_account(), _post(), [], None)
+    assert r.skipped and "requires at least one" in r.error
+
+
+@pytest.mark.asyncio
+async def test_ig_idempotent_live(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value={"id": "999", "permalink": "https://ig/p/999"}))
+    r = await P._publish_instagram("t", "hi", _ig_account(), _post(), [str(img)], None)
+    assert r.success and r.platform_post_id == "999"
+    assert r.platform_url == "https://ig/p/999"
+
+
+@pytest.mark.asyncio
+async def test_ig_business_login_graph(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
+    graph = AsyncMock(return_value=_r(True, pid="g1"))
+    monkeypatch.setattr(P, "_publish_instagram_via_graph", graph)
+    acc = _ig_account(login_type="business_login")
+    r = await P._publish_instagram("t", "hi", acc, _post(), [str(img)], None)
+    assert r.success and r.platform_post_id == "g1"
+    graph.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ig_business_login_ambiguous_short_circuits(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
+    monkeypatch.setattr(P, "_publish_instagram_via_graph", AsyncMock(return_value=_r(False, "timeout", ambiguous=True)))
+    insta = AsyncMock(return_value=_r(True))
+    monkeypatch.setattr(P, "_publish_instagram_via_instagrapi", insta)
+    monkeypatch.setattr(P._settings, "INSTAGRAM_USERNAME", "u")
+    monkeypatch.setattr(P._settings, "INSTAGRAM_PASSWORD", "p")
+    acc = _ig_account(login_type="business_login")
+    r = await P._publish_instagram("t", "hi", acc, _post(), [str(img)], None)
+    assert r.ambiguous and not insta.await_count  # never retry past ambiguous
+
+
+@pytest.mark.asyncio
+async def test_ig_chain_instagrapi_then_web(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
+    monkeypatch.setattr(P, "_settings", SimpleNamespace(INSTAGRAM_USERNAME="u", INSTAGRAM_PASSWORD="p"))
+    insta = AsyncMock(return_value=_r(False, "2fa required"))
+    web = AsyncMock(return_value=_r(True, pid="w1"))
+    monkeypatch.setattr(P, "_publish_instagram_via_instagrapi", insta)
+    monkeypatch.setattr(P, "_publish_instagram_via_web", web)
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    acc = _ig_account(private_api_session_id="s", private_api_csrf_token="c", private_api_ds_user_id="d")
+    r = await P._publish_instagram("t", "hi", acc, _post(), [str(img)], None)
+    assert r.success and r.platform_post_id == "w1"
+    insta.assert_awaited_once()
+    web.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ig_sidecar_then_graph_fallback(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
+    monkeypatch.setattr(P, "_settings", SimpleNamespace(INSTAGRAM_USERNAME="", INSTAGRAM_PASSWORD=""))
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    sidecar = AsyncMock(return_value=_r(False, "upload failed"))
+    graph = AsyncMock(return_value=_r(True, pid="g2"))
+    monkeypatch.setattr(P, "_publish_instagram_via_sidecar", sidecar)
+    monkeypatch.setattr(P, "_publish_instagram_via_graph", graph)
+    monkeypatch.setattr(P, "_resolve_ig_user_token", AsyncMock(return_value="gt"))
+    acc = _ig_account(private_api_session_id="s")  # sidecar session only
+    r = await P._publish_instagram("t", "hi", acc, _post(), [str(img)], None)
+    assert r.success and r.platform_post_id == "g2"
+
+
+@pytest.mark.asyncio
+async def test_ig_sidecar_session_expired_goes_graph(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
+    monkeypatch.setattr(P, "_settings", SimpleNamespace(INSTAGRAM_USERNAME="", INSTAGRAM_PASSWORD=""))
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    monkeypatch.setattr(P, "_publish_instagram_via_sidecar", AsyncMock(return_value=_r(False, "session expired")))
+    graph = AsyncMock(return_value=_r(False, "token dead"))
+    monkeypatch.setattr(P, "_publish_instagram_via_graph", graph)
+    monkeypatch.setattr(P, "_resolve_ig_user_token", AsyncMock(return_value="gt"))
+    acc = _ig_account(private_api_session_id="s")
+    r = await P._publish_instagram("t", "hi", acc, _post(), [str(img)], None)
+    assert not r.success and r.error == "token dead"
+
+
+@pytest.mark.asyncio
+async def test_ig_sidecar_fail_returns_web_error(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
+    monkeypatch.setattr(P, "_settings", SimpleNamespace(INSTAGRAM_USERNAME="", INSTAGRAM_PASSWORD=""))
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    monkeypatch.setattr(P, "_publish_instagram_via_web", AsyncMock(return_value=_r(False, "web 429")))
+    monkeypatch.setattr(P, "_publish_instagram_via_sidecar", AsyncMock(return_value=_r(False, "sc err")))
+    monkeypatch.setattr(P, "_publish_instagram_via_graph", AsyncMock(return_value=_r(False, "graph err")))
+    monkeypatch.setattr(P, "_resolve_ig_user_token", AsyncMock(return_value="gt"))
+    acc = _ig_account(private_api_session_id="s", private_api_csrf_token="c", private_api_ds_user_id="d")
+    r = await P._publish_instagram("t", "hi", acc, _post(), [str(img)], None)
+    assert r.error == "web 429"  # web error preferred over sidecar/graph
+
+
+@pytest.mark.asyncio
+async def test_ig_last_resort_graph(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "InstagramAPIClient", lambda **kw: object())
+    monkeypatch.setattr(P, "_instagram_find_live", AsyncMock(return_value=None))
+    monkeypatch.setattr(P, "_settings", SimpleNamespace(INSTAGRAM_USERNAME="", INSTAGRAM_PASSWORD=""))
+    monkeypatch.setattr(P, "decrypt_field", lambda v: None)
+    graph = AsyncMock(return_value=_r(True, pid="last"))
+    monkeypatch.setattr(P, "_publish_instagram_via_graph", graph)
+    monkeypatch.setattr(P, "_resolve_ig_user_token", AsyncMock(return_value="gt"))
+    r = await P._publish_instagram("t", "hi", _ig_account(), _post(), [str(img)], None)
+    assert r.platform_post_id == "last"
+
+
+# ── twitter publisher ─────────────────────────────────────────────────
+
+
+def _tw_plan(has_media=False, paths=None):
+    return SimpleNamespace(has_media=has_media, paths=paths or [])
+
+
+def _tw_exc(status, text="err", headers=None):
+    e = P.TwitterAPIError(status, text, "https://x.test")
+    e.headers.update({k.lower(): v for k, v in (headers or {}).items()})
+    return e
+
+
+@pytest.mark.asyncio
+async def test_tw_media_incomplete_guard(tmp_path):
+    post = _post(media_ids=[uuid.uuid4(), uuid.uuid4()])
+    r = await P._publish_twitter("t", "hi", _account("twitter"), post, [], None)
+    assert not r.success and "media incomplete" in r.error
+
+
+@pytest.mark.asyncio
+async def test_tw_plan_media_invalid(monkeypatch):
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda paths: (_ for _ in ()).throw(xw.XWebMediaError("bad fmt")))
+    r = await P._publish_twitter("t", "hi", _account("twitter"), _post(), ["x.png"], None)
+    assert not r.success and r.permanent and "media invalid" in r.error
+
+
+@pytest.mark.asyncio
+async def test_tw_happy_single_tweet(monkeypatch):
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda p: _tw_plan())
+    client = SimpleNamespace(create_tweet=AsyncMock(return_value={"data": {"id": "t100"}}))
+    monkeypatch.setattr(P, "TwitterAPIClient", lambda access_token: client)
+    acc = _account("twitter", username="cu_dev")
+    r = await P._publish_twitter("t", "hello", acc, _post(), [], None)
+    assert r.success and r.platform_post_id == "t100"
+    assert r.platform_url == "https://twitter.com/cu_dev/status/t100"
+    client.create_tweet.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_tw_thread_partial_success_on_quota(monkeypatch):
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda p: _tw_plan())
+    monkeypatch.setattr(P, "_split_thread", lambda t: ["c1", "c2", "c3"])
+
+    calls = []
+
+    async def _tweet(text, reply_tweet_id=None, media_ids=None):
+        calls.append(reply_tweet_id)
+        if len(calls) == 2:
+            raise _tw_exc(402, "credits depleted")
+        return {"data": {"id": f"t{len(calls)}"}}
+
+    client = SimpleNamespace(create_tweet=_tweet)
+    monkeypatch.setattr(P, "TwitterAPIClient", lambda access_token: client)
+    r = await P._publish_twitter("t", "x", _account("twitter"), _post(), [], None)
+    assert r.success and r.platform_post_id == "t1"
+    assert r.platform_meta["x_thread"]["incomplete"] is True
+    assert r.platform_meta["x_thread"]["posted"] == 1
+
+
+@pytest.mark.asyncio
+async def test_tw_quota_first_tweet_goes_fallbacks(monkeypatch):
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda p: _tw_plan())
+
+    async def _tweet(**kw):
+        raise _tw_exc(429, "usage capped", {"x-app-limit-24hour-reset": "1700000000"})
+
+    monkeypatch.setattr(P, "TwitterAPIClient", lambda access_token: SimpleNamespace(create_tweet=_tweet))
+    fb = AsyncMock(return_value=_r(True, pid="fb1"))
+    monkeypatch.setattr(P, "_publish_twitter_fallbacks", fb)
+    monkeypatch.setattr(P, "_x_retry_at", lambda e: "2025-01-01T00:00:00Z")
+    r = await P._publish_twitter("t", "hi", _account("twitter"), _post(), [], None)
+    assert r.success
+    assert fb.await_args.kwargs["retry_at"] == "2025-01-01T00:00:00Z"
+
+
+@pytest.mark.asyncio
+async def test_tw_401_refresh_retry(monkeypatch):
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda p: _tw_plan())
+    attempts = []
+
+    async def _tweet(text, reply_tweet_id=None, media_ids=None):
+        attempts.append(1)
+        if len(attempts) == 1:
+            raise _tw_exc(401, "expired")
+        return {"data": {"id": "t2"}}
+
+    client = SimpleNamespace(create_tweet=_tweet)
+    monkeypatch.setattr(P, "TwitterAPIClient", lambda access_token: client)
+    monkeypatch.setattr(P, "_refresh_oauth2_token", AsyncMock(return_value="new-tok"))
+    r = await P._publish_twitter("t", "hi", _account("twitter"), _post(), [], None)
+    assert r.success and r.platform_post_id == "t2" and len(attempts) == 2
+
+
+@pytest.mark.asyncio
+async def test_tw_media_upload_chain(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda p: _tw_plan(True, [str(img)]))
+    monkeypatch.setattr(xw, "prepare_media", lambda plan, wd: plan.paths)
+    monkeypatch.setattr(P, "_x_media_alt_texts", AsyncMock(return_value=["alt"]))
+    upload = AsyncMock(return_value="m-1")
+    monkeypatch.setattr(P, "_twitter_upload_media", upload)
+    seen = {}
+
+    async def _tweet(text, reply_tweet_id=None, media_ids=None):
+        seen["media"] = media_ids
+        return {"data": {"id": "t9"}}
+
+    monkeypatch.setattr(P, "TwitterAPIClient", lambda access_token: SimpleNamespace(create_tweet=_tweet))
+    r = await P._publish_twitter("t", "hi", _account("twitter"), _post(), [str(img)], None)
+    assert r.success and seen["media"] == ["m-1"]
+
+
+@pytest.mark.asyncio
+async def test_tw_media_upload_quota_fallback(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda p: _tw_plan(True, [str(img)]))
+    monkeypatch.setattr(xw, "prepare_media", lambda plan, wd: plan.paths)
+    monkeypatch.setattr(P, "_x_media_alt_texts", AsyncMock(return_value=[None]))
+    monkeypatch.setattr(P, "_twitter_upload_media", AsyncMock(side_effect=_tw_exc(402, "credits")))
+    fb = AsyncMock(return_value=_r(True, pid="fb2"))
+    monkeypatch.setattr(P, "_publish_twitter_fallbacks", fb)
+    monkeypatch.setattr(P, "_x_retry_at", lambda e: None)
+    r = await P._publish_twitter("t", "hi", _account("twitter"), _post(), [str(img)], None)
+    assert r.success and fb.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_tw_media_upload_hard_fail(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    import app.services.x_web as xw
+
+    monkeypatch.setattr(xw, "plan_media", lambda p: _tw_plan(True, [str(img)]))
+    monkeypatch.setattr(xw, "prepare_media", lambda plan, wd: plan.paths)
+    monkeypatch.setattr(xw, "is_configured", lambda: False)
+    monkeypatch.setattr(P, "_x_media_alt_texts", AsyncMock(return_value=[None]))
+    monkeypatch.setattr(P, "_twitter_upload_media", AsyncMock(side_effect=_tw_exc(500, "server boom")))
+    r = await P._publish_twitter("t", "hi", _account("twitter"), _post(), [str(img)], None)
+    assert not r.success and "not posting without media" in r.error
+
+
+# ── facebook publisher ────────────────────────────────────────────────
+
+
+class _FBHttp:
+    """Fake httpx.AsyncClient for the photo-upload flow."""
+
+    posts = []
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, data=None, files=None):
+        _FBHttp.posts.append((url, data, bool(files)))
+        status, payload = _FBHttp.responses.get(url, (200, {"id": "ph1"}))
+        return SimpleNamespace(
+            status_code=status,
+            text=str(payload),
+            json=lambda: payload,
+            raise_for_status=lambda: None,
+        )
+
+
+_FBHttp.responses = {}
+
+
+@pytest.mark.asyncio
+async def test_fb_group_skip():
+    acc = _account("facebook", account_type="group")
+    r = await P._publish_facebook("t", "hi", acc, _post(), [], None)
+    assert r.skipped
+
+
+@pytest.mark.asyncio
+async def test_fb_personal_sidecar(monkeypatch):
+    monkeypatch.setattr(P, "_has_facebook_browser_session", lambda a: True)
+    sidecar = AsyncMock(return_value=_r(True, pid="sc1"))
+    monkeypatch.setattr(P, "_publish_facebook_via_sidecar", sidecar)
+    acc = _account("facebook", account_type="user")
+    r = await P._publish_facebook("t", "hi", acc, _post(), [], None)
+    assert r.platform_post_id == "sc1"
+    sidecar.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_fb_page_text_post(monkeypatch):
+    monkeypatch.setattr(P, "_has_facebook_browser_session", lambda a: False)
+    monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(return_value="ptok"))
+    fb = SimpleNamespace(create_post=AsyncMock(return_value={"id": "1_2"}))
+    monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: fb)
+    acc = _account("facebook", account_id="pg1")
+    r = await P._publish_facebook("t", "hello", acc, _post(), [], None)
+    assert r.success and r.platform_post_id == "1_2"
+    assert "facebook.com/1_2" in r.platform_url
+
+
+@pytest.mark.asyncio
+async def test_fb_photo_album_flow(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "_has_facebook_browser_session", lambda a: False)
+    monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(return_value="ptok"))
+    fb = SimpleNamespace(create_post=AsyncMock(return_value={"id": "txt"}))
+    monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: fb)
+    monkeypatch.setattr(P.httpx, "AsyncClient", _FBHttp)
+    _FBHttp.posts = []
+    _FBHttp.responses = {
+        f"{P.FACEBOOK_GRAPH_BASE}/{P.FACEBOOK_GRAPH_VERSION}/pg1/photos": (200, {"id": "ph1"}),
+        f"{P.FACEBOOK_GRAPH_BASE}/{P.FACEBOOK_GRAPH_VERSION}/pg1/feed": (200, {"id": "alb1"}),
+    }
+    acc = _account("facebook", account_id="pg1")
+    r = await P._publish_facebook("t", "hi", acc, _post(), [str(img)], None)
+    assert r.success and r.platform_post_id == "alb1"
+    urls = [p[0] for p in _FBHttp.posts]
+    assert any(u.endswith("/photos") for u in urls)
+    assert any(u.endswith("/feed") for u in urls)
+
+
+@pytest.mark.asyncio
+async def test_fb_photo_all_fail_text_fallback(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "_has_facebook_browser_session", lambda a: False)
+    monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(return_value="ptok"))
+    fb = SimpleNamespace(create_post=AsyncMock(return_value={"id": "txt9"}))
+    monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: fb)
+    monkeypatch.setattr(P.httpx, "AsyncClient", _FBHttp)
+    _FBHttp.posts = []
+    _FBHttp.responses = {
+        f"{P.FACEBOOK_GRAPH_BASE}/{P.FACEBOOK_GRAPH_VERSION}/pg1/photos": (400, {"error": "bad"}),
+    }
+    acc = _account("facebook", account_id="pg1")
+    r = await P._publish_facebook("t", "hi", acc, _post(), [str(img)], None)
+    assert r.success and r.platform_post_id == "txt9"
+
+
+@pytest.mark.asyncio
+async def test_fb_page_token_group_marker(monkeypatch):
+    monkeypatch.setattr(P, "_has_facebook_browser_session", lambda a: False)
+    marker = P._FB_GROUP_MARKERS[0]
+    monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(side_effect=Exception(f"graph says {marker}")))
+    acc = _account("facebook", account_id="pg1")
+    r = await P._publish_facebook("t", "hi", acc, _post(), [], None)
+    assert r.skipped
+
+
+@pytest.mark.asyncio
+async def test_fb_page_token_other_error_raises(monkeypatch):
+    monkeypatch.setattr(P, "_has_facebook_browser_session", lambda a: False)
+    monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(side_effect=Exception("network down")))
+    acc = _account("facebook", account_id="pg1")
+    with pytest.raises(Exception, match="network down"):
+        await P._publish_facebook("t", "hi", acc, _post(), [], None)
+
+
+# ── linkedin publisher ────────────────────────────────────────────────
+
+
+def _li_client(**over):
+    base = dict(
+        _author_urn=lambda aid, atype: f"urn:li:{atype}:{aid}",
+        create_post=AsyncMock(return_value=P.PublishResult(success=True, platform_post_id="li-txt")),
+        create_video_post=AsyncMock(return_value=P.PublishResult(success=True, platform_post_id="li-vid")),
+        create_document_post=AsyncMock(return_value=P.PublishResult(success=True, platform_post_id="li-doc")),
+        create_multi_image_post=AsyncMock(return_value=P.PublishResult(success=True, platform_post_id="li-img")),
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.asyncio
+async def test_li_sidecar_success(monkeypatch):
+    monkeypatch.setattr(P, "_has_linkedin_browser_session", lambda a: True)
+    sidecar = AsyncMock(return_value=_r(True, pid="sc-li"))
+    monkeypatch.setattr(P, "_publish_linkedin_via_sidecar", sidecar)
+    r = await P._publish_linkedin("t", "hi", _account("linkedin"), _post(), [], None)
+    assert r.platform_post_id == "sc-li"
+
+
+@pytest.mark.asyncio
+async def test_li_sidecar_fail_falls_to_api(monkeypatch):
+    monkeypatch.setattr(P, "_has_linkedin_browser_session", lambda a: True)
+    monkeypatch.setattr(P, "_publish_linkedin_via_sidecar", AsyncMock(return_value=_r(False, "sidecar down")))
+    client = _li_client()
+    monkeypatch.setattr(P, "LinkedInAPIClient", lambda access_token: client)
+    r = await P._publish_linkedin("t", "hi", _account("linkedin"), _post(), [], None)
+    assert r.success and r.platform_post_id == "li-txt"
+    client.create_post.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_li_video_post(monkeypatch, tmp_path):
+    vid = tmp_path / "v.mp4"
+
+    vid.write_bytes(b"\x00" * 12000)
+    monkeypatch.setattr(P, "_has_linkedin_browser_session", lambda a: False)
+    client = _li_client()
+    monkeypatch.setattr(P, "LinkedInAPIClient", lambda access_token: client)
+    r = await P._publish_linkedin("t", "hi", _account("linkedin"), _post(), [str(vid)], None)
+    assert r.platform_post_id == "li-vid"
+    assert client.create_video_post.await_args.kwargs["video_bytes"] == b"\x00" * 12000
+
+
+@pytest.mark.asyncio
+async def test_li_pdf_and_multi_image(monkeypatch, tmp_path):
+    pdf = tmp_path / "c.pdf"
+
+    pdf.write_bytes(b"%PDF-1.4" + b"\x00" * 12000)
+    i1 = tmp_path / "a.png"
+
+    i1.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    i2 = tmp_path / "b.png"
+
+    i2.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    monkeypatch.setattr(P, "_has_linkedin_browser_session", lambda a: False)
+    client = _li_client()
+    monkeypatch.setattr(P, "LinkedInAPIClient", lambda access_token: client)
+    monkeypatch.setattr(P, "_images_to_pdf", lambda paths, title: b"pdf-bytes")
+    acc = _account("linkedin")
+
+    r = await P._publish_linkedin("t", "hi", acc, _post(), [str(pdf)], None)
+    assert r.platform_post_id == "li-doc"
+
+    r2 = await P._publish_linkedin("t", "hi", acc, _post(), [str(i1), str(i2)], None)
+    assert r2.platform_post_id == "li-doc"
+    assert client.create_document_post.await_args.kwargs["pdf_bytes"] == b"pdf-bytes"
+
+    r3 = await P._publish_linkedin("t", "hi", acc, _post(), [str(i1)], None)
+    assert r3.platform_post_id == "li-img"
+
+
+@pytest.mark.asyncio
+async def test_li_link_post_with_override(monkeypatch):
+    monkeypatch.setattr(P, "_has_linkedin_browser_session", lambda a: False)
+    client = _li_client()
+    monkeypatch.setattr(P, "LinkedInAPIClient", lambda access_token: client)
+    post = _post(link_url="https://cloudless.gr", link_preview_override={"title": "T", "description": "D"})
+    r = await P._publish_linkedin("t", "hi", _account("linkedin"), post, [], None)
+    assert r.success
+    kw = client.create_post.await_args.kwargs
+    assert kw["link_url"] == "https://cloudless.gr" and kw["link_title"] == "T"
+
+
+@pytest.mark.asyncio
+async def test_li_sidecar_no_session():
+    r = await P._publish_linkedin_via_sidecar(_account("linkedin", meta_data={}), "hi", _post(), [])
+    assert not r.success and "browser session" in r.error
+
+
+@pytest.mark.asyncio
+async def test_li_sidecar_org_and_personal(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+
+    img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
+    calls = []
+
+    class _Sidecar:
+        async def set_session(self, storage):
+            calls.append(("session",))
+
+        async def company_post_image(self, vanity, images, message):
+            calls.append(("org-img", vanity, len(images)))
+            return {"url": "https://li/co/1", "post_id": "c1"}
+
+        async def company_post_text(self, vanity, message):
+            calls.append(("org-txt", vanity))
+            return {"url": "https://li/co/2", "post_id": "c2"}
+
+        async def post_image(self, images, message):
+            calls.append(("p-img", len(images)))
+            return {"url": "https://li/p/1"}
+
+        async def post_link(self, url, message):
+            calls.append(("p-link", url))
+            return {"url": "https://li/p/2"}
+
+        async def post_text(self, message):
+            calls.append(("p-txt",))
+            return {"url": "https://li/p/3"}
+
+    monkeypatch.setattr(P, "LinkedInSidecarClient", _Sidecar)
+
+    org = _account("linkedin", account_type="organization", meta_data={"browser_storage_state": {"s": 1}, "vanity_name": "cloudless_gr"})
+    r = await P._publish_linkedin_via_sidecar(org, "hi", _post(), [str(img)])
+    assert r.success and r.platform_post_id == "c1"
+    assert calls[1] == ("org-img", "cloudless-gr", 1)  # _ → - normalization
+
+    r2 = await P._publish_linkedin_via_sidecar(org, "hi", _post(), [])
+    assert r2.platform_post_id == "c2"
+
+    person = _account("linkedin", account_type="person", meta_data={"browser_storage_state": {"s": 1}})
+    r3 = await P._publish_linkedin_via_sidecar(person, "hi", _post(), [str(img)])
+    assert r3.success and r3.platform_url == "https://li/p/1"
+    await P._publish_linkedin_via_sidecar(person, "hi", _post(link_url="https://x.io"), [])
+    assert calls[-1] == ("p-link", "https://x.io")
+
+
+@pytest.mark.asyncio
+async def test_li_sidecar_org_no_vanity(monkeypatch):
+    class _Sidecar:
+        async def set_session(self, storage):
+            return {}
+
+    monkeypatch.setattr(P, "LinkedInSidecarClient", _Sidecar)
+    org = _account("linkedin", account_type="organization", username=None, meta_data={"browser_storage_state": {"s": 1}})
+    r = await P._publish_linkedin_via_sidecar(org, "hi", _post(), [])
+    assert not r.success and "vanity" in r.error
+
+
+def test_li_author_urn_helper():
+    client = SimpleNamespace(_author_urn=lambda aid, t: f"urn:{t}:{aid}")
+    acc = _account("linkedin", meta_data={"author_urn": "urn:custom"})
+    assert P._linkedin_author_urn(acc, client) == "urn:custom"
+    acc2 = _account("linkedin", account_id="42", meta_data={"account_type": "organization"})
+    assert P._linkedin_author_urn(acc2, client) == "urn:organization:42"
+    assert P._has_linkedin_browser_session(_account("linkedin", meta_data={"browser_storage_state": {}})) is False
+    assert P._has_linkedin_browser_session(_account("linkedin", meta_data={"browser_storage_state": {"x": 1}})) is True
+
+
+# ── tiktok publisher + status poller ──────────────────────────────────
+
+
+def _tt_client(**over):
+    base = dict(
+        get_creator_info=AsyncMock(return_value={"data": {"privacy_level_options": ["PUBLIC_TO_EVERYONE", "SELF_ONLY"]}}),
+        init_video_post=AsyncMock(return_value={"data": {"publish_id": "pub-1", "upload_url": "https://up/1"}}),
+        init_video_upload=AsyncMock(return_value={"data": {"publish_id": "pub-1", "upload_url": "https://up/1"}}),
+        init_photo_post=AsyncMock(return_value={"data": {"publish_id": "pub-p"}}),
+        init_photo_post_media_upload=AsyncMock(return_value={"data": {"publish_id": "pub-p"}}),
+        upload_video_file=AsyncMock(return_value=None),
+        check_publish_status=AsyncMock(return_value={"data": {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": ["v123"]}}),
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _tt_post(**opts):
+    return _post(platform_specific={"tiktok": opts})
+
+
+@pytest.mark.asyncio
+async def test_tt_multi_video_skip(tmp_path):
+    v1 = tmp_path / "a.mp4"
+
+    v1.write_bytes(b"\x00" * 12000)
+    v2 = tmp_path / "b.mp4"
+
+    v2.write_bytes(b"\x00" * 12000)
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(), [str(v1), str(v2)], None)
+    assert r.skipped and "single video" in r.error
+
+
+@pytest.mark.asyncio
+async def test_tt_bad_publish_mode():
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(publish_mode="BOGUS"), [], None)
+    assert "publish_mode" in r.error
+
+
+@pytest.mark.asyncio
+async def test_tt_resume_existing_publish_id(monkeypatch):
+    poll = AsyncMock(return_value=_r(True, pid="resumed"))
+    monkeypatch.setattr(P, "_poll_tiktok_publish_status", poll)
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: _tt_client())
+    # v_inbox prefix → resume as MEDIA_UPLOAD
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(publish_id="v_inbox_abc"), [], None)
+    assert r.platform_post_id == "resumed"
+    assert poll.await_args.args[2] == "MEDIA_UPLOAD"
+    # non-inbox id → resume as DIRECT_POST
+    await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(publish_id="v_pub_xyz"), [], None)
+    assert poll.await_args.args[2] == "DIRECT_POST"
+
+
+@pytest.mark.asyncio
+async def test_tt_privacy_validation(monkeypatch):
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: _tt_client())
+    monkeypatch.setattr(P, "_media_public_url", lambda sp: f"https://cdn/{sp}")
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(privacy_level="FRIENDS"), ["p.png"], ["p.png"])
+    assert "privacy_level must be one of" in r.error
+
+
+@pytest.mark.asyncio
+async def test_tt_photo_no_public_url(monkeypatch):
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: _tt_client())
+    monkeypatch.setattr(P, "_media_public_url", lambda sp: None)
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(), ["p.png"], ["p.png"])
+    assert "public media URLs" in r.error
+
+
+@pytest.mark.asyncio
+async def test_tt_video_file_upload_happy(monkeypatch, tmp_path):
+    vid = tmp_path / "v.mp4"
+
+    vid.write_bytes(b"\x00" * 12000)
+    client = _tt_client()
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: client)
+    monkeypatch.setattr(P, "_media_public_url", lambda sp: f"https://cdn/{sp}")
+    import app.services.tiktok_api as tapi
+
+    monkeypatch.setattr(tapi, "validate_tiktok_video_constraints", lambda p: None)
+    monkeypatch.setattr(tapi, "_video_chunk_plan", lambda size: (1000000, 2))
+    monkeypatch.setattr(P, "_poll_tiktok_publish_status", AsyncMock(return_value=_r(True, pid="v123")))
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(), [str(vid)], ["v.mp4"])
+    assert r.success
+    client.init_video_post.assert_awaited_once()
+    kw = client.init_video_post.await_args.kwargs
+    assert kw["source"] == "FILE_UPLOAD" and kw["video_size"] == 12000
+    client.upload_video_file.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_tt_unaudited_falls_to_media_upload(monkeypatch, tmp_path):
+    vid = tmp_path / "v.mp4"
+
+    vid.write_bytes(b"\x00" * 12000)
+    marker = P._TT_UNAUDITED_MARKERS[0]
+
+    class _Err(Exception):
+        pass
+
+    calls = []
+
+    async def _init_video_post(**kw):
+        calls.append(kw)
+        raise P.TikTokAPIError(400, f"{marker} bad", "u")
+
+    client = _tt_client(init_video_post=_init_video_post)
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: client)
+    monkeypatch.setattr(P, "_media_public_url", lambda sp: f"https://cdn/{sp}")
+    import app.services.tiktok_api as tapi
+
+    monkeypatch.setattr(tapi, "validate_tiktok_video_constraints", lambda p: None)
+    monkeypatch.setattr(tapi, "_video_chunk_plan", lambda size: (1000000, 2))
+    monkeypatch.setattr(P, "_poll_tiktok_publish_status", AsyncMock(return_value=_r(True, pid="inbox")))
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(), [str(vid)], ["v.mp4"])
+    assert r.success
+    client.init_video_upload.assert_awaited_once()  # MEDIA_UPLOAD fallback
+
+
+@pytest.mark.asyncio
+async def test_tt_init_error_clarified(monkeypatch):
+    marker = P._TT_OWNERSHIP_MARKERS[0]
+    client = _tt_client(init_photo_post=AsyncMock(return_value={"error": {"code": "x", "message": marker}}))
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: client)
+    monkeypatch.setattr(P, "_media_public_url", lambda sp: f"https://cdn/{sp}")
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(), ["p.png"], ["p.png"])
+    assert not r.success and r.skipped and "init failed" in r.error
+
+
+@pytest.mark.asyncio
+async def test_tt_photo_post_happy(monkeypatch):
+    client = _tt_client()
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: client)
+    monkeypatch.setattr(P, "_media_public_url", lambda sp: f"https://cdn/{sp}")
+    monkeypatch.setattr(P, "_poll_tiktok_publish_status", AsyncMock(return_value=_r(True, pid="ph")))
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(), ["p.png"], ["p.png"])
+    assert r.success
+    kw = client.init_photo_post.await_args.kwargs
+    assert kw["photo_urls"] == ["https://cdn/p.png"]
+
+
+@pytest.mark.asyncio
+async def test_tt_pull_from_url_video(monkeypatch):
+    client = _tt_client()
+    monkeypatch.setattr(P, "TikTokAPIClient", lambda **kw: client)
+    monkeypatch.setattr(P, "_media_public_url", lambda sp: f"https://cdn/{sp}")
+    monkeypatch.setattr(P, "_poll_tiktok_publish_status", AsyncMock(return_value=_r(True, pid="v")))
+    # media_paths has .mp4 but local file doesn't exist → PULL_FROM_URL
+    r = await P._publish_tiktok("t", "hi", _account("tiktok"), _tt_post(), ["/missing/v.mp4"], ["v.mp4"])
+    assert r.success
+    kw = client.init_video_post.await_args.kwargs
+    assert kw["source"] == "PULL_FROM_URL" and kw["video_url"] == "https://cdn/v.mp4"
+
+
+@pytest.mark.asyncio
+async def test_tt_poll_terminal_states(monkeypatch):
+    monkeypatch.setattr(P.asyncio, "sleep", AsyncMock()) if hasattr(P, "asyncio") else None
+    import asyncio as _a
+
+    monkeypatch.setattr(_a, "sleep", AsyncMock())
+
+    # MEDIA_UPLOAD + SEND_TO_USER_INBOX → success with profile link
+    client = _tt_client(check_publish_status=AsyncMock(return_value={"data": {"status": "SEND_TO_USER_INBOX"}}))
+    r = await P._poll_tiktok_publish_status(client, "v_inbox_x", "MEDIA_UPLOAD", "cloudless.gr")
+    assert r.success and "tiktok.com/@cloudless.gr" in r.platform_url
+    assert r.platform_meta["tiktok"]["status"] == "SEND_TO_USER_INBOX"
+
+    # PUBLISH_COMPLETE with public id → video url
+    client2 = _tt_client(check_publish_status=AsyncMock(return_value={"data": {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": ["v999"]}}))
+    r2 = await P._poll_tiktok_publish_status(client2, "p1", "DIRECT_POST", "cloudless.gr")
+    assert r2.success and r2.platform_post_id == "v999"
+    assert "/video/v999" in r2.platform_url
+
+    # FAILED with ownership marker → skipped
+    marker = P._TT_OWNERSHIP_MARKERS[0]
+    client3 = _tt_client(check_publish_status=AsyncMock(return_value={"data": {"status": "FAILED", "fail_reason": marker}}))
+    r3 = await P._poll_tiktok_publish_status(client3, "p2", "DIRECT_POST", "u")
+    assert not r3.success and r3.skipped
+    assert r3.platform_meta["tiktok"]["fail_reason"] == marker
+
+    # Timeout → non-skipped failure with detail
+    client4 = _tt_client(check_publish_status=AsyncMock(return_value={"data": {"status": "PROCESSING_UPLOAD", "uploaded_bytes": 5}}))
+    r4 = await P._poll_tiktok_publish_status(client4, "p3", "DIRECT_POST", "u", attempts=2, interval_sec=0)
+    assert not r4.success and not r4.skipped
+    assert "uploaded_bytes=5" in r4.error and "timeout" in r4.error
