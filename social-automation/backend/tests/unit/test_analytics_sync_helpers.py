@@ -1896,3 +1896,149 @@ async def test_scrape_twitter_timeline_happy(monkeypatch):
     assert out == {"posts": [{"id": "t1"}], "followers": 500}
     b.navigate.assert_awaited_once()
     assert "x.com/cu_dev" in b.navigate.await_args.args[0]
+
+
+# ── LinkedIn/X fetch helpers (direct client injection) ──────────────
+
+
+class _Cli:
+    """Minimal async client — maps url→response via a callable."""
+
+    def __init__(self, fn):
+        self._fn = fn
+        self.urls = []
+
+    async def get(self, url, **kw):
+        self.urls.append(url)
+        return self._fn(url)
+
+
+def _cli_ok(payload):
+    return _Cli(lambda url: _resp(200, payload))
+
+
+@pytest.mark.asyncio
+async def test_li_org_stats_empty():
+    out = await A._fetch_linkedin_org_stats(_cli_ok({}), "t", "urn:li:organization:1", [])
+    assert out == {}
+
+
+@pytest.mark.asyncio
+async def test_li_org_stats_happy_parse():
+    el = {
+        "ugcPost": "urn:li:ugcPost:111",
+        "totalShareStatistics": {
+            "impressionCount": 10,
+            "clickCount": 2,
+            "likeCount": 3,
+            "commentCount": 1,
+            "shareCount": 1,
+            "uniqueImpressionsCount": 8,
+        },
+    }
+    cli = _cli_ok({"elements": [el]})
+    out = await A._fetch_linkedin_org_stats(cli, "t", "urn:li:organization:1", ["urn:li:ugcPost:111"])
+    b = out["urn:li:ugcPost:111"]
+    assert b.impressions == 10 and b.clicks == 2 and b.reach == 8
+
+
+@pytest.mark.asyncio
+async def test_li_org_stats_soft_fail_alt_urn():
+    """share: 404s with not_found → retried as ugcPost → succeeds."""
+    el = {
+        "ugcPost": "urn:li:ugcPost:222",
+        "totalShareStatistics": {"impressionCount": 5},
+    }
+
+    def fn(url):
+        if "ugcPosts=" in url:
+            return _resp(200, {"elements": [el]})
+        return _resp(404, {"message": "could not find entity"})
+
+    out = await A._fetch_linkedin_org_stats(_Cli(fn), "t", "urn:li:organization:1", ["urn:li:share:222"])
+    assert out["urn:li:share:222"].impressions == 5
+
+
+@pytest.mark.asyncio
+async def test_li_org_stats_hard_fail_and_no_element():
+    out = await A._fetch_linkedin_org_stats(_Cli(lambda u: _resp(500, {"message": "down"})), "t", "urn:li:organization:1", ["urn:li:ugcPost:9"])
+    assert "HTTP 500" in out["urn:li:ugcPost:9"].notes
+
+    out = await A._fetch_linkedin_org_stats(_cli_ok({"elements": []}), "t", "urn:li:organization:1", ["urn:li:share:9"])
+    assert "no_stats_element" in out["urn:li:share:9"].raw["note"]
+
+
+@pytest.mark.asyncio
+async def test_li_ad_stats():
+    assert await A._fetch_linkedin_ad_stats(_cli_ok({}), "t", "", since=datetime.now(UTC)) == {}
+
+    el = {
+        "pivotValues": ["urn:li:sponsoredCampaign:42"],
+        "impressions": 100,
+        "clicks": 5,
+        "reactions": 2,
+        "comments": 1,
+        "shares": 1,
+        "approximateUniqueImpressions": 80,
+        "costInLocalCurrency": 3.5,
+        "costInUsd": 3.8,
+        "dateRange": {"start": {"day": 1}},
+        "totalEngagements": 9,
+    }
+    out = await A._fetch_linkedin_ad_stats(_cli_ok({"elements": [el, el]}), "t", "acc-1", since=datetime.now(UTC))
+    b = out["urn:li:sponsoredCampaign:42"]
+    assert b.impressions == 200 and b.raw["costUsd"] == 7.6
+    assert len(b.raw["daily"]) == 2
+
+    out = await A._fetch_linkedin_ad_stats(_Cli(lambda u: _resp(403, {"message": "denied"})), "t", "acc-1", since=datetime.now(UTC))
+    assert "adAnalytics HTTP 403" in out["_error"].notes
+
+
+@pytest.mark.asyncio
+async def test_li_org_posts_pagination_and_since():
+    now = datetime.now(UTC)
+    old = int((now - timedelta(days=90)).timestamp() * 1000)
+    new = int((now - timedelta(days=1)).timestamp() * 1000)
+
+    def fn(url):
+        if "start=0" in url:
+            return _resp(
+                200,
+                {
+                    "elements": [
+                        {"id": "urn:li:share:1", "publishedAt": new, "commentary": "new post"},
+                        {"id": "urn:li:share:2", "publishedAt": old, "commentary": "too old"},
+                        {"commentary": "no id"},
+                    ],
+                    "paging": {"total": 1},
+                },
+            )
+        return _resp(200, {"elements": []})
+
+    out = await A._list_org_post_urns(_Cli(fn), "t", "urn:li:organization:1", since=now - timedelta(days=30))
+    assert len(out) == 1 and out[0]["urn"] == "urn:li:share:1"
+
+    # Error status breaks the loop
+    out = await A._list_org_post_urns(_Cli(lambda u: _resp(500, {})), "t", "urn:li:organization:1", since=now - timedelta(days=30))
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_twitter_metrics_402_fallback_and_quota():
+    calls = []
+
+    def fn(url):
+        calls.append(url)
+        if len(calls) == 1:
+            return _resp(402, {})
+        return _resp(200, {"data": {"public_metrics": {"impression_count": 50, "like_count": 3, "reply_count": 1, "retweet_count": 2}}})
+
+    b = await A._fetch_twitter_metrics(_Cli(fn), "t", "tw-1")
+    assert b.impressions == 50 and b.likes == 3
+    assert len(calls) == 2  # retried with public_metrics only
+
+    b = await A._fetch_twitter_metrics(_Cli(lambda u: _resp(429, {})), "t", "tw-1")
+    assert b.notes == "quota_exhausted"
+
+    b = await A._fetch_twitter_metrics(_Cli(lambda u: _resp(404, {})), "t", "tw-1")
+    assert "HTTP 404" in b.notes
