@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import app.services.plain_english as plain_english
-import app.services.seo as seo_service
 import app.services.inference as inference
+import app.services.plain_english as plain_english
 import app.services.quality_pipeline as qp
+import app.services.seo as seo_service
 
 
 def _neutral_patches(monkeypatch, seo_overall=95):
