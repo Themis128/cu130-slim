@@ -1316,3 +1316,141 @@ async def test_fetch_linkedin_org_stats_batch():
     # empty urn list → no calls
     out2 = await A._fetch_linkedin_org_stats(_Client(), "tok", "urn", [])
     assert out2 == {}
+
+
+# ── sync_threads_account ────────────────────────────────────────────────
+
+
+def _insights_data(**metrics):
+    """Official Threads insights shape: data[{name, period, values:[{value}]}]."""
+    return {"data": [{"name": n, "period": "lifetime", "values": [{"value": v}]} for n, v in metrics.items()]}
+
+
+def _threads_http(media_insights=None, threads_list=None, account_insights=None, profile=None):
+    """Route client.get by URL substring → _resp."""
+    media_insights = media_insights or {}
+    threads_list = threads_list if threads_list is not None else _resp(200, {"data": []})
+    account_insights = account_insights if account_insights is not None else _resp(200, {"data": []})
+    profile = profile if profile is not None else _resp(200, {})
+
+    async def _get(url, **kw):
+        if "/threads_insights" in url:
+            return account_insights
+        if "/insights" in url:
+            for mid, resp in media_insights.items():
+                if f"/{mid}/" in url:
+                    return resp
+            return _resp(404, {"error": {"message": "Object does not exist"}})
+        if url.rstrip("/").endswith("/threads"):
+            return threads_list
+        return profile  # bare /{user_id} profile fetch
+
+    _Client.get = AsyncMock(side_effect=_get)
+
+
+@pytest.fixture
+def _threads_patches(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok")
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_resolve_stale_note", AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_threads_sync_persists_metrics_and_events(_threads_patches):
+    t = _target("th-1")
+    db = _DB(results=[[t]])
+    _threads_http(
+        media_insights={
+            "th-1": _resp(200, _insights_data(views=50, likes=7, replies=2, reposts=1, quotes=3)),
+        },
+        account_insights=_resp(200, _insights_data(views=500, likes=40, replies=9, reposts=4, quotes=2, followers_count=120)),
+        profile=_resp(200, {"username": "cloudless.gr", "name": "Cloudless"}),
+    )
+    acc = _account(platform="threads", username=None, display_name=None, avatar_url=None)
+    r = await A.sync_threads_account(db, acc)
+    assert r.errors == []
+    m = A._persist_snapshot.await_args.kwargs["metrics"]
+    assert m.impressions == 50 and m.likes == 7 and m.comments == 2
+    assert m.shares == 4  # reposts + quotes
+    # Two AnalyticsEvents: account_insights + profile_sync
+    assert len(db.added) == 2
+    assert acc.username == "cloudless.gr" and acc.display_name == "Cloudless"
+
+
+@pytest.mark.asyncio
+async def test_threads_sync_retires_deleted_media(_threads_patches):
+    t = _target("th-gone")
+    db = _DB(results=[[t]])
+    _threads_http(media_insights={"th-gone": _resp(404, {"error": {"message": "Object does not exist"}})})
+    r = await A.sync_threads_account(db, _account(platform="threads"))
+    assert t.status == "deleted"
+    assert t.error_message == "Media deleted on Threads"
+    assert r.skipped == 1
+    A._resolve_stale_note.assert_awaited_once()
+    A._persist_snapshot.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_threads_sync_discovers_native_posts(_threads_patches):
+    db = _DB(results=[[]])  # no published targets
+    _threads_http(
+        media_insights={
+            "native-1": _resp(200, _insights_data(views=10, likes=1)),
+        },
+        threads_list=_resp(
+            200,
+            {
+                "data": [
+                    {"id": "native-1", "timestamp": "2026-10-10T12:00:00+0000", "text": "hi", "media_type": "TEXT_POST"},
+                    {"id": "old-1", "timestamp": "2020-01-01T00:00:00+0000"},
+                ],
+            },
+        ),
+    )
+    r = await A.sync_threads_account(db, _account(platform="threads"))
+    # only the fresh native post was persisted; the 2020 one is before `since`
+    A._persist_snapshot.assert_awaited_once()
+    kw = A._persist_snapshot.await_args.kwargs
+    assert kw["platform_post_id"] == "native-1" and kw["post_id"] is None
+    assert kw["metrics"].raw["discovery"]["id"] == "native-1"
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_threads_sync_discovery_error_collected(_threads_patches):
+    db = _DB(results=[[]])
+    _threads_http(
+        threads_list=_resp(500, {"error": {"message": "server exploded"}}),
+    )
+    r = await A.sync_threads_account(db, _account(platform="threads"))
+    assert any("threads discovery HTTP 500" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_threads_media_metrics_error_note(_threads_patches):
+    """Non-200 non-deleted insights → MetricBundle carries the HTTP note."""
+    client = _Client()
+    client.get = AsyncMock(return_value=_resp(403, {"error": {"message": "no perms"}}))
+    m = await A._fetch_threads_media_metrics(client, "tok", "th-x")
+    assert "403" in m.notes and m.impressions == 0
+
+
+@pytest.mark.asyncio
+async def test_threads_account_insights_aggregation():
+    client = _Client()
+    client.get = AsyncMock(
+        return_value=_resp(
+            200,
+            {
+                "data": [
+                    {"name": "views", "values": [{"value": 5}, {"value": 7}]},
+                    {"name": "followers_count", "values": [{"value": 120}]},
+                ],
+            },
+        )
+    )
+    out = await A._fetch_threads_account_insights(client, "tok", "u1")
+    assert out == {"views": 12, "followers_count": 120}
+    client.get = AsyncMock(return_value=_resp(500, {}))
+    assert await A._fetch_threads_account_insights(client, "tok", "u1") == {}
