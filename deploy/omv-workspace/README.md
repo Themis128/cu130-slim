@@ -231,6 +231,16 @@ write-error storms, apt install breakage — while the root disk looks fine.
 `subuid/subgid 100000:65536`. Rootless `podman` works for the tbaltzakis
 user — the pod units above run as root regardless.
 
+### Host cron scripts
+
+`/etc/cron.weekly/nas-maintenance` (apt/fsck/SMART/logs/samba/backup/network
+report → email) is versioned at `host-scripts/nas-maintenance` in this dir —
+deploy it after edits (`scp` to `/etc/cron.weekly/`, `chmod 755`). Gotchas
+fixed 2026-10-10: `apt upgrade` needs `--with-new-pkgs` or docker-ce/OMV
+packages get kept back; SMART/pending attrs are absent behind the USB
+bridges (print `n/a`, don't leave blank); ping's `packet loss` field index
+was off by one (`received%`); fail2ban `Total banned` is colon+TAB separated.
+
 ## Headroom notes
 
 k3s + monitoring (~800Mi) + espocrm + uptime-kuma remain on omv. Dead
