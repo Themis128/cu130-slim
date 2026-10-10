@@ -1518,6 +1518,35 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # ── Nextcloud MCP Server ──────────────────────────────────────────────────
+  # ghcr.io/cbcoutinho/nextcloud-mcp-server — 110+ MCP tools over the omv
+  # Nextcloud workspace (Notes, Calendar, Contacts, Files/WebDAV, Deck,
+  # Cookbook, Tables, Sharing, News, Mail, Collectives, Talk) via
+  # streamable-http. Authenticates with the NEXTCLOUD_* app password already
+  # used by the media-export WebDAV mirror; registered in .devin/mcp_config.json.
+  nextcloud-mcp-server:
+    image: ghcr.io/cbcoutinho/nextcloud-mcp-server:0.198.3
+    container_name: nextcloud-mcp-server
+    networks:
+      - backend
+    ports:
+      - 127.0.0.1:9231:8000
+    environment:
+      - NEXTCLOUD_HOST=https://cloud.cloudless.gr
+      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
+      - NEXTCLOUD_PASSWORD=${NEXTCLOUD_APP_PASSWORD:-}
+      - TZ=Europe/Athens
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(5); s.connect(('127.0.0.1',8000)); s.close()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    mem_limit: 512m
+    memswap_limit: 1024m
+    restart: unless-stopped
+    <<: *public-dns
+
   # ── Facebook Browser Automation sidecar (Playwright) ──────────────────────
   # RESTful HTTP wrapper around Playwright for Facebook personal-profile
   # operations that the official Graph API does not support: personal-profile

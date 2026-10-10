@@ -229,6 +229,25 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
 - Login nodes need the `Generate TOTP` code node (`SOCIAL_TOTP_SECRET`) feeding
   `otp` on the form body — copy verbatim from `twitter-text-post.json`.
 
+## nextcloud MCP server (agent access)
+
+- **`nextcloud` MCP is registered in `.devin/mcp_config.json`** →
+  `http://127.0.0.1:9231/mcp`. Backed by the `nextcloud-mcp-server` compose
+  service (`ghcr.io/cbcoutinho/nextcloud-mcp-server`, pinned tag — bump
+  deliberately) running in cu130-slim, streamable-http on host `:9231`.
+- **110+ tools** across the workspace: Notes, Calendar/Todos, Contacts,
+  Files/WebDAV, Deck, Cookbook, Tables, Sharing, News, Mail, Collectives,
+  Talk, Shopping List. Use for anything a human would do in the NC UI —
+  file ops beyond `nextcloud-dav.py`, calendar lookups, Deck cards.
+- **Auth**: single-user BasicAuth mode — the container holds
+  `NEXTCLOUD_USERNAME` + `NEXTCLOUD_APP_PASSWORD` (same app password as the
+  media-export mirror). MCP clients need no credentials; the endpoint is
+  bound to `127.0.0.1` only — do NOT expose the port.
+- Semantic search/vector sync is **off** (`VECTOR_SYNC_ENABLED` unset);
+  OCR, Qdrant and webhook sync can be enabled later via compose envs.
+- Health: `curl -sf http://127.0.0.1:9231/health/live`; management
+  `/api/v1/status` reports version + auth_mode.
+
 ### SocialAuto backend integration (shipped)
 
 - `app/services/nextcloud_export.py` — mirrors every `media_assets` row to
