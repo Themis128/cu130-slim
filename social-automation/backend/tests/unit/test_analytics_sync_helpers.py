@@ -1781,3 +1781,118 @@ async def test_ig_discovery_error_collected(_ig_events):
     _ig_http(media_list=_resp(500, {"error": {"message": "down"}}))
     r = await A.sync_instagram_account(db, _ig_account())
     assert any("instagram media discovery HTTP 500" in e for e in r.errors)
+
+
+# ── X web fallback ─────────────────────────────────────────────────────
+
+
+def _tweet(**kw):
+    return SimpleNamespace(
+        views=kw.get("views", 100),
+        likes=kw.get("likes", 5),
+        replies=kw.get("replies", 2),
+        retweets=kw.get("retweets", 1),
+        quotes=kw.get("quotes", 0),
+        bookmarks=kw.get("bookmarks", 0),
+        created_at=kw.get("created_at"),
+        text=kw.get("text", "t"),
+        author=kw.get("author", "a"),
+        is_repost=kw.get("is_repost", False),
+    )
+
+
+@pytest.mark.asyncio
+async def test_persist_x_web_analytics(monkeypatch):
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    events = []
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: events.append(a))
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    old = datetime.now(UTC) - timedelta(days=400)
+    web = SimpleNamespace(
+        tweets={
+            "t_known": _tweet(created_at=old),  # known → keep
+            "t_old": _tweet(created_at=old),  # old unknown → skip
+            "t_new": _tweet(created_at=datetime.now(UTC), text="n"),
+            "t_naive": _tweet(created_at=datetime.now()),  # naive → UTC
+        },
+        followers=500,
+        following=9,
+        tweet_count=800,
+        listed=3,
+        source="x_web",
+        errors=["e1", "e2", "e3", "e4"],
+    )
+    result = A.SyncResult()
+    id_to_post = {"t_known": uuid.uuid4()}
+    await A._persist_x_web_analytics(_DB(), _account(platform="twitter"), web, id_to_post, datetime.now(UTC) - timedelta(days=30), datetime.now(UTC), result)
+
+    persisted_ids = [c.kwargs["platform_post_id"] for c in A._persist_snapshot.await_args_list]
+    assert persisted_ids == ["t_known", "t_new", "t_naive"]
+    m = A._persist_snapshot.await_args_list[0].kwargs["metrics"]
+    assert m.impressions == 100 and m.shares == 1  # retweets+quotes
+    assert A._persist_snapshot.await_args_list[0].kwargs["source"] == "x_web"
+    A._record_follower_snapshot.assert_awaited_once()
+    assert events and events[0][3] == "account_insights"
+    assert len(result.errors) == 3  # errors[:3] cap
+
+
+@pytest.mark.asyncio
+async def test_persist_x_web_analytics_no_followers(monkeypatch):
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    web = SimpleNamespace(tweets={}, followers=0, source="x_web", errors=[])
+    result = A.SyncResult()
+    await A._persist_x_web_analytics(_DB(), _account(platform="twitter"), web, {}, datetime.now(UTC), datetime.now(UTC), result)
+    A._persist_snapshot.assert_not_awaited()
+    A._record_follower_snapshot.assert_not_awaited()
+
+
+class _BrowserSession:
+    browser = None
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return type(self).browser
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_scrape_twitter_timeline_inactive_session(monkeypatch):
+    import app.services.browser_bridge as bb
+
+    bridge = SimpleNamespace(ensure_session=AsyncMock(return_value={"status": "waiting", "message": "needs login"}))
+    monkeypatch.setattr(bb, "BrowserBridgeClient", lambda *a, **kw: bridge)
+    out = await A._scrape_twitter_timeline("cu_dev")
+    assert out["posts"] == [] and "needs login" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_scrape_twitter_timeline_happy(monkeypatch):
+    import app.services.browser_bridge as bb
+    import app.services.browser_orchestrator as bo
+
+    b = SimpleNamespace(
+        navigate=AsyncMock(),
+        evaluate=AsyncMock(
+            side_effect=[
+                None,
+                None,
+                None,
+                None,  # 4 scrolls
+                {"result": {"posts": [{"id": "t1"}], "followers": 500}},
+            ]
+        ),
+    )
+    _BrowserSession.browser = b
+    bridge = SimpleNamespace(ensure_session=AsyncMock(return_value={"status": "active"}))
+    monkeypatch.setattr(bb, "BrowserBridgeClient", lambda *a, **kw: bridge)
+    monkeypatch.setattr(bo, "browser_session", lambda *a, **kw: _BrowserSession())
+    monkeypatch.setattr(A.asyncio, "sleep", AsyncMock())
+    out = await A._scrape_twitter_timeline("cu_dev")
+    assert out == {"posts": [{"id": "t1"}], "followers": 500}
+    b.navigate.assert_awaited_once()
+    assert "x.com/cu_dev" in b.navigate.await_args.args[0]
