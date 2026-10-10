@@ -1048,3 +1048,202 @@ async def test_list_emoji_styles_endpoint():
     out = await list_emoji_styles(_REQ, current_user=_user())
     assert "flat" in out["styles"]
     assert 512 in out["sizes"] and "transparent" in out["backgrounds"]
+
+
+# ── generate_image orchestration ────────────────────────────────────
+
+
+def _img_patches(monkeypatch, *, diffusers=None, cf=None, provider_cfg=None, is_image_model=True, infographic=False):
+    """Patch every seam generate_image touches."""
+    import app.services.inference as inf
+    import app.services.infographic_renderer as igr
+
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "query_similar", AsyncMock(return_value=[]))
+    monkeypatch.setattr(ai.chroma_client, "add_content", AsyncMock())
+    monkeypatch.setattr(
+        ai,
+        "persist_generated_image",
+        AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4(), storage_path="gen/x.png", generation_prompt="p", ai_caption="", alt_text="", tags=[])),
+    )
+    monkeypatch.setattr(ai, "_save_generation_template", AsyncMock())
+
+    monkeypatch.setattr(inf, "_call_local_diffusers_txt2img", AsyncMock(return_value=diffusers))
+    monkeypatch.setattr(inf, "_call_workers_ai_image", AsyncMock(return_value=cf))
+    monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=provider_cfg or ("http://cf", "m", "key")))
+    monkeypatch.setattr(inf, "_is_workers_ai_image_model", lambda m: is_image_model)
+
+    monkeypatch.setattr(igr, "is_infographic_request", lambda p: infographic)
+    monkeypatch.setattr(igr, "generate_infographic_content", AsyncMock(return_value={"title": "t", "bullets": ["b"]}))
+    monkeypatch.setattr(igr, "sanitize_prompt_for_background", lambda p: f"bg:{p}")
+    monkeypatch.setattr(igr, "render_infographic", lambda *a, **kw: b"overlaid")
+
+    import app.services.media_quality as mq
+
+    monkeypatch.setattr(mq, "apply_media_quality", AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"ok": 1})))
+    monkeypatch.setattr(mq, "persist_media_quality_metadata", AsyncMock())
+
+
+def _img_req(**kw):
+    return ai.GenerateImageRequest(prompt="a cloud", **kw)
+
+
+@pytest.mark.asyncio
+async def test_generate_image_diffusers_happy(monkeypatch):
+    _img_patches(monkeypatch, diffusers={"image_base64": "aW1n"})
+    team = _team()
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=team))
+    assert out.image_base64 == "aW1n"
+    assert out.asset_id is not None
+    assert out.quality == {"ok": 1}
+    ai.check_quota.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_cf_fallback(monkeypatch):
+    _img_patches(monkeypatch, diffusers=None, cf={"image_base64": "Y2Y="})
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.image_base64 == "Y2Y="
+
+
+@pytest.mark.asyncio
+async def test_generate_image_both_fail_502(monkeypatch):
+    _img_patches(monkeypatch, diffusers=None, cf=None)
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_image_cf_non_image_model_400(monkeypatch):
+    _img_patches(monkeypatch, diffusers=None, is_image_model=False)
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 400
+    assert "text-to-image model" in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_generate_image_nvidia_provider(monkeypatch):
+    _img_patches(monkeypatch, diffusers=None)
+    monkeypatch.setattr(ai, "_call_nvidia_flux_dev", AsyncMock(return_value=b"nvbytes"))
+    out = await ai.generate_image(_img_req(provider="nvidia-flux-dev"), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    import base64 as b64
+
+    assert out.image_base64 == b64.b64encode(b"nvbytes").decode()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_nvidia_no_key_400(monkeypatch):
+    _img_patches(monkeypatch, diffusers=None, provider_cfg=("", "", None))
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image(_img_req(provider="nvidia-flux-dev"), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_generate_image_infographic_overlay(monkeypatch):
+    _img_patches(monkeypatch, diffusers={"image_base64": "YmFja2dyb3VuZA=="}, infographic=True)
+    req = _img_req()
+    out = await ai.generate_image(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    # overlay replaced the raw background
+    assert out.image_base64 != "YmFja2dyb3VuZA=="
+
+
+@pytest.mark.asyncio
+async def test_generate_image_no_team_skips_quota(monkeypatch):
+    _img_patches(monkeypatch, diffusers={"image_base64": "eA=="})
+    monkeypatch.setattr(ai, "persist_generated_image", AsyncMock(return_value=None))
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=None))
+    ai.check_quota.assert_not_awaited()
+    assert out.asset_id is None
+
+
+# ── generate_image_pipeline + blog article ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_generate_image_pipeline_missing_keys(monkeypatch):
+    import app.services.inference as inf
+
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "query_similar", AsyncMock(return_value=[]))
+    monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=("", "", None)))
+    req = SimpleNamespace(
+        prompt="p", negative_prompt="", enhance_prompt=True, cfg_scale=3.5, seed=0, steps=4, width=1024, height=1024, enhance_cfg_scale=3.5, enhance_steps=4
+    )
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image_pipeline(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_generate_image_pipeline_happy(monkeypatch):
+    import app.services.inference as inf
+
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "query_similar", AsyncMock(return_value=[]))
+    monkeypatch.setattr(ai.chroma_client, "add_content", AsyncMock())
+    monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=("http://nv", "m", "key")))
+    monkeypatch.setattr(ai, "_call_nvidia_flux_pipeline", AsyncMock(return_value=b"px"))
+    monkeypatch.setattr(
+        ai,
+        "persist_generated_image",
+        AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4(), storage_path="g.png", generation_prompt="p", ai_caption="", alt_text="", tags=[])),
+    )
+    import app.services.media_quality as mq
+
+    monkeypatch.setattr(mq, "apply_media_quality", AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"q": 1})))
+    monkeypatch.setattr(mq, "persist_media_quality_metadata", AsyncMock())
+    req = SimpleNamespace(
+        prompt="p", negative_prompt="", enhance_prompt=True, cfg_scale=3.5, seed=0, steps=4, width=1024, height=1024, enhance_cfg_scale=3.5, enhance_steps=4
+    )
+    out = await ai.generate_image_pipeline(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.format == "base64" and out.image_base64
+
+
+@pytest.mark.asyncio
+async def test_generate_blog_article_existing_slug(monkeypatch):
+    import app.services.blog_articles as ba
+
+    monkeypatch.setattr(ba, "slugify", lambda s: "my-slug")
+    monkeypatch.setattr(
+        ba, "get_published_article", AsyncMock(return_value={"title": "Old", "excerpt": "e", "category": "Cloud", "readTime": "5m", "socialPost": "sp"})
+    )
+    body = SimpleNamespace(slug="x", topic="t", publish=False, extra_context="")
+    out = await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB())
+    assert not out.created and out.title == "Old"
+
+
+@pytest.mark.asyncio
+async def test_generate_blog_article_happy(monkeypatch):
+    import app.services.blog_articles as ba
+
+    monkeypatch.setattr(ba, "slugify", lambda s: "")
+    monkeypatch.setattr(ba, "default_slug", lambda t: "2026-10-10-t")
+    monkeypatch.setattr(ba, "get_published_article", AsyncMock(return_value=None))
+    monkeypatch.setattr(ba, "build_article_prompt", lambda *a: "prompt")
+    monkeypatch.setattr(ba, "ARTICLE_SCHEMA", {"type": "object"})
+    monkeypatch.setattr(ba, "assemble_article", lambda slug, gen, topic: {"slug": slug, "title": "T", "excerpt": "e", "category": "Cloud", "readTime": "4m"})
+    monkeypatch.setattr(ba, "publish_article", AsyncMock())
+    monkeypatch.setattr(ba, "clean_social_post", lambda s: "clean")
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value={"json": {"title": "T", "socialPost": "s"}}))
+    body = SimpleNamespace(slug=None, topic="trends", publish=True, extra_context="")
+    out = await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.created and out.slug == "2026-10-10-t"
+    ba.publish_article.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_blog_article_no_usable_json(monkeypatch):
+    import app.services.blog_articles as ba
+
+    monkeypatch.setattr(ba, "slugify", lambda s: "s")
+    monkeypatch.setattr(ba, "get_published_article", AsyncMock(return_value=None))
+    monkeypatch.setattr(ba, "build_article_prompt", lambda *a: "p")
+    monkeypatch.setattr(ba, "ARTICLE_SCHEMA", {})
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value={"text": "no json"}))
+    body = SimpleNamespace(slug="s", topic="t", publish=False, extra_context="")
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 502
