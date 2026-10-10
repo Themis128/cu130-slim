@@ -17,13 +17,15 @@ from app.services import publishing as P
 
 
 def _account(platform="twitter", **kw):
+    kw.setdefault("meta_data", {})
+    kw.setdefault("username", "h")
+    kw.setdefault("account_id", "pid")
+    kw.setdefault("account_type", "page")
     return SimpleNamespace(
         id=uuid.uuid4(),
         team_id=uuid.uuid4(),
         platform=platform,
         access_token_enc=b"enc",
-        meta_data={},
-        username="h",
         **kw,
     )
 
@@ -35,6 +37,7 @@ def _post(**kw):
         team_id=uuid.uuid4(),
         content_text="hello world",
         hashtags=[],
+        title=None,
         platform_specific={},
         scheduled_at=None,
         status="draft",
@@ -196,3 +199,161 @@ async def test_generic_unmapped_exception(_base_patches, monkeypatch):
     monkeypatch.setattr(P, "_publish_threads", AsyncMock(side_effect=RuntimeError("weird")))
     r = await P.publish_to_platform(_account("threads"), _post(), None)
     assert not r.success and "weird" in r.error
+
+
+# ── per-platform publishers: threads + bluesky ────────────────────────
+
+
+class _ThreadsClient:
+    created = []
+
+    def __init__(self, access_token, user_id):
+        self.token = access_token
+        self.uid = user_id
+
+    async def create_text_container(self, text):
+        _ThreadsClient.created.append(("text", text))
+        return "cid"
+
+    async def create_image_container(self, image_url, text):
+        _ThreadsClient.created.append(("image", image_url))
+        return "cid"
+
+    async def create_video_container(self, video_url, text=None, is_carousel_item=False):
+        _ThreadsClient.created.append(("video", video_url))
+        return "cid"
+
+    async def create_carousel_item(self, image_url, is_carousel_item):
+        _ThreadsClient.created.append(("item", image_url))
+        return "cid"
+
+    async def create_carousel_container(self, children_ids, text):
+        _ThreadsClient.created.append(("carousel", children_ids))
+        return "cid"
+
+    async def wait_for_container_ready(self, cid, timeout):
+        return True
+
+    async def publish_container(self, cid):
+        return "media-1"
+
+
+@pytest.mark.asyncio
+async def test_publish_threads_text_only(monkeypatch):
+    _ThreadsClient.created = []
+    monkeypatch.setattr(P, "ThreadsAPIClient", _ThreadsClient)
+    acc = _account("threads", username="cloudless.gr", account_id="th-1")
+    r = await P._publish_threads("tok", "hi", acc, _post(), [], None)
+    assert r.success and r.platform_post_id == "media-1"
+    assert "threads.net/@cloudless.gr" in r.platform_url
+    assert _ThreadsClient.created[0][0] == "text"
+
+
+@pytest.mark.asyncio
+async def test_publish_threads_carousel(monkeypatch, tmp_path):
+    _ThreadsClient.created = []
+    monkeypatch.setattr(P, "ThreadsAPIClient", _ThreadsClient)
+    acc = _account("threads", username="u")
+    monkeypatch.setattr(P, "_media_public_url", lambda sp, force_jpeg=False: f"https://cdn/{sp}")
+    r = await P._publish_threads("tok", "hi", acc, _post(), [], ["a.jpg", "b.mp4", "c.png"])
+    assert r.success
+    kinds = [c[0] for c in _ThreadsClient.created]
+    assert kinds == ["video", "item", "item", "carousel"] or "carousel" in kinds
+
+
+@pytest.mark.asyncio
+async def test_publish_threads_api_errors(monkeypatch):
+    class _Err(Exception):
+        status_code = 403
+
+    monkeypatch.setattr(P, "ThreadsAPIError", _Err)
+
+    class _Fail(_ThreadsClient):
+        async def create_text_container(self, text):
+            raise _Err("denied")
+
+    monkeypatch.setattr(P, "ThreadsAPIClient", _Fail)
+    r = await P._publish_threads("tok", "hi", _account("threads"), _post(), [], None)
+    assert "threads_content_publish" in r.error
+
+    class _Fail2(_ThreadsClient):
+        async def create_text_container(self, text):
+            raise ValueError("bad media")
+
+    monkeypatch.setattr(P, "ThreadsAPIClient", _Fail2)
+    r2 = await P._publish_threads("tok", "hi", _account("threads"), _post(), [], None)
+    assert "media error" in r2.error
+
+
+@pytest.mark.asyncio
+async def test_publish_bluesky_happy(monkeypatch, tmp_path):
+    img = tmp_path / "p.png"
+    img.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 12000)
+
+    calls = []
+
+    class _Bsky:
+        def __init__(self, handle, pw, pds_url=None):
+            self.handle = handle
+            calls.append(("init", pds_url))
+
+        async def create_session(self):
+            calls.append(("session",))
+
+        async def upload_blob(self, data, mime):
+            calls.append(("blob", mime))
+            return {"ref": "b1"}
+
+        async def create_post(self, text, images=None, video=None):
+            calls.append(("post", text, bool(images), bool(video)))
+            return {"uri": "at://did:plc:x/app.bsky.feed.post/rk1"}
+
+    import app.services.bluesky_api as bapi
+
+    monkeypatch.setattr(bapi, "BlueskyClient", _Bsky)
+    acc = _account("bluesky", username="u.bsky.social", meta_data={"pds_url": "https://pds.custom"})
+    r = await P._publish_bluesky("pw", "hello", acc, _post(), [str(img)], None)
+    assert r.success and "bsky.app/profile" in r.platform_url
+    assert calls[0] == ("init", "https://pds.custom")
+    assert calls[-1][2] is True  # images attached
+
+
+@pytest.mark.asyncio
+async def test_publish_bluesky_video_and_errors(monkeypatch, tmp_path):
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"\x00" * 12000)
+
+    class _Bsky:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def create_session(self):
+            pass
+
+        async def upload_blob(self, data, mime):
+            return {"ref": "vb"}
+
+        async def create_post(self, text, images=None, video=None):
+            self.video = video
+            return {"uri": "at://x/y/rk"}
+
+    import app.services.bluesky_api as bapi
+
+    monkeypatch.setattr(bapi, "BlueskyClient", _Bsky)
+    r = await P._publish_bluesky("pw", "t", _account("bluesky"), _post(), [str(vid)], None)
+    assert r.success
+
+    # login failure → error result
+    class _BErr(Exception):
+        status_code = 401
+        response_text = "bad creds"
+
+    monkeypatch.setattr(bapi, "BlueskyAPIError", _BErr)
+
+    class _BskyFail(_Bsky):
+        async def create_session(self):
+            raise _BErr("nope")
+
+    monkeypatch.setattr(bapi, "BlueskyClient", _BskyFail)
+    r2 = await P._publish_bluesky("pw", "t", _account("bluesky"), _post(), [], None)
+    assert not r2.success and "login failed" in r2.error.lower()
