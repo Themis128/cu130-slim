@@ -371,3 +371,20 @@ curl http://localhost:8083/api/v1/cf-db/tables
 - Postgres is always the source of truth for repair; D1 rows are a
   copy. Never treat D1 as authoritative after a quota gap — verify with
   `tables` counts.
+
+## R2 managed public domain
+
+Media served to Threads/TikTok (`PULL_FROM_URL`) must be public HTTPS —
+the R2 bucket's managed `*.r2.dev` domain provides it. Two in-container
+utilities (run inside `social-api`):
+
+```bash
+PYTHONPATH=/app python scripts/check_r2_public_url.py   # is a public URL enabled? prints it
+PYTHONPATH=/app python scripts/enable_r2_public.py      # enables the managed domain
+```
+
+Both read `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` /
+`R2_BUCKET_NAME` from settings and talk to the Cloudflare API directly.
+If `check` reports no domain: run `enable`, then confirm `check` prints
+a `r2.dev` URL. Private/custom-domain setups supersede this — only
+relevant when publish errors show unreachable media URLs.
