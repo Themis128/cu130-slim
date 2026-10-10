@@ -237,6 +237,267 @@ class TelegramAPIClient:
         )
         return bool(result)
 
+    # ── Media sends ─────────────────────────────────────────────────
+    # Photo/video/document accepts a public HTTPS URL (Telegram servers fetch
+    # it), an existing file_id, or attach://<name> for multipart upload.
+
+    async def send_photo(
+        self,
+        chat_id: int | str,
+        photo: str,
+        *,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        disable_notification: bool = False,
+    ) -> dict[str, Any]:
+        """Official ``sendPhoto`` — photo as URL, file_id, or attach:// name."""
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "photo": photo,
+            "disable_notification": disable_notification,
+        }
+        if caption:
+            payload["caption"] = caption[:1024]
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        result = await self._call("sendPhoto", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def send_video(
+        self,
+        chat_id: int | str,
+        video: str,
+        *,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        disable_notification: bool = False,
+    ) -> dict[str, Any]:
+        """Official ``sendVideo``."""
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "video": video,
+            "disable_notification": disable_notification,
+        }
+        if caption:
+            payload["caption"] = caption[:1024]
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        result = await self._call("sendVideo", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def send_document(
+        self,
+        chat_id: int | str,
+        document: str,
+        *,
+        caption: str | None = None,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+        disable_notification: bool = False,
+    ) -> dict[str, Any]:
+        """Official ``sendDocument`` — e.g. the checklist PDF."""
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "document": document,
+            "disable_notification": disable_notification,
+        }
+        if caption:
+            payload["caption"] = caption[:1024]
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        result = await self._call("sendDocument", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def send_media_group(
+        self,
+        chat_id: int | str,
+        media: list[dict[str, Any]],
+        *,
+        disable_notification: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Official ``sendMediaGroup`` — 2-10 photo/video items as an album.
+
+        Each item: {"type": "photo"|"video", "media": <url|file_id|attach://>,
+        optional "caption" (≤1024, only on items that should carry one)}.
+        """
+        if not 2 <= len(media) <= 10:
+            raise ValueError("media group requires 2-10 items")
+        for item in media:
+            if item.get("type") not in ("photo", "video"):
+                raise ValueError("media group items must be photo or video")
+            if not item.get("media"):
+                raise ValueError("media group item missing media")
+        result = await self._call(
+            "sendMediaGroup",
+            {
+                "chat_id": chat_id,
+                "media": media,
+                "disable_notification": disable_notification,
+            },
+        )
+        return result if isinstance(result, list) else []
+
+    async def send_poll(
+        self,
+        chat_id: int | str,
+        question: str,
+        options: list[str],
+        *,
+        is_anonymous: bool = True,
+        type: str = "regular",
+        allows_multiple_answers: bool = False,
+        disable_notification: bool = False,
+    ) -> dict[str, Any]:
+        """Official ``sendPoll`` — native poll (2-10 options)."""
+        if not 2 <= len(options) <= 10:
+            raise ValueError("poll requires 2-10 options")
+        if not (question or "").strip():
+            raise ValueError("question is required")
+        result = await self._call(
+            "sendPoll",
+            {
+                "chat_id": chat_id,
+                "question": question.strip()[:300],
+                "options": [{"text": o[:100]} for o in options],
+                "is_anonymous": is_anonymous,
+                "type": type,
+                "allows_multiple_answers": allows_multiple_answers,
+                "disable_notification": disable_notification,
+            },
+        )
+        return result if isinstance(result, dict) else {}
+
+    # ── Message/chat management ─────────────────────────────────────
+
+    async def send_message_with_markup(
+        self,
+        chat_id: int | str,
+        text: str,
+        reply_markup: dict[str, Any],
+        *,
+        parse_mode: str | None = None,
+        disable_notification: bool = False,
+    ) -> dict[str, Any]:
+        """Text message carrying an InlineKeyboardMarkup (CTA buttons)."""
+        body = (text or "").strip()
+        if not body:
+            raise ValueError("text is required")
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": body[:MAX_MESSAGE_CHARS],
+            "reply_markup": reply_markup,
+            "disable_notification": disable_notification,
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        result = await self._call("sendMessage", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def answer_callback_query(
+        self,
+        callback_query_id: str,
+        *,
+        text: str | None = None,
+        show_alert: bool = False,
+    ) -> bool:
+        """Official ``answerCallbackQuery`` — ack a button press."""
+        payload: dict[str, Any] = {
+            "callback_query_id": callback_query_id,
+            "show_alert": show_alert,
+        }
+        if text:
+            payload["text"] = text[:200]
+        result = await self._call("answerCallbackQuery", payload)
+        return bool(result)
+
+    async def pin_chat_message(
+        self,
+        chat_id: int | str,
+        message_id: int,
+        *,
+        disable_notification: bool = True,
+    ) -> bool:
+        result = await self._call(
+            "pinChatMessage",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "disable_notification": disable_notification,
+            },
+        )
+        return bool(result)
+
+    async def unpin_chat_message(
+        self, chat_id: int | str, message_id: int | None = None
+    ) -> bool:
+        payload: dict[str, Any] = {"chat_id": chat_id}
+        if message_id is not None:
+            payload["message_id"] = message_id
+        result = await self._call("unpinChatMessage", payload)
+        return bool(result)
+
+    async def edit_message_text(
+        self,
+        chat_id: int | str,
+        message_id: int,
+        text: str,
+        *,
+        parse_mode: str | None = None,
+        reply_markup: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body = (text or "").strip()
+        if not body:
+            raise ValueError("text is required")
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": body[:MAX_MESSAGE_CHARS],
+        }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        result = await self._call("editMessageText", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def delete_message(self, chat_id: int | str, message_id: int) -> bool:
+        result = await self._call(
+            "deleteMessage", {"chat_id": chat_id, "message_id": message_id}
+        )
+        return bool(result)
+
+    async def get_chat_member_count(self, chat_id: int | str) -> int:
+        result = await self._call("getChatMemberCount", {"chat_id": chat_id})
+        return int(result) if isinstance(result, int) else 0
+
+    async def export_chat_invite_link(self, chat_id: int | str) -> str:
+        """Official ``exportChatInviteLink`` — primary invite link."""
+        result = await self._call("exportChatInviteLink", {"chat_id": chat_id})
+        return result if isinstance(result, str) else ""
+
+    async def send_chat_action(
+        self, chat_id: int | str, action: str = "typing"
+    ) -> bool:
+        """Official ``sendChatAction`` — typing/upload indicator."""
+        if action not in {
+            "typing", "upload_photo", "upload_video", "upload_document",
+            "choose_sticker", "find_location", "record_voice", "upload_voice",
+            "record_video", "upload_video_note", "record_video_note",
+        }:
+            raise ValueError(f"unknown chat action: {action}")
+        result = await self._call(
+            "sendChatAction", {"chat_id": chat_id, "action": action}
+        )
+        return bool(result)
+
 
 # Update types we subscribe to for group watch + auto-reply.
 # Docs: https://core.telegram.org/bots/api#update
@@ -244,6 +505,7 @@ TELEGRAM_ALLOWED_UPDATES = [
     "message",
     "edited_message",
     "my_chat_member",
+    "callback_query",
 ]
 
 
@@ -304,3 +566,46 @@ def extract_my_chat_member_update(update: dict[str, Any]) -> dict[str, Any] | No
         "new_status": new_member.get("status"),
         "from_user_id": (event.get("from") or {}).get("id"),
     }
+
+
+def extract_callback_query(update: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse ``callback_query`` (inline-keyboard button press)."""
+    cb = update.get("callback_query")
+    if not isinstance(cb, dict):
+        return None
+    from_user = cb.get("from") or {}
+    msg = cb.get("message") or {}
+    chat = msg.get("chat") or {}
+    return {
+        "update_id": update.get("update_id"),
+        "callback_id": cb.get("id"),
+        "data": cb.get("data"),
+        "message_id": msg.get("message_id"),
+        "chat_id": chat.get("id"),
+        "from_user_id": from_user.get("id"),
+        "from_username": from_user.get("username"),
+    }
+
+
+def inline_keyboard(rows: list[list[dict[str, str]]]) -> dict[str, Any]:
+    """Build an InlineKeyboardMarkup.
+
+    Rows of buttons, each ``{"text": label}`` plus exactly one of
+    ``url`` / ``callback_data`` / ``web_app`` — e.g.
+    ``inline_keyboard([[{"text": "Get the audit", "url": "https://…"}]])``.
+    """
+    keyboard = []
+    for row in rows:
+        out_row = []
+        for btn in row:
+            b = {"text": str(btn.get("text") or "")[:64]}
+            if not b["text"]:
+                raise ValueError("button text is required")
+            for key in ("url", "callback_data", "web_app"):
+                if btn.get(key):
+                    b[key] = btn[key] if key != "callback_data" else str(btn[key])[:64]
+            if len(b) == 1:
+                raise ValueError("button needs url, callback_data, or web_app")
+            out_row.append(b)
+        keyboard.append(out_row)
+    return {"inline_keyboard": keyboard}

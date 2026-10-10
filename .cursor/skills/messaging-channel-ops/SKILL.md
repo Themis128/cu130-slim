@@ -46,6 +46,13 @@ Read `social-content-core` first.
 - Viber specifics: `viber_api.py` client (`chatapi.viber.com`), broadcast
   needs Viber approval (status 15), all media must be public HTTPS URLs,
   webhook is HMAC-verified — see `viber-ops` skill.
+- Telegram extended surface (`telegram_api.py`): `send_photo`/`send_video`/
+  `send_document`/`send_media_group` (2-10 albums), `send_poll`,
+  `send_message_with_markup` + `inline_keyboard()` CTA buttons,
+  `answer_callback_query` (webhook handles `callback_query`), pin/unpin/
+  delete message, `get_chat_member_count`, `export_chat_invite_link`,
+  `send_chat_action`. Media accepts public HTTPS URLs or file_ids —
+  caption limit is 1024 (not 4096).
 - Chatbot flows live separately: `telegram_chatbot.py`,
   `telegram_group_watch.py`, `whatsapp_chatbot.py`, `whatsapp_flows.py`,
   `viber_chatbot.py` — inbound replies, not content publishing.
