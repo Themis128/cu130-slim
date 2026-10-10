@@ -1093,3 +1093,70 @@ async def test_sync_ig_discovery_error(_ig_patches):
     db = _DB(results=[[]])
     r = await A.sync_instagram_account(db, _ig_acc())
     assert any("media discovery HTTP 500" in e for e in r.errors)
+
+
+# ── sync_threads_account ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def _th_patches(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok" if t else None)
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", _counting_persist())
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
+    monkeypatch.setattr(A, "_resolve_stale_note", AsyncMock())
+    monkeypatch.setattr(A, "_fetch_threads_media_metrics", AsyncMock(return_value=A.MetricBundle(likes=4)))
+    monkeypatch.setattr(A, "_fetch_threads_account_insights", AsyncMock(return_value={"views": 100, "likes": 5}))
+    monkeypatch.setattr(
+        A,
+        "_fetch_threads_profile",
+        AsyncMock(return_value={"username": "cloudless.gr", "name": "Cloudless", "followers_count": 120, "following_count": 10, "media_count": 30}),
+    )
+    _Client.get = AsyncMock(return_value=_resp(200, {"data": []}))
+
+
+def _th_acc(**kw):
+    kw.setdefault("meta_data", {})
+    kw.setdefault("scopes", [])
+    kw.setdefault("username", None)
+    kw.setdefault("display_name", None)
+    kw.setdefault("avatar_url", None)
+    kw.setdefault("account_id", "th-1")
+    return _account(platform="threads", access_token_enc="enc", **kw)
+
+
+@pytest.mark.asyncio
+async def test_sync_threads_happy(_th_patches):
+    _Client.get = AsyncMock(
+        return_value=_resp(200, {"data": [{"id": "n1", "timestamp": datetime.now(UTC).isoformat(), "text": "t", "media_type": "TEXT_POST", "permalink": "p"}]})
+    )
+    db = _DB(results=[[_target("m1")]])
+    acc = _th_acc()
+    r = await A.sync_threads_account(db, acc)
+    assert r.synced == 2 and r.errors == []
+    assert acc.username == "cloudless.gr" and acc.display_name == "Cloudless"
+    # account-insights + profile events persisted via db.add
+    assert len(db.added) >= 2
+
+
+@pytest.mark.asyncio
+async def test_sync_threads_platform_deleted(_th_patches):
+    A._fetch_threads_media_metrics = AsyncMock(return_value=A.MetricBundle(notes="platform_deleted"))
+    t = _target("gone1")
+    db = _DB(results=[[t]])
+    r = await A.sync_threads_account(db, _th_acc())
+    assert t.status == "deleted" and t.error_message == "Media deleted on Threads"
+    A._resolve_stale_note.assert_awaited_once()
+    assert r.skipped == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_threads_error_paths(_th_patches):
+    _Client.get = AsyncMock(return_value=_resp(500))
+    A._fetch_threads_account_insights = AsyncMock(side_effect=RuntimeError("insights down"))
+    A._fetch_threads_profile = AsyncMock(side_effect=RuntimeError("profile down"))
+    db = _DB(results=[[]])
+    r = await A.sync_threads_account(db, _th_acc())
+    assert any("discovery HTTP 500" in e for e in r.errors)
+    assert any("account insights" in e for e in r.errors)
+    assert any("profile sync" in e for e in r.errors)
