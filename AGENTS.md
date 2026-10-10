@@ -411,6 +411,7 @@ All content-generating endpoints enforce a three-step quality pipeline before re
 2. **NLP** — `run_nlp_check_and_fix` to flag jargon/hard sentences and rewrite to plain English.
 3. **SEO** — `analyze_seo` to score content against platform best practices (length, hashtags, readability, keywords, links, plain English).
 4. **Auto-improve** — if the SEO overall score is below the target (default 90), the pipeline feeds recommendations back to the LLM, regenerates the content, and re-checks. Up to 2 iterations.
+5. **Gibberish guard** — `detect_gibberish` (in `app/services/spellcheck.py`) catches mangled tokens that survive correction: mixed-case mangles (`GGr`, `APIkey` — exempts `PDFs`/`APIs` plurals + allowlisted `OAuth`/`QLoRA`/`DBaaS`/`ONNX`) and LanguageTool `issueType: misspelling` residuals on unprotected ASCII tokens ≥8 chars. URLs, domains, `urn:li:` mentions, hashtags, @handles, and `LANGUAGETOOL_PROTECTED_WORDS` are masked first; LanguageTool-down degrades to pattern-only. Flagged tokens land on `QualityResult.gibberish_tokens` and force an improvement round naming them even when SEO already meets target.
 
 ### Endpoint coverage
 
@@ -441,6 +442,8 @@ Live draft scoring is also exposed as `POST /api/v1/ai/nlp-check` (deterministic
 ### Publishing-time spellcheck
 
 In addition to generation-time quality checks, `publish_to_platform` in `app/services/publishing.py` spellchecks the final assembled post text (including platform-specific overrides, hashtags, and link URLs) via `auto_correct` before dispatching to social platforms. This is advisory — spellcheck failures never block publishing.
+
+After spellcheck, `detect_gibberish` runs on the same assembled text — this is the safety net for content that bypassed the generation pipeline (content briefs, n8n workflows). Flagged posts return a `skipped` `PublishResult` (deterministic text-quality problem — needs a content fix, not a retry). A detector error stays advisory and never blocks publishing.
 
 ### DMR fallback for text quality steps
 
