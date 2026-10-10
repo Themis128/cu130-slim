@@ -73,6 +73,28 @@ async def _refresh_instagram_business_token(access_token: str) -> dict:
     return data
 
 
+async def _refresh_threads_token(access_token: str) -> dict:
+    """Refresh a Threads long-lived token.
+
+    Threads accounts store no refresh_token — Meta's th_refresh_token
+    grant exchanges the unexpired long-lived access token itself for a
+    fresh 60-day token on graph.threads.net. Per Threads API docs the
+    token must be at least 24h old and unexpired; threads_basic scope
+    suffices. Without this path the account expired when its 60-day
+    token lapsed even though Meta would have renewed it.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            "https://graph.threads.net/refresh_access_token",
+            params={"grant_type": "th_refresh_token", "access_token": access_token},
+        )
+    data = resp.json()
+    if resp.status_code != 200:
+        err = data.get("error", {})
+        raise RuntimeError(err.get("message") or f"th_refresh_token HTTP {resp.status_code}")
+    return data
+
+
 def _skip_for_recent_update(
     token_expires_at: datetime | None,
     updated_at: datetime | None,
@@ -130,6 +152,9 @@ async def _refresh_expiring_tokens_async() -> dict:
                         SocialAccount.platform == "instagram",
                         SocialAccount.meta_data["login_type"].astext == "business_login",
                     ),
+                    # Threads long-lived tokens self-refresh via
+                    # th_refresh_token — no refresh_token is stored.
+                    SocialAccount.platform == "threads",
                 ),
                 or_(
                     SocialAccount.status == "expired",
@@ -169,6 +194,10 @@ async def _refresh_expiring_tokens_async() -> dict:
                     and not account.refresh_token_enc
                 ):
                     token = await _refresh_instagram_business_token(
+                        decrypt_token(account.access_token_enc)
+                    )
+                elif platform == "threads" and not account.refresh_token_enc:
+                    token = await _refresh_threads_token(
                         decrypt_token(account.access_token_enc)
                     )
                 else:
