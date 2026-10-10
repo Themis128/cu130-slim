@@ -420,3 +420,147 @@ def test_sidecar_file_path():
     assert P._sidecar_file_path("rel/z.png") == "/uploads/rel/z.png"
     assert P._sidecar_file_path("/elsewhere/f.png") is None
     assert P._sidecar_file_path("") is None
+
+
+# ── tail helpers: oauth1, music path, ffmpeg mix, alt texts, refresh ─
+
+
+def test_oauth1_auth_header():
+    h = P._oauth1_auth_header(
+        "POST",
+        "https://api.x.com/2/media/upload",
+        api_key="key",
+        api_secret="sec",
+        token="tok",
+        token_secret="tsec",
+        extra_params={"media_category": "tweet_image"},
+    )
+    assert h.startswith("OAuth ")
+    for part in ("oauth_consumer_key", "oauth_signature", "oauth_nonce", "oauth_token", "HMAC-SHA1"):
+        assert part in h
+
+
+@pytest.mark.asyncio
+async def test_resolve_music_path_remote(tmp_path, monkeypatch):
+    # missing on disk → R2 fetch to temp file
+    asset = SimpleNamespace(storage_path="nope/track.mp3", storage_backend="r2", filename="track.mp3")
+    db = _DB([asset])
+    post = SimpleNamespace(music_asset_id=uuid.uuid4())
+
+    class _R2:
+        @staticmethod
+        async def get_object(path):
+            return b"r2-bytes"
+
+    import app.services.r2_storage as r2m
+
+    monkeypatch.setattr(r2m, "get_object", _R2.get_object)
+    out = await P._resolve_music_path(post, db)
+    assert out and out.endswith(".mp3")
+    assert open(out, "rb").read() == b"r2-bytes"
+
+    # fetch returns nothing → None
+    monkeypatch.setattr(r2m, "get_object", AsyncMock(return_value=None))
+    assert await P._resolve_music_path(post, db) is None
+
+
+@pytest.mark.asyncio
+async def test_x_media_alt_texts_db_error():
+    ids = [uuid.uuid4(), uuid.uuid4()]
+    post = SimpleNamespace(media_ids=ids)
+
+    # db error → empty
+    class _BadDB:
+        async def execute(self, s):
+            raise RuntimeError("down")
+
+    assert await P._x_media_alt_texts(post, _BadDB()) == []
+
+
+def test_x_oauth1_media_signer(monkeypatch):
+    for k in ("TWITTER_API_KEY", "TWITTER_API_SECRET", "TWITTER_ACCESS_TOKEN", "TWITTER_ACCESS_TOKEN_SECRET"):
+        monkeypatch.setattr(P._settings, k, "v")
+    signer = P._x_oauth1_media_signer()
+    assert signer is not None
+    assert signer("POST", "https://x.com/u").startswith("OAuth ")
+
+    monkeypatch.setattr(P._settings, "TWITTER_API_KEY", "")
+    assert P._x_oauth1_media_signer() is None
+
+
+@pytest.mark.asyncio
+async def test_twitter_upload_media_scope_gate(tmp_path, monkeypatch):
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"\x89PNG")
+    # account without media.write and no oauth1 creds → 403 scope error
+    acct = SimpleNamespace(scopes=["tweet.write"])
+    monkeypatch.setattr(P, "_x_oauth1_media_signer", lambda: None)
+    from app.services.twitter_api import TwitterAPIError
+
+    with pytest.raises(TwitterAPIError) as e:
+        await P._twitter_upload_media(str(img), access_token="t", account=acct)
+    assert e.value.status_code == 403
+
+    # unsupported ext
+    bad = tmp_path / "x.xyz"
+    bad.write_bytes(b"x")
+    with pytest.raises(TwitterAPIError) as e:
+        await P._twitter_upload_media(str(bad), access_token="t", account=SimpleNamespace(scopes=["media.write"]))
+    assert "not supported" in str(e.value)
+
+
+@pytest.mark.asyncio
+async def test_twitter_upload_media_simple_and_alt(tmp_path, monkeypatch):
+    img = tmp_path / "pic.png"
+    img.write_bytes(b"\x89PNGdata")
+    calls = {}
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def upload_media(self, data, **kw):
+            calls["simple"] = (data, kw)
+            return "mid-1"
+
+        async def set_media_alt_text(self, mid, alt):
+            calls["alt"] = (mid, alt)
+
+    monkeypatch.setattr(P, "_x_media_client", lambda *a, **kw: _Client())
+    mid = await P._twitter_upload_media(str(img), access_token="t", account=SimpleNamespace(scopes=["media.write"]), alt_text="desc")
+    assert mid == "mid-1"
+    assert calls["alt"] == ("mid-1", "desc")
+
+
+@pytest.mark.asyncio
+async def test_x_refresh_token_at_publish(monkeypatch):
+    # no refresh token → None
+    acct = SimpleNamespace(refresh_token_enc=None)
+    assert await P._refresh_oauth2_token(acct, _DB()) is None
+
+    # happy path: rotates tokens, stamps expiry, commits
+    class _TC:
+        async def refresh_token(self, rt):
+            return {"access_token": "new", "refresh_token": "newrt", "expires_in": 7200, "scope": "tweet.write tweet.read"}
+
+    import app.api.auth as authmod
+
+    monkeypatch.setattr(authmod, "twitter_client", _TC())
+    monkeypatch.setattr(P, "decrypt_token", lambda t: "rt")
+
+    acct = SimpleNamespace(refresh_token_enc=b"enc", access_token_enc=None, token_expires_at=None, scopes=[], status="expired")
+    db = _DB()
+    db.commit = AsyncMock()
+    out = await P._refresh_oauth2_token(acct, db)
+    assert out == "new"
+    assert acct.status == "active" and acct.token_expires_at is not None
+    assert "tweet.read" in acct.scopes
+    db.commit.assert_awaited_once()
+
+    # failure → None
+    class _BadTC:
+        async def refresh_token(self, rt):
+            raise RuntimeError("down")
+
+    monkeypatch.setattr(authmod, "twitter_client", _BadTC())
+    assert await P._refresh_oauth2_token(SimpleNamespace(refresh_token_enc=b"enc"), _DB()) is None
