@@ -36,12 +36,22 @@ platform UI can answer (Premium state, invites, standing).
 
 | Platform | Program | API-checkable gates | Manual gates |
 |---|---|---|---|
-| facebook (user/professional) | FB Stars | followers ≥500, held 30d | country, standing |
-| facebook (page) | Page Stars/in-stream | followers ≥5k band | invite |
+| facebook (user/professional) | FB Stars | followers ≥500, held 30d | country, standing, CM invite (waitlisted) |
+| facebook (page) | Content Monetization / Subscriptions | followers ≥10k band | invite |
 | tiktok | Creator Rewards | 10k followers, 100k views/30d | country |
 | twitter | Ads Revenue Share | followers ≥500 | Premium active, 5M imp/90d (pay-per-use endpoint) |
 | instagram | Subscriptions/Gifts | 10k band | invite |
 | linkedin/threads/bluesky + messaging | — | — | funnel surfaces → Polar/audit CTA |
+
+**Meta program consolidation (verified 2026-10):** In-stream ads, Ads on
+Reels and the Performance bonus **ended 2025-08-31** — folded into the
+unified, invite-only "Facebook Content Monetization" program (no published
+numeric threshold; the interest form in Professional dashboard →
+Monetization is a waitlist, not an application — already on it).
+**Stars remains a standalone program** (500 followers held 30d). Meta also
+runs **Creator Fast Track** (2026-03): ≥100k followers on IG/TikTok/YouTube
+→ $1k–$3k/mo ×3mo + instant CM access — US/CA/UK/AU only, not actionable
+for us yet.
 
 ## Verified baseline (2026-10)
 
