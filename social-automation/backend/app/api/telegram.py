@@ -31,8 +31,10 @@ from app.services.telegram_api import (
     TELEGRAM_ALLOWED_UPDATES,
     TelegramAPIClient,
     TelegramAPIError,
+    extract_callback_query,
     extract_inbound_text_update,
     extract_my_chat_member_update,
+    inline_keyboard,
 )
 from app.services.telegram_group_watch import META_KEY as GROUP_WATCH_META_KEY
 from app.services.telegram_group_watch import (
@@ -153,6 +155,42 @@ class SendMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4096)
     parse_mode: str | None = None
     disable_notification: bool = False
+    buttons: list[list[dict[str, str]]] | None = Field(
+        None, description="Inline keyboard rows: [{'text':..., 'url'|'callback_data':...}]"
+    )
+
+
+class SendPhotoRequest(BaseModel):
+    chat_id: int | str
+    photo: str = Field(..., description="Public HTTPS URL or Telegram file_id")
+    caption: str | None = Field(None, max_length=1024)
+    parse_mode: str | None = None
+    buttons: list[list[dict[str, str]]] | None = None
+
+
+class SendMediaGroupRequest(BaseModel):
+    chat_id: int | str
+    media: list[dict[str, Any]] = Field(
+        ..., description="2-10 items: {'type':'photo'|'video','media':url|file_id,'caption'?}"
+    )
+
+
+class SendPollRequest(BaseModel):
+    chat_id: int | str
+    question: str = Field(..., min_length=1, max_length=300)
+    options: list[str] = Field(..., min_length=2, max_length=10)
+    is_anonymous: bool = True
+    allows_multiple_answers: bool = False
+
+
+class PinMessageRequest(BaseModel):
+    chat_id: int | str
+    message_id: int
+
+
+class DeleteMessageRequest(BaseModel):
+    chat_id: int | str
+    message_id: int
 
 
 class AutoReplyConfig(BaseModel):
@@ -514,15 +552,152 @@ async def send_message(
     account = await _get_telegram_account(db, account_id, user)
     client = _client_for(account)
     try:
-        result = await client.send_message(
+        markup = inline_keyboard(body.buttons) if body.buttons else None
+        if markup:
+            result = await client.send_message_with_markup(
+                body.chat_id,
+                body.text,
+                markup,
+                parse_mode=body.parse_mode,
+                disable_notification=body.disable_notification,
+            )
+        else:
+            result = await client.send_message(
+                body.chat_id,
+                body.text,
+                parse_mode=body.parse_mode,
+                disable_notification=body.disable_notification,
+            )
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "message": result}
+
+
+@router.post("/{account_id}/send-photo", response_model=dict)
+async def send_photo(
+    account_id: uuid.UUID,
+    body: SendPhotoRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Send a photo by public URL or file_id, optional caption + buttons."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        result = await client.send_photo(
             body.chat_id,
-            body.text,
+            body.photo,
+            caption=body.caption,
             parse_mode=body.parse_mode,
-            disable_notification=body.disable_notification,
+            reply_markup=inline_keyboard(body.buttons) if body.buttons else None,
         )
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"status": "ok", "message": result}
+
+
+@router.post("/{account_id}/send-media-group", response_model=dict)
+async def send_media_group(
+    account_id: uuid.UUID,
+    body: SendMediaGroupRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Send a 2-10 item photo/video album (official sendMediaGroup)."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        result = await client.send_media_group(body.chat_id, body.media)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "messages": result}
+
+
+@router.post("/{account_id}/send-poll", response_model=dict)
+async def send_poll(
+    account_id: uuid.UUID,
+    body: SendPollRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        result = await client.send_poll(
+            body.chat_id,
+            body.question,
+            body.options,
+            is_anonymous=body.is_anonymous,
+            allows_multiple_answers=body.allows_multiple_answers,
+        )
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "message": result}
+
+
+@router.post("/{account_id}/pin", response_model=dict)
+async def pin_message(
+    account_id: uuid.UUID,
+    body: PinMessageRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        ok = await client.pin_chat_message(body.chat_id, body.message_id)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "pinned": ok}
+
+
+@router.post("/{account_id}/unpin", response_model=dict)
+async def unpin_message(
+    account_id: uuid.UUID,
+    body: PinMessageRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        ok = await client.unpin_chat_message(body.chat_id, body.message_id)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "unpinned": ok}
+
+
+@router.post("/{account_id}/delete-message", response_model=dict)
+async def delete_message(
+    account_id: uuid.UUID,
+    body: DeleteMessageRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        ok = await client.delete_message(body.chat_id, body.message_id)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "deleted": ok}
+
+
+@router.get("/{account_id}/chat-members", response_model=dict)
+async def chat_members(
+    account_id: uuid.UUID,
+    chat_id: int | str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Member count for a chat/channel the bot can see."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        count = await client.get_chat_member_count(chat_id)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "chat_id": str(chat_id), "member_count": count}
 
 
 # ── Auto-reply ───────────────────────────────────────────────────────
@@ -1021,6 +1196,31 @@ async def receive_webhook(
                 _sanitize(str(exc)),
             )
             response["membership_error"] = True
+        return response
+
+    # ── callback_query: inline-keyboard button press — ack it ──
+    callback = extract_callback_query(update)
+    if callback:
+        try:
+            client = _client_for(account)
+            await client.answer_callback_query(str(callback["callback_id"]))
+            meta = dict(account.meta_data or {})
+            meta["last_callback"] = {
+                "data": callback.get("data"),
+                "from_user_id": callback.get("from_user_id"),
+                "chat_id": callback.get("chat_id"),
+            }
+            account.meta_data = meta
+            flag_modified(account, "meta_data")
+            await db.commit()
+            response["callback_answered"] = True
+        except Exception as exc:
+            logger.warning(
+                "Telegram callback ack failed account=%s: %s",
+                _sanitize(str(account_id)),
+                _sanitize(str(exc)),
+            )
+            response["callback_error"] = True
         return response
 
     inbound = extract_inbound_text_update(update)
