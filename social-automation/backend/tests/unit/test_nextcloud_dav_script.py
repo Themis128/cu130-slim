@@ -30,7 +30,14 @@ def _find_script() -> Path:
     raise FileNotFoundError(f"nextcloud-dav.py not found above {here}")
 
 
-SCRIPT = _find_script()
+try:
+    SCRIPT = _find_script()
+except FileNotFoundError:
+    pytest.skip(
+        "nextcloud-dav.py lives outside the backend tree — mount the repo root",
+        allow_module_level=True,
+    )
+
 spec = importlib.util.spec_from_file_location("nextcloud_dav", SCRIPT)
 assert spec is not None and spec.loader is not None
 dav = importlib.util.module_from_spec(spec)
