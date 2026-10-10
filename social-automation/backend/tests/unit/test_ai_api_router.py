@@ -827,3 +827,224 @@ async def test_remove_background_white():
     result = Image.open(io.BytesIO(base64.b64decode(out)))
     assert result.getpixel((1, 1))[3] == 0  # white → transparent
     assert result.getpixel((0, 0)) == (255, 0, 0, 255)  # red kept
+
+
+# ── generate-content / generate-workflow / templates / emoji ─────────
+
+
+from app.api.ai import (  # noqa: E402
+    EmojiGenerateRequest,
+    GenerateContentRequest,
+    GenerateWorkflowRequest,
+    SaveGenerationTemplateRequest,
+    generate_content,
+    generate_emoji,
+    generate_workflow,
+    list_emoji_styles,
+    save_generation_template,
+)
+
+
+@pytest.mark.asyncio
+async def test_generate_content_happy(monkeypatch):
+    team = _team()
+    db = _DB(results=[team])
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    q = AsyncMock(return_value=["old similar post"])
+    add = AsyncMock()
+    monkeypatch.setattr("app.services.chroma_client.query_similar", q)
+    monkeypatch.setattr("app.services.chroma_client.add_content", add)
+    import app.services.brand_compliance as bc
+
+    monkeypatch.setattr(bc, "load_brand_context", AsyncMock(return_value=({"b": 1}, {"voice_signature": {"post_blueprint": 1}}, "brandctx")))
+    monkeypatch.setattr(bc, "score_brand_compliance", AsyncMock(return_value={"score": 88}))
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(pe, "rewrite_plain_english", AsyncMock(side_effect=lambda c, **kw: c))
+    infer = AsyncMock(return_value={"content": "the post", "hashtags": ["#a"], "suggested_media": "img"})
+    monkeypatch.setattr(ai, "call_inference", infer)
+    import app.services.quality_pipeline as qp
+
+    quality = SimpleNamespace(content="final", hashtags=["#a"], seo_score={"total": 92}, nlp_report={"ok": 1}, to_dict=lambda: {"score": 92})
+    monkeypatch.setattr(qp, "apply_quality_pipeline", AsyncMock(return_value=quality))
+
+    req = GenerateContentRequest(prompt="write about the pi cluster", platform="linkedin")
+    out = await generate_content(req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.content == "final" and out.hashtags == ["#a"]
+    assert out.seo_score == {"total": 92} and out.brand_compliance == {"score": 88}
+    sent = infer.await_args.args[0]
+    assert "avoid repeating" in sent  # chroma context injected
+    assert "Structure (mandatory" in sent  # post_blueprint hint
+    assert "brandctx" in sent  # brand context
+    add.assert_awaited_once()  # indexed for dedup
+
+
+@pytest.mark.asyncio
+async def test_generate_content_template_pillar_web(monkeypatch):
+    team = _team()
+    tpl = SimpleNamespace(
+        user_prompt_template="About {{topic}} for {{platform}} ({{tone}}) {{brand}} {{length}}",
+        variables=["topic", "platform", "tone", "brand", "length"],
+        system_prompt="SYS-PROMPT",
+    )
+    db = _DB(results=[team, tpl])  # team lookup → template lookup
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr("app.services.chroma_client.query_similar", AsyncMock(return_value=[]))
+    monkeypatch.setattr("app.services.chroma_client.add_content", AsyncMock())
+    import app.services.brand_compliance as bc
+
+    monkeypatch.setattr(bc, "load_brand_context", AsyncMock(return_value=(None, None, "")))
+    import app.services.pillars as pl
+
+    pillar = SimpleNamespace(id=uuid.uuid4(), name="Prove", description="show results")
+    monkeypatch.setattr(pl, "resolve_pillar", AsyncMock(return_value=pillar))
+    import app.services.web_search as ws
+
+    monkeypatch.setattr(ws, "web_search", AsyncMock(return_value=[{"title": "t", "url": "u"}]))
+    monkeypatch.setattr(ws, "format_search_context", lambda s, q: "SEARCHCTX")
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(pe, "rewrite_plain_english", AsyncMock(side_effect=lambda c, **kw: c))
+    infer = AsyncMock(return_value={"content": "c", "hashtags": [], "suggested_media": None})
+    monkeypatch.setattr(ai, "call_inference", infer)
+    import app.services.quality_pipeline as qp
+
+    monkeypatch.setattr(
+        qp, "apply_quality_pipeline", AsyncMock(return_value=SimpleNamespace(content="c", hashtags=[], seo_score=None, nlp_report=None, to_dict=lambda: {}))
+    )
+
+    req = GenerateContentRequest(prompt="monitoring", platform="threads", template_id=uuid.uuid4(), pillar="Prove", web_search=True)
+    out = await generate_content(req, uuid.uuid4(), db=db, current_user=_user())
+    sent = infer.await_args.args[0]
+    assert sent.startswith("SYS-PROMPT")
+    assert "About monitoring for threads" in sent
+    assert "CONTENT PILLAR (3P system): Prove" in sent
+    assert "SEARCHCTX" in sent
+    assert out.pillar_name == "Prove" and out.pillar_id == str(pillar.id)
+    assert out.web_sources == [{"title": "t", "url": "u"}]
+
+
+@pytest.mark.asyncio
+async def test_generate_content_no_team(monkeypatch):
+    db = _DB(results=[None])  # no team → quota/chroma/brand skipped
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(pe, "rewrite_plain_english", AsyncMock(side_effect=lambda c, **kw: c))
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value={"content": "c", "hashtags": ["#x"], "suggested_media": None}))
+    import app.services.quality_pipeline as qp
+
+    monkeypatch.setattr(
+        qp, "apply_quality_pipeline", AsyncMock(return_value=SimpleNamespace(content="c", hashtags=["#x"], seo_score=None, nlp_report=None, to_dict=lambda: {}))
+    )
+    req = GenerateContentRequest(prompt="hi", platform="twitter")
+    out = await generate_content(req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.content == "c" and out.pillar_id is None
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_category_lookup(monkeypatch):
+    intent = {
+        "intent": "carousel",
+        "platforms": ["linkedin"],
+        "needs_image": True,
+        "needs_scheduling": True,
+        "schedule_hint": "tue 9am",
+        "data_sources": ["github"],
+        "complexity": "medium",
+    }
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value=intent))
+    tpl = SimpleNamespace(id=uuid.uuid4(), prompt_template="do {{thing}} now", n8n_workflow_json={"nodes": [], "name": "tpl"})
+    db = _DB(results=[tpl], team=_team())  # db.get(team) via ctor; template via execute
+    req = GenerateWorkflowRequest(prompt="make a carousel bot")
+    out = await generate_workflow(req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.template_id == tpl.id
+    assert out.n8n_workflow_json["name"] == "AI Generated: carousel"
+    assert out.variables_used == {"thing": "<thing>"}
+    assert any(getattr(o, "prompt_text", None) == "make a carousel bot" for o in db.added)
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_builtin_nodes(monkeypatch):
+    intent = {
+        "intent": "announcement",
+        "platforms": ["twitter"],
+        "needs_image": False,
+        "needs_scheduling": False,
+        "schedule_hint": None,
+        "data_sources": ["rss"],
+        "complexity": "simple",
+    }
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value=intent))
+    db = _DB(results=[None], team=_team())  # no template → built from scratch
+    req = GenerateWorkflowRequest(prompt="announce on X")
+    out = await generate_workflow(req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.template_id is None
+    names = [n["name"] for n in out.n8n_workflow_json["nodes"]]
+    assert "Start" in names
+
+
+@pytest.mark.asyncio
+async def test_save_generation_template(monkeypatch):
+    team = _team()
+    db = _DB(team=team)
+    tmpl = SimpleNamespace(id=uuid.uuid4(), name="tpl", category="gen", tags=["t"], created_at=datetime_now())
+    monkeypatch.setattr(ai, "_save_generation_template", AsyncMock(return_value=tmpl))
+    req = SaveGenerationTemplateRequest(name="tpl", prompt_template="p")
+    out = await save_generation_template(req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.name == "tpl" and out.id == tmpl.id
+
+
+@pytest.mark.asyncio
+async def test_save_generation_template_no_team():
+    with pytest.raises(HTTPException) as e:
+        await save_generation_template(SaveGenerationTemplateRequest(name="x", prompt_template="p"), uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_local_provider(monkeypatch):
+    team = _team()
+    db = _DB(team=team)
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    import app.services.inference as inf
+
+    monkeypatch.setattr(inf, "_call_local_diffusers_txt2img", AsyncMock(return_value={"image_base64": "AAA="}))
+    monkeypatch.setattr(ai, "_remove_background_white", AsyncMock(return_value="BBB="))
+    import app.services.dmr as dmr
+
+    monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"text": "a happy cloud mascot, flat vector"}))
+    monkeypatch.setattr(dmr, "call_dmr_vision", AsyncMock(return_value=None))
+    req = EmojiGenerateRequest(concept="happy cloud", enhance_prompt=True)
+    out = await generate_emoji(_REQ, req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.image_base64 == "BBB="
+    assert "a happy cloud mascot" in out.enhanced_prompt
+    assert out.provider == "local-diffusers"
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_all_providers_fail(monkeypatch):
+    db = _DB(team=None)
+    import app.services.inference as inf
+
+    monkeypatch.setattr(inf, "_call_local_diffusers_txt2img", AsyncMock(side_effect=HTTPException(status_code=500, detail="down")))
+    monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=(None, "m", "key")))
+    monkeypatch.setattr(inf, "_call_workers_ai_image", AsyncMock(side_effect=HTTPException(status_code=500, detail="down too")))
+    req = EmojiGenerateRequest(concept="x", enhance_prompt=False, background="white", remove_bg=False)
+    with pytest.raises(HTTPException) as e:
+        await generate_emoji(_REQ, req, uuid.uuid4(), db=db, current_user=_user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_concept_required():
+    req = EmojiGenerateRequest(concept="   ")
+    with pytest.raises(HTTPException) as e:
+        await generate_emoji(_REQ, req, uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_list_emoji_styles_endpoint():
+    out = await list_emoji_styles(_REQ, current_user=_user())
+    assert "flat" in out["styles"]
+    assert 512 in out["sizes"] and "transparent" in out["backgrounds"]

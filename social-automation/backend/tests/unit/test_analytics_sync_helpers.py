@@ -1634,3 +1634,265 @@ async def test_fb_object_metrics_error_returns_zeros():
     client.get = AsyncMock(return_value=_resp(404, {}))
     out = await A._facebook_object_metrics(client, "post_x", "pt")
     assert out == {"comments": 0, "shares": 0, "likes": 0}
+
+
+# ── sync_instagram_account ────────────────────────────────────────────
+
+
+@pytest.fixture
+def _ig_events(monkeypatch):
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok")
+    monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_resolve_stale_note", AsyncMock())
+    events = []
+    monkeypatch.setattr(A, "_persist_account_event", lambda db, acc, at, etype, data: events.append((etype, data)))
+    return events
+
+
+def _ig_http(media_insights=None, media_list=None, account_insights=None, demographics=None, reach_split=None, online=None):
+    media_insights = media_insights or {}
+
+    async def _get(url, **kw):
+        params = kw.get("params") or {}
+        metric = params.get("metric", "")
+        if metric == "follower_demographics":
+            return demographics or _resp(200, {"data": []})
+        if metric == "views":
+            return reach_split or _resp(200, {"data": []})
+        if metric == "online_followers":
+            return online or _resp(200, {"data": []})
+        if url.rstrip("/").endswith("/media"):
+            return media_list or _resp(200, {"data": []})
+        if "/insights" in url:
+            for mid, resp in media_insights.items():
+                if f"/{mid}/" in url:
+                    return resp
+            return account_insights or _resp(200, {"data": []})
+        return _resp(404, {})
+
+    _Client.get = AsyncMock(side_effect=_get)
+
+
+def _ig_account(**kw):
+    kw.setdefault("platform", "instagram")
+    kw.setdefault("account_id", "ig-user-1")
+    kw.setdefault("meta_data", {"account_type": "business"})
+    kw.setdefault("scopes", [])
+    return _account(**kw)
+
+
+@pytest.mark.asyncio
+async def test_ig_personal_account_skipped(_ig_events):
+    acc = _ig_account(meta_data={"account_type": "person"})
+    r = await A.sync_instagram_account(_DB(), acc)
+    assert r.skipped == 1 and "Business/Creator" in r.notes
+
+
+@pytest.mark.asyncio
+async def test_ig_sync_full_with_audience_events(_ig_events):
+    t = _target("ig-m1")
+    db = _DB(results=[[t]])
+    _ig_http(
+        media_insights={
+            "ig-m1": _resp(200, _insights_data(views=80, likes=6, comments=1, shares=2, reach=70)),
+            "ig-m2": _resp(200, _insights_data(views=20)),
+        },
+        media_list=_resp(
+            200,
+            {
+                "data": [
+                    {"id": "ig-m1", "timestamp": "2026-10-10T10:00:00+0000"},
+                    {"id": "ig-m2", "timestamp": "2026-10-09T10:00:00+0000", "caption": "native"},
+                    {"id": "ig-old", "timestamp": "2020-01-01T00:00:00+0000"},
+                ]
+            },
+        ),
+        account_insights=_resp(
+            200,
+            {
+                "data": [
+                    {"name": "reach", "values": [{"value": 1}, {"value": 42}]},
+                ]
+            },
+        ),
+        demographics=_resp(
+            200,
+            {"data": [{"total_value": {"breakdowns": [{"results": [{"dimension_values": ["GR"], "value": 70}, {"dimension_values": ["US"], "value": 30}]}]}}]},
+        ),
+        reach_split=_resp(
+            200,
+            {
+                "data": [
+                    {
+                        "total_value": {
+                            "breakdowns": [
+                                {"results": [{"dimension_values": ["FOLLOWERS"], "value": 40}, {"dimension_values": ["NON_FOLLOWERS"], "value": 60}]}
+                            ]
+                        }
+                    }
+                ]
+            },
+        ),
+        online=_resp(200, {"data": [{"name": "online_followers", "values": [{"value": {"9": 12, "18": 30, "20": 25}}]}]}),
+    )
+    r = await A.sync_instagram_account(db, _ig_account())
+    assert r.errors == []
+    assert A._persist_snapshot.await_count == 2
+    m = A._persist_snapshot.await_args_list[0].kwargs["metrics"]
+    assert m.impressions == 80 and m.likes == 6 and m.reach == 70
+    assert A._persist_snapshot.await_args_list[1].kwargs["platform_post_id"] == "ig-m2"
+    event_types = [e for e, _ in _ig_events]
+    assert "account_insights" in event_types
+    demo = next(d for e, d in _ig_events if e == "audience_demographics")
+    assert demo["by_country"] == {"GR": 70, "US": 30}
+    split = next(d for e, d in _ig_events if e == "audience_reach_split")
+    assert split["by_follow_type"]["NON_FOLLOWERS"] == 60
+    act = next(d for e, d in _ig_events if e == "audience_activity")
+    assert act["peak_hours"][0] == "18"  # highest hour
+
+
+@pytest.mark.asyncio
+async def test_ig_scope_missing_marks_metrics(_ig_events):
+    t = _target("ig-m1")
+    db = _DB(results=[[t]])
+    _ig_http()  # insights should never be hit for metrics
+    acc = _ig_account(scopes=["instagram_basic"])
+    r = await A.sync_instagram_account(db, acc)
+    assert r.errors == []
+    m = A._persist_snapshot.await_args.kwargs["metrics"]
+    assert "insights_scope_missing" in m.notes
+
+
+@pytest.mark.asyncio
+async def test_ig_media_metrics_unit():
+    client = _Client()
+    client.get = AsyncMock(return_value=_resp(200, _insights_data(impressions=33, likes=2, replies=4)))
+    m = await A._fetch_instagram_media_metrics(client, "IGAAUtoken", "u1", "m1")
+    assert m.impressions == 33 and m.shares == 4  # replies→shares fallback
+    client.get = AsyncMock(return_value=_resp(500, {"error": {"message": "x"}}))
+    m = await A._fetch_instagram_media_metrics(client, "tok", "u1", "m1")
+    assert "HTTP 500" in m.notes
+
+
+@pytest.mark.asyncio
+async def test_ig_discovery_error_collected(_ig_events):
+    db = _DB(results=[[]])
+    _ig_http(media_list=_resp(500, {"error": {"message": "down"}}))
+    r = await A.sync_instagram_account(db, _ig_account())
+    assert any("instagram media discovery HTTP 500" in e for e in r.errors)
+
+
+# ── X web fallback ─────────────────────────────────────────────────────
+
+
+def _tweet(**kw):
+    return SimpleNamespace(
+        views=kw.get("views", 100),
+        likes=kw.get("likes", 5),
+        replies=kw.get("replies", 2),
+        retweets=kw.get("retweets", 1),
+        quotes=kw.get("quotes", 0),
+        bookmarks=kw.get("bookmarks", 0),
+        created_at=kw.get("created_at"),
+        text=kw.get("text", "t"),
+        author=kw.get("author", "a"),
+        is_repost=kw.get("is_repost", False),
+    )
+
+
+@pytest.mark.asyncio
+async def test_persist_x_web_analytics(monkeypatch):
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    events = []
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: events.append(a))
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    old = datetime.now(UTC) - timedelta(days=400)
+    web = SimpleNamespace(
+        tweets={
+            "t_known": _tweet(created_at=old),  # known → keep
+            "t_old": _tweet(created_at=old),  # old unknown → skip
+            "t_new": _tweet(created_at=datetime.now(UTC), text="n"),
+            "t_naive": _tweet(created_at=datetime.now()),  # naive → UTC
+        },
+        followers=500,
+        following=9,
+        tweet_count=800,
+        listed=3,
+        source="x_web",
+        errors=["e1", "e2", "e3", "e4"],
+    )
+    result = A.SyncResult()
+    id_to_post = {"t_known": uuid.uuid4()}
+    await A._persist_x_web_analytics(_DB(), _account(platform="twitter"), web, id_to_post, datetime.now(UTC) - timedelta(days=30), datetime.now(UTC), result)
+
+    persisted_ids = [c.kwargs["platform_post_id"] for c in A._persist_snapshot.await_args_list]
+    assert persisted_ids == ["t_known", "t_new", "t_naive"]
+    m = A._persist_snapshot.await_args_list[0].kwargs["metrics"]
+    assert m.impressions == 100 and m.shares == 1  # retweets+quotes
+    assert A._persist_snapshot.await_args_list[0].kwargs["source"] == "x_web"
+    A._record_follower_snapshot.assert_awaited_once()
+    assert events and events[0][3] == "account_insights"
+    assert len(result.errors) == 3  # errors[:3] cap
+
+
+@pytest.mark.asyncio
+async def test_persist_x_web_analytics_no_followers(monkeypatch):
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    web = SimpleNamespace(tweets={}, followers=0, source="x_web", errors=[])
+    result = A.SyncResult()
+    await A._persist_x_web_analytics(_DB(), _account(platform="twitter"), web, {}, datetime.now(UTC), datetime.now(UTC), result)
+    A._persist_snapshot.assert_not_awaited()
+    A._record_follower_snapshot.assert_not_awaited()
+
+
+class _BrowserSession:
+    browser = None
+
+    def __init__(self, *a, **kw):
+        pass
+
+    async def __aenter__(self):
+        return type(self).browser
+
+    async def __aexit__(self, *a):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_scrape_twitter_timeline_inactive_session(monkeypatch):
+    import app.services.browser_bridge as bb
+
+    bridge = SimpleNamespace(ensure_session=AsyncMock(return_value={"status": "waiting", "message": "needs login"}))
+    monkeypatch.setattr(bb, "BrowserBridgeClient", lambda *a, **kw: bridge)
+    out = await A._scrape_twitter_timeline("cu_dev")
+    assert out["posts"] == [] and "needs login" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_scrape_twitter_timeline_happy(monkeypatch):
+    import app.services.browser_bridge as bb
+    import app.services.browser_orchestrator as bo
+
+    b = SimpleNamespace(
+        navigate=AsyncMock(),
+        evaluate=AsyncMock(
+            side_effect=[
+                None,
+                None,
+                None,
+                None,  # 4 scrolls
+                {"result": {"posts": [{"id": "t1"}], "followers": 500}},
+            ]
+        ),
+    )
+    _BrowserSession.browser = b
+    bridge = SimpleNamespace(ensure_session=AsyncMock(return_value={"status": "active"}))
+    monkeypatch.setattr(bb, "BrowserBridgeClient", lambda *a, **kw: bridge)
+    monkeypatch.setattr(bo, "browser_session", lambda *a, **kw: _BrowserSession())
+    monkeypatch.setattr(A.asyncio, "sleep", AsyncMock())
+    out = await A._scrape_twitter_timeline("cu_dev")
+    assert out == {"posts": [{"id": "t1"}], "followers": 500}
+    b.navigate.assert_awaited_once()
+    assert "x.com/cu_dev" in b.navigate.await_args.args[0]
