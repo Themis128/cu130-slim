@@ -134,7 +134,7 @@ def main() -> None:
     args = ap.parse_args()
 
     coro = {
-        "accounts": lambda: cmd_accounts(),
+        "accounts": cmd_accounts,
         "validate": lambda: cmd_validate(args.account),
         "creator": lambda: cmd_creator(args.account),
         "videos": lambda: cmd_videos(args.account, args.limit),

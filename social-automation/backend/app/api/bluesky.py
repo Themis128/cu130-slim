@@ -73,7 +73,10 @@ async def connect_bluesky_account(
 ):
     """Create a Bluesky account from handle + app password."""
     await check_quota("social_accounts", team_id, db)
-    client = BlueskyClient(body.handle.strip(), body.app_password.strip(), pds_url=body.pds_url)
+    try:
+        client = BlueskyClient(body.handle.strip(), body.app_password.strip(), pds_url=body.pds_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         session = await client.create_session()
     except BlueskyAPIError as exc:
@@ -96,7 +99,7 @@ async def connect_bluesky_account(
     enc = encrypt_token(body.app_password.strip())
     enc_b = enc if isinstance(enc, bytes) else enc.encode()
     meta: dict[str, Any] = {
-        "pds_url": body.pds_url.rstrip("/"),
+        "pds_url": client.pds_url,
         "did": did,
         "credentials_configured": True,
         "auth_type": "app_password",
