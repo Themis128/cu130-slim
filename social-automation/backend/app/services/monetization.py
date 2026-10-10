@@ -9,7 +9,19 @@ should be measurable in one report instead of checked by hand per console.
 
 Threshold sources (verify before relying — programs change):
 - FB Stars (professional mode): 500 followers held 30 consecutive days,
-  eligible country, age ≥18, community-standards compliance.
+  eligible country, age ≥18, community-standards compliance. Still a
+  standalone program after the 2025 consolidation.
+- FB Content Monetization (pages + professional profiles): INVITE-ONLY —
+  replaced In-stream ads, Ads on Reels and the Performance bonus, which all
+  ended 2025-08-31 (Meta Business Help Center). Meta publishes no numeric
+  threshold; the interest form in Professional dashboard → Monetization is
+  a waitlist, not an application. Observed dashboard variants ask for
+  ~10k followers / 50k engagements / 180k views.
+- FB Subscriptions (pages): ≥10,000 followers OR ≥250 returning viewers
+  plus engagement bar; invite-gated.
+- Creator Fast Track (announced 2026-03): ≥100k followers on an eligible
+  external platform (IG/TikTok/YouTube) → $1k–$3k/month for 3 months +
+  instant Content Monetization access. US/CA/UK/AU only.
 - TikTok Creator Rewards: ≥10,000 followers + ≥100k video views in 30 days.
 - X Ads Revenue Sharing: Premium/Premium+ + ≥500 followers + ≥5M organic
   impressions in trailing 3 months.
@@ -57,6 +69,9 @@ PLATFORM_PROGRAMS: dict[str, dict[str, Any]] = {
              "manual — Greece is eligible; confirm in professional dashboard"),
             ("account_standing", "community standards clean", True,
              "manual — check professional dashboard for strikes"),
+            ("cm_invite", "Content Monetization invite (invite-only program)", True,
+             "manual — Professional dashboard → monetization; interest form"
+             " submitted — waits for an invite wave, no numeric threshold"),
         ],
     },
     "tiktok": {
@@ -103,10 +118,11 @@ FUNNEL_ONLY: dict[str, str] = {
 
 
 _PLATFORM_PAGE_PROGRAM = {
-    "program": "Page monetization (Stars / in-stream ads — page-tier)",
+    "program": "Page monetization (Content Monetization / Subscriptions — invite-only)",
     "criteria": [
-        ("followers", "page followers ≥ 5,000 (Stars invite band)", 5_000,
-         "page fan count; programs are invite-gated"),
+        ("followers", "page followers ≥ 10,000 (Subscriptions threshold band)", 10_000,
+         "page fan count; CM has no published threshold — invite-only since"
+         " in-stream ads/Ads on Reels/Performance bonus ended 2025-08-31"),
         ("invite", "monetization invite received", True,
          "manual — professional dashboard → monetization"),
     ],
