@@ -666,3 +666,158 @@ async def test_tiktok_get_endpoints(monkeypatch):
         with pytest.raises(HTTPException):
             await ep(current_user=object())
         assert svc2.closed == 1
+
+
+# ── Facebook personal profile field matrix + uploads ────────────────
+
+
+@pytest.mark.asyncio
+async def test_facebook_user_update_all_fields(monkeypatch):
+    client = SimpleNamespace(
+        update_bio=AsyncMock(),
+        update_website=AsyncMock(),
+        update_quotes=AsyncMock(),
+        update_location=AsyncMock(),
+        update_contact=AsyncMock(),
+        update_work=AsyncMock(),
+        update_education=AsyncMock(),
+    )
+    monkeypatch.setattr(P, "_get_facebook_sidecar", AsyncMock(return_value=client))
+    upd = _upd(
+        about="a",
+        website="w",
+        quotes="q",
+        location="Athens",
+        phone="123",
+        email="e@x.io",
+        work=[P.WorkEntry(employer="ACME", position="CEO", description="d")],
+        education=[P.EducationEntry(school="Uni", degree="BSc")],
+        headline="ignored-h",
+        biography="ignored-b",
+        full_name="ignored-n",
+    )
+    out = await P._update_facebook_user_profile(_acc(platform="facebook"), upd)
+    assert out.success
+    for f in ("about", "website", "quotes", "location", "phone", "email", "work", "education"):
+        assert f in out.updated_fields
+    client.update_work.assert_awaited_once_with(company="ACME", position="CEO", description="d")
+    client.update_education.assert_awaited_once_with(school="Uni", degree="BSc")
+    for f in ("headline", "biography", "full_name"):
+        assert f in out.ignored_fields
+
+
+@pytest.mark.asyncio
+async def test_facebook_user_update_error_and_empty(monkeypatch):
+    client = SimpleNamespace(update_bio=AsyncMock(side_effect=FacebookSidecarError(401, "expired")))
+    monkeypatch.setattr(P, "_get_facebook_sidecar", AsyncMock(return_value=client))
+    with pytest.raises(HTTPException) as e:
+        await P._update_facebook_user_profile(_acc(platform="facebook"), _upd(about="a"))
+    assert e.value.status_code == 401
+
+    # Nothing updatable → success=False with ignored list
+    out = await P._update_facebook_user_profile(_acc(platform="facebook"), _upd(headline="h"))
+    assert not out.success and "headline" in out.ignored_fields
+
+
+@pytest.mark.asyncio
+async def test_facebook_user_picture_and_cover(monkeypatch):
+    client = SimpleNamespace(upload_picture=AsyncMock(), upload_cover=AsyncMock())
+    monkeypatch.setattr(P, "_get_facebook_sidecar", AsyncMock(return_value=client))
+    out = await P._upload_facebook_user_picture(_acc(platform="facebook"), b"img")
+    assert out.success and "profile_picture" in out.updated_fields
+    client.upload_picture.assert_awaited_once_with(b"img")
+
+    out = await P._upload_facebook_user_cover(_acc(platform="facebook"), b"cov")
+    assert out.success and "cover" in out.updated_fields
+
+    client.upload_cover = AsyncMock(side_effect=FacebookSidecarError(500, "down"))
+    with pytest.raises(HTTPException):
+        await P._upload_facebook_user_cover(_acc(platform="facebook"), b"c")
+
+
+# ── import-instagram-session-from-browser ────────────────────────────
+
+
+def _route_http(get_resp=None, post_resp=None, get_err=None, post_err=None):
+    """Two-phase client: bridge cookies GET then sidecar sessionid POST."""
+
+    class _C:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def get(self, url, **kw):
+            if get_err:
+                raise get_err
+            return get_resp or _resp(404)
+
+        async def post(self, url, **kw):
+            if post_err:
+                raise post_err
+            return post_resp or _resp(404)
+
+    return _C
+
+
+@pytest.mark.asyncio
+async def test_import_ig_session_happy(monkeypatch):
+    client_cls = _route_http(
+        get_resp=_resp(200, {"cookies": {"sessionid": "raw-sid"}}),
+        post_resp=_resp(200, {"session_id": "ss-sidecar-12345678901234567890"}, headers={"content-type": "application/json"}),
+    )
+    monkeypatch.setattr(httpx, "AsyncClient", client_cls)
+    acct = _acc(platform="instagram", meta={})
+    db = _DB([[acct]])
+    monkeypatch.setattr(P, "flag_modified", lambda *a: None)
+    out = await P.import_instagram_session_from_browser(current_user=None, db=db)
+    assert out["success"] and out["session_id"].endswith("...")
+    assert acct.meta_data["private_api_session_id"] == "ss-sidecar-12345678901234567890"
+    assert acct.meta_data["instagram_sessionid_cookie"] == "raw-sid"
+    assert db.committed
+
+
+@pytest.mark.asyncio
+async def test_import_ig_session_no_cookies(monkeypatch):
+    client_cls = _route_http(get_resp=_resp(200, {"cookies": {}}))
+    monkeypatch.setattr(httpx, "AsyncClient", client_cls)
+    with pytest.raises(HTTPException) as e:
+        await P.import_instagram_session_from_browser(current_user=None, db=_DB())
+    assert e.value.status_code == 400
+    assert "sessionid" in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_import_ig_session_bridge_down(monkeypatch):
+    client_cls = _route_http(get_err=httpx.ConnectError("down"))
+    monkeypatch.setattr(httpx, "AsyncClient", client_cls)
+    with pytest.raises(HTTPException) as e:
+        await P.import_instagram_session_from_browser(current_user=None, db=_DB())
+    assert e.value.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_import_ig_session_sidecar_rejects(monkeypatch):
+    client_cls = _route_http(
+        get_resp=_resp(200, {"cookies": {"sessionid": "raw-sid"}}),
+        post_resp=_resp(400, text="bad session"),
+    )
+    monkeypatch.setattr(httpx, "AsyncClient", client_cls)
+    with pytest.raises(HTTPException) as e:
+        await P.import_instagram_session_from_browser(current_user=None, db=_DB())
+    assert e.value.status_code == 400
+    assert "rejected" in e.value.detail
+
+    # Sidecar unreachable → 503
+    client_cls = _route_http(
+        get_resp=_resp(200, {"cookies": {"sessionid": "raw-sid"}}),
+        post_err=httpx.ConnectError("down"),
+    )
+    monkeypatch.setattr(httpx, "AsyncClient", client_cls)
+    with pytest.raises(HTTPException) as e:
+        await P.import_instagram_session_from_browser(current_user=None, db=_DB())
+    assert e.value.status_code == 503
