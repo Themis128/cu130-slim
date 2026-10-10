@@ -1407,3 +1407,41 @@ async def test_run_carousel_and_publish(monkeypatch):
     with pytest.raises(HTTPException) as e:
         await ai.run_carousel_and_publish(req, _team_id(), current_user=_user(), db=_DB(team=None))
     assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_generate_image_flux_paths(monkeypatch):
+    import app.services.inference as inf
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "add_content", AsyncMock())
+    monkeypatch.setattr(
+        inf, "_get_provider_config",
+        AsyncMock(return_value=("http://nv", "m", None)))
+
+    req = ai.GenerateImageFluxRequest(prompt="p")
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image_flux(
+            req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 400
+
+    # happy path: FLUX bytes → b64 → persist → quality
+    monkeypatch.setattr(
+        inf, "_get_provider_config",
+        AsyncMock(return_value=("http://nv", "m", "key")))
+    monkeypatch.setattr(
+        ai, "_call_nvidia_flux", AsyncMock(return_value=b"flux-img"))
+    monkeypatch.setattr(
+        ai, "persist_generated_image",
+        AsyncMock(return_value=SimpleNamespace(
+            id=uuid.uuid4(), storage_path="f.png",
+            generation_prompt="p", ai_caption="", alt_text="", tags=[])))
+    import app.services.media_quality as mq
+    monkeypatch.setattr(
+        mq, "apply_media_quality",
+        AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"q": 2})))
+    monkeypatch.setattr(mq, "persist_media_quality_metadata", AsyncMock())
+    out = await ai.generate_image_flux(
+        req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    import base64 as b64
+    assert out.image_base64 == b64.b64encode(b"flux-img").decode()
+    assert out.quality == {"q": 2}
