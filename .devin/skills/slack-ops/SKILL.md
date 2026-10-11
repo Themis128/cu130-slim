@@ -96,8 +96,17 @@ scope `chat:write`) works as `SLACK_BOT_TOKEN` — `auth.test` + `chat.postMessa
 verified live against `wwwcloudlessgr` (T09AF5VTK4G). `xoxe` tokens last 12h
 and rotate a refresh_token, so `scripts/slack_token_sync.py` refreshes via
 `oauth.v2.user.access`, writes rotated tokens back to the mcp-remote file
-(keeps the MCP server in sync), updates `.env`, and recreates social-api only
-on change. Installed as cron `0 */2 * * *` → `/tmp/slack_token_sync.log`.
+(keeps the MCP server in sync, mode 0600), updates `.env`, and recreates
+**every long-lived SLACK_BOT_TOKEN consumer** — social-api, the four Celery
+workers and celery-beat (compose injects the token at startup; recreating
+only social-api leaves worker digests on the expired token). If any compose
+recreation fails the script exits nonzero and drops
+`/var/tmp/slack_token_sync.pending`; the next run retries the recreation
+even when the token is unchanged. Install the 2h cron idempotently with
+`python3 scripts/slack_token_sync.py --install-cron` (writes
+`0 */2 * * *` → `/var/tmp/slack_token_sync.log`).
+Caveat: `post_publishing_to_slack` takes no token argument — it stays
+webhook-only until it grows a bot-token sender.
 Replacing it with a real `xoxb` bot token (manifest above) removes the need
 for the sync entirely.
 

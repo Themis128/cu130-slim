@@ -445,6 +445,16 @@ app/services/
 │   ├── email_digest.py       — Email digest
 │   ├── slack_digest.py       — Slack digest
 │   ├── slack_notifications.py — Slack event notifications
+│   │                           Slack delivery: dead webhooks (app uninstall →
+│   │                           404 no_service) fall back to SLACK_BOT_TOKEN +
+│   │                           channel id via chat.postMessage. The bot token
+│   │                           is kept fresh by the slack-ops skill
+│   │                           (.devin/skills/slack-ops/scripts/slack_token_sync.py,
+│   │                           2h cron): it rotates the mcp-remote xoxe user
+│   │                           token, mirrors it into .env, and recreates the
+│   │                           token consumers (social-api + 4 workers +
+│   │                           celery-beat) with a pending-marker retry.
+│   │                           post_publishing_to_slack remains webhook-only.
 │   ├── analytics_sync.py     — Analytics synchronization. LinkedIn member
 │   │                           path: sidecar activity scrape (primary) +
 │   │                           memberCreatorPostAnalytics when the token
