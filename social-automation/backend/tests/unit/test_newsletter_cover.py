@@ -58,7 +58,7 @@ def test_default_issue_date_is_iso():
 @pytest.fixture
 def client(monkeypatch):
     app = FastAPI()
-    app.include_router(newsletter_api.router)
+    app.include_router(newsletter_api.router, prefix="/newsletter")
     with patch.object(
         newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="s3cret")
     ):
@@ -67,7 +67,7 @@ def client(monkeypatch):
 
 def test_cover_503_when_service_token_unconfigured():
     app = FastAPI()
-    app.include_router(newsletter_api.router)
+    app.include_router(newsletter_api.router, prefix="/newsletter")
     with patch.object(
         newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="")
     ):
@@ -75,6 +75,11 @@ def test_cover_503_when_service_token_unconfigured():
         r = client.post("/newsletter/cover", json={"title": "x"})
     assert r.status_code == 503
     assert "NEWSLETTER_SERVICE_TOKEN" in r.json()["detail"]
+
+
+def test_cover_route_does_not_double_prefix(client):
+    # When mounted like production, the endpoint is `/newsletter/cover` (not `/newsletter/newsletter/cover`).
+    assert client.post("/newsletter/newsletter/cover", json={"title": "x"}).status_code == 404
 
 
 def test_cover_401_on_missing_or_wrong_token(client):
