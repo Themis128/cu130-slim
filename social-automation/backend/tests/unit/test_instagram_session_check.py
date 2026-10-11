@@ -11,10 +11,13 @@ Covers:
 - alert cooldown prevents duplicate emails
 """
 
+import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import app.worker.tasks.instagram_session_check as T
 from app.core.security import decrypt_field, encrypt_field
 from app.worker.tasks.instagram_session_check import (
     _check_sidecar_health,
@@ -204,3 +207,205 @@ class TestSendAlertCooldown:
         assert kwargs["owner_email"] == owner.email
         assert "testuser" in kwargs["account_username"]
         assert kwargs["reason"] == "session rejected"
+
+
+# ─── coverage append: _check_graph_token, _run_check, wrapper ───────
+
+
+class _Session:
+    def __init__(self, db):
+        self.db = db
+
+    async def __aenter__(self):
+        return self.db
+
+    async def __aexit__(self, *a):
+        return False
+
+
+def _scalars(items):
+    return SimpleNamespace(scalars=lambda: SimpleNamespace(
+        all=lambda: items))
+
+
+def _scalar(val):
+    return SimpleNamespace(scalar_one_or_none=lambda: val)
+
+
+def _acct(**kw):
+    d = dict(id=uuid.uuid4(), team_id=uuid.uuid4(), platform="instagram",
+             status="active", username="cl_ig", access_token_enc=b"e",
+             meta_data={})
+    d.update(kw)
+    return SimpleNamespace(**d)
+
+
+class TestCheckGraphToken:
+    @pytest.mark.asyncio
+    async def test_decrypt_fails(self, monkeypatch):
+        monkeypatch.setattr(T, "decrypt_token",
+                            lambda e: (_ for _ in ()).throw(
+                                RuntimeError("bad")))
+        assert await T._check_graph_token(_acct()) is False
+
+    @pytest.mark.asyncio
+    async def test_empty_token(self, monkeypatch):
+        monkeypatch.setattr(T, "decrypt_token", lambda e: "")
+        assert await T._check_graph_token(_acct()) is False
+
+    @pytest.mark.asyncio
+    async def test_valid(self, monkeypatch):
+        monkeypatch.setattr(T, "decrypt_token", lambda e: "tok")
+        monkeypatch.setattr(T.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient(
+                                response=_FakeResponse(200)))
+        assert await T._check_graph_token(_acct()) is True
+
+    @pytest.mark.asyncio
+    async def test_rejected_and_error(self, monkeypatch):
+        monkeypatch.setattr(T, "decrypt_token", lambda e: "tok")
+        monkeypatch.setattr(T.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient(
+                                response=_FakeResponse(401)))
+        assert await T._check_graph_token(_acct()) is False
+        monkeypatch.setattr(T.httpx, "AsyncClient",
+                            lambda **kw: _FakeAsyncClient(
+                                exc=RuntimeError("net")))
+        assert await T._check_graph_token(_acct()) is False
+
+
+class _WireDB:
+    def __init__(self, results):
+        self._it = iter(results)
+        self.commit = AsyncMock()
+
+    async def execute(self, *a, **kw):
+        return next(self._it)
+
+
+def _wire_run(monkeypatch, accounts, db_extra=(), *, sidecar_up=True,
+              graph=True, session=True):
+    monkeypatch.setattr(T, "get_settings", lambda: SimpleNamespace(
+        INSTAGRAM_PRIVATE_API_URL="http://sc"))
+    monkeypatch.setattr(T, "_check_sidecar_health",
+                        AsyncMock(return_value=sidecar_up))
+    monkeypatch.setattr(T, "_check_graph_token",
+                        AsyncMock(return_value=graph))
+    monkeypatch.setattr(T, "_check_sidecar_session",
+                        AsyncMock(return_value=session))
+    db = _WireDB([_scalars(accounts), *db_extra])
+    monkeypatch.setattr(T, "_worker_db", lambda: _Session(db))
+    return db
+
+
+class TestRunCheck:
+    @pytest.mark.asyncio
+    async def test_no_accounts(self, monkeypatch):
+        _wire_run(monkeypatch, [])
+        out = await T._run_check()
+        assert out == {"checked": 0, "healthy": 0, "expired": 0,
+                       "sidecar_up": True}
+
+    @pytest.mark.asyncio
+    async def test_sidecar_down(self, monkeypatch):
+        acct = _acct(meta_data={"private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct], [_scalar(None)],
+                  sidecar_up=False, session=False)
+        out = await T._run_check()
+        assert out["sidecar_up"] is False
+        assert out["expired"] == 1
+        assert acct.status == "expired"
+
+    @pytest.mark.asyncio
+    async def test_healthy_sidecar_account(self, monkeypatch):
+        acct = _acct(meta_data={"private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct])
+        out = await T._run_check()
+        assert out["healthy"] == 1
+        assert acct.status == "active"
+
+    @pytest.mark.asyncio
+    async def test_restore_expired_to_active(self, monkeypatch):
+        acct = _acct(status="expired",
+                     meta_data={"private_api_session_id": "s"})
+        db = _wire_run(monkeypatch, [acct])
+        await T._run_check()
+        assert acct.status == "active"
+        db.commit.assert_awaited()
+
+    @pytest.mark.asyncio
+    async def test_business_login_graph_ok(self, monkeypatch):
+        acct = _acct(meta_data={"login_type": "business_login",
+                                "private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct], graph=True)
+        out = await T._run_check()
+        assert out["healthy"] == 1
+        T._check_graph_token.assert_awaited_once()
+        T._check_sidecar_session.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_business_login_fallback_to_sidecar(self, monkeypatch):
+        acct = _acct(meta_data={"login_type": "business_login",
+                                "private_api_session_id": "s"})
+        _wire_run(monkeypatch, [acct], graph=False, session=True)
+        out = await T._run_check()
+        assert out["healthy"] == 1
+        T._check_sidecar_session.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_business_login_expired_alerts(self, monkeypatch):
+        acct = _acct(meta_data={"login_type": "business_login"})
+        owner = SimpleNamespace(email="o@x.co", name="O")
+        alert = AsyncMock()
+        monkeypatch.setattr(T, "_send_alert", alert)
+        _wire_run(monkeypatch, [acct], [_scalar(owner)],
+                  graph=False)
+        out = await T._run_check()
+        assert out["expired"] == 1
+        assert acct.status == "expired"
+        assert "OAuth token" in alert.await_args.args[2]
+
+    @pytest.mark.asyncio
+    async def test_no_session_no_check(self, monkeypatch):
+        acct = _acct(meta_data={})
+        _wire_run(monkeypatch, [acct])
+        out = await T._run_check()
+        assert out["checked"] == 0
+
+    @pytest.mark.asyncio
+    async def test_expired_no_owner(self, monkeypatch):
+        acct = _acct(meta_data={"private_api_session_id": "s"})
+        alert = AsyncMock()
+        monkeypatch.setattr(T, "_send_alert", alert)
+        _wire_run(monkeypatch, [acct], [_scalar(None)],
+                  session=False)
+        out = await T._run_check()
+        assert out["expired"] == 1
+        alert.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_session_rejected_reason(self, monkeypatch):
+        acct = _acct(meta_data={"private_api_session_id": "s"})
+        owner = SimpleNamespace(email="o", name="")
+        alert = AsyncMock()
+        monkeypatch.setattr(T, "_send_alert", alert)
+        _wire_run(monkeypatch, [acct], [_scalar(owner)],
+                  sidecar_up=True, session=False)
+        await T._run_check()
+        assert alert.await_args.args[2] == "session rejected"
+
+
+class TestSendAlertException:
+    @pytest.mark.asyncio
+    async def test_swallowed(self, monkeypatch):
+        monkeypatch.setattr(T, "task_session", lambda: _Session(
+            SimpleNamespace(execute=AsyncMock(
+                side_effect=RuntimeError("db")))))
+        await _send_alert(SimpleNamespace(email="o", name=""),
+                          "u", "r")
+
+
+def test_wrapper(monkeypatch):
+    monkeypatch.setattr(T, "run_async",
+                        lambda c: c.close() or {"done": 1})
+    assert T.check_instagram_sessions() == {"done": 1}
