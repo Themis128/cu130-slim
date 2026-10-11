@@ -304,3 +304,38 @@ async def test_stamped_lead_row_short_circuits(fake_redis):
     assert out == "already_sent"
     enq.assert_not_called()
     assert fake_redis.store == {}
+
+def test_enqueue_playbook_email_sends_task(monkeypatch):
+    from app.worker.celery_app import celery_app
+
+    with patch.object(celery_app, "send_task") as sent:
+        pb._enqueue_playbook_email("lead@example.com", "Themis")
+    sent.assert_called_once_with(pb.PLAYBOOK_TASK_NAME, args=["lead@example.com", "Themis"])
+
+
+def test_claim_key_normalizes_email():
+    assert pb._claim_key("  Foo@Bar.COM ") == pb._claim_key("foo@bar.com")
+    assert pb._claim_key("foo@bar.com").startswith("leads:playbook_email:")
+
+
+@pytest.mark.asyncio
+async def test_redis_client_uses_settings_url(monkeypatch):
+    from app.core.config import get_settings
+
+    made = SimpleNamespace(closed=False)
+    from_url = patch("redis.asyncio.from_url", return_value=made)
+    with from_url as m:
+        r = await pb._redis_client()
+    assert r is made
+    m.assert_called_once_with(get_settings().REDIS_URL, decode_responses=True)
+
+
+@pytest.mark.asyncio
+async def test_release_playbook_claim_swallows_errors(monkeypatch, caplog):
+    async def boom():
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(pb, "_redis_client", boom)
+    with caplog.at_level("WARNING"):
+        await pb.release_playbook_claim("x@y.z")  # must not raise
+    assert any("Could not release playbook claim" in rec.message for rec in caplog.records)

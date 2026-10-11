@@ -1594,3 +1594,45 @@ async def test_webhook_member_event_persist_failure_still_notifies(monkeypatch):
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _BoomAddDB([acc]), None)
     assert out["member_event"] == "member_joined"
     assert notify.await_count == 1  # notify still ran despite persist failure
+
+
+@pytest.mark.asyncio
+async def test_send_message_channel_log_failure_rolls_back(monkeypatch):
+    """_safe_log_channel_post must never fail the send — rollback and return."""
+    acc = _tg_account()
+    client = _patch_client(monkeypatch)
+    db = _DB([acc])
+    db.commit = AsyncMock()
+    db.rollback = AsyncMock()
+    def _log_boom(*a, **k):
+        raise RuntimeError("log boom")
+
+    monkeypatch.setattr(telegram, "_log_channel_post", _log_boom)
+    out = await send_message(acc.id, SendMessageRequest(chat_id=1, text="hi"), db, _user())
+    client.send_message.assert_awaited_once()
+    assert out["message"]["message_id"] == 1
+    db.rollback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_chat_admins_502_on_api_error(monkeypatch):
+    acc = _tg_account()
+    client = _FakeClient()
+    client.get_chat_administrators = AsyncMock(side_effect=telegram.TelegramAPIError(400, "x"))
+    _patch_client(monkeypatch, client)
+    with pytest.raises(HTTPException) as e:
+        await chat_admins(acc.id, "-100", _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_create_invite_link_no_primary_falls_back_to_export(monkeypatch):
+    """get_chat without a primary invite_link falls back to export_chat_invite_link."""
+    acc = _tg_account()
+    client = _FakeClient()
+    client.get_chat = AsyncMock(return_value={})
+    client.export_chat_invite_link = AsyncMock(return_value="https://t.me/+exported")
+    _patch_client(monkeypatch, client)
+    out = await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1"), _DB([acc]), _user())
+    assert out["invite_link"]["invite_link"] == "https://t.me/+exported"
+    client.export_chat_invite_link.assert_awaited_once_with("-1")
