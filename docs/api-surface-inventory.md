@@ -432,6 +432,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/telegram/{account_id}/bot/create` — POST
 - `/api/v1/telegram/{account_id}/bot/deactivate` — POST
 - `/api/v1/telegram/{account_id}/bot/personalities` — GET
+- `/api/v1/telegram/{account_id}/channels` — GET
+- `/api/v1/telegram/{account_id}/chat-admins` — GET
+- `/api/v1/telegram/{account_id}/chat-description` — PUT
+- `/api/v1/telegram/{account_id}/chat-info` — GET
 - `/api/v1/telegram/{account_id}/chat-members` — GET
 - `/api/v1/telegram/{account_id}/credentials` — PUT
 - `/api/v1/telegram/{account_id}/delete-message` — POST
@@ -441,6 +445,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/telegram/{account_id}/group-watch/add-chat` — POST
 - `/api/v1/telegram/{account_id}/group-watch/digest-now` — POST
 - `/api/v1/telegram/{account_id}/group-watch/setup-links` — POST
+- `/api/v1/telegram/{account_id}/invite-link` — POST
 - `/api/v1/telegram/{account_id}/pin` — POST
 - `/api/v1/telegram/{account_id}/send` — POST
 - `/api/v1/telegram/{account_id}/send-media-group` — POST
