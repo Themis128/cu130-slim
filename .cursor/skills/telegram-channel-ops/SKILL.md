@@ -81,7 +81,7 @@ telegram account.
 - **Notifications** (`app/services/telegram_notify.py`): webhook events fan
   out to Slack **#socialauto-telegram** (`C0C8DU44CAV`) + email
   `TELEGRAM_NOTIFY_EMAIL` (fallback `DIGEST_EMAIL_TO`). Events: member
-  joined/left, join request, bot added/removed/admin. Joins carry
+  joined/left, join request approved, bot added/removed/admin. Joins carry
   `invite_link_name` for source attribution (needs `chat_member` in
   `TELEGRAM_ALLOWED_UPDATES` — re-run webhook setup if the webhook was
   registered before it was added).
@@ -119,7 +119,7 @@ Every channel event is persisted to `analytics_events` (platform `telegram`,
 |---|---|---|
 | `member_joined` | `chat_member` webhook | Join; `meta_data.invite_link_name` = source attribution |
 | `member_left` | `chat_member` webhook | Churn |
-| `join_request` | `chat_member` webhook | Approval-flow joins |
+| `join_request_approved` | `chat_member` webhook (`via_join_request=true`) | Approval-flow joins (admin already approved) |
 | `bot_admin`/`bot_member`/`bot_removed` | `my_chat_member` webhook | Bot lifecycle |
 | `channel_post` | send endpoints (known channels only — never DMs) | Post↔join correlation; `kind` + `has_media` + `message_ids` |
 

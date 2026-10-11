@@ -17,7 +17,6 @@ logger = logging.getLogger(__name__)
 _EVENT_LABELS = {
     "member_joined": "New member joined",
     "member_left": "Member left",
-    "join_request": "Join request",
     "join_request_approved": "New member joined (join request approved)",
     "bot_admin": "Bot added as administrator",
     "bot_member": "Bot added to chat",
