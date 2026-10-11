@@ -672,6 +672,12 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 - **Local Diffusers (SD 1.5)**: Uses ~2.0GB VRAM when active, ~3.4GB reserved. Unloads when idle so DMR/ComfyUI can use the VRAM.
 - **DMR + local-diffusers coexistence**: DMR auto-unloads its model after idle, so the two rarely hold VRAM simultaneously. When both are active (~7GB total), it fits in 8GB but leaves little headroom.
 
+## ZCode MCP registration
+
+- Workspace-scoped ZCode MCP config: `.zcode/config.json` (machine-specific absolute paths — kept out of git via `.git/info/exclude`). Registers 7 servers, ~86 tools, boot-verified 2026-10-11: `dmr` (26), `metabase` (19), `n8n` (13), `tiktok-console` (9), `cloudflare` (8), `platform` (8), `polar` (3).
+- Excluded: `telegram` — the Telethon client is **unauthorized** (`telegram_session.session` file session not logged in; all `TELEGRAM_SESSION_STRING*` vars commented out in `~/tools/telegram-mcp/.env`). Fix needs one interactive login by the user: `cd ~/tools/telegram-mcp && uv run session_string_generator.py` (phone code), then set `TELEGRAM_SESSION_STRING` in that `.env` — after that add it to `.zcode/config.json`. Also excluded: `playwright` (docker-heavy, redundant), `socialauto` + mcp-remote servers (auth-dependent), `linkedin`/`airbyte`/`nextcloud` (empty command entries).
+- `metabase` container drift fixed 2026-10-11: the container had been *removed* (not stack-ops-stopped), so wake-on-connect had nothing to start — recreated via `docker compose up -d metabase`, verified the MCP path end-to-end (dashboards list 200), then stopped back to the asleep posture.
+
 ## Billing preferences
 
 - **The user uses Dodo, not Stripe.** For merchant-of-record / payment work, prefer Dodo. Polar is configured as `BILLING_PROVIDER=polar` but the user's payment platform of choice is Dodo. Do not direct the user to Stripe-branded flows expecting them to have a Stripe account — note that Polar internally uses Stripe Identity/Stripe Express for its KYC and payout onboarding even when the merchant doesn't otherwise use Stripe.
