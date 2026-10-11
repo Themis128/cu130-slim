@@ -105,8 +105,8 @@ recreation fails the script exits nonzero and drops
 even when the token is unchanged. Install the 2h cron idempotently with
 `python3 scripts/slack_token_sync.py --install-cron` (writes
 `0 */2 * * *` → `/var/tmp/slack_token_sync.log`).
-Caveat: `post_publishing_to_slack` takes no token argument — it stays
-webhook-only until it grows a bot-token sender.
+`post_publishing_to_slack` now shares the fallback: webhook first, then
+SLACK_BOT_TOKEN + SLACK_PUBLISHING_CHANNEL_ID (default: SLACK_CHANNEL_ID).
 Replacing it with a real `xoxb` bot token (manifest above) removes the need
 for the sync entirely.
 
