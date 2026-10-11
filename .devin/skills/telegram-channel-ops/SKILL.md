@@ -109,3 +109,31 @@ telegram account.
   the channel for paid subs — private channel from day one means no rebuild.
 - InviteLinkRequest: `member_limit` (1-99999), `expire_date` (unix ts),
   `creates_join_request` (approval flow) — mutually exclusive with member_limit.
+
+## Datalake funnel (LTE)
+
+Every channel event is persisted to `analytics_events` (platform `telegram`,
+`post_id` NULL) by `app/api/telegram.py`:
+
+| event_type | Source | Funnel meaning |
+|---|---|---|
+| `member_joined` | `chat_member` webhook | Join; `meta_data.invite_link_name` = source attribution |
+| `member_left` | `chat_member` webhook | Churn |
+| `join_request` | `chat_member` webhook | Approval-flow joins |
+| `bot_admin`/`bot_member`/`bot_removed` | `my_chat_member` webhook | Bot lifecycle |
+| `channel_post` | send endpoints (known channels only — never DMs) | Post↔join correlation; `kind` + `has_media` + `message_ids` |
+
+`datalake_export` Celery task (every 6h) ships them to R2:
+
+- `lake/socialauto-account-events/events.json` — all events above
+- `lake/socialauto-telegram/channels.json` — dimension table: per-chat
+  registry, bot status, managed flag, named invite-link inventory
+  (**URLs stripped — they grant channel access**)
+- `lake/socialauto-followers/followers.json` — daily `getChatMemberCount`
+  snapshots (platform `telegram`) via `sync_telegram_channel_metrics`
+
+Gold processing: cloudless.gr `scripts/etl/_telegram-funnel.mjs` +
+`telegram_funnel` section in `materialize-datalake-snapshots.mjs` (hourly CI)
+→ member count, net 7d/30d, joins/leaves/churn, joins-per-post,
+`join_source` rows per named link, channel inventory — feeding
+`lake/snapshots/admin-datalake.json` for the admin dashboard + insights.
