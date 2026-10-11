@@ -127,18 +127,26 @@ async def test_token_fallback(client, monkeypatch):
     assert out.status_code == 200 and calls == ["tok1", "tok2"]
     assert client._active_token == "tok2"
 
-    # 403 → returned immediately (auth_dead only fires when the loop
-    # completes with every token hitting 401/exception — a 403 response
-    # short-circuits the loop and surfaces to the caller)
+    # all tokens 403 → every token tried, _auth_dead set, last 403 returned
     async def req403(token):
+        calls.append(token)
         return _resp(403)
+    calls.clear()
     out = await client._try_with_token_fallback(req403)
     assert out.status_code == 403
+    assert calls == ["tok1", "tok2"] and client._auth_dead is True
 
     # auth_dead guard — once set, raises before any request
-    client._auth_dead = True
     with pytest.raises(RuntimeError, match="D1 disabled"):
         await client._try_with_token_fallback(req403)
+
+    # all tokens 401 → last 401 response returned (line ~119)
+    client._auth_dead = False
+
+    async def req401(token):
+        return _resp(401)
+    out = await client._try_with_token_fallback(req401)
+    assert out.status_code == 401
 
     # request raises → try next; all fail → RuntimeError
     client._auth_dead = False
@@ -318,3 +326,22 @@ async def test_crud_helpers(client, monkeypatch):
     monkeypatch.setattr(client, "execute", AsyncMock(
         side_effect=RuntimeError("x")))
     assert await client.health() is False
+
+
+@pytest.mark.asyncio
+async def test_execute_error_json_and_empty_results(client, monkeypatch):
+    _no_redis(monkeypatch)
+
+    # error body is not JSON → err_msg falls back to resp.text
+    bad = SimpleNamespace(status_code=500, text="not-json-body")
+    def _raise():
+        raise ValueError("no json")
+    bad.json = _raise
+    _wire(monkeypatch, client, AsyncMock(return_value=bad))
+    with pytest.raises(RuntimeError, match="D1 HTTP 500: not-json-body"):
+        await client.execute("SELECT 1")
+
+    # success but empty result list → []
+    _wire(monkeypatch, client, AsyncMock(
+        return_value=_resp(200, {"success": True, "result": []})))
+    assert await client.execute("SELECT * FROM t") == []

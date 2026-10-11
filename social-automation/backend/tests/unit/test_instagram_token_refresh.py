@@ -292,3 +292,98 @@ async def test_refresh_exchange_paths(monkeypatch):
     monkeypatch.setattr(I.httpx, "AsyncClient", lambda *a, **k: _Boom())
     out = await I._refresh_instagram_tokens_async()
     assert out["errors"] == 1
+
+
+# ── _run_async + task wrapper ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_async_running_loop_thread():
+    # a loop is already running → coro executes in a worker thread
+    out = I._run_async(_coro_val(41))
+    assert out == 42
+
+    async def _boom():
+        raise ValueError("inner")
+    with pytest.raises(ValueError, match="inner"):
+        I._run_async(_boom())
+
+
+async def _coro_val(n):
+    return n + 1
+
+
+def test_run_async_not_running_and_no_loop(monkeypatch):
+    # existing loop but not running → falls through to run_async
+    monkeypatch.setattr(I, "run_async", lambda c: c.close() or "via-run_async")
+    monkeypatch.setattr(I.asyncio, "get_event_loop",
+                        lambda: SimpleNamespace(is_running=lambda: False))
+
+    async def _c():
+        return "x"
+    assert I._run_async(_c()) == "via-run_async"
+
+    # get_event_loop raises RuntimeError → run_async fallback
+    def _raise():
+        raise RuntimeError("no loop")
+    monkeypatch.setattr(I.asyncio, "get_event_loop", _raise)
+
+    async def _c2():
+        return "y"
+    assert I._run_async(_c2()) == "via-run_async"
+
+
+def test_refresh_task_wrapper(monkeypatch):
+    seen = {}
+    def _fake_run(c):
+        seen["c"] = c
+        return {"ok": 1}
+    monkeypatch.setattr(I, "_run_async", _fake_run)
+
+    async def _impl():
+        return {"ok": 1}
+    monkeypatch.setattr(I, "_refresh_instagram_tokens_async", _impl)
+    assert I.refresh_instagram_tokens() == {"ok": 1}
+    seen["c"].close()
+
+
+# ── remaining expiry branches ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_refresh_expiry_edge_branches(monkeypatch):
+    # naive token_expires_at → tz backfilled (line 222)
+    acct = _acct(token_expires_at=datetime.now(UTC).replace(tzinfo=None)
+                 + timedelta(days=30))
+    _wire(monkeypatch, [acct])
+    out = await I._refresh_instagram_tokens_async()
+    assert out["tokens_valid"] == 1
+
+    # unparseable legacy meta expiry → ignored, refresh proceeds (228-229)
+    acct = _acct(meta_data={"instagram_token_expires_at": "not-a-date"})
+    _wire(monkeypatch, [acct], routes={
+        "/refresh_access_token": _resp(200, {"access_token": "NEW"})})
+    out = await I._refresh_instagram_tokens_async()
+    assert out["tokens_refreshed"] == 1
+
+    # debug_token response raises on .json() → warning, refresh proceeds
+    bad = SimpleNamespace(status_code=200, text="x")
+    def _badjson():
+        raise RuntimeError("bad json")
+    bad.json = _badjson
+    acct = _acct(platform="facebook", access_token_enc="enc:EAAfb",
+                 meta_data={})
+    _wire(monkeypatch, [acct], routes={
+        "/debug_token": bad,
+        "/oauth/access_token": _resp(200, {"access_token": "NEWFB"})})
+    out = await I._refresh_instagram_tokens_async()
+    assert out["tokens_refreshed"] == 1
+
+    # slack expiry alert raises → non-fatal, refresh still happens (287-288)
+    I.post_alert_to_slack.side_effect = RuntimeError("slack down")
+    acct = _acct(token_expires_at=datetime.now(UTC) + timedelta(days=3))
+    _wire(monkeypatch, [acct], routes={
+        "/refresh_access_token": _resp(200, {"access_token": "NEW"})})
+    out = await I._refresh_instagram_tokens_async()
+    assert out["tokens_refreshed"] == 1
+    assert "expiry_alert_sent" not in acct.meta_data  # flag only set on success

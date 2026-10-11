@@ -96,8 +96,13 @@ class D1Client:
                     logger.warning("D1 token failed (401), trying next token...")
                     all_403 = False
                     continue
-                if resp.status_code != 403:
-                    all_403 = False
+                if resp.status_code == 403:
+                    # Authenticated but no D1 scope on this token — another
+                    # token may hold it. Only when *every* token 403s do we
+                    # mark the client auth-dead below.
+                    last_resp = resp
+                    continue
+                all_403 = False
                 return resp
             except Exception:
                 all_403 = False
