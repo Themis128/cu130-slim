@@ -379,9 +379,16 @@ async def test_post_alert_to_slack():
 
 @pytest.mark.asyncio
 async def test_post_publishing_to_slack():
-    settings = SimpleNamespace(SLACK_PUBLISHING_WEBHOOK_URL="")
+    settings = SimpleNamespace(
+        SLACK_PUBLISHING_WEBHOOK_URL="",
+        SLACK_PUBLISHING_CHANNEL_ID="",
+        SLACK_WEBHOOK_URL="",
+        SLACK_BOT_TOKEN="",
+        SLACK_ACCESS_TOKEN="",
+        SLACK_CHANNEL_ID="",
+    )
     with patch.object(sn, "get_settings", return_value=settings):
-        await sn.post_publishing_to_slack("t")  # early return
+        await sn.post_publishing_to_slack("t")  # nothing configured → early return
 
     called = {}
 
@@ -389,13 +396,23 @@ async def test_post_publishing_to_slack():
         called.update(kw)
         return False, "err", None
 
-    settings2 = SimpleNamespace(SLACK_PUBLISHING_WEBHOOK_URL="https://hooks/pub")
+    settings2 = SimpleNamespace(
+        SLACK_PUBLISHING_WEBHOOK_URL="https://hooks/pub",
+        SLACK_PUBLISHING_CHANNEL_ID="CPUB",
+        SLACK_WEBHOOK_URL="",
+        SLACK_BOT_TOKEN="xoxb",
+        SLACK_ACCESS_TOKEN="",
+        SLACK_CHANNEL_ID="CMAIN",
+    )
     with (
         patch.object(sn, "get_settings", return_value=settings2),
+        patch.object(sn, "_get_slack_token", lambda: "xoxb"),
         patch.object(sn, "_post_slack_text", fake_post),
     ):
         await sn.post_publishing_to_slack("t")
     assert called["purpose"] == "publishing"
+    assert called["token"] == "xoxb"
+    assert called["channel_id"] == "CPUB"
 
 
 @pytest.mark.asyncio
@@ -611,3 +628,109 @@ async def test_billing_and_support_failure_warning_paths():
         assert not ok and err == "delivery failed"
         ok, err = await sn.post_support_report_to_slack("t")
         assert not ok and err == "delivery failed"
+
+
+# ── post_publishing_to_slack: webhook + bot-token fallback ───────────
+
+
+def _pub_settings(**kw):
+    base = dict(
+        SLACK_PUBLISHING_WEBHOOK_URL="",
+        SLACK_PUBLISHING_CHANNEL_ID="",
+        SLACK_WEBHOOK_URL="",
+        SLACK_BOT_TOKEN="xoxb-test",
+        SLACK_ACCESS_TOKEN="",
+        SLACK_CHANNEL_ID="CMAIN",
+    )
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+class _Recording(_FakeAsyncClient):
+    async def post(self, url, headers=None, json=None):
+        self.calls.append({"url": url, "headers": headers, "json": json})
+        if url.startswith("https://hooks"):
+            return _FakeResponse(404, "no_service")
+        return _FakeResponse(200, {"ok": True, "ts": "9.9"})
+
+
+@pytest.mark.asyncio
+async def test_post_publishing_unconfigured_returns_without_calling():
+    fake = _Recording(None)
+    with patch.object(
+        sn, "get_settings", return_value=_pub_settings(SLACK_BOT_TOKEN="")
+    ), patch.object(
+        sn.httpx, "AsyncClient", return_value=fake
+    ):
+        await sn.post_publishing_to_slack("published!")
+    assert fake.calls == []  # no webhook, no channel → nothing attempted
+
+
+@pytest.mark.asyncio
+async def test_post_publishing_webhook_dead_falls_back_to_bot_token():
+    fake = _Recording(None)
+    with patch.object(
+        sn,
+        "get_settings",
+        return_value=_pub_settings(SLACK_PUBLISHING_WEBHOOK_URL="https://hooks/dead"),
+    ), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        await sn.post_publishing_to_slack("published!")
+    urls = [c["url"] for c in fake.calls]
+    assert urls[0].startswith("https://hooks")  # webhook tried first
+    assert urls[1].endswith("chat.postMessage")  # then the bot token
+    assert fake.calls[1]["json"]["channel"] == "CMAIN"  # falls back to SLACK_CHANNEL_ID
+    assert fake.calls[1]["headers"]["Authorization"] == "Bearer xoxb-test"
+
+
+@pytest.mark.asyncio
+async def test_post_publishing_no_webhook_uses_token_and_dedicated_channel():
+    fake = _Recording(None)
+    with patch.object(
+        sn,
+        "get_settings",
+        return_value=_pub_settings(SLACK_PUBLISHING_CHANNEL_ID="CPUB"),
+    ), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        await sn.post_publishing_to_slack("published!")
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["url"].endswith("chat.postMessage")
+    assert fake.calls[0]["json"]["channel"] == "CPUB"  # dedicated channel wins
+
+
+@pytest.mark.asyncio
+async def test_post_telegram_to_slack_dedicated_channel_wins():
+    fake = _Recording(None)
+    with patch.object(
+        sn,
+        "get_settings",
+        return_value=SimpleNamespace(
+            SLACK_TELEGRAM_WEBHOOK_URL="",
+            SLACK_TELEGRAM_CHANNEL_ID="CTG",
+            SLACK_WEBHOOK_URL="https://hooks/main",
+            SLACK_CHANNEL_ID="CMAIN",
+            SLACK_BOT_TOKEN="xoxb-test",
+            SLACK_ACCESS_TOKEN="",
+        ),
+    ), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        ok, err = await sn.post_telegram_to_slack("tg event")
+    assert ok and err is None
+    assert fake.calls[0]["url"].startswith("https://hooks")  # webhook tried first
+    assert fake.calls[1]["url"].endswith("chat.postMessage")  # 404 → token path
+    assert fake.calls[1]["json"]["channel"] == "CTG"
+
+
+@pytest.mark.asyncio
+async def test_post_telegram_to_slack_unconfigured_reports():
+    with patch.object(
+        sn,
+        "get_settings",
+        return_value=SimpleNamespace(
+            SLACK_TELEGRAM_WEBHOOK_URL="",
+            SLACK_TELEGRAM_CHANNEL_ID="",
+            SLACK_WEBHOOK_URL="",
+            SLACK_CHANNEL_ID="",
+            SLACK_BOT_TOKEN="",
+            SLACK_ACCESS_TOKEN="",
+        ),
+    ):
+        ok, err = await sn.post_telegram_to_slack("tg event")
+    assert not ok and "not configured" in err

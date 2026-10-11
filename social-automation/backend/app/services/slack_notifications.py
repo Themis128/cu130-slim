@@ -221,20 +221,28 @@ async def post_digest_text_to_slack(text: str) -> tuple[bool, str | None, str | 
 
 
 async def post_publishing_to_slack(text: str) -> None:
-    """Post publish-success notifications to #socialauto-publishing (best-effort)."""
+    """Post publish-success notifications to #socialauto-publishing (best-effort).
+
+    Webhook first; when it is dead (app uninstall → 404) or unset, falls back to
+    SLACK_BOT_TOKEN + SLACK_PUBLISHING_CHANNEL_ID (default: SLACK_CHANNEL_ID) —
+    the same rotation path the daily digest uses.
+    """
     settings = get_settings()
     webhook = (settings.SLACK_PUBLISHING_WEBHOOK_URL or "").strip()
-    if not webhook:
+    channel_id = (settings.SLACK_PUBLISHING_CHANNEL_ID or "").strip() or (
+        settings.SLACK_CHANNEL_ID or ""
+    ).strip()
+    if not webhook and not channel_id:
         return
     ok, err, _ = await _post_slack_text(
         text=text,
         webhook_url=webhook,
-        token="",
-        channel_id="",
+        token=_get_slack_token(),
+        channel_id=channel_id,
         purpose="publishing",
     )
     if not ok:
-        logger.warning("Slack publishing webhook failed: %s", err)
+        logger.warning("Slack publishing notification failed: %s", err)
 
 
 async def post_telegram_to_slack(text: str) -> tuple[bool, str | None]:
