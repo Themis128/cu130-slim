@@ -28,11 +28,11 @@ class NewsletterCoverRequest(BaseModel):
 
 def _require_service_token(request: Request) -> None:
     settings = get_settings()
-    expected = (settings.SOCIALAUTO_SERVICE_TOKEN or "").strip()
+    expected = (settings.NEWSLETTER_SERVICE_TOKEN or "").strip()
     if not expected:
         raise HTTPException(
             status_code=503,
-            detail="SOCIALAUTO_SERVICE_TOKEN is not configured",
+            detail="NEWSLETTER_SERVICE_TOKEN is not configured",
         )
     provided = (request.headers.get("X-Service-Token") or "").strip()
     if not provided or not secrets.compare_digest(provided, expected):

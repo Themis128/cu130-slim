@@ -60,7 +60,7 @@ def client(monkeypatch):
     app = FastAPI()
     app.include_router(newsletter_api.router)
     with patch.object(
-        newsletter_api, "get_settings", return_value=SimpleNamespace(SOCIALAUTO_SERVICE_TOKEN="s3cret")
+        newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="s3cret")
     ):
         yield TestClient(app)
 
@@ -69,12 +69,12 @@ def test_cover_503_when_service_token_unconfigured():
     app = FastAPI()
     app.include_router(newsletter_api.router)
     with patch.object(
-        newsletter_api, "get_settings", return_value=SimpleNamespace(SOCIALAUTO_SERVICE_TOKEN="")
+        newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="")
     ):
         client = TestClient(app)
         r = client.post("/newsletter/cover", json={"title": "x"})
     assert r.status_code == 503
-    assert "SOCIALAUTO_SERVICE_TOKEN" in r.json()["detail"]
+    assert "NEWSLETTER_SERVICE_TOKEN" in r.json()["detail"]
 
 
 def test_cover_401_on_missing_or_wrong_token(client):
