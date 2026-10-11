@@ -26,6 +26,7 @@ from app.api.deps import TeamId, check_quota
 from app.core.config import settings
 from app.core.security import decrypt_token, encrypt_token
 from app.db.session import get_db
+from app.models.analytics import AnalyticsEvent
 from app.models.social_account import SocialAccount
 from app.models.user import User
 from app.services.telegram_api import (
@@ -88,6 +89,83 @@ def _record_chat_membership(meta: dict[str, Any], event: dict[str, Any]) -> dict
     meta = dict(meta)
     meta[TELEGRAM_CHANNELS_META_KEY] = channels
     return meta
+
+
+def _record_channel_event(
+    db: AsyncSession,
+    account: SocialAccount,
+    event_type: str,
+    meta_data: dict[str, Any],
+) -> None:
+    """Persist a channel event for the datalake funnel pipeline.
+
+    Rows land in ``analytics_events`` (``post_id IS NULL``) and are exported
+    to ``lake/socialauto-account-events/events.json`` by ``datalake_export`` —
+    member_joined/member_left/join_request carry ``invite_link_name`` for
+    join-source attribution; ``channel_post`` events correlate published
+    posts to join spikes.
+    """
+    db.add(
+        AnalyticsEvent(
+            team_id=account.team_id,
+            social_account_id=account.id,
+            event_type=event_type,
+            platform="telegram",
+            occurred_at=datetime.now(UTC),
+            meta_data=meta_data,
+        )
+    )
+
+
+def _log_channel_post(
+    db: AsyncSession,
+    account: SocialAccount,
+    chat_id: Any,
+    result: Any,
+    kind: str,
+    has_media: bool,
+) -> None:
+    """Queue a ``channel_post`` event when the send targets a known channel.
+
+    Only chats the webhook discovered (or the managed channel) are logged —
+    DM sends never leave a data trail.
+    """
+    meta = account.meta_data or {}
+    channels = meta.get(TELEGRAM_CHANNELS_META_KEY) or {}
+    managed = meta.get("telegram_channel") or {}
+    cid = str(chat_id)
+    if cid not in channels and cid != str(managed.get("chat_id") or ""):
+        return
+    msgs = result if isinstance(result, list) else [result]
+    _record_channel_event(
+        db,
+        account,
+        "channel_post",
+        {
+            "chat_id": cid,
+            "chat_title": (channels.get(cid) or {}).get("title") or managed.get("title"),
+            "kind": kind,
+            "has_media": has_media,
+            "message_ids": [m.get("message_id") for m in msgs if isinstance(m, dict)],
+        },
+    )
+
+
+async def _safe_log_channel_post(
+    db: AsyncSession,
+    account: SocialAccount,
+    chat_id: Any,
+    result: Any,
+    kind: str,
+    has_media: bool,
+) -> None:
+    """Best-effort channel-post logging — never fails the send response."""
+    try:
+        _log_channel_post(db, account, chat_id, result, kind, has_media)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — logging failure must not fail a send
+        logger.warning("channel_post event log failed", exc_info=True)
+        await db.rollback()
 
 
 def _sanitize(text: str, max_len: int = 400) -> str:
@@ -624,6 +702,7 @@ async def send_message(
             )
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await _safe_log_channel_post(db, account, body.chat_id, result, "message", has_media=False)
     return {"status": "ok", "message": result}
 
 
@@ -647,6 +726,7 @@ async def send_photo(
         )
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await _safe_log_channel_post(db, account, body.chat_id, result, "photo", has_media=True)
     return {"status": "ok", "message": result}
 
 
@@ -664,6 +744,9 @@ async def send_media_group(
         result = await client.send_media_group(body.chat_id, body.media)
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await _safe_log_channel_post(
+        db, account, body.chat_id, result, "media_group", has_media=True
+    )
     return {"status": "ok", "messages": result}
 
 
@@ -686,6 +769,7 @@ async def send_poll(
         )
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    await _safe_log_channel_post(db, account, body.chat_id, result, "poll", has_media=False)
     return {"status": "ok", "message": result}
 
 
@@ -872,6 +956,29 @@ async def create_invite_link(
             link = {"invite_link": await client.export_chat_invite_link(body.chat_id)}
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if body.name:
+        # Persist named links on the channel record — they are the funnel's
+        # join-source attribution keys (ig / threads / website).
+        meta = dict(account.meta_data or {})
+        channels = dict(meta.get(TELEGRAM_CHANNELS_META_KEY) or {})
+        entry = dict(channels.get(str(body.chat_id)) or {})
+        entry.setdefault("chat_id", str(body.chat_id))
+        entry.setdefault("type", "channel")
+        links = list(entry.get("invite_links") or [])
+        links.append(
+            {
+                "name": body.name,
+                "invite_link": link.get("invite_link"),
+                "creates_join_request": bool(link.get("creates_join_request")),
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+        )
+        entry["invite_links"] = links
+        channels[str(body.chat_id)] = entry
+        meta[TELEGRAM_CHANNELS_META_KEY] = channels
+        account.meta_data = meta
+        flag_modified(account, "meta_data")
+        await db.commit()
     return {"status": "ok", "chat_id": str(body.chat_id), "invite_link": link}
 
 
@@ -1438,14 +1545,26 @@ async def receive_webhook(
             meta = _record_chat_membership(meta, membership)
             account.meta_data = meta
             flag_modified(account, "meta_data")
-            await db.commit()
-            response["membership"] = info
             new_status = membership.get("new_status") or ""
             event = (
                 "bot_admin" if new_status == "administrator"
                 else "bot_member" if new_status == "member"
                 else "bot_removed"
             )
+            _record_channel_event(
+                db,
+                account,
+                event,
+                {
+                    "chat_id": str(membership["chat_id"]),
+                    "chat_title": membership.get("chat_title") or "",
+                    "chat_type": membership.get("chat_type"),
+                    "old_status": membership.get("old_status"),
+                    "new_status": new_status,
+                },
+            )
+            await db.commit()
+            response["membership"] = info
             await notify_channel_event(
                 event=event,
                 chat_title=membership.get("chat_title") or "",
@@ -1476,6 +1595,29 @@ async def receive_webhook(
         if member_event.get("invite_link_name"):
             details.append(f"via invite link: {member_event['invite_link_name']}")
         response["member_event"] = event
+        try:
+            _record_channel_event(
+                db,
+                account,
+                event,
+                {
+                    "chat_id": str(member_event["chat_id"]),
+                    "chat_title": member_event.get("chat_title") or "",
+                    "actor": actor,
+                    "old_status": member_event.get("old_status"),
+                    "new_status": new_status,
+                    "invite_link_name": member_event.get("invite_link_name"),
+                    "via_join_request": bool(member_event.get("via_join_request")),
+                },
+            )
+            await db.commit()
+        except Exception:  # noqa: BLE001 — persist failure must not stop notify
+            logger.warning(
+                "Telegram member-event persist failed account=%s",
+                _sanitize(str(account_id)),
+                exc_info=True,
+            )
+            await db.rollback()
         try:
             response["notified"] = await notify_channel_event(
                 event=event,

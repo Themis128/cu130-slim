@@ -10,6 +10,7 @@ site's ``materialize-datalake-snapshots`` ETL can build gold sections:
     lake/socialauto-account-events/events.json
     lake/socialauto-insights/<team>.json
     lake/socialauto-leads/leads.json
+    lake/socialauto-telegram/channels.json
     lake/socialauto-web-events/events.json
     lake/socialauto-ads/snapshots.json
     lake/socialauto-ads/daily.json
@@ -247,6 +248,50 @@ async def _export_leads(db: AsyncSession) -> list[dict]:
         }
         for lead, platform in rows
     ]
+
+
+async def _export_telegram_channels(db: AsyncSession) -> list[dict]:
+    """Dimension table for the Telegram channel funnel — one row per chat
+    the bot administers (discovered via ``my_chat_member`` webhook events),
+    plus named invite links. Invite-link URLs are excluded: they grant
+    access to the private channel and are treated as secrets."""
+    rows = (
+        await db.execute(
+            select(SocialAccount).where(SocialAccount.platform == "telegram")
+        )
+    ).scalars().all()
+    out: list[dict] = []
+    for a in rows:
+        meta = a.meta_data or {}
+        managed = meta.get("telegram_channel") or {}
+        channels = meta.get("telegram_channels") or {}
+        for chat_id, ch in channels.items():
+            if not isinstance(ch, dict):
+                continue
+            links = [
+                {
+                    "name": link.get("name"),
+                    "creates_join_request": bool(link.get("creates_join_request")),
+                    "created_at": link.get("created_at"),
+                }
+                for link in (ch.get("invite_links") or [])
+                if isinstance(link, dict)
+            ]
+            out.append(
+                {
+                    "account_id": str(a.id),
+                    "team_id": str(a.team_id),
+                    "chat_id": str(chat_id),
+                    "title": ch.get("title") or "",
+                    "type": ch.get("type") or "",
+                    "bot_status": ch.get("status") or "",
+                    "managed": str(managed.get("chat_id") or "") == str(chat_id),
+                    "invite_links": links,
+                    "added_at": ch.get("added_at"),
+                    "updated_at": ch.get("updated_at"),
+                }
+            )
+    return out
 
 
 async def _export_web_events(db: AsyncSession) -> list[dict]:
@@ -560,6 +605,7 @@ async def _export_async() -> dict:
             "lake/socialauto-followers/followers.json": await _export_followers(db),
             "lake/socialauto-account-events/events.json": await _export_account_events(db),
             "lake/socialauto-leads/leads.json": await _export_leads(db),
+            "lake/socialauto-telegram/channels.json": await _export_telegram_channels(db),
             "lake/socialauto-web-events/events.json": await _export_web_events(db),
             "lake/socialauto-ads/snapshots.json": await _export_ad_snapshots(db),
             "lake/socialauto-ads/daily.json": await _export_ad_daily(db),
