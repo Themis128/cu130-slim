@@ -561,3 +561,401 @@ def test_parse_frame_rate():
     assert api._parse_frame_rate("0/0") is None
     assert api._parse_frame_rate(None) is None
 
+
+
+# ── pure helpers ────────────────────────────────────────────────────
+
+
+def test_probe_tiktok_video(monkeypatch, tmp_path):
+    f = tmp_path / "v.mp4"
+    f.write_bytes(b"x")
+    # no ffprobe
+    monkeypatch.setattr(api.shutil, "which", lambda x: None)
+    assert api.probe_tiktok_video(str(f)) is None
+
+    monkeypatch.setattr(api.shutil, "which", lambda x: "/usr/bin/ffprobe")
+    # OSError
+    monkeypatch.setattr(api.subprocess, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("x")))
+    assert api.probe_tiktok_video(str(f)) is None
+    # nonzero exit
+    proc = type("P", (), {"returncode": 1, "stderr": "err", "stdout": ""})
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: proc())
+    assert api.probe_tiktok_video(str(f)) is None
+    # bad json
+    proc = type("P", (), {"returncode": 0, "stderr": "", "stdout": "nope"})
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: proc())
+    assert api.probe_tiktok_video(str(f)) is None
+    # no streams
+    proc = type("P", (), {"returncode": 0, "stderr": "", "stdout": "{}"})
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: proc())
+    assert api.probe_tiktok_video(str(f)) is None
+    # success — fps from avg, duration from format, bad width
+    import json as _j
+    out = _j.dumps({"streams": [{
+        "width": "bad", "height": 1920,
+        "avg_frame_rate": "30000/1001"}],
+        "format": {"duration": "12.5"}})
+    proc = type("P", (), {"returncode": 0, "stderr": "", "stdout": out})
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: proc())
+    info = api.probe_tiktok_video(str(f))
+    # bad width zeroes both dims
+    assert info["width"] is None and info["height"] is None
+    assert info["fps"] == pytest.approx(29.97, rel=0.01)
+    assert info["duration_sec"] == 12.5
+    # fps fallback to r_frame_rate, duration from stream
+    out = _j.dumps({"streams": [{
+        "width": 1080, "height": 1920,
+        "avg_frame_rate": "0/0", "r_frame_rate": "60/1",
+        "duration": "9.0"}], "format": {}})
+    proc = type("P", (), {"returncode": 0, "stderr": "", "stdout": out})
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: proc())
+    info = api.probe_tiktok_video(str(f))
+    assert info["fps"] == 60.0 and info["duration_sec"] == 9.0
+
+
+def test_validate_tiktok_video_constraints(monkeypatch):
+    # probe None → advisory pass
+    monkeypatch.setattr(api, "probe_tiktok_video", lambda p: None)
+    assert api.validate_tiktok_video_constraints("x") is None
+
+    # valid
+    monkeypatch.setattr(api, "probe_tiktok_video",
+                        lambda p: {"width": 1080, "height": 1920,
+                                   "fps": 30.0, "duration_sec": 60.0})
+    assert api.validate_tiktok_video_constraints("x") is None
+
+    # short side, long side, fps, duration issues
+    monkeypatch.setattr(api, "probe_tiktok_video",
+                        lambda p: {"width": 100, "height": 10000,
+                                   "fps": 10.0, "duration_sec": 700.0})
+    err = api.validate_tiktok_video_constraints("x")
+    assert "short side" in err and "long side" in err
+    assert "FPS" in err and "duration" in err
+
+
+def test_video_chunk_plan_edges():
+    import pytest as _p
+    with _p.raises(ValueError, match="positive"):
+        api._video_chunk_plan(0)
+    # >64MB → chunked
+    size = 70 * 1024 * 1024
+    cs, n = api._video_chunk_plan(size)
+    assert cs == api.DEFAULT_CHUNK_SIZE and n == size // cs
+    # >1000 chunks
+    with _p.raises(ValueError, match="1000 chunks"):
+        api._video_chunk_plan(11 * 1024 * 1024 * 1024 * 10 // 10)
+    with _p.raises(ValueError):
+        api._expected_chunk_count(10, 0)
+
+
+def test_validate_id():
+    with pytest.raises(ValueError):
+        api._validate_id("")
+    with pytest.raises(ValueError):
+        api._validate_id("bad id!")
+    assert api._validate_id("ok_123-ABC") == "ok_123-ABC"
+
+
+# ── client methods ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_stats(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": {}}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.get_stats()
+    assert out == {"data": {}}
+    assert "/user/info/" in fake.calls[0]["url"]
+    assert "follower_count" in fake.calls[0]["params"]["fields"]
+
+
+@pytest.mark.asyncio
+async def test_init_video_post_upload_branches(client):
+    # FILE_UPLOAD validations
+    with pytest.raises(ValueError, match="video_size must be positive"):
+        await client.init_video_post(source="FILE_UPLOAD", video_size=0)
+
+    ok = {"data": {"publish_id": "p1", "upload_url": "u"}}
+    fake = _FakeAsyncClient(_FakeResponse(200, ok))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        # whole-file (small)
+        out = await client.init_video_post(
+            source="FILE_UPLOAD", video_size=1024,
+            disable_duet=True, video_cover_timestamp_ms=5,
+            is_aigc=True, dry_run=True)
+        assert out == ok
+        si = fake.calls[0]["json"]["source_info"]
+        assert si["chunk_size"] == 1024 and si["total_chunk_count"] == 1
+        pi = fake.calls[0]["json"]["post_info"]
+        assert pi["disable_duet"] is True
+        assert pi["video_cover_timestamp_ms"] == 5
+        assert pi["is_aigc"] is True and pi["dry_run"] is True
+
+    # chunk_size overrides
+    big = 70 * 1024 * 1024
+    with pytest.raises(ValueError, match="chunk_size"):
+        await client.init_video_post(source="FILE_UPLOAD",
+                                     video_size=big,
+                                     chunk_size=big + 1)
+    with pytest.raises(ValueError, match="total_chunk_count"):
+        await client.init_video_post(source="FILE_UPLOAD",
+                                     video_size=big,
+                                     chunk_size=10 * 1024 * 1024,
+                                     total_chunk_count=2000)
+    with pytest.raises(ValueError, match="does not match"):
+        await client.init_video_post(source="FILE_UPLOAD",
+                                     video_size=big,
+                                     chunk_size=10 * 1024 * 1024,
+                                     total_chunk_count=9)
+
+
+@pytest.mark.asyncio
+async def test_init_video_upload_branches(client):
+    with pytest.raises(ValueError, match="source"):
+        await client.init_video_upload(source="BAD")
+    with pytest.raises(ValueError, match="video_url"):
+        await client.init_video_upload(source="PULL_FROM_URL")
+
+    ok = {"data": {"publish_id": "p"}}
+    fake = _FakeAsyncClient(_FakeResponse(200, ok))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.init_video_upload(source="PULL_FROM_URL",
+                                       video_url="https://x/v.mp4")
+        assert fake.calls[0]["json"]["source_info"]["video_url"] == \
+            "https://x/v.mp4"
+
+    with pytest.raises(ValueError, match="video_size"):
+        await client.init_video_upload(source="FILE_UPLOAD", video_size=0)
+    with pytest.raises(ValueError, match="chunk_size"):
+        await client.init_video_upload(source="FILE_UPLOAD",
+                                       video_size=1024, chunk_size=99999)
+
+
+@pytest.mark.asyncio
+async def test_upload_video_file_chunk_loop(client):
+    host = "https://open-upload.tiktokapis.com/up"
+    big = 70 * 1024 * 1024
+    video = b"x" * big
+
+    resps = [_FakeResponse(206, {}) for _ in range(6)]
+    resps.append(_FakeResponse(201, {}))
+    fake = _FakeAsyncClient(resps)
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.upload_video_file(host, video)
+    assert len(fake.calls) == 7
+    assert fake.calls[0]["headers"]["Content-Range"].startswith("bytes 0-")
+    assert fake.calls[-1]["headers"]["Content-Range"].endswith(f"/{big}")
+
+    # whole-file declared chunk_size == size
+    small = b"y" * 1024
+    fake = _FakeAsyncClient(_FakeResponse(201, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.upload_video_file(host, small, chunk_size=1024)
+    assert len(fake.calls) == 1
+
+    # chunk_size out of range
+    with pytest.raises(ValueError, match="outside"):
+        await client.upload_video_file(host, video, chunk_size=1)
+
+    # custom multi-chunk — each non-final in [5MB, 64MB]
+    fake = _FakeAsyncClient([_FakeResponse(206, {})] * 6
+                            + [_FakeResponse(201, {})])
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.upload_video_file(host, video,
+                                       chunk_size=api.DEFAULT_CHUNK_SIZE)
+    assert len(fake.calls) == 7
+
+    # bad content type
+    with pytest.raises(ValueError, match="content type"):
+        await client.upload_video_file(host, small,
+                                       content_type="video/avi")
+    # empty bytes
+    with pytest.raises(ValueError, match="empty"):
+        await client.upload_video_file(host, b"")
+
+
+@pytest.mark.asyncio
+async def test_init_photo_post_media_upload(client):
+    with pytest.raises(ValueError, match="At least one"):
+        await client.init_photo_post_media_upload([], "t", "d")
+    with pytest.raises(ValueError, match="35"):
+        await client.init_photo_post_media_upload(["u"] * 36, "t", "d")
+
+    ok = {"data": {"publish_id": "pp"}}
+    fake = _FakeAsyncClient(_FakeResponse(200, ok))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.init_photo_post_media_upload(
+            ["https://x/1.jpg"], "t" * 200, "d" * 3000)
+        assert out == ok
+        pi = fake.calls[0]["json"]["post_info"]
+        assert len(pi["title"]) <= api.MAX_PHOTO_TITLE_CHARS
+        assert len(pi["description"]) <= api.MAX_DESC_CHARS
+        assert fake.calls[0]["json"]["post_mode"] == "MEDIA_UPLOAD"
+        assert fake.calls[0]["json"]["media_type"] == "PHOTO"
+
+
+@pytest.mark.asyncio
+async def test_cancel_publish(client):
+    ok = {"data": {}}
+    fake = _FakeAsyncClient(_FakeResponse(200, ok))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.cancel_publish("pub-1")
+        assert out == ok
+        assert "/post/publish/cancel/" in fake.calls[0]["url"]
+        assert fake.calls[0]["json"]["publish_id"] == "pub-1"
+
+
+@pytest.mark.asyncio
+async def test_list_and_query_videos(client):
+    with pytest.raises(ValueError, match="max_count"):
+        await client.list_videos(max_count=0)
+    with pytest.raises(ValueError, match="max_count"):
+        await client.list_videos(max_count=21)
+
+    ok = {"data": {"videos": []}}
+    fake = _FakeAsyncClient([_FakeResponse(200, ok)] * 2)
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.list_videos(cursor=123, max_count=10)
+        call = fake.calls[0]
+        assert "/video/list/" in call["url"]
+        assert call["json"]["cursor"] == 123
+        assert call["json"]["max_count"] == 10
+        assert "view_count" in call["params"]["fields"]
+
+        await client.query_video(["v1", "v2"])
+        call = fake.calls[1]
+        assert "/video/query/" in call["url"]
+        assert call["json"]["filters"]["video_ids"] == ["v1", "v2"]
+
+    with pytest.raises(ValueError, match="At least one"):
+        await client.query_video([])
+    with pytest.raises(ValueError, match="20"):
+        await client.query_video([str(i) for i in range(21)])
+
+
+@pytest.mark.asyncio
+async def test_dm_methods(client):
+    with pytest.raises(ValueError, match="page_size"):
+        await client.list_dm_conversations(page_size=0)
+    with pytest.raises(ValueError, match="conversation_id"):
+        await client.get_dm_messages("")
+    with pytest.raises(ValueError, match="page_size"):
+        await client.get_dm_messages("c1", page_size=101)
+    with pytest.raises(ValueError, match="conversation_id"):
+        await client.send_dm("", {"text": "x"})
+    with pytest.raises(ValueError, match="invalid characters"):
+        await client.send_dm("bad id!", {"text": "x"})
+    with pytest.raises(ValueError, match="content"):
+        await client.send_dm("c1", {})
+
+    ok = {"data": {"conversations": []}}
+    fake = _FakeAsyncClient([_FakeResponse(200, ok)] * 3)
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.list_dm_conversations(cursor="abc", page_size=10)
+        assert fake.calls[0]["params"]["cursor"] == "abc"
+        await client.get_dm_messages("c1", cursor="zz", page_size=5)
+        assert "/messages" in fake.calls[1]["url"]
+        await client.send_dm("c1", {"text": "hi"}, content_type="text")
+        send = fake.calls[2]
+        assert send["url"].endswith("/send")
+        assert send["json"]["open_id"] == "open-123"
+        assert send["json"]["content"] == {"text": "hi"}
+
+
+def test_probe_duration_fallback(monkeypatch, tmp_path):
+    f = tmp_path / "v.mp4"
+    f.write_bytes(b"x")
+    monkeypatch.setattr(api.shutil, "which", lambda x: "/usr/bin/ffprobe")
+    import json as _j
+    # bad stream duration → continue → format duration
+    out = _j.dumps({"streams": [{"width": 1, "height": 1,
+                                 "duration": "abc"}],
+                    "format": {"duration": "7.5"}})
+    proc = type("P", (), {"returncode": 0, "stderr": "", "stdout": out})
+    monkeypatch.setattr(api.subprocess, "run", lambda *a, **k: proc())
+    info = api.probe_tiktok_video(str(f))
+    assert info["duration_sec"] == 7.5
+
+
+@pytest.mark.asyncio
+async def test_init_video_post_remaining_branches(client):
+    with pytest.raises(ValueError, match="video_url"):
+        await client.init_video_post(source="PULL_FROM_URL")
+
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": {}}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.init_video_post(
+            source="PULL_FROM_URL", video_url="https://x/v.mp4",
+            disable_stitch=False, disable_comment=True)
+        pi = fake.calls[0]["json"]["post_info"]
+        assert pi["disable_stitch"] is False
+        assert pi["disable_comment"] is True
+
+    with pytest.raises(ValueError, match="video_url"):
+        await client.init_video_upload(source="PULL_FROM_URL",
+                                       video_url="")
+
+
+@pytest.mark.asyncio
+async def test_upload_chunk_status_warnings(client, caplog):
+    host = "https://open-upload.tiktokapis.com/up"
+    big = 70 * 1024 * 1024
+    video = b"x" * big
+    # intermediate 200 instead of 206 → warning; final 200 ok
+    resps = [_FakeResponse(200, {}) for _ in range(7)]
+    fake = _FakeAsyncClient(resps)
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.upload_video_file(host, video)
+    assert len(fake.calls) == 7
+
+
+@pytest.mark.asyncio
+async def test_remaining_edges(client):
+    # headers with empty token
+    c = api.TikTokAPIClient(access_token="", open_id="o")
+    with pytest.raises(ValueError, match="access token"):
+        c._headers()
+
+    # init_video_upload chunk count bounds/mismatch
+    big = 70 * 1024 * 1024
+    with pytest.raises(ValueError, match="total_chunk_count must be"):
+        await client.init_video_upload(source="FILE_UPLOAD",
+                                       video_size=big,
+                                       chunk_size=10 * 1024 * 1024,
+                                       total_chunk_count=0)
+    with pytest.raises(ValueError, match="must equal"):
+        await client.init_video_upload(source="FILE_UPLOAD",
+                                       video_size=big,
+                                       chunk_size=10 * 1024 * 1024,
+                                       total_chunk_count=9)
+
+    # upload_video_file >1000 chunks via patched count
+    host = "https://open-upload.tiktokapis.com/up"
+    video = b"x" * (70 * 1024 * 1024)
+    with pytest.raises(ValueError, match="1000 chunks"):
+        with patch.object(api, "_expected_chunk_count",
+                          return_value=1001):
+            await client.upload_video_file(
+                host, video, chunk_size=api.DEFAULT_CHUNK_SIZE)
+
+    # warning statuses
+    resps = [_FakeResponse(202, {})] * 6 + [_FakeResponse(202, {})]
+    fake = _FakeAsyncClient(resps)
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.upload_video_file(host, video)  # logs warnings
+
+
+@pytest.mark.asyncio
+async def test_init_photo_post_kwargs(client):
+    ok = {"data": {}}
+    fake = _FakeAsyncClient(_FakeResponse(200, ok))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.init_photo_post(["https://x/1.jpg"], "t",
+                                     description="d",
+                                     disable_comment=True,
+                                     is_aigc=False)
+        pi = fake.calls[0]["json"]["post_info"]
+        assert pi["description"] == "d"
+        assert pi["disable_comment"] is True
+        assert pi["is_aigc"] is False

@@ -681,3 +681,524 @@ async def test_fetch_analytics_trip_stops_reads(settings):
 
 def test_module_disables_twscrape_telemetry():
     assert os.environ.get("TWS_TELEMETRY") == "0"
+
+
+# ── extra coverage: sniffer/encode/guard-store/cookies/readers ──────
+
+
+def test_sniff_all_kinds(tmp_path):
+    assert x_web._sniff(_write(tmp_path, "a.gif", GIF)) == "gif"
+    mp4 = _write(tmp_path, "a.mp4", MP4)
+    assert x_web._sniff(mp4) == "video"
+    heic = _write(tmp_path, "a.heic",
+                  b"\x00\x00\x00\x18ftypheic" + b"\x00" * 16)
+    assert x_web._sniff(heic) == "image"
+    moov = _write(tmp_path, "a.mov",
+                  b"\x00\x00\x00\x18moovxyz" + b"\x00" * 16)
+    assert x_web._sniff(moov) == "video"
+    assert x_web._sniff(_write(tmp_path, "a.jpg", JPEG)) == "image"
+    png = _write(tmp_path, "a.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 24)
+    assert x_web._sniff(png) == "image"
+    webp = _write(tmp_path, "a.webp",
+                  b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 16)
+    assert x_web._sniff(webp) == "image"
+    bmp = _write(tmp_path, "a.bmp", b"BM" + b"\x00" * 30)
+    assert x_web._sniff(bmp) == "image"
+    tif = _write(tmp_path, "a.tif", b"II*\x00" + b"\x00" * 28)
+    assert x_web._sniff(tif) == "image"
+    assert x_web._sniff(_write(tmp_path, "a.bin", b"\x00" * 40)) is None
+
+
+def test_to_jpeg_paths(tmp_path):
+    import io
+
+    from PIL import Image
+    # baseline RGB JPEG under limit → copy
+    src = _write(tmp_path, "b.jpg", JPEG)
+    out = x_web._to_jpeg(src, str(tmp_path), 0)
+    assert out.endswith(".jpg") and open(out, "rb").read() == JPEG
+
+    # RGBA png → converted
+    buf = io.BytesIO()
+    Image.new("RGBA", (8, 8), (1, 2, 3, 128)).save(buf, "PNG")
+    src = _write(tmp_path, "c.png", buf.getvalue())
+    out = x_web._to_jpeg(src, str(tmp_path), 1)
+    with Image.open(out) as im:
+        assert im.mode == "RGB"
+
+    # huge image → thumbnail resize
+    buf = io.BytesIO()
+    Image.new("RGB", (5000, 5000)).save(buf, "PNG")
+    src = _write(tmp_path, "big.png", buf.getvalue())
+    out = x_web._to_jpeg(src, str(tmp_path), 2)
+    with Image.open(out) as im:
+        assert max(im.size) <= 4096
+
+
+def test_status_of_variants():
+    class E1(Exception):
+        status_code = 418
+
+    assert x_web._status_of(E1()) == 418
+
+    class E2(Exception):
+        status = 429
+
+    assert x_web._status_of(E2()) == 429
+
+    class E3(Exception):
+        pass
+
+    e = E3()
+    e.response = SimpleNamespace(status_code=503)
+    assert x_web._status_of(e) == 503
+    assert x_web._status_of(E3()) is None
+
+
+def test_classify_and_capacity_edges():
+    class _Coded(Exception):
+        def __init__(self):
+            super().__init__("limited")
+            self.error_code = "88"
+    assert x_web.classify_x_web_error(_Coded()) == "X error 88: limited"
+
+    class _BadCode(Exception):
+        error_code = "notanum"
+    assert x_web.classify_x_web_error(_BadCode("x")) is None
+
+    assert x_web.is_capacity_reason("HTTP 429: rate limit")
+    assert not x_web.is_capacity_reason("account suspended")
+
+
+@pytest.mark.asyncio
+async def test_redis_guard_store():
+    class _Lock:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _R:
+        def __init__(self):
+            self.store = {}
+
+        def lock(self, key, **kw):
+            return _Lock()
+
+        async def get(self, k):
+            return self.store.get(k)
+
+        async def set(self, k, v, ex=None):
+            self.store[k] = v
+
+    r = _R()
+    gs = x_web.RedisGuardStore(r)
+    await gs.save({"a": 1})
+    assert await gs.load() == {"a": 1}
+    r.store[gs.KEY] = "not-json"
+    assert await gs.load() == {}
+    r.store[gs.KEY] = '"str"'
+    assert await gs.load() == {}
+    async with gs.lock():
+        pass
+
+
+@pytest.mark.asyncio
+async def test_default_guard_store_fallback(settings):
+    # redis unreachable → FileGuardStore
+    gs = await x_web.default_guard_store()
+    assert isinstance(gs, x_web.FileGuardStore)
+
+
+@pytest.mark.asyncio
+async def test_slack_alert_and_default_guard(monkeypatch, settings):
+    calls = []
+    async def _alert(text):
+        calls.append(text)
+    import app.services.slack_notifications as SN
+    monkeypatch.setattr(SN, "post_alert_to_slack", _alert)
+    await x_web._slack_alert("hello " * 500)
+    assert calls and len(calls[0]) <= 2000
+
+    g = await x_web.default_guard()
+    assert isinstance(g, x_web.XWebGuard)
+
+
+def test_load_cookies_and_config(settings):
+    s = x_web.get_settings()
+    s.X_WEB_COOKIES_JSON = '{"a": "1", "b": null}'
+    c = x_web.load_cookies()
+    assert c["a"] == "1" and "b" not in c
+    assert c["auth_token"] == "tok" and c["ct0"] == "csrf"
+
+    s.X_WEB_COOKIES_JSON = '[{"name": "x", "value": "v"}, {"name": "y"}]'
+    c = x_web.load_cookies()
+    assert c["x"] == "v" and "y" not in c
+
+    s.X_WEB_COOKIES_JSON = "{bad json"
+    c = x_web.load_cookies()
+    assert "auth_token" in c  # falls back to explicit vars
+
+    s.X_WEB_COOKIES_JSON = '"str"'
+    c = x_web.load_cookies()
+    assert c["auth_token"] == "tok"
+
+    assert x_web.is_configured() is True
+    s.X_WEB_FALLBACK_ENABLED = False
+    assert x_web.is_configured() is False
+    s.X_WEB_FALLBACK_ENABLED = True
+
+    h = x_web._cookie_header({"a": "1", "b": "2"})
+    assert h == "a=1; b=2"
+
+
+def test_tweet_id_dict():
+    assert x_web._tweet_id({"rest_id": "12345"}) == "12345"
+    assert x_web._tweet_id({"id": "abc"}) is None
+    assert x_web._tweet_id(SimpleNamespace(id="999")) == "999"
+
+
+def test_int_helper():
+    assert x_web._int(5) == 5
+    assert x_web._int("1,234") == 1234
+    assert x_web._int("7.5") == 7
+    assert x_web._int(None) == 0
+    assert x_web._int("nan-ish") == 0
+
+
+def test_from_twscrape_tweet():
+    t = SimpleNamespace(
+        id_str="777", date=None,
+        user=SimpleNamespace(username="me"),
+        retweetedTweet=None, full_text="hello",
+        views="1,234", favorite_count=3, replyCount=1,
+        retweetCount=0, quoteCount=0, bookmarkCount=0,
+        reply_count=0, retweet_count=0, quote_count=0,
+        bookmark_count=0, likes=3, replies=1, retweets=0,
+        quotes=0, bookmarks=0, text="hello")
+    m = x_web._from_twscrape_tweet(t, "me")
+    assert m is not None and m.id == "777"
+
+    t2 = SimpleNamespace(id=None, id_str="")
+    assert x_web._from_twscrape_tweet(t2, "me") is None
+
+
+@pytest.mark.asyncio
+async def test_find_recent_own_tweet():
+    from datetime import UTC, datetime, timedelta
+    now = datetime.now(UTC)
+    want = "my tweet text " + "x" * 200
+
+    fresh = SimpleNamespace(id="501", text=want[:140],
+                            created_on=now - timedelta(minutes=2))
+    old = SimpleNamespace(id="500", text=want[:140],
+                          created_on=now - timedelta(hours=1))
+    client = SimpleNamespace(
+        user=SimpleNamespace(id=None, username="me"),
+        get_tweets=AsyncMock(return_value=SimpleNamespace(
+            tweets=[SimpleNamespace(tweets=[old, fresh])])))
+
+    found = await x_web._find_recent_own_tweet(client, want)
+    assert found == "501"
+
+    # no match → None
+    client.get_tweets = AsyncMock(return_value=[])
+    assert await x_web._find_recent_own_tweet(client, want) is None
+
+
+@pytest.mark.asyncio
+async def test_publish_nothing_to_post(settings):
+    out = await x_web.publish_via_x_web(
+        expected_username="u", chunks=["", "  "], media_paths=[],
+        guard=_guard())
+    assert out.status == "error"
+    assert "nothing to post" in out.error
+
+
+@pytest.mark.asyncio
+async def test_publish_upload_incomplete(settings, tmp_path):
+    img = _write(tmp_path, "a.jpg", JPEG)
+    fake = _FakeTweety(media_ok=False)
+    out = await x_web.publish_via_x_web(
+        expected_username="TBaltzakis", chunks=["hi"], media_paths=[img],
+        guard=_guard(), client_factory=_factory(fake))
+    assert out.status == "media_error"
+
+
+@pytest.mark.asyncio
+async def test_publish_capacity_deferred(settings, monkeypatch):
+    settings.X_WEB_BREAKER_HOURS = 6.0
+    class _CapErr(Exception):
+        status_code = 429
+    fake = _FakeTweety(fail_on=(0, _CapErr("rate limit")))
+    out = await x_web.publish_via_x_web(
+        expected_username="TBaltzakis", chunks=["hi"], media_paths=[],
+        guard=_guard(), client_factory=_factory(fake))
+    assert out.status == "deferred"
+    assert out.retry_after is not None
+
+
+@pytest.mark.asyncio
+async def test_publish_reconcile_and_ambiguous(settings):
+    # post-stage error, reconcile finds live tweet → ok
+    from datetime import UTC, datetime, timedelta
+    live = SimpleNamespace(
+        id="777", text="hi",
+        created_on=datetime.now(UTC) - timedelta(minutes=1))
+    fake = _FakeTweety(fail_on=(0, RuntimeError("lost")),
+                       timeline=[SimpleNamespace(tweets=[live])])
+    out = await x_web.publish_via_x_web(
+        expected_username="TBaltzakis", chunks=["hi"], media_paths=[],
+        guard=_guard(), client_factory=_factory(fake))
+    assert out.status == "ok" and out.tweet_ids == ["777"]
+
+    # reconcile fails → ambiguous
+    fake = _FakeTweety(fail_on=(0, RuntimeError("lost")))
+    fake.get_tweets = AsyncMock(side_effect=RuntimeError("read fail"))
+    out = await x_web.publish_via_x_web(
+        expected_username="TBaltzakis", chunks=["hi"], media_paths=[],
+        guard=_guard(), client_factory=_factory(fake))
+    assert out.status == "ambiguous"
+
+
+@pytest.mark.asyncio
+async def test_fetch_x_web_analytics_guards(settings):
+    # not configured
+    settings.X_WEB_FALLBACK_ENABLED = False
+    out, reason = await x_web.fetch_x_web_analytics(
+        username="me", user_id=None, guard=_guard())
+    assert out is None and "disabled" in reason
+    settings.X_WEB_FALLBACK_ENABLED = True
+
+    # empty username
+    out, reason = await x_web.fetch_x_web_analytics(
+        username="", user_id=None, guard=_guard())
+    assert out is None and "no username" in reason
+
+
+@pytest.mark.asyncio
+async def test_fetch_x_web_analytics_chains(settings):
+    class _AnalyticsGuard:
+        async def reserve_analytics_slot(self, key):
+            return x_web.SlotDecision(ok=True)
+
+        async def trip(self, reason):
+            return False
+
+    guard = _AnalyticsGuard()
+
+    # tweety fails (non-trip) → twscrape succeeds
+    async def _bad_tweety():
+        raise RuntimeError("tweety down")
+
+    class _TwsAPI:
+        _x_web_workdir = None
+
+        async def user_by_login(self, u):
+            return SimpleNamespace(followersCount="1,000",
+                                   friendsCount=5, statusesCount=10,
+                                   listedCount=2, id=42)
+
+        async def user_tweets(self, uid, limit=40):
+            if False:
+                yield None
+
+        async def tweet_details(self, tid):
+            return SimpleNamespace(
+                id_str=str(tid), date=None,
+                user=SimpleNamespace(username="me"),
+                retweetedTweet=None, text="t")
+
+    async def _good_tws(handle):
+        return _TwsAPI()
+
+    out, reason = await x_web.fetch_x_web_analytics(
+        username="me", user_id="42",
+        wanted_tweet_ids=["123"],
+        guard=guard, tweety_factory=_bad_tweety,
+        twscrape_factory=_good_tws)
+    assert out is not None and out.followers == 1000
+    assert out.tweet_count == 10
+
+    # both fail → None + errors
+    async def _bad_tws(handle):
+        raise RuntimeError("twscrape down")
+    out, reason = await x_web.fetch_x_web_analytics(
+        username="me", user_id=None, guard=guard,
+        tweety_factory=_bad_tweety, twscrape_factory=_bad_tws)
+    assert out is None and "tweety" in reason and "twscrape" in reason
+
+    # tweety trip-class error → immediate trip
+    class _TripErr(Exception):
+        status_code = 401
+    async def _trip_tweety():
+        raise _TripErr("unauthorized")
+    out, reason = await x_web.fetch_x_web_analytics(
+        username="me", user_id=None, guard=guard,
+        tweety_factory=_trip_tweety, twscrape_factory=_good_tws)
+    assert out is None and "tripped" in reason
+
+
+def test_plan_media_oversize(tmp_path):
+    gif = tmp_path / "big.gif"
+    gif.write_bytes(GIF)
+    with gif.open("ab") as f:
+        f.truncate(16 * 1024 * 1024)
+    with pytest.raises(x_web.XWebMediaError, match="GIF too large"):
+        x_web.plan_media([str(gif)])
+
+    vid = tmp_path / "big.mp4"
+    vid.write_bytes(MP4)
+    with vid.open("ab") as f:
+        f.truncate(513 * 1024 * 1024)
+    with pytest.raises(x_web.XWebMediaError, match="video too large"):
+        x_web.plan_media([str(vid)])
+
+
+def test_prepare_media_non_image_and_copy(tmp_path, monkeypatch):
+    plan = x_web.plan_media([_write(tmp_path, "v.mp4", MP4)])
+    out = x_web.prepare_media(plan, str(tmp_path))
+    assert out[0].endswith(".mp4")
+
+    # symlink failure → copyfile fallback
+    monkeypatch.setattr(x_web.os, "symlink",
+                        lambda *a: (_ for _ in ()).throw(OSError("x")))
+    d2 = tmp_path / "dest2"
+    d2.mkdir()
+    out = x_web.prepare_media(plan, str(d2))
+    assert out[0].endswith(".mp4")
+
+    # image conversion failure wraps as XWebMediaError
+    bad = _write(tmp_path, "bad.jpg", b"\xff\xd8\xff" + b"\x00" * 60)
+    plan2 = x_web.MediaPlan(kind="images", paths=[bad])
+    with pytest.raises(x_web.XWebMediaError, match="conversion failed"):
+        x_web.prepare_media(plan2, str(tmp_path))
+
+
+@pytest.mark.asyncio
+async def test_redis_load_empty():
+    class _R:
+        def lock(self, *a, **kw):
+            class L:
+                async def __aenter__(self):
+                    return self
+
+                async def __aexit__(self, *a):
+                    return False
+            return L()
+
+        async def get(self, k):
+            return None
+
+        async def set(self, *a, **kw):
+            pass
+    gs = x_web.RedisGuardStore(_R())
+    assert await gs.load() == {}
+
+
+@pytest.mark.asyncio
+async def test_default_guard_store_redis_ok(monkeypatch, settings):
+    import sys
+    fake_client = SimpleNamespace(
+        ping=AsyncMock(return_value=True))
+    fake_aioredis = SimpleNamespace(
+        from_url=lambda url, **kw: fake_client)
+    import redis
+    monkeypatch.setattr(redis, "asyncio", fake_aioredis)
+    monkeypatch.setitem(sys.modules, "redis.asyncio", fake_aioredis)
+    gs = await x_web.default_guard_store()
+    assert isinstance(gs, x_web.RedisGuardStore)
+
+
+@pytest.mark.asyncio
+async def test_trip_alerts_once(settings):
+    calls = []
+    g = x_web.XWebGuard(x_web.MemoryGuardStore(),
+                        now=_Clock(), alert=lambda t: calls.append(t))
+    assert await g.trip("HTTP 429: x") is True
+    assert calls and "429" in calls[0]
+    # second trip while open → no new alert
+    assert await g.trip("HTTP 429: x") is False
+    assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_tweety_fallback_patch_and_client(monkeypatch, settings):
+    import sys
+
+    class _FakeRequest:
+        _x_done = False
+
+        async def get_home_html(self):
+            return "<html>no manifest</html>"
+
+        def _get_request_headers(self):
+            return {"authorization": "x"}
+
+    class _Resp:
+        status_code = 200
+        content = b"<html>manifest!</html>"
+
+    class _Session:
+        async def request(self, method=None, url=None, headers=None):
+            return _Resp()
+
+    req = _FakeRequest()
+    req._session = _Session()
+
+    def fake_find(s):
+        return "manifest" in s
+    fake_tweety_http = SimpleNamespace(
+        Request=SimpleNamespace(get_home_html=_FakeRequest.get_home_html))
+    fake_txn = SimpleNamespace(find_on_demand_file=fake_find)
+    fake_bs4 = SimpleNamespace(BeautifulSoup=lambda c, p: str(c))
+    fake_tweety = SimpleNamespace(
+        TwitterAsync=AsyncMock(return_value=AsyncMock()))
+    fake_session = SimpleNamespace(MemorySession=object)
+
+    monkeypatch.setitem(sys.modules, "bs4", fake_bs4)
+    monkeypatch.setitem(sys.modules, "tweety", fake_tweety)
+    monkeypatch.setitem(sys.modules, "tweety.http", fake_tweety_http)
+    monkeypatch.setitem(sys.modules, "tweety.transaction", fake_txn)
+    monkeypatch.setitem(sys.modules, "tweety.session", fake_session)
+
+    # patch applies and tags the method
+    x_web._patch_tweety_home_fallback()
+    patched = fake_tweety_http.Request.get_home_html
+    assert getattr(patched, "_x_web_i_jf_patched", False)
+    # idempotent second call
+    x_web._patch_tweety_home_fallback()
+
+    # patched() returns jf candidate when manifest missing
+    req_self = _FakeRequest()
+    req_self._session = _Session()
+    req_self._get_request_headers = lambda: {}
+    out = await patched(req_self)
+    assert out is not None
+
+    # _default_tweety_client builds + loads cookies
+    app = AsyncMock()
+    fake_tweety.TwitterAsync = lambda *a, **kw: app
+    client = await x_web._default_tweety_client()
+    app.load_cookies.assert_awaited_once()
+    assert client is app
+
+
+@pytest.mark.asyncio
+async def test_publish_prepare_media_error(settings, tmp_path):
+    bad = _write(tmp_path, "bad.jpg", b"\xff\xd8\xff" + b"\x00" * 60)
+    fake = _FakeTweety()
+    out = await x_web.publish_via_x_web(
+        expected_username="TBaltzakis", chunks=["hi"],
+        media_paths=[bad], guard=_guard(),
+        client_factory=_factory(fake))
+    assert out.status == "media_error"
+
+
+def test_from_twscrape_repost():
+    t = SimpleNamespace(
+        id_str="9", date=None, user=SimpleNamespace(username="me"),
+        retweetedTweet=object(), text="rt")
+    m = x_web._from_twscrape_tweet(t, "me")
+    assert m is not None and m.is_repost
