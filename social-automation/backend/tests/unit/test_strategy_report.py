@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
+import pytest
+
+import app.services.strategy_report as SR
 from app.services.strategy_report import (
     BriefMedia,
     BriefPost,
@@ -518,3 +523,303 @@ def test_compact_insights_includes_follower_counts():
     }
     compact = _compact_insights(insights)
     assert compact["platforms"]["instagram"]["followers"] == 9
+
+
+# ── async layer: _llm_actions ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_llm_actions_branches(monkeypatch):
+    import app.services.inference as INF
+    from app.services.slack_digest import DigestReport
+
+    digest = DigestReport(
+        generated_at=NOW, timezone="Europe/Athens",
+        team_name="T", days=1,
+        overview={}, impressions_24h=10, engagement_24h=3)
+
+    # exception → None
+    monkeypatch.setattr(INF, "call_inference",
+                        AsyncMock(side_effect=RuntimeError("x")))
+    assert await SR._llm_actions(object(), "tid", {}, digest) is None
+
+    # empty text → None
+    monkeypatch.setattr(INF, "call_inference",
+                        AsyncMock(return_value={"text": "  "}))
+    assert await SR._llm_actions(object(), "tid", {}, digest) is None
+
+    # "response" key fallback + unparseable → None
+    monkeypatch.setattr(INF, "call_inference",
+                        AsyncMock(return_value={"response": "x"}))
+    assert await SR._llm_actions(object(), "tid", {}, digest) is None
+
+    # happy — numbered list parsed
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={
+        "text": "1. Post a LinkedIn carousel at 09:00 Athens tomorrow.\n"
+                "2. Share an Instagram image post at 12:00 Athens."}))
+    out = await SR._llm_actions(object(), "tid", {}, digest)
+    assert out and len(out) == 2 and "LinkedIn" in out[0]
+    # provider pinned to dmr with fallback allowed
+    kw = INF.call_inference.await_args.kwargs
+    assert kw["provider_name"] == "dmr" and kw["allow_fallback"] is True
+
+
+# ── async layer: _load_recent_posts_by_platform ───────────────────────
+
+
+@pytest.mark.asyncio
+async def test_load_recent_posts_by_platform(monkeypatch):
+    def _res(items):
+        return SimpleNamespace(
+            scalars=lambda: SimpleNamespace(
+                unique=lambda: SimpleNamespace(all=lambda: items),
+                all=lambda: items))
+
+    tgt_li = SimpleNamespace(
+        social_account=SimpleNamespace(platform="linkedin"),
+        status="published", published_at=None, platform_url="u1",
+        platform_post_id="x")
+    tgt_fail = SimpleNamespace(
+        social_account=SimpleNamespace(platform="linkedin"),
+        status="failed", published_at=None, platform_url=None,
+        platform_post_id=None)
+    tgt_tt = SimpleNamespace(
+        social_account=SimpleNamespace(platform="tiktok"),
+        status="published", published_at=None, platform_url=None,
+        platform_post_id="p_pub_123")
+    tgt_noacct = SimpleNamespace(
+        social_account=None, status="published",
+        published_at=None, platform_url=None, platform_post_id=None)
+    asset = SimpleNamespace(id=uuid.uuid4(), filename="a.png",
+                            mime_type="image/png", path="p/a.png")
+    post = SimpleNamespace(
+        id=uuid.uuid4(), media_ids=[asset.id],
+        content_text="post body", published_at=datetime.now(UTC),
+        targets=[tgt_li, tgt_fail, tgt_tt, tgt_noacct])
+
+    calls = iter([_res([post]), _res([asset])])
+    db = SimpleNamespace(execute=AsyncMock(side_effect=lambda *a, **k: next(calls)))
+
+    monkeypatch.setattr(SR, "_brief_media_from_assets",
+                        lambda ids, m: ["m"] if ids else [])
+    out = await SR._load_recent_posts_by_platform(db, uuid.uuid4())
+    assert len(out["linkedin"]) == 1  # failed + no-account skipped
+    assert out["tiktok"][0].pending_inbox is True
+    assert out["linkedin"][0].content_preview == "post body"
+
+    # max_per_platform cap
+    many = [SimpleNamespace(
+        id=uuid.uuid4(), media_ids=[], content_text="x",
+        published_at=None,
+        targets=[SimpleNamespace(
+            social_account=SimpleNamespace(platform="x"),
+            status="published", published_at=None,
+            platform_url=None, platform_post_id=None)])]
+    calls = iter([_res(many * 10), _res([])])
+    db = SimpleNamespace(execute=AsyncMock(side_effect=lambda *a, **k: next(calls)))
+    out = await SR._load_recent_posts_by_platform(
+        db, uuid.uuid4(), max_per_platform=2)
+    assert len(out["x"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_load_pillar_coverage():
+    rows = [(SimpleNamespace(name="P1"), 3), (SimpleNamespace(name="P2"), 0)]
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
+        all=lambda: rows)))
+    out = await SR._load_pillar_coverage(db, uuid.uuid4(), days=30)
+    assert out == [{"name": "P1", "posts": 3},
+                   {"name": "P2", "posts": 0}]
+
+
+# ── async layer: build_strategy_report / email / run ──────────────────
+
+
+@pytest.mark.asyncio
+async def test_build_strategy_report(monkeypatch):
+    from app.services.slack_digest import DigestReport
+
+    digest = DigestReport(
+        generated_at=NOW, timezone="Europe/Athens",
+        team_name="T", days=1,
+        overview={"connected_accounts": 2},
+        impressions_24h=5, engagement_24h=1)
+    monkeypatch.setattr(SR, "build_daily_digest",
+                        AsyncMock(return_value=digest))
+    monkeypatch.setattr(SR, "build_team_insights",
+                        AsyncMock(return_value={"x": 1}))
+    monkeypatch.setattr(SR, "_load_recent_posts_by_platform",
+                        AsyncMock(return_value={}))
+    monkeypatch.setattr(SR, "_load_pillar_coverage",
+                        AsyncMock(return_value=[]))
+    import app.services.growth_initiatives as GI
+    monkeypatch.setattr(GI, "initiative_summary",
+                        AsyncMock(return_value={"items": 1}))
+
+    # channel rows → messaging labels
+    chan_rows = [
+        ("whatsapp", "business", "wa", None, "id1", {}),
+        ("facebook", "page", "cloudless.gr", None, "id2",
+         {"messenger_setup": {"subscribed": True}}),
+        ("facebook", "personal", "fb", None, "id3", {}),  # not messaging
+    ]
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
+        all=lambda: chan_rows)))
+    team = SimpleNamespace(id=uuid.uuid4(), name="T")
+
+    # LLM actions win
+    monkeypatch.setattr(SR, "_llm_actions",
+                        AsyncMock(return_value=["a1", "a2"]))
+    r = await SR.build_strategy_report(db, team=team)
+    assert r.llm_used is True and r.actions == ["a1", "a2"]
+    assert any("whatsapp" in c for c in r.messaging_channels)
+    assert any("messenger (cloudless.gr page)" in c
+               for c in r.messaging_channels)
+    assert not any(c.startswith("facebook") for c in r.messaging_channels)
+
+    # LLM fails → rule actions
+    monkeypatch.setattr(SR, "_llm_actions", AsyncMock(return_value=None))
+    monkeypatch.setattr(SR, "_rule_actions", lambda i: ["rule"])
+    r = await SR.build_strategy_report(db, team=team)
+    assert r.llm_used is False and r.actions == ["rule"]
+
+
+@pytest.mark.asyncio
+async def test_email_strategy_report(monkeypatch):
+    r = _report()
+
+    # no recipient configured
+    monkeypatch.setattr(SR, "get_settings",
+                        lambda: SimpleNamespace(DIGEST_EMAIL_TO=""))
+    out = await SR.email_strategy_report(r)
+    assert out.email_error == "DIGEST_EMAIL_TO not set"
+    assert out.emailed is False
+
+    # send success
+    monkeypatch.setattr(SR, "get_settings",
+                        lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c"))
+    send = AsyncMock()
+    monkeypatch.setattr(SR, "send_email", send)
+    out = await SR.email_strategy_report(_report())
+    assert out.emailed is True
+    send.assert_awaited_once()
+
+    # send failure → email_error captured
+    monkeypatch.setattr(SR, "send_email",
+                        AsyncMock(side_effect=RuntimeError("smtp down")))
+    out = await SR.email_strategy_report(_report())
+    assert out.emailed is False and "smtp down" in out.email_error
+
+
+@pytest.mark.asyncio
+async def test_run_strategy_report_for_all_teams(monkeypatch):
+    t_empty = SimpleNamespace(id=uuid.uuid4(), name="Empty")
+    t_full = SimpleNamespace(id=uuid.uuid4(), name="Full")
+    t_skip = SimpleNamespace(id=uuid.uuid4(), name="Skip")
+
+    teams_res = SimpleNamespace(
+        scalars=lambda: SimpleNamespace(
+            all=lambda: [t_empty, t_full, t_skip]))
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=teams_res),
+        scalar=AsyncMock(side_effect=[0, 5, 5]))  # connected counts
+
+    from app.services.slack_digest import DigestReport
+    d_active = DigestReport(
+        generated_at=NOW, timezone="Europe/Athens",
+        team_name="T", days=1,
+        overview={"connected_accounts": 3},
+        impressions_24h=1, engagement_24h=0)
+    d_inactive = DigestReport(
+        generated_at=NOW, timezone="Europe/Athens",
+        team_name="T", days=1,
+        overview={"connected_accounts": 0},
+        impressions_24h=0, engagement_24h=0)
+
+    reps = iter([
+        SR.StrategyReport(
+            generated_at=NOW, timezone="Europe/Athens",
+            team_name="Full", insights={}, digest=d_active,
+            actions=["a"], llm_used=True),
+        SR.StrategyReport(
+            generated_at=NOW, timezone="Europe/Athens",
+            team_name="Skip", insights={}, digest=d_inactive,
+            actions=[], llm_used=False),
+    ])
+    monkeypatch.setattr(SR, "build_strategy_report",
+                        AsyncMock(side_effect=lambda *a, **k: next(reps)))
+    email = AsyncMock(side_effect=lambda r: r)
+    monkeypatch.setattr(SR, "email_strategy_report", email)
+
+    out = await SR.run_strategy_report_for_all_teams(db, send=True)
+    assert len(out) == 3
+    # empty team skipped cheap — no report built for it
+    assert out[0]["team_name"] == "Empty"
+    assert out[0]["email_error"] == "skipped empty team"
+    # active team emailed
+    assert out[1]["team_name"] == "Full" and out[1]["llm_used"] is True
+    email.assert_awaited_once()
+    # inactive team not emailed
+    assert out[2]["team_name"] == "Skip"
+    assert out[2]["email_error"] == "skipped empty team"
+
+
+# ── growth initiatives rendering ──────────────────────────────────────
+
+
+def test_initiatives_text_and_html():
+    ini = [
+        {  # full card: units+month, funnel, followers, credits
+            "initiative": "Invite engagers",
+            "platform": "linkedin",
+            "units": 50, "units_this_month": 120, "events": 1,
+            "accepted_est": 20, "pending_est": 10, "declined": 5,
+            "conversion_pct": 40,
+            "followers_start": 300, "followers_now": 320,
+            "followers_delta": 20,
+            "credits_left": 80, "monthly_cap": 200,
+        },
+        {  # events-only path, no funnel/followers/credits
+            "event_type": "Follow invites",
+            "platform": "instagram",
+            "units": 0, "events": 3,
+        },
+        {  # singular event
+            "event_type": "One-off",
+            "platform": "facebook",
+            "units": 0, "events": 1,
+            "followers_start": 10, "followers_now": 10,
+            "followers_delta": 0,
+        },
+    ]
+    r = _report(initiatives=ini)
+    text = r.to_text()
+    assert "GROWTH INITIATIVES" in text
+    assert "50 sent (120 this month)" in text
+    assert "~20 accepted (new followers)" in text
+    assert "~10 still waiting" in text and "5 declined" in text
+    assert "40% acceptance rate" in text
+    assert "300 → 320 (+20)" in text
+    assert "~80 of 200 left" in text
+    assert "3 events" in text and "1 event" in text
+    assert "10 → 10 (+0)" in text
+
+    html = r.to_html()
+    assert "Growth initiatives" in html
+    assert "Invite engagers" in html and "<b>20</b> accepted" in html
+    assert "<b>10</b> waiting" in html and "<b>5</b> declined" in html
+    assert "<b>40%</b> acceptance" in html
+    assert "Page followers:" in html
+    assert "Credits: <b>~80</b>" in html and "width:40%" in html
+    # None delta renders em-dash in HTML (text renderer requires int —
+    # latent edge, exercised via _initiatives_html directly)
+    r3 = _report(initiatives=[{
+        "event_type": "E", "platform": "x", "units": 0, "events": 1,
+        "followers_start": 1, "followers_now": 1,
+        "followers_delta": None}])
+    assert "(—)" in r3._initiatives_html(lambda x: x)
+
+    # no initiatives → both sections absent
+    r2 = _report(initiatives=None)
+    assert "GROWTH INITIATIVES" not in r2.to_text()
+    assert "Growth initiatives" not in r2.to_html()
