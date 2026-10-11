@@ -428,7 +428,8 @@ def test_export_async_full_run(monkeypatch):
 
     for name in ("_export_accounts", "_export_posts", "_export_metrics",
                  "_export_followers", "_export_account_events", "_export_leads",
-                 "_export_web_events", "_export_ad_snapshots", "_export_ad_daily",
+                 "_export_telegram_channels", "_export_web_events",
+                 "_export_ad_snapshots", "_export_ad_daily",
                  "_export_ad_demographics"):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[{"r": 1}]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"q": 1}))
@@ -439,8 +440,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 14  # 11 tables + edge + reports + insights
-    assert out["bytes"] == 140
+    assert out["files"] == 15  # 12 tables + edge + reports + insights
+    assert out["bytes"] == 150
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
@@ -455,7 +456,8 @@ def test_export_async_insights_and_put_failures(monkeypatch):
 
     for name in ("_export_accounts", "_export_posts", "_export_metrics",
                  "_export_followers", "_export_account_events", "_export_leads",
-                 "_export_web_events", "_export_ad_snapshots", "_export_ad_daily",
+                 "_export_telegram_channels", "_export_web_events",
+                 "_export_ad_snapshots", "_export_ad_daily",
                  "_export_ad_demographics"):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
@@ -492,3 +494,63 @@ def test_put_json(monkeypatch):
     assert captured["key"] == "k" and captured["bucket"] == "lake"
     assert captured["content_type"] == "application/json"
     assert b'"a": 1' in captured["data"]
+
+
+def test_export_telegram_channels():
+    """Channel registry export: one row per administered chat, invite-link
+    names kept, invite-link URLs stripped (they grant private-channel
+    access and are secrets)."""
+    acct = SimpleNamespace(
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        platform="telegram",
+        meta_data={
+            "telegram_channel": {"chat_id": "-100999", "title": "HQ"},
+            "telegram_channels": {
+                "-100999": {
+                    "title": "Cloudless HQ",
+                    "type": "channel",
+                    "status": "administrator",
+                    "added_at": "2026-10-11T00:00:00+00:00",
+                    "updated_at": "2026-10-11T00:00:00+00:00",
+                    "invite_links": [
+                        {
+                            "name": "ig",
+                            "invite_link": "https://t.me/+SECRET1",
+                            "created_at": "2026-10-11T01:00:00+00:00",
+                        },
+                        {
+                            "name": "website",
+                            "invite_link": "https://t.me/+SECRET2",
+                            "creates_join_request": True,
+                            "created_at": "2026-10-11T02:00:00+00:00",
+                        },
+                    ],
+                },
+                "-200": {"title": "Group", "type": "supergroup", "status": "member"},
+            },
+        },
+    )
+    rows = _run(de._export_telegram_channels(_OneExecDB(_Scalars([acct]))))
+    assert len(rows) == 2
+    hq = next(r for r in rows if r["chat_id"] == "-100999")
+    assert hq["managed"] is True
+    assert hq["bot_status"] == "administrator"
+    assert {link["name"] for link in hq["invite_links"]} == {"ig", "website"}
+    assert hq["invite_links"][1]["creates_join_request"] is True
+    # invite-link URLs are never exported to the lake
+    assert all("invite_link" not in link for link in hq["invite_links"])
+    grp = next(r for r in rows if r["chat_id"] == "-200")
+    assert grp["managed"] is False
+    assert grp["invite_links"] == []
+
+
+def test_export_telegram_channels_empty_and_malformed():
+    acct = SimpleNamespace(
+        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="telegram",
+        meta_data={"telegram_channels": {"-1": "not-a-dict"}},
+    )
+    rows = _run(de._export_telegram_channels(_OneExecDB(_Scalars([acct]))))
+    assert rows == []
+    # no telegram accounts at all
+    assert _run(de._export_telegram_channels(_OneExecDB(_Scalars([])))) == []
