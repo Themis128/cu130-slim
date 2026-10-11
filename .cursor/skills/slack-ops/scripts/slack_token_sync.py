@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import glob
 import json
+import os
 import subprocess
 import sys
 import time
@@ -32,12 +33,23 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-TOKEN_DIR = Path(
-    __import__("os").environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1"))
-)
-ENV_FILE = Path(__import__("os").environ.get("SOCIALAUTO_ENV", "/home/tbaltzakis/cu130-slim/.env"))
-COMPOSE_DIR = Path(__import__("os").environ.get("COMPOSE_DIR", "/home/tbaltzakis/cu130-slim"))
-CLIENT_ID = __import__("os").environ.get("SLACK_MCP_CLIENT_ID", "1601185624273.8899143856786")
+TOKEN_DIR = Path(os.environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1")))
+ENV_FILE = Path(os.environ.get("SOCIALAUTO_ENV", "/home/tbaltzakis/cu130-slim/.env"))
+COMPOSE_DIR = Path(os.environ.get("COMPOSE_DIR", "/home/tbaltzakis/cu130-slim"))
+CLIENT_ID = os.environ.get("SLACK_MCP_CLIENT_ID", "1601185624273.8899143856786")
+PENDING_MARKER = Path(os.environ.get("SLACK_SYNC_PENDING", "/var/tmp/slack_token_sync.pending"))
+CRON_LINE = ("0 */2 * * * /usr/bin/python3 /home/tbaltzakis/cu130-slim/.devin/skills/slack-ops/scripts/slack_token_sync.py"
+             " >> /var/tmp/slack_token_sync.log 2>&1")
+# every long-lived service that consumes SLACK_BOT_TOKEN via compose env
+# (x-worker-env anchor feeds the four workers; digests run on worker-default)
+SERVICES = [
+    "social-api",
+    "social-worker-publishing",
+    "social-worker-media",
+    "social-worker-default",
+    "social-worker-messenger",
+    "celery-beat",
+]
 TOKEN_ENDPOINT = "https://slack.com/api/oauth.v2.user.access"
 REFRESH_WINDOW_S = 2 * 3600  # refresh when <2h remain of the 12h lifetime
 
@@ -92,14 +104,35 @@ def _write_env_token(token: str) -> bool:
     return changed
 
 
-def _recreate_api() -> None:
-    subprocess.run(
-        ["docker", "compose", "up", "-d", "--force-recreate", "--no-deps", "--pull", "never", "social-api"],
-        cwd=COMPOSE_DIR,
-        check=False,
-        timeout=180,
-        capture_output=True,
-    )
+def _recreate_services() -> int:
+    """Recreate every SLACK_BOT_TOKEN consumer. Returns the worst compose rc."""
+    worst = 0
+    for svc in SERVICES:
+        r = subprocess.run(
+            ["docker", "compose", "up", "-d", "--force-recreate", "--no-deps", "--pull", "never", svc],
+            cwd=COMPOSE_DIR,
+            check=False,
+            timeout=180,
+            capture_output=True,
+        )
+        if r.returncode != 0:
+            worst = worst or r.returncode
+            tail = r.stderr.decode(errors="replace").strip()[-200:]
+            print(f"compose up {svc} failed rc={r.returncode}: {tail}", file=sys.stderr)
+    return worst
+
+
+def _install_cron() -> int:
+    """Idempotently install the 2h refresh cron (requires crontab)."""
+    cur = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    existing = cur.stdout if cur.returncode == 0 else ""
+    if "slack_token_sync.py" in existing:
+        print("cron already installed")
+        return 0
+    new = existing.rstrip("\n") + "\n" + CRON_LINE + "\n"
+    subprocess.run(["crontab", "-"], input=new, check=True, text=True)
+    print("cron installed:", CRON_LINE)
+    return 0
 
 
 def main() -> int:
@@ -108,6 +141,7 @@ def main() -> int:
         print("no Slack-scoped token file found", file=sys.stderr)
         return 1
     expires_ms, path = files[0]
+    os.chmod(path, 0o600)  # rotated creds must never sit world/group-readable
     tok = json.loads(path.read_text())
     now_ms = time.time() * 1000
 
@@ -120,15 +154,30 @@ def main() -> int:
         tok["expires_in"] = resp.get("expires_in", 43200)
         tok["expires_at"] = int(now_ms + tok["expires_in"] * 1000)
         path.write_text(json.dumps(tok))
+        os.chmod(path, 0o600)
         print(f"refreshed token → {path.name}, new expiry in {tok['expires_in']}s")
 
     changed = _write_env_token(tok["access_token"])
     print(f"env {'updated' if changed else 'unchanged'}")
-    if changed:
-        _recreate_api()
-        print("social-api recreated with fresh token")
+    pending = PENDING_MARKER.exists()
+    if changed or pending:
+        print(f"recreating consumers ({'token change' if changed else 'pending retry'})")
+        rc = _recreate_services()
+        if rc == 0:
+            PENDING_MARKER.unlink(missing_ok=True)
+            print("recreated:", ", ".join(SERVICES))
+        else:
+            PENDING_MARKER.touch()
+            print(
+                f"recreation failed rc={rc} — marker {PENDING_MARKER} set; "
+                "next run retries even if the token is unchanged",
+                file=sys.stderr,
+            )
+            return rc
     return 0
 
 
 if __name__ == "__main__":
+    if "--install-cron" in sys.argv:
+        sys.exit(_install_cron())
     sys.exit(main())
