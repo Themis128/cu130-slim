@@ -425,3 +425,78 @@ class TestDispatchBodyShapes:
     async def test_setup_no_greeting(self, api):
         await S._handle_call_tool(None, _params("messenger_setup", account_id="a"))
         assert api[-1][2] == {}
+
+
+class TestTelegramTools:
+    @pytest.fixture
+    def tg_api(self, monkeypatch):
+        calls = []
+
+        async def _req(method, path, json_body=None, params=None):
+            calls.append((method, path, json_body, params))
+            if path == "/api/v1/accounts":
+                return [{"id": "tg-acc-1", "platform": "telegram", "status": "active"}]
+            return {"method": method, "path": path}
+
+        monkeypatch.setattr(S, "_api_request", _req)
+        return calls
+
+    @pytest.mark.asyncio
+    async def test_account_auto_resolution(self, tg_api):
+        out = await S._handle_call_tool(None, _params("telegram_list_channels"))
+        assert not out.is_error
+        assert tg_api[-1][1] == "/api/v1/telegram/tg-acc-1/channels"
+
+    @pytest.mark.asyncio
+    async def test_explicit_account_id(self, tg_api):
+        await S._handle_call_tool(None, _params("telegram_list_channels", account_id="tg-9"))
+        assert tg_api[-1][1] == "/api/v1/telegram/tg-9/channels"
+
+    @pytest.mark.asyncio
+    async def test_no_telegram_account(self, monkeypatch):
+        async def _req(method, path, json_body=None, params=None):
+            return []
+
+        monkeypatch.setattr(S, "_api_request", _req)
+        out = await S._handle_call_tool(None, _params("telegram_list_channels"))
+        assert out.is_error
+        assert "No active Telegram account" in _text(out)["error"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "name,args,method,path",
+        [
+            ("telegram_chat_info", {"chat_id": -100}, "GET", "/api/v1/telegram/tg-acc-1/chat-info"),
+            ("telegram_chat_admins", {"chat_id": -100}, "GET", "/api/v1/telegram/tg-acc-1/chat-admins"),
+            ("telegram_member_count", {"chat_id": -100}, "GET", "/api/v1/telegram/tg-acc-1/chat-members"),
+            ("telegram_set_chat_description", {"chat_id": -100, "description": "d"}, "PUT", "/api/v1/telegram/tg-acc-1/chat-description"),
+            ("telegram_create_invite_link", {"chat_id": -100}, "POST", "/api/v1/telegram/tg-acc-1/invite-link"),
+            ("telegram_send_message", {"chat_id": -100, "text": "hi"}, "POST", "/api/v1/telegram/tg-acc-1/send"),
+            ("telegram_pin_message", {"chat_id": -100, "message_id": 5}, "POST", "/api/v1/telegram/tg-acc-1/pin"),
+        ],
+    )
+    async def test_dispatch(self, tg_api, name, args, method, path):
+        out = await S._handle_call_tool(None, _params(name, **args))
+        assert not out.is_error
+        assert tg_api[-1][0] == method and tg_api[-1][1] == path
+
+    @pytest.mark.asyncio
+    async def test_invite_link_body_options(self, tg_api):
+        await S._handle_call_tool(None, CallToolRequestParams(
+            name="telegram_create_invite_link",
+            arguments={"chat_id": -1, "name": "ig", "member_limit": 50},
+        ))
+        assert tg_api[-1][2] == {"chat_id": -1, "name": "ig", "member_limit": 50}
+
+    @pytest.mark.asyncio
+    async def test_send_parse_mode_optional(self, tg_api):
+        await S._handle_call_tool(None, _params(
+            "telegram_send_message", chat_id=-1, text="hi", parse_mode="HTML"
+        ))
+        assert tg_api[-1][2]["parse_mode"] == "HTML"
+
+    @pytest.mark.asyncio
+    async def test_unknown_telegram_tool(self, tg_api):
+        out = await S._handle_call_tool(None, _params("telegram_nope"))
+        assert out.is_error
+        assert "Unknown telegram tool" in _text(out)["error"]

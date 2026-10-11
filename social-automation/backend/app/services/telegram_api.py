@@ -511,6 +511,11 @@ class TelegramAPIClient:
         result = await self._call("createChatInviteLink", payload)
         return result if isinstance(result, dict) else {}
 
+    async def get_chat_administrators(self, chat_id: int | str) -> list[dict[str, Any]]:
+        """Official ``getChatAdministrators`` — list of ChatMember objects."""
+        result = await self._call("getChatAdministrators", {"chat_id": chat_id})
+        return result if isinstance(result, list) else []
+
     async def send_chat_action(
         self, chat_id: int | str, action: str = "typing"
     ) -> bool:

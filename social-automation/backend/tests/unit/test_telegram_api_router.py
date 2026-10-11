@@ -19,10 +19,13 @@ from fastapi import HTTPException
 
 from app.api import telegram
 from app.api.telegram import (
+    TELEGRAM_CHANNELS_META_KEY,
     BotConfig,
     BotCreateRequest,
+    ChatDescriptionRequest,
     DeleteMessageRequest,
     GroupWatchConfig,
+    InviteLinkRequest,
     PinMessageRequest,
     SendMediaGroupRequest,
     SendMessageRequest,
@@ -34,15 +37,19 @@ from app.api.telegram import (
     _decrypt_bot_token,
     _get_telegram_account,
     _new_webhook_secret,
+    _record_chat_membership,
     _sanitize,
     _token_bytes,
     _webhook_base,
     _webhook_url_for,
     activate_bot,
     add_watched_chat,
+    chat_admins,
+    chat_info,
     chat_members,
     connect_telegram_bot,
     create_bot,
+    create_invite_link,
     deactivate_bot,
     delete_message,
     delete_telegram_webhook,
@@ -51,6 +58,7 @@ from app.api.telegram import (
     get_group_watch,
     get_group_watch_activity,
     get_setup_status,
+    list_channels,
     list_personalities,
     pause_thread,
     pin_message,
@@ -60,6 +68,7 @@ from app.api.telegram import (
     send_message,
     send_photo,
     send_poll,
+    set_chat_description,
     setup_group_watch_links,
     setup_telegram_webhook,
     trigger_group_digest_now,
@@ -1136,3 +1145,164 @@ async def test_webhook_auto_reply_paths(monkeypatch):
     _wh_patches(monkeypatch, extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private", "chat_id": 5})
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["error"] is True
+
+
+# ── channel administration ────────────────────────────────────────────
+
+
+def test_record_chat_membership_channel():
+    meta = _record_chat_membership(
+        {},
+        {
+            "chat_id": -100123,
+            "chat_type": "channel",
+            "chat_title": "Cloudless HQ",
+            "new_status": "administrator",
+        },
+    )
+    entry = meta[TELEGRAM_CHANNELS_META_KEY]["-100123"]
+    assert entry["title"] == "Cloudless HQ"
+    assert entry["type"] == "channel"
+    assert entry["status"] == "administrator"
+    assert entry["added_at"] == entry["updated_at"]
+
+
+def test_record_chat_membership_ignores_private_and_keeps_added_at():
+    meta = _record_chat_membership(
+        {}, {"chat_id": 5, "chat_type": "private", "new_status": "member"}
+    )
+    assert TELEGRAM_CHANNELS_META_KEY not in meta
+
+    first = _record_chat_membership(
+        {}, {"chat_id": 1, "chat_type": "supergroup", "chat_title": "G", "new_status": "member"}
+    )
+    second = _record_chat_membership(
+        first, {"chat_id": 1, "chat_type": "supergroup", "new_status": "administrator"}
+    )
+    entry = second[TELEGRAM_CHANNELS_META_KEY]["1"]
+    assert entry["status"] == "administrator"
+    assert entry["title"] == "G"  # title preserved when event omits it
+    assert entry["added_at"] == first[TELEGRAM_CHANNELS_META_KEY]["1"]["added_at"]
+
+
+@pytest.mark.asyncio
+async def test_list_channels_sorted():
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            TELEGRAM_CHANNELS_META_KEY: {
+                "-1": {"chat_id": "-1", "title": "Old", "type": "channel", "updated_at": "2026-01-01"},
+                "-2": {"chat_id": "-2", "title": "New", "type": "channel", "updated_at": "2026-02-01"},
+            },
+        }
+    )
+    out = await list_channels(acc.id, _DB([acc]), _user())
+    assert out["status"] == "ok"
+    assert [c["title"] for c in out["channels"]] == ["New", "Old"]
+
+
+@pytest.mark.asyncio
+async def test_chat_info_and_admins(monkeypatch):
+    acc = _tg_account()
+    client = _FakeClient()
+    client.get_chat = AsyncMock(return_value={"title": "HQ", "type": "channel", "description": "d"})
+    client.get_chat_member = AsyncMock(
+        return_value={"status": "administrator", "can_invite_users": True}
+    )
+    client.get_chat_administrators = AsyncMock(return_value=[
+        {"status": "creator", "user": {"id": 7, "username": "themis", "is_bot": False}},
+        {"status": "administrator", "user": {"id": 12345, "username": "cloudlessbot", "is_bot": True}},
+    ])
+    _patch_client(monkeypatch, client)
+
+    out = await chat_info(acc.id, "-100", _DB([acc]), _user())
+    assert out["bot_is_admin"] is True
+    assert out["member_count"] == 42
+    client.get_chat_member.assert_awaited_once_with("-100", 12345)
+
+    out = await chat_admins(acc.id, "-100", _DB([acc]), _user())
+    assert out["administrators"][0]["username"] == "themis"
+    assert out["administrators"][1]["is_bot"] is True
+
+
+@pytest.mark.asyncio
+async def test_chat_info_502(monkeypatch):
+    acc = _tg_account()
+    client = _FakeClient()
+    client.get_chat = AsyncMock(side_effect=telegram.TelegramAPIError(400, "not found"))
+    _patch_client(monkeypatch, client)
+    with pytest.raises(HTTPException) as e:
+        await chat_info(acc.id, "-1", _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_set_chat_description_endpoint(monkeypatch):
+    acc = _tg_account()
+    client = _FakeClient()
+    client.set_chat_description = AsyncMock(return_value=True)
+    _patch_client(monkeypatch, client)
+    out = await set_chat_description(
+        acc.id, ChatDescriptionRequest(chat_id="-1", description="hello"), _DB([acc]), _user()
+    )
+    assert out == {"status": "ok", "chat_id": "-1", "updated": True}
+    client.set_chat_description.assert_awaited_once_with("-1", "hello")
+
+    client2 = _FakeClient()
+    client2.set_chat_description = AsyncMock(side_effect=telegram.TelegramAPIError(400, "x"))
+    _patch_client(monkeypatch, client2)
+    with pytest.raises(HTTPException) as e:
+        await set_chat_description(
+            acc.id, ChatDescriptionRequest(chat_id="-1", description="d"), _DB([acc]), _user()
+        )
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_create_invite_link_named_vs_primary(monkeypatch):
+    acc = _tg_account()
+    client = _FakeClient()
+    client.create_chat_invite_link = AsyncMock(
+        return_value={"invite_link": "https://t.me/+abc", "name": "ig"}
+    )
+    client.export_chat_invite_link = AsyncMock(return_value="https://t.me/+primary")
+    _patch_client(monkeypatch, client)
+
+    out = await create_invite_link(
+        acc.id, InviteLinkRequest(chat_id="-1", name="ig"), _DB([acc]), _user()
+    )
+    assert out["invite_link"]["invite_link"] == "https://t.me/+abc"
+    client.create_chat_invite_link.assert_awaited_once_with(
+        "-1", name="ig", expire_date=None, member_limit=None, creates_join_request=False
+    )
+
+    out = await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1"), _DB([acc]), _user())
+    assert out["invite_link"]["invite_link"] == "https://t.me/+primary"
+    client.export_chat_invite_link.assert_awaited_once_with("-1")
+
+    client3 = _FakeClient()
+    client3.export_chat_invite_link = AsyncMock(side_effect=telegram.TelegramAPIError(400, "x"))
+    _patch_client(monkeypatch, client3)
+    with pytest.raises(HTTPException) as e:
+        await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1"), _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_webhook_records_channel_membership(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_my_chat_member_update=lambda u: {
+            "chat_id": -100999,
+            "chat_type": "channel",
+            "chat_title": "Cloudless — Automation HQ",
+            "new_status": "administrator",
+        },
+    )
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["membership"] == "info"
+    entry = acc.meta_data[TELEGRAM_CHANNELS_META_KEY]["-100999"]
+    assert entry["type"] == "channel"
+    assert entry["status"] == "administrator"

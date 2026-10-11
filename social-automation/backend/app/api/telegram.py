@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
@@ -53,6 +54,38 @@ from app.services.telegram_group_watch import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+TELEGRAM_CHANNELS_META_KEY = "telegram_channels"
+_ADMIN_CHAT_TYPES = {"channel", "supergroup", "group"}
+
+
+def _record_chat_membership(meta: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+    """Upsert a ``my_chat_member`` event into ``meta[TELEGRAM_CHANNELS_META_KEY]``.
+
+    The Bot API has no "list chats the bot belongs to" call — the only way to
+    learn about channels/groups is from webhook updates, so every membership
+    event is persisted here for later discovery.
+    """
+    chat_type = event.get("chat_type")
+    if chat_type not in _ADMIN_CHAT_TYPES:
+        return meta
+    channels = dict(meta.get(TELEGRAM_CHANNELS_META_KEY) or {})
+    chat_id = str(event["chat_id"])
+    entry = dict(channels.get(chat_id) or {})
+    entry.update(
+        {
+            "chat_id": chat_id,
+            "title": event.get("chat_title") or entry.get("title") or "",
+            "type": chat_type,
+            "status": event.get("new_status") or "",
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+    )
+    entry.setdefault("added_at", entry["updated_at"])
+    channels[chat_id] = entry
+    meta = dict(meta)
+    meta[TELEGRAM_CHANNELS_META_KEY] = channels
+    return meta
 
 
 def _sanitize(text: str, max_len: int = 400) -> str:
@@ -186,6 +219,21 @@ class SendPollRequest(BaseModel):
 class PinMessageRequest(BaseModel):
     chat_id: int | str
     message_id: int
+
+
+class ChatDescriptionRequest(BaseModel):
+    chat_id: int | str
+    description: str = Field(..., max_length=255)
+
+
+class InviteLinkRequest(BaseModel):
+    chat_id: int | str
+    name: str | None = Field(
+        None, max_length=64, description="Link label for source attribution (e.g. ig/threads)"
+    )
+    expire_date: int | None = None
+    member_limit: int | None = Field(None, ge=1, le=99999)
+    creates_join_request: bool = False
 
 
 class DeleteMessageRequest(BaseModel):
@@ -700,6 +748,127 @@ async def chat_members(
     return {"status": "ok", "chat_id": str(chat_id), "member_count": count}
 
 
+# ── Channel administration ───────────────────────────────────────────
+# Channels the bot administers are discovered from ``my_chat_member``
+# webhook updates (Telegram has no "list my chats" call) and recorded in
+# ``meta_data[TELEGRAM_CHANNELS_META_KEY]`` keyed by chat_id.
+
+
+@router.get("/{account_id}/channels", response_model=dict)
+async def list_channels(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Channels/groups the bot has been added to (from webhook events)."""
+    account = await _get_telegram_account(db, account_id, user)
+    channels = (account.meta_data or {}).get(TELEGRAM_CHANNELS_META_KEY) or {}
+    return {
+        "status": "ok",
+        "channels": sorted(
+            channels.values(), key=lambda c: c.get("updated_at") or "", reverse=True
+        ),
+    }
+
+
+@router.get("/{account_id}/chat-info", response_model=dict)
+async def chat_info(
+    account_id: uuid.UUID,
+    chat_id: int | str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Chat details + member count + whether the bot is an administrator."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        chat = await client.get_chat(chat_id)
+        count = await client.get_chat_member_count(chat_id)
+        me = await client.get_me()
+        member = await client.get_chat_member(chat_id, int(me.get("id") or 0))
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "chat": chat,
+        "member_count": count,
+        "bot_member": member,
+        "bot_is_admin": member.get("status") == "administrator",
+    }
+
+
+@router.get("/{account_id}/chat-admins", response_model=dict)
+async def chat_admins(
+    account_id: uuid.UUID,
+    chat_id: int | str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Administrator list for a chat the bot can see."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        admins = await client.get_chat_administrators(chat_id)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "chat_id": str(chat_id),
+        "administrators": [
+            {
+                "status": a.get("status"),
+                "user_id": (a.get("user") or {}).get("id"),
+                "username": (a.get("user") or {}).get("username"),
+                "is_bot": (a.get("user") or {}).get("is_bot"),
+            }
+            for a in admins
+        ],
+    }
+
+
+@router.put("/{account_id}/chat-description", response_model=dict)
+async def set_chat_description(
+    account_id: uuid.UUID,
+    body: ChatDescriptionRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Set a channel/group description (bot must be admin)."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        ok = await client.set_chat_description(body.chat_id, body.description)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "chat_id": str(body.chat_id), "updated": ok}
+
+
+@router.post("/{account_id}/invite-link", response_model=dict)
+async def create_invite_link(
+    account_id: uuid.UUID,
+    body: InviteLinkRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create a named invite link (source attribution) or export the primary link."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        if body.name or body.expire_date or body.member_limit or body.creates_join_request:
+            link = await client.create_chat_invite_link(
+                body.chat_id,
+                name=body.name,
+                expire_date=body.expire_date,
+                member_limit=body.member_limit,
+                creates_join_request=body.creates_join_request,
+            )
+        else:
+            link = {"invite_link": await client.export_chat_invite_link(body.chat_id)}
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"status": "ok", "chat_id": str(body.chat_id), "invite_link": link}
+
+
 # ── Auto-reply ───────────────────────────────────────────────────────
 
 
@@ -1185,6 +1354,7 @@ async def receive_webhook(
                 client=client, cfg=watch_cfg, event=membership
             )
             meta[GROUP_WATCH_META_KEY] = watch_cfg
+            meta = _record_chat_membership(meta, membership)
             account.meta_data = meta
             flag_modified(account, "meta_data")
             await db.commit()

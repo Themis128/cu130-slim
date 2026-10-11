@@ -474,3 +474,15 @@ def test_extract_my_chat_member_edges():
         "new_status": "member",
         "from_user_id": 7,
     }
+
+
+@pytest.mark.asyncio
+async def test_get_chat_administrators(client):
+    calls = _call_stub(client, [{"status": "creator", "user": {"id": 1}}])
+    out = await client.get_chat_administrators(-100)
+    assert out == [{"status": "creator", "user": {"id": 1}}]
+    assert calls[0][0] == "getChatAdministrators"
+    assert calls[0][1] == {"chat_id": -100}
+
+    _call_stub(client, "not-a-list")
+    assert await client.get_chat_administrators(1) == []
