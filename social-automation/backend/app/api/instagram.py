@@ -6,6 +6,7 @@ Exposes the new Instagram Graph API features:
 - Story publishing with links and alt text
 - Tagged media / brand mentions tracking
 """
+
 from __future__ import annotations
 
 import uuid
@@ -115,10 +116,12 @@ class MentionsResponse(BaseModel):
 
 
 @router.get("/quota", response_model=QuotaResponse)
-async def get_publishing_quota(team_id: TeamId,
+async def get_publishing_quota(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """Check the 24-hour content publishing limit for an Instagram account."""
     team = await _get_team(db, team_id)
     if not team:
@@ -129,7 +132,7 @@ async def get_publishing_quota(team_id: TeamId,
         data = await client.get_publishing_limit()
         usage_data = (data.get("data") or [{}])[0]
         used = 0
-        for item in (usage_data.get("quota_usage") or []):
+        for item in usage_data.get("quota_usage") or []:
             if item.get("metric") == "publish_count":
                 used = int(item.get("value", 0))
                 break
@@ -142,11 +145,13 @@ async def get_publishing_quota(team_id: TeamId,
 
 @router.get("/comments/{media_id}", response_model=CommentListResponse)
 async def list_comments(
-    media_id: str,team_id: TeamId,
+    media_id: str,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     limit: int = Query(50, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """List comments on a published Instagram media object."""
     team = await _get_team(db, team_id)
     if not team:
@@ -172,10 +177,12 @@ async def list_comments(
 @router.post("/comments/{comment_id}/reply", response_model=CommentOut)
 async def reply_to_comment(
     comment_id: str,
-    request: ReplyRequest,team_id: TeamId,
+    request: ReplyRequest,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """Reply to an existing Instagram comment."""
     team = await _get_team(db, team_id)
     if not team:
@@ -195,11 +202,13 @@ async def reply_to_comment(
 
 @router.post("/comments/{comment_id}/hide", response_model=CommentActionResponse)
 async def hide_comment(
-    comment_id: str,team_id: TeamId,
+    comment_id: str,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     hide: bool = Query(True),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """Hide or unhide an Instagram comment."""
     team = await _get_team(db, team_id)
     if not team:
@@ -214,10 +223,12 @@ async def hide_comment(
 
 @router.delete("/comments/{comment_id}", response_model=CommentActionResponse)
 async def delete_comment(
-    comment_id: str,team_id: TeamId,
+    comment_id: str,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """Delete an Instagram comment."""
     team = await _get_team(db, team_id)
     if not team:
@@ -232,10 +243,12 @@ async def delete_comment(
 
 @router.post("/stories", response_model=StoryPublishResponse)
 async def publish_story(
-    request: StoryPublishRequest,team_id: TeamId,
+    request: StoryPublishRequest,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """Publish an Instagram story with optional link and alt text."""
     team = await _get_team(db, team_id)
     if not team:
@@ -251,16 +264,18 @@ async def publish_story(
     except InstagramAPIError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.safe_detail)
     except TimeoutError as exc:
-        raise HTTPException(status_code=504, detail=exc.safe_detail)
+        raise HTTPException(status_code=504, detail=str(exc))
     return StoryPublishResponse(media_id=media_id)
 
 
 @router.get("/mentions", response_model=MentionsResponse)
-async def get_mentions(team_id: TeamId,
+async def get_mentions(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Instagram social account ID"),
     limit: int = Query(10, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """Fetch media where the Instagram account is tagged (brand mentions/UGC)."""
     team = await _get_team(db, team_id)
     if not team:
@@ -291,6 +306,7 @@ async def get_mentions(team_id: TeamId,
 # permission before an app can read/send Instagram DMs via the API.
 # This endpoint generates the required submission text, screencast
 # description, and test data for the App Review submission.
+
 
 @router.get("/app-review/guide")
 async def get_app_review_guide(current_user: User = Depends(get_current_user)):
