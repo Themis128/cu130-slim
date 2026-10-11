@@ -109,3 +109,31 @@ telegram account.
   the channel for paid subs — private channel from day one means no rebuild.
 - InviteLinkRequest: `member_limit` (1-99999), `expire_date` (unix ts),
   `creates_join_request` (approval flow) — mutually exclusive with member_limit.
+
+## Automated channel posting (n8n `cloudless-telegram-channel`)
+
+Deployed workflow `n8n-workflows/cloudless-telegram-channel.json` — runs the
+channel like a newsletter on proven funnel research:
+
+- **Cadence:** Mon/Wed/Fri 11:00 EET (`0 11 * * 1,3,5`), plus
+  `POST /webhook/cloudless-telegram-channel` for ad-hoc posts
+  (`{"pillar": "offer", "topic": "...", "publish": false}`).
+- **Pillar rotation** (`Plan Post` node): Mon=authority, Wed=engagement,
+  Fri rotates offer→authority→proof by ISO week ≈ 11% offers — matches the
+  40/30/20/15 authority/engagement/proof/offer mix.
+- **Chain:** TOTP login → `generate-content` (`platform=telegram` guide:
+  <90-char hook, one CTA, 1024 caption cap, series tags) → `generate-image`
+  (CF FLUX; `public_url` in the response is what `sendPhoto` needs) →
+  `channel-config` resolves the managed `chat_id` → `send-photo` with
+  caption + inline CTA buttons.
+- **Offers** (company policy only — free audit `cloudless.gr/contact`,
+  Polar plans `social.cloudless.gr/pricing`, checklist lead magnet
+  `cloudless.gr/automation-checklist.pdf`; `OFFERS` list in Plan Post).
+- **Guards:** skips with `no_managed_channel` until `PUT channel-config`
+  marks one; `Content Guard` enforces media-required — no caption or no
+  `public_url` = no send.
+- **Metrics:** `analytics_sync.sync_telegram_channel_metrics` writes the
+  channel's member count to `follower_snapshots` (platform=`telegram`)
+  every daily sync — charted like any platform series.
+- Env for n8n: `CLOUDLESS_TELEGRAM_ACCOUNT_ID` (defaults to the Cloudless
+  bot account UUID in the Plan Post node).
