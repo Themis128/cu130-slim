@@ -399,6 +399,29 @@ async def test_management_methods(client):
     calls = _call_stub(client, {"not": "str"})
     assert await client.export_chat_invite_link(1) == ""
 
+    calls = _call_stub(client, {"invite_link": "https://t.me/+xyz", "name": "ig"})
+    out = await client.create_chat_invite_link(
+        1, name="a-very-long-source-name-that-exceeds-32", member_limit=100
+    )
+    assert out == {"invite_link": "https://t.me/+xyz", "name": "ig"}
+    assert calls[0][0] == "createChatInviteLink"
+    assert calls[0][1]["name"] == "a-very-long-source-name-that-exc"
+    assert len(calls[0][1]["name"]) == 32
+    assert calls[0][1]["member_limit"] == 100
+    assert calls[0][1]["creates_join_request"] is False
+
+    calls = _call_stub(client, {"invite_link": "https://t.me/+join"})
+    out = await client.create_chat_invite_link(
+        1, expire_date=1_800_000_000, creates_join_request=True
+    )
+    assert calls[0][1] == {
+        "chat_id": 1,
+        "creates_join_request": True,
+        "expire_date": 1_800_000_000,
+    }
+    calls = _call_stub(client, "not-a-dict")
+    assert await client.create_chat_invite_link(1) == {}
+
 
 def test_extract_inbound_edges():
     # no message key
