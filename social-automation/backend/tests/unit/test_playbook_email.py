@@ -82,6 +82,43 @@ def test_email_escapes_url_in_html():
     assert "&quot;b&lt;c" in html
 
 
+def test_email_personalizes_greeting():
+    _, text, html = pb.build_playbook_email(URL, name="Nikos Papas")
+    assert "Hi Nikos," in text
+    assert "Hi Nikos," in html
+    _, text2, _ = pb.build_playbook_email(URL)
+    assert "Hi," in text2
+    assert "Hi Nikos" not in text2
+
+
+def test_email_links_carry_utm_attribution():
+    _, text, html = pb.build_playbook_email(URL)
+    assert "utm_source=playbook-email" in text
+    assert "utm_campaign=cloud-migration-playbook" in text
+    assert "utm_content=download" in text
+    assert "utm_content=audit-cta" in text
+    assert "utm_source=playbook-email" in html
+
+
+def test_email_has_preheader():
+    _, _, html = pb.build_playbook_email(URL)
+    assert 'display:none' in html
+    assert "audit offer" in html
+
+
+@pytest.mark.asyncio
+async def test_send_playbook_email_sets_unsubscribe_and_reply_headers():
+    with patch.object(pb, "get_settings", return_value=_settings()), patch.object(
+        pb, "send_email", new=AsyncMock()
+    ) as send:
+        await pb.send_playbook_email("lead@example.com", name="Nikos")
+    kwargs = send.await_args.kwargs
+    headers = kwargs["extra_headers"]
+    assert headers["List-Unsubscribe"].startswith("<mailto:tbaltzakis@cloudless.gr")
+    assert kwargs["reply_to"] == "tbaltzakis@cloudless.gr"
+    assert kwargs["from_name"] == "Cloudless"
+
+
 @pytest.mark.parametrize(
     "over, expected",
     [
@@ -129,7 +166,7 @@ async def test_deliver_playbook_enqueues_and_stamps_lead(fake_redis):
     with patch.object(pb, "_enqueue_playbook_email") as enq:
         out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings())
     assert out == "email"
-    enq.assert_called_once_with("a@b.co")
+    enq.assert_called_once_with("a@b.co", name=None)
     assert lead.meta_data["form"] == "newsletter"
     assert lead.meta_data["playbook_email_queued_at"]
     assert db.commits == 1
