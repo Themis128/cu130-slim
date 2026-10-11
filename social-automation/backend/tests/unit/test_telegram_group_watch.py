@@ -606,6 +606,83 @@ async def test_send_digest_for_account(monkeypatch):
     assert "Group digest" in client.send_message.await_args.args[1]
 
 
+def test_normalize_keywords_non_list_resets_defaults():
+    cfg = gw.normalize_group_watch_config({"keywords": "not-a-list"})
+    assert cfg["keywords"] == list(gw.DEFAULT_KEYWORDS)
+
+
+def test_bot_mentioned_offset_entity():
+    # mention entity uses offset/length to slice the handle out of text
+    assert gw.bot_mentioned(
+        "hello @mybot tail",
+        [{"type": "mention", "offset": 6, "length": 6}],
+        "mybot")
+    # offset points at a different handle → no match
+    assert not gw.bot_mentioned(
+        "hello @other tail",
+        [{"type": "mention", "offset": 6, "length": 6}],
+        "mybot")
+    # non-dict entities are skipped
+    assert not gw.bot_mentioned("hi", ["x", 3], "mybot")
+
+
+def test_build_digest_text_line_and_body_truncation():
+    long_text = "x" * 300
+    msgs = [{"sender_name": "A", "text": long_text}]
+    body = gw.build_digest_text(chat_title="G", chat_id="-1",
+                                messages=msgs, max_messages=10)
+    assert "…" in body  # per-line truncation at 180
+
+    many = [{"sender_name": "A", "text": "y" * 500} for _ in range(200)]
+    body = gw.build_digest_text(chat_title="G", chat_id="-1",
+                                messages=many, max_messages=400)
+    assert len(body) <= gw.MAX_MESSAGE_CHARS
+    assert body.endswith("…(truncated)")
+
+
+@pytest.mark.asyncio
+async def test_send_digest_bad_timezone_and_redis_down(monkeypatch):
+    client = SimpleNamespace(send_message=AsyncMock())
+    import datetime as dt
+
+    class _FixedDT(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 5, 9, 0, tzinfo=tz)
+
+    monkeypatch.setattr(gw, "datetime", _FixedDT)
+    monkeypatch.setattr(gw.settings, "APP_TIMEZONE", "Not/AZone")
+    monkeypatch.setattr(gw, "_redis", AsyncMock(side_effect=RuntimeError("down")))
+    monkeypatch.setattr(gw, "list_buffered_messages", AsyncMock(return_value=[]))
+    cfg = {"enabled": True, "digest_enabled": True, "owner_chat_id": "9",
+           "digest_hour": 9, "watched_chats": [{"chat_id": -1, "title": ""}]}
+    out = await gw.send_digest_for_account(
+        client=client, account_id="a", cfg=cfg, hour_filter=9)
+    # ZoneInfo fallback + redis exception → continues, digest attempted
+    assert out["chats"][0]["reason"] == "empty"
+
+
+@pytest.mark.asyncio
+async def test_send_digest_send_failure_counted(monkeypatch):
+    client = SimpleNamespace(send_message=AsyncMock(side_effect=RuntimeError("x")))
+    import datetime as dt
+
+    class _FixedDT(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 5, 9, 0, tzinfo=tz)
+
+    monkeypatch.setattr(gw, "datetime", _FixedDT)
+    monkeypatch.setattr(gw, "list_buffered_messages",
+                        AsyncMock(return_value=[{"sender_name": "A", "text": "m"}]))
+    monkeypatch.setattr(gw, "notify_owner", AsyncMock(return_value=False))
+    cfg = {"enabled": True, "digest_enabled": True, "owner_chat_id": "9",
+           "digest_hour": 9, "watched_chats": [{"chat_id": -1}]}
+    out = await gw.send_digest_for_account(
+        client=client, account_id="a", cfg=cfg, force=True)
+    assert out["sent"] == 0 and out["chats"][0]["sent"] is False
+
+
 @pytest.mark.asyncio
 async def test_redis_factory():
     # MESSENGER_REDIS_URL fallback to REDIS_URL
