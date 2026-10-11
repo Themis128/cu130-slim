@@ -202,7 +202,7 @@ class TestScreenshot:
     @pytest.mark.asyncio
     async def test_happy(self, monkeypatch):
         c = _HTTP()
-        c.get_map["http://linkedin-browser-sidecar:9225/screenshot"] = \
+        c.get_map[f"{MCP.LINKEDIN_SIDECAR_URL}/screenshot"] = \
             _Resp(200, content=b"\x89PNG")
         _wire(monkeypatch, c)
         out = await MCP.get_screenshot("linkedin_sidecar",
@@ -213,7 +213,7 @@ class TestScreenshot:
     @pytest.mark.asyncio
     async def test_sidecar_error(self, monkeypatch):
         c = _HTTP()
-        c.get_map["http://facebook-browser-sidecar:9226/screenshot"] = \
+        c.get_map[f"{MCP.FACEBOOK_SIDECAR_URL}/screenshot"] = \
             _Resp(503)
         _wire(monkeypatch, c)
         with pytest.raises(HTTPException) as ei:
@@ -243,7 +243,7 @@ class TestCheckSession:
     @pytest.mark.asyncio
     async def test_ok_and_error(self, monkeypatch):
         c = _HTTP()
-        c.get_map["http://linkedin-browser-sidecar:9225/session"] = \
+        c.get_map[f"{MCP.LINKEDIN_SIDECAR_URL}/session"] = \
             _Resp(200, {"logged_in": True})
         _wire(monkeypatch, c)
         out = await MCP.check_session("linkedin_sidecar",
@@ -252,7 +252,7 @@ class TestCheckSession:
         c.exc = RuntimeError()
         out = await MCP.check_session("linkedin_sidecar",
                                       current_user=_user())
-        assert out["status"] == "error"
+        assert out == {"status": "error", "error": "Internal error"}
 
 
 class TestLinkedinMcpCalls:
@@ -282,7 +282,7 @@ class TestLinkedinMcpCalls:
         c.exc = TimeoutError()
         _wire(monkeypatch, c)
         out = await MCP.linkedin_mcp_get_profile(current_user=_user())
-        assert out["status"] == "error"
+        assert out == {"status": "error", "error": "Internal error"}
 
     @pytest.mark.asyncio
     async def test_search_people(self, monkeypatch):
@@ -303,4 +303,4 @@ class TestLinkedinMcpCalls:
         _wire(monkeypatch, c)
         out = await MCP.linkedin_mcp_search_people(
             keywords="x", current_user=_user())
-        assert out["status"] == "error"
+        assert out == {"status": "error", "error": "Internal error"}
