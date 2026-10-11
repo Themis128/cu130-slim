@@ -261,7 +261,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $json;\nconst plan = $('Plan Post (pillar rotation)').item.json;\nconst ok = !!(raw && (raw.ok === true || (raw.result && raw.result.message_id)));\nreturn [{ json: { ok, platform: 'telegram', pillar: plan.pillar, message_id: (raw.result && raw.result.message_id) || raw.message_id || null, status: ok ? 'sent' : 'failed', error: ok ? null : (raw.description || raw.detail || raw.message || 'send_failed') } }];"
+        "jsCode": "const raw = $json;\nconst plan = $('Plan Post (pillar rotation)').item.json;\n// send-photo returns the Telegram message object directly\n// ({message_id, chat, sender_chat}), or {ok:true,result:{...}}\n// on some paths \u2014 treat either as success.\nconst msgId = (raw.result && raw.result.message_id) || raw.message_id || null;\nconst ok = !!(raw && (raw.ok === true || msgId));\nreturn [{ json: { ok, platform: 'telegram', pillar: plan.pillar, message_id: msgId, status: ok ? 'sent' : 'failed', error: ok ? null : (raw.description || raw.detail || raw.message || 'send_failed') } }];\n"
       },
       "id": "normalize",
       "name": "Normalize Result",
