@@ -150,6 +150,14 @@
     },
     "deepwiki": {
       "url": "https://mcp.deepwiki.com/mcp"
+    },
+    "telegram": {
+      "command": "uv",
+      "args": [
+        "run",
+        "telegram-mcp"
+      ],
+      "cwd": "/home/tbaltzakis/tools/telegram-mcp"
     }
   }
 }
