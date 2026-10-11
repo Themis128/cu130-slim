@@ -130,6 +130,10 @@ class S3LiteClient:
         region: str = "us-east-1",
     ):
         parts = urlsplit(endpoint)
+        if not parts.netloc:
+            # Schemeless "host:port" input — urlsplit treats it as
+            # scheme="host", path="port"; re-split with a scheme prefix.
+            parts = urlsplit(f"http://{endpoint}")
         self.scheme = parts.scheme or "http"
         self.host = parts.netloc
         self.access_key = access_key

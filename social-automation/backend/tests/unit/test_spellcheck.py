@@ -282,3 +282,112 @@ async def test_gibberish_lt_down_still_catches_pattern(monkeypatch):
 async def test_gibberish_empty():
     assert await detect_gibberish("") == []
     assert await detect_gibberish("   ") == []
+
+
+# -- remaining gaps: mask/word-pattern internals + mocked auto_correct -------
+
+
+def test_strip_unrenderable_so_categories():
+    from app.services.spellcheck import _strip_unrenderable_symbols
+
+    # < U+2600 currency symbols kept; ≥ U+2600 So and emoji stripped
+    assert _strip_unrenderable_symbols("price €10") == "price €10"
+    assert _strip_unrenderable_symbols("go ➜ there ★") == "go  there "
+
+
+def test_protected_word_pattern_none_when_unset(monkeypatch):
+    from app.services.spellcheck import _protected_word_pattern
+
+    class _S:
+        LANGUAGETOOL_PROTECTED_WORDS = " , ,"
+
+    monkeypatch.setattr(spellcheck, "get_settings", lambda: _S())
+    assert _protected_word_pattern() is None
+
+
+def test_mask_preserves_newlines_and_length():
+    from app.services.spellcheck import _mask
+
+    text = "line1\nhttps://x.com/a\nline3"
+    spans = [(6, 21)]  # the URL
+    masked = _mask(text, spans)
+    assert len(masked) == len(text)
+    assert masked[6:21] == " " * 15
+    assert masked[5] == "\n" and masked[21] == "\n"
+    assert masked[:5] == "line1"
+
+
+class _LTClient:
+    """Deterministic LanguageTool stub returning canned matches."""
+
+    def __init__(self, resp, fail=False):
+        self._resp = resp
+        self._fail = fail
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, data=None, headers=None):
+        if self._fail:
+            raise ConnectionError("down")
+        return self._resp
+
+
+class _LTResp:
+    def __init__(self, matches):
+        self._matches = matches
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return {"matches": self._matches}
+
+
+@pytest.mark.asyncio
+async def test_auto_correct_applies_match_end_to_start(monkeypatch):
+    # One misspelling at a known offset → replacement applied.
+    text = "I havve a dog."
+    idx = text.index("havve")
+    resp = _LTResp([{"offset": idx, "length": 5,
+                     "replacements": [{"value": "have"}]}])
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
+                        lambda *a, **k: _LTClient(resp))
+    out = await spellcheck.auto_correct(text)
+    assert "have" in out and "havve" not in out
+
+
+@pytest.mark.asyncio
+async def test_auto_correct_skips_match_on_protected_span(monkeypatch):
+    # Match inside a URL must never apply — protection wins.
+    text = "see https://ex.com/tehh"
+    idx = text.index("tehh")
+    resp = _LTResp([{"offset": idx, "length": 4,
+                     "replacements": [{"value": "the"}]}])
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
+                        lambda *a, **k: _LTClient(resp))
+    assert await spellcheck.auto_correct(text) == text
+
+
+@pytest.mark.asyncio
+async def test_auto_correct_no_replacements_and_lt_down(monkeypatch):
+    # Match without replacements → skipped, text unchanged.
+    text = "hello worlld"
+    resp = _LTResp([{"offset": 6, "length": 6, "replacements": []}])
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
+                        lambda *a, **k: _LTClient(resp))
+    assert await spellcheck.auto_correct(text) == text
+
+    # LT down → normalized text returned, no raise.
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
+                        lambda *a, **k: _LTClient(None, fail=True))
+    assert await spellcheck.auto_correct("hi  there") == "hi there"
+
+
+@pytest.mark.asyncio
+async def test_auto_correct_empty_and_blank():
+    assert await spellcheck.auto_correct("") == ""
+    assert await spellcheck.auto_correct("   ") == "   "
