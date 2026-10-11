@@ -273,10 +273,12 @@ async def test_get_follower_count_404_returns_zero(monkeypatch, client):
 @pytest.mark.asyncio
 async def test_get_follower_count_rest_failure_falls_through_to_v2(monkeypatch, client):
     """REST 400 must not abort the loop — v2 is tried next (firstDegreeSize)."""
-    fake = _FakeAsyncClient([
-        _FakeResponse(400, {"status": 400, "message": "Invalid param"}),
-        _FakeResponse(200, {"firstDegreeSize": 26}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(400, {"status": 400, "message": "Invalid param"}),
+            _FakeResponse(200, {"firstDegreeSize": 26}),
+        ]
+    )
     monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=30.0: fake)
 
     count = await client.get_follower_count("urn:li:organization:12345")
@@ -297,9 +299,7 @@ async def test_get_follower_count_parses_first_degree_size(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_create_post_success(monkeypatch, client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(201, {}, headers={"x-restli-id": "urn:li:share:123"})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(201, {}, headers={"x-restli-id": "urn:li:share:123"}))
     monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=60.0: fake)
 
     result = await client.create_post(
@@ -344,9 +344,7 @@ async def test_create_post_api_error_400(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_create_comment_success(monkeypatch, client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(201, {}, headers={"x-restli-id": "urn:li:comment:456"})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(201, {}, headers={"x-restli-id": "urn:li:comment:456"}))
     monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=60.0: fake)
 
     result = await client.create_comment(
@@ -363,9 +361,7 @@ async def test_create_comment_success(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_create_article_truncates_long_text(monkeypatch, client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(201, {}, headers={"x-restli-id": "urn:li:share:789"})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(201, {}, headers={"x-restli-id": "urn:li:share:789"}))
     monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=60.0: fake)
 
     long_body = "word " * 2000
@@ -484,17 +480,18 @@ async def test_create_document_post_success(monkeypatch, client, no_sleep):
 async def test_create_video_post_happy_path(monkeypatch, client, no_sleep):
     video_bytes = b"\x00" * 1024
     responses = [
-        _FakeResponse(200, {
-            "value": {
-                "video": "urn:li:video:vid1",
-                "uploadToken": "tok-xyz",
-                "uploadInstructions": [
-                    {"uploadUrl": "https://up.example/part1", "firstByte": 0, "lastByte": 1023}
-                ],
-            }
-        }),
+        _FakeResponse(
+            200,
+            {
+                "value": {
+                    "video": "urn:li:video:vid1",
+                    "uploadToken": "tok-xyz",
+                    "uploadInstructions": [{"uploadUrl": "https://up.example/part1", "firstByte": 0, "lastByte": 1023}],
+                }
+            },
+        ),
         _FakeResponse(201, {}, headers={"ETag": '"etag-1"'}),
-        _FakeResponse(201, {}),                      # finalizeUpload
+        _FakeResponse(201, {}),  # finalizeUpload
         _FakeResponse(200, {"status": "AVAILABLE"}),  # poll
         _FakeResponse(201, {}, headers={"x-restli-id": "urn%3Ali%3AugcPost%3Avid1"}),
     ]
@@ -519,10 +516,7 @@ async def test_create_video_post_happy_path(monkeypatch, client, no_sleep):
     assert put_call["content"] == video_bytes
 
     # finalize carries the part ETag
-    fin_call = [
-        c for c in fake.calls
-        if c["method"] == "POST" and "finalizeUpload" in c["url"]
-    ][0]
+    fin_call = [c for c in fake.calls if c["method"] == "POST" and "finalizeUpload" in c["url"]][0]
     assert fin_call["json"]["finalizeUploadRequest"]["uploadedPartIds"] == ["etag-1"]
 
     final_call = fake.calls[-1]
@@ -534,21 +528,24 @@ async def test_create_video_post_happy_path(monkeypatch, client, no_sleep):
 async def test_create_video_post_multipart_splits_byte_ranges(monkeypatch, client, no_sleep):
     video_bytes = b"x" * 300
     responses = [
-        _FakeResponse(200, {
-            "value": {
-                "video": "urn:li:video:mp1",
-                "uploadToken": "tok",
-                "uploadInstructions": [
-                    {"uploadUrl": "https://up.example/p1", "firstByte": 0, "lastByte": 99},
-                    {"uploadUrl": "https://up.example/p2", "firstByte": 100, "lastByte": 199},
-                    {"uploadUrl": "https://up.example/p3", "firstByte": 200, "lastByte": 299},
-                ],
-            }
-        }),
+        _FakeResponse(
+            200,
+            {
+                "value": {
+                    "video": "urn:li:video:mp1",
+                    "uploadToken": "tok",
+                    "uploadInstructions": [
+                        {"uploadUrl": "https://up.example/p1", "firstByte": 0, "lastByte": 99},
+                        {"uploadUrl": "https://up.example/p2", "firstByte": 100, "lastByte": 199},
+                        {"uploadUrl": "https://up.example/p3", "firstByte": 200, "lastByte": 299},
+                    ],
+                }
+            },
+        ),
         _FakeResponse(201, {}, headers={"ETag": "e1"}),
         _FakeResponse(201, {}, headers={"ETag": "e2"}),
         _FakeResponse(201, {}, headers={"ETag": "e3"}),
-        _FakeResponse(201, {}),                      # finalize
+        _FakeResponse(201, {}),  # finalize
         _FakeResponse(200, {"status": "AVAILABLE"}),  # poll
         _FakeResponse(201, {}, headers={"x-restli-id": "urn%3Ali%3Ashare%3Avid2"}),
     ]
@@ -580,3 +577,454 @@ async def test_create_video_post_init_error(monkeypatch, client, no_sleep):
     )
     assert result.success is False
     assert "403" in result.error
+
+
+# ── coverage: validators + helpers ────────────────────────────────────
+
+
+def test_validate_urn_and_headers_and_author_urn():
+    with pytest.raises(ValueError, match="empty"):
+        api._validate_urn("  ")
+    with pytest.raises(ValueError, match="Invalid LinkedIn URN"):
+        api._validate_urn("not a urn!!")
+    assert api._validate_urn("urn:li:person:abc") == "urn:li:person:abc"
+
+    empty = api.LinkedInAPIClient(access_token=None)
+    with pytest.raises(ValueError, match="access token is required"):
+        empty._headers()
+
+    c = api.LinkedInAPIClient(access_token="t")
+    assert c._author_urn("42", "company") == "urn:li:organization:42"
+    assert c._author_urn("42", "page") == "urn:li:organization:42"
+    assert c._author_urn("42", "person") == "urn:li:person:42"
+    assert c._author_urn("42", "") == "urn:li:person:42"
+
+
+# ── get_member_organizations filters ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_member_organizations_filters_and_org_errors(client):
+    fake = _FakeAsyncClient(
+        [
+            # first ACL url -> elements with mixed validity
+            _FakeResponse(
+                200,
+                {
+                    "elements": [
+                        {"organization": "urn:li:person:9"},  # not organization -> skip
+                        {"organization": "urn:li:organization:"},  # empty id -> skip
+                        {"organization": "urn:li:organization:77"},
+                        {"organizationalTarget": "urn:li:organization:88"},
+                    ]
+                },
+            ),
+            # org lookups for 77: REST 404 -> v2 ok
+            _FakeResponse(404, {}),
+            _FakeResponse(200, {"name": {"localized": {"en_US": "Page Seventy-Seven"}}, "vanityName": "p77"}),
+            # org lookups for 88: both fail -> default name
+            _FakeResponse(404, {}),
+            _FakeResponse(404, {}),
+        ]
+    )
+    import unittest.mock as um
+
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        orgs = await client.get_member_organizations()
+
+    assert {o.id for o in orgs} == {"77", "88"}
+    o77 = next(o for o in orgs if o.id == "77")
+    assert o77.name == "Page Seventy-Seven"
+    assert o77.vanity_name == "p77"
+    o88 = next(o for o in orgs if o.id == "88")
+    assert o88.name == "LinkedIn Page 88"
+
+
+@pytest.mark.asyncio
+async def test_get_organization(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"localizedName": "Org X"}))
+    import unittest.mock as um
+
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.get_organization("77")
+    assert out["localizedName"] == "Org X"
+
+
+# ── get_post_analytics urn-kind branches ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_post_analytics_urn_variants(client):
+    import unittest.mock as um
+
+    # share URN -> kind "shares" first, alt urn:li:ugcPost tried too
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"elements": [{"totalShareStatistics": {"likeCount": 1}}]}),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.get_post_analytics("urn:li:share:123", "urn:li:organization:77")
+    assert out["totalShareStatistics"]["likeCount"] == 1
+
+    # unknown URN kind -> both ugcPosts + shares attempts, no alt; all empty -> {}
+    fake2 = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"elements": []}),
+            _FakeResponse(200, {"elements": []}),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake2
+        out = await client.get_post_analytics("urn:li:activity:555", "urn:li:organization:77")
+    assert out == {}
+    assert "ugcPosts=" in fake2.calls[0]["url"]
+    assert "shares=" in fake2.calls[1]["url"]
+
+    # 4xx attempt -> continue; 5xx -> raises
+    fake3 = _FakeAsyncClient(
+        [
+            _FakeResponse(404, {}),
+            _FakeResponse(200, {"elements": [{"x": 1}]}),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake3
+        out = await client.get_post_analytics("urn:li:ugcPost:9", "urn:li:organization:77")
+    assert out == {"x": 1}
+
+    fake4 = _FakeAsyncClient([_FakeResponse(500, {})])
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake4
+        with pytest.raises(api.LinkedInAPIError):
+            await client.get_post_analytics("urn:li:ugcPost:9", "urn:li:organization:77")
+
+
+@pytest.mark.asyncio
+async def test_get_follower_count_list_response(client):
+    class _ListResp(_FakeResponse):
+        def json(self):
+            return self._body
+
+    fake = _FakeAsyncClient(_ListResp(200, [{"firstDegreeSize": 42}]))
+    import unittest.mock as um
+
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        assert await client.get_follower_count("urn:li:organization:77") == 42
+
+
+# ── create_post link_url + invalid urn ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_post_invalid_urn_and_link(client):
+    import unittest.mock as um
+
+    out = await client.create_post("bad-urn", "hi")
+    assert out.success is False and "Invalid author URN" in out.error
+
+    fake = _FakeAsyncClient(_FakeResponse(201, {}, headers={"x-restli-id": "urn:li:share:1"}))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_post("urn:li:organization:77", "check this", link_url="https://cloudless.gr", link_title="T", link_description="D")
+    assert out.success is True
+    assert fake.calls[0]["json"]["content"]["article"]["source"] == "https://cloudless.gr"
+
+
+# ── create_multi_image_post error branches ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_multi_image_error_branches(client, tmp_path, no_sleep):
+    import unittest.mock as um
+
+    out = await client.create_multi_image_post("bad", "c", ["x.png"])
+    assert not out.success
+
+    # unreadable file
+    out = await client.create_multi_image_post("urn:li:person:1", "c", [str(tmp_path / "missing.png")])
+    assert "Could not read" in out.error
+
+    img = tmp_path / "i.png"
+    img.write_bytes(b"pngdata")
+
+    # init 400
+    fake = _FakeAsyncClient(_FakeResponse(400, "bad init"))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_multi_image_post("urn:li:person:1", "c", [str(img)])
+    assert "HTTP 400" in out.error
+
+    # init no upload details
+    fake = _FakeAsyncClient(_FakeResponse(200, {"value": {}}))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_multi_image_post("urn:li:person:1", "c", [str(img)])
+    assert "no upload details" in out.error
+
+    # PUT fails
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"value": {"uploadUrl": "https://up", "image": "urn:li:image:1"}}),
+            _FakeResponse(500, "put fail"),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_multi_image_post("urn:li:person:1", "c", [str(img)])
+    assert "Image upload failed" in out.error
+
+    # poll != AVAILABLE
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"value": {"uploadUrl": "https://up", "image": "urn:li:image:1"}}),
+            _FakeResponse(200, {}),
+            _FakeResponse(200, {"status": "PROCESSING_FAILED"}),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_multi_image_post("urn:li:person:1", "c", [str(img)])
+    assert "timed out" in out.error or "PROCESSING_FAILED" in out.error
+
+    # empty media list -> no images
+    out = await client.create_multi_image_post("urn:li:person:1", "c", [])
+    assert "No images" in out.error
+
+    # single image success -> media (not multiImage) content
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"value": {"uploadUrl": "https://up", "image": "urn:li:image:1"}}),
+            _FakeResponse(200, {}),
+            _FakeResponse(200, {"status": "AVAILABLE"}),
+            _FakeResponse(201, {}, headers={"x-restli-id": "id1"}),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_multi_image_post("urn:li:person:1", "c", [str(img)])
+    assert out.success
+    assert fake.calls[3]["json"]["content"]["media"]["id"] == "urn:li:image:1"
+
+    # post >= 400
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"value": {"uploadUrl": "https://up", "image": "urn:li:image:1"}}),
+            _FakeResponse(200, {}),
+            _FakeResponse(200, {"status": "AVAILABLE"}),
+            _FakeResponse(403, "forbidden"),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_multi_image_post("urn:li:person:1", "c", [str(img)])
+    assert "HTTP 403" in out.error
+
+
+# ── create_document_post error branches ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_document_post_error_branches(client, no_sleep):
+    import unittest.mock as um
+
+    out = await client.create_document_post("bad", "c", b"%PDF")
+    assert not out.success
+
+    # init 400
+    fake = _FakeAsyncClient(_FakeResponse(400, "x"))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_document_post("urn:li:person:1", "c", b"%PDF")
+    assert "HTTP 400" in out.error
+
+    # no details
+    fake = _FakeAsyncClient(_FakeResponse(200, {"value": {}}))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_document_post("urn:li:person:1", "c", b"%PDF")
+    assert "no upload details" in out.error
+
+    # PUT fails
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"value": {"uploadUrl": "u", "document": "urn:li:document:1"}}),
+            _FakeResponse(500, "x"),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_document_post("urn:li:person:1", "c", b"%PDF")
+    assert "Document upload failed" in out.error
+
+    # poll != AVAILABLE
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"value": {"uploadUrl": "u", "document": "urn:li:document:1"}}),
+            _FakeResponse(200, {}),
+            _FakeResponse(200, {"status": "PROCESSING_FAILED"}),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_document_post("urn:li:person:1", "c", b"%PDF")
+    assert "timed out" in out.error or "PROCESSING_FAILED" in out.error
+
+    # post >= 400
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"value": {"uploadUrl": "u", "document": "urn:li:document:1"}}),
+            _FakeResponse(200, {}),
+            _FakeResponse(200, {"status": "AVAILABLE"}),
+            _FakeResponse(403, "x"),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_document_post("urn:li:person:1", "c", b"%PDF")
+    assert "HTTP 403" in out.error
+
+
+# ── create_video_post error branches ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_video_post_error_branches(client, no_sleep):
+    import unittest.mock as um
+
+    out = await client.create_video_post("bad", "c", b"v")
+    assert not out.success
+
+    # no upload details
+    fake = _FakeAsyncClient(_FakeResponse(200, {"value": {}}))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_video_post("urn:li:person:1", "c", b"v")
+    assert "no upload details" in out.error
+
+    init_ok = {
+        "value": {
+            "video": "urn:li:video:1",
+            "uploadToken": "tok",
+            "uploadInstructions": [
+                {"uploadUrl": "https://up1", "firstByte": 0, "lastByte": 3},
+                {"firstByte": 4, "lastByte": 7},  # no uploadUrl -> skipped
+            ],
+        }
+    }
+
+    # PUT fails
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, init_ok),
+            _FakeResponse(500, "put fail"),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_video_post("urn:li:person:1", "c", b"v" * 8)
+    assert "Video upload failed" in out.error
+
+    # no ETag on any part -> nothing to finalize
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, init_ok),
+            _FakeResponse(200, {}),  # part upload, no ETag header
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_video_post("urn:li:person:1", "c", b"v" * 8)
+    assert "no part ETags" in out.error
+
+    # finalize fails
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, init_ok),
+            _FakeResponse(200, {}, headers={"ETag": '"e1"'}),
+            _FakeResponse(400, "fin fail"),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_video_post("urn:li:person:1", "c", b"v" * 8)
+    assert "finalize failed" in out.error
+
+    # poll != AVAILABLE
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, init_ok),
+            _FakeResponse(200, {}, headers={"ETag": '"e1"'}),
+            _FakeResponse(200, {}),
+            _FakeResponse(200, {"status": "PROCESSING_FAILED"}),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_video_post("urn:li:person:1", "c", b"v" * 8)
+    assert "timed out" in out.error or "PROCESSING_FAILED" in out.error
+
+    # post >= 400
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, init_ok),
+            _FakeResponse(200, {}, headers={"ETag": '"e1"'}),
+            _FakeResponse(200, {}),
+            _FakeResponse(200, {"status": "AVAILABLE"}),
+            _FakeResponse(403, "x"),
+        ]
+    )
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_video_post("urn:li:person:1", "c", b"v" * 8)
+    assert "HTTP 403" in out.error
+
+
+# ── _poll_asset_status branches ───────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_poll_asset_status(client, no_sleep):
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(404, {}),  # not yet queryable
+            _FakeResponse(200, {"status": "WAITING"}),  # in progress
+            _FakeResponse(200, {"status": "AVAILABLE"}),
+        ]
+    )
+    assert await client._poll_asset_status(fake, "u", {}) == "AVAILABLE"
+
+    fake2 = _FakeAsyncClient(_FakeResponse(200, {"status": "PROCESSING_FAILED"}))
+    assert await client._poll_asset_status(fake2, "u", {}) == "PROCESSING_FAILED"
+
+    fake3 = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"status": "WAITING"}),
+            _FakeResponse(200, {"status": "WAITING"}),
+        ]
+    )
+    assert await client._poll_asset_status(fake3, "u", {}, max_attempts=2) == "WAITING"
+
+
+# ── create_comment / delete_post errors ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_create_comment_and_delete_post_errors(client):
+    import unittest.mock as um
+
+    fake = _FakeAsyncClient(_FakeResponse(403, "no perm"))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake
+        out = await client.create_comment("urn:li:share:1", "nice", creator_urn="urn:li:person:2")
+    assert not out.success and "HTTP 403" in out.error
+
+    fake2 = _FakeAsyncClient(_FakeResponse(404, "gone"))
+    with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
+        mock.return_value = fake2
+        out = await client.delete_post("urn:li:share:1")
+    assert not out.success and "HTTP 404" in out.error

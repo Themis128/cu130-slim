@@ -91,7 +91,7 @@ async def get_top_performing_posts(
         rows = result.all()
         return [
             {
-                "title": post.content[:100] if post.content else "",
+                "title": post.content_text[:100] if post.content_text else "",
                 "impressions": analytics.impressions or 0,
                 "engagement": (analytics.likes or 0) + (analytics.comments or 0) + (analytics.shares or 0),
                 "platform": analytics.platform if hasattr(analytics, "platform") else "unknown",

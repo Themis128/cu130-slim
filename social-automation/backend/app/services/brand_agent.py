@@ -180,7 +180,7 @@ async def run_autopilot(
             post = Post(
                 team_id=team_id,
                 user_id=user_id,
-                content=content,
+                content_text=content,
                 status=PostStatus.DRAFT,
                 scheduled_at=slot,
             )
