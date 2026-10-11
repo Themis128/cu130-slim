@@ -353,6 +353,7 @@ class Settings(BaseSettings):
     # generic JSON webhook intended for external automation.
     SLACK_PUBLISHING_WEBHOOK_URL: str = ""
     SLACK_PUBLISHING_CHANNEL_ID: str = ""  # bot-token fallback channel; default: SLACK_CHANNEL_ID
+    NEWSLETTER_SERVICE_TOKEN: str = ""  # shared secret: cloudless.gr newsletter cron → cover endpoint
 
     # MinIO (internal object storage)
     MINIO_ENDPOINT: str = "minio:9000"
