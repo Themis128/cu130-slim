@@ -47,6 +47,10 @@ class _HTTP:
         self.calls.append(("POST", url, kw))
         return self.handler("POST", url, kw)
 
+    async def put(self, url, **kw):
+        self.calls.append(("PUT", url, kw))
+        return self.handler("PUT", url, kw)
+
     async def delete(self, url, **kw):
         self.calls.append(("DELETE", url, kw))
         return self.handler("DELETE", url, kw)
@@ -190,7 +194,7 @@ class TestApiRequest:
         assert out["id"] == 5
 
     @pytest.mark.asyncio
-    async def test_delete_and_patch(self, monkeypatch):
+    async def test_delete_patch_and_put(self, monkeypatch):
         seen = []
 
         def h(m, u, kw):
@@ -200,7 +204,8 @@ class TestApiRequest:
         _patch_http(monkeypatch, h)
         await S._api_request("DELETE", "/d")
         await S._api_request("PATCH", "/p", json_body={"y": 2})
-        assert seen == ["DELETE", "PATCH"]
+        await S._api_request("PUT", "/p", json_body={"z": 3})
+        assert seen == ["DELETE", "PATCH", "PUT"]
 
     @pytest.mark.asyncio
     async def test_unsupported_method(self):

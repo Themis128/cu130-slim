@@ -112,6 +112,9 @@ async def _api_request(
         elif method == "POST":
             headers["Content-Type"] = "application/json"
             resp = await client.post(f"{API_URL}{path}", headers=headers, json=json_body)
+        elif method == "PUT":
+            headers["Content-Type"] = "application/json"
+            resp = await client.put(f"{API_URL}{path}", headers=headers, json=json_body)
         elif method == "DELETE":
             resp = await client.delete(f"{API_URL}{path}", headers=headers)
         elif method == "PATCH":
@@ -521,8 +524,10 @@ TOOLS: list[Tool] = [
         name="telegram_create_invite_link",
         description=(
             "Create a named Telegram invite link for join-source attribution "
-            "(e.g. name='ig'/'threads'/'website'). With no options, exports "
-            "the primary invite link. Bot must be admin with invite rights."
+            "(e.g. name='ig'/'threads'/'website'). With no options, returns "
+            "the existing primary invite link via getChat (non-destructive). "
+            "Set regenerate=true to export a new primary invite link "
+            "(destructive — revokes the previous one). Bot must be admin with invite rights."
         ),
         input_schema={
             "type": "object",
@@ -532,6 +537,7 @@ TOOLS: list[Tool] = [
                 "expire_date": {"type": "integer", "description": "Unix timestamp when link expires"},
                 "member_limit": {"type": "integer", "description": "Max joins via this link (1-99999)"},
                 "creates_join_request": {"type": "boolean", "description": "Require admin approval to join"},
+                "regenerate": {"type": "boolean", "description": "Export a new primary invite link (revokes previous primary link)"},
                 "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
             },
             "required": ["chat_id"],
@@ -601,7 +607,7 @@ async def _handle_telegram_tool(name: str, arguments: dict) -> dict | list:
         return await _api_request("PUT", f"{base}/chat-description", json_body=body)
     if name == "telegram_create_invite_link":
         body = {"chat_id": chat_id}
-        for opt in ("name", "expire_date", "member_limit", "creates_join_request"):
+        for opt in ("name", "expire_date", "member_limit", "creates_join_request", "regenerate"):
             if opt in arguments:
                 body[opt] = arguments[opt]
         return await _api_request("POST", f"{base}/invite-link", json_body=body)

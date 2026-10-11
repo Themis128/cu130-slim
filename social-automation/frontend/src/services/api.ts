@@ -871,6 +871,7 @@ export const telegramApi = {
     expire_date?: number
     member_limit?: number
     creates_join_request?: boolean
+    regenerate?: boolean
   }) => api.post(`/telegram/${accountId}/invite-link`, data),
   pinMessage: (accountId: string, data: { chat_id: string | number; message_id: number }) =>
     api.post(`/telegram/${accountId}/pin`, data),

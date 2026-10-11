@@ -435,8 +435,10 @@ async def create_flow_from_template(
 
         # Step 2: Update the Flow JSON with template content
         flow_json = template["generator"](business_name=body.business_name)
+        json_updated = False
         try:
             await client.update_flow_json(flow_id, flow_json)
+            json_updated = True
         except Exception as e:
             logger.warning(
                 "Flow %s created but JSON update failed: %s",
@@ -450,7 +452,7 @@ async def create_flow_from_template(
             "template": body.template_id,
             "category": template["category"],
             "status": "DRAFT",
-            "json_updated": True,
+            "json_updated": json_updated,
             "message": "Flow created from template. Publish with POST /flows/{flow_id}/publish when ready.",
         }
     except HTTPException:
