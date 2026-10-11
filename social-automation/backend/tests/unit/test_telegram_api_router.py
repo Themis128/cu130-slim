@@ -22,6 +22,7 @@ from app.api.telegram import (
     TELEGRAM_CHANNELS_META_KEY,
     BotConfig,
     BotCreateRequest,
+    ChannelConfigRequest,
     ChatDescriptionRequest,
     DeleteMessageRequest,
     GroupWatchConfig,
@@ -55,8 +56,10 @@ from app.api.telegram import (
     delete_telegram_webhook,
     get_auto_reply_config,
     get_bot,
+    get_channel_config,
     get_group_watch,
     get_group_watch_activity,
+    get_notify_config,
     get_setup_status,
     list_channels,
     list_personalities,
@@ -68,6 +71,7 @@ from app.api.telegram import (
     send_message,
     send_photo,
     send_poll,
+    set_channel_config,
     set_chat_description,
     setup_group_watch_links,
     setup_telegram_webhook,
@@ -1004,8 +1008,10 @@ async def test_resume_thread_400():
 def _wh_patches(monkeypatch, **ov):
     defaults = dict(
         extract_my_chat_member_update=lambda u: None,
+        extract_chat_member_update=lambda u: None,
         extract_callback_query=lambda u: None,
         extract_inbound_text_update=lambda u: None,
+        notify_channel_event=AsyncMock(return_value={"slack": True, "email": True}),
         handle_bot_membership_change=AsyncMock(return_value=({"cfg": 1}, "info")),
         handle_mistaken_botfather_command=AsyncMock(return_value=False),
         handle_owner_link_command=AsyncMock(return_value=({"cfg": 1}, False)),
@@ -1306,3 +1312,137 @@ async def test_webhook_records_channel_membership(monkeypatch):
     entry = acc.meta_data[TELEGRAM_CHANNELS_META_KEY]["-100999"]
     assert entry["type"] == "channel"
     assert entry["status"] == "administrator"
+
+
+@pytest.mark.asyncio
+async def test_webhook_chat_member_join_notify(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    notify = AsyncMock(return_value={"slack": True, "email": True})
+    _wh_patches(
+        monkeypatch,
+        notify_channel_event=notify,
+        extract_chat_member_update=lambda u: {
+            "chat_id": -100,
+            "chat_type": "channel",
+            "chat_title": "HQ",
+            "old_status": "left",
+            "new_status": "member",
+            "user_id": 7,
+            "username": "jane",
+            "via_join_request": False,
+            "invite_link_name": "ig",
+        },
+    )
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["member_event"] == "member_joined"
+    kw = notify.await_args.kwargs
+    assert kw["event"] == "member_joined"
+    assert kw["actor"] == "@jane"
+    assert "via invite link: ig" in kw["details"]
+
+
+@pytest.mark.asyncio
+async def test_webhook_chat_member_leave_and_join_request(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    notify = AsyncMock(return_value={"slack": False, "email": False})
+    _wh_patches(
+        monkeypatch,
+        notify_channel_event=notify,
+        extract_chat_member_update=lambda u: {
+            "chat_id": -100,
+            "chat_type": "channel",
+            "chat_title": "HQ",
+            "old_status": "member",
+            "new_status": "left",
+            "user_id": 7,
+            "first_name": "Jane",
+        },
+    )
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["member_event"] == "member_left"
+    assert notify.await_args.kwargs["actor"] == "Jane"
+
+    _wh_patches(
+        monkeypatch,
+        notify_channel_event=notify,
+        extract_chat_member_update=lambda u: {
+            "chat_id": -100, "chat_type": "channel", "new_status": "member",
+            "via_join_request": True, "user_id": 7,
+        },
+    )
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["member_event"] == "join_request"
+
+
+@pytest.mark.asyncio
+async def test_webhook_chat_member_notify_failure_isolated(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        notify_channel_event=AsyncMock(side_effect=RuntimeError("slack down")),
+        extract_chat_member_update=lambda u: {
+            "chat_id": -100, "chat_type": "channel", "new_status": "member", "user_id": 7,
+        },
+    )
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["member_event"] == "member_joined"
+    assert out["notify_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_membership_notifies(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    notify = AsyncMock(return_value={"slack": True, "email": True})
+    _wh_patches(
+        monkeypatch,
+        notify_channel_event=notify,
+        extract_my_chat_member_update=lambda u: {
+            "chat_id": -100, "chat_type": "channel", "chat_title": "HQ",
+            "old_status": "left", "new_status": "administrator",
+        },
+    )
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["membership"] == "info"
+    assert notify.await_args.kwargs["event"] == "bot_admin"
+
+
+@pytest.mark.asyncio
+async def test_channel_config_endpoints(monkeypatch):
+    acc = _tg_account()
+    out = await get_channel_config(acc.id, _DB([acc]), _user())
+    assert out["channel"] is None
+
+    client = _FakeClient()
+    client.get_chat = AsyncMock(return_value={"title": "HQ", "type": "channel"})
+    _patch_client(monkeypatch, client)
+    out = await set_channel_config(
+        acc.id, ChannelConfigRequest(chat_id="-100"), _DB([acc]), _user()
+    )
+    assert out["channel"]["chat_id"] == "-100"
+    assert out["channel"]["title"] == "HQ"
+    assert acc.meta_data["telegram_channel"]["type"] == "channel"
+
+    client2 = _FakeClient()
+    client2.get_chat = AsyncMock(side_effect=telegram.TelegramAPIError(400, "nope"))
+    _patch_client(monkeypatch, client2)
+    with pytest.raises(HTTPException) as e:
+        await set_channel_config(acc.id, ChannelConfigRequest(chat_id="-9"), _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_notify_config_endpoint(monkeypatch):
+    acc = _tg_account()
+    monkeypatch.setattr(settings, "SLACK_TELEGRAM_CHANNEL_ID", "C123")
+    monkeypatch.setattr(settings, "SLACK_BOT_TOKEN", "xoxb-x")
+    monkeypatch.setattr(settings, "TELEGRAM_NOTIFY_EMAIL", "me@x.com")
+    monkeypatch.setattr(settings, "SMTP_HOST", "smtp.resend.com")
+    out = await get_notify_config(acc.id, _DB([acc]), _user())
+    assert out["slack"]["configured"] is True
+    assert out["slack"]["dedicated_channel"] is True
+    assert out["email"]["configured"] is True
+    assert out["email"]["recipient"] == "me@x.com"

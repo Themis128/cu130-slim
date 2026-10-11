@@ -486,3 +486,44 @@ async def test_get_chat_administrators(client):
 
     _call_stub(client, "not-a-list")
     assert await client.get_chat_administrators(1) == []
+
+
+def test_extract_chat_member_update():
+    upd = {
+        "update_id": 9,
+        "chat_member": {
+            "chat": {"id": -100, "type": "channel", "title": "HQ"},
+            "from": {"id": 7},
+            "new_chat_member": {"status": "member", "user": {"id": 7, "username": "jane", "first_name": "Jane"}},
+            "old_chat_member": {"status": "left", "user": {"id": 7, "username": "jane"}},
+            "invite_link": {"invite_link": "https://t.me/+x", "name": "ig"},
+        },
+    }
+    out = api.extract_chat_member_update(upd)
+    assert out["chat_id"] == -100
+    assert out["chat_type"] == "channel"
+    assert out["new_status"] == "member"
+    assert out["old_status"] == "left"
+    assert out["username"] == "jane"
+    assert out["invite_link_name"] == "ig"
+    assert out["via_join_request"] is False
+
+    # missing/empty cases
+    assert api.extract_chat_member_update({}) is None
+    assert api.extract_chat_member_update({"chat_member": {}}) is None
+    assert api.extract_chat_member_update({"chat_member": "x"}) is None
+
+
+def test_extract_chat_member_update_join_request():
+    out = api.extract_chat_member_update(
+        {
+            "chat_member": {
+                "chat": {"id": -1, "type": "channel"},
+                "new_chat_member": {"status": "member", "user": {"id": 1}},
+                "old_chat_member": {"status": "left"},
+                "via_join_request": True,
+            }
+        }
+    )
+    assert out["via_join_request"] is True
+    assert out["invite_link_name"] == ""

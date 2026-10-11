@@ -70,6 +70,24 @@ telegram account.
   zero manual UI steps. Everything else should still go through the bot-side
   tools (keeps the bot-token surface canonical for SocialAuto).
 
+## SocialAuto UI + notifications
+
+- **Dashboard page**: `/telegram` → *Channel management* card — discovered
+  channels dropdown, "Manage this channel" (stores `meta.telegram_channel`),
+  member count + `bot_is_admin`, description editor, named invite-link
+  creator, post composer with pin-after-send, notification status.
+- **Endpoints**: `GET/PUT /telegram/{acc}/channel-config` (managed channel),
+  `GET /telegram/{acc}/notify-config` (slack/email routing status).
+- **Notifications** (`app/services/telegram_notify.py`): webhook events fan
+  out to Slack **#socialauto-telegram** (`C0C8DU44CAV`) + email
+  `TELEGRAM_NOTIFY_EMAIL` (fallback `DIGEST_EMAIL_TO`). Events: member
+  joined/left, join request, bot added/removed/admin. Joins carry
+  `invite_link_name` for source attribution (needs `chat_member` in
+  `TELEGRAM_ALLOWED_UPDATES` — re-run webhook setup if the webhook was
+  registered before it was added).
+- Env: `SLACK_TELEGRAM_WEBHOOK_URL` / `SLACK_TELEGRAM_CHANNEL_ID` /
+  `TELEGRAM_NOTIFY_EMAIL` — compose `x-worker-env` + `social-api` pass-through.
+
 ## New-channel setup sequence
 
 1. Channel exists (user-created or via `telegram` MCP) + bot added as admin.

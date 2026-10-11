@@ -237,6 +237,29 @@ async def post_publishing_to_slack(text: str) -> None:
         logger.warning("Slack publishing webhook failed: %s", err)
 
 
+async def post_telegram_to_slack(text: str) -> tuple[bool, str | None]:
+    """Post Telegram channel events to #socialauto-telegram.
+
+    Uses ``SLACK_TELEGRAM_*`` settings, falling back to the main digest
+    webhook/channel when unset (same pattern as lead notifications).
+    """
+    settings = get_settings()
+    webhook_url = (settings.SLACK_TELEGRAM_WEBHOOK_URL or "").strip() or settings.SLACK_WEBHOOK_URL
+    channel_id = (settings.SLACK_TELEGRAM_CHANNEL_ID or "").strip() or (
+        settings.SLACK_CHANNEL_ID or ""
+    ).strip()
+    if not webhook_url and not channel_id:
+        return False, "Telegram Slack channel not configured"
+    ok, err, _ = await _post_slack_text(
+        text=text,
+        webhook_url=webhook_url,
+        token=_get_slack_token(),
+        channel_id=channel_id,
+        purpose="telegram",
+    )
+    return ok, err
+
+
 async def post_billing_digest_to_slack(text: str) -> tuple[bool, str | None]:
     """Post the usage/revenue digest to the configured billing channel.
 

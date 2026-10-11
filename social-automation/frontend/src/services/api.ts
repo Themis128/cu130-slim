@@ -855,6 +855,31 @@ export const telegramApi = {
     api.get(`/telegram/${accountId}/group-watch/activity`, { params }),
   setupGroupWatchLinks: (accountId: string) =>
     api.post(`/telegram/${accountId}/group-watch/setup-links`),
+
+  // Channel administration
+  listChannels: (accountId: string) =>
+    api.get(`/telegram/${accountId}/channels`),
+  getChatInfo: (accountId: string, chatId: string | number) =>
+    api.get(`/telegram/${accountId}/chat-info`, { params: { chat_id: chatId } }),
+  getChatAdmins: (accountId: string, chatId: string | number) =>
+    api.get(`/telegram/${accountId}/chat-admins`, { params: { chat_id: chatId } }),
+  setChatDescription: (accountId: string, data: { chat_id: string | number; description: string }) =>
+    api.put(`/telegram/${accountId}/chat-description`, data),
+  createInviteLink: (accountId: string, data: {
+    chat_id: string | number
+    name?: string
+    expire_date?: number
+    member_limit?: number
+    creates_join_request?: boolean
+  }) => api.post(`/telegram/${accountId}/invite-link`, data),
+  pinMessage: (accountId: string, data: { chat_id: string | number; message_id: number }) =>
+    api.post(`/telegram/${accountId}/pin`, data),
+  getChannelConfig: (accountId: string) =>
+    api.get(`/telegram/${accountId}/channel-config`),
+  setChannelConfig: (accountId: string, data: { chat_id: string | number }) =>
+    api.put(`/telegram/${accountId}/channel-config`, data),
+  getNotifyConfig: (accountId: string) =>
+    api.get(`/telegram/${accountId}/notify-config`),
 }
 
 // Publishing endpoints
