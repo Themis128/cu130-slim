@@ -220,7 +220,7 @@ class TestPlatformDrivers:
     @pytest.mark.asyncio
     async def test_base_publish(self, monkeypatch):
         import app.services.publishing as pub
-        pub.publish_to_platform = AsyncMock(return_value="result")
+        monkeypatch.setattr(pub, "publish_to_platform", AsyncMock(return_value="result"))
         acc = self._acc()
         out = await PBASE._BaseDriver().publish(acc, "post", "db")
         assert out == "result"
