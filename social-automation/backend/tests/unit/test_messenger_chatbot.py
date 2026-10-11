@@ -8,6 +8,7 @@ cache, and the DMR→CF→static reply chain.
 
 from __future__ import annotations
 
+import json
 import uuid
 from unittest.mock import AsyncMock, Mock
 
@@ -337,3 +338,289 @@ async def test_reply_cf_then_static(monkeypatch, redis):
     await M.mark_disclosed("a1", "t1")
     out2 = await M.generate_contextual_reply(**_kw(cf_token="", cf_account=""))
     assert out2 == "back soon"
+
+
+# ── _get_redis / Redis-state exception branches ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_redis_url_fallback(monkeypatch):
+    import redis.asyncio as aioredis
+
+    urls = []
+    monkeypatch.setattr(aioredis, "from_url", lambda u: urls.append(u) or "client")
+    monkeypatch.setattr(
+        M,
+        "settings",
+        Mock(MESSENGER_REDIS_URL="redis://dedicated:6379/5", REDIS_URL="redis://main:6379/0"),
+    )
+    assert await M._get_redis() == "client"
+    assert urls == ["redis://dedicated:6379/5"]
+
+    monkeypatch.setattr(M, "settings", Mock(MESSENGER_REDIS_URL=None, REDIS_URL="redis://main:6379/0"))
+    await M._get_redis()
+    assert urls[-1] == "redis://main:6379/0"
+
+
+@pytest.mark.asyncio
+async def test_pause_resume_config_paths(monkeypatch, redis):
+    await M.pause_thread("a", "t", reason="spam")
+    assert M._PAUSED_KEY.format(account_id="a", thread_id="t") in redis.kv
+    await M.resume_thread("a", "t")
+    assert M._PAUSED_KEY.format(account_id="a", thread_id="t") not in redis.kv
+    await M.set_thread_config("a", "t", {"system_prompt": "x"})
+    assert json.loads(redis.kv[M._CONFIG_KEY.format(account_id="a", thread_id="t")]) == {"system_prompt": "x"}
+
+    monkeypatch.setattr(M, "_get_redis", AsyncMock(side_effect=RuntimeError("down")))
+    await M.pause_thread("a", "t")
+    await M.resume_thread("a", "t")
+    await M.set_thread_config("a", "t", {"x": 1})
+
+
+# ── ChromaDB memory + brand RAG ──────────────────────────────────────
+
+
+class _ChromaClient:
+    """Fake httpx.AsyncClient capturing posts; response shape configurable."""
+
+    def __init__(self, status=200, payload=None, raise_on_post=None):
+        self.status = status
+        self.payload = payload or {}
+        self.raise_on_post = raise_on_post
+        self.calls = 0
+        self.posts = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, **kw):
+        self.calls += 1
+        self.posts.append((url, kw))
+        if self.raise_on_post is not None and self.calls > self.raise_on_post:
+            raise RuntimeError("chroma down")
+        r = Mock()
+        r.status_code = self.status
+        r.json = lambda: self.payload
+        return r
+
+
+def _patch_chroma(monkeypatch, client, *, embedding=None, col_id="col1"):
+    import app.services.chroma_client as C
+
+    monkeypatch.setattr(C, "_get_embedding", AsyncMock(return_value=embedding if embedding is not None else [0.1]))
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(return_value=col_id))
+    monkeypatch.setattr(C, "_collection_base_url", lambda: "http://c")
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: client)
+
+
+@pytest.mark.asyncio
+async def test_store_and_get_memory_chroma(monkeypatch):
+    client = _ChromaClient(payload={"documents": ["hi", "yo"], "metadatas": [{"sender": "me"}, {}]})
+    _patch_chroma(monkeypatch, client)
+
+    await M.store_message_memory("t1", "a1", "th1", "them", "hello there")
+    assert client.posts[0][0] == "http://c/col1/add"
+    assert client.posts[0][1]["json"]["documents"] == ["hello there"]
+
+    msgs = await M.get_conversation_memory("a1", "th1")
+    assert msgs == [{"sender": "me", "text": "hi"}, {"sender": "them", "text": "yo"}]
+
+
+@pytest.mark.asyncio
+async def test_memory_chroma_edge_paths(monkeypatch):
+    import app.services.chroma_client as C
+
+    # empty embedding → store returns before HTTP
+    client = _ChromaClient()
+    _patch_chroma(monkeypatch, client, embedding=[])
+    await M.store_message_memory("t", "a", "th", "them", "x")
+    assert client.calls == 0
+
+    # no collection → store/memory no-op
+    _patch_chroma(monkeypatch, client, col_id=None)
+    await M.store_message_memory("t", "a", "th", "them", "x")
+    assert await M.get_conversation_memory("a", "th") == []
+
+    # non-200 / exception → []
+    _patch_chroma(monkeypatch, _ChromaClient(status=500))
+    assert await M.get_conversation_memory("a", "th") == []
+    _patch_chroma(monkeypatch, _ChromaClient(raise_on_post=0))
+    assert await M.get_conversation_memory("a", "th") == []
+    await M.store_message_memory("t", "a", "th", "them", "x")  # exception swallowed
+
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(side_effect=RuntimeError("boom")))
+    await M.store_message_memory("t", "a", "th", "them", "x")
+    assert await M.get_conversation_memory("a", "th") == []
+
+
+@pytest.mark.asyncio
+async def test_index_brand_knowledge_fields(monkeypatch):
+    client = _ChromaClient()
+    _patch_chroma(monkeypatch, client)
+    brand = {
+        "name": "Cloudless",
+        "tagline": "Ship it",
+        "positioning_statement": "We help startups",
+        "mission": "Automate everything",
+        "industry": "SaaS",
+        "values": ["speed", "honesty"],
+        "target_audience": {"size": "SMB", "profile": "founders"},
+        "competitor_names": ["Acme", "Globex"],
+    }
+    assert await M.index_brand_knowledge("team1", brand) == 8
+    docs = [p[1]["json"]["documents"][0] for p in client.posts]
+    assert any("Target audience: SMB founders" in d for d in docs)
+    assert any("Competitors: Acme, Globex" in d for d in docs)
+
+
+@pytest.mark.asyncio
+async def test_index_brand_knowledge_edges(monkeypatch):
+    import app.services.chroma_client as C
+
+    # empty embedding → doc skipped
+    client = _ChromaClient()
+    _patch_chroma(monkeypatch, client, embedding=[])
+    assert await M.index_brand_knowledge("t", {"name": "x"}) == 0
+    assert client.calls == 0
+
+    # add raises mid-loop → partial count returned
+    client = _ChromaClient(raise_on_post=1)
+    _patch_chroma(monkeypatch, client)
+    assert await M.index_brand_knowledge("t", {"name": "x", "tagline": "y"}) == 1
+
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(return_value=None))
+    assert await M.index_brand_knowledge("t", {"name": "x"}) == 0
+
+
+@pytest.mark.asyncio
+async def test_retrieve_brand_context_paths(monkeypatch):
+    client = _ChromaClient(payload={"documents": [["d1", "d2"]]})
+    _patch_chroma(monkeypatch, client)
+    assert await M.retrieve_brand_context("services") == "- d1\n- d2"
+
+    _patch_chroma(monkeypatch, _ChromaClient(status=404))
+    assert await M.retrieve_brand_context("q") == ""
+    _patch_chroma(monkeypatch, _ChromaClient(raise_on_post=0))
+    assert await M.retrieve_brand_context("q") == ""
+    _patch_chroma(monkeypatch, _ChromaClient(), col_id=None)
+    assert await M.retrieve_brand_context("q") == ""
+
+
+# ── detect_intent: DMR/CF chain + remaining keyword fallbacks ────────
+
+
+@pytest.mark.asyncio
+async def test_detect_intent_dmr_and_cf(monkeypatch):
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "  Business. "}))
+    assert await M.detect_intent("hi", "tok", "acc", "u") == "business"
+
+    # DMR returns unparseable text → CF Workers AI
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "dunno"}))
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 200
+            r.json = lambda: {"result": {"response": "spam"}}
+            return r
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client())
+    assert await M.detect_intent("hi", "tok", "acc", "u") == "spam"
+
+    # CF non-200 → keyword fallback
+    class _Bad(_Client):
+        async def post(self, url, **kw):
+            r = Mock()
+            r.status_code = 500
+            return r
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Bad())
+    assert await M.detect_intent("what time is it?", "tok", "acc", "u") == "question"
+
+    # CF raises → keyword fallback
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("x")))
+
+    class _Down(_Client):
+        async def post(self, url, **kw):
+            raise RuntimeError("cf down")
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Down())
+    assert await M.detect_intent("win a free prize, click here", "tok", "acc", "u") == "spam"
+    assert await M.detect_intent("tell me about your day", "tok", "acc", "u") == "personal"
+
+
+# ── brand voice non-200 → "" ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_brand_voice_block_non200(monkeypatch):
+    M._brand_voice_cache["block"] = ""
+    M._brand_voice_cache["ts"] = 0
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def get(self, url, **kw):
+            r = Mock()
+            r.status_code = 404
+            return r
+
+    monkeypatch.delenv("SOCIAL_ADMIN_EMAIL", raising=False)
+    monkeypatch.delenv("SOCIAL_ADMIN_PASSWORD", raising=False)
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client())
+    assert await M._get_brand_voice_block() == ""
+
+
+# ── generate_contextual_reply: Greek prompt, CF failure, disclosure ──
+
+
+@pytest.mark.asyncio
+async def test_reply_greek_prompt_and_cf_failure(monkeypatch, redis):
+    import app.services.dmr as D
+
+    dmr = AsyncMock(return_value={"text": "Γεια σας!"})
+    monkeypatch.setattr(D, "call_dmr_chat", dmr)
+    monkeypatch.setattr(M, "track_bot_reply", AsyncMock())
+    monkeypatch.setattr(M, "get_conversation_memory", AsyncMock(return_value=[]))
+    monkeypatch.setattr(M, "_get_brand_voice_block", AsyncMock(return_value=""))
+    out = await M.generate_contextual_reply(**_kw(user_message="τι κάνεις;"))
+    assert "Γεια σας!" in out
+    system = dmr.await_args.kwargs["system"]
+    assert "ΟΔΗΓΙΕΣ ΓΙΑ ΕΛΛΗΝΙΚΑ" in system
+
+    # DMR dead + CF raises → tracked failure + disclosed static fallback
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dead")))
+    track = AsyncMock()
+    monkeypatch.setattr(M, "track_bot_reply", track)
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            raise RuntimeError("cf down")
+
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: _Client())
+    out = await M.generate_contextual_reply(**_kw(cf_token="t", cf_account="a", thread_id="t2"))
+    assert out == "🤖 Auto-reply: back soon"
+    assert await M.has_disclosed("a1", "t2")
+    cf_fail = [c for c in track.await_args_list if c.kwargs.get("provider") == "cloudflare"]
+    assert cf_fail and cf_fail[0].kwargs["success"] is False

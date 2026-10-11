@@ -388,3 +388,164 @@ async def test_process_inbound_full_path(monkeypatch, redis):
     assert out["reply"] == "the answer"
     assert out["intent"] == "question"
     assert out["skipped"] is False
+
+
+# ── remaining branches ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_redis_url_fallback(monkeypatch):
+    import redis.asyncio as aioredis
+
+    urls = []
+    monkeypatch.setattr(aioredis, "from_url", lambda u: urls.append(u) or "client")
+    monkeypatch.setattr(W, "settings", Mock(MESSENGER_REDIS_URL=None, REDIS_URL="redis://main"))
+    assert await W._get_redis() == "client"
+    assert urls == ["redis://main"]
+    monkeypatch.setattr(W, "settings", Mock(MESSENGER_REDIS_URL="redis://ded", REDIS_URL="redis://main"))
+    await W._get_redis()
+    assert urls[-1] == "redis://ded"
+
+
+@pytest.mark.asyncio
+async def test_redis_write_exception_paths(monkeypatch, redis):
+    monkeypatch.setattr(redis, "delete", AsyncMock(side_effect=RuntimeError("x")))
+    await W.resume_thread("a", "p")  # swallow
+    monkeypatch.setattr(redis, "setex", AsyncMock(side_effect=RuntimeError("x")))
+    await W.refresh_service_window("a", "p")  # swallow
+
+
+@pytest.mark.asyncio
+async def test_chroma_exception_paths(monkeypatch):
+    import app.services.chroma_client as C
+
+    monkeypatch.setattr(C, "_get_embedding", AsyncMock(return_value=[0.1]))
+    monkeypatch.setattr(C, "_collection_base_url", lambda: "http://c")
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(side_effect=RuntimeError("boom")))
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client())
+    await W.store_message_memory("t", "a", "p", "them", "x")  # swallowed
+    assert await W.get_conversation_memory("a", "p") == []
+    assert await W.retrieve_brand_context("q") == ""
+
+    # index: col falsy → 0; empty embedding → skipped doc; post raises → partial
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(return_value=None))
+    assert await W.index_brand_knowledge("t", {"name": "x"}) == 0
+    assert await W.retrieve_brand_context("q") == ""
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(return_value="col"))
+    monkeypatch.setattr(C, "_get_embedding", AsyncMock(return_value=[]))
+    assert await W.index_brand_knowledge("t", {"name": "x"}) == 0
+
+
+@pytest.mark.asyncio
+async def test_index_brand_partial_and_retrieve_edges(monkeypatch):
+    import app.services.chroma_client as C
+
+    monkeypatch.setattr(C, "_get_embedding", AsyncMock(return_value=[0.1]))
+    monkeypatch.setattr(C, "_get_collection_id", AsyncMock(return_value="col"))
+    monkeypatch.setattr(C, "_collection_base_url", lambda: "http://c")
+
+    class _Client:
+        def __init__(self):
+            self.calls = 0
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            self.calls += 1
+            if self.calls > 1:
+                raise RuntimeError("chroma down")
+            r = Mock()
+            r.status_code = 500
+            return r
+
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client())
+    assert await W.index_brand_knowledge("t", {"name": "x", "tagline": "y"}) == 1
+    # post raises inside retrieve → ""
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: type("C2", (), {
+        "__aenter__": AsyncMock(return_value=None),
+        "__aexit__": AsyncMock(return_value=False),
+        "post": AsyncMock(side_effect=RuntimeError("x")),
+    })())
+    assert await W.retrieve_brand_context("q") == ""
+
+
+@pytest.mark.asyncio
+async def test_detect_intent_cf_exception(monkeypatch):
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(return_value={"text": "unclear"}))
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            raise RuntimeError("cf down")
+
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client())
+    assert await W.detect_intent("win free stuff", "tok", "acct", "u") == "spam"
+
+
+@pytest.mark.asyncio
+async def test_reply_cf_exception_and_disclosed_fallback(monkeypatch, redis):
+    monkeypatch.setattr(W, "_is_pricing_question", lambda m: False)
+    import app.services.dmr as D
+
+    monkeypatch.setattr(D, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dead")))
+    track = AsyncMock()
+    monkeypatch.setattr(W, "track_bot_reply", track)
+    monkeypatch.setattr(W, "get_conversation_memory", AsyncMock(return_value=[]))
+    import app.services.messenger_chatbot as M
+
+    monkeypatch.setattr(M, "_get_brand_voice_block", AsyncMock(return_value=""))
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, **kw):
+            raise RuntimeError("cf down")
+
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client())
+    # undisclosed → mark + prefix
+    out = await W.generate_contextual_reply(**_reply_kwargs())
+    assert out.startswith("🤖")
+    cf_fail = [c for c in track.await_args_list if c.kwargs.get("provider") == "cloudflare"]
+    assert cf_fail and cf_fail[0].kwargs["success"] is False
+    # disclosed → plain fallback (line 708)
+    out2 = await W.generate_contextual_reply(**_reply_kwargs())
+    assert "🤖" not in out2
+
+
+@pytest.mark.asyncio
+async def test_process_inbound_bad_team_uuid(monkeypatch, redis):
+    monkeypatch.setattr(W, "refresh_service_window", AsyncMock())
+    monkeypatch.setattr(W, "store_message_memory", AsyncMock())
+    monkeypatch.setattr(W, "detect_intent", AsyncMock(return_value="personal"))
+    monkeypatch.setattr(W, "retrieve_brand_context", AsyncMock(return_value=""))
+    monkeypatch.setattr(W, "generate_contextual_reply", AsyncMock(return_value="reply"))
+    monkeypatch.setattr(W, "set_cooldown", AsyncMock())
+    out = await W.process_inbound_message(
+        account_id="a", team_id="not-a-uuid", phone="p", sender_name="n",
+        message_text="hi", message_id="m1", config={"enabled": True}, account_name="n",
+    )
+    assert out["reply"] == "reply"
+    assert W.generate_contextual_reply.await_args.kwargs["team_id"] is None
