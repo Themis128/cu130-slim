@@ -459,3 +459,153 @@ async def test_generate_ai_response(monkeypatch):
     post = _post_raise
     assert await A._generate_ai_response("sys", "msg", "model", 50,
                                          "FB") == "FB"
+
+
+@pytest.mark.asyncio
+async def test_setup_messenger_remaining_branches(monkeypatch):
+    acct = _acct()
+
+    # bare domain website → https:// prefix (line 202)
+    cli = _client(
+        get_page_info=AsyncMock(return_value={
+            "name": "P", "website": "cloudless.gr"}),
+        subscribe_page=AsyncMock(return_value={"ok": 1}),
+        setup_default_profile=AsyncMock(return_value={"done": 1}))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    await A.setup_messenger(acct.id, None, _db_with(acct), _user())
+    assert cli.setup_default_profile.await_args.kwargs[
+        "page_url"] == "https://cloudless.gr"
+
+    # profile setup non-rate-limit error → 502 (line 234)
+    cli = _client(
+        get_page_info=AsyncMock(return_value={}),
+        subscribe_page=AsyncMock(return_value={"ok": 1}),
+        setup_default_profile=AsyncMock(
+            side_effect=RuntimeError("boom")))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    with pytest.raises(HTTPException) as e:
+        await A.setup_messenger(acct.id, None, _db_with(acct), _user())
+    assert e.value.status_code == 502
+    assert "Failed to set Messenger Profile" in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_profile_endpoints_remaining(monkeypatch):
+    acct = _acct()
+
+    # subscribed apps non-empty → subscribed=True (line 276)
+    cli = _client(
+        get_messenger_profile=AsyncMock(return_value={}),
+        get_subscribed_apps=AsyncMock(return_value=[{"id": "a"}]),
+        get_page_info=AsyncMock(return_value={}))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    out = await A.get_messenger_profile(acct.id, _db_with(acct), _user())
+    assert out.subscribed is True
+
+    # update — every field forwarded (313,317,319,321)
+    cli = _client(set_messenger_profile=AsyncMock(return_value={"r": 1}))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    body = A.MessengerProfileUpdate(
+        greeting=[{"g": 1}], get_started={"p": 1},
+        persistent_menu=[{"m": 1}], whitelisted_domains=["d"],
+        ice_breakers=[{"i": 1}])
+    await A.update_messenger_profile(acct.id, body, _db_with(acct), _user())
+    sent = cli.set_messenger_profile.await_args.args[0]
+    assert sent == {"greeting": [{"g": 1}], "get_started": {"p": 1},
+                    "persistent_menu": [{"m": 1}],
+                    "whitelisted_domains": ["d"],
+                    "ice_breakers": [{"i": 1}]}
+
+    # update — set_messenger_profile raises → 502 (328-329)
+    cli = _client(set_messenger_profile=AsyncMock(
+        side_effect=RuntimeError("x")))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    with pytest.raises(HTTPException) as e:
+        await A.update_messenger_profile(
+            acct.id, A.MessengerProfileUpdate(greeting=[{"g": 1}]),
+            _db_with(acct), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_send_and_conversations_502s(monkeypatch):
+    acct = _acct()
+
+    # send_quick_replies error → 502 (429-430)
+    cli = _client(send_quick_replies=AsyncMock(
+        side_effect=RuntimeError("x")))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    with pytest.raises(HTTPException) as e:
+        await A.send_quick_replies(
+            acct.id, A.SendQuickRepliesRequest(
+                recipient_psid="p", text="t", quick_replies=[{"a": 1}]),
+            _db_with(acct), _user())
+    assert e.value.status_code == 502
+
+    # list_conversations error → 502 (453-454)
+    cli = _client(get_conversations=AsyncMock(
+        side_effect=RuntimeError("x")))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    with pytest.raises(HTTPException) as e:
+        await A.list_conversations(acct.id, 25, "messenger",
+                                   _db_with(acct), _user())
+    assert e.value.status_code == 502
+
+    # get_conversation_messages error → 502 (483-484)
+    cli = _client(get_conversation_messages=AsyncMock(
+        side_effect=RuntimeError("x")))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    with pytest.raises(HTTPException) as e:
+        await A.get_conversation_messages(
+            acct.id, "c1", 20, _db_with(acct), _user())
+    assert e.value.status_code == 502
+
+    # get_user_profile error → 502 (514-515)
+    cli = _client(get_user_profile=AsyncMock(
+        side_effect=RuntimeError("x")))
+    monkeypatch.setattr(A, "_get_messenger_client", lambda a: cli)
+    with pytest.raises(HTTPException) as e:
+        await A.get_user_profile(acct.id, "psid", _db_with(acct), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_auto_reply_typing_failures_tolerated(monkeypatch):
+    # typing_on/off raising is non-fatal (661-662, 690-691)
+    import app.services.messenger_api as SVC
+    client = _client()
+    client.send_sender_action = AsyncMock(side_effect=RuntimeError("x"))
+    monkeypatch.setattr(SVC, "MessengerAPIClient", lambda **kw: client)
+    monkeypatch.setattr(A, "_generate_ai_response", AsyncMock(
+        return_value="reply"))
+    await A._generate_and_send_auto_reply(
+        _acct(), "999999", "hi", {})
+    client.send_text.assert_awaited_once_with("999999", "reply")
+
+
+@pytest.mark.asyncio
+async def test_generate_ai_response_cf_exception_falls_back(monkeypatch):
+    # CF POST raises → warn, DMR tried (730-731)
+    monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acct")
+
+    async def _post(url, **kw):
+        if "cloudflare" in url:
+            raise ConnectionError("cf down")
+        return SimpleNamespace(status_code=200, json=lambda: {
+            "choices": [{"message": {"content": " dmr out "}}]})
+
+    class _C:
+        def __init__(self, *a, **k):
+            self.post = _post
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *e):
+            return False
+
+    import httpx as _httpx
+    monkeypatch.setattr(_httpx, "AsyncClient", _C)
+    out = await A._generate_ai_response("sys", "msg", "model", 50, "FB")
+    assert out == "dmr out"

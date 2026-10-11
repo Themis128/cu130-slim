@@ -1131,3 +1131,164 @@ async def test_phone_status_502(monkeypatch):
     with pytest.raises(HTTPException) as e:
         await get_phone_status(acc.id, _user(), _DB([acc]))
     assert e.value.status_code == 502
+
+
+# ── remaining scattered branches ──────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_credentials_display_phone_stored(monkeypatch):
+    acc = _wa_account(meta_data={})
+    db = _DB([acc])
+    monkeypatch.setattr(whatsapp, "encrypt_token", lambda t: b"enc")
+    _patch_client(monkeypatch)
+    body = WhatsAppCredentialsUpdate(
+        access_token="EAAnew", phone_number_id="pn1",
+        display_phone_number="+301111", subscribe_webhooks=False)
+    await update_whatsapp_credentials(acc.id, body, db, _user())
+    assert acc.meta_data["display_phone_number"] == "+301111"
+
+
+@pytest.mark.asyncio
+async def test_get_profile_phone_info_failure_tolerated(monkeypatch):
+    acc = _wa_account()
+    _patch_client(monkeypatch, _FakeClient(
+        get_phone_number_info=RuntimeError("down")))
+    out = await get_whatsapp_profile(acc.id, _DB([acc]), _user())
+    assert out.account_id == acc.id  # phone-info fetch failure tolerated
+
+
+@pytest.mark.asyncio
+async def test_global_account_endpoints_400_no_account():
+    with pytest.raises(HTTPException) as e:
+        await request_verification_code(
+            RequestCodeRequest(phone_number_id="pn"), _DB(), _user())
+    assert e.value.status_code == 400
+    with pytest.raises(HTTPException):
+        await verify_phone_code(
+            VerifyCodeRequest(phone_number_id="pn", code="1"), _DB(), _user())
+    with pytest.raises(HTTPException):
+        await register_phone_number(
+            RegisterNumberRequest(phone_number_id="pn", pin="1"),
+            _DB(), _user())
+    with pytest.raises(HTTPException):
+        await deregister_phone_number(
+            DeregisterNumberRequest(phone_number_id="pn"), _DB(), _user())
+    with pytest.raises(HTTPException):
+        await subscribe_app_to_waba(
+            WabaSubscriptionRequest(waba_id="w"), _DB(), _user())
+    with pytest.raises(HTTPException):
+        await list_waba_subscriptions("w", _DB(), _user())
+    with pytest.raises(HTTPException):
+        await unsubscribe_app_from_waba(
+            WabaSubscriptionRequest(waba_id="w"), _DB(), _user())
+
+
+@pytest.mark.asyncio
+async def test_global_endpoints_502s(monkeypatch):
+    acc = _wa_account()
+    _patch_client(monkeypatch, _FakeClient(
+        deregister_number=RuntimeError("x")))
+    with pytest.raises(HTTPException) as e:
+        await deregister_phone_number(
+            DeregisterNumberRequest(phone_number_id="pn"), _DB([acc]),
+            _user())
+    assert e.value.status_code == 502
+
+    _patch_client(monkeypatch, _FakeClient(
+        list_waba_subscriptions=RuntimeError("x")))
+    with pytest.raises(HTTPException) as e:
+        await list_waba_subscriptions("w", _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+    _patch_client(monkeypatch, _FakeClient(
+        unsubscribe_app_from_waba=RuntimeError("x")))
+    with pytest.raises(HTTPException) as e:
+        await unsubscribe_app_from_waba(
+            WabaSubscriptionRequest(waba_id="w"), _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_receive_webhook_flow_parse_error_tolerated(monkeypatch):
+    monkeypatch.setattr(whatsapp.settings, "FACEBOOK_APP_SECRET", "")
+    monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+    monkeypatch.setattr(whatsapp, "parse_webhook_event", lambda b: [])
+    monkeypatch.setitem(sys.modules, "app.api.whatsapp_flows",
+                        ModuleType("app.api.whatsapp_flows"))
+    sys.modules["app.api.whatsapp_flows"].process_flow_responses = \
+        AsyncMock(side_effect=RuntimeError("parse boom"))
+    out = await receive_webhook(_Req(b"{}"), _DB())
+    assert out["status"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_process_inline_mark_read_failure_and_empty_reply(monkeypatch):
+    acc = _wa_account(meta_data={
+        "phone_number_id": "pn",
+        "whatsapp_auto_reply": {"enabled": True, "fallback_text": "fb"}})
+    db = _DB([acc])
+
+    # mark_message_read raises → tolerated; bot returns empty reply → return
+    _patch_client(monkeypatch, _FakeClient(
+        mark_message_read=RuntimeError("x")))
+    mod = _chatbot_mod(process_inbound_message={"reply": ""})
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
+    await _process_inline(db, "pn", "+30", "A", "hi", "text", "m1")
+
+
+@pytest.mark.asyncio
+async def test_create_bot_profile_failure_and_brand_index(monkeypatch):
+    # profile update raises → error dict (1313-1315)
+    acc = _wa_account()
+    db = _DB([acc])
+    monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
+    _patch_client(monkeypatch, _FakeClient(
+        update_business_profile=RuntimeError("x")))
+    mod = _chatbot_mod(index_brand_knowledge=0)
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
+    out = await create_bot(
+        acc.id, BotCreateRequest(personality="support"), _user(), db)
+    assert out["profile"] == {"result": "error",
+                            "detail": "profile update failed"}
+
+    # brand found → indexed (1344-1354); index raising → tolerated (1355-1356)
+    brand = SimpleNamespace(
+        name="Cloudless", tagline="t", positioning_statement="p",
+        mission="m", industry="cloud", values=["v"],
+        target_audience={}, competitor_names=["c"])
+    acc = _wa_account()
+    db = _DB([acc, brand])
+    _patch_client(monkeypatch)
+    mod = _chatbot_mod(index_brand_knowledge=9)
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
+    out = await create_bot(
+        acc.id, BotCreateRequest(personality="support"), _user(), db)
+    assert out["brand_indexed"] == 9
+
+    acc = _wa_account()
+    db = _DB([acc, brand])
+    _patch_client(monkeypatch)
+    mod = ModuleType("app.services.whatsapp_chatbot")
+    mod.index_brand_knowledge = AsyncMock(side_effect=RuntimeError("x"))
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
+    out = await create_bot(
+        acc.id, BotCreateRequest(personality="support"), _user(), db)
+    assert out["brand_indexed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_account_phone_endpoints_502(monkeypatch):
+    acc = _wa_account()
+    _patch_client(monkeypatch, _FakeClient(
+        request_verification_code=RuntimeError("x")))
+    with pytest.raises(HTTPException) as e:
+        await request_phone_code(acc.id, "SMS", "en_US", _user(),
+                                 _DB([acc]))
+    assert e.value.status_code == 502
+
+    _patch_client(monkeypatch, _FakeClient(
+        register_number=RuntimeError("x")))
+    with pytest.raises(HTTPException) as e:
+        await register_account_phone(acc.id, "123456", _user(), _DB([acc]))
+    assert e.value.status_code == 502
