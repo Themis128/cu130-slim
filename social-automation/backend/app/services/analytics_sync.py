@@ -2822,6 +2822,41 @@ async def sync_tiktok_account(
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
 
+async def sync_telegram_channel_metrics(
+    db: AsyncSession,
+    account: SocialAccount,
+) -> SyncResult:
+    """Snapshot the managed channel's member count into follower_snapshots.
+
+    Telegram channels have no post-analytics surface on the Bot API, but the
+    managed channel (``meta_data["telegram_channel"]["chat_id"]``) does expose
+    ``getChatMemberCount`` — that is the funnel's top metric, so the daily
+    analytics sync records it like any other platform's follower series.
+    """
+    result = SyncResult()
+    chat_id = ((account.meta_data or {}).get("telegram_channel") or {}).get("chat_id")
+    if not chat_id:
+        result.skipped += 1
+        return result
+    try:
+        from app.api.telegram import _client_for
+        from app.services.telegram_api import TelegramAPIError
+
+        client = _client_for(account)
+        try:
+            count = await client.get_chat_member_count(chat_id)
+        except TelegramAPIError as exc:
+            result.errors.append(f"telegram:{account.username}: {exc}")
+            return result
+        if await _record_follower_snapshot(db, account, "telegram", count):
+            result.synced += 1
+        else:
+            result.skipped += 1
+    except Exception as exc:  # noqa: BLE001 — metrics must never break the sync
+        result.errors.append(f"telegram:{account.username}: {exc}")
+    return result
+
+
 async def sync_team_analytics(
     db: AsyncSession,
     team_id: uuid.UUID,
@@ -2854,8 +2889,10 @@ async def sync_team_analytics(
                 r = await sync_threads_account(db, account, days=days)
             elif platform == "tiktok":
                 r = await sync_tiktok_account(db, account, days=days)
+            elif platform == "telegram":
+                r = await sync_telegram_channel_metrics(db, account)
             else:
-                # Messaging-only platforms (whatsapp, telegram, …) have no
+                # Messaging-only platforms (whatsapp, …) have no
                 # analytics surface — skip quietly instead of re-reporting.
                 combined.skipped += 1
                 continue

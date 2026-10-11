@@ -1,0 +1,366 @@
+{
+  "id": "cloudless-telegram-channel",
+  "name": "Cloudless Telegram Channel (pillar posts Mon/Wed/Fri)",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 11 * * 1,3,5"
+            }
+          ]
+        }
+      },
+      "id": "sched-tg-channel",
+      "name": "Mon/Wed/Fri 11:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cloudless-telegram-channel",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-tg-channel",
+      "name": "Manual Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 160],
+      "webhookId": "cloudless-telegram-channel"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Content plan — proven channel-funnel mix (research 2025):\n//   authority 40-50% · engagement 20-30% · proof 15-20% · offers 10-15%\n// Cadence: Mon/Wed/Fri 11:00 EET (daytime engagement window).\n//   Mon  → authority   ([Build Log] / [Playbook] insight)\n//   Wed  → engagement  (reaction-CTA question post)\n//   Fri  → ISO-week % 3: 0=offer · 1=authority · 2=proof  (~11% offers)\n// Offers follow company policy ONLY — free 30-min audit, Polar plans,\n// the automation-checklist lead magnet. No invented discounts.\nconst body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst now = new Date();\nconst dow = (now.getDay() + 6) % 7; // 0=Mon\nconst isoWeek = (() => {\n  const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));\n  const dayNum = d.getUTCDay() || 7;\n  d.setUTCDate(d.getUTCDate() + 4 - dayNum);\n  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));\n  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);\n})();\n\nconst OFFERS = [\n  {\n    key: 'audit',\n    prompt: 'Write an offer post for the Cloudless Telegram channel: invite readers to a free 30-minute cloud & automation audit. Explain in one line what they get (a concrete map of what to automate first + honest cost savings estimate). No pressure language, no fake scarcity — it is a real free service.',\n    image_prompt: 'minimalist dark tech illustration, a magnifying glass over a cloud infrastructure diagram, cyan and magenta accents, professional, no text',\n    buttons: [[{ text: 'Book the free audit', url: 'https://cloudless.gr/contact' }]],\n    tag: '[Deal]'\n  },\n  {\n    key: 'plans',\n    prompt: 'Write an offer post for the Cloudless Telegram channel: our automation plans are live — self-hosted social automation that runs while you sleep. One line on what a plan includes, honest pricing link, no hype.',\n    image_prompt: 'minimalist dark tech illustration, a rocket leaving a cloud platform, cyan and magenta accents, professional, no text',\n    buttons: [[{ text: 'See plans & pricing', url: 'https://social.cloudless.gr/pricing' }]],\n    tag: '[Deal]'\n  },\n  {\n    key: 'checklist',\n    prompt: 'Write an offer post for the Cloudless Telegram channel: give away our 12-Automation Checklist PDF — the exact checklist we use to decide what to automate in a small business. Free download, explain the one insight it gives you.',\n    image_prompt: 'minimalist dark tech illustration, a checklist document floating over clouds, cyan and magenta accents, professional, no text',\n    buttons: [[{ text: 'Download the checklist', url: 'https://cloudless.gr/automation-checklist.pdf' }]],\n    tag: '[Deal]'\n  }\n];\n\nconst PILLARS = {\n  authority: {\n    prompt: 'Write an authority post for the Cloudless Telegram channel: one practical automation or self-hosting insight for small-business owners, drawn from real cloudless.gr engineering (self-hosted stack, Cloudflare workers, n8n pipelines, local AI inference). Teach ONE thing fully. No invented metrics.',\n    image_prompt: 'minimalist dark tech illustration, glowing server racks and automation gears inside a cloud, cyan and magenta accents, professional, no text',\n    tag: '[Playbook]',\n    buttons: null\n  },\n  engagement: {\n    prompt: 'Write an engagement post for the Cloudless Telegram channel: ask the audience ONE opinion question about their own automation or hosting setup (e.g. what they still do manually that a machine should handle). Two lines of context max, then the question, then a reaction CTA.',\n    image_prompt: 'minimalist dark tech illustration, two chat bubbles over a circuit board, cyan and magenta accents, professional, no text',\n    tag: '[Question]',\n    buttons: null\n  },\n  proof: {\n    prompt: 'Write a proof post for the Cloudless Telegram channel: share ONE real result from the cloudless.gr self-hosted stack — use only verifiable facts (runs on a Raspberry Pi cluster, zero SaaS subscriptions, self-hosted Nextcloud + mail + social automation). Concrete and humble, never invented numbers.',\n    image_prompt: 'minimalist dark tech illustration, a small raspberry pi board powering a giant cloud, cyan and magenta accents, professional, no text',\n    tag: '[Build Log]',\n    buttons: null\n  }\n};\n\nlet pillar, offer = null;\nif (body.pillar && (PILLARS[body.pillar] || body.pillar === 'offer')) {\n  pillar = body.pillar;\n} else if (dow === 0) {\n  pillar = 'authority';\n} else if (dow === 2) {\n  pillar = 'engagement';\n} else if (dow === 4) {\n  pillar = isoWeek % 3 === 0 ? 'offer' : (isoWeek % 3 === 1 ? 'authority' : 'proof');\n} else {\n  pillar = 'authority';\n}\n\nif (pillar === 'offer') {\n  offer = OFFERS[Math.floor(isoWeek / 3) % OFFERS.length];\n} else {\n  offer = PILLARS[pillar];\n}\n\nconst prompt = body.topic ? `${offer.prompt} Topic angle: ${body.topic}` : offer.prompt;\nreturn [{ json: {\n  pillar,\n  series_tag: offer.tag,\n  prompt: `${offer.tag} ${prompt}`,\n  image_prompt: body.image_prompt || offer.image_prompt,\n  buttons: offer.buttons,\n  account_id: body.account_id || $env.CLOUDLESS_TELEGRAM_ACCOUNT_ID || 'f75d0132-0964-4236-9766-a6603c997dfd',\n  publish: body.publish === false ? false : true\n} }];"
+      },
+      "id": "plan-post",
+      "name": "Plan Post (pillar rotation)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "id": "gen-totp",
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 160]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "username", "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}" },
+            { "name": "password", "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}" },
+            { "name": "otp", "value": "={{ $('Generate TOTP').item.json.otp }}" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "login",
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-logged-in",
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [960, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-content' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $json.access_token }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Plan Post (pillar rotation)').item.json.prompt) }},\n  \"platform\": \"telegram\",\n  \"tone\": \"conversational\",\n  \"length\": \"short\",\n  \"include_hashtags\": false,\n  \"include_emojis\": true\n}",
+        "options": { "timeout": 600000 }
+      },
+      "id": "generate-copy",
+      "name": "Generate Copy (DMR)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, -100],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Plan Post (pillar rotation)').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
+        "options": { "timeout": 600000 }
+      },
+      "id": "generate-image",
+      "name": "Generate Image (CF FLUX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, -100],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $('Plan Post (pillar rotation)').item.json;\nconst copy = $('Generate Copy (DMR)').item.json;\nconst img = $json;\nconst caption = (copy.content || '').trim();\nreturn [{ json: {\n  caption,\n  public_url: img.public_url || null,\n  asset_id: img.asset_id || null,\n  buttons: plan.buttons,\n  account_id: plan.account_id,\n  pillar: plan.pillar,\n  publish: plan.publish\n} }];"
+      },
+      "id": "merge",
+      "name": "Merge Copy + Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1680, -100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "content-and-media",
+              "leftValue": "={{ !!($json.caption) && !!($json.public_url) }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [1900, -100],
+      "id": "guard-tg"
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/telegram/' + $('Merge Copy + Image').item.json.account_id + '/channel-config' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+          ]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "resolve-channel",
+      "name": "Resolve Managed Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2120, -160],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-chat",
+              "leftValue": "={{ $json.channel && $json.channel.chat_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Channel Configured?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [2340, -160],
+      "id": "if-channel"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/telegram/' + $('Merge Copy + Image').item.json.account_id + '/send-photo' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"chat_id\": {{ JSON.stringify(String($json.channel.chat_id)) }},\n  \"photo\": {{ JSON.stringify($('Merge Copy + Image').item.json.public_url) }},\n  \"caption\": {{ JSON.stringify(($('Merge Copy + Image').item.json.caption || '').slice(0, 1024)) }},\n  \"parse_mode\": \"Markdown\",\n  \"buttons\": {{ JSON.stringify($('Merge Copy + Image').item.json.buttons || null) }}\n}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "send-photo",
+      "name": "Send Channel Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2560, -200],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst plan = $('Plan Post (pillar rotation)').item.json;\nconst ok = !!(raw && (raw.ok === true || (raw.result && raw.result.message_id)));\nreturn [{ json: { ok, platform: 'telegram', pillar: plan.pillar, message_id: (raw.result && raw.result.message_id) || raw.message_id || null, status: ok ? 'sent' : 'failed', error: ok ? null : (raw.description || raw.detail || raw.message || 'send_failed') } }];"
+      },
+      "id": "normalize",
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2800, -200]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "ok", "name": "ok", "value": false, "type": "boolean" },
+            { "id": "error", "name": "error", "value": "social_api_login_failed", "type": "string" },
+            { "id": "platform", "name": "platform", "value": "telegram", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "login-failed",
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 160]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "ok", "name": "ok", "value": false, "type": "boolean" },
+            { "id": "error", "name": "error", "value": "empty_content_or_media — skipped (owner rule: never post without media)", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2120, 40],
+      "id": "guard-failed"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "ok", "name": "ok", "value": true, "type": "boolean" },
+            { "id": "status", "name": "status", "value": "skipped", "type": "string" },
+            { "id": "reason", "name": "reason", "value": "no_managed_channel — create the channel, add Cloudless_newbot as admin, then PUT channel-config", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "name": "No Channel Configured",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [2560, -80],
+      "id": "no-channel"
+    }
+  ],
+  "connections": {
+    "Mon/Wed/Fri 11:00": {
+      "main": [[{ "node": "Plan Post (pillar rotation)", "type": "main", "index": 0 }]]
+    },
+    "Manual Webhook": {
+      "main": [[{ "node": "Plan Post (pillar rotation)", "type": "main", "index": 0 }]]
+    },
+    "Plan Post (pillar rotation)": {
+      "main": [[{ "node": "Generate TOTP", "type": "main", "index": 0 }]]
+    },
+    "Generate TOTP": {
+      "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]]
+    },
+    "Login Social API": {
+      "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]]
+    },
+    "Login OK?": {
+      "main": [
+        [{ "node": "Generate Copy (DMR)", "type": "main", "index": 0 }],
+        [{ "node": "Login Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Copy (DMR)": {
+      "main": [[{ "node": "Generate Image (CF FLUX)", "type": "main", "index": 0 }]]
+    },
+    "Generate Image (CF FLUX)": {
+      "main": [[{ "node": "Merge Copy + Image", "type": "main", "index": 0 }]]
+    },
+    "Merge Copy + Image": {
+      "main": [[{ "node": "Content Guard", "type": "main", "index": 0 }]]
+    },
+    "Content Guard": {
+      "main": [
+        [{ "node": "Resolve Managed Channel", "type": "main", "index": 0 }],
+        [{ "node": "Guard Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Resolve Managed Channel": {
+      "main": [[{ "node": "Channel Configured?", "type": "main", "index": 0 }]]
+    },
+    "Channel Configured?": {
+      "main": [
+        [{ "node": "Send Channel Post", "type": "main", "index": 0 }],
+        [{ "node": "No Channel Configured", "type": "main", "index": 0 }]
+      ]
+    },
+    "Send Channel Post": {
+      "main": [[{ "node": "Normalize Result", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "executionTimeout": 1500,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "staticData": null,
+  "tags": [
+    { "name": "telegram" },
+    { "name": "channel" },
+    { "name": "dmr" }
+  ],
+  "pinData": {}
+}

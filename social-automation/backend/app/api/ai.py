@@ -766,6 +766,7 @@ class GenerateImageResponse(BaseModel):
     similar_content: list[str] = []
     asset_id: uuid.UUID | None = None
     storage_path: str | None = None
+    public_url: str | None = None  # R2/MinIO URL — required by Telegram sendPhoto
     quality: dict | None = None
 
 
@@ -1041,6 +1042,7 @@ async def generate_image(
         similar_content=similar,
         asset_id=asset.id if asset else None,
         storage_path=asset.storage_path if asset else None,
+        public_url=asset.public_url if asset else None,
         quality=quality_report,
     )
 
@@ -1661,6 +1663,18 @@ async def generate_content(
             "3-5 targeted hashtags using a 3-tier mix: niche, mid-tier, and broad. "
             "More than 5 dilutes the topic signal and reduces FYP distribution. "
             "Hook in the first line. Use emojis. Plain everyday English."
+        ),
+        "telegram": (
+            "Broadcast post for a Telegram channel — treated like a micro-landing page. "
+            "Hard cap: 1024 characters (sent as a photo caption via sendPhoto). "
+            "First line is the hook — under 90 characters, benefit-forward, names a "
+            "situation the reader recognizes. Then short scannable lines or a numbered "
+            "mini-framework — one job-to-be-done per post, never a content dump. "
+            "Close with ONE call-to-action only (e.g. 'react with 🔥', 'get the full "
+            "checklist below'). Zero or one hashtag at most — Telegram has no hashtag "
+            "ranking; a series tag like [Playbook], [Build Log] or [Deal] in the first "
+            "line works better for recurring formats. Emojis welcome, sparingly. "
+            "Plain everyday English — write like a person, not a broadcast ad."
         ),
     }
 

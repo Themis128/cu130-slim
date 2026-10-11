@@ -1064,7 +1064,10 @@ def _img_patches(monkeypatch, *, diffusers=None, cf=None, provider_cfg=None, is_
     monkeypatch.setattr(
         ai,
         "persist_generated_image",
-        AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4(), storage_path="gen/x.png", generation_prompt="p", ai_caption="", alt_text="", tags=[])),
+        AsyncMock(return_value=SimpleNamespace(
+            id=uuid.uuid4(), storage_path="gen/x.png", public_url="https://r2.example/gen/x.png",
+            generation_prompt="p", ai_caption="", alt_text="", tags=[],
+        )),
     )
     monkeypatch.setattr(ai, "_save_generation_template", AsyncMock())
 
@@ -1095,6 +1098,7 @@ async def test_generate_image_diffusers_happy(monkeypatch):
     out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=team))
     assert out.image_base64 == "aW1n"
     assert out.asset_id is not None
+    assert out.public_url == "https://r2.example/gen/x.png"  # Telegram sendPhoto needs it
     assert out.quality == {"ok": 1}
     ai.check_quota.assert_awaited_once()
 
@@ -1445,3 +1449,33 @@ async def test_generate_image_flux_paths(monkeypatch):
     import base64 as b64
     assert out.image_base64 == b64.b64encode(b"flux-img").decode()
     assert out.quality == {"q": 2}
+
+
+@pytest.mark.asyncio
+async def test_generate_content_telegram_guide(monkeypatch):
+    """platform="telegram" must inject the channel-post guide into the prompt."""
+    team = _team()
+    db = _DB(results=[team])
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr("app.services.chroma_client.query_similar", AsyncMock(return_value=[]))
+    monkeypatch.setattr("app.services.chroma_client.add_content", AsyncMock())
+    import app.services.brand_compliance as bc
+
+    monkeypatch.setattr(bc, "load_brand_context", AsyncMock(return_value=(None, None, "")))
+    monkeypatch.setattr(bc, "score_brand_compliance", AsyncMock(return_value={"score": 90}))
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(pe, "rewrite_plain_english", AsyncMock(side_effect=lambda c, **kw: c))
+    infer = AsyncMock(return_value={"content": "tg post", "hashtags": [], "suggested_media": "img"})
+    monkeypatch.setattr(ai, "call_inference", infer)
+    import app.services.quality_pipeline as qp
+
+    quality = SimpleNamespace(content="tg post", hashtags=[], seo_score={"total": 90}, nlp_report={"ok": 1}, to_dict=lambda: {"score": 90})
+    monkeypatch.setattr(qp, "apply_quality_pipeline", AsyncMock(return_value=quality))
+
+    req = GenerateContentRequest(prompt="a build-log insight", platform="telegram")
+    out = await generate_content(req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.content == "tg post"
+    sent = infer.await_args.args[0]
+    assert "Telegram channel" in sent  # telegram guide, not the linkedin default
+    assert "1024" in sent  # caption cap called out
