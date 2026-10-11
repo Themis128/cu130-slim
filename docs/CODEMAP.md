@@ -160,6 +160,14 @@ Webhook ingest: `/api/v1/messenger/webhook` + `/api/v1/whatsapp/webhook` (GET ve
 
 Messaging channels (`whatsapp`, `telegram`, `viber`) are skipped by `publish_to_platform` — sends go through each router's `/send` endpoints; auto-reply bots run DMR-first inference via the shared `*_chatbot` helpers.
 
+## Telegram channel — `Cloudless — Automation HQ` (added 2026-10-11)
+
+- Private channel `chat_id -1004436942504`, created via a **Telethon user session** (owner account — the Bot API cannot create channels). `Cloudless_newbot` is the sole operational admin.
+- Discovery/persistence: the bot's `my_chat_member` webhook event lands on `/api/v1/telegram/webhook/{account_id}` → channel persisted; `channel-config` endpoint stores `telegram_channel` meta + **named invite links** (`ig`, `threads`, `website`) for join-source attribution.
+- Inbound funnel: `cloudless.gr/telegram` → 307 → invite (`TELEGRAM_CHANNEL_URL`); `/links` carries the community CTA. `telegram_funnel` gold section in the datalake reports member growth by source.
+- Publishing: n8n workflow `cloudless-telegram-channel` (Mon/Wed/Fri 11:00) posts via the bot; `Normalize Result` reads the `sendPhoto` top-level message (`result.message_id`) — fixed 2026-10-11 (#568), send-photo returns the message at top level not under `result`.
+- MCP: `telegram` server (Telethon user session) for channel-creation-class ops; `telegram_*` tools on the `socialauto` MCP for bot-side admin. Skill: `telegram-channel-ops`.
+
 ## Unified inbox (`GET /api/v1/inbox/inbox`)
 
 Aggregates one conversation list across FB Page Messenger, personal Messenger,
@@ -231,6 +239,14 @@ strategy brief (21:00 EEST) runs this way; `send_email*` accepts
 - DB: D1 → Postgres · Cache: KV → Redis · Vector: Vectorize → Chroma
 - Storage: R2 → MinIO → disk · Text inference: DMR → Workers AI · Images: local Diffusers → Workers AI
 
+## Newsletter cover endpoint (added 2026-10-11, #566)
+
+`POST /api/v1/newsletter/cover` — service-token authed (`NEWSLETTER_SERVICE_TOKEN`,
+`X-Service-Token` header), renders a branded PNG cover and uploads it to R2.
+Consumed by the cloudless.gr weekly-newsletter cronjob (`--max-time 240` for
+the render).cloudless.gr side: `src/lib/newsletter-cover.ts` +
+`/api/newsletter/covers/[slug]`.
+
 ## Beat schedule highlights
 
 publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily
@@ -293,8 +309,26 @@ All workflows authenticate to social-api via admin **TOTP login**; text generati
 
 **n8n MCP server**: `.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py` — 13 tools (`n8n_list_workflows`, `n8n_deploy_workflow`, `n8n_trigger_webhook`, `n8n_audit_workflows`, …). API key covers workflow/credential endpoints; `/executions` returns 403 so execution tools fall back to reading Postgres `execution_data` (rehydrates n8n 2.x deduplicated format). Registered in `.devin/mcp_config.json`.
 
-Other agent MCP servers in `.devin/mcp_config.json`: `metabase` (CognitionAI metabase-mcp-server → SocialAuto Postgres via the metabase container; wrapper `.devin/skills/metabase-ops/scripts/metabase-mcp.sh` sources untracked `.devin/metabase-mcp.env`), `deepwiki` (free remote `https://mcp.deepwiki.com/mcp` — public-repo docs/Q&A), `dmr` (model runner, see `docs/dmr-architecture.md`), `socialauto` (platform API, in-container), `platform`, `playwright`, `tiktok-console`, `cloudflare`/`cloudflare-api`/`cloudflare-docs`, `linkedin` (9227), `airbyte` (9228), `nextcloud` (9231 — `nextcloud-mcp-server` container, 110+ tools over cloud.cloudless.gr: Notes/Calendar/Contacts/Files/Deck/Tables/Sharing/News/Mail/Collectives/Talk; BasicAuth app password), `slack`/`slack-cloudless` (mcp-remote), `polar` (hosted `mcp.polar.sh` via `polar-ops/scripts/polar-mcp.sh` — Bearer `POLAR_ACCESS_TOKEN` from `.env`, lazy search_tools/describe_tools/execute_tool discovery).
+Other agent MCP servers in `.devin/mcp_config.json`: `metabase` (CognitionAI metabase-mcp-server → SocialAuto Postgres via the metabase container; wrapper `.devin/skills/metabase-ops/scripts/metabase-mcp.sh` sources untracked `.devin/metabase-mcp.env`), `deepwiki` (free remote `https://mcp.deepwiki.com/mcp` — public-repo docs/Q&A), `dmr` (model runner, see `docs/dmr-architecture.md`), `socialauto` (platform API, in-container), `platform`, `playwright`, `tiktok-console`, `telegram` (chigwell/telegram-mcp — Telethon user session for owner-level ops like channel creation; session authorized, creds via its own `.env`), `cloudflare`/`cloudflare-api`/`cloudflare-docs`, `linkedin` (9227), `airbyte` (9228), `nextcloud` (9231 — `nextcloud-mcp-server` container, 110+ tools over cloud.cloudless.gr: Notes/Calendar/Contacts/Files/Deck/Tables/Sharing/News/Mail/Collectives/Talk; BasicAuth app password), `slack`/`slack-cloudless` (mcp-remote), `polar` (hosted `mcp.polar.sh` via `polar-ops/scripts/polar-mcp.sh` — Bearer `POLAR_ACCESS_TOKEN` from `.env`, lazy search_tools/describe_tools/execute_tool discovery).
+
+## Testing & coverage ratchet (added 2026-10-11)
+
+- Backend suite: `tests/unit/` (213+ files) run with `pytest` + `pytest-cov`
+  (`--cov=app`) inside the `social-api` container — ~94% line coverage on
+  `app/`. Batches: #577/#578/#579 (platform services, worker tasks, API
+  modules — bluesky, whatsapp_cloud, blog_articles, s3_sigv4,
+  telegram_chatbot, web_analytics, media_enhance, recurring, dodo/dmr
+  health, audit/secrets/cf_db/leads/meta_growth APIs).
+- **Test policy**: exercise real production code; fakes only at
+  infrastructure boundaries — `httpx`/`AsyncClient` transport seams, Redis
+  (`fakeredis`), browser bridges, Docker CLI, DB session factories, GPU
+  probes. Never mock the business logic under test.
+- Known flake class: tests that read wall-clock hour vs `APP_TIMEZONE`
+  break at midnight boundaries — pin `datetime.now` in the module under
+  test instead.
+- `ruff check` on touched files + `pytest tests/unit -q` before commit
+  (per `AGENTS.md`).
 
 ## Agent skills (`.devin/skills/`, mirrored to `.cursor/skills/`)
 
-Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `content-strategy`, `publish-ops`, `session-ops`, `session-ops`, `social-profile-update`, `browser-ops`, `tiktok-console-ops`, `messenger-ops`, `instagram-ops`, `instagram-ops`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-accounts-manager`, `meta-{oauth-setup,app-review}`, `developer-apps-ops`, `whatsapp-{platform,phone-verify}`, `browser-ops`, `session-ops`, `playwright-ops`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-ops`, `cloudflare-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-strategy`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`, `metabase-ops`, `deepwiki-docs`, `devin-cli`, `meta-graph-ops`, `media-dedup`, `linkedin-graph-ops`, `viber-ops`, `instagram-graph-ops`, `tiktok-api-ops`, `x-api-ops`, `bluesky-ops`, `slack-ops`, `monetization-ops`, `polar-ops` (incl. `polar` MCP server — live Polar products/orders/subscriptions).
+Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `content-strategy`, `publish-ops`, `session-ops`, `session-ops`, `social-profile-update`, `browser-ops`, `tiktok-console-ops`, `messenger-ops`, `instagram-ops`, `instagram-ops`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-accounts-manager`, `meta-{oauth-setup,app-review}`, `developer-apps-ops`, `whatsapp-{platform,phone-verify}`, `browser-ops`, `session-ops`, `playwright-ops`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-ops`, `cloudflare-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-strategy`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`, `metabase-ops`, `deepwiki-docs`, `devin-cli`, `meta-graph-ops`, `media-dedup`, `linkedin-graph-ops`, `viber-ops`, `instagram-graph-ops`, `tiktok-api-ops`, `x-api-ops`, `bluesky-ops`, `slack-ops`, `monetization-ops`, `polar-ops` (incl. `polar` MCP server — live Polar products/orders/subscriptions), `telegram-channel-ops` (channel admin via bot tools + Telethon user session).
