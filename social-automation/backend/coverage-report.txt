@@ -1,0 +1,422 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.17, pytest-9.1.1, pluggy-1.6.0
+rootdir: /app
+configfile: pyproject.toml
+plugins: asyncio-1.4.0, cov-7.1.0, platformdirs-4.12.4, anyio-4.15.1
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=function, asyncio_default_test_loop_scope=function
+collected 3060 items / 2 skipped
+
+tests/unit/test_accounts_api.py ........................................ [  1%]
+...................                                                      [  1%]
+tests/unit/test_ai_api_router.py ....................................... [  3%]
+................................................                         [  4%]
+tests/unit/test_analytics_api_endpoints.py ............................. [  5%]
+..                                                                       [  5%]
+tests/unit/test_analytics_api_helpers.py ............................... [  6%]
+.......................                                                  [  7%]
+tests/unit/test_analytics_sync_helpers.py .............................. [  8%]
+........................................................................ [ 10%]
+....                                                                     [ 11%]
+tests/unit/test_auth_api.py ............................................ [ 12%]
+........................................................................ [ 14%]
+...                                                                      [ 14%]
+tests/unit/test_auth_security.py .......                                 [ 15%]
+tests/unit/test_beat_task_registration.py ...                            [ 15%]
+tests/unit/test_billing_api.py ......................................... [ 16%]
+................................................                         [ 18%]
+tests/unit/test_billing_digests.py ...........                           [ 18%]
+tests/unit/test_blog_articles.py ..............                          [ 18%]
+tests/unit/test_bluesky_api.py ..........                                [ 19%]
+tests/unit/test_brand_api.py .............                               [ 19%]
+tests/unit/test_brand_compliance.py ....                                 [ 19%]
+tests/unit/test_brand_extractor.py ...............                       [ 20%]
+tests/unit/test_bridge_dead_marker.py ....                               [ 20%]
+tests/unit/test_browser_bridge.py .....................                  [ 21%]
+tests/unit/test_carousel_pipeline.py ............................        [ 22%]
+tests/unit/test_cf_analytics.py .....                                    [ 22%]
+tests/unit/test_chatbot_dmr_first.py ....                                [ 22%]
+tests/unit/test_chroma_client.py ....                                    [ 22%]
+tests/unit/test_cloudless_leads_webhook.py .......                       [ 22%]
+tests/unit/test_comfyui_video.py .........                               [ 23%]
+tests/unit/test_content_api.py ..........                                [ 23%]
+tests/unit/test_content_renderer.py .................................    [ 24%]
+tests/unit/test_content_scorer.py ...................                    [ 25%]
+tests/unit/test_datalake_export.py .........                             [ 25%]
+tests/unit/test_db_sync.py ..............                                [ 25%]
+tests/unit/test_digital_cards_api.py .......                             [ 26%]
+tests/unit/test_dm_messenger_workers.py ..........                       [ 26%]
+tests/unit/test_dmr_cold_timeout.py ....                                 [ 26%]
+tests/unit/test_dmr_followups.py ...........................             [ 27%]
+tests/unit/test_dmr_gpu_healing.py ..................................... [ 28%]
+                                                                         [ 28%]
+tests/unit/test_dmr_helpers.py ..........................                [ 29%]
+tests/unit/test_dodo_api.py ..................................           [ 30%]
+tests/unit/test_dodo_digest.py ....                                      [ 30%]
+tests/unit/test_duplicate_detector.py ....                               [ 30%]
+tests/unit/test_email_templates.py ...                                   [ 30%]
+tests/unit/test_facebook_api.py .................                        [ 31%]
+tests/unit/test_facebook_sidecar.py ...............                      [ 31%]
+tests/unit/test_follower_baseline.py .......                             [ 32%]
+tests/unit/test_follower_guard.py ......                                 [ 32%]
+tests/unit/test_free_instagram_client.py ...........                     [ 32%]
+tests/unit/test_image_enhance.py ..............                          [ 33%]
+tests/unit/test_image_transform.py .............                         [ 33%]
+tests/unit/test_inference_fallback.py .................................. [ 34%]
+.................                                                        [ 35%]
+tests/unit/test_inference_providers.py ................................. [ 36%]
+                                                                         [ 36%]
+tests/unit/test_infographic_renderer.py .....................            [ 37%]
+tests/unit/test_insights_engine.py ..................................... [ 38%]
+..........                                                               [ 38%]
+tests/unit/test_instagram_api.py ....................................... [ 39%]
+.............                                                            [ 40%]
+tests/unit/test_instagram_session_check.py ...........                   [ 40%]
+tests/unit/test_lead_capture_schema.py ...........................       [ 41%]
+tests/unit/test_link_preview_ssrf.py .....                               [ 41%]
+tests/unit/test_linkedin_ads_report.py ...........................       [ 42%]
+tests/unit/test_linkedin_ai.py .............                             [ 42%]
+tests/unit/test_linkedin_api.py .......................                  [ 43%]
+tests/unit/test_linkedin_invites_ui.py ......                            [ 43%]
+tests/unit/test_linkedin_session_check.py ..                             [ 43%]
+tests/unit/test_linkedin_sidecar.py ......                               [ 44%]
+tests/unit/test_local_diffusers_params.py ..............                 [ 44%]
+tests/unit/test_mcp_server.py ..........                                 [ 44%]
+tests/unit/test_media_ai.py ..........                                   [ 45%]
+tests/unit/test_media_api_router.py .................................... [ 46%]
+........................                                                 [ 47%]
+tests/unit/test_media_dedup.py ......                                    [ 47%]
+tests/unit/test_media_quality.py ..........................              [ 48%]
+tests/unit/test_media_storage_fallback.py .....                          [ 48%]
+tests/unit/test_media_view_jpeg.py ...                                   [ 48%]
+tests/unit/test_member_scope_guard.py ...                                [ 48%]
+tests/unit/test_messenger_api.py ...............                         [ 49%]
+tests/unit/test_messenger_api_client.py ......                           [ 49%]
+tests/unit/test_messenger_api_router.py .........                        [ 49%]
+tests/unit/test_messenger_chatbot.py ...............                     [ 50%]
+tests/unit/test_messenger_lead_postbacks_unit.py ....                    [ 50%]
+tests/unit/test_messenger_router.py .................................... [ 51%]
+...........................................                              [ 52%]
+tests/unit/test_messenger_sidecar.py .......                             [ 53%]
+tests/unit/test_meta_graph.py ...                                        [ 53%]
+tests/unit/test_meta_growth.py ...                                       [ 53%]
+tests/unit/test_meta_insights_adaptive.py ........                       [ 53%]
+tests/unit/test_metrics_routes.py .....                                  [ 53%]
+tests/unit/test_minio_storage.py ..........                              [ 54%]
+tests/unit/test_monetization.py ......                                   [ 54%]
+tests/unit/test_mor_compliance.py ..................                     [ 54%]
+tests/unit/test_nextcloud_export.py .........                            [ 55%]
+tests/unit/test_nextcloud_task.py ................                       [ 55%]
+tests/unit/test_notification_preferences.py ..........                   [ 55%]
+tests/unit/test_oauth_authorize.py ...                                   [ 56%]
+tests/unit/test_pillars.py ......                                        [ 56%]
+tests/unit/test_plain_english.py ..........                              [ 56%]
+tests/unit/test_playbook_email.py ....................s....              [ 57%]
+tests/unit/test_polar_api.py ................................            [ 58%]
+tests/unit/test_profile_api.py ......................................... [ 59%]
+.                                                                        [ 59%]
+tests/unit/test_profile_impls.py ....................................... [ 61%]
+..                                                                       [ 61%]
+tests/unit/test_public_lead_meta.py ....                                 [ 61%]
+tests/unit/test_publish_rollup.py ....                                   [ 61%]
+tests/unit/test_publishing.py .......................................... [ 62%]
+..................................ss                                     [ 63%]
+tests/unit/test_publishing_flow.py ..................................... [ 65%]
+.............................................................            [ 67%]
+tests/unit/test_publishing_helpers.py .................................. [ 68%]
+................                                                         [ 68%]
+tests/unit/test_publishing_queue_api.py .............                    [ 69%]
+tests/unit/test_quality_pipeline.py ....                                 [ 69%]
+tests/unit/test_quotas.py .............                                  [ 69%]
+tests/unit/test_r2_presigned.py .....                                    [ 69%]
+tests/unit/test_rate_limiter.py ..................                       [ 70%]
+tests/unit/test_recurring.py .....                                       [ 70%]
+tests/unit/test_reports_api.py .........                                 [ 70%]
+tests/unit/test_security.py .......                                      [ 71%]
+tests/unit/test_seo.py ............                                      [ 71%]
+tests/unit/test_session_healer.py ......................                 [ 72%]
+tests/unit/test_skool_watch.py ..........                                [ 72%]
+tests/unit/test_slack_digest_alerts.py ..                                [ 72%]
+tests/unit/test_slack_digest_build.py ..........                         [ 73%]
+tests/unit/test_slack_digest_growth.py ..                                [ 73%]
+tests/unit/test_slack_digest_markdown.py .                               [ 73%]
+tests/unit/test_slack_notifications.py ........                          [ 73%]
+tests/unit/test_spellcheck.py ...........sssss.s..........               [ 74%]
+tests/unit/test_strategy_report.py ............................          [ 75%]
+tests/unit/test_teams.py ..............................                  [ 76%]
+tests/unit/test_teams_api_endpoints.py ................................. [ 77%]
+...............                                                          [ 77%]
+tests/unit/test_telegram_api.py .................                        [ 78%]
+tests/unit/test_telegram_api_router.py ................................. [ 79%]
+..............................                                           [ 80%]
+tests/unit/test_telegram_digest_task.py ...                              [ 80%]
+tests/unit/test_telegram_group_watch.py .....................            [ 81%]
+tests/unit/test_telegram_webhook_chatbot.py .......                      [ 81%]
+tests/unit/test_threads_api.py ...............                           [ 81%]
+tests/unit/test_threads_api_router.py .................................. [ 83%]
+.........                                                                [ 83%]
+tests/unit/test_tiktok_analytics.py .......                              [ 83%]
+tests/unit/test_tiktok_api.py .......................................... [ 84%]
+........                                                                 [ 85%]
+tests/unit/test_token_refresh.py ..........                              [ 85%]
+tests/unit/test_tracing.py ...                                           [ 85%]
+tests/unit/test_twitter_api.py .....................                     [ 86%]
+tests/unit/test_url_safety.py ..................                         [ 86%]
+tests/unit/test_viber_api.py ............                                [ 87%]
+tests/unit/test_viber_api_router.py ...............                      [ 87%]
+tests/unit/test_web_analytics.py .....                                   [ 87%]
+tests/unit/test_web_search.py .......                                    [ 88%]
+tests/unit/test_whatsapp_api_router.py ................................. [ 89%]
+..........................................................               [ 91%]
+tests/unit/test_whatsapp_chatbot.py ..................                   [ 91%]
+tests/unit/test_whatsapp_cloud_client.py ...                             [ 91%]
+tests/unit/test_whatsapp_flows_api.py ........                           [ 92%]
+tests/unit/test_whatsapp_telegram_guards.py .....................        [ 92%]
+tests/unit/test_whatsapp_verify_window.py ............                   [ 93%]
+tests/unit/test_worker_publishing.py ................................... [ 94%]
+...                                                                      [ 94%]
+tests/unit/test_worker_publishing_alerts.py .                            [ 94%]
+tests/unit/test_workers_ai.py .......................................... [ 95%]
+.....                                                                    [ 95%]
+tests/unit/test_workers_ai_batch.py .........                            [ 96%]
+tests/unit/test_workflows_api.py ...........                             [ 96%]
+tests/unit/test_x_capacity_defer.py ...................................  [ 97%]
+tests/unit/test_x_media_v2.py ..................                         [ 98%]
+tests/unit/test_x_web.py ............................................... [ 99%]
+....                                                                     [100%]
+
+=============================== warnings summary ===============================
+tests/unit/test_content_api.py::test_link_preview
+  /app/tests/unit/test_content_api.py:418: StarletteDeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    await C.link_preview("bad", _user())
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.11.17-final-0 _______________
+
+Name                                           Stmts   Miss  Cover   Missing
+----------------------------------------------------------------------------
+app/api/__init__.py                               41      0   100%
+app/api/accounts.py                              494     68    86%   168, 329, 356-358, 364, 500-503, 509-511, 513-519, 521-523, 525-527, 647-648, 683-685, 687-688, 690-691, 693-698, 700-701, 709-710, 718-720, 785-798, 811-823, 832, 851-858, 1024-1025, 1052, 1073-1074, 1093, 1097-1098, 1129-1130, 1146-1147
+app/api/ai.py                                   1441    127    91%   223, 294, 308-311, 619-620, 800-817, 842-844, 870-871, 900-901, 912-945, 976-977, 1103, 1251, 1302, 1306, 1331-1332, 1349-1350, 1808-1809, 2022, 2224-2233, 2294-2295, 2327-2328, 2360-2361, 2466, 2506-2507, 2523-2524, 2663, 2711-2712, 2729-2731, 2770-2771, 2847-2848, 2885-2911, 2994, 3095-3096, 3415, 3506-3507, 3553, 3570-3571, 3591-3597, 3646-3689, 3788-3789, 3796-3801, 3803
+app/api/ai_providers.py                          179     99    45%   60-63, 69, 76-79, 108-156, 182-186, 194-202, 211-261, 294-351, 365-379
+app/api/analytics.py                             958     40    96%   224, 253-254, 265, 317-318, 330, 345-346, 365-366, 919, 991, 1008, 1067, 1108, 1142, 1148, 1180, 1269, 1332, 1447, 1637, 1640-1641, 1679, 1681, 1683, 1801, 1839, 1881, 1899-1900, 1972, 2120-2122, 2176, 2300, 2311, 2360
+app/api/audit.py                                  53     25    53%   52-83
+app/api/auth.py                                 1079     97    91%   57-59, 149, 164-180, 353, 365, 370-373, 395, 507-520, 527-541, 583-584, 774, 1143, 1153-1154, 1158, 1181, 1309, 1383-1384, 1404, 1408, 1528, 1641-1644, 1700-1703, 1705, 1719-1722, 1724, 1746, 1748, 1755, 1757, 1784, 1801, 1807-1817, 1837-1838, 1848, 1971-1975, 2104, 2137-2138, 2278-2279, 2423-2424, 2431, 2496
+app/api/billing.py                               553      0   100%
+app/api/bluesky.py                                72     46    36%   47-57, 61-64, 75-134, 152-164
+app/api/brand.py                                 628     24    96%   213, 217, 305, 337, 351-353, 369, 602-603, 654-655, 698, 726, 826, 837-838, 928-934
+app/api/cf_db.py                                  44     22    50%   28-36, 53, 59, 65-66, 75-89, 95
+app/api/content.py                               541     44    92%   54, 60, 86, 281, 292, 304-305, 335, 366, 376-379, 381-383, 385-386, 393-395, 417, 434, 443-468, 497, 552, 556-564, 593, 787, 796, 876
+app/api/deps.py                                  121     94    22%   39-63, 75-96, 107-114, 136-143, 157-163, 181-201, 219-328
+app/api/digital_cards.py                         412     32    92%   31, 241, 254, 277-278, 369, 372, 376, 400, 419, 478, 539, 544-545, 592-595, 599, 615, 618-621, 641-642, 687, 693, 711, 715, 717, 721
+app/api/inbox.py                                 163    121    26%   82-138, 143-185, 190-209, 214-266, 277-340
+app/api/instagram.py                             187    118    37%   31, 40-52, 123-140, 151-169, 180-188, 204-212, 222-230, 240-255, 265-273, 302, 373-435
+app/api/leads.py                                 117     34    71%   62-67, 76-97, 129, 172-217
+app/api/linkedin.py                              310    152    51%   130-133, 142-155, 164-176, 185-194, 209-246, 259-269, 278-289, 330-345, 349-355, 359-362, 372-382, 406-412, 423-434, 444-455, 468-481, 491-501, 514-519, 542-545, 564-574, 584-592, 603-611, 623-634, 651-657
+app/api/mcp.py                                   154    124    19%   29-40, 45-55, 69-144, 150-243, 254-270, 276-291, 297-355, 364-419
+app/api/media.py                                 679     58    91%   290-291, 305, 317, 331, 367, 419, 433, 457, 502-506, 585-596, 630, 644-645, 678, 684-685, 689-699, 715, 809, 811, 825, 855-856, 892, 922, 958-959, 1000, 1024, 1055-1060, 1074, 1104, 1238, 1252-1253, 1263, 1273
+app/api/media_enhance.py                         187     79    58%   43-48, 53-62, 67, 154, 164-167, 177-180, 191-205, 216-219, 230-233, 244-247, 258-270, 281-287, 297-303, 314-320, 333-341, 364-376
+app/api/messenger.py                             761     81    89%   95-96, 124, 135, 169-170, 283, 315, 358-359, 364-365, 396, 398, 400, 402, 409-410, 428-429, 446-447, 487-488, 510-511, 534-535, 564-565, 595-596, 798-804, 815-816, 843-844, 872-873, 912-913, 1003, 1010-1019, 1058-1059, 1085, 1093-1094, 1119, 1127-1128, 1504, 1509-1510, 1520-1525, 1562-1574, 1605-1606, 1667-1669, 1689, 1695-1697
+app/api/messenger_api.py                         346     23    93%   202, 234, 276, 313, 317, 319, 321, 328-329, 429-430, 453-454, 483-484, 514-515, 661-662, 690-691, 730-731
+app/api/meta_growth.py                            84     30    64%   53, 85-92, 143-203
+app/api/ops.py                                   188    101    46%   57-70, 84-93, 109-112, 128-151, 166-168, 180-182, 195, 203, 213-217, 268-287, 292-328, 344-419, 443-464
+app/api/profile.py                              1013     73    93%   203, 308, 403-404, 559, 561, 628, 682-683, 753, 755, 759, 761, 810, 881, 883, 899-902, 920-921, 1061-1062, 1106-1107, 1138-1139, 1173-1176, 1181, 1201-1202, 1225-1226, 1270-1271, 1340, 1358-1359, 1376-1377, 1392-1393, 1429-1430, 1466-1467, 1474, 1512, 1771, 1840-1841, 1859-1860, 1883-1884, 1906-1907, 1909, 1930-1931, 1949-1950, 1974, 2000, 2004, 2105, 2169-2179
+app/api/publishing.py                            137      0   100%
+app/api/reports.py                                91      7    92%   50, 73-74, 80, 116, 127-128
+app/api/secrets.py                                54     23    57%   41-42, 51-53, 59-63, 73-75, 85-87, 93-99
+app/api/support.py                                25      5    80%   39-54
+app/api/teams.py                                 258     10    96%   330, 358-371, 400-401
+app/api/telegram.py                              670     67    90%   104-105, 113, 398, 410, 594-595, 611-612, 633-634, 665-666, 681-682, 698-699, 786-800, 938-939, 1060-1061, 1129, 1182-1199, 1204-1224, 1231, 1237-1239, 1260-1261, 1292-1298, 1307-1308, 1324-1331, 1341-1348
+app/api/threads.py                               299     14    95%   73-78, 295, 458, 552-553, 574-575, 597, 609-610, 621
+app/api/tiktok.py                                200    106    47%   52-65, 69-71, 75, 169-214, 236-242, 254-282, 297-325, 336-342, 360-366, 389-436
+app/api/twitter_tiktok.py                        141    101    28%   35-46, 69-72, 91-101, 111-115, 133-143, 151-153, 168-190, 203-206, 225-235, 245-260, 271-292
+app/api/usage.py                                  47     31    34%   21, 32-64, 81-125
+app/api/viber.py                                 350     25    93%   83-84, 88-89, 110, 260-261, 342-343, 444-445, 465-466, 558-559, 585-586, 601-607, 611, 652-659
+app/api/web_analytics.py                         167     81    51%   81-84, 90, 99-107, 139-174, 181-185, 193-224, 233-263, 271-282, 300-323
+app/api/whatsapp.py                              722     32    96%   327, 461-462, 554, 584, 614, 640, 645-646, 677, 702, 707-708, 727, 732-733, 925-926, 1143-1144, 1171, 1313-1315, 1344-1356, 1645-1646, 1684-1685
+app/api/whatsapp_flows.py                        243      2    99%   569, 574
+app/api/workflows.py                             354      1    99%   655
+app/core/config.py                               286      5    98%   46, 410, 579-581
+app/core/limiter.py                               11      3    73%   16-18
+app/core/log_sanitize.py                           6      0   100%
+app/core/path_utils.py                            21      2    90%   13, 21
+app/core/quotas.py                                10      0   100%
+app/core/security.py                              83      4    95%   32, 121, 151-152
+app/core/tracing.py                               26      0   100%
+app/db/base.py                                     5      0   100%
+app/db/session.py                                 65     50    23%   33-37, 41-126
+app/main.py                                       57     16    72%   26-42, 76, 81, 87, 92-95
+app/mcp/__init__.py                                0      0   100%
+app/mcp/server.py                                214    153    29%   42-68, 73-97, 107-123, 471, 473-495, 497-502, 504, 506-511, 513-518, 527-528, 530-533, 535, 537, 540-544, 546-547, 549-551, 553-562, 564-566, 568-571, 573-574, 576-584, 586-587, 590-617, 619-620, 622-624, 626-628, 630-631, 633-638, 652-653, 666-667
+app/models/__init__.py                            17      0   100%
+app/models/ai_provider.py                         28      0   100%
+app/models/ai_usage.py                            25      0   100%
+app/models/analytics.py                           65      3    95%   15-17
+app/models/billing.py                             15      0   100%
+app/models/brand.py                               98      0   100%
+app/models/brand_monitoring.py                    37      0   100%
+app/models/content.py                            158      0   100%
+app/models/digital_card.py                        37      0   100%
+app/models/email_log.py                           18      0   100%
+app/models/lead.py                                43      0   100%
+app/models/linkedin_ads.py                        85      1    99%   17
+app/models/queue.py                               30      0   100%
+app/models/social_account.py                      29      0   100%
+app/models/social_secret.py                       14      0   100%
+app/models/user.py                                80      0   100%
+app/models/web_analytics.py                       52      1    98%   20
+app/models/whatsapp_message.py                    21      0   100%
+app/models/workflow.py                            58      0   100%
+app/services/__init__.py                           0      0   100%
+app/services/analytics_sync.py                  1284     95    93%   212, 221-222, 247, 262-263, 349, 364-365, 375, 379, 386, 390, 393, 409, 430, 526, 555, 569, 592, 602-603, 654-655, 672, 722, 1073, 1122-1125, 1318-1319, 1429, 1466, 1471-1472, 1474, 1503-1507, 1519, 1524-1525, 1527, 1579-1580, 1672, 1677, 1682, 1687, 1785, 1817-1818, 1833-1834, 1867-1868, 1910-1911, 2037, 2071-2072, 2089-2090, 2122-2123, 2152-2153, 2181-2182, 2211-2212, 2304, 2341, 2372, 2379-2380, 2395-2396, 2433, 2626-2627, 2665, 2760-2761, 2772-2774, 2778, 2814-2815, 2838, 2848, 2852
+app/services/blog_articles.py                    112     29    74%   84, 93-94, 136-138, 172, 176-179, 184-195, 200-201, 234-238
+app/services/bluesky_api.py                      122     29    76%   58, 60, 63, 126, 148-154, 158-167, 196-202, 209-216, 239
+app/services/brand_agent.py                       65     53    18%   32-49, 63-102, 124-203
+app/services/brand_assets.py                      82     74    10%   18-21, 36-78, 95-130, 148-195
+app/services/brand_compliance.py                 118     61    48%   37-67, 85-107, 112-160, 178, 185-203, 235, 237, 239, 241, 243, 246-247, 265-266, 271, 274
+app/services/brand_extractor.py                  214      9    96%   35-36, 144, 153-154, 171-172, 419-420
+app/services/brand_footer.py                      96     96     0%   11-171
+app/services/brand_monitoring.py                 159    137    14%   35-61, 66-96, 101-128, 137-165, 174-211, 216-228, 235-300, 316-336, 357-394
+app/services/brand_voice.py                       17     12    29%   27-84
+app/services/browser_bridge.py                   610     76    88%   131, 171, 204-205, 207, 262-263, 265, 269, 324, 331-332, 335, 348-366, 401, 406, 430, 434, 439, 441, 445, 452-467, 621-622, 697-702, 706, 708, 721-722, 749, 801-804, 815-816, 930, 1001, 1212-1213, 1285-1289, 1362-1366, 1527, 1547, 1714, 1733, 2082, 2109, 2129, 2286, 2313, 2348
+app/services/browser_orchestrator.py             131    106    19%   52-54, 74-79, 83-166, 177-188, 192-211, 215-219, 241, 246-250, 255-259, 264-273
+app/services/carousel_pipeline.py                585     44    92%   116-119, 295, 320, 335-337, 344-345, 372-374, 377, 447, 481, 483, 496, 561, 703-704, 1021, 1030, 1105-1106, 1122-1124, 1201-1223
+app/services/cf_analytics.py                     237    150    37%   32-56, 96, 148-217, 233-300, 323-372, 389-438, 479, 486, 536-598
+app/services/cf_models.py                         23      0   100%
+app/services/chroma_client.py                    119     78    34%   28-30, 35, 63-65, 74-79, 91, 96-100, 105-107, 112-135, 140-155, 160-176, 181-199
+app/services/comfyui_image.py                     68     52    24%   54-64, 138-205
+app/services/comfyui_video.py                    192    145    24%   211-225, 317-412, 437-467, 472-479, 489-498, 532-633, 638-659, 683-710
+app/services/content_renderer.py                 141     15    89%   42, 45-47, 63, 156, 210, 222, 232, 251-256
+app/services/content_scorer.py                   159      9    94%   106, 109, 118, 146, 185, 189, 245, 247, 249
+app/services/d1_client.py                        219    169    23%   57-61, 65-70, 73-74, 85-116, 128-192, 197-198, 206-216, 220-232, 240-256, 260-261, 273-283, 287-288, 292, 304-309, 325-329, 339-341, 345-349, 353-357, 361-365, 369-376, 385-396
+app/services/db_router.py                        171    137    20%   48-57, 61-65, 71-74, 83-93, 102-103, 117-146, 153-176, 185-208, 217-240, 251-262, 271-295, 299-320, 324-325
+app/services/db_sync.py                          363     29    92%   43-47, 273-277, 298-299, 335-336, 387, 389, 447-448, 452-456, 469-470, 479-480, 495-496, 539, 560
+app/services/dmr.py                              868    158    82%   128-134, 187-188, 232, 261-263, 288-289, 344, 346-347, 354, 421, 432, 451-457, 485-490, 497-499, 634-659, 753, 781-783, 787, 808-810, 857, 908-909, 927, 1016-1017, 1051-1052, 1092-1094, 1322, 1368-1374, 1401, 1410, 1419-1433, 1452, 1492, 1514, 1523-1525, 1529-1533, 1543-1566, 1679-1681, 1698-1699, 1810-1814, 1836, 1849, 1873-1888, 1915-1916, 1927
+app/services/dodo_api.py                          95      0   100%
+app/services/dodo_digest.py                       69      0   100%
+app/services/duplicate_detector.py               176     14    92%   53, 64, 76, 104, 121, 177, 182, 207, 234-235, 239-240, 274-275
+app/services/email_digest.py                     214    138    36%   32, 39-41, 51, 67-74, 78-79, 88-201, 218, 230, 234-235, 244-248, 276, 289, 296-299, 321-344, 356-404, 430-431, 436-452, 465-489
+app/services/email_templates.py                  124     84    32%   26-27, 44-62, 142, 144-145, 173, 175-176, 183-219, 226-247, 259-284, 316, 318-319, 339-359, 369-402, 411-444
+app/services/facebook_api.py                     285     87    69%   49, 64-73, 103-104, 133, 246, 271, 291, 311, 386, 426-431, 446-465, 473-480, 490-509, 517-523, 537-552, 560-571
+app/services/facebook_sidecar.py                 174     85    51%   71, 93-96, 120-212, 222-223, 226, 234-239, 246-249, 256-261, 264, 271-276, 279, 314, 329, 350-353
+app/services/free_instagram_client.py            147      4    97%   124-125, 130-131
+app/services/gpu_arbiter.py                      109     20    82%   68-69, 76-77, 79, 100-103, 111-112, 114, 143-147, 193-196, 206
+app/services/growth_initiatives.py                64     48    25%   69-94, 100-111, 115-123, 135-274
+app/services/hikerapi_client.py                   56     30    46%   42, 45, 48-59, 66, 70, 74-77, 81, 87, 91-94, 100-103
+app/services/image_enhance.py                    240     96    60%   58, 78-80, 82-84, 100, 102, 104, 147-148, 169-214, 219-228, 246, 248-250, 261-263, 270, 274-275, 304-310, 318-354, 383-384, 404-405, 444-448, 482-483
+app/services/image_transform.py                  132     17    87%   66, 68, 82, 93, 97-107, 137, 144, 252-253
+app/services/inference.py                        889     62    93%   481-482, 528, 790, 983, 994, 1022-1023, 1075, 1097, 1235, 1275, 1310, 1364, 1376, 1391, 1413, 1415, 1507, 1574, 1657, 1659, 1692-1696, 1714, 1721, 1723, 1742, 1838-1842, 1849, 1885, 1908, 1911, 1947-1959, 1996, 1999, 2025, 2031, 2033, 2035, 2048, 2102-2103, 2106-2109, 2139, 2205, 2229, 2252, 2319
+app/services/infographic_renderer.py             163     13    92%   64-68, 263-264, 367, 399-401, 419-422
+app/services/insights_engine.py                  314     11    96%   306-403, 958-959, 1031
+app/services/instagram_api.py                    439      0   100%
+app/services/instagram_private_api.py            196    109    44%   70-71, 75-76, 100-152, 188-197, 201-206, 216-229, 235-240, 259-282, 286-292, 298-304, 314-320, 326-332, 336-342, 363, 381-387, 402, 408, 420, 430-439, 458, 489-504
+app/services/instagrapi_client.py                211     98    54%   40-45, 68-69, 73, 82-84, 118, 135-136, 143-160, 163-167, 172, 179, 182-185, 189-190, 194-196, 199-201, 211, 223, 226-229, 231-234, 236-239, 241, 250-251, 260-261, 270-271, 285-302, 307-308, 323-346
+app/services/kv_client.py                        124     93    25%   42-44, 48-53, 56-57, 64-79, 83-91, 95-101, 105-113, 117, 121-126, 130-158, 162-171
+app/services/lead_capture.py                     157    115    27%   41, 48-51, 55-66, 79-85, 94, 105-112, 132-133, 182-359, 363-364
+app/services/leads.py                            286    147    49%   29, 52, 100, 104-106, 125-126, 146-147, 168, 171, 175-176, 204, 207, 232-233, 241-242, 245-246, 265-343, 366-451, 455-536
+app/services/link_preview.py                      83      9    89%   33-34, 38, 42, 59, 124, 136, 153, 155
+app/services/linkedin_ads_control.py              90     71    21%   27-29, 33-38, 42-48, 52-57, 62-63, 115-162, 167-179
+app/services/linkedin_ads_report.py              476     22    95%   68-69, 78-79, 254, 268, 426, 452, 514-517, 629-631, 892-893, 941, 946-947, 973-975
+app/services/linkedin_ai.py                      105     11    90%   61-64, 330, 332, 367, 388-390, 401
+app/services/linkedin_api.py                     383     69    82%   40, 42, 108, 117-120, 216, 219, 229, 255-259, 280, 285-287, 294-295, 319, 362-363, 391, 401, 433, 443-444, 452-453, 462, 473-474, 483, 499-502, 508-509, 530, 540-541, 550, 561-562, 577, 596-597, 624, 655, 664, 676-677, 685, 690, 711-712, 727, 747-748, 779, 784-786, 813-814, 859-860
+app/services/linkedin_invites.py                 241    162    33%   82-84, 114-154, 164-169, 174-209, 213, 225-230, 237-238, 251-252, 274-275, 318-319, 324-327, 331-336, 351-488
+app/services/linkedin_sidecar.py                 253      1    99%   89
+app/services/media_ai.py                         220    141    36%   47-48, 53, 61-81, 95-171, 239-240, 246-248, 262-263, 270-271, 274, 297-299, 302-305, 309, 312-313, 323-361, 366-380, 396-431, 450-473
+app/services/media_dedup.py                       83     55    34%   57-66, 71-85, 102-170
+app/services/media_quality.py                     97      2    98%   192-193
+app/services/media_spellcheck.py                  24     21    12%   12-14, 25-47
+app/services/media_storage.py                    175    115    34%   35-38, 71, 79, 83-86, 99-136, 195-225, 239-247, 252-267, 292-375
+app/services/messenger_api.py                    219      0   100%
+app/services/messenger_chatbot.py                406     88    78%   157-161, 222-223, 232-233, 321-322, 350-365, 386-407, 428, 430, 432, 434, 436, 438-439, 441, 451-468, 483-498, 534-537, 543-562, 570-574, 620, 877, 1004-1006, 1019-1020
+app/services/messenger_sidecar.py                169      3    98%   201, 339-340
+app/services/meta_graph.py                         9      0   100%
+app/services/metrics.py                          108     55    49%   80, 83-111, 117-220, 249
+app/services/minio_storage.py                    123     64    48%   25-27, 31-35, 46-68, 104, 117, 127-129, 135, 146-148, 154, 165-167, 182-206, 215-222, 234-238
+app/services/monetization.py                      49      2    96%   62, 168
+app/services/nextcloud_export.py                  80      1    99%   55
+app/services/notebook_runner.py                   28     17    39%   49-85
+app/services/paddle_api.py                        77     54    30%   31, 44-55, 65-78, 84-92, 107-119, 123-124, 129-134, 139-144
+app/services/paddle_digest.py                    102     84    18%   14-16, 20-33, 38-136, 150, 159-167
+app/services/pillars.py                           39     13    67%   92-105, 120-130
+app/services/plain_english.py                    237     87    63%   106, 114, 129, 159, 174, 184, 192, 200-202, 223-233, 244, 262, 278-318, 333-382, 400-461, 475-485, 541, 559, 568
+app/services/platforms/__init__.py                 3      3     0%   7-11
+app/services/platforms/base.py                    89     89     0%   12-165
+app/services/playbook_email.py                   101      6    94%   139-141, 157-159, 183-184
+app/services/polar_api.py                        130      0   100%
+app/services/polar_digest.py                      69      0   100%
+app/services/publishing.py                      1380    134    90%   158-159, 166-167, 172-173, 401, 429-430, 449-450, 576-577, 671, 673, 688, 741, 755-759, 784, 813-817, 825, 845-868, 882, 909, 1157, 1232-1233, 1247, 1263, 1267, 1279, 1314-1319, 1378, 1511-1512, 1560-1561, 1593, 1602-1603, 1657-1661, 1707, 1712, 1717-1718, 1792-1793, 1840, 1867, 1882, 1891, 1900-1903, 1987, 2071-2072, 2106-2107, 2193-2194, 2205-2206, 2339, 2342-2343, 2460-2474, 2597-2598, 2615, 2621, 2643, 2653, 2697-2700, 2721-2722, 2748, 2750-2753, 2755, 2769, 2861, 2869, 2904, 2921, 2923-2926, 2947, 3156, 3221, 3227-3228, 3233, 3240-3241
+app/services/quality_pipeline.py                 139     66    53%   45, 110-116, 136-137, 145-148, 236-239, 246-248, 254-255, 291-367
+app/services/r2_presigned.py                      47      3    94%   29, 46, 93
+app/services/r2_storage.py                        85     70    18%   37-45, 49-55, 59-64, 80-104, 118-134, 139-153, 158-169
+app/services/rate_limiter.py                      76      4    95%   36-40, 138
+app/services/s3_sigv4.py                         104     44    58%   132-137, 140-141, 153-204, 208, 211, 221-224, 227-228, 231, 234
+app/services/secret_store.py                     192    156    19%   35, 61-71, 74-96, 99-114, 117-126, 129-154, 158-164, 171-183, 197-204, 208-230, 233-243, 246-255, 263-274, 282-285, 289-316, 320-325, 329-331, 335-337
+app/services/seo.py                              140     21    85%   97, 139-140, 149, 155-161, 169, 176-177, 192-193, 208, 217-218, 235, 272-274
+app/services/session_healer.py                   393     53    87%   108-110, 115-121, 143-144, 159-160, 177-178, 243, 297-298, 406-409, 468-471, 494-495, 529, 539, 556, 576, 585-593, 613, 647, 654, 661, 687-689, 706-713, 733-736, 776-777
+app/services/slack_digest.py                     337     34    90%   225, 231, 376, 401-424, 427-428, 430-431, 434, 436, 438, 697, 722-723, 737, 894-895, 899-900
+app/services/slack_notifications.py              167     71    57%   43, 63-68, 76, 81-96, 101-115, 225-237, 245-259, 264, 269-283, 291-306, 352, 369, 371-373
+app/services/spellcheck.py                       129     38    71%   37, 41, 92, 130-177, 253
+app/services/stack_ops.py                         52     37    29%   33-45, 55-63, 67, 72-80, 91-99
+app/services/strategy_report.py                  616    181    71%   162, 259, 273-274, 311, 319-326, 352, 364-367, 379-380, 492-497, 532-536, 579-580, 590-625, 630-670, 688, 719, 721, 740, 754, 784, 812, 833, 848, 854, 869-876, 888, 917, 939, 1018, 1029-1079, 1090-1150, 1157-1172, 1204-1261, 1265-1279, 1288-1335
+app/services/support_report.py                    52     40    23%   30-104, 120-135
+app/services/telegram_api.py                     249     75    70%   25-27, 73, 79-80, 86, 120, 130-134, 137-138, 152, 161, 163, 176-185, 196-205, 209-210, 214-218, 227-231, 234-238, 263, 280-292, 305-317, 337, 363, 392, 400, 441-445, 456-469, 478-479, 483-484, 520, 524, 557
+app/services/telegram_chatbot.py                  99     44    56%   35-38, 44-50, 56-61, 65-70, 74-82, 86-91, 96-98, 135-137, 152-154, 160-161
+app/services/telegram_group_watch.py             331     15    95%   75, 157-161, 524, 528, 555-556, 564-566, 578-579
+app/services/threads_api.py                      168     15    91%   53, 102, 201, 212, 221, 234, 249, 263, 265, 286, 334-344
+app/services/tiktok_api.py                       435     11    97%   71, 84, 86-88, 218, 314-316, 559, 567
+app/services/tiktok_browser.py                    89     35    61%   88-89, 93-95, 98-99, 107-118, 123, 129, 136, 142, 147, 150-152, 159, 167, 176, 186, 191, 204, 214, 219
+app/services/tiktok_profile.py                   159    118    26%   121-123, 144, 159, 164-165, 169, 174-175, 185-220, 230-232, 235-239, 243, 248-262, 267-296, 301-320, 326, 333, 341, 349, 372-376, 381, 385-406, 419-422, 426-429, 433-436, 440-442
+app/services/tiktok_xbogus.py                     75     75     0%   20-179
+app/services/trend_scout.py                       49     38    22%   28-48, 53-74, 83-102, 115-134
+app/services/twitter_api.py                      264     60    77%   61, 63, 71, 73, 129, 185-187, 219, 224, 311, 343, 345, 357, 380, 405, 459-467, 478-487, 504-516, 528-541, 548-557
+app/services/twitter_profile.py                   55     39    29%   48-62, 66-71, 97-115, 123-129, 137-143
+app/services/url_safety.py                        65     10    85%   31, 53-54, 57, 63-64, 81, 95, 99, 114
+app/services/usage_tracker.py                     76     44    42%   33-35, 50-55, 80, 106-108, 113-132, 145-186
+app/services/vectorize_client.py                 119     90    24%   44-46, 50-55, 58-59, 66-81, 101-117, 128-140, 160-178, 182-191, 195-201, 205-218
+app/services/viber_api.py                        147     47    68%   93, 97-99, 114, 124-125, 131, 160-169, 173, 180, 195, 203, 238-243, 258-269, 283-285, 300, 319, 324-330, 342, 354-357, 360-362
+app/services/viber_chatbot.py                    101     82    19%   35-40, 44-54, 58-70, 74-84, 88-94, 98-104, 118-188
+app/services/web_analytics.py                    112     36    68%   22-27, 31-34, 40, 42, 71, 81, 83-85, 112, 114-116, 149, 151, 174, 176-178, 196-197, 199-202, 242-244
+app/services/web_search.py                        47      4    91%   31-33, 55
+app/services/whatsapp_api.py                     214    157    27%   45, 63, 91-99, 117-131, 145-156, 171-184, 198-206, 222-235, 244-249, 265-266, 275-279, 287-294, 301-305, 318, 335-341, 367-373, 399, 412-414, 443-448, 465-473, 485-486, 504-505, 515-518, 527-528, 547-651
+app/services/whatsapp_chatbot.py                 364     28    92%   73-75, 128-129, 161-162, 274-275, 316-318, 358, 363, 374-375, 396, 405-407, 470-471, 691-693, 708, 806-807
+app/services/whatsapp_cloud_client.py            216     52    76%   59-60, 70-71, 84-85, 87, 90, 108, 120, 124, 128, 136, 142, 146, 150, 159-160, 193, 197-199, 209-211, 302, 310, 345, 355, 382-383, 388-389, 416-430, 444-449
+app/services/whatsapp_flows.py                   215    165    23%   73, 85-88, 91-92, 95-101, 126-154, 163-172, 185-198, 219-245, 262-277, 286-295, 304-309, 318-323, 332-347, 384-439, 584, 707, 842, 1017-1055, 1082-1090, 1105-1109
+app/services/x_web.py                            649    117    82%   87, 90, 99, 135, 137, 181-182, 184, 189, 199-202, 208-209, 271-272, 280, 393, 397-398, 401-408, 412, 416-425, 490-491, 568-570, 574, 588-590, 592, 613, 627-651, 656-663, 706, 738, 742, 763, 799-800, 813, 821, 865-867, 907-908, 914, 920, 946, 991-999, 1006, 1018-1021, 1041, 1044, 1069-1074, 1078-1079
+app/worker/_async.py                              69     17    75%   59, 80-91, 115, 119-121
+app/worker/celery_app.py                          16      4    75%   478-480, 485-487
+app/worker/tasks/analytics.py                     35     20    43%   26, 30-44, 50, 54-58
+app/worker/tasks/datalake_export.py              158     57    64%   80-81, 87-88, 107-136, 140-147, 172-177, 190-197, 253-278, 282-287, 310-315, 351-358, 464, 545, 549-593
+app/worker/tasks/digest.py                        27     10    63%   26, 39, 49, 59-66, 86-92
+app/worker/tasks/dmr_health.py                    51     34    33%   30-37, 41-74, 80, 84-86, 97
+app/worker/tasks/dodo_live_check.py               47     34    28%   26-32, 36-39, 43-75, 81
+app/worker/tasks/instagram_messenger.py          305    278     9%   71-72, 84-106, 112, 117-173, 183-231, 247-607
+app/worker/tasks/instagram_session_check.py      110     59    46%   71-86, 136-137, 142-200, 206
+app/worker/tasks/instagram_token_refresh.py      213    185    13%   48, 57-61, 66-90, 98-120, 126, 131-394
+app/worker/tasks/lead_emails.py                   14      7    50%   20-27
+app/worker/tasks/linkedin_ads_control.py          27     15    44%   18-40, 47
+app/worker/tasks/linkedin_ads_report.py           11      1    91%   23
+app/worker/tasks/linkedin_invites.py              64     45    30%   42-64, 74-120, 135-143
+app/worker/tasks/linkedin_messenger.py           160    141    12%   59-81, 87, 92-141, 154-313
+app/worker/tasks/linkedin_session_check.py        92     58    37%   80-81, 86-171, 177
+app/worker/tasks/linkedin_session_refresh.py      94     75    20%   38-60, 66, 71-170
+app/worker/tasks/media.py                         92     76    17%   25-43, 53-195
+app/worker/tasks/media_enhance.py                 78     63    19%   23-28, 33-111, 117-120
+app/worker/tasks/nextcloud.py                     24      0   100%
+app/worker/tasks/notebook_reports.py              49     39    20%   35-69, 83-118
+app/worker/tasks/paddle_digest.py                 11      1    91%   19
+app/worker/tasks/personal_messenger.py           141    123    13%   76-99, 105, 110-161, 174-311
+app/worker/tasks/publishing.py                   551     44    92%   126, 237, 243, 283-284, 293-300, 372, 395-396, 409-410, 583-585, 675, 677-684, 752-755, 943, 1043-1047, 1052-1055, 1074
+app/worker/tasks/recurring.py                     58     33    43%   46-130, 136-138
+app/worker/tasks/session_healer.py                11      2    82%   29-31
+app/worker/tasks/skool_watch.py                  241     20    92%   93-96, 105-109, 220-221, 279, 382-383, 403-404, 411, 427, 439, 449-451, 485
+app/worker/tasks/telegram_digest.py               42      0   100%
+app/worker/tasks/threads_messenger.py            138    118    14%   60-82, 88, 93-142, 155-276
+app/worker/tasks/tiktok_inbox_reconcile.py        69     51    26%   45, 49-125
+app/worker/tasks/tiktok_messenger.py             141     24    83%   64-81, 90, 115, 133-135, 214, 271-272
+app/worker/tasks/token_refresh.py                109     75    31%   37-54, 64-73, 125-129, 133-264
+app/worker/tasks/twitter_messenger.py            138     18    87%   64-81, 90, 210
+app/worker/tasks/whatsapp_verify.py              142      0   100%
+app/worker/tasks/workflows.py                     64     47    27%   20-23, 27-52, 57-60, 64-99
+----------------------------------------------------------------------------
+TOTAL                                          43143  10817    75%
+=========== 3051 passed, 11 skipped, 1 warning in 523.98s (0:08:43) ============
