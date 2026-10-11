@@ -87,6 +87,20 @@ was empty — the underlying Slack app had been deleted/revoked. Recovery:
 With `SLACK_BOT_TOKEN` set, digest delivery uses `chat.postMessage` and no
 longer depends on webhooks at all — dead webhooks can't silently kill it.
 
+
+## xoxe fallback via mcp-remote session (slack_token_sync.py)
+
+When the app reinstall is pending and webhooks are still dead, the hosted
+Slack MCP's stored `xoxe` user token (`~/.mcp-auth/mcp-remote-v1/*_tokens.json`,
+scope `chat:write`) works as `SLACK_BOT_TOKEN` — `auth.test` + `chat.postMessage`
+verified live against `wwwcloudlessgr` (T09AF5VTK4G). `xoxe` tokens last 12h
+and rotate a refresh_token, so `scripts/slack_token_sync.py` refreshes via
+`oauth.v2.user.access`, writes rotated tokens back to the mcp-remote file
+(keeps the MCP server in sync), updates `.env`, and recreates social-api only
+on change. Installed as cron `0 */2 * * *` → `/tmp/slack_token_sync.log`.
+Replacing it with a real `xoxb` bot token (manifest above) removes the need
+for the sync entirely.
+
 ## Related
 
 - `publish-ops` — digest alert triage (platform-limit vs session vs config)
