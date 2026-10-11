@@ -253,7 +253,7 @@ src/services/api.ts
 
 ## Backend Architecture
 
-### API Modules (501 endpoints across 38 route files)
+### API Modules (545 endpoints across 42 route files)
 
 ```
 app/api/
@@ -284,7 +284,17 @@ app/api/
 ├── tiktok.py        (7)  — TikTok account status, publish limits, cancel
 ├── whatsapp.py      (36) — WhatsApp Cloud API, setup, profile, register, bot
 ├── whatsapp_flows.py (14) — WhatsApp Flows CRUD, validate, publish, send
-├── telegram.py      (23) — Telegram bot, channel posting, group watch, chatbot
+├── telegram.py      (38) — Telegram bot, channel posting, group watch, chatbot
+├── newsletter.py     (1) — POST /api/v1/newsletter/cover: branded issue-cover PNG
+│                           for the cloudless.gr Build Log newsletter (X-Service-Token
+│                           == NEWSLETTER_SERVICE_TOKEN; 1200x675 PIL render)
+
+Integration flow (newsletter covers): cloudless.gr's weekly cron
+(`/api/cron/newsletter-auto`, Mondays 09:00 Athens) POSTs the issue title to
+this endpoint, uploads the returned PNG to R2 (`newsletter/covers/<slug>.png`,
+served at `/api/newsletter/covers/<slug>.png`) and embeds it in the email +
+article. SocialAuto owns generation; cloudless.gr owns delivery. Shared
+secret: NEWSLETTER_SERVICE_TOKEN on both sides.
 ├── workflows.py     (18) — templates, generate, deploy, executions
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store
