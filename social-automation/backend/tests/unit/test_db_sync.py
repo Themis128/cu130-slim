@@ -442,3 +442,136 @@ async def test_sync_after_worker_task(monkeypatch):
     # errors swallowed
     spy.side_effect = RuntimeError("boom")
     assert await S.sync_after_worker_task(["users"]) == {}
+
+
+# ── remaining branches ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sync_redis_client(monkeypatch):
+    import redis.asyncio as aioredis
+
+    urls = []
+    monkeypatch.setattr(aioredis, "from_url", lambda u, **kw: urls.append((u, kw)) or "client")
+    assert await S._sync_redis() == "client"
+    assert urls[0][1]["decode_responses"] is True
+
+
+@pytest.mark.asyncio
+async def test_redis_error_paths(monkeypatch):
+    svc = _svc()
+    _patch_d1(monkeypatch)
+    r = _Redis()
+    monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))
+    monkeypatch.setattr(S.SyncService, "_d1_table_has_pk", AsyncMock(return_value=True))
+    now = datetime.now(UTC)
+
+    # r.get raises → in-memory/None watermark
+    monkeypatch.setattr(r, "get", AsyncMock(side_effect=RuntimeError("x")))
+    _patch_engine(monkeypatch, rows=[(1, now, "a")])
+    out = await svc.sync_table_to_d1("users", debounce=False)
+    assert out["synced"] == 1
+
+    # r.hgetall raises → treated as empty diff map
+    monkeypatch.setattr(r, "hgetall", AsyncMock(side_effect=RuntimeError("x")))
+    out = await svc.sync_table_to_d1("users", debounce=False)
+    assert out["synced"] == 1
+
+    # debounce set raises → r closed (aclose also raising is swallowed)
+    monkeypatch.setattr(r, "set", AsyncMock(side_effect=RuntimeError("x")))
+    monkeypatch.setattr(r, "aclose", AsyncMock(side_effect=RuntimeError("x")))
+    out = await svc.sync_table_to_d1("users", debounce=True)
+    assert out["synced"] == 1  # proceeds without redis
+
+
+@pytest.mark.asyncio
+async def test_sync_to_d1_value_serialization(monkeypatch):
+    svc = _svc()
+    d1 = _patch_d1(monkeypatch)
+    r = _Redis()
+    monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))
+    monkeypatch.setattr(S.SyncService, "_d1_table_has_pk", AsyncMock(return_value=True))
+    now = datetime.now(UTC)
+    # no updated_at col → hash-diff path; dict + bool + datetime values serialize
+    _patch_engine(
+        monkeypatch,
+        has_updated_at=False,
+        keys=["id", "meta", "is_active", "when"],
+        rows=[(1, {"a": 1}, True, now)],
+    )
+    out = await svc.sync_table_to_d1("users", debounce=False)
+    assert out["synced"] == 1
+    vals = d1.execute.await_args_list[0].args[1]
+    assert vals[1] == '{"a": 1}'
+    assert vals[2] == 1
+    assert vals[3] == now.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_sync_to_d1_stale_delete_edges(monkeypatch):
+    import json as _json
+
+    svc = _svc()
+    d1 = _patch_d1(monkeypatch)
+    r = _Redis()
+    # "gone" delete fails w/ daily-limit → circuit breaker
+    r.hashes["d1sync:hashes:users"] = {_json.dumps(["gone"]): "h2"}
+    monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))
+    monkeypatch.setattr(S.SyncService, "_d1_table_has_pk", AsyncMock(return_value=True))
+    async def _exec(sql, *a, **kw):
+        if "DELETE" in str(sql):
+            raise RuntimeError("daily limit exceeded")
+        return None
+
+    d1.execute.side_effect = _exec
+    _patch_engine(monkeypatch, has_updated_at=False, rows=[(1, None, "a")])
+    out = await svc.sync_table_to_d1("users", debounce=False)
+    assert svc._d1_write_limit_hit is True
+
+    # hset/hdel raises → swallowed; non-JSON stale key → skipped by continue
+    svc._d1_write_limit_hit = False
+    r2 = _Redis()
+    r2.hashes["d1sync:hashes:users"] = {"bad-key": "h", _json.dumps(["gone"]): "h2"}
+    monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r2))
+    monkeypatch.setattr(r2, "hset", AsyncMock(side_effect=RuntimeError("x")))
+    monkeypatch.setattr(r2, "hdel", AsyncMock(side_effect=RuntimeError("x")))
+    monkeypatch.setattr(r2, "aclose", AsyncMock(side_effect=RuntimeError("x")))
+    d1.execute.side_effect = None
+    out = await svc.sync_table_to_d1("users", debounce=False)
+    assert out["synced"] == 1
+
+
+@pytest.mark.asyncio
+async def test_set_last_sync_redis_down():
+    svc = _svc()
+    r = SimpleNamespace(set=AsyncMock(side_effect=RuntimeError("x")))
+    await svc._set_last_sync("users", r)
+    assert "users" in svc._last_sync
+
+
+@pytest.mark.asyncio
+async def test_sync_to_postgres_edges(monkeypatch):
+    svc = _svc()
+    d1 = _patch_d1(monkeypatch)
+    _patch_engine(monkeypatch)
+    # empty D1 → early return
+    d1.query_all.return_value = []
+    out = await svc.sync_table_to_postgres("users")
+    assert out == {"synced": 0, "errors": 0, "skipped": 0}
+
+    # all cols are PK → ON CONFLICT DO NOTHING
+    sqls = []
+
+    def handler(sql, params):
+        sqls.append(sql)
+        if sql.strip().lower().startswith("select"):
+            return _Result(keys=["id"], rows=[])
+        return _Result()
+
+    import sqlalchemy.ext.asyncio as sa_async
+
+    monkeypatch.setattr(sa_async, "create_async_engine", lambda url: _Engine(handler))
+    d1.query_all.return_value = [{"id": "a"}, {"id": "b"}]
+    out = await svc.sync_table_to_postgres("users", pk="id")
+    assert out["synced"] == 2
+    assert any("DO NOTHING" in s for s in sqls)
