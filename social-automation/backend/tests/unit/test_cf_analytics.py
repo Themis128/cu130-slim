@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -19,9 +20,7 @@ async def test_graphql_query_returns_none_without_credentials(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_workers_ai_usage_empty_on_api_failure():
-    with patch.object(
-        cf_analytics, "_graphql_query", new=AsyncMock(return_value=None)
-    ):
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=None)):
         result = await cf_analytics.get_workers_ai_usage(days=7)
     assert result["total_requests"] == 0
     assert result["total_neurons"] == 0
@@ -63,9 +62,7 @@ async def test_workers_ai_usage_aggregates_rows():
             ]
         }
     }
-    with patch.object(
-        cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)
-    ):
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)):
         result = await cf_analytics.get_workers_ai_usage(days=2)
 
     assert result["total_requests"] == 3
@@ -98,9 +95,7 @@ async def test_vectorize_usage_no_nameerror_on_rows():
             ]
         }
     }
-    with patch.object(
-        cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)
-    ):
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)):
         result = await cf_analytics.get_vectorize_usage(days=1)
 
     assert result["total_vectors_queried"] == 10
@@ -147,15 +142,9 @@ async def test_cf_overview_gathers_all_sections():
             "get_workers_invocations",
             new=AsyncMock(return_value=empty_workers),
         ),
-        patch.object(
-            cf_analytics, "get_r2_usage", new=AsyncMock(return_value=empty_r2)
-        ),
-        patch.object(
-            cf_analytics, "get_d1_usage", new=AsyncMock(return_value=empty_d1)
-        ),
-        patch.object(
-            cf_analytics, "get_kv_usage", new=AsyncMock(return_value=empty_kv)
-        ),
+        patch.object(cf_analytics, "get_r2_usage", new=AsyncMock(return_value=empty_r2)),
+        patch.object(cf_analytics, "get_d1_usage", new=AsyncMock(return_value=empty_d1)),
+        patch.object(cf_analytics, "get_kv_usage", new=AsyncMock(return_value=empty_kv)),
         patch.object(
             cf_analytics,
             "get_vectorize_usage",
@@ -185,3 +174,226 @@ async def test_cf_overview_gathers_all_sections():
         "vectorize",
         "ai_gateway",
     }
+
+
+# ---------------------------------------------------------------------------
+# Extended coverage: _graphql_query HTTP paths + remaining dataset parsers
+# ---------------------------------------------------------------------------
+class _HTTP:
+    def __init__(self, resp=None, exc=None):
+        self._resp = resp
+        self._exc = exc
+        self.posts = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, **kw):
+        self.posts.append((url, kw))
+        if self._exc:
+            raise self._exc
+        return self._resp
+
+
+def _resp(status, body):
+    return SimpleNamespace(status_code=status, json=lambda: body)
+
+
+def _creds(monkeypatch):
+    monkeypatch.setattr(cf_analytics.settings, "CLOUDFLARE_API_TOKEN", "tok")
+    monkeypatch.setattr(cf_analytics.settings, "CLOUDFLARE_ACCOUNT_ID", "acc")
+
+
+@pytest.mark.asyncio
+async def test_graphql_non200(monkeypatch):
+    _creds(monkeypatch)
+    monkeypatch.setattr(cf_analytics.httpx, "AsyncClient", lambda **kw: _HTTP(resp=_resp(500, {})))
+    assert await cf_analytics._graphql_query("q", {}) is None
+
+
+@pytest.mark.asyncio
+async def test_graphql_errors_field(monkeypatch):
+    _creds(monkeypatch)
+    monkeypatch.setattr(cf_analytics.httpx, "AsyncClient", lambda **kw: _HTTP(resp=_resp(200, {"errors": [{"m": "bad"}]})))
+    assert await cf_analytics._graphql_query("q", {}) is None
+
+
+@pytest.mark.asyncio
+async def test_graphql_success(monkeypatch):
+    _creds(monkeypatch)
+    c = _HTTP(resp=_resp(200, {"data": {"viewer": {}}}))
+    monkeypatch.setattr(cf_analytics.httpx, "AsyncClient", lambda **kw: c)
+    assert await cf_analytics._graphql_query("q", {"v": 1}) == {"viewer": {}}
+    assert "Bearer tok" in c.posts[0][1]["headers"]["Authorization"]
+
+
+@pytest.mark.asyncio
+async def test_graphql_exception(monkeypatch):
+    _creds(monkeypatch)
+    monkeypatch.setattr(cf_analytics.httpx, "AsyncClient", lambda **kw: _HTTP(exc=OSError("net")))
+    assert await cf_analytics._graphql_query("q", {}) is None
+
+
+def _accounts(**groups):
+    return {"viewer": {"accounts": [groups]}}
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_empty_accounts():
+    with patch.object(
+        cf_analytics,
+        "_graphql_query",
+        new=AsyncMock(return_value={"viewer": {"accounts": []}}),
+    ):
+        result = await cf_analytics.get_workers_ai_usage()
+    assert result["total_requests"] == 0
+
+
+@pytest.mark.asyncio
+async def test_workers_invocations_rows():
+    payload = _accounts(
+        workersInvocationsAdaptive=[
+            {
+                "sum": {"requests": 10, "errors": 1},
+                "quantiles": {"cpuTimeP50": 5, "cpuTimeP99": 20},
+                "dimensions": {"scriptName": "cloudless2", "status": "ok"},
+            },
+            {"sum": {"requests": 4, "errors": 2}, "quantiles": {"cpuTimeP50": 50, "cpuTimeP99": 90}, "dimensions": {"scriptName": "cloudless2"}},
+            {"sum": {"requests": 1}, "dimensions": {}},
+        ]
+    )
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)):
+        out = await cf_analytics.get_workers_invocations()
+    assert out["total_requests"] == 15
+    assert out["total_errors"] == 3
+    s = out["by_script"][0]
+    assert s["script"] == "cloudless2"
+    assert s["cpu_time_p50"] == 50 and s["cpu_time_p99"] == 90
+    assert out["by_script"][1]["script"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_workers_invocations_empty():
+    for ret in (None, {"viewer": {"accounts": []}}):
+        with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=ret)):
+            out = await cf_analytics.get_workers_invocations()
+        assert out["total_requests"] == 0 and out["by_script"] == []
+
+
+@pytest.mark.asyncio
+async def test_r2_usage_rows():
+    payload = _accounts(
+        r2OperationsAdaptiveGroups=[
+            {"sum": {"requests": 100}, "dimensions": {"actionType": "GetObject", "bucketName": "media"}},
+            {"sum": {"requests": 40}, "dimensions": {"actionType": "PutObject", "bucketName": "media"}},
+            {"sum": {"requests": 5}, "dimensions": {"actionType": "GetObject", "bucketName": "backup"}},
+        ]
+    )
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)):
+        out = await cf_analytics.get_r2_usage()
+    assert out["total_operations"] == 145
+    assert out["by_action"][0]["action"] == "GetObject"
+    assert out["by_action"][0]["requests"] == 105
+    assert out["by_bucket"][0]["bucket"] == "media"
+    assert out["by_bucket"][0]["operations"] == 140
+
+
+@pytest.mark.asyncio
+async def test_r2_usage_empty():
+    for ret in (None, {"viewer": {"accounts": []}}):
+        with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=ret)):
+            out = await cf_analytics.get_r2_usage()
+        assert out["total_operations"] == 0
+
+
+@pytest.mark.asyncio
+async def test_d1_usage_rows():
+    payload = _accounts(
+        d1QueriesAdaptiveGroups=[
+            {"count": 50, "dimensions": {"databaseId": "db1"}},
+            {"count": 30, "dimensions": {"databaseId": "db2"}},
+            {"count": 20, "dimensions": {"databaseId": "db1"}},
+        ]
+    )
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)):
+        out = await cf_analytics.get_d1_usage()
+    assert out["total_queries"] == 100
+    assert out["by_database"][0]["database"] == "db1"
+    assert out["by_database"][0]["queries"] == 70
+
+
+@pytest.mark.asyncio
+async def test_d1_usage_empty():
+    for ret in (None, {"viewer": {"accounts": []}}):
+        with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=ret)):
+            out = await cf_analytics.get_d1_usage()
+        assert out["total_queries"] == 0
+
+
+@pytest.mark.asyncio
+async def test_kv_usage_rows():
+    payload = _accounts(
+        kvOperationsAdaptiveGroups=[
+            {"sum": {"requests": 500}, "dimensions": {"actionType": "read"}},
+            {"sum": {"requests": 50}, "dimensions": {"actionType": "write"}},
+            {"sum": {"requests": 10}, "dimensions": {}},
+        ]
+    )
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)):
+        out = await cf_analytics.get_kv_usage()
+    assert out["total_operations"] == 560
+    assert out["by_action"][0]["action"] == "read"
+    assert out["by_action"][2]["action"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_kv_usage_empty():
+    for ret in (None, {"viewer": {"accounts": []}}):
+        with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=ret)):
+            out = await cf_analytics.get_kv_usage()
+        assert out["total_operations"] == 0
+
+
+@pytest.mark.asyncio
+async def test_vectorize_empty():
+    for ret in (None, {"viewer": {"accounts": []}}):
+        with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=ret)):
+            out = await cf_analytics.get_vectorize_usage()
+        assert out["total_queries"] == 0 and out["by_index"] == []
+
+
+@pytest.mark.asyncio
+async def test_ai_gateway_rows():
+    payload = _accounts(
+        aiGatewayRequestsAdaptiveGroups=[
+            {
+                "count": 10,
+                "sum": {"cachedTokensIn": 100, "cachedTokensOut": 20, "uncachedTokensIn": 400, "uncachedTokensOut": 80},
+                "dimensions": {"gateway": "gw1", "provider": "workers-ai", "model": "llama"},
+            },
+            {"count": 5, "sum": {}, "dimensions": {"gateway": "gw1", "provider": "openai", "model": "gpt"}},
+            {"count": 2, "dimensions": {}},
+        ]
+    )
+    with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=payload)):
+        out = await cf_analytics.get_ai_gateway_usage()
+    assert out["total_requests"] == 17
+    g = out["by_gateway"][0]
+    assert g["gateway"] == "gw1"
+    assert g["requests"] == 15
+    assert g["cached_tokens"] == 120
+    assert g["uncached_tokens"] == 480
+    assert g["models"] == [{"model": "llama", "requests": 10}, {"model": "gpt", "requests": 5}]
+    assert out["by_provider"][0]["provider"] == "workers-ai"
+    assert out["by_gateway"][1]["gateway"] == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_ai_gateway_empty():
+    for ret in (None, {"viewer": {"accounts": []}}):
+        with patch.object(cf_analytics, "_graphql_query", new=AsyncMock(return_value=ret)):
+            out = await cf_analytics.get_ai_gateway_usage()
+        assert out["total_requests"] == 0

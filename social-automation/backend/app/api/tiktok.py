@@ -13,6 +13,7 @@ Endpoints follow official TikTok for Developers docs:
 - Query videos: POST /v2/video/query/?fields=...
   https://developers.tiktok.com/doc/tiktok-api-v2-video-query
 """
+
 from __future__ import annotations
 
 import logging
@@ -182,7 +183,7 @@ async def tiktok_health(
         try:
             raw = await client.get_creator_info()
             data = raw.get("data") or {}
-            creator = CreatorInfoOut(**{k: data.get(k) for k in CreatorInfoOut.model_fields})
+            creator = CreatorInfoOut(**{k: v for k in CreatorInfoOut.model_fields if (v := data.get(k)) is not None})
         except TikTokAPIError as exc:
             logger.info("creator_info unavailable: %s", exc)
 
@@ -239,7 +240,7 @@ async def tiktok_creator_info(
     except TikTokAPIError as exc:
         raise _http_exc(exc) from exc
     data = raw.get("data") or {}
-    return CreatorInfoOut(**{k: data.get(k) for k in CreatorInfoOut.model_fields})
+    return CreatorInfoOut(**{k: v for k in CreatorInfoOut.model_fields if (v := data.get(k)) is not None})
 
 
 @router.get("/accounts/{account_id}/videos", response_model=TikTokVideoListOut)

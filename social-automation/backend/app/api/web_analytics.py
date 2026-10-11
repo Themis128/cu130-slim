@@ -89,7 +89,7 @@ def _verify_webhook_signature(payload: bytes, secret: str, signature: str | None
     if not signature:
         return False
     expected = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(expected.lower(), signature.lower().lstrip("sha256=").strip())
+    return hmac.compare_digest(expected.lower(), signature.lower().removeprefix("sha256=").strip())
 
 def _env_fallback_config(domain: str) -> WebAnalyticsConfig | None:
     """Build a transient config from env vars for the default cloudless.gr domain.
