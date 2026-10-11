@@ -76,13 +76,30 @@ def playbook_delivery_enabled(settings=None) -> bool:
     )
 
 
-def build_playbook_email(url: str) -> tuple[str, str, str]:
+def _utm(url: str, content: str) -> str:
+    """Tag an outbound link for funnel attribution in web analytics."""
+    sep = "&" if "?" in url else "?"
+    return (
+        f"{url}{sep}utm_source=playbook-email&utm_medium=email"
+        f"&utm_campaign=cloud-migration-playbook&utm_content={content}"
+    )
+
+
+def _first_name(name: str | None) -> str:
+    return (name or "").strip().split(" ", 1)[0].strip()
+
+
+def build_playbook_email(url: str, name: str | None = None) -> tuple[str, str, str]:
     """Return (subject, text_body, html_body) for the playbook email."""
+    first = _first_name(name)
+    greeting = f"Hi {first}," if first else "Hi,"
+    download_url = _utm(url, "download")
+    audit_url = _utm("https://cloudless.gr/contact", "audit-cta")
     subject = f"Your copy of {PLAYBOOK_TITLE}"
     text = (
-        "Hi,\n\n"
+        f"{greeting}\n\n"
         f"Thanks for signing up. Here is your copy of {PLAYBOOK_TITLE}:\n"
-        f"{url}\n\n"
+        f"{download_url}\n\n"
         "It walks through the framework we use with clients: decide whether to "
         "migrate, inventory what runs, measure a baseline, classify each "
         "workload, choose the target architecture, plan a reversible cutover, "
@@ -92,17 +109,22 @@ def build_playbook_email(url: str) -> tuple[str, str, str]:
         "your inventory and baseline (Steps 1 and 2), tell you which of the five\n"
         "paths each workload should take, and hand you a written action plan,\n"
         "whether or not you ever hire us. Fill in the worksheets and bring them:\n"
-        "https://cloudless.gr/contact\n\n"
+        f"{audit_url}\n\n"
         "Themistoklis Baltzakis\n"
         "cloudless.gr\n\n"
         "You received this because this address was entered in the playbook "
         "form on social.cloudless.gr. If that wasn't you, ignore this email; "
         "reply to be removed from the list.\n"
     )
-    u = _html_escape(url)
+    u = _html_escape(download_url)
+    au = _html_escape(audit_url)
+    preheader = _html_escape(
+        "Your Cloud Migration Playbook is attached — plus a free 30-minute audit offer."
+    )
     html = f"""<!DOCTYPE html>
 <html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#111;max-width:560px">
-  <p>Hi,</p>
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">{preheader}</div>
+  <p>{_html_escape(greeting)}</p>
   <p>Thanks for signing up. Here is your copy of <strong>{_html_escape(PLAYBOOK_TITLE)}</strong>:</p>
   <p><a href="{u}" style="{_BUTTON_STYLE}">Download the playbook (PDF)</a></p>
   <p style="font-size:13px;color:#555">Or open this link: <a href="{u}">{u}</a></p>
@@ -114,7 +136,7 @@ def build_playbook_email(url: str) -> tuple[str, str, str]:
   your inventory and baseline (Steps 1 and 2 of the playbook), tell you which of the
   five paths each workload should take, and hand you a written action plan, whether
   or not you ever hire us. Fill in the worksheets and bring them.</p>
-  <p><a href="https://cloudless.gr/contact" style="{_OUTLINE_BUTTON_STYLE}">Book the free audit</a></p>
+  <p><a href="{au}" style="{_OUTLINE_BUTTON_STYLE}">Book the free audit</a></p>
   <p>Themistoklis Baltzakis<br>cloudless.gr</p>
   <p style="font-size:12px;color:#777">You received this because this address was entered in the
   playbook form on social.cloudless.gr. If that wasn't you, ignore this email;
@@ -124,21 +146,41 @@ def build_playbook_email(url: str) -> tuple[str, str, str]:
     return subject, text, html
 
 
-async def send_playbook_email(to_addr: str) -> None:
+def playbook_unsubscribe_mailto() -> str:
+    """mailto: unsubscribe for the List-Unsubscribe header and footer link."""
+    from urllib.parse import quote
+
+    return (
+        "mailto:tbaltzakis@cloudless.gr"
+        f"?subject={quote('unsubscribe playbook list')}"
+    )
+
+
+async def send_playbook_email(to_addr: str, name: str | None = None) -> None:
     """Send the playbook email to one recipient. Raises on delivery failure."""
     settings = get_settings()
     url = playbook_url(settings)
     if not url:
         raise RuntimeError("PLAYBOOK_URL not configured")
-    subject, text, html = build_playbook_email(url)
-    await send_email(subject=subject, text_body=text, html_body=html, to_addrs=[to_addr])
+    subject, text, html = build_playbook_email(url, name=name)
+    await send_email(
+        subject=subject,
+        text_body=text,
+        html_body=html,
+        to_addrs=[to_addr],
+        extra_headers={
+            "List-Unsubscribe": f"<{playbook_unsubscribe_mailto()}>",
+        },
+        reply_to="tbaltzakis@cloudless.gr",
+        from_name="Cloudless",
+    )
     logger.info("playbook email sent")
 
 
-def _enqueue_playbook_email(email: str) -> None:
+def _enqueue_playbook_email(email: str, name: str | None = None) -> None:
     from app.worker.celery_app import celery_app
 
-    celery_app.send_task(PLAYBOOK_TASK_NAME, args=[email])
+    celery_app.send_task(PLAYBOOK_TASK_NAME, args=[email, name])
 
 
 # One playbook email per address, ever. The claim key is taken with SET NX
@@ -207,7 +249,7 @@ async def deliver_playbook(db: Any, lead: Any, email: str, *, already_sent: bool
     if not claimed:
         return "already_sent"
     try:
-        _enqueue_playbook_email(email)
+        _enqueue_playbook_email(email, name=getattr(lead, "name", None))
     except Exception:  # noqa: BLE001 — broker down: still hand out the link
         logger.warning("Could not enqueue playbook email", exc_info=True)
         await release_playbook_claim(email)

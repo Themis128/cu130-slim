@@ -262,6 +262,9 @@ def send_email_smtp(
     html_body: str | None = None,
     to_addrs: list[str] | None = None,
     attachments: list[dict] | None = None,
+    extra_headers: dict[str, str] | None = None,
+    reply_to: str | None = None,
+    from_name: str | None = None,
 ) -> None:
     """Send via local/host SMTP (free Postfix on :25)."""
     settings = get_settings()
@@ -280,8 +283,12 @@ def send_email_smtp(
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = f"SocialAuto <{from_addr}>"
+    msg["From"] = f"{from_name or 'SocialAuto'} <{from_addr}>"
     msg["To"] = ", ".join(recipients)
+    if reply_to:
+        msg["Reply-To"] = reply_to
+    for hk, hv in (extra_headers or {}).items():
+        msg[hk] = hv
     msg.set_content(text_body)
     if html_body:
         msg.add_alternative(html_body, subtype="html")
@@ -316,6 +323,9 @@ def send_email_cloudflare_smtp(
     html_body: str | None = None,
     to_addrs: list[str] | None = None,
     attachments: list[dict] | None = None,
+    extra_headers: dict[str, str] | None = None,
+    reply_to: str | None = None,
+    from_name: str | None = None,
 ) -> None:
     """CF Email Sending over authenticated SMTP (smtp.mx.cloudflare.net:465)."""
     settings = get_settings()
@@ -330,8 +340,12 @@ def send_email_cloudflare_smtp(
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = f"SocialAuto <{from_addr}>"
+    msg["From"] = f"{from_name or 'SocialAuto'} <{from_addr}>"
     msg["To"] = ", ".join(recipients)
+    if reply_to:
+        msg["Reply-To"] = reply_to
+    for hk, hv in (extra_headers or {}).items():
+        msg[hk] = hv
     msg.set_content(text_body)
     if html_body:
         msg.add_alternative(html_body, subtype="html")
@@ -351,6 +365,9 @@ async def send_email_cloudflare_verified(
     html_body: str,
     to_addrs: list[str] | None = None,
     attachments: list[dict] | None = None,
+    extra_headers: dict[str, str] | None = None,
+    reply_to: str | None = None,
+    from_name: str | None = None,
 ) -> None:
     """Free Cloudflare Email Sending to verified Email Routing destinations only."""
     settings = get_settings()
@@ -374,10 +391,14 @@ async def send_email_cloudflare_verified(
                 headers=headers,
                 json={
                     "to": to,
-                    "from": f"SocialAuto <{from_addr}>",
+                    "from": f"{from_name or 'SocialAuto'} <{from_addr}>",
                     "subject": subject,
                     "html": html_body,
                     "text": text_body,
+                    # CF Email Sending carries no arbitrary headers — Reply-To /
+                    # List-Unsubscribe ride the SMTP paths (local Postfix and the
+                    # CF SMTP-submit fallback below).
+                    **({"reply_to": reply_to} if reply_to else {}),
                 },
             )
             data = resp.json() if resp.content else {}
@@ -399,6 +420,9 @@ async def send_email_cloudflare_verified(
             html_body=html_body,
             to_addrs=to_addrs,
             attachments=attachments,
+            extra_headers=extra_headers,
+            reply_to=reply_to,
+            from_name=from_name,
         )
     except Exception as smtp_exc:  # noqa: BLE001
         raise RuntimeError(
@@ -417,6 +441,9 @@ async def send_email(
     html_body: str | None = None,
     to_addrs: list[str] | None = None,
     attachments: list[dict] | None = None,
+    extra_headers: dict[str, str] | None = None,
+    reply_to: str | None = None,
+    from_name: str | None = None,
 ) -> None:
     settings = get_settings()
     html = html_body or f"<pre>{_html_escape(text_body)}</pre>"
@@ -441,6 +468,9 @@ async def send_email(
                 html_body=html,
                 to_addrs=to_addrs,
                 attachments=attachments,
+                extra_headers=extra_headers,
+                reply_to=reply_to,
+                from_name=from_name,
             )
             return
         await send_email_cloudflare_verified(
@@ -448,6 +478,9 @@ async def send_email(
             text_body=text_body,
             html_body=html,
             to_addrs=to_addrs,
+            extra_headers=extra_headers,
+            reply_to=reply_to,
+            from_name=from_name,
         )
         return
 
@@ -458,6 +491,9 @@ async def send_email(
         html_body=html,
         to_addrs=to_addrs,
         attachments=attachments,
+        extra_headers=extra_headers,
+        reply_to=reply_to,
+        from_name=from_name,
     )
 
 
