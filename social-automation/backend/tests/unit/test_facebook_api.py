@@ -56,15 +56,17 @@ class _FakeAsyncClient:
         return self._next_response()
 
     async def post(self, url, headers=None, params=None, _json=None, data=None, content=None):
-        self.calls.append({
-            "method": "POST",
-            "url": url,
-            "headers": headers,
-            "params": params,
-            "json": _json,
-            "data": data,
-            "content": content,
-        })
+        self.calls.append(
+            {
+                "method": "POST",
+                "url": url,
+                "headers": headers,
+                "params": params,
+                "json": _json,
+                "data": data,
+                "content": content,
+            }
+        )
         return self._next_response()
 
     async def delete(self, url, headers=None, params=None):
@@ -163,11 +165,7 @@ async def test_get_long_lived_page_tokens(client):
     me_resp = _FakeResponse(200, {"id": "user-42", "name": "Test User"})
     accounts_resp = _FakeResponse(
         200,
-        {
-            "data": [
-                {"id": "222", "name": "Page Two", "access_token": "page-token-2"}
-            ]
-        },
+        {"data": [{"id": "222", "name": "Page Two", "access_token": "page-token-2"}]},
     )
     fake = _FakeAsyncClient([me_resp, accounts_resp])
     with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
@@ -274,11 +272,7 @@ async def test_get_post_insights(client):
     fake = _FakeAsyncClient(
         _FakeResponse(
             200,
-            {
-                "data": [
-                    {"name": "post_impressions", "values": [{"value": 10}]}
-                ]
-            },
+            {"data": [{"name": "post_impressions", "values": [{"value": 10}]}]},
         )
     )
     with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
@@ -358,11 +352,13 @@ async def test_error_handling_5xx(client):
 
 @pytest.mark.asyncio
 async def test_create_multi_photo_post_success(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "photo-1"}),
-        _FakeResponse(200, {"id": "photo-2"}),
-        _FakeResponse(200, {"id": "post-1"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"id": "photo-1"}),
+            _FakeResponse(200, {"id": "photo-2"}),
+            _FakeResponse(200, {"id": "post-1"}),
+        ]
+    )
     with patch("app.services.facebook_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
 
@@ -409,3 +405,275 @@ async def test_create_multi_photo_post_all_uploads_fail(client):
 
     assert exc_info.value.status_code == 400
     assert "No Facebook photo uploads succeeded" in exc_info.value.response_text
+
+
+# ── coverage append: helpers + uncovered methods ────────────────────
+
+
+class _HTTP:
+    """Minimal AsyncClient fake accepting any kwargs, routing by URL."""
+
+    def __init__(self, handler):
+        self.handler = handler
+        self.calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def _go(self, m, url, kw):
+        self.calls.append((m, url, kw))
+        return self.handler(m, url, kw)
+
+    async def get(self, url, **kw):
+        return await self._go("GET", url, kw)
+
+    async def post(self, url, **kw):
+        return await self._go("POST", url, kw)
+
+    async def delete(self, url, **kw):
+        return await self._go("DELETE", url, kw)
+
+
+def _wire(monkeypatch, handler):
+    holder = {}
+
+    def _factory(**kw):
+        c = _HTTP(handler)
+        holder["c"] = c
+        return c
+
+    monkeypatch.setattr(api.httpx, "AsyncClient", _factory)
+    return holder
+
+
+def _client():
+    return api.FacebookAPIClient(access_token="tok", page_id="123")
+
+
+class TestHelpers:
+    def test_validate_id(self):
+        assert api._validate_id(" 123_456 ") == "123_456"
+        for bad in ["", "abc", "1-2", "../../x", "12a"]:
+            with pytest.raises(ValueError):
+                api._validate_id(bad)
+
+    def test_sanitize_log_text(self):
+        out = api._sanitize_log_text("a\nb\rc\x01d")
+        assert "\\n" in out and "\\r" in out
+        assert "\x01" not in out
+        assert len(api._sanitize_log_text("x" * 500, 10)) == 10
+
+    def test_mask_sensitive(self):
+        out = api._mask_sensitive("+30 699 1234567 called")
+        assert "1234567" not in out and "***" in out
+        out2 = api._mask_sensitive("access_token=abc123&x=1")
+        assert "abc123" not in out2
+
+
+class TestErrorClass:
+    def test_from_response_full(self):
+        resp = _FakeResponse(400, {"error": {"message": "bad thing", "type": "OAuthEx", "code": 190}})
+        err = api.FacebookAPIError.from_response(resp, "u")
+        assert err.status_code == 400
+        assert "(OAuthEx)" in str(err) and "[code 190]" in str(err)
+        assert "bad thing" in str(err)
+
+    def test_from_response_no_error_obj(self):
+        resp = _FakeResponse(400, {"other": 1})
+        err = api.FacebookAPIError.from_response(resp, "u")
+        assert "u" in str(err)
+
+    def test_from_response_non_json(self):
+        resp = _FakeResponse(500, "not json")
+        err = api.FacebookAPIError.from_response(resp, "u")
+        assert err.status_code == 500
+
+    def test_init_and_map(self):
+        c = _client()
+        assert c._map_status_code(500) == 502
+        assert c._map_status_code(503) == 503
+        assert c._map_status_code(504) == 503
+        assert c._map_status_code(429) == 429
+        assert api.FacebookAPIError(400, "t", "u").status_code == 400
+
+
+class TestCtor:
+    def test_no_token(self):
+        with pytest.raises(ValueError):
+            api.FacebookAPIClient("", "123")
+
+    def test_bad_page_id(self):
+        with pytest.raises(ValueError):
+            api.FacebookAPIClient("t", "bad id")
+
+    def test_version_lstrip(self):
+        c = api.FacebookAPIClient("t", "123", api_version="/v21.0")
+        assert c.api_version == "v21.0"
+        assert c._url("/x").endswith("/v21.0/x")
+
+
+class TestPageTokens:
+    @pytest.mark.asyncio
+    async def test_long_lived_pages(self, monkeypatch):
+        resps = iter([_FakeResponse(200, {"id": "u1"}), _FakeResponse(200, {"data": [{"id": "p"}]})])
+        _wire(monkeypatch, lambda m, u, kw: next(resps))
+        out = await _client().get_long_lived_page_tokens("lltok")
+        assert out == [{"id": "p"}]
+
+    @pytest.mark.asyncio
+    async def test_no_user_id(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {}))
+        with pytest.raises(ValueError, match="user id"):
+            await _client().get_long_lived_page_tokens("lltok")
+
+
+class TestPublishGuards:
+    @pytest.mark.asyncio
+    async def test_post_requires_content(self):
+        with pytest.raises(ValueError):
+            await _client().create_post("")
+
+    @pytest.mark.asyncio
+    async def test_post_with_link(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"id": "x"}))
+        await _client().create_post("msg", link="https://l")
+        assert holder["c"].calls[-1][2]["data"]["link"] == "https://l"
+
+    @pytest.mark.asyncio
+    async def test_photo_requires_url(self):
+        with pytest.raises(ValueError):
+            await _client().create_photo_post("")
+
+    @pytest.mark.asyncio
+    async def test_photo_happy(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"id": "p"}))
+        await _client().create_photo_post("https://img", "cap")
+        assert holder["c"].calls[-1][2]["data"]["caption"] == "cap"
+
+    @pytest.mark.asyncio
+    async def test_video_requires_url(self):
+        with pytest.raises(ValueError):
+            await _client().create_video_post("")
+
+    @pytest.mark.asyncio
+    async def test_video_happy(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"id": "v"}))
+        await _client().create_video_post("https://v", "desc")
+        assert holder["c"].calls[-1][2]["data"]["file_url"] == "https://v"
+
+
+class TestInsights:
+    @pytest.mark.asyncio
+    async def test_metric_required(self):
+        with pytest.raises(ValueError):
+            await _client().get_page_insights("")
+
+    @pytest.mark.asyncio
+    async def test_page_insights_params(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"data": []}))
+        await _client().get_page_insights("page_views", period="day", since="2026-01-01", until="2026-02-01")
+        params = holder["c"].calls[-1][2]["params"]
+        assert params["since"] == "2026-01-01"
+        assert params["until"] == "2026-02-01"
+
+    @pytest.mark.asyncio
+    async def test_post_insights(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"data": [{"x": 1}]}))
+        out = await _client().get_post_insights("123_456")
+        assert out["data"] == [{"x": 1}]
+
+
+class TestPageProfile:
+    @pytest.mark.asyncio
+    async def test_page_info(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"name": "P"}))
+        assert (await _client().get_page_info())["name"] == "P"
+
+    @pytest.mark.asyncio
+    async def test_update_about_too_long(self):
+        with pytest.raises(ValueError, match="100"):
+            await _client().update_page_info(about="x" * 101)
+
+    @pytest.mark.asyncio
+    async def test_update_no_fields(self):
+        with pytest.raises(ValueError):
+            await _client().update_page_info()
+
+    @pytest.mark.asyncio
+    async def test_update_fields(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"success": True}))
+        out = await _client().update_page_info(about="a", website="w", phone="p", description="d")
+        assert out is True
+        data = holder["c"].calls[-1][2]["data"]
+        assert data == {"about": "a", "description": "d", "website": "w", "phone": "p"}
+
+    @pytest.mark.asyncio
+    async def test_upload_picture(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"success": True}))
+        assert await _client().upload_profile_picture(b"png") is True
+        assert "source" in holder["c"].calls[-1][2]["files"]
+
+    @pytest.mark.asyncio
+    async def test_cover_two_step(self, monkeypatch):
+        resps = iter([_FakeResponse(200, {"id": "ph1"}), _FakeResponse(200, {"success": True})])
+        _wire(monkeypatch, lambda m, u, kw: next(resps))
+        assert await _client().upload_cover_photo(b"img") == "ph1"
+
+    @pytest.mark.asyncio
+    async def test_cover_no_photo_id(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {}))
+        with pytest.raises(api.FacebookAPIError, match="photo ID"):
+            await _client().upload_cover_photo(b"img")
+
+
+class TestTasks:
+    @pytest.mark.asyncio
+    async def test_assigned_users(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"data": [{"id": "u"}]}))
+        assert await _client().get_assigned_users("111") == [{"id": "u"}]
+
+    @pytest.mark.asyncio
+    async def test_assign_tasks_empty(self):
+        with pytest.raises(ValueError):
+            await _client().assign_page_tasks("111", [], "222")
+
+    @pytest.mark.asyncio
+    async def test_assign_tasks(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"success": True}))
+        assert await _client().assign_page_tasks("111", ["MANAGE"], "222") is True
+        data = holder["c"].calls[-1][2]["data"]
+        assert data["tasks"] == ["MANAGE"]
+
+    @pytest.mark.asyncio
+    async def test_page_tasks_found(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"data": [{"id": "999", "tasks": ["X"]}, {"id": "123", "tasks": ["MANAGE", "CREATE_CONTENT"]}]}))
+        out = await _client().get_page_tasks()
+        assert out == ["MANAGE", "CREATE_CONTENT"]
+
+    @pytest.mark.asyncio
+    async def test_page_tasks_not_found(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"data": [{"id": "999"}]}))
+        assert await _client().get_page_tasks() == []
+
+
+class TestDelete:
+    @pytest.mark.asyncio
+    async def test_delete_post(self, monkeypatch):
+        holder = _wire(monkeypatch, lambda m, u, kw: _FakeResponse(200, {"success": True}))
+        assert await _client().delete_post("123_456") is True
+        assert holder["c"].calls[-1][0] == "DELETE"
+
+    @pytest.mark.asyncio
+    async def test_delete_bad_id(self):
+        with pytest.raises(ValueError):
+            await _client().delete_post("../bad")
+
+    @pytest.mark.asyncio
+    async def test_api_error(self, monkeypatch):
+        _wire(monkeypatch, lambda m, u, kw: _FakeResponse(500, {"error": {"message": "down"}}))
+        with pytest.raises(api.FacebookAPIError) as ei:
+            await _client().delete_post("123")
+        assert ei.value.status_code == 502  # mapped
