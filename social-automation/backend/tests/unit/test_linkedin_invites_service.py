@@ -67,10 +67,8 @@ def _sleep(monkeypatch):
 def _wire_batch(monkeypatch, client=None):
     """Wire send_invite_batch seams; returns the fake bridge client."""
     client = client or _FakeBridge()
-    monkeypatch.setattr(LI, "get_settings",
-                        lambda: SimpleNamespace(BROWSER_BRIDGE_URL="http://b"))
-    monkeypatch.setattr(LI, "BrowserBridgeClient",
-                        lambda *a, **k: client)
+    monkeypatch.setattr(LI, "get_settings", lambda: SimpleNamespace(BROWSER_BRIDGE_URL="http://b"))
+    monkeypatch.setattr(LI, "BrowserBridgeClient", lambda *a, **k: client)
     monkeypatch.setattr(LI, "browser_session", lambda *a, **k: _Session())
     return client
 
@@ -82,13 +80,13 @@ def _wire_batch(monkeypatch, client=None):
 async def test_eval_variants():
     c = _FakeBridge()
     c.evaluate = AsyncMock(return_value={"result": '{"a": 1}'})
-    assert await LI._eval(c, "x") == {"a": 1}          # JSON string parsed
+    assert await LI._eval(c, "x") == {"a": 1}  # JSON string parsed
     c.evaluate = AsyncMock(return_value={"result": "plain"})
-    assert await LI._eval(c, "x") == "plain"           # non-JSON str kept
+    assert await LI._eval(c, "x") == "plain"  # non-JSON str kept
     c.evaluate = AsyncMock(return_value={"result": 42})
-    assert await LI._eval(c, "x") == 42                # native value
+    assert await LI._eval(c, "x") == 42  # native value
     c.evaluate = AsyncMock(return_value="raw")
-    assert await LI._eval(c, "x") == "raw"             # non-dict res
+    assert await LI._eval(c, "x") == "raw"  # non-dict res
 
 
 @pytest.mark.asyncio
@@ -103,11 +101,9 @@ async def test_click_button_by_text():
 
 @pytest.mark.asyncio
 async def test_selected_count():
-    assert await LI._selected_count(
-        _FakeBridge({"selected": "3 selected"})) == 3
+    assert await LI._selected_count(_FakeBridge({"selected": "3 selected"})) == 3
     assert await LI._selected_count(_FakeBridge()) == 0
-    assert await LI._selected_count(
-        _FakeBridge({"selected": "none"})) == 0
+    assert await LI._selected_count(_FakeBridge({"selected": "none"})) == 0
 
 
 @pytest.mark.asyncio
@@ -120,8 +116,7 @@ async def test_wait_for_dialog():
 
 @pytest.mark.asyncio
 async def test_login_wall():
-    assert await LI._login_wall(
-        _FakeBridge({"session_key": True})) is True
+    assert await LI._login_wall(_FakeBridge({"session_key": True})) is True
     assert await LI._login_wall(_FakeBridge()) is False
 
     class _ErrBridge(_FakeBridge):
@@ -161,25 +156,30 @@ async def test_click_checkbox_at_index():
 
 @pytest.mark.asyncio
 async def test_harvest_candidates_pagination(monkeypatch):
-    rows_page1 = [{"name": "Ada", "headline": "CTO"},
-                  {"name": "Ada", "headline": "CTO"},   # deduped
-                  {"name": "Bob", "headline": "DevOps"}]
-    c = _FakeBridge({
-        "input[type=checkbox]')].map": (
-            rows_page1, [{"name": "Cid", "headline": "SRE"}]),
-        "Show more results": ({"x": 1, "y": 2}, None),  # 2nd page: no button
-        "input[type=checkbox]').length": 50,
-    })
+    rows_page1 = [
+        {"name": "Ada", "headline": "CTO"},
+        {"name": "Ada", "headline": "CTO"},  # deduped
+        {"name": "Bob", "headline": "DevOps"},
+    ]
+    c = _FakeBridge(
+        {
+            "input[type=checkbox]')].map": (rows_page1, [{"name": "Cid", "headline": "SRE"}]),
+            "Show more results": ({"x": 1, "y": 2}, None),  # 2nd page: no button
+            "input[type=checkbox]').length": 50,
+        }
+    )
     out = await LI._harvest_candidates(c)
     assert [r["name"] for r in out] == ["Ada", "Bob", "Cid"]
     assert c.clicks == [(1, 2)]  # one pagination click
 
     # stale pagination: two rounds with no new rows → break
-    c = _FakeBridge({
-        "input[type=checkbox]')].map": [{"name": "A", "headline": "h"}],
-        "Show more results": {"x": 1, "y": 1},
-        "input[type=checkbox]').length": 1,
-    })
+    c = _FakeBridge(
+        {
+            "input[type=checkbox]')].map": [{"name": "A", "headline": "h"}],
+            "Show more results": {"x": 1, "y": 1},
+            "input[type=checkbox]').length": 1,
+        }
+    )
     out = await LI._harvest_candidates(c)
     assert len(out) == 1
 
@@ -196,22 +196,24 @@ async def test_harvest_candidates_pagination(monkeypatch):
 @pytest.mark.asyncio
 async def test_score_candidates(monkeypatch):
     import app.services.inference as INF
-    call = AsyncMock(side_effect=[
-        {"response": {"scores": [{"i": 0, "s": 90}, {"i": 1, "s": 20}]}},
-        {"response": '{"scores": [{"i": 40, "s": 77}]}'},
-    ])
+
+    call = AsyncMock(
+        side_effect=[
+            {"response": {"scores": [{"i": 0, "s": 90}, {"i": 1, "s": 20}]}},
+            {"response": '{"scores": [{"i": 40, "s": 77}]}'},
+        ]
+    )
     monkeypatch.setattr(INF, "call_inference", call)
     cands = [{"i": i, "name": f"n{i}", "headline": "h"} for i in range(41)]
     scores = await LI._score_candidates(cands)
-    assert scores == {0: 90, 1: 20, 40: 77}   # two chunks merged
+    assert scores == {0: 90, 1: 20, 40: 77}  # two chunks merged
     assert call.await_count == 2
 
     assert await LI._score_candidates([]) == {}
 
     call = AsyncMock(side_effect=RuntimeError("dmr down"))
     monkeypatch.setattr(INF, "call_inference", call)
-    assert await LI._score_candidates(
-        [{"i": 0, "name": "n", "headline": "h"}]) == {}
+    assert await LI._score_candidates([{"i": 0, "name": "n", "headline": "h"}]) == {}
 
 
 # ── invite dialog navigation ─────────────────────────────────────────
@@ -225,19 +227,18 @@ async def test_click_invite_anywhere(monkeypatch):
     assert c.clicks == [(5, 6)]
 
     # plain-button fallback
-    c = _FakeBridge({"offsetParent&&(e.innerText||'').trim()==='Invite connections'":
-                     {"x": 7, "y": 8}})
-    monkeypatch.setattr(LI, "_click_button_by_text", AsyncMock(
-        return_value=True))
+    c = _FakeBridge({"offsetParent&&(e.innerText||'').trim()==='Invite connections'": {"x": 7, "y": 8}})
+    monkeypatch.setattr(LI, "_click_button_by_text", AsyncMock(return_value=True))
     assert await LI._click_invite_anywhere(c) is True
 
     # overflow-menu path: open ⋯ then click menu item
-    monkeypatch.setattr(LI, "_click_button_by_text", AsyncMock(
-        return_value=False))
-    c = _FakeBridge({
-        "more\\b|⋯|\\.\\.\\.": True,
-        "role=menuitem": True,
-    })
+    monkeypatch.setattr(LI, "_click_button_by_text", AsyncMock(return_value=False))
+    c = _FakeBridge(
+        {
+            "more\\b|⋯|\\.\\.\\.": True,
+            "role=menuitem": True,
+        }
+    )
     assert await LI._click_invite_anywhere(c) is True
 
     # menu never opens → False
@@ -266,15 +267,14 @@ async def test_open_invite_dialog(monkeypatch):
 
     async def _boom(url):
         raise LI.BrowserBridgeError(500, "nav")
+
     c.navigate = _boom
     assert await LI._open_invite_dialog(c) is False
 
     # click works but dialog never appears → all surfaces tried → False
     c = _FakeBridge()
-    monkeypatch.setattr(LI, "_click_invite_anywhere", AsyncMock(
-        return_value=True))
-    monkeypatch.setattr(LI, "_wait_for_dialog", AsyncMock(
-        return_value=False))
+    monkeypatch.setattr(LI, "_click_invite_anywhere", AsyncMock(return_value=True))
+    monkeypatch.setattr(LI, "_wait_for_dialog", AsyncMock(return_value=False))
     assert await LI._open_invite_dialog(c) is False
     assert len(c.navigated) == 3
 
@@ -295,6 +295,7 @@ async def test_batch_session_not_logged_in(monkeypatch):
     async def _contend(*a, **kw):
         if not kw.get("force"):
             raise LI.BrowserBridgeError(409, "busy")
+
     c.start_session = _contend
     _wire_batch(monkeypatch, c)
     out = await LI.send_invite_batch()
@@ -305,20 +306,17 @@ async def test_batch_session_not_logged_in(monkeypatch):
 async def test_batch_phase_a_skips(monkeypatch):
     _wire_batch(monkeypatch)
 
-    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(
-        return_value=False))
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(return_value=False))
     out = await LI.send_invite_batch()
     assert out["reason"] == "invite_dialog_missing"
 
-    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(
-        return_value=True))
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(return_value=True))
     monkeypatch.setattr(LI, "_read_credits", AsyncMock(return_value=0))
     out = await LI.send_invite_batch()
     assert out["reason"] == "no_credits" and out["credits_available"] == 0
 
     monkeypatch.setattr(LI, "_read_credits", AsyncMock(return_value=10))
-    monkeypatch.setattr(LI, "_harvest_candidates", AsyncMock(
-        return_value=[]))
+    monkeypatch.setattr(LI, "_harvest_candidates", AsyncMock(return_value=[]))
     out = await LI.send_invite_batch()
     assert out["reason"] == "no_candidates" and out["candidates"] == 0
 
@@ -326,13 +324,11 @@ async def test_batch_phase_a_skips(monkeypatch):
 @pytest.mark.asyncio
 async def test_batch_phase_a_errors(monkeypatch):
     _wire_batch(monkeypatch)
-    monkeypatch.setattr(LI, "_open_invite_dialog",
-                        AsyncMock(side_effect=LI.BrowserBridgeError(503, "x")))
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(side_effect=LI.BrowserBridgeError(503, "x")))
     out = await LI.send_invite_batch()
     assert out["reason"] == "bridge:503"
 
-    monkeypatch.setattr(LI, "_open_invite_dialog",
-                        AsyncMock(side_effect=RuntimeError("weird")))
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(side_effect=RuntimeError("weird")))
     out = await LI.send_invite_batch()
     assert out["reason"] == "RuntimeError"
 
@@ -342,27 +338,27 @@ async def test_batch_phase_a_errors(monkeypatch):
 
 def _phase_b(monkeypatch, scores=None, n=3):
     """Patch phase-A helpers to reach phase C with `n` candidates."""
-    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(
-        return_value=True))
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(return_value=True))
     monkeypatch.setattr(LI, "_read_credits", AsyncMock(return_value=10))
-    cands = [{"i": i, "name": f"n{i}", "headline": "h"}
-             for i in range(n)]
-    monkeypatch.setattr(LI, "_harvest_candidates", AsyncMock(
-        return_value=cands))
-    monkeypatch.setattr(LI, "_score_candidates", AsyncMock(
-        return_value=scores if scores is not None else {}))
+    cands = [{"i": i, "name": f"n{i}", "headline": "h"} for i in range(n)]
+    monkeypatch.setattr(LI, "_harvest_candidates", AsyncMock(return_value=cands))
+    monkeypatch.setattr(LI, "_score_candidates", AsyncMock(return_value=scores if scores is not None else {}))
 
 
 @pytest.mark.asyncio
 async def test_batch_happy_path(monkeypatch):
-    _wire_batch(monkeypatch, _FakeBridge({
-        "location.href": "https://www.linkedin.com/company/x",
-        "\\d+ selected": "3 selected",
-        "offsetParent&&(e.innerText||'').trim().startsWith('Invite ')":
-            {"x": 1, "y": 1},
-        "document.body.innerText.slice": "All good. Invitations sent!",
-        "rows.find": True,
-    }))
+    _wire_batch(
+        monkeypatch,
+        _FakeBridge(
+            {
+                "location.href": "https://www.linkedin.com/company/x",
+                "\\d+ selected": "3 selected",
+                "offsetParent&&(e.innerText||'').trim().startsWith('Invite ')": {"x": 1, "y": 1},
+                "document.body.innerText.slice": "All good. Invitations sent!",
+                "rows.find": True,
+            }
+        ),
+    )
     _phase_b(monkeypatch)
     out = await LI.send_invite_batch(batch_size=3)
     assert out["status"] == "sent" and out["sent"] == 3
@@ -380,8 +376,7 @@ async def test_batch_dialog_lost_in_phase_c(monkeypatch):
     _phase_b(monkeypatch)
     monkeypatch.setattr(LI, "_dialog_open", AsyncMock(return_value=False))
     # phase A opens fine; phase C re-open fails → dialog lost
-    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(
-        side_effect=[True, False]))
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(side_effect=[True, False]))
     out = await LI.send_invite_batch()
     assert out["reason"] == "invite_dialog_lost"
 
@@ -397,54 +392,66 @@ async def test_batch_session_stolen(monkeypatch):
         if "rows.find" in expr:
             raise LI.BrowserBridgeError(409, "stolen")
         return {"result": None}
+
     c.evaluate = _eval409
     # phase A + phase C entry ok; the post-409 re-claim raises → stolen
-    c.start_session = AsyncMock(
-        side_effect=[None, None, LI.BrowserBridgeError(409, "still busy")])
+    c.start_session = AsyncMock(side_effect=[None, None, LI.BrowserBridgeError(409, "still busy")])
     out = await LI.send_invite_batch()
     assert out["reason"] == "browser_session_stolen"
     assert out["picked_clicked"] == 0
 
     # 409 → re-claim ok but dialog gone → invite_dialog_lost
     c.start_session = AsyncMock()
-    monkeypatch.setattr(LI, "_dialog_open", AsyncMock(
-        side_effect=[True, False]))
+    monkeypatch.setattr(LI, "_dialog_open", AsyncMock(side_effect=[True, False]))
     out = await LI.send_invite_batch()
     assert out["reason"] == "invite_dialog_lost"
 
 
 @pytest.mark.asyncio
 async def test_batch_send_failures(monkeypatch):
-    _wire_batch(monkeypatch, _FakeBridge({
-        "rows.find": True,
-        "\\d+ selected": "0 selected",
-    }))
+    _wire_batch(
+        monkeypatch,
+        _FakeBridge(
+            {
+                "rows.find": True,
+                "\\d+ selected": "0 selected",
+            }
+        ),
+    )
     _phase_b(monkeypatch)
     monkeypatch.setattr(LI, "_dialog_open", AsyncMock(return_value=True))
     out = await LI.send_invite_batch()
     assert out["reason"] == "nothing_selected"
 
-    _wire_batch(monkeypatch, _FakeBridge({
-        "rows.find": True,
-        "\\d+ selected": "2 selected",
-        # no Invite-button coords → click fails
-    }))
-    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(
-        return_value=True))
+    _wire_batch(
+        monkeypatch,
+        _FakeBridge(
+            {
+                "rows.find": True,
+                "\\d+ selected": "2 selected",
+                # no Invite-button coords → click fails
+            }
+        ),
+    )
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(return_value=True))
     _phase_b(monkeypatch)
     monkeypatch.setattr(LI, "_dialog_open", AsyncMock(return_value=True))
     out = await LI.send_invite_batch()
     assert out["reason"] == "invite_send_button_missing"
 
     # click ok but confirmation text absent → send_unconfirmed
-    _wire_batch(monkeypatch, _FakeBridge({
-        "rows.find": True,
-        "\\d+ selected": "2 selected",
-        "startsWith('Invite ')": {"x": 1, "y": 1},
-        "document.body.innerText.slice": "something else",
-    }))
-    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(
-        return_value=True))
+    _wire_batch(
+        monkeypatch,
+        _FakeBridge(
+            {
+                "rows.find": True,
+                "\\d+ selected": "2 selected",
+                "startsWith('Invite ')": {"x": 1, "y": 1},
+                "document.body.innerText.slice": "something else",
+            }
+        ),
+    )
+    monkeypatch.setattr(LI, "_open_invite_dialog", AsyncMock(return_value=True))
     _phase_b(monkeypatch)
     monkeypatch.setattr(LI, "_dialog_open", AsyncMock(return_value=True))
     out = await LI.send_invite_batch()
@@ -454,17 +461,14 @@ async def test_batch_send_failures(monkeypatch):
     c = _wire_batch(monkeypatch)
     _phase_b(monkeypatch)
     monkeypatch.setattr(LI, "_dialog_open", AsyncMock(return_value=True))
-    c.start_session = AsyncMock(
-        side_effect=[None, LI.BrowserBridgeError(409, "x"),
-                     LI.BrowserBridgeError(500, "y")])
+    c.start_session = AsyncMock(side_effect=[None, LI.BrowserBridgeError(409, "x"), LI.BrowserBridgeError(500, "y")])
     out = await LI.send_invite_batch()
     assert out["reason"] == "bridge:500"
 
     # generic error in phase C → type name
     _wire_batch(monkeypatch)
     _phase_b(monkeypatch)
-    monkeypatch.setattr(LI, "_dialog_open",
-                        AsyncMock(side_effect=ValueError("v")))
+    monkeypatch.setattr(LI, "_dialog_open", AsyncMock(side_effect=ValueError("v")))
     out = await LI.send_invite_batch()
     assert out["reason"] == "ValueError"
 
@@ -481,8 +485,7 @@ async def test_harvest_max_candidates_break():
 @pytest.mark.asyncio
 async def test_open_dialog_bridge_error_continues(monkeypatch):
     monkeypatch.setattr(LI, "_login_wall", AsyncMock(return_value=False))
-    monkeypatch.setattr(LI, "_click_invite_anywhere", AsyncMock(
-        side_effect=[LI.BrowserBridgeError(500, "x"), True]))
+    monkeypatch.setattr(LI, "_click_invite_anywhere", AsyncMock(side_effect=[LI.BrowserBridgeError(500, "x"), True]))
     monkeypatch.setattr(LI, "_wait_for_dialog", AsyncMock(return_value=True))
     c = _FakeBridge()
     assert await LI._open_invite_dialog(c) is True
@@ -491,11 +494,16 @@ async def test_open_dialog_bridge_error_continues(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_batch_eval_bridge_errors(monkeypatch):
-    c = _wire_batch(monkeypatch, _FakeBridge({
-        "\\d+ selected": "2 selected",
-        "startsWith('Invite ')": {"x": 1, "y": 1},
-        "document.body.innerText.slice": "Invitations sent",
-    }))
+    c = _wire_batch(
+        monkeypatch,
+        _FakeBridge(
+            {
+                "\\d+ selected": "2 selected",
+                "startsWith('Invite ')": {"x": 1, "y": 1},
+                "document.body.innerText.slice": "Invitations sent",
+            }
+        ),
+    )
     _phase_b(monkeypatch)
     monkeypatch.setattr(LI, "_dialog_open", AsyncMock(return_value=True))
 
@@ -512,6 +520,7 @@ async def test_batch_eval_bridge_errors(monkeypatch):
             if key in expr:
                 return {"result": val}
         return {"result": None}
+
     c.evaluate = _eval500
     out = await LI.send_invite_batch(batch_size=3)
     assert out["status"] == "sent"
@@ -531,6 +540,7 @@ async def test_batch_eval_bridge_errors(monkeypatch):
             if key in expr:
                 return {"result": val}
         return {"result": None}
+
     c.evaluate = _eval409once
     monkeypatch.setattr(LI, "_dialog_open", AsyncMock(return_value=True))
     out = await LI.send_invite_batch(batch_size=3)
