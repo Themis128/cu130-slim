@@ -655,3 +655,130 @@ async def test_threads_convo_guards(monkeypatch):
     _bridge([{"text": "hi", "sender": "Ada"}])
     TH.is_thread_paused = AsyncMock(return_value=True)
     assert await TH._process_account(acct, cfg, {}, "", "", "", "") == 0
+
+
+# ── extra threads coverage from #518 ─────────────────────────────────
+_ARGS = ("bridge-url", "cf-tok", "cf-acc", "dmr")
+
+
+@pytest.mark.asyncio
+async def test_threads_poller(monkeypatch):
+    class _DB:
+        def __init__(self, accounts):
+            self.accounts = accounts
+            self.commit = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: self.accounts))
+
+    monkeypatch.setattr(TH, "_worker_db", lambda: _DB([]))
+    out = await TH._poll_threads_messenger_async()
+    assert out == {"accounts_checked": 0, "replies_sent": 0, "errors": 0}
+
+    acct_on = _account({"threads_auto_reply": {"enabled": True}, "threads_messenger_seen": {}})
+    acct_off = _account({"threads_auto_reply": {"enabled": False}})
+    acct_err = _account({"threads_auto_reply": {"enabled": True}})
+    monkeypatch.setattr(TH, "_worker_db", lambda: _DB([acct_off, acct_on, acct_err]))
+    monkeypatch.setattr(TH, "_process_account", AsyncMock(side_effect=[1, RuntimeError("x")]))
+    import sqlalchemy.orm.attributes as SOA
+
+    monkeypatch.setattr(SOA, "flag_modified", lambda *a, **k: None)
+
+    out = await TH._poll_threads_messenger_async()
+    assert out["accounts_checked"] == 2
+    assert out["replies_sent"] == 1 and out["errors"] == 1
+    assert "threads_messenger_last_checked" in acct_on.meta_data
+
+
+@pytest.mark.asyncio
+async def test_threads_process_guards(monkeypatch):
+    acct = _account({})
+    cfg = {"cooldown_seconds": 300}
+    seen: dict = {}
+
+    _wire(TH, monkeypatch, session_status="inactive")
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+    b = _wire(TH, monkeypatch)
+    b.ensure_session = AsyncMock(side_effect=RuntimeError("x"))
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(side_effect=RuntimeError("x"))
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(return_value={"conversations": []})
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+
+@pytest.mark.asyncio
+async def test_threads_happy_and_fallback(monkeypatch):
+    acct = _account({})
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "t1", "name": "Ada"}, {"thread_id": "t2", "name": "Bad"}]})
+    b.get_threads_dm_messages = AsyncMock(side_effect=[{"messages": [{"text": "price?", "sender": "them"}]}, RuntimeError("msg fetch boom")])
+    b.send_threads_dm_message = AsyncMock()
+
+    seen: dict = {}
+    n = await TH._process_account(acct, {"cooldown_seconds": 1}, seen, *_ARGS)
+    assert n == 1
+    b.send_threads_dm_message.assert_awaited_once_with("t1", "reply")
+    assert seen == {"t1": "price?"}
+    assert TH.store_message_memory.await_count == 2
+    TH.set_cooldown.assert_awaited_once()
+
+    b2 = _wire(TH, monkeypatch)
+    TH.generate_contextual_reply = AsyncMock(return_value="")
+    b2.get_threads_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "t1"}]})
+    b2.get_threads_dm_messages = AsyncMock(return_value={"messages": [{"text": "yo", "sender": "them"}]})
+    b2.send_threads_dm_message = AsyncMock()
+    await TH._process_account(acct, {"fallback_text": "FBTXT"}, {}, *_ARGS)
+    b2.send_threads_dm_message.assert_awaited_once_with("t1", "FBTXT")
+
+
+def test_threads_run_async():
+    async def _coro():
+        return 7
+
+    assert TH._run_async(_coro()) == 7
+
+
+@pytest.mark.asyncio
+async def test_threads_running_loop_and_wrapper(monkeypatch):
+    async def _coro():
+        return 9
+
+    assert TH._run_async(_coro()) == 9
+
+    async def _stub():
+        return {"ok": 1}
+
+    monkeypatch.setattr(TH, "_poll_threads_messenger_async", _stub)
+    assert TH.poll_threads_messenger() == {"ok": 1}
+
+    async def _boom():
+        raise RuntimeError("inner")
+
+    monkeypatch.setattr(TH, "_poll_threads_messenger_async", _boom)
+    with pytest.raises(RuntimeError):
+        TH.poll_threads_messenger()
+
+
+@pytest.mark.asyncio
+async def test_threads_bridge_error_in_loop(monkeypatch):
+    from app.services.browser_bridge import BrowserBridgeError
+
+    acct = _account({})
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "t1"}]})
+    b.get_threads_dm_messages = AsyncMock(side_effect=BrowserBridgeError(500, "bridge down"))
+    b.send_threads_dm_message = AsyncMock()
+    assert await TH._process_account(acct, {}, {}, *_ARGS) == 0
+    b.send_threads_dm_message.assert_not_awaited()
