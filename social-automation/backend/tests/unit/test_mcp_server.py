@@ -505,3 +505,25 @@ class TestTelegramTools:
         out = await S._handle_call_tool(None, _params("telegram_nope"))
         assert out.is_error
         assert "Unknown telegram tool" in _text(out)["error"]
+
+
+@pytest.mark.asyncio
+async def test_main_runs_stdio_server(monkeypatch):
+    import app.mcp.server as srv
+
+    read_stream, write_stream = object(), object()
+
+    class _FakeStdio:
+        async def __aenter__(self):
+            return read_stream, write_stream
+
+        async def __aexit__(self, *exc):
+            return False
+
+    run_mock = AsyncMock()
+    monkeypatch.setattr(srv, "stdio_server", lambda: _FakeStdio())
+    monkeypatch.setattr(srv.server, "run", run_mock)
+    await srv.main()
+    run_mock.assert_awaited_once_with(
+        read_stream, write_stream, srv.server.create_initialization_options()
+    )
