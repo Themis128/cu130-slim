@@ -454,7 +454,8 @@ app/services/
 │   │                           token, mirrors it into .env, and recreates the
 │   │                           token consumers (social-api + 4 workers +
 │   │                           celery-beat) with a pending-marker retry.
-│   │                           post_publishing_to_slack remains webhook-only.
+│   │                           post_publishing_to_slack shares the fallback
+│   │                           (webhook → bot token + SLACK_PUBLISHING_CHANNEL_ID).
 │   ├── analytics_sync.py     — Analytics synchronization. LinkedIn member
 │   │                           path: sidecar activity scrape (primary) +
 │   │                           memberCreatorPostAnalytics when the token
