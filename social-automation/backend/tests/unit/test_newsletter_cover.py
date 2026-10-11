@@ -7,9 +7,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+from fastapi import HTTPException, Request
 from PIL import Image
+from pydantic import ValidationError
 
 import app.api.newsletter as newsletter_api
 from app.services import newsletter_cover as cover_mod
@@ -52,78 +52,101 @@ def test_default_issue_date_is_iso():
     assert cover_mod.default_issue_date() == _d.today().isoformat()
 
 
-# ── endpoint ─────────────────────────────────────────────────────────
+# ── endpoint (direct calls — version-proof, no TestClient) ───────────
 
 
-@pytest.fixture
-def client(monkeypatch):
-    app = FastAPI()
-    app.include_router(newsletter_api.router)
-    with patch.object(
-        newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="s3cret")
-    ):
-        yield TestClient(app)
-
-
-def test_cover_503_when_service_token_unconfigured():
-    app = FastAPI()
-    app.include_router(newsletter_api.router)
-    with patch.object(
-        newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="")
-    ):
-        client = TestClient(app)
-        r = client.post("/newsletter/cover", json={"title": "x"})
-    assert r.status_code == 503
-    assert "NEWSLETTER_SERVICE_TOKEN" in r.json()["detail"]
-
-
-def test_cover_401_on_missing_or_wrong_token(client):
-    assert client.post("/newsletter/cover", json={"title": "x"}).status_code == 401
-    r = client.post(
-        "/newsletter/cover", json={"title": "x"}, headers={"X-Service-Token": "wrong"}
+def _request(token: str = "s3cret") -> Request:
+    return Request(
+        scope={
+            "type": "http",
+            "headers": [(b"x-service-token", token.encode()), (b"host", b"test")],
+        }
     )
-    assert r.status_code == 401
 
 
-def test_cover_200_returns_png(client):
-    r = client.post(
-        "/newsletter/cover",
-        json={"title": "Issue title", "issue_number": 12, "category": "Cloud"},
-        headers={"X-Service-Token": "s3cret"},
+def _patched_settings():
+    return patch.object(
+        newsletter_api,
+        "get_settings",
+        return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="s3cret"),
     )
-    assert r.status_code == 200
-    assert r.headers["content-type"] == "image/png"
-    assert r.headers["cache-control"] == "public, max-age=86400"
-    img = Image.open(io.BytesIO(r.content))
+
+
+@pytest.mark.asyncio
+async def test_cover_503_when_service_token_unconfigured():
+    with patch.object(
+        newsletter_api,
+        "get_settings",
+        return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN=""),
+    ):
+        with pytest.raises(HTTPException) as e:
+            await newsletter_api.newsletter_cover(
+                newsletter_api.NewsletterCoverRequest(title="x"), _request("")
+            )
+    assert e.value.status_code == 503
+    assert "NEWSLETTER_SERVICE_TOKEN" in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_cover_401_on_missing_or_wrong_token():
+    with _patched_settings():
+        with pytest.raises(HTTPException) as missing:
+            await newsletter_api.newsletter_cover(
+                newsletter_api.NewsletterCoverRequest(title="x"), _request("")
+            )
+        with pytest.raises(HTTPException) as wrong:
+            await newsletter_api.newsletter_cover(
+                newsletter_api.NewsletterCoverRequest(title="x"), _request("wrong")
+            )
+    assert missing.value.status_code == 401
+    assert wrong.value.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_cover_200_returns_png():
+    with _patched_settings():
+        resp = await newsletter_api.newsletter_cover(
+            newsletter_api.NewsletterCoverRequest(
+                title="Issue title", issue_number=12, category="Cloud"
+            ),
+            _request(),
+        )
+    assert resp.status_code == 200
+    assert resp.media_type == "image/png"
+    assert resp.headers["cache-control"] == "public, max-age=86400"
+    img = Image.open(io.BytesIO(resp.body))
     assert img.size == (cover_mod.WIDTH, cover_mod.HEIGHT)
 
 
-def test_cover_422_on_bad_issue_date(client):
-    r = client.post(
-        "/newsletter/cover",
-        json={"title": "x", "issue_date": "not-a-date"},
-        headers={"X-Service-Token": "s3cret"},
-    )
-    assert r.status_code == 422
+@pytest.mark.asyncio
+async def test_cover_422_on_bad_issue_date():
+    with _patched_settings():
+        with pytest.raises(HTTPException) as e:
+            await newsletter_api.newsletter_cover(
+                newsletter_api.NewsletterCoverRequest(title="x", issue_date="not-a-date"),
+                _request(),
+            )
+    assert e.value.status_code == 422
 
 
-def test_cover_422_on_blank_title(client):
-    r = client.post("/newsletter/cover", json={"title": ""})
-    assert r.status_code == 422
+def test_cover_422_on_blank_title():
+    with pytest.raises(ValidationError):
+        newsletter_api.NewsletterCoverRequest(title="")
 
 
-def test_cover_uses_today_when_date_omitted(client, monkeypatch):
+@pytest.mark.asyncio
+async def test_cover_uses_today_when_date_omitted(monkeypatch):
     sentinel = "2026-10-12"
     monkeypatch.setattr(newsletter_api, "default_issue_date", lambda: sentinel)
     seen = {}
 
-    def fake_render(title, *, issue_number=None, issue_date=None, category=None):
-        seen["issue_date"] = issue_date
-        return b"\x89PNG fake"
+    def fake_render(title, **kwargs):
+        seen["issue_date"] = kwargs.get("issue_date")
+        return b"png-bytes"
 
-    monkeypatch.setattr(newsletter_api, "render_newsletter_cover", fake_render)
-    r = client.post(
-        "/newsletter/cover", json={"title": "x"}, headers={"X-Service-Token": "s3cret"}
-    )
-    assert r.status_code == 200
+    with _patched_settings():
+        monkeypatch.setattr(newsletter_api, "render_newsletter_cover", fake_render)
+        await newsletter_api.newsletter_cover(
+            newsletter_api.NewsletterCoverRequest(title="x"), _request()
+        )
     assert seen["issue_date"] == sentinel
