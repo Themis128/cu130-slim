@@ -854,3 +854,285 @@ async def test_webhook_secret_match_processes(monkeypatch):
     monkeypatch.setattr(telegram, "should_auto_reply_in_group", lambda *a, **k: False)
     out = await receive_webhook(acc.id, _WReq({"update_id": 1}), _DB([acc]), "sec123")
     assert out["status"] == "ok"
+
+
+# ── remaining coverage ────────────────────────────────────────────────
+
+
+def test_decrypt_bot_token_all_fail():
+    acc = _tg_account(meta_data={"bot_token_enc": "bad"}, access_token_enc="bad2")
+    with pytest.raises(HTTPException) as e:
+        _decrypt_bot_token(acc)
+    assert e.value.status_code == 400
+
+
+def test_client_for_real(monkeypatch):
+    monkeypatch.setattr(telegram, "decrypt_token", lambda b: "123456:AA-bb")
+    client = telegram._client_for(_tg_account())
+    assert client.bot_token == "123456:AA-bb"
+
+
+@pytest.mark.asyncio
+async def test_update_credentials_sets_secret_and_webhook(monkeypatch):
+    _patch_crypto(monkeypatch)
+    client = _FakeClient()
+    monkeypatch.setattr(telegram, "TelegramAPIClient", lambda t: client)
+    reg = AsyncMock(return_value={"ok": True})
+    monkeypatch.setattr(telegram, "_register_webhook", reg)
+    acc = _tg_account(meta_data={})  # no webhook_secret → generated
+    db = _DB([acc])
+    out = await update_telegram_credentials(
+        acc.id, TelegramCredentialsUpdate(bot_token="123456:AA-bb", set_webhook=True), db, _user()
+    )
+    assert out["status"] == "ok" and out["webhook"] == {"ok": True}
+    assert acc.meta_data["webhook_secret"]
+    assert acc.meta_data["bot_token_enc"] == "enc-bytes"
+    assert reg.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "call,body",
+    [
+        (send_photo, SendPhotoRequest(chat_id="1", photo="http://i", caption=None)),
+        (send_media_group, SendMediaGroupRequest(chat_id="1", media=[{"type": "photo", "media": "a"}, {"type": "photo", "media": "b"}])),
+        (send_poll, SendPollRequest(chat_id="1", question="q?", options=["a", "b"])),
+        (unpin_message, PinMessageRequest(chat_id="1", message_id=5)),
+        (delete_message, DeleteMessageRequest(chat_id="1", message_id=5)),
+    ],
+)
+async def test_send_502s(monkeypatch, call, body):
+    acc = _tg_account()
+    _patch_client(monkeypatch, _FakeClient(**{_m(call): telegram.TelegramAPIError(500, "boom")}))
+    with pytest.raises(HTTPException) as e:
+        await call(acc.id, body, _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+
+def _m(fn):
+    return {
+        send_photo: "send_photo",
+        send_media_group: "send_media_group",
+        send_poll: "send_poll",
+        unpin_message: "unpin_chat_message",
+        delete_message: "delete_message",
+    }[fn]
+
+
+@pytest.mark.asyncio
+async def test_chat_members_502(monkeypatch):
+    acc = _tg_account()
+    _patch_client(monkeypatch, _FakeClient(get_chat_member_count=telegram.TelegramAPIError(500, "x")))
+    with pytest.raises(HTTPException) as e:
+        await chat_members(acc.id, "1", _DB([acc]), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_create_bot_brand_indexed_and_index_error(monkeypatch):
+    acc = _tg_account()
+    monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
+    brand = SimpleNamespace(
+        name="Cloudless", tagline="t", positioning_statement="p", mission="m",
+        industry="saas", values=["v"], target_audience={"size": "smb"}, competitor_names=["x"],
+    )
+    idx = AsyncMock(return_value=8)
+    mod = ModuleType("app.services.telegram_chatbot")
+    mod.index_brand_knowledge = idx
+    monkeypatch.setitem(sys.modules, "app.services.telegram_chatbot", mod)
+    db = _DB([acc, brand])
+    out = await create_bot(acc.id, BotCreateRequest(personality="professional_friendly"), db, _user())
+    assert out["brand_indexed"] == 8
+    assert idx.await_args.args[1]["competitor_names"] == ["x"]
+
+    # brand lookup explodes → tolerated, still creates bot
+    class _BoomDB(_DB):
+        async def execute(self, stmt):
+            if not self._q:
+                raise RuntimeError("brand db down")
+            return await super().execute(stmt)
+
+    out = await create_bot(acc.id, BotCreateRequest(personality="sales"), _BoomDB([acc]), _user())
+    assert out["status"] == "ok" and out["brand_indexed"] == 0
+
+
+@pytest.mark.asyncio
+async def test_update_group_watch_refresh_error_tolerated(monkeypatch):
+    _patch_crypto(monkeypatch)
+    acc = _tg_account()
+    _patch_client(monkeypatch)
+    monkeypatch.setattr(telegram, "_register_webhook", AsyncMock(side_effect=RuntimeError("wh fail")))
+    cfg = GroupWatchConfig(enabled=True, watched_chats=[])
+    out = await update_group_watch(acc.id, cfg, _DB([acc]), _user())
+    assert out.enabled is True  # webhook refresh failure tolerated
+
+
+@pytest.mark.asyncio
+async def test_setup_links_get_me_error_tolerated(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e"}, username=None)
+    client = _FakeClient(get_me=telegram.TelegramAPIError(401, "unauth"))
+    _patch_client(monkeypatch, client)
+    mod = ModuleType("app.services.telegram_group_watch")
+    mod.ensure_bot_commands = AsyncMock(return_value=True)
+    mod.bot_deep_links = lambda u: {"link": u}
+    monkeypatch.setitem(sys.modules, "app.services.telegram_group_watch", mod)
+    monkeypatch.setattr(telegram, "_register_webhook", AsyncMock(return_value={"ok": 1}))
+    out = await setup_group_watch_links(acc.id, _DB([acc]), _user())
+    assert out["bot_username"] == ""  # get_me error tolerated
+
+
+@pytest.mark.asyncio
+async def test_resume_thread_400():
+    acc = _tg_account()
+    with pytest.raises(HTTPException) as e:
+        await resume_thread(acc.id, {}, _DB([acc]), _user())
+    assert e.value.status_code == 400
+
+
+# ── webhook body ──────────────────────────────────────────────────────
+
+
+def _wh_patches(monkeypatch, **ov):
+    defaults = dict(
+        extract_my_chat_member_update=lambda u: None,
+        extract_callback_query=lambda u: None,
+        extract_inbound_text_update=lambda u: None,
+        handle_bot_membership_change=AsyncMock(return_value=({"cfg": 1}, "info")),
+        handle_mistaken_botfather_command=AsyncMock(return_value=False),
+        handle_owner_link_command=AsyncMock(return_value=({"cfg": 1}, False)),
+        upsert_watched_chat=lambda cfg, **kw: cfg,
+        process_group_message_watch=AsyncMock(return_value={"matched": 0}),
+        should_auto_reply_in_group=lambda *a, **k: False,
+        get_group_watch_from_meta=lambda m: {},
+    )
+    defaults.update(ov)
+    for k, v in defaults.items():
+        monkeypatch.setattr(telegram, k, v)
+
+
+@pytest.mark.asyncio
+async def test_webhook_membership_paths(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    _wh_patches(monkeypatch, extract_my_chat_member_update=lambda u: {"chat_id": 1})
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["membership"] == "info"
+
+    _wh_patches(monkeypatch,
+        extract_my_chat_member_update=lambda u: {"chat_id": 1},
+        handle_bot_membership_change=AsyncMock(side_effect=RuntimeError("x")))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["membership_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_callback_paths(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    client = _FakeClient()
+    client.answer_callback_query = AsyncMock(return_value=True)
+    _patch_client(monkeypatch, client)
+    _wh_patches(monkeypatch, extract_callback_query=lambda u: {"callback_id": "cb1", "data": "d", "from_user_id": 1, "chat_id": 2})
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["callback_answered"] is True
+    assert acc.meta_data["last_callback"]["data"] == "d"
+
+    _wh_patches(monkeypatch,
+        extract_callback_query=lambda u: {"callback_id": "cb1"},
+        )
+    client2 = _FakeClient()
+    client2.answer_callback_query = AsyncMock(side_effect=RuntimeError("x"))
+    _patch_client(monkeypatch, client2)
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["callback_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_inbound_guards(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    _wh_patches(monkeypatch, extract_inbound_text_update=lambda u: {"is_bot": True, "text": "x"})
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["reason"] == "bot_sender"
+
+    # botfather redirect
+    _wh_patches(monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "/mybots", "chat_type": "private"},
+        handle_mistaken_botfather_command=AsyncMock(return_value=True))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["redirected_botfather"] is True
+
+    # botfather raises → tolerated, falls through to owner link
+    _wh_patches(monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private"},
+        handle_mistaken_botfather_command=AsyncMock(side_effect=RuntimeError("x")))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["status"] == "ok"
+
+    # owner link success
+    _wh_patches(monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "/start linkowner", "chat_type": "private"},
+        handle_owner_link_command=AsyncMock(return_value=({"cfg": 1, "owner_chat_id": "9"}, True)))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["owner_linked"] is True
+
+    # owner link raises → tolerated
+    _wh_patches(monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private"},
+        handle_owner_link_command=AsyncMock(side_effect=RuntimeError("x")))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["auto_reply"] is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_group_watch_paths(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b", "telegram_auto_reply": {"enabled": False}})
+    _patch_client(monkeypatch)
+
+    # watch enabled → upsert + process; no mention → requires_mention.
+    # owner_link returns the watch_cfg that flows into the upsert guard.
+    _wh_patches(monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "group", "chat_id": 5, "chat_title": "G"},
+        handle_owner_link_command=AsyncMock(return_value=({"enabled": True, "watch_all_groups": True}, False)),
+        get_group_watch_from_meta=lambda m: {"enabled": True, "watch_all_groups": True})
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["reason"] == "group_requires_mention"
+
+    # process_group_message_watch raises → group_watch_error
+    _wh_patches(monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "group", "chat_id": 5},
+        process_group_message_watch=AsyncMock(side_effect=RuntimeError("x")))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["group_watch_error"] is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_auto_reply_paths(monkeypatch):
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": True},
+    })
+    _patch_client(monkeypatch)
+
+    mod = ModuleType("app.services.telegram_chatbot")
+    mod.process_inbound_message = AsyncMock()
+    monkeypatch.setitem(sys.modules, "app.services.telegram_chatbot", mod)
+
+    # bot returns a reply → sent
+    mod.process_inbound_message = AsyncMock(return_value={"reply": "hello back", "skipped": False})
+    _wh_patches(monkeypatch, extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private", "chat_id": 5, "message_id": 3})
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["replied"] is True
+
+    # bot skips
+    mod.process_inbound_message = AsyncMock(return_value={"reply": None, "skipped": True, "reason": "cooldown"})
+    _wh_patches(monkeypatch, extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private", "chat_id": 5})
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None
+    )
+    assert out["skipped"] is True and out["reason"] == "cooldown"
+
+    # bot explodes → error captured
+    mod.process_inbound_message = AsyncMock(side_effect=RuntimeError("bot dead"))
+    _wh_patches(monkeypatch, extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private", "chat_id": 5})
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["error"] is True
