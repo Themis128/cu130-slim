@@ -302,3 +302,44 @@ async def test_extract_brand_no_colors(monkeypatch):
     assert result["name"] == "Nocolor"
     assert "visual" not in result
     assert result["voice"]["messaging_pillars"] == []
+
+
+# ── remaining branches ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_safe_get_redirect_no_location():
+    client = _Client(lambda url: _resp(301))  # no location header
+    resp = await B._safe_get(client, "https://x.io")
+    assert resp.status_code == 301  # raise_for_status is a no-op Mock
+
+
+@pytest.mark.asyncio
+async def test_stylesheets_skip_no_href_and_fetch_error(monkeypatch):
+    monkeypatch.setattr(B, "validate_public_http_url", _identity_url)
+    soup = _soup('<link rel="stylesheet"><link rel="stylesheet" href="/a.css">')
+    monkeypatch.setattr(B, "_safe_get", AsyncMock(side_effect=RuntimeError("down")))
+    out = await B._fetch_stylesheets(_Client(None), soup, "https://x.io")
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_about_probe_error(monkeypatch):
+    monkeypatch.setattr(B, "validate_public_http_url", _identity_url)
+    monkeypatch.setattr(B, "_safe_get", AsyncMock(side_effect=RuntimeError("down")))
+    assert await B._first_about_page(_Client(None), "https://x.io") == ""
+
+
+@pytest.mark.asyncio
+async def test_analyze_settings_failure_falls_back(monkeypatch):
+    import app.core.config as cfg
+
+    monkeypatch.setattr(cfg, "get_settings", Mock(side_effect=RuntimeError("no env")))
+    calls = []
+    async def _inf(prompt, provider_name, schema, **kw):
+        calls.append((provider_name, kw))
+        return {"response": {"ok": True}} if provider_name == "dmr" else (_ for _ in ()).throw(RuntimeError("cf"))
+    monkeypatch.setattr(B, "call_inference", _inf)
+    out = await B._analyze_website_content("site copy", "x", None)
+    assert out == {"ok": True}
+    assert calls[-1] == ("dmr", {})  # settings failed → no model_override

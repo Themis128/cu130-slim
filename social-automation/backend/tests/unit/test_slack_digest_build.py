@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
@@ -349,3 +349,121 @@ async def test_markdown_full_sections():
     d = r.to_dict()
     assert d["issues"][0]["severity"] == "error"
     assert "markdown" in d
+
+
+# ── remaining branches ────────────────────────────────────────────────
+
+
+def test_is_policy_skip_edges():
+    from app.services.slack_digest import _is_policy_skip
+
+    assert _is_policy_skip([]) is False
+    t = SimpleNamespace(status="skipped", error_message="unrelated failure")
+    assert _is_policy_skip([t]) is False
+
+
+@pytest.mark.asyncio
+async def test_growth_stats_funnel_and_events():
+    """Funnel rows + all 4 event types populate growth dict."""
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import AsyncMock
+
+    from app.services.slack_digest import _growth_stats
+
+    def _res(rows):
+        r = MagicMock()
+        r.all.return_value = rows
+        return r
+
+    now = datetime.now(UTC)
+    since = now - timedelta(days=7)
+    db = AsyncMock()
+    db.execute.side_effect = [
+        _res([]),  # follower snapshots
+        _res([("instagram", 100, 10, 5)]),  # funnel
+        _res([
+            ("instagram", "audience_reach_split", {"by_follow_type": {"non_follower": 80, "follower": 20}}, now),
+            ("facebook", "follower_attribution", {"by_day": {since.date().isoformat(): {"paid": 2, "organic": 3}}}, now),
+            ("linkedin", "follower_insights", {"follower_gains": {"paid": 1, "organic": 4}}, now),
+            ("x", "audience_activity", {"peak_hours": [9, 18]}, now),
+        ]),
+    ]
+    growth = await _growth_stats(db, "t", since, days=7)
+    assert growth["funnel"][0]["platform"] == "instagram"
+    assert growth["funnel"][0]["er_pct"] == 10.0
+    assert growth["non_follower_reach_pct"] == 80.0
+    assert growth["follower_adds"] == {"paid": 3, "organic": 7}
+    assert growth["peak_hours"] == ["9", "18"]
+
+
+@pytest.mark.asyncio
+async def test_snapshot_note_error_and_dedup(monkeypatch):
+    """'http 4xx'-style note → warning issue; duplicate issues dedupe."""
+    acct = uuid4()
+    # latest note has err keys (not info marker) → not skipped as recovered;
+    # snap note itself hits the second error-key bucket
+    snap = SimpleNamespace(social_account_id=acct, notes="http 404 on insights")
+    snap2 = SimpleNamespace(social_account_id=acct, notes="http 404 on insights")
+    db = _DB(
+        [
+            _Res(all_=[]),
+            _Res(scalar=1),
+            _Res(one=(0, 0)),
+            _Res(all_=[]),
+            _Res(scalars=[]),
+            _Res(scalars=[]),
+            _Res(scalars=[snap, snap2]),
+            _Res(all_=[(acct, "http 404 on insights")]),
+            _Res(all_=[]),
+        ]
+    )
+    report = await D.build_daily_digest(db, team=_team(), days=1)
+    trouble = [i for i in report.issues if i.title == "Analytics sync had trouble"]
+    assert len(trouble) == 1  # identical issue deduped
+
+
+@pytest.mark.asyncio
+async def test_snapshot_note_paid_tier_soft_miss(monkeypatch):
+    """Snap's own note 'needs paid tier' → soft-miss continue even when the
+    account's latest note still shows an error."""
+    acct = uuid4()
+    snap = SimpleNamespace(social_account_id=acct, notes="needs paid tier for insights")
+    db = _DB(
+        [
+            _Res(all_=[]),
+            _Res(scalar=1),
+            _Res(one=(0, 0)),
+            _Res(all_=[]),
+            _Res(scalars=[]),
+            _Res(scalars=[]),
+            _Res(scalars=[snap]),
+            _Res(all_=[(acct, "http 500 still broken")]),  # err key → not recovered
+            _Res(all_=[]),
+        ]
+    )
+    report = await D.build_daily_digest(db, team=_team(), days=1)
+    assert not any(i.title == "Analytics sync had trouble" for i in report.issues)
+
+
+@pytest.mark.asyncio
+async def test_run_digest_delivery_errors(monkeypatch):
+    """Slack/email post failures land on the report, not raised."""
+    team = _team()
+    db = _DB([_Res(scalars=[team])])
+    monkeypatch.setattr(
+        D,
+        "build_daily_digest",
+        AsyncMock(return_value=SimpleNamespace(
+            overview={"connected_accounts": 1},
+            impressions_24h=0,
+            slack_error=None,
+            email_error=None,
+            to_dict=lambda: {"ok": 1},
+        )),
+    )
+    monkeypatch.setattr(D, "post_digest_to_slack", AsyncMock(side_effect=RuntimeError("slack down")))
+    import app.services.email_digest as ED
+
+    monkeypatch.setattr(ED, "email_digest", AsyncMock(side_effect=RuntimeError("mail down")))
+    out = await D.run_daily_digest_for_all_teams(db)
+    assert out == [{"ok": 1}]
