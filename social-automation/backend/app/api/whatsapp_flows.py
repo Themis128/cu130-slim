@@ -554,17 +554,18 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
     """
     flow_events = parse_flow_response(body)
     for event in flow_events:
+        response = event.get("response_json") or {}
         logger.info(
             "Flow response received: flow_token=%s sender=%s response_keys=%s",
             sanitize_log_text(str(event.get("flow_token", ""))[:20]),
             sanitize_log_text(str(event.get("sender_phone", ""))),
             sanitize_log_text(
-                ",".join(str(k) for k in (event.get("response_json") or {}).keys())
+                ",".join(str(k) for k in response.keys())
+                if isinstance(response, dict) else ""
             ),
         )
         # Persist a lead when the response matches our lead-capture schema.
         try:
-            response = event.get("response_json") or {}
             if not isinstance(response, dict):
                 continue
 
