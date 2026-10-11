@@ -367,3 +367,20 @@ async def test_all_endpoints_passthrough(monkeypatch, _account):
         with pytest.raises(HTTPException) as e:
             await coro
         assert e.value.status_code == 418
+
+
+@pytest.mark.asyncio
+async def test_process_flow_responses_skip_guards(monkeypatch):
+    db = SimpleNamespace(execute=AsyncMock())
+
+    # response_json not a dict → skipped (line 569)
+    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
+        {"response_json": "raw-string", "phone_number_id": "p"}])
+    await W.process_flow_responses({}, db)
+    db.execute.assert_not_called()
+
+    # name without email → skipped (line 574)
+    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
+        {"response_json": {"name": "n"}, "phone_number_id": "p"}])
+    await W.process_flow_responses({}, db)
+    db.execute.assert_not_called()
