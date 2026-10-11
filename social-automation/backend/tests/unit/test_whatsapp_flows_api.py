@@ -173,6 +173,7 @@ async def test_create_from_template(monkeypatch, _account):
         template_id=tid, name="MyFlow", business_name="B"), db, user)
     assert out["flow_id"] == "fid1" and out["status"] == "DRAFT"
     assert out["name"] == "MyFlow"
+    assert out["json_updated"] is True
     cli.update_flow_json.assert_awaited_once()
 
     # JSON update failure tolerated — still returns
@@ -180,6 +181,7 @@ async def test_create_from_template(monkeypatch, _account):
     out = await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(
         template_id=tid), db, user)
     assert out["flow_id"] == "fid1"
+    assert out["json_updated"] is False
 
     # create returns no id → 502
     cli.create_flow = AsyncMock(return_value={})
@@ -249,6 +251,7 @@ async def test_process_flow_responses(monkeypatch):
     # missing name/email → skipped
     monkeypatch.setattr(W, "parse_flow_response", lambda b: [
         {"response_json": {"name": "n"}, "phone_number_id": "p"}])
+    await W.process_flow_responses({}, db)
     db.execute.assert_not_called()
 
     # missing interest+company_size → skipped (false-positive guard)

@@ -215,7 +215,7 @@ function ChannelManagementCard({ accountId }: { accountId: string }) {
         chat_id: selectedChatId,
         text: postText,
       })
-      const messageId = res?.data?.message_id
+      const messageId = res?.data?.message?.message_id
       if (pinAfterSend && messageId) {
         await telegramApi.pinMessage(accountId, { chat_id: selectedChatId, message_id: messageId })
       }

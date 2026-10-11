@@ -503,6 +503,8 @@ async def send_card(
     to a PSID. Requires a Facebook Page account connected.
     """
     team = await _get_team(team_id, db)
+    from app.core.security import decrypt_token
+
     result = await db.execute(
         select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
     )
@@ -529,7 +531,6 @@ async def send_card(
             raise HTTPException(status_code=400, detail="No active WhatsApp account found. Connect one first.")
         # Get token and phone_number_id from meta_data
         # Token is stored encrypted — decrypt if it doesn't look like a raw Meta token
-        from app.core.security import decrypt_token
         from app.services.whatsapp_api import WhatsAppAPIClient
         from app.services.whatsapp_cloud_client import WhatsAppApiError, WhatsAppError
 

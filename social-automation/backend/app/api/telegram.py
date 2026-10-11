@@ -236,6 +236,14 @@ class InviteLinkRequest(BaseModel):
     expire_date: int | None = None
     member_limit: int | None = Field(None, ge=1, le=99999)
     creates_join_request: bool = False
+    regenerate: bool = Field(
+        False,
+        description=(
+            "When no options are provided, return the existing primary invite link via getChat "
+            "instead of exporting (which revokes the old primary link). Set regenerate=true to "
+            "force exportChatInviteLink."
+        ),
+    )
 
 
 class ChannelConfigRequest(BaseModel):
@@ -869,7 +877,15 @@ async def create_invite_link(
                 creates_join_request=body.creates_join_request,
             )
         else:
-            link = {"invite_link": await client.export_chat_invite_link(body.chat_id)}
+            if body.regenerate:
+                link = {"invite_link": await client.export_chat_invite_link(body.chat_id)}
+            else:
+                chat = await client.get_chat(body.chat_id)
+                primary = (chat or {}).get("invite_link") or ""
+                if primary:
+                    link = {"invite_link": primary}
+                else:
+                    link = {"invite_link": await client.export_chat_invite_link(body.chat_id)}
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"status": "ok", "chat_id": str(body.chat_id), "invite_link": link}
@@ -1467,12 +1483,16 @@ async def receive_webhook(
         new_status = member_event.get("new_status") or ""
         joined = new_status in {"member", "administrator"}
         event = "member_joined" if joined else "member_left"
-        if member_event.get("via_join_request"):
-            event = "join_request"
+        if joined and member_event.get("via_join_request"):
+            # Bot API: via_join_request indicates the admin already approved a pending join request.
+            # Pending requests are a different update type (chat_join_request), not handled here yet.
+            event = "join_request_approved"
         actor = member_event.get("username") or member_event.get("first_name") or str(
             member_event.get("user_id") or ""
         )
         details: list[str] = [f"status: {member_event.get('old_status') or '?'} → {new_status or '?'}"]
+        if joined and member_event.get("via_join_request"):
+            details.append("via join request: approved")
         if member_event.get("invite_link_name"):
             details.append(f"via invite link: {member_event['invite_link_name']}")
         response["member_event"] = event
