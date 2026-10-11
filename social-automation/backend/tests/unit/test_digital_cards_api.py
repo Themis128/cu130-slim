@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -303,8 +303,9 @@ async def test_send_card_whatsapp(monkeypatch):
 async def test_send_card_messenger(monkeypatch):
     import app.core.security as SEC
 
-    monkeypatch.setattr(SEC, "decrypt_token", lambda t: "EAtok")
-    fb_page = SimpleNamespace(account_id="pg-1", meta_data={"access_token": "EAraw"})
+    decrypt = Mock(return_value="EAtok")
+    monkeypatch.setattr(SEC, "decrypt_token", decrypt)
+    fb_page = SimpleNamespace(account_id="pg-1", meta_data={"access_token": "enc-tok"})
     card = _card()
 
     # no page → 400
@@ -318,6 +319,7 @@ async def test_send_card_messenger(monkeypatch):
     out = await D.send_card(card.id, req, uuid.uuid4(), _user(), _DB(results=[_Res(first=card), _Res(first=fb_page)]))
     assert out.success and out.message_id == "mid-1"
     assert card.share_count == 1
+    decrypt.assert_called_once()
 
     # api error → surfaced
     _http(monkeypatch, posts=[_resp({}, status=400, text="bad")])

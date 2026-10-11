@@ -1271,7 +1271,8 @@ async def test_create_invite_link_named_vs_primary(monkeypatch):
     client.create_chat_invite_link = AsyncMock(
         return_value={"invite_link": "https://t.me/+abc", "name": "ig"}
     )
-    client.export_chat_invite_link = AsyncMock(return_value="https://t.me/+primary")
+    client.get_chat = AsyncMock(return_value={"invite_link": "https://t.me/+primary"})
+    client.export_chat_invite_link = AsyncMock(return_value="https://t.me/+newprimary")
     _patch_client(monkeypatch, client)
 
     out = await create_invite_link(
@@ -1284,10 +1285,17 @@ async def test_create_invite_link_named_vs_primary(monkeypatch):
 
     out = await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1"), _DB([acc]), _user())
     assert out["invite_link"]["invite_link"] == "https://t.me/+primary"
+    client.get_chat.assert_awaited_once_with("-1")
+    client.export_chat_invite_link.assert_not_awaited()
+
+    out = await create_invite_link(
+        acc.id, InviteLinkRequest(chat_id="-1", regenerate=True), _DB([acc]), _user()
+    )
+    assert out["invite_link"]["invite_link"] == "https://t.me/+newprimary"
     client.export_chat_invite_link.assert_awaited_once_with("-1")
 
     client3 = _FakeClient()
-    client3.export_chat_invite_link = AsyncMock(side_effect=telegram.TelegramAPIError(400, "x"))
+    client3.get_chat = AsyncMock(side_effect=telegram.TelegramAPIError(400, "x"))
     _patch_client(monkeypatch, client3)
     with pytest.raises(HTTPException) as e:
         await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1"), _DB([acc]), _user())
@@ -1373,7 +1381,7 @@ async def test_webhook_chat_member_leave_and_join_request(monkeypatch):
         },
     )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
-    assert out["member_event"] == "join_request"
+    assert out["member_event"] == "join_request_approved"
 
 
 @pytest.mark.asyncio

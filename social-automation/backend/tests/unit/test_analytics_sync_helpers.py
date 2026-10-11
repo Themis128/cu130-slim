@@ -901,6 +901,7 @@ def _tw_patches(monkeypatch):
     monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
     monkeypatch.setattr(A, "_fetch_twitter_metrics", AsyncMock(return_value=A.MetricBundle(likes=2)))
     monkeypatch.setattr(A, "_persist_x_web_analytics", AsyncMock())
+    monkeypatch.setattr(A, "_scrape_twitter_timeline", AsyncMock(return_value={"posts": [], "followers": None}))
     import app.services.x_web as xw
 
     monkeypatch.setattr(xw, "is_configured", lambda: False)

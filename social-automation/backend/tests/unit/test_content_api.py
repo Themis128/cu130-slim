@@ -447,6 +447,11 @@ async def test_media_endpoints(tmp_path, monkeypatch):
     # delete: bad id → 400; existing file removed
     with pytest.raises(HTTPException):
         await C.delete_content_media("bad id!", _user())
+    # delete: uploaded uuid-prefixed id is accepted
+    uploaded = out["filename"]
+    assert (tmp_path / uploaded).exists()
+    await C.delete_content_media(uploaded, _user())
+    assert not (tmp_path / uploaded).exists()
     target = tmp_path / "deadbeef_x.png"
     target.write_bytes(b"z")
     await C.delete_content_media("deadbeef_x.png", _user())
