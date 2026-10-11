@@ -352,6 +352,7 @@ class Settings(BaseSettings):
     # This is intentionally separate from PUBLISH_SUCCESS_WEBHOOK_URL, which is a
     # generic JSON webhook intended for external automation.
     SLACK_PUBLISHING_WEBHOOK_URL: str = ""
+    SLACK_PUBLISHING_CHANNEL_ID: str = ""  # bot-token fallback channel; default: SLACK_CHANNEL_ID
 
     # MinIO (internal object storage)
     MINIO_ENDPOINT: str = "minio:9000"
