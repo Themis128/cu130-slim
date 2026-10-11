@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 
 import app.services.strategy_report as SR
+from app.services.slack_digest import DigestIssue, DigestReport
 from app.services.strategy_report import (
     BriefMedia,
     BriefPost,
@@ -823,3 +824,164 @@ def test_initiatives_text_and_html():
     r2 = _report(initiatives=None)
     assert "GROWTH INITIATIVES" not in r2.to_text()
     assert "Growth initiatives" not in r2.to_html()
+
+
+# ── remaining formatter branches ──────────────────────────────────────
+
+
+def _digest(issues=None):
+    return DigestReport(
+        generated_at=NOW, timezone="Europe/Athens", team_name="T", days=1,
+        overview={"connected_accounts": 3, "total_posts": 2},
+        impressions_24h=1200, engagement_24h=87,
+        issues=issues or [])
+
+
+def test_subject_flags_digest_errors():
+    r = _report(digest=_digest([DigestIssue("error", "boom")]))
+    assert "issue(s) need attention" in r.subject()
+    r2 = _report(digest=_digest())
+    assert "tomorrow's playbook" in r2.subject()
+
+
+def test_parse_playbook_item_x_maps_to_twitter():
+    it = _parse_playbook_item("Post a text update on x at 09:00")
+    assert it.platform == "twitter"
+
+
+def test_text_render_digest_pillars_messaging_and_issues():
+    r = _report(
+        digest=_digest([DigestIssue("error", "IG token", "expired yesterday")]),
+        messaging_channels=["whatsapp", "telegram"],
+        pillar_coverage=[{"name": "Educate", "posts": 3},
+                         {"name": "Proof", "posts": 0}],
+    )
+    t = r.to_text()
+    assert "LAST 24H" in t and "Impressions 1200" in t
+    assert "messaging (connected, no post metrics): whatsapp, telegram" in t
+    assert "CONTENT PILLARS (30d)" in t
+    assert "Proof: 0 posts  ⚠ starved" in t
+    assert "post from Proof next" in t
+    assert "DATA GAPS / ISSUES" in t and "[error] IG token — expired" in t
+
+
+def test_html_render_digest_pillars_and_issues():
+    r = _report(
+        digest=_digest([DigestIssue("warning", "TikTok stale", "2d")]),
+        pillar_coverage=[{"name": "Educate", "posts": 0}],
+    )
+    h = r.to_html()
+    assert "<h3>Last 24h</h3>" in h and "<b>1200</b>" in h
+    assert "Content pillars (30d)" in h and "starved" in h
+    assert "Data gaps / issues" in h and "TikTok stale" in h
+
+
+def test_text_render_rescheduled_duplicate_slot():
+    r = _report(actions=[
+        "Post a LinkedIn carousel at 09:00 about the audit",
+        "Post a LinkedIn story at 09:00 about the launch",
+    ])
+    t = r.to_text()
+    assert "moved 09:00 → 10:30 (duplicate slot)" in t
+
+
+def test_milestone_row_reached_final_gate():
+    ins = {"platforms": {
+        "facebook": {"engagement": 5,
+                     "follower_growth": {"current": 15_000}},
+    }}
+    r = _report(insights=ins)
+    rows = r._milestone_rows()
+    assert any("reached" in prog for _n, _c, prog, _to in rows)
+
+
+def test_pulse_takeaway_empty_when_no_engagement():
+    ins = {"platforms": {"linkedin": {"engagement": 0}}}
+    r = _report(insights=ins)
+    assert r._pulse_takeaway() == ""
+
+
+def test_recent_posts_unknown_and_naive_times():
+    posts = {"linkedin": [
+        BriefPost(post_id="x" * 36, content_preview="a",
+                  published_at=None),
+        BriefPost(post_id="y" * 36, content_preview="b",
+                  published_at=datetime(2026, 9, 20, 10, 0)),  # naive
+    ]}
+    r = _report(recent_posts_by_platform=posts)
+    t = r.to_text()
+    assert "unknown time" in t
+
+
+def test_recent_posts_pending_inbox_and_urlless_media():
+    posts = {"tiktok": [
+        BriefPost(post_id="p" * 36, content_preview="draft",
+                  published_at=NOW, pending_inbox=True),
+        BriefPost(post_id="q" * 36, content_preview="vid",
+                  published_at=NOW,
+                  media=[BriefMedia(filename="v.mp4",
+                                    mime_type="video/mp4",
+                                    url=None, is_image=False)]),
+    ]}
+    r = _report(recent_posts_by_platform=posts)
+    t = r.to_text()
+    assert "Draft in TikTok app inbox" in t
+    assert "▶ v.mp4" in t
+    h = r.to_html()
+    assert "Draft in TikTok app inbox" in h
+
+
+def test_media_tiles_html_skips_urlless_and_empty():
+    esc = lambda s: s  # noqa: E731
+    bp = BriefPost(post_id="p" * 36,
+                   media=[BriefMedia(filename="a.png", url=None,
+                                     is_image=True)])
+    assert StrategyReport._media_tiles_html(bp, esc) == ""
+    bp2 = BriefPost(post_id="p" * 36, media=[])
+    assert StrategyReport._media_tiles_html(bp2, esc) == ""
+
+
+def test_bench_cell_partial_and_verdict_only():
+    assert StrategyReport._bench_cell(
+        {"platform_limits": ["member_postAnalytics_scope_missing"]}
+    ) == "— (member metrics scope missing)"
+    assert StrategyReport._bench_cell(
+        {"benchmark": {"verdict": "above median"}}) == "above median"
+    assert StrategyReport._bench_cell({"benchmark": {
+        "verdict": "above_median", "your_er_by_followers_pct": 3.1,
+        "benchmark_pct": 2.0}}) == "ER 3.1% vs 2.0% (above median)"
+
+
+def test_er_str_branches():
+    assert StrategyReport._er_str({"avg_engagement_rate": None}) == "n/a"
+    assert StrategyReport._er_str(
+        {"avg_engagement_rate": 4.2, "impressions": 10}) == "low data"
+    assert StrategyReport._er_str(
+        {"avg_engagement_rate": 4.2, "impressions": 100,
+         "platform_limits": ["x_scope_missing"]}) == "4.2% (partial)"
+
+
+def test_mom_str_raw_counts():
+    assert StrategyReport._mom_str(
+        {"momentum_7d_engagement_pct": "n/a",
+         "engagement_7d": 12, "engagement_prev_7d": 5}) == "5→12"
+
+
+def test_is_image_asset_filename_fallback():
+    assert _is_image_asset(None, "photo.HEIC") is True
+    assert _is_image_asset("video/mp4", None) is False
+
+
+def test_brief_media_from_assets_skips_missing_and_urlless():
+    missing = uuid4()
+    out = _brief_media_from_assets([missing], {})
+    assert out == []
+
+
+def test_parse_actions_drops_near_duplicates():
+    text = (
+        "- Post a LinkedIn carousel about the audit results at 09:00\n"
+        "- Post a LinkedIn carousel about the audit results at 09:15\n"
+    )
+    actions = _parse_actions(text)
+    assert len(actions) == 1

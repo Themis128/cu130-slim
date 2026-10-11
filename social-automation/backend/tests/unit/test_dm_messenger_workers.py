@@ -782,3 +782,355 @@ async def test_threads_bridge_error_in_loop(monkeypatch):
     b.send_threads_dm_message = AsyncMock()
     assert await TH._process_account(acct, {}, {}, *_ARGS) == 0
     b.send_threads_dm_message.assert_not_awaited()
+
+
+# ── linkedin + personal remaining gaps ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_linkedin_run_async_and_wrapper(monkeypatch):
+    # running loop → thread path
+    async def _val():
+        return 7
+    assert LI._run_async(_val()) == 7
+
+    async def _boom():
+        raise ValueError("x")
+    with pytest.raises(ValueError, match="x"):
+        LI._run_async(_boom())
+
+    # wrapper delegates
+    monkeypatch.setattr(LI, "_run_async", lambda c: c.close() or {"ok": 1})
+    assert LI.poll_linkedin_messenger() == {"ok": 1}
+
+
+def test_linkedin_run_async_fallback(monkeypatch):
+    monkeypatch.setattr(LI, "run_async", lambda c: c.close() or "ra")
+
+    def _no_loop():
+        raise RuntimeError("none")
+    monkeypatch.setattr(LI.asyncio, "get_event_loop", _no_loop)
+
+    async def _c():
+        return 1
+    assert LI._run_async(_c()) == "ra"
+
+    monkeypatch.setattr(LI.asyncio, "get_event_loop",
+                        lambda: SimpleNamespace(is_running=lambda: False))
+
+    async def _c2():
+        return 2
+    assert LI._run_async(_c2()) == "ra"
+
+
+@pytest.mark.asyncio
+async def test_personal_run_async_and_wrapper(monkeypatch):
+    async def _val():
+        return 9
+    assert PM._run_async(_val()) == 9
+
+    async def _boom():
+        raise ValueError("x")
+    with pytest.raises(ValueError, match="x"):
+        PM._run_async(_boom())
+
+    monkeypatch.setattr(PM, "_run_async", lambda c: c.close() or {"ok": 2})
+    assert PM.poll_personal_messenger() == {"ok": 2}
+
+
+def test_personal_run_async_fallback(monkeypatch):
+    monkeypatch.setattr(PM, "run_async", lambda c: c.close() or "ra")
+
+    def _no_loop():
+        raise RuntimeError("none")
+    monkeypatch.setattr(PM.asyncio, "get_event_loop", _no_loop)
+
+    async def _c():
+        return 1
+    assert PM._run_async(_c()) == "ra"
+
+    monkeypatch.setattr(PM.asyncio, "get_event_loop",
+                        lambda: SimpleNamespace(is_running=lambda: False))
+
+    async def _c2():
+        return 2
+    assert PM._run_async(_c2()) == "ra"
+
+
+@pytest.mark.asyncio
+async def test_linkedin_poller_edges(monkeypatch):
+    class _DB:
+        def __init__(self, accounts):
+            self.accounts = accounts
+            self.commit = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a):
+            return SimpleNamespace(
+                scalars=lambda: SimpleNamespace(all=lambda: self.accounts))
+
+    import sqlalchemy.orm.attributes as SOA
+    monkeypatch.setattr(SOA, "flag_modified", lambda *a, **k: None)
+
+    # auto-reply disabled → skipped, not counted
+    acct = _account({"linkedin_auto_reply": {"enabled": False}})
+    monkeypatch.setattr(LI, "_worker_db", lambda: _DB([acct]))
+    out = await LI._poll_linkedin_messenger_async()
+    assert out["accounts_checked"] == 0
+
+    # _process_account raises → errors++
+    acct = _account({"linkedin_auto_reply": {"enabled": True}})
+    monkeypatch.setattr(LI, "_worker_db", lambda: _DB([acct]))
+    monkeypatch.setattr(LI, "_process_account",
+                        AsyncMock(side_effect=RuntimeError("x")))
+    out = await LI._poll_linkedin_messenger_async()
+    assert out["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_personal_poller_edges(monkeypatch):
+    class _DB:
+        def __init__(self, accounts):
+            self.accounts = accounts
+            self.commit = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a):
+            return SimpleNamespace(
+                scalars=lambda: SimpleNamespace(all=lambda: self.accounts))
+
+    import sqlalchemy.orm.attributes as SOA
+    monkeypatch.setattr(SOA, "flag_modified", lambda *a, **k: None)
+
+    acct = _account({"personal_messenger_auto_reply": {"enabled": False}})
+    monkeypatch.setattr(PM, "_worker_db", lambda: _DB([acct]))
+    out = await PM._poll_personal_messenger_async()
+    assert out["accounts_checked"] == 0
+
+    acct = _account({"personal_messenger_auto_reply": {"enabled": True}})
+    monkeypatch.setattr(PM, "_worker_db", lambda: _DB([acct]))
+    monkeypatch.setattr(PM, "_process_account",
+                        AsyncMock(side_effect=RuntimeError("x")))
+    out = await PM._poll_personal_messenger_async()
+    assert out["errors"] == 1
+
+
+def _li_sidecar(msgs=None):
+    return SimpleNamespace(
+        health=AsyncMock(return_value={
+            "rate_limited": False, "has_session": True}),
+        get_conversations=AsyncMock(return_value={
+            "conversations": [{"thread_id": "c1", "name": "Ada"}]}),
+        get_thread_messages=AsyncMock(return_value={
+            "messages": msgs if msgs is not None
+            else [{"text": "hi", "sender": "Ada"}]}),
+        send_message=AsyncMock())
+
+
+def _li_wire(monkeypatch, sidecar):
+    monkeypatch.setattr(LI, "LinkedInSidecarClient",
+                        lambda *a, **k: sidecar)
+    import redis.asyncio as aioredis
+    r = SimpleNamespace(get=AsyncMock(return_value=None),
+                        aclose=AsyncMock(), setex=AsyncMock())
+    monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: r)
+    LI.check_cooldown = AsyncMock(return_value=True)
+    LI.is_thread_paused = AsyncMock(return_value=False)
+    LI.detect_intent = AsyncMock(return_value="i")
+    LI.retrieve_brand_context = AsyncMock(return_value="ctx")
+    LI.generate_contextual_reply = AsyncMock(return_value="reply")
+    LI.store_message_memory = AsyncMock()
+    LI.set_cooldown = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+    return r
+
+
+@pytest.mark.asyncio
+async def test_linkedin_process_guards2(monkeypatch):
+    acct = _account({})
+    cfg = {"cooldown_seconds": 1}
+
+    # redis cooldown check raising is tolerated → proceeds (171-172)
+    import redis.asyncio as aioredis
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    monkeypatch.setattr(aioredis, "from_url",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError()))
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 1
+
+    # 429 + redis setex raising → tolerated → 0 (209-210)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    monkeypatch.setattr(aioredis, "from_url",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError()))
+    sc.get_conversations = AsyncMock(
+        side_effect=LI.LinkedInSidecarError(429, "RATE_LIMITED"))
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # get_conversations generic Exception → 0 (214-216)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    sc.get_conversations = AsyncMock(side_effect=ValueError("v"))
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # empty messages → continue (231)
+    sc = _li_sidecar(msgs=[])
+    _li_wire(monkeypatch, sc)
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # only our own messages → no inbound → continue (243)
+    sc = _li_sidecar(msgs=[{"text": "mine", "sender": "Cloudless"},
+                           {"text": "me2", "sender": "me"},
+                           {"text": "", "sender": "Ada"}])
+    _li_wire(monkeypatch, sc)
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # already replied → continue (251)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    assert await LI._process_account(acct, cfg, {"c1": "hi"},
+                                     "u", "t", "a", "d") == 0
+
+    # cooldown active → continue (256)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    LI.check_cooldown = AsyncMock(return_value=False)
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # thread paused → continue (260-261)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    LI.is_thread_paused = AsyncMock(return_value=True)
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # empty reply → fallback_text used (277)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    LI.generate_contextual_reply = AsyncMock(return_value="")
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 1
+    sc.send_message.assert_awaited_once_with(
+        "c1", "Thanks for your message! I'll get back to you soon.")
+
+    # thread-level LinkedInSidecarError → warning, continue (304-306)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    sc.get_thread_messages = AsyncMock(
+        side_effect=LI.LinkedInSidecarError(500, "boom"))
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # thread-level generic Exception → error, continue (307-309)
+    sc = _li_sidecar()
+    _li_wire(monkeypatch, sc)
+    sc.get_thread_messages = AsyncMock(side_effect=KeyError("k"))
+    assert await LI._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+
+def _pm_wire(monkeypatch, bridge):
+    import app.services.browser_bridge as BB
+    import app.services.browser_orchestrator as BO
+    monkeypatch.setattr(BB, "BrowserBridgeClient",
+                        lambda *a, **k: bridge)
+
+    class _BS:
+        async def __aenter__(self):
+            return bridge
+
+        async def __aexit__(self, *a):
+            return False
+    monkeypatch.setattr(BO, "browser_session", lambda *a, **k: _BS())
+    PM.check_cooldown = AsyncMock(return_value=True)
+    PM.is_thread_paused = AsyncMock(return_value=False)
+    PM.detect_intent = AsyncMock(return_value="i")
+    PM.retrieve_brand_context = AsyncMock(return_value="ctx")
+    PM.generate_contextual_reply = AsyncMock(return_value="reply")
+    PM.store_message_memory = AsyncMock()
+    PM.set_cooldown = AsyncMock()
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+
+
+def _pm_bridge(msgs=None):
+    return SimpleNamespace(
+        ensure_session=AsyncMock(return_value={"status": "active"}),
+        get_personal_messenger_conversations_fast=AsyncMock(
+            return_value={"conversations": [
+                {"thread_id": "c1", "unread": True, "name": "Ada"}]}),
+        get_personal_messenger_messages_fast=AsyncMock(
+            return_value={"messages": msgs if msgs is not None
+                          else [{"text": "hi", "sender": "them"}]}),
+        send_personal_messenger_message=AsyncMock(),
+        trigger_typing_indicator=AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_personal_process_guards(monkeypatch):
+    acct = _account({})
+    cfg = {"cooldown_seconds": 1}
+    import app.services.browser_bridge as BB
+
+    # ensure_session raises → 0 (190-192)
+    b = _pm_bridge()
+    _pm_wire(monkeypatch, b)
+    b.ensure_session = AsyncMock(side_effect=RuntimeError("x"))
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # convos fetch raises → 0 (198-200)
+    b = _pm_bridge()
+    _pm_wire(monkeypatch, b)
+    b.get_personal_messenger_conversations_fast = AsyncMock(
+        side_effect=BB.BrowserBridgeError(500, "x"))
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # empty messages → continue (220)
+    b = _pm_bridge(msgs=[])
+    _pm_wire(monkeypatch, b)
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # no "them" sender → continue (230)
+    b = _pm_bridge(msgs=[{"text": "mine", "sender": "me"},
+                         {"text": "", "sender": "them"}])
+    _pm_wire(monkeypatch, b)
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # already replied → continue (238)
+    b = _pm_bridge()
+    _pm_wire(monkeypatch, b)
+    assert await PM._process_account(acct, cfg, {"c1": "hi"},
+                                     "u", "t", "a", "d") == 0
+
+    # cooldown active → continue (243)
+    b = _pm_bridge()
+    _pm_wire(monkeypatch, b)
+    PM.check_cooldown = AsyncMock(return_value=False)
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # paused thread → continue (247-248)
+    b = _pm_bridge()
+    _pm_wire(monkeypatch, b)
+    PM.is_thread_paused = AsyncMock(return_value=True)
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # typing indicator failure tolerated; send raises BrowserBridgeError
+    # → thread-level warning (302-306)
+    b = _pm_bridge()
+    _pm_wire(monkeypatch, b)
+    b.trigger_typing_indicator = AsyncMock(side_effect=RuntimeError("x"))
+    b.send_personal_messenger_message = AsyncMock(
+        side_effect=BB.BrowserBridgeError(500, "x"))
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
+
+    # generic thread error → logged, continue (307-309)
+    b = _pm_bridge()
+    _pm_wire(monkeypatch, b)
+    b.send_personal_messenger_message = AsyncMock(
+        side_effect=KeyError("k"))
+    assert await PM._process_account(acct, cfg, {}, "u", "t", "a", "d") == 0
