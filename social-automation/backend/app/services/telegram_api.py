@@ -538,6 +538,7 @@ TELEGRAM_ALLOWED_UPDATES = [
     "message",
     "edited_message",
     "my_chat_member",
+    "chat_member",
     "callback_query",
 ]
 
@@ -598,6 +599,39 @@ def extract_my_chat_member_update(update: dict[str, Any]) -> dict[str, Any] | No
         "old_status": old_member.get("status"),
         "new_status": new_member.get("status"),
         "from_user_id": (event.get("from") or {}).get("id"),
+    }
+
+
+def extract_chat_member_update(update: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse ``chat_member`` — a regular user joining/leaving a chat the bot admins.
+
+    For channel joins the update carries ``invite_link`` (the named link used)
+    or ``via_join_request`` — the source-attribution signal.
+    """
+    event = update.get("chat_member")
+    if not isinstance(event, dict):
+        return None
+    chat = event.get("chat") or {}
+    chat_id = chat.get("id")
+    if chat_id is None:
+        return None
+    new_member = event.get("new_chat_member") or {}
+    old_member = event.get("old_chat_member") or {}
+    user = new_member.get("user") or old_member.get("user") or {}
+    invite = event.get("invite_link") or {}
+    return {
+        "update_id": update.get("update_id"),
+        "chat_id": chat_id,
+        "chat_type": chat.get("type"),
+        "chat_title": chat.get("title") or chat.get("username") or "",
+        "old_status": old_member.get("status"),
+        "new_status": new_member.get("status"),
+        "user_id": user.get("id"),
+        "username": user.get("username") or "",
+        "first_name": user.get("first_name") or "",
+        "via_join_request": bool(event.get("via_join_request")),
+        "invite_link_name": invite.get("name") or "",
+        "invite_link": invite.get("invite_link") or "",
     }
 
 

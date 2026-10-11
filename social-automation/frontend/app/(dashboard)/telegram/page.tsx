@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import {
   Send, Bot, Loader2, CheckCircle2, XCircle, RefreshCw, Settings, MessageSquare, Bell,
+  Megaphone, Link2, Users, Pin,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -123,6 +124,7 @@ export default function TelegramPage() {
         <>
           <SetupStatusCard accountId={selectedAccountId} />
           <CredentialsCard accountId={selectedAccountId} />
+          <ChannelManagementCard accountId={selectedAccountId} />
           <GroupWatchCard accountId={selectedAccountId} />
           <SendMessageCard accountId={selectedAccountId} />
           <AutoReplyCard accountId={selectedAccountId} />
@@ -130,6 +132,296 @@ export default function TelegramPage() {
         </>
       ) : telegramAccounts.length > 0 ? null : null}
     </div>
+  )
+}
+
+interface DiscoveredChannel {
+  chat_id: string
+  title?: string
+  type?: string
+  status?: string
+}
+
+function ChannelManagementCard({ accountId }: { accountId: string }) {
+  const queryClient = useQueryClient()
+  const [selectedChatId, setSelectedChatId] = useState('')
+  const [description, setDescription] = useState('')
+  const [inviteName, setInviteName] = useState('')
+  const [memberLimit, setMemberLimit] = useState('')
+  const [joinRequest, setJoinRequest] = useState(false)
+  const [postText, setPostText] = useState('')
+  const [pinAfterSend, setPinAfterSend] = useState(false)
+  const [generatedLink, setGeneratedLink] = useState('')
+  const [postResult, setPostResult] = useState('')
+
+  const { data: channelsData, isLoading: loadingChannels, refetch: refetchChannels } = useQuery({
+    queryKey: ['telegram-channels', accountId],
+    queryFn: () => telegramApi.listChannels(accountId),
+    refetchInterval: 30_000,
+  })
+  const { data: channelConfig } = useQuery({
+    queryKey: ['telegram-channel-config', accountId],
+    queryFn: () => telegramApi.getChannelConfig(accountId),
+  })
+  const { data: notifyConfig } = useQuery({
+    queryKey: ['telegram-notify-config', accountId],
+    queryFn: () => telegramApi.getNotifyConfig(accountId),
+  })
+  const { data: chatInfo, refetch: refetchInfo } = useQuery({
+    queryKey: ['telegram-chat-info', accountId, selectedChatId],
+    queryFn: () => telegramApi.getChatInfo(accountId, selectedChatId),
+    enabled: !!selectedChatId,
+  })
+
+  const channels: DiscoveredChannel[] = channelsData?.data?.channels || []
+  const managed = channelConfig?.data?.channel
+
+  useEffect(() => {
+    if (!selectedChatId && managed?.chat_id) {
+      setSelectedChatId(managed.chat_id)
+    } else if (!selectedChatId && channels.length > 0) {
+      setSelectedChatId(channels[0].chat_id)
+    }
+  }, [managed, channels, selectedChatId])
+
+  useEffect(() => {
+    const desc = chatInfo?.data?.chat?.description
+    if (typeof desc === 'string') setDescription(desc)
+  }, [chatInfo])
+
+  const manageMutation = useMutation({
+    mutationFn: () => telegramApi.setChannelConfig(accountId, { chat_id: selectedChatId }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['telegram-channel-config', accountId] }),
+  })
+  const descMutation = useMutation({
+    mutationFn: () => telegramApi.setChatDescription(accountId, { chat_id: selectedChatId, description }),
+    onSuccess: () => refetchInfo(),
+  })
+  const inviteMutation = useMutation({
+    mutationFn: () =>
+      telegramApi.createInviteLink(accountId, {
+        chat_id: selectedChatId,
+        ...(inviteName ? { name: inviteName } : {}),
+        ...(memberLimit ? { member_limit: Number(memberLimit) } : {}),
+        creates_join_request: joinRequest,
+      }),
+    onSuccess: (res) => {
+      setGeneratedLink(res?.data?.invite_link?.invite_link || '')
+    },
+  })
+  const postMutation = useMutation({
+    mutationFn: async () => {
+      const res = await telegramApi.sendMessage(accountId, {
+        chat_id: selectedChatId,
+        text: postText,
+      })
+      const messageId = res?.data?.message_id
+      if (pinAfterSend && messageId) {
+        await telegramApi.pinMessage(accountId, { chat_id: selectedChatId, message_id: messageId })
+      }
+      return { messageId, pinned: pinAfterSend && !!messageId }
+    },
+    onSuccess: (r) => {
+      setPostResult(`Posted${r.pinned ? ' + pinned' : ''} (message_id ${r.messageId ?? '?'})`)
+      setPostText('')
+    },
+  })
+
+  const isManaged = managed?.chat_id === selectedChatId
+  const chat = chatInfo?.data?.chat
+  const botIsAdmin = chatInfo?.data?.bot_is_admin
+  const notify = notifyConfig?.data
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Megaphone className="h-4 w-4" />
+          Channel management
+          {managed ? (
+            <span className="text-xs font-normal text-muted-foreground">
+              — managing: {managed.title || managed.chat_id}
+            </span>
+          ) : null}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loadingChannels ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : channels.length === 0 ? (
+          <div className="text-sm text-muted-foreground space-y-1">
+            <p>No channels discovered yet.</p>
+            <p className="text-xs">
+              Create the channel in the Telegram app, then add this bot as an
+              administrator — it will appear here automatically via webhook.
+            </p>
+            <Button size="sm" variant="outline" onClick={() => refetchChannels()}>
+              <RefreshCw className="h-3 w-3 mr-2" />
+              Refresh
+            </Button>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-64">
+                <label className="text-sm font-medium">Channel / chat</label>
+                <select
+                  value={selectedChatId}
+                  onChange={(e) => setSelectedChatId(e.target.value)}
+                  className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                >
+                  {channels.map((c) => (
+                    <option key={c.chat_id} value={c.chat_id}>
+                      {c.title || c.chat_id} ({c.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                size="sm"
+                variant={isManaged ? 'outline' : 'default'}
+                onClick={() => manageMutation.mutate()}
+                disabled={manageMutation.isPending || isManaged}
+              >
+                {isManaged ? 'Managed ✓' : 'Manage this channel'}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => { refetchChannels(); refetchInfo() }}>
+                <RefreshCw className="h-3 w-3" />
+              </Button>
+            </div>
+
+            {chat ? (
+              <div className="flex flex-wrap gap-4 text-sm border rounded-lg p-3">
+                <span className="flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  {chatInfo?.data?.member_count ?? '—'} members
+                </span>
+                <span>type: {chat.type}</span>
+                <span className={botIsAdmin ? 'text-green-600' : 'text-red-600'}>
+                  {botIsAdmin ? 'bot is admin ✓' : 'bot NOT admin — ops will fail'}
+                </span>
+              </div>
+            ) : null}
+
+            <div>
+              <label className="text-sm font-medium">Description (max 255)</label>
+              <div className="flex gap-2 mt-1">
+                <Input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={255}
+                  placeholder="Channel description"
+                />
+                <Button
+                  size="sm"
+                  onClick={() => descMutation.mutate()}
+                  disabled={descMutation.isPending || !selectedChatId}
+                >
+                  Save
+                </Button>
+              </div>
+              {descMutation.isError && (
+                <p className="text-sm text-red-600 mt-1">{getErrorMessage(descMutation.error)}</p>
+              )}
+              {descMutation.isSuccess && <p className="text-sm text-green-600 mt-1">Description updated</p>}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium flex items-center gap-1">
+                <Link2 className="h-3 w-3" />
+                Invite link
+              </label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                <Input
+                  value={inviteName}
+                  onChange={(e) => setInviteName(e.target.value)}
+                  placeholder="name (e.g. ig, threads, website)"
+                  className="w-48"
+                  maxLength={32}
+                />
+                <Input
+                  value={memberLimit}
+                  onChange={(e) => setMemberLimit(e.target.value.replace(/\D/g, ''))}
+                  placeholder="member limit"
+                  className="w-32"
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={joinRequest}
+                    onChange={(e) => setJoinRequest(e.target.checked)}
+                  />
+                  join request
+                </label>
+                <Button
+                  size="sm"
+                  onClick={() => inviteMutation.mutate()}
+                  disabled={inviteMutation.isPending || !selectedChatId}
+                >
+                  Create link
+                </Button>
+              </div>
+              {generatedLink && (
+                <p className="text-sm mt-1">
+                  <code className="text-xs bg-accent px-2 py-1 rounded">{generatedLink}</code>
+                </p>
+              )}
+              {inviteMutation.isError && (
+                <p className="text-sm text-red-600 mt-1">{getErrorMessage(inviteMutation.error)}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="text-sm font-medium flex items-center gap-1">
+                <Pin className="h-3 w-3" />
+                Post to channel
+              </label>
+              <Textarea
+                value={postText}
+                onChange={(e) => setPostText(e.target.value)}
+                className="mt-1"
+                maxLength={4096}
+                placeholder="Message text"
+              />
+              <div className="flex items-center gap-3 mt-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={pinAfterSend}
+                    onChange={(e) => setPinAfterSend(e.target.checked)}
+                  />
+                  pin after send
+                </label>
+                <Button
+                  size="sm"
+                  onClick={() => postMutation.mutate()}
+                  disabled={postMutation.isPending || !postText || !selectedChatId}
+                >
+                  {postMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                  Post
+                </Button>
+              </div>
+              {postResult && <p className="text-sm text-green-600 mt-1">{postResult}</p>}
+              {postMutation.isError && (
+                <p className="text-sm text-red-600 mt-1">{getErrorMessage(postMutation.error)}</p>
+              )}
+            </div>
+
+            <div className="text-xs text-muted-foreground border-t pt-3 space-y-1">
+              <p className="font-medium text-sm">Notifications</p>
+              <p>
+                Slack (#socialauto-telegram): {notify?.slack?.configured ? 'configured ✓' : 'not configured'}
+                {notify?.slack?.dedicated_channel ? '' : ' (fallback channel)'}
+              </p>
+              <p>
+                Email: {notify?.email?.configured ? `configured ✓ → ${notify?.email?.recipient}` : 'not configured'}
+              </p>
+              <p>Joins, leaves and bot-membership changes are notified automatically.</p>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

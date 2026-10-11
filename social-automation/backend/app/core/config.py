@@ -427,6 +427,13 @@ class Settings(BaseSettings):
     # campaign digest (falls back to SLACK_WEBHOOK_URL / SLACK_CHANNEL_ID).
     SLACK_ADS_WEBHOOK_URL: str = ""
     SLACK_ADS_CHANNEL_ID: str = ""
+
+    # Telegram channel notifications — joins/leaves/membership events go to
+    # #socialauto-telegram (falls back to SLACK_WEBHOOK_URL / SLACK_CHANNEL_ID).
+    SLACK_TELEGRAM_WEBHOOK_URL: str = ""
+    SLACK_TELEGRAM_CHANNEL_ID: str = ""
+    # Email recipient for Telegram channel events (falls back to DIGEST_EMAIL_TO).
+    TELEGRAM_NOTIFY_EMAIL: str = ""
     # Campaign tracked by the daily 10:00 report + the date reports stop.
     LINKEDIN_ADS_CAMPAIGN_ID: str = ""
     LINKEDIN_ADS_END_DATE: str = ""  # ISO date, e.g. "2026-10-01"

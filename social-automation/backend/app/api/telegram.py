@@ -33,6 +33,7 @@ from app.services.telegram_api import (
     TelegramAPIClient,
     TelegramAPIError,
     extract_callback_query,
+    extract_chat_member_update,
     extract_inbound_text_update,
     extract_my_chat_member_update,
     inline_keyboard,
@@ -51,6 +52,7 @@ from app.services.telegram_group_watch import (
     should_auto_reply_in_group,
     upsert_watched_chat,
 )
+from app.services.telegram_notify import notify_channel_event
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -234,6 +236,10 @@ class InviteLinkRequest(BaseModel):
     expire_date: int | None = None
     member_limit: int | None = Field(None, ge=1, le=99999)
     creates_join_request: bool = False
+
+
+class ChannelConfigRequest(BaseModel):
+    chat_id: int | str = Field(..., description="chat_id of the managed channel")
 
 
 class DeleteMessageRequest(BaseModel):
@@ -869,6 +875,81 @@ async def create_invite_link(
     return {"status": "ok", "chat_id": str(body.chat_id), "invite_link": link}
 
 
+@router.get("/{account_id}/channel-config", response_model=dict)
+async def get_channel_config(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """The channel marked as managed by SocialAuto (set via PUT)."""
+    account = await _get_telegram_account(db, account_id, user)
+    return {
+        "status": "ok",
+        "channel": (account.meta_data or {}).get("telegram_channel") or None,
+    }
+
+
+@router.put("/{account_id}/channel-config", response_model=dict)
+async def set_channel_config(
+    account_id: uuid.UUID,
+    body: ChannelConfigRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mark a discovered chat as the managed channel (verifies bot access)."""
+    account = await _get_telegram_account(db, account_id, user)
+    client = _client_for(account)
+    try:
+        chat = await client.get_chat(body.chat_id)
+    except (TelegramAPIError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    meta = dict(account.meta_data or {})
+    meta["telegram_channel"] = {
+        "chat_id": str(body.chat_id),
+        "title": chat.get("title") or "",
+        "type": chat.get("type") or "",
+        "set_at": datetime.now(UTC).isoformat(),
+    }
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+    return {"status": "ok", "channel": meta["telegram_channel"]}
+
+
+@router.get("/{account_id}/notify-config", response_model=dict)
+async def get_notify_config(
+    account_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Notification routing status — no secrets, just booleans."""
+    await _get_telegram_account(db, account_id, user)
+    slack_webhook = bool(
+        (settings.SLACK_TELEGRAM_WEBHOOK_URL or "").strip()
+        or (settings.SLACK_WEBHOOK_URL or "").strip()
+    )
+    slack_token = bool(
+        (settings.SLACK_BOT_TOKEN or "").strip()
+        or (settings.SLACK_ACCESS_TOKEN or "").strip()
+    )
+    email_to = (settings.TELEGRAM_NOTIFY_EMAIL or "").strip() or (
+        settings.DIGEST_EMAIL_TO or ""
+    ).strip()
+    return {
+        "status": "ok",
+        "slack": {
+            "configured": slack_webhook or (slack_token and bool(
+                (settings.SLACK_TELEGRAM_CHANNEL_ID or settings.SLACK_CHANNEL_ID or "").strip()
+            )),
+            "dedicated_channel": bool((settings.SLACK_TELEGRAM_CHANNEL_ID or "").strip()),
+        },
+        "email": {
+            "configured": bool(email_to and settings.SMTP_HOST),
+            "recipient": email_to,
+        },
+    }
+
+
 # ── Auto-reply ───────────────────────────────────────────────────────
 
 
@@ -1359,6 +1440,18 @@ async def receive_webhook(
             flag_modified(account, "meta_data")
             await db.commit()
             response["membership"] = info
+            new_status = membership.get("new_status") or ""
+            event = (
+                "bot_admin" if new_status == "administrator"
+                else "bot_member" if new_status == "member"
+                else "bot_removed"
+            )
+            await notify_channel_event(
+                event=event,
+                chat_title=membership.get("chat_title") or "",
+                chat_id=membership["chat_id"],
+                details=[f"status: {membership.get('old_status') or '?'} → {new_status or '?'}"],
+            )
         except Exception as exc:
             logger.warning(
                 "Telegram membership handler failed account=%s: %s",
@@ -1366,6 +1459,38 @@ async def receive_webhook(
                 _sanitize(str(exc)),
             )
             response["membership_error"] = True
+        return response
+
+    # ── chat_member: user join/leave in an administered chat ──
+    member_event = extract_chat_member_update(update)
+    if member_event:
+        new_status = member_event.get("new_status") or ""
+        joined = new_status in {"member", "administrator"}
+        event = "member_joined" if joined else "member_left"
+        if member_event.get("via_join_request"):
+            event = "join_request"
+        actor = member_event.get("username") or member_event.get("first_name") or str(
+            member_event.get("user_id") or ""
+        )
+        details: list[str] = [f"status: {member_event.get('old_status') or '?'} → {new_status or '?'}"]
+        if member_event.get("invite_link_name"):
+            details.append(f"via invite link: {member_event['invite_link_name']}")
+        response["member_event"] = event
+        try:
+            response["notified"] = await notify_channel_event(
+                event=event,
+                chat_title=member_event.get("chat_title") or "",
+                chat_id=member_event["chat_id"],
+                actor=f"@{actor}" if member_event.get("username") else actor,
+                details=details,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Telegram member-event notify failed account=%s: %s",
+                _sanitize(str(account_id)),
+                _sanitize(str(exc)),
+            )
+            response["notify_error"] = True
         return response
 
     # ── callback_query: inline-keyboard button press — ack it ──
