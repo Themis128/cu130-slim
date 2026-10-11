@@ -2042,3 +2042,74 @@ async def test_twitter_metrics_402_fallback_and_quota():
 
     b = await A._fetch_twitter_metrics(_Cli(lambda u: _resp(404, {})), "t", "tw-1")
     assert "HTTP 404" in b.notes
+
+
+# ── Telegram channel member-count sync ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_telegram_sync_skips_without_channel():
+    """No managed channel configured → skipped, no API call."""
+    acc = _account(platform="telegram", username="tg-bot", meta_data={})
+    r = await A.sync_telegram_channel_metrics(_DB(), acc)
+    assert r.skipped == 1 and r.synced == 0 and r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_sync_records_member_count(monkeypatch):
+    """Managed channel → getChatMemberCount lands in follower_snapshots."""
+    client = SimpleNamespace(get_chat_member_count=AsyncMock(return_value=42))
+    monkeypatch.setattr(
+        "app.api.telegram._client_for", lambda account: client
+    )
+    acc = _account(
+        platform="telegram",
+        username="tg-bot",
+        meta_data={"telegram_channel": {"chat_id": "-100123"}},
+    )
+    db = _DB()
+    r = await A.sync_telegram_channel_metrics(db, acc)
+    assert r.synced == 1
+    client.get_chat_member_count.assert_awaited_once_with("-100123")
+    snap = db.added[0]
+    assert snap.platform == "telegram" and snap.followers == 42
+
+
+@pytest.mark.asyncio
+async def test_telegram_sync_skips_unchanged_count(monkeypatch):
+    """Same count inside the 7-day heartbeat → no duplicate row."""
+    client = SimpleNamespace(get_chat_member_count=AsyncMock(return_value=42))
+    monkeypatch.setattr(
+        "app.api.telegram._client_for", lambda account: client
+    )
+    prev = SimpleNamespace(followers=42, captured_at=datetime.now(UTC))
+    acc = _account(
+        platform="telegram",
+        username="tg-bot",
+        meta_data={"telegram_channel": {"chat_id": "-100123"}},
+    )
+    db = _DB(results=[(42, prev.captured_at)])
+    r = await A.sync_telegram_channel_metrics(db, acc)
+    assert r.skipped == 1 and r.synced == 0 and db.added == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_sync_api_error_is_reported_not_raised(monkeypatch):
+    """Bot API failure → error string in result, never raises."""
+    from app.services.telegram_api import TelegramAPIError
+
+    client = SimpleNamespace(
+        get_chat_member_count=AsyncMock(
+            side_effect=TelegramAPIError(400, "chat not found")
+        )
+    )
+    monkeypatch.setattr(
+        "app.api.telegram._client_for", lambda account: client
+    )
+    acc = _account(
+        platform="telegram",
+        username="tg-bot",
+        meta_data={"telegram_channel": {"chat_id": "-100123"}},
+    )
+    r = await A.sync_telegram_channel_metrics(_DB(), acc)
+    assert r.errors and "chat not found" in r.errors[0]
