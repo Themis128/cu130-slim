@@ -23,7 +23,6 @@ Env overrides: SLACK_TOKEN_DIR, SOCIALAUTO_ENV, COMPOSE_DIR, SLACK_MCP_CLIENT_ID
 
 from __future__ import annotations
 
-import glob
 import json
 import os
 import subprocess
@@ -33,13 +32,19 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-TOKEN_DIR = Path(os.environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1")))
+TOKEN_DIR = Path(
+    os.environ.get("SLACK_TOKEN_DIR", str(Path.home() / ".mcp-auth" / "mcp-remote-v1"))
+)
 ENV_FILE = Path(os.environ.get("SOCIALAUTO_ENV", "/home/tbaltzakis/cu130-slim/.env"))
 COMPOSE_DIR = Path(os.environ.get("COMPOSE_DIR", "/home/tbaltzakis/cu130-slim"))
 CLIENT_ID = os.environ.get("SLACK_MCP_CLIENT_ID", "1601185624273.8899143856786")
-PENDING_MARKER = Path(os.environ.get("SLACK_SYNC_PENDING", "/var/tmp/slack_token_sync.pending"))
-CRON_LINE = ("0 */2 * * * /usr/bin/python3 /home/tbaltzakis/cu130-slim/.devin/skills/slack-ops/scripts/slack_token_sync.py"
-             " >> /var/tmp/slack_token_sync.log 2>&1")
+PENDING_MARKER = Path(
+    os.environ.get("SLACK_SYNC_PENDING", "/var/tmp/slack_token_sync.pending")
+)
+CRON_LINE = (
+    "0 */2 * * * /usr/bin/python3 /home/tbaltzakis/cu130-slim/.devin/skills/slack-ops/scripts/slack_token_sync.py"
+    " >> /var/tmp/slack_token_sync.log 2>&1"
+)
 # every long-lived service that consumes SLACK_BOT_TOKEN via compose env
 # (x-worker-env anchor feeds the four workers; digests run on worker-default)
 SERVICES = [
@@ -76,7 +81,9 @@ def _refresh(tok: dict) -> dict:
         }
     ).encode()
     req = urllib.request.Request(
-        TOKEN_ENDPOINT, data=body, headers={"Content-Type": "application/x-www-form-urlencoded"}
+        TOKEN_ENDPOINT,
+        data=body,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
     )
     resp = json.load(urllib.request.urlopen(req, timeout=30))
     if not resp.get("ok"):
@@ -96,7 +103,7 @@ def _write_env_token(token: str) -> bool:
             out.append(new)
         else:
             out.append(line)
-    if not any(l.startswith("SLACK_BOT_TOKEN=") for l in lines):
+    if not any(ln.startswith("SLACK_BOT_TOKEN=") for ln in lines):
         out.append(f"SLACK_BOT_TOKEN={token}")
         changed = True
     if changed:
@@ -109,7 +116,17 @@ def _recreate_services() -> int:
     worst = 0
     for svc in SERVICES:
         r = subprocess.run(
-            ["docker", "compose", "up", "-d", "--force-recreate", "--no-deps", "--pull", "never", svc],
+            [
+                "docker",
+                "compose",
+                "up",
+                "-d",
+                "--force-recreate",
+                "--no-deps",
+                "--pull",
+                "never",
+                svc,
+            ],
             cwd=COMPOSE_DIR,
             check=False,
             timeout=180,
@@ -161,7 +178,9 @@ def main() -> int:
     print(f"env {'updated' if changed else 'unchanged'}")
     pending = PENDING_MARKER.exists()
     if changed or pending:
-        print(f"recreating consumers ({'token change' if changed else 'pending retry'})")
+        print(
+            f"recreating consumers ({'token change' if changed else 'pending retry'})"
+        )
         rc = _recreate_services()
         if rc == 0:
             PENDING_MARKER.unlink(missing_ok=True)
