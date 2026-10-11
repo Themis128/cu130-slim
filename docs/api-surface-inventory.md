@@ -347,6 +347,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/meta-growth/organic-campaign` — POST
 - `/api/v1/meta-growth/readiness` — GET
 
+## `newsletter`
+
+- `/api/v1/newsletter/cover` — POST
+
 ## `ops`
 
 - `/api/v1/ops/billing-digest` — POST
