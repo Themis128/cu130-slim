@@ -560,8 +560,14 @@ async def test_send_digest_for_account(monkeypatch):
     assert out["reason"] == "no_owner"
 
     import datetime as dt
-    from zoneinfo import ZoneInfo
-    now_hour = dt.datetime.now(ZoneInfo("Europe/Athens")).hour
+
+    class _FixedDT(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 5, 9, 0, tzinfo=tz)
+
+    monkeypatch.setattr(gw, "datetime", _FixedDT)
+    now_hour = 9
     cfg = {"enabled": True, "digest_enabled": True,
            "owner_chat_id": "999", "digest_hour": now_hour,
            "watched_chats": [{"chat_id": -100, "title": "G"}]}
