@@ -10,6 +10,7 @@ import random
 import re
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import HTTPException
 from PIL import Image, ImageDraw, ImageFont
@@ -97,7 +98,8 @@ TEXT    = (225, 235, 245)  # near-white body copy
 SUB     = (120, 135, 160)  # muted blue-grey
 GRID    = (30,  30,  45)   # subtle grid line colour
 
-_FONT_DIR = "/app/app/assets/fonts"
+_PKG_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+_FONT_DIR = str(_PKG_FONT_DIR) if _PKG_FONT_DIR.is_dir() else "/app/app/assets/fonts"
 _FONT_FILES = {
     "bold":     os.path.join(_FONT_DIR, "WorkSans-Bold.ttf"),
     "semibold": os.path.join(_FONT_DIR, "WorkSans-SemiBold.ttf"),
@@ -116,7 +118,10 @@ def _font(size: int, weight: str = "regular"):
     fb = _FALLBACK.get("bold" if weight == "bold" else "regular", _FALLBACK["regular"])
     if os.path.exists(fb):
         return ImageFont.truetype(fb, size)
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def _draw_wrapped(draw, text, xy, font_obj, fill, max_width):

@@ -15,3 +15,10 @@ if os.environ.get("JWT_SECRET_KEY") in (None, "", "change-me-in-production"):
 # test key when missing/invalid so unit tests can run without a developer .env.
 if len((os.environ.get("ENCRYPTION_KEY") or "").encode()) != 32:
     os.environ["ENCRYPTION_KEY"] = "0" * 32
+
+# Provide test defaults for Redis URLs if not explicitly configured in environment.
+if not os.environ.get("REDIS_URL"):
+    os.environ["REDIS_URL"] = "redis://localhost:6379/0"
+
+if not os.environ.get("MESSENGER_REDIS_URL"):
+    os.environ["MESSENGER_REDIS_URL"] = "redis://localhost:6379/1"

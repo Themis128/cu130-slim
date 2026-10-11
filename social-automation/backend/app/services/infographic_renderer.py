@@ -19,6 +19,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+from pathlib import Path
 from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
@@ -36,7 +37,8 @@ TEXT_COL = (225, 235, 245)  # near-white body copy
 SUB = (120, 135, 160)      # muted blue-grey
 GRID = (30, 30, 45)        # subtle grid line colour
 
-_FONT_DIR = "/app/app/assets/fonts"
+_PKG_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+_FONT_DIR = str(_PKG_FONT_DIR) if _PKG_FONT_DIR.is_dir() else "/app/app/assets/fonts"
 _FONT_FILES = {
     "bold": os.path.join(_FONT_DIR, "WorkSans-Bold.ttf"),
     "semibold": os.path.join(_FONT_DIR, "WorkSans-SemiBold.ttf"),
@@ -65,7 +67,10 @@ def _font(size: int, weight: str = "regular") -> ImageFont.FreeTypeFont:
     if os.path.exists(fb):
         return ImageFont.truetype(fb, size)
     # load_default() returns ImageFont, not FreeTypeFont — cast for mypy
-    return ImageFont.load_default()  # type: ignore[return-value]
+    try:
+        return ImageFont.load_default(size=size)  # type: ignore[return-value,call-arg]
+    except TypeError:
+        return ImageFont.load_default()  # type: ignore[return-value]
 
 
 def _ascii_safe(text: str) -> str:

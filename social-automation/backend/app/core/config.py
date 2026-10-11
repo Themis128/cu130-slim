@@ -1,5 +1,6 @@
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -9,8 +10,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-# Compute env file path: /app/.env (mounted from host)
-ENV_FILE_PATH = "/app/.env"
+# Compute env file path: /app/.env (mounted inside container) with host/local fallback
+_BASE_DIR = Path(__file__).resolve().parent.parent.parent
+_ENV_LOCAL = _BASE_DIR / ".env.local"
+_ENV_DEFAULT = _BASE_DIR / ".env"
+_CONTAINER_ENV = Path("/app/.env")
+
+if _CONTAINER_ENV.exists():
+    ENV_FILE_PATH = str(_CONTAINER_ENV)
+elif _ENV_LOCAL.exists():
+    ENV_FILE_PATH = str(_ENV_LOCAL)
+elif _ENV_DEFAULT.exists():
+    ENV_FILE_PATH = str(_ENV_DEFAULT)
+else:
+    ENV_FILE_PATH = "/app/.env"
 
 
 class Settings(BaseSettings):

@@ -105,16 +105,30 @@ async def media_gpu_lock(
     try:
         waited = 0.0
         while waited < acquire_timeout_s:
-            if await r.set(_LOCK_KEY, token, nx=True, ex=ttl_s):
-                acquired = True
-                break
+            try:
+                if await r.set(_LOCK_KEY, token, nx=True, ex=ttl_s):
+                    acquired = True
+                    break
+            except (aioredis.RedisError, OSError) as exc:
+                logger.warning(
+                    "[gpu-arbiter] Redis unreachable (%s) — running unserialized",
+                    type(exc).__name__,
+                )
+                yield
+                return
             await asyncio.sleep(_LOCK_POLL_S)
             waited += _LOCK_POLL_S
         if not acquired:
             raise TimeoutError(
                 f"gpu media lock not acquired within {acquire_timeout_s:.0f}s"
             )
-        await r.set(_BUSY_KEY, "1", ex=ttl_s)
+        try:
+            await r.set(_BUSY_KEY, "1", ex=ttl_s)
+        except (aioredis.RedisError, OSError) as exc:
+            logger.warning(
+                "[gpu-arbiter] Redis set busy failed (%s) — proceeding",
+                type(exc).__name__,
+            )
         # Evict resident DMR models so the renderer sees a free card.
         # Imported here to avoid a module cycle (dmr imports this module
         # for the busy wait).
@@ -155,12 +169,21 @@ async def media_gpu_lock(
             try:
                 # Delete only if we still own the lock (TTL may have
                 # expired and another job taken it).
-                cur = await r.get(_LOCK_KEY)
-                if acquired and cur == token:
-                    await r.delete(_LOCK_KEY)
-                await r.delete(_BUSY_KEY)
+                try:
+                    cur = await r.get(_LOCK_KEY)
+                    if acquired and cur == token:
+                        await r.delete(_LOCK_KEY)
+                except (aioredis.RedisError, OSError):
+                    pass
+                try:
+                    await r.delete(_BUSY_KEY)
+                except (aioredis.RedisError, OSError):
+                    pass
             finally:
-                await r.aclose()
+                try:
+                    await r.aclose()
+                except Exception:
+                    pass
 
 
 @asynccontextmanager
@@ -197,9 +220,17 @@ async def dmr_slot(*, _for_media: bool = False) -> AsyncIterator[None]:
     try:
         waited = 0.0
         while waited < _DMR_LOCK_ACQUIRE_S:
-            if await r.set(_DMR_LOCK_KEY, token, nx=True, ex=_DMR_LOCK_TTL_S):
-                acquired = True
-                break
+            try:
+                if await r.set(_DMR_LOCK_KEY, token, nx=True, ex=_DMR_LOCK_TTL_S):
+                    acquired = True
+                    break
+            except (aioredis.RedisError, OSError) as exc:
+                logger.warning(
+                    "[gpu-arbiter] Redis unreachable (%s) — DMR unserialized",
+                    type(exc).__name__,
+                )
+                yield
+                return
             await asyncio.sleep(1.0)
             waited += 1.0
         if not acquired:
@@ -218,8 +249,15 @@ async def dmr_slot(*, _for_media: bool = False) -> AsyncIterator[None]:
             if acquired:
                 # Delete only if we still own the slot (TTL may have
                 # expired and another caller taken it).
-                if await r.get(_DMR_LOCK_KEY) == token:
-                    await r.delete(_DMR_LOCK_KEY)
+                try:
+                    cur = await r.get(_DMR_LOCK_KEY)
+                    if cur == token:
+                        await r.delete(_DMR_LOCK_KEY)
+                except Exception as exc:
+                    logger.debug("[gpu-arbiter] DMR slot release failed (%s)", type(exc).__name__)
     finally:
         if r is not None:
-            await r.aclose()
+            try:
+                await r.aclose()
+            except Exception:
+                pass

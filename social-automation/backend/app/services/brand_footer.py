@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import logging
 import os
+from pathlib import Path
 from urllib.parse import urlparse
 
 from PIL import Image, ImageDraw, ImageFont
@@ -43,7 +44,8 @@ _BG = (15, 15, 23)
 _TEXT = (235, 235, 245)
 _DEFAULT_ACCENT = (0, 255, 245)
 
-_FONT_DIR = "/app/app/assets/fonts"
+_PKG_FONT_DIR = Path(__file__).resolve().parent.parent / "assets" / "fonts"
+_FONT_DIR = str(_PKG_FONT_DIR) if _PKG_FONT_DIR.is_dir() else "/app/app/assets/fonts"
 _FONT_FILES = {
     "bold": os.path.join(_FONT_DIR, "WorkSans-Bold.ttf"),
     "semibold": os.path.join(_FONT_DIR, "WorkSans-SemiBold.ttf"),
@@ -63,7 +65,10 @@ def _font(size: int, weight: str = "regular") -> ImageFont.FreeTypeFont | ImageF
         try:
             return ImageFont.truetype(_FALLBACK_FONTS.get(weight, _FALLBACK_FONTS["regular"]), size)
         except Exception:
-            return ImageFont.load_default()
+            try:
+                return ImageFont.load_default(size=size)
+            except TypeError:
+                return ImageFont.load_default()
 
 
 def _hex_rgb(hex_color: str | None) -> tuple[int, int, int] | None:
