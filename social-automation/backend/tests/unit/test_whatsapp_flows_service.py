@@ -319,3 +319,25 @@ def test_endpoint_request_response():
     assert out["data"] == {"x": 1}
     out = S.build_flow_endpoint_response("CUR", error_message="bad")
     assert out["error"] == {"message": "bad"}
+
+
+@pytest.mark.asyncio
+async def test_validate_flow_json_string_input(client, monkeypatch):
+    http, calls, _ = _http_fake(200, {"valid": True})
+    _patch(monkeypatch, http)
+    out = await client.validate_flow_json("123", '{"v": 3}')
+    assert out == {"valid": True}
+    assert calls[0]["json"]["flow_json"] == '{"v": 3}'
+
+
+def test_parse_flow_response_non_nfm_interactive():
+    # non-interactive message → skipped (line 1024); interactive but
+    # non-nfm_context type → also skipped
+    body = {"object": "whatsapp_business_account",
+            "entry": [{"changes": [{"value": {
+                "metadata": {"phone_number_id": "p"},
+                "messages": [{"type": "text", "text": {"body": "hi"}},
+                             {"type": "interactive",
+                              "interactive": {"type": "button_reply"}}],
+            }}]}]}
+    assert S.parse_flow_response(body) == []

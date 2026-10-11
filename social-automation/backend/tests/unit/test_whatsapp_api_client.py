@@ -301,3 +301,27 @@ def test_parse_webhook_event_statuses():
     assert ev[0]["message_type"] == "status"
     assert ev[0]["status"] == "delivered" and ev[0]["timestamp"] == 1700000000
     assert ev[1]["timestamp"] == 0 and ev[2]["timestamp"] == 0
+
+
+@pytest.mark.asyncio
+async def test_template_components_and_validation(client):
+    # send_template with components → forwarded in body (line 123)
+    out = await client.send_template("+302101111111", "promo", "en",
+                                     components=[{"type": "body"}])
+    assert client._calls[-1]["json_body"]["template"]["components"] == \
+        [{"type": "body"}]
+
+    # verify_code non-digit → ValueError (line 447)
+    with pytest.raises(ValueError, match="numeric"):
+        await client.verify_code("999", "12-ab")
+
+    # register_number pin not 6 digits → ValueError (line 468)
+    with pytest.raises(ValueError, match="6 digits"):
+        await client.register_number("999", pin="123")
+
+    # status check fully fails (both fallback GETs raise) → outer except
+    # path, request_code still attempted (lines 412-414)
+    client._client.request = AsyncMock(side_effect=[
+        Exception("a"), Exception("b"), {"success": True}])
+    out = await client.request_verification_code("999")
+    assert out == {"success": True}
