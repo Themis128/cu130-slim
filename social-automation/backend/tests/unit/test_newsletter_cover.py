@@ -58,7 +58,9 @@ def test_default_issue_date_is_iso():
 @pytest.fixture
 def client(monkeypatch):
     app = FastAPI()
-    app.include_router(newsletter_api.router)
+    # In production the router is mounted via `include_router(..., prefix="/newsletter")`,
+    # so unit tests should mount it the same way.
+    app.include_router(newsletter_api.router, prefix="/newsletter")
     with patch.object(
         newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="s3cret")
     ):
@@ -67,7 +69,7 @@ def client(monkeypatch):
 
 def test_cover_503_when_service_token_unconfigured():
     app = FastAPI()
-    app.include_router(newsletter_api.router)
+    app.include_router(newsletter_api.router, prefix="/newsletter")
     with patch.object(
         newsletter_api, "get_settings", return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN="")
     ):
@@ -79,6 +81,7 @@ def test_cover_503_when_service_token_unconfigured():
 
 def test_cover_401_on_missing_or_wrong_token(client):
     assert client.post("/newsletter/cover", json={"title": "x"}).status_code == 401
+    assert client.post("/newsletter/newsletter/cover", json={"title": "x"}).status_code == 404
     r = client.post(
         "/newsletter/cover", json={"title": "x"}, headers={"X-Service-Token": "wrong"}
     )
