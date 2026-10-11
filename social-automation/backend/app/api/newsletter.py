@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.services.newsletter_cover import default_issue_date, render_newsletter_cover
 
-router = APIRouter(prefix="/newsletter", tags=["newsletter"])
+router = APIRouter(tags=["newsletter"])
 
 
 class NewsletterCoverRequest(BaseModel):
