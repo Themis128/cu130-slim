@@ -451,12 +451,169 @@ TOOLS: list[Tool] = [
             "required": ["account_id", "enabled"],
         },
     ),
+    Tool(
+        name="telegram_list_channels",
+        description=(
+            "List channels/groups the Telegram bot has been added to "
+            "(discovered from webhook membership events). Use to find the "
+            "chat_id of a newly created channel after adding the bot as admin."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+        },
+    ),
+    Tool(
+        name="telegram_chat_info",
+        description=(
+            "Get a Telegram chat's details, member count, and whether the "
+            "bot is an administrator. Requires the bot to be in the chat."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_chat_admins",
+        description="List administrators of a Telegram chat (verify bot/owner admin rights).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_member_count",
+        description="Member count for a Telegram chat/channel the bot can see.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_set_chat_description",
+        description="Set a Telegram channel/group description (bot must be admin; max 255 chars).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "description": {"type": "string", "description": "Description text (max 255 chars)"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id", "description"],
+        },
+    ),
+    Tool(
+        name="telegram_create_invite_link",
+        description=(
+            "Create a named Telegram invite link for join-source attribution "
+            "(e.g. name='ig'/'threads'/'website'). With no options, exports "
+            "the primary invite link. Bot must be admin with invite rights."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "name": {"type": "string", "description": "Link label, max 32 chars (e.g. 'ig')"},
+                "expire_date": {"type": "integer", "description": "Unix timestamp when link expires"},
+                "member_limit": {"type": "integer", "description": "Max joins via this link (1-99999)"},
+                "creates_join_request": {"type": "boolean", "description": "Require admin approval to join"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_send_message",
+        description="Send a text message to a Telegram chat/channel (bot must be member/admin).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "text": {"type": "string", "description": "Message text (max 4096 chars)"},
+                "parse_mode": {"type": "string", "description": "'HTML' or 'MarkdownV2'"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id", "text"],
+        },
+    ),
+    Tool(
+        name="telegram_pin_message",
+        description="Pin a message in a Telegram chat/channel (bot must be admin with pin rights).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "message_id": {"type": "integer", "description": "Message ID to pin"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id", "message_id"],
+        },
+    ),
 ]
 
 
 async def _handle_list_tools(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
     """Handle tools/list request."""
     return ListToolsResult(tools=TOOLS)
+
+
+async def _telegram_account_id(provided: str | None = None) -> str:
+    """Resolve the Telegram social-account UUID (explicit or first active one)."""
+    if provided:
+        return provided
+    accounts = await _api_request("GET", "/api/v1/accounts")
+    for account in accounts:
+        if account.get("platform", "").lower() == "telegram" and account.get("status") == "active":
+            return account["id"]
+    raise ValueError("No active Telegram account connected")
+
+
+async def _handle_telegram_tool(name: str, arguments: dict) -> dict | list:
+    """Dispatch telegram_* tools to /api/v1/telegram endpoints."""
+    account_id = await _telegram_account_id(arguments.get("account_id"))
+    base = f"/api/v1/telegram/{account_id}"
+    chat_id = arguments.get("chat_id")
+    if name == "telegram_list_channels":
+        return await _api_request("GET", f"{base}/channels")
+    if name == "telegram_chat_info":
+        return await _api_request("GET", f"{base}/chat-info", params={"chat_id": chat_id})
+    if name == "telegram_chat_admins":
+        return await _api_request("GET", f"{base}/chat-admins", params={"chat_id": chat_id})
+    if name == "telegram_member_count":
+        return await _api_request("GET", f"{base}/chat-members", params={"chat_id": chat_id})
+    if name == "telegram_set_chat_description":
+        body: dict = {"chat_id": chat_id, "description": arguments["description"]}
+        return await _api_request("PUT", f"{base}/chat-description", json_body=body)
+    if name == "telegram_create_invite_link":
+        body = {"chat_id": chat_id}
+        for opt in ("name", "expire_date", "member_limit", "creates_join_request"):
+            if opt in arguments:
+                body[opt] = arguments[opt]
+        return await _api_request("POST", f"{base}/invite-link", json_body=body)
+    if name == "telegram_send_message":
+        body = {"chat_id": chat_id, "text": arguments["text"]}
+        if "parse_mode" in arguments:
+            body["parse_mode"] = arguments["parse_mode"]
+        return await _api_request("POST", f"{base}/send", json_body=body)
+    if name == "telegram_pin_message":
+        body = {"chat_id": chat_id, "message_id": arguments["message_id"]}
+        return await _api_request("POST", f"{base}/pin", json_body=body)
+    raise ValueError(f"Unknown telegram tool: {name}")
 
 
 async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallToolResult:
@@ -636,6 +793,8 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
                 if opt in arguments:
                     body[opt] = arguments[opt]
             result = await _api_request("PUT", f"/api/v1/messenger/{account_id}/personal/auto-reply", json_body=body)
+        elif name.startswith("telegram_"):
+            result = await _handle_telegram_tool(name, arguments)
         else:
             return CallToolResult(
                 content=[TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))],

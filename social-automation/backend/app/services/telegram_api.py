@@ -483,6 +483,39 @@ class TelegramAPIClient:
         result = await self._call("exportChatInviteLink", {"chat_id": chat_id})
         return result if isinstance(result, str) else ""
 
+    async def create_chat_invite_link(
+        self,
+        chat_id: int | str,
+        *,
+        name: str | None = None,
+        expire_date: int | None = None,
+        member_limit: int | None = None,
+        creates_join_request: bool = False,
+    ) -> dict[str, Any]:
+        """Official ``createChatInviteLink`` — additional named invite link.
+
+        ``name`` (max 32 chars) labels the link in admin surfaces so join
+        sources (e.g. ``ig``/``threads``/``website``) stay attributable.
+        Returns the ChatInviteLink object — ``invite_link`` holds the URL.
+        """
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "creates_join_request": creates_join_request,
+        }
+        if name:
+            payload["name"] = name[:32]
+        if expire_date is not None:
+            payload["expire_date"] = expire_date
+        if member_limit is not None:
+            payload["member_limit"] = member_limit
+        result = await self._call("createChatInviteLink", payload)
+        return result if isinstance(result, dict) else {}
+
+    async def get_chat_administrators(self, chat_id: int | str) -> list[dict[str, Any]]:
+        """Official ``getChatAdministrators`` — list of ChatMember objects."""
+        result = await self._call("getChatAdministrators", {"chat_id": chat_id})
+        return result if isinstance(result, list) else []
+
     async def send_chat_action(
         self, chat_id: int | str, action: str = "typing"
     ) -> bool:
