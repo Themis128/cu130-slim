@@ -54,7 +54,8 @@ class _FakeAsyncClient:
         self.calls.append({"method": "GET", "url": url, "headers": headers, "params": params})
         return self._next_response()
 
-    async def post(self, url, headers=None, data=None, json=None, content=None):
+    async def post(self, url, headers=None, data=None, json=None,
+                   content=None, params=None):
         self.calls.append(
             {
                 "method": "POST",
@@ -63,6 +64,7 @@ class _FakeAsyncClient:
                 "data": data,
                 "json": json,
                 "content": content,
+                "params": params,
             }
         )
         return self._next_response()
@@ -671,3 +673,274 @@ async def test_follower_demographics_breakdown(client):
 
     with pytest.raises(ValueError, match="breakdown"):
         await client.get_follower_demographics(breakdown="bogus")
+
+
+# ── additional coverage: dm surfaces, webdm client, misc branches ───
+
+
+@pytest.mark.asyncio
+async def test_get_me_and_validation(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "1", "user_id": "2"}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.get_me()
+    assert out["user_id"] == "2"
+    assert "user_id" in fake.calls[0]["params"]["fields"]
+
+    with pytest.raises(ValueError):
+        api._validate_id("")
+    with pytest.raises(ValueError):
+        api._validate_id("bad id")
+
+
+@pytest.mark.asyncio
+async def test_container_validation_branches(client):
+    with pytest.raises(ValueError):
+        await client.create_image_container("", "cap")
+    with pytest.raises(ValueError):
+        await client.create_video_container("")
+    with pytest.raises(ValueError):
+        await client.create_carousel_item("")
+    with pytest.raises(ValueError):
+        await client.create_carousel_container([], "cap")
+    with pytest.raises(ValueError):
+        await client.create_carousel_container(
+            [str(i) for i in range(11)], "cap")
+    with pytest.raises(ValueError):
+        await client.create_carousel_container(["bad id!"], "cap")
+
+    # no-id responses → InstagramAPIError
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        with pytest.raises(api.InstagramAPIError, match="no id"):
+            await client.create_image_container("https://x/i.jpg", "c")
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        with pytest.raises(api.InstagramAPIError, match="no id"):
+            await client.create_carousel_container(["1", "2"], "c")
+
+
+@pytest.mark.asyncio
+async def test_story_container_branches(client):
+    with pytest.raises(ValueError):
+        await client.create_story_container("")
+    with pytest.raises(ValueError):
+        await client.create_story_container("https://x/m",
+                                            media_type="GIF")
+
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "c1"}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        cid = await client.create_story_container(
+            "https://x/v.mp4", media_type="VIDEO",
+            link="https://l", alt_text="alt")
+        assert cid == "c1"
+        data = fake.calls[0]["data"]
+        assert data["media_type"] == "STORIES"
+        assert data["video_url"] == "https://x/v.mp4"
+        assert data["link"] == "https://l" and data["alt_text"] == "alt"
+
+    # publish_story wrapper
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "s1"}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        with patch.object(client, "wait_for_container_ready",
+                          return_value="FINISHED"):
+            with patch.object(client, "publish_container",
+                              return_value="media1"):
+                out = await client.publish_story("https://x/i.jpg")
+    assert out == "media1"
+
+
+@pytest.mark.asyncio
+async def test_hashtag_discovery_and_demographics(client):
+    fake = _FakeAsyncClient(_FakeResponse(
+        200, {"data": [{"id": "m1"}]}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.get_hashtag_recent_media("123")
+        assert out == [{"id": "m1"}]
+        assert "/123/recent_media" in fake.calls[0]["url"]
+
+    with pytest.raises(ValueError):
+        await client.business_discovery("")
+    fake = _FakeAsyncClient(_FakeResponse(200, {"business_discovery": {}}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.business_discovery("@competitor")
+        assert "business_discovery" in out
+        assert "competitor" in fake.calls[0]["params"]["fields"]
+
+    with pytest.raises(ValueError):
+        await client.get_engaged_audience_demographics(breakdown="zip")
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": []}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.get_engaged_audience_demographics(
+            breakdown="city")
+        assert fake.calls[0]["params"]["breakdown"] == "city"
+        assert fake.calls[0]["params"]["metric"] == \
+            "engaged_audience_demographics"
+
+    with pytest.raises(ValueError):
+        await client.get_account_insights(metric="")
+
+
+@pytest.mark.asyncio
+async def test_tagged_media_and_mentions(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"t": 1}]}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.get_tagged_media()
+        assert out["data"] == [{"t": 1}]
+        assert "tagged_media" in fake.calls[0]["url"]
+    with pytest.raises(ValueError):
+        await client.get_recent_mentions(limit=0)
+
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"m": 1}]}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.get_recent_mentions()
+        assert out == [{"m": 1}]
+
+
+@pytest.mark.asyncio
+async def test_graph_dm_methods(client):
+    fake = _FakeAsyncClient([_FakeResponse(200, {"ok": 1})] * 6)
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        await client.send_dm("r1", "hello")
+        send = fake.calls[0]
+        assert "/messages" in send["url"]
+        assert send["json"]["recipient"]["id"] == "r1"
+        assert send["json"]["messaging_type"] == "RESPONSE"
+
+        await client.send_dm_template("r1", "tmpl",
+                                      components=[{"type": "body"}])
+        tmpl = fake.calls[1]
+        assert tmpl["json"]["messaging_type"] == "MESSAGE_TAG"
+        att = tmpl["json"]["message"]["attachment"]["payload"]
+        assert att["name"] == "tmpl" and att["components"]
+
+        await client.get_conversations(limit=5)
+        await client.get_dm_messages("c1", limit=10)
+        await client.mark_dm_read("c1", recipient_id="r2")
+        await client.send_typing_indicator("r1")
+    assert len(fake.calls) == 6
+
+
+# ── InstagramWebDMClient ────────────────────────────────────────────
+
+
+def _webdm():
+    return api.InstagramWebDMClient(
+        session_id="sess", csrf_token="csrf", ds_user_id="u1")
+
+
+def test_webdm_headers():
+    c = _webdm()
+    h = c._headers()
+    assert h["x-csrftoken"] == "csrf"
+    assert "sessionid=sess" in h["cookie"]
+    assert "ds_user_id=u1" in h["cookie"]
+
+    with patch.object(api.httpx, "AsyncClient") as ac:
+        c = api.InstagramWebDMClient(session_id="s", proxy="http://p")
+        c._client()
+        assert ac.call_args.kwargs["proxy"] == "http://p"
+
+
+@pytest.mark.asyncio
+async def test_webdm_conversations():
+    c = _webdm()
+    body = {"inbox": {"threads": [{
+        "thread_id": "t1",
+        "users": [{"pk": 5, "username": "alice"},
+                  {"username": "bob"}]}]}}
+    fake = _FakeAsyncClient(_FakeResponse(200, body))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await c.get_conversations(limit=5)
+    conv = out["data"][0]
+    assert conv["id"] == "t1"
+    names = [p["name"] for p in conv["participants"]["data"]]
+    assert names == ["alice", "bob"]
+
+    fake = _FakeAsyncClient(_FakeResponse(401, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        with pytest.raises(api.InstagramAPIError):
+            await c.get_conversations()
+
+
+@pytest.mark.asyncio
+async def test_webdm_messages():
+    c = _webdm()
+    body = {"thread": {"items": [
+        {"item_id": "i1", "user_id": 9, "text": "hi",
+         "timestamp": "1"},
+        {"item_id": "i2", "user_id": 9, "share_text": "shared"},
+        {"item_id": "i3", "user_id": 9},
+    ]}}
+    fake = _FakeAsyncClient(_FakeResponse(200, body))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await c.get_dm_messages("t1")
+    msgs = out["data"]
+    assert len(msgs) == 2
+    assert msgs[0]["message"] == "hi"
+    assert msgs[1]["message"] == "shared"
+
+    fake = _FakeAsyncClient(_FakeResponse(404, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        with pytest.raises(api.InstagramAPIError):
+            await c.get_dm_messages("t1")
+
+
+@pytest.mark.asyncio
+async def test_webdm_send_and_read():
+    c = _webdm()
+    fake = _FakeAsyncClient([_FakeResponse(200, {"status": "ok"})] * 2)
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await c.send_dm("u1", "yo")
+        assert out["status"] == "ok"
+        data = fake.calls[0]["data"]
+        assert data["text"] == "yo" and "u1" in data["recipient_users"]
+
+        out = await c.mark_dm_read("t1")
+        assert out == {"status": "ok"}
+
+    fake = _FakeAsyncClient(_FakeResponse(500, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        with pytest.raises(api.InstagramAPIError):
+            await c.send_dm("u1", "x")
+    fake = _FakeAsyncClient(_FakeResponse(500, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        assert await c.mark_dm_read("t1") == {"status": "error"}
+
+    assert await c.send_typing_indicator("u1") == {"status": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_last_edges(client):
+    # safe_detail
+    e4 = api.InstagramAPIError(403, "x", "https://u")
+    assert e4.safe_detail == "Instagram API request failed (403)"
+    e5 = api.InstagramAPIError(500, "x", "https://u")
+    assert "temporarily unavailable" in e5.safe_detail
+
+    # empty token
+    with pytest.raises(ValueError, match="access token"):
+        api.InstagramAPIClient(access_token="", ig_user_id="1")
+
+    # no-id branches for video/carousel_item/publish
+    for method, args in [
+        (client.create_video_container, ("https://x/v.mp4",)),
+        (client.create_carousel_item, ("https://x/i.jpg",)),
+        (client.publish_container, ("12345",)),
+        (client.create_story_container, ("https://x/i.jpg",)),
+    ]:
+        fake = _FakeAsyncClient(_FakeResponse(200, {}))
+        with patch.object(api.httpx, "AsyncClient", return_value=fake):
+            with pytest.raises(api.InstagramAPIError, match="no id"):
+                await method(*args)
+
+    # list_recent_media
+    fake = _FakeAsyncClient(_FakeResponse(
+        200, {"data": [{"id": "m1"}]}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        out = await client.list_recent_media(limit=5)
+        assert out == [{"id": "m1"}]
+        assert "permalink" in fake.calls[0]["params"]["fields"]
+
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch.object(api.httpx, "AsyncClient", return_value=fake):
+        assert await client.list_recent_media() == []
