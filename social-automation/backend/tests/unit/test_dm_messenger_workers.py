@@ -9,26 +9,22 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import app.worker.tasks.threads_messenger as TH
 import app.worker.tasks.tiktok_messenger as TT
 import app.worker.tasks.twitter_messenger as TW
 
 
 def _account(platform_meta: dict):
-    return SimpleNamespace(
-        id=uuid.uuid4(), team_id=uuid.uuid4(),
-        display_name="Cloudless", username="cl",
-        meta_data=platform_meta)
+    return SimpleNamespace(id=uuid.uuid4(), team_id=uuid.uuid4(), display_name="Cloudless", username="cl", meta_data=platform_meta)
 
 
 def _wire(mod, monkeypatch, bridge=None, *, session_status="active"):
     """Patch all external seams of a messenger worker module."""
     if bridge is None:
         bridge = SimpleNamespace(
-            ensure_session=AsyncMock(return_value={
-                "status": session_status}),
+            ensure_session=AsyncMock(return_value={"status": session_status}),
         )
-    monkeypatch.setattr(mod, "BrowserBridgeClient",
-                        lambda *a, **k: bridge)
+    monkeypatch.setattr(mod, "BrowserBridgeClient", lambda *a, **k: bridge)
 
     class _BS:
         async def __aenter__(self):
@@ -39,13 +35,10 @@ def _wire(mod, monkeypatch, bridge=None, *, session_status="active"):
 
     monkeypatch.setattr(mod, "browser_session", lambda *a, **k: _BS())
     monkeypatch.setattr(mod, "check_cooldown", AsyncMock(return_value=True))
-    monkeypatch.setattr(mod, "is_thread_paused",
-                        AsyncMock(return_value=False))
+    monkeypatch.setattr(mod, "is_thread_paused", AsyncMock(return_value=False))
     monkeypatch.setattr(mod, "detect_intent", AsyncMock(return_value="i"))
-    monkeypatch.setattr(mod, "retrieve_brand_context",
-                        AsyncMock(return_value="ctx"))
-    monkeypatch.setattr(mod, "generate_contextual_reply",
-                        AsyncMock(return_value="reply"))
+    monkeypatch.setattr(mod, "retrieve_brand_context", AsyncMock(return_value="ctx"))
+    monkeypatch.setattr(mod, "generate_contextual_reply", AsyncMock(return_value="reply"))
     monkeypatch.setattr(mod, "store_message_memory", AsyncMock())
     monkeypatch.setattr(mod, "set_cooldown", AsyncMock())
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
@@ -69,25 +62,22 @@ async def test_twitter_poller(monkeypatch):
             return False
 
         async def execute(self, *a):
-            return SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: self.accounts))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: self.accounts))
 
     # no accounts → zeroed stats
     monkeypatch.setattr(TW, "_worker_db", lambda: _DB([]))
     out = await TW._poll_twitter_messenger_async()
-    assert out == {"accounts_checked": 0, "replies_sent": 0,
-                   "errors": 0, "skipped_no_session": 0}
+    assert out == {"accounts_checked": 0, "replies_sent": 0, "errors": 0, "skipped_no_session": 0}
 
     # disabled account skipped; enabled processed; error counted
-    acct_on = _account({"twitter_auto_reply": {"enabled": True},
-                        "twitter_messenger_seen": {}})
+    acct_on = _account({"twitter_auto_reply": {"enabled": True}, "twitter_messenger_seen": {}})
     acct_off = _account({"twitter_auto_reply": {"enabled": False}})
     acct_err = _account({"twitter_auto_reply": {"enabled": True}})
-    monkeypatch.setattr(TW, "_worker_db",
-                        lambda: _DB([acct_off, acct_on, acct_err]))
+    monkeypatch.setattr(TW, "_worker_db", lambda: _DB([acct_off, acct_on, acct_err]))
     proc = AsyncMock(side_effect=[2, RuntimeError("x")])
     monkeypatch.setattr(TW, "_process_account", proc)
     import sqlalchemy.orm.attributes as SOA
+
     monkeypatch.setattr(SOA, "flag_modified", lambda *a, **k: None)
 
     out = await TW._poll_twitter_messenger_async()
@@ -116,14 +106,12 @@ async def test_twitter_process_guards(monkeypatch):
 
     # convos fetch raises → 0
     b = _wire(TW, monkeypatch)
-    b.get_twitter_dm_conversations = AsyncMock(
-        side_effect=RuntimeError("x"))
+    b.get_twitter_dm_conversations = AsyncMock(side_effect=RuntimeError("x"))
     assert await TW._process_account(acct, cfg, seen, "t", "a", "u") == 0
 
     # no conversations → 0
     b = _wire(TW, monkeypatch)
-    b.get_twitter_dm_conversations = AsyncMock(
-        return_value={"conversations": []})
+    b.get_twitter_dm_conversations = AsyncMock(return_value={"conversations": []})
     assert await TW._process_account(acct, cfg, seen, "t", "a", "u") == 0
 
 
@@ -134,11 +122,8 @@ async def test_twitter_process_convo_guards(monkeypatch):
 
     def _bridge(msgs, convos=None):
         b = _wire(TW, monkeypatch)
-        b.get_twitter_dm_conversations = AsyncMock(return_value={
-            "conversations": convos or [{"thread_id": "c1",
-                                          "name": "User"}]})
-        b.get_twitter_dm_messages = AsyncMock(
-            return_value={"messages": msgs})
+        b.get_twitter_dm_conversations = AsyncMock(return_value={"conversations": convos or [{"thread_id": "c1", "name": "User"}]})
+        b.get_twitter_dm_messages = AsyncMock(return_value={"messages": msgs})
         b.send_twitter_dm_message = AsyncMock()
         return b
 
@@ -170,18 +155,12 @@ async def test_twitter_process_convo_guards(monkeypatch):
 async def test_twitter_process_happy(monkeypatch):
     acct = _account({})
     b = _wire(TW, monkeypatch)
-    b.get_twitter_dm_conversations = AsyncMock(return_value={
-        "conversations": [{"thread_id": "c1", "name": "Ada"},
-                          {"thread_id": "c2", "name": "Bad"}]})
-    b.get_twitter_dm_messages = AsyncMock(side_effect=[
-        {"messages": [{"text": "price?", "id": "m1"}]},
-        RuntimeError("msg fetch boom")])
+    b.get_twitter_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "c1", "name": "Ada"}, {"thread_id": "c2", "name": "Bad"}]})
+    b.get_twitter_dm_messages = AsyncMock(side_effect=[{"messages": [{"text": "price?", "id": "m1"}]}, RuntimeError("msg fetch boom")])
     b.send_twitter_dm_message = AsyncMock()
 
     seen: dict = {}
-    n = await TW._process_account(
-        acct, {"cooldown_seconds": 1, "fallback_text": "fb"},
-        seen, "t", "a", "u")
+    n = await TW._process_account(acct, {"cooldown_seconds": 1, "fallback_text": "fb"}, seen, "t", "a", "u")
     assert n == 1  # c2's error swallowed, loop continued
     b.send_twitter_dm_message.assert_awaited_once_with("c1", "reply")
     assert seen == {"c1": "price?"}
@@ -192,13 +171,10 @@ async def test_twitter_process_happy(monkeypatch):
     # empty reply → fallback_text used
     b2 = _wire(TW, monkeypatch)
     TW.generate_contextual_reply = AsyncMock(return_value="")
-    b2.get_twitter_dm_conversations = AsyncMock(return_value={
-        "conversations": [{"thread_id": "c1", "name": "Ada"}]})
-    b2.get_twitter_dm_messages = AsyncMock(return_value={
-        "messages": [{"text": "yo"}]})
+    b2.get_twitter_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "c1", "name": "Ada"}]})
+    b2.get_twitter_dm_messages = AsyncMock(return_value={"messages": [{"text": "yo"}]})
     b2.send_twitter_dm_message = AsyncMock()
-    n = await TW._process_account(
-        acct, {"fallback_text": "FBTXT"}, {}, "t", "a", "u")
+    n = await TW._process_account(acct, {"fallback_text": "FBTXT"}, {}, "t", "a", "u")
     b2.send_twitter_dm_message.assert_awaited_once_with("c1", "FBTXT")
 
 
@@ -212,22 +188,18 @@ async def test_tiktok_process(monkeypatch):
 
     def _bridge(msgs):
         b = _wire(TT, monkeypatch)
-        b.get_tiktok_dm_conversations = AsyncMock(return_value={
-            "conversations": [{"thread_id": "c1", "name": "User"}]})
-        b.get_tiktok_dm_messages = AsyncMock(
-            return_value={"messages": msgs})
+        b.get_tiktok_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "c1", "name": "User"}]})
+        b.get_tiktok_dm_messages = AsyncMock(return_value={"messages": msgs})
         b.send_tiktok_dm_message = AsyncMock()
         return b
 
     seen: dict = {}
     # last message from "me" → skipped (no new inbound)
-    _bridge([{"text": "q?", "sender": "them"},
-                 {"text": "answer", "sender": "me"}])
+    _bridge([{"text": "q?", "sender": "them"}, {"text": "answer", "sender": "me"}])
     assert await TT._process_account(acct, cfg, seen, "", "", "") == 0
 
     # last message inbound → replied
-    b = _bridge([{"text": "answer", "sender": "me"},
-                 {"text": "follow-up?", "sender": "them"}])
+    b = _bridge([{"text": "answer", "sender": "me"}, {"text": "follow-up?", "sender": "them"}])
     assert await TT._process_account(acct, cfg, seen, "", "", "") == 1
     b.send_tiktok_dm_message.assert_awaited_once_with("c1", "reply")
     assert seen["c1"] == "follow-up?"
@@ -247,16 +219,15 @@ async def test_tiktok_poller(monkeypatch):
             return False
 
         async def execute(self, *a):
-            return SimpleNamespace(scalars=lambda: SimpleNamespace(
-                all=lambda: [acct]))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [acct]))
 
         commit = AsyncMock()
 
-    acct = _account({"tiktok_auto_reply": {"enabled": True},
-                     "tiktok_messenger_seen": {}})
+    acct = _account({"tiktok_auto_reply": {"enabled": True}, "tiktok_messenger_seen": {}})
     monkeypatch.setattr(TT, "_worker_db", lambda: _DB())
     monkeypatch.setattr(TT, "_process_account", AsyncMock(return_value=1))
     import sqlalchemy.orm.attributes as SOA
+
     monkeypatch.setattr(SOA, "flag_modified", lambda *a, **k: None)
     out = await TT._poll_tiktok_messenger_async()
     assert out["replies_sent"] == 1 and out["accounts_checked"] == 1
@@ -293,14 +264,12 @@ async def test_tiktok_process_guards(monkeypatch):
 
     # convos fetch raises → 0
     b = _wire(TT, monkeypatch)
-    b.get_tiktok_dm_conversations = AsyncMock(
-        side_effect=RuntimeError("x"))
+    b.get_tiktok_dm_conversations = AsyncMock(side_effect=RuntimeError("x"))
     assert await TT._process_account(acct, cfg, seen, "", "", "") == 0
 
     # no conversations → 0
     b = _wire(TT, monkeypatch)
-    b.get_tiktok_dm_conversations = AsyncMock(
-        return_value={"conversations": []})
+    b.get_tiktok_dm_conversations = AsyncMock(return_value={"conversations": []})
     assert await TT._process_account(acct, cfg, seen, "", "", "") == 0
 
 
@@ -311,10 +280,8 @@ async def test_tiktok_convo_guards(monkeypatch):
 
     def _bridge(msgs, convos=None):
         b = _wire(TT, monkeypatch)
-        b.get_tiktok_dm_conversations = AsyncMock(return_value={
-            "conversations": convos or [{"thread_id": "c1"}]})
-        b.get_tiktok_dm_messages = AsyncMock(
-            return_value={"messages": msgs})
+        b.get_tiktok_dm_conversations = AsyncMock(return_value={"conversations": convos or [{"thread_id": "c1"}]})
+        b.get_tiktok_dm_messages = AsyncMock(return_value={"messages": msgs})
         b.send_tiktok_dm_message = AsyncMock()
         return b
 
@@ -346,15 +313,12 @@ async def test_tiktok_convo_guards(monkeypatch):
 async def test_tiktok_happy_and_fallback(monkeypatch):
     acct = _account({})
     b = _wire(TT, monkeypatch)
-    b.get_tiktok_dm_conversations = AsyncMock(return_value={
-        "conversations": [{"thread_id": "c1", "name": "Ada"}]})
-    b.get_tiktok_dm_messages = AsyncMock(return_value={
-        "messages": [{"text": "price?"}]})
+    b.get_tiktok_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "c1", "name": "Ada"}]})
+    b.get_tiktok_dm_messages = AsyncMock(return_value={"messages": [{"text": "price?"}]})
     b.send_tiktok_dm_message = AsyncMock()
 
     seen: dict = {}
-    n = await TT._process_account(
-        acct, {"cooldown_seconds": 1}, seen, "t", "a", "u")
+    n = await TT._process_account(acct, {"cooldown_seconds": 1}, seen, "t", "a", "u")
     assert n == 1
     b.send_tiktok_dm_message.assert_awaited_once_with("c1", "reply")
     assert seen["c1"] == "price?"
@@ -362,6 +326,173 @@ async def test_tiktok_happy_and_fallback(monkeypatch):
 
     # fallback_text path
     TT.generate_contextual_reply = AsyncMock(return_value="")
-    n = await TT._process_account(
-        acct, {"fallback_text": "FB"}, {"c2": ""}, "t", "a", "u")
+    n = await TT._process_account(acct, {"fallback_text": "FB"}, {"c2": ""}, "t", "a", "u")
     b.send_tiktok_dm_message.assert_awaited_with("c1", "FB")
+
+
+# ── threads _process_account (clone, 7-arg signature) ────────────────
+_ARGS = ("bridge-url", "cf-tok", "cf-acc", "dmr")
+
+
+@pytest.mark.asyncio
+async def test_threads_poller(monkeypatch):
+    class _DB:
+        def __init__(self, accounts):
+            self.accounts = accounts
+            self.commit = AsyncMock()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def execute(self, *a):
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: self.accounts))
+
+    monkeypatch.setattr(TH, "_worker_db", lambda: _DB([]))
+    out = await TH._poll_threads_messenger_async()
+    assert out == {"accounts_checked": 0, "replies_sent": 0, "errors": 0}
+
+    acct_on = _account({"threads_auto_reply": {"enabled": True}, "threads_messenger_seen": {}})
+    acct_off = _account({"threads_auto_reply": {"enabled": False}})
+    acct_err = _account({"threads_auto_reply": {"enabled": True}})
+    monkeypatch.setattr(TH, "_worker_db", lambda: _DB([acct_off, acct_on, acct_err]))
+    monkeypatch.setattr(TH, "_process_account", AsyncMock(side_effect=[1, RuntimeError("x")]))
+    import sqlalchemy.orm.attributes as SOA
+
+    monkeypatch.setattr(SOA, "flag_modified", lambda *a, **k: None)
+
+    out = await TH._poll_threads_messenger_async()
+    assert out["accounts_checked"] == 2
+    assert out["replies_sent"] == 1 and out["errors"] == 1
+    assert "threads_messenger_last_checked" in acct_on.meta_data
+
+
+@pytest.mark.asyncio
+async def test_threads_process_guards(monkeypatch):
+    acct = _account({})
+    cfg = {"cooldown_seconds": 300}
+    seen: dict = {}
+
+    _wire(TH, monkeypatch, session_status="inactive")
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+    b = _wire(TH, monkeypatch)
+    b.ensure_session = AsyncMock(side_effect=RuntimeError("x"))
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(side_effect=RuntimeError("x"))
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(return_value={"conversations": []})
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+
+@pytest.mark.asyncio
+async def test_threads_convo_guards(monkeypatch):
+    acct = _account({})
+    cfg = {"cooldown_seconds": 300}
+
+    def _bridge(msgs, convos=None):
+        b = _wire(TH, monkeypatch)
+        b.get_threads_dm_conversations = AsyncMock(return_value={"conversations": convos or [{"thread_id": "t1", "name": "User"}]})
+        b.get_threads_dm_messages = AsyncMock(return_value={"messages": msgs})
+        b.send_threads_dm_message = AsyncMock()
+        return b
+
+    seen: dict = {}
+    # no thread_id → skip
+    _bridge([{"text": "hi"}], convos=[{"thread_id": ""}])
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+    # empty messages → skip
+    _bridge([])
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+    # only our own messages → no inbound → skip
+    _bridge([{"text": "mine", "sender": "me"}, {"text": "x", "sender": "Cloudless"}])
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+    # already seen → skip
+    _bridge([{"text": "hi", "sender": "them"}])
+    assert await TH._process_account(acct, cfg, {"t1": "hi"}, *_ARGS) == 0
+    # cooldown → skip
+    _bridge([{"text": "hi", "sender": "them"}])
+    TH.check_cooldown = AsyncMock(return_value=False)
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+    TH.check_cooldown = AsyncMock(return_value=True)
+    # paused → skip
+    _bridge([{"text": "hi", "sender": "them"}])
+    TH.is_thread_paused = AsyncMock(return_value=True)
+    assert await TH._process_account(acct, cfg, seen, *_ARGS) == 0
+
+
+@pytest.mark.asyncio
+async def test_threads_happy_and_fallback(monkeypatch):
+    acct = _account({})
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "t1", "name": "Ada"}, {"thread_id": "t2", "name": "Bad"}]})
+    b.get_threads_dm_messages = AsyncMock(side_effect=[{"messages": [{"text": "price?", "sender": "them"}]}, RuntimeError("msg fetch boom")])
+    b.send_threads_dm_message = AsyncMock()
+
+    seen: dict = {}
+    n = await TH._process_account(acct, {"cooldown_seconds": 1}, seen, *_ARGS)
+    assert n == 1
+    b.send_threads_dm_message.assert_awaited_once_with("t1", "reply")
+    assert seen == {"t1": "price?"}
+    assert TH.store_message_memory.await_count == 2
+    TH.set_cooldown.assert_awaited_once()
+
+    # fallback_text path
+    b2 = _wire(TH, monkeypatch)
+    TH.generate_contextual_reply = AsyncMock(return_value="")
+    b2.get_threads_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "t1"}]})
+    b2.get_threads_dm_messages = AsyncMock(return_value={"messages": [{"text": "yo", "sender": "them"}]})
+    b2.send_threads_dm_message = AsyncMock()
+    await TH._process_account(acct, {"fallback_text": "FBTXT"}, {}, *_ARGS)
+    b2.send_threads_dm_message.assert_awaited_once_with("t1", "FBTXT")
+
+
+def test_threads_run_async():
+    async def _coro():
+        return 7
+
+    assert TH._run_async(_coro()) == 7
+
+
+@pytest.mark.asyncio
+async def test_threads_running_loop_and_wrapper(monkeypatch):
+    # _run_async inside a running loop → threaded runner path
+    async def _coro():
+        return 9
+
+    assert TH._run_async(_coro()) == 9
+
+    # poll_threads_messenger sync wrapper inside a running loop
+    async def _stub():
+        return {"ok": 1}
+
+    monkeypatch.setattr(TH, "_poll_threads_messenger_async", _stub)
+    assert TH.poll_threads_messenger() == {"ok": 1}
+
+    # threaded runner propagates errors
+    async def _boom():
+        raise RuntimeError("inner")
+
+    monkeypatch.setattr(TH, "_poll_threads_messenger_async", _boom)
+    with pytest.raises(RuntimeError):
+        TH.poll_threads_messenger()
+
+
+@pytest.mark.asyncio
+async def test_threads_bridge_error_in_loop(monkeypatch):
+    from app.services.browser_bridge import BrowserBridgeError
+
+    acct = _account({})
+    b = _wire(TH, monkeypatch)
+    b.get_threads_dm_conversations = AsyncMock(return_value={"conversations": [{"thread_id": "t1"}]})
+    b.get_threads_dm_messages = AsyncMock(side_effect=BrowserBridgeError(500, "bridge down"))
+    b.send_threads_dm_message = AsyncMock()
+    # error swallowed by per-convo handler → still 0, no send
+    assert await TH._process_account(acct, {}, {}, *_ARGS) == 0
+    b.send_threads_dm_message.assert_not_awaited()
