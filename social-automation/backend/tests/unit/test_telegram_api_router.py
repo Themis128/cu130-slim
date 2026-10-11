@@ -1454,3 +1454,143 @@ async def test_notify_config_endpoint(monkeypatch):
     assert out["slack"]["dedicated_channel"] is True
     assert out["email"]["configured"] is True
     assert out["email"]["recipient"] == "me@x.com"
+
+
+# ── datalake funnel events ────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_send_photo_logs_channel_post_for_known_channel(monkeypatch):
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_channels": {"-100": {"title": "HQ", "type": "channel"}},
+        }
+    )
+    _patch_client(monkeypatch)
+    db = _DB([acc])
+    out = await send_photo(
+        acc.id,
+        SendPhotoRequest(chat_id="-100", photo="https://x/i.jpg", caption="hi"),
+        db,
+        _user(),
+    )
+    assert out["status"] == "ok"
+    events = [o for o in db.added if getattr(o, "event_type", "") == "channel_post"]
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.platform == "telegram"
+    assert ev.meta_data["chat_id"] == "-100"
+    assert ev.meta_data["chat_title"] == "HQ"
+    assert ev.meta_data["has_media"] is True
+    assert ev.meta_data["message_ids"] == [3]
+
+
+@pytest.mark.asyncio
+async def test_send_message_skips_event_for_unknown_chat(monkeypatch):
+    """DM sends must never leave an analytics trail — only channels."""
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    db = _DB([acc])
+    out = await send_message(
+        acc.id, SendMessageRequest(chat_id="55", text="hi"), db, _user()
+    )
+    assert out["status"] == "ok"
+    assert not [o for o in db.added if getattr(o, "event_type", "") == "channel_post"]
+
+
+@pytest.mark.asyncio
+async def test_invite_link_persisted_on_channel_meta(monkeypatch):
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_channels": {"-100": {"title": "HQ", "type": "channel"}},
+        }
+    )
+    client = _FakeClient()
+    client.create_chat_invite_link = AsyncMock(
+        return_value={"invite_link": "https://t.me/+secret", "name": "ig"}
+    )
+    _patch_client(monkeypatch, client)
+    db = _DB([acc])
+    await create_invite_link(
+        acc.id, InviteLinkRequest(chat_id="-100", name="ig"), db, _user()
+    )
+    links = acc.meta_data["telegram_channels"]["-100"]["invite_links"]
+    assert links[0]["name"] == "ig"
+    assert links[0]["invite_link"] == "https://t.me/+secret"
+    assert db.committed >= 1
+
+
+@pytest.mark.asyncio
+async def test_webhook_member_event_persisted_to_analytics(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_chat_member_update=lambda u: {
+            "chat_id": -100,
+            "chat_type": "channel",
+            "chat_title": "HQ",
+            "new_status": "member",
+            "username": "jane",
+            "invite_link_name": "threads",
+        },
+    )
+    db = _DB([acc])
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), db, None)
+    assert out["member_event"] == "member_joined"
+    events = [o for o in db.added if getattr(o, "platform", "") == "telegram"]
+    assert len(events) == 1
+    ev = events[0]
+    assert ev.event_type == "member_joined"
+    assert ev.post_id is None
+    assert ev.meta_data["invite_link_name"] == "threads"
+    assert ev.meta_data["actor"] == "jane"
+
+
+@pytest.mark.asyncio
+async def test_webhook_membership_event_persisted_to_analytics(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_my_chat_member_update=lambda u: {
+            "chat_id": -100999,
+            "chat_type": "channel",
+            "chat_title": "HQ",
+            "old_status": "left",
+            "new_status": "administrator",
+        },
+    )
+    db = _DB([acc])
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), db, None)
+    assert out["membership"] == "info"
+    events = [o for o in db.added if getattr(o, "platform", "") == "telegram"]
+    assert len(events) == 1
+    assert events[0].event_type == "bot_admin"
+    assert events[0].meta_data["chat_id"] == "-100999"
+
+
+@pytest.mark.asyncio
+async def test_webhook_member_event_persist_failure_still_notifies(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    _patch_client(monkeypatch)
+    notify = AsyncMock(return_value={"slack": True, "email": True})
+    _wh_patches(
+        monkeypatch,
+        notify_channel_event=notify,
+        extract_chat_member_update=lambda u: {
+            "chat_id": -100, "new_status": "member", "user_id": 7,
+        },
+    )
+
+    class _BoomAddDB(_DB):
+        def add(self, obj):
+            raise RuntimeError("db down")
+
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _BoomAddDB([acc]), None)
+    assert out["member_event"] == "member_joined"
+    assert notify.await_count == 1  # notify still ran despite persist failure
