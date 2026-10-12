@@ -216,6 +216,33 @@ class TestLinkAlreadyPresent:
 
     def test_no_match_returns_false(self):
         assert cr._link_already_present("totally unrelated copy", "cloudless.gr/x") is False
+    def test_host_and_path_match(self):
+        assert cr._link_already_present(
+            "check www.cloudless.gr/pricing", "https://cloudless.gr/pricing"
+        ) is True
+        assert cr._link_already_present("see mycloudless.gr", "https://cloudless.gr") is False
+
+
+class TestRenderPostText:
+    def _post(self, **kw):
+        kw.setdefault("content_text", "Body text")
+        kw.setdefault("hashtags", None)
+        kw.setdefault("link_url", None)
+        kw.setdefault("platform_specific", None)
+        return Post(**kw)
+
+    def test_truncates_to_platform_max(self):
+        post = self._post(content_text="x" * 400)
+        text = render_post_text(post, "twitter")  # 280-char cap
+        assert len(text) == 280
+        assert text.endswith("…")
+
+    def test_no_content_no_link_early_return(self):
+        post = self._post(content_text="", link_url="https://cloudless.gr/x")
+        # no body → _link_already_present False → link appended for linkedin
+        text = render_post_text(post, "linkedin")
+        assert "cloudless.gr/x" in text
+
 
 
 class TestRenderHashtags:

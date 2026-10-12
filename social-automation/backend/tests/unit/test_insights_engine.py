@@ -10,6 +10,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from app.services.insights_engine import (
     PLATFORM_BENCHMARKS,
     PLATFORM_BEST_PRACTICES,
@@ -197,8 +199,8 @@ def test_iqr_outliers_underperformer():
 def test_count_resets():
     pts = [
         (NOW - timedelta(days=3), 100, 1000),
-        (NOW - timedelta(days=2), 90, 900),   # reset
-        (NOW - timedelta(days=1), 95, 950),   # normal growth
+        (NOW - timedelta(days=2), 90, 900),  # reset
+        (NOW - timedelta(days=1), 95, 950),  # normal growth
     ]
     assert _count_resets(pts) == 1
 
@@ -221,12 +223,9 @@ def test_follower_anomaly_flags_spike_and_drop():
 
 def test_compute_aggregates_per_platform():
     rows = [
-        _post_row("linkedin", impressions=200, engagement=10, er=5.0,
-                  published_at=NOW - timedelta(days=3)),
-        _post_row("linkedin", impressions=300, engagement=20, er=6.6,
-                  published_at=NOW - timedelta(days=5), media=False),
-        _post_row("threads", impressions=100, engagement=1, er=1.0,
-                  published_at=NOW - timedelta(days=4)),
+        _post_row("linkedin", impressions=200, engagement=10, er=5.0, published_at=NOW - timedelta(days=3)),
+        _post_row("linkedin", impressions=300, engagement=20, er=6.6, published_at=NOW - timedelta(days=5), media=False),
+        _post_row("threads", impressions=100, engagement=1, er=1.0, published_at=NOW - timedelta(days=4)),
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     li = out["platforms"]["linkedin"]
@@ -290,8 +289,7 @@ def test_compute_momentum_from_snapshot_deltas():
 
 
 def test_compute_follower_growth_and_benchmark():
-    rows = [_post_row("instagram", impressions=500, engagement=30, er=6.0)
-            for _ in range(10)]
+    rows = [_post_row("instagram", impressions=500, engagement=30, er=6.0) for _ in range(10)]
     acct = uuid.uuid4()
     followers = [
         _follower_row("instagram", 1000, NOW - timedelta(days=30), acct),
@@ -309,19 +307,15 @@ def test_compute_follower_growth_and_benchmark():
 
 
 def test_compute_data_warnings_collected():
-    rows = [_post_row("instagram", impressions=0, engagement=0,
-                      notes="insights_scope_missing — reconnect")]
+    rows = [_post_row("instagram", impressions=0, engagement=0, notes="insights_scope_missing — reconnect")]
     out = compute_insights(rows, [], [], [], now=NOW)
-    assert "insights_scope_missing — reconnect" in (
-        out["platforms"]["instagram"]["data_warnings"])
+    assert "insights_scope_missing — reconnect" in (out["platforms"]["instagram"]["data_warnings"])
 
 
 def test_compute_platform_limits_split_from_warnings():
     rows = [
-        _post_row("twitter", impressions=0, engagement=0,
-                  notes="quota_exhausted"),
-        _post_row("linkedin", impressions=0, engagement=0,
-                  notes="member_postAnalytics_scope_missing"),
+        _post_row("twitter", impressions=0, engagement=0, notes="quota_exhausted"),
+        _post_row("linkedin", impressions=0, engagement=0, notes="member_postAnalytics_scope_missing"),
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     tw = out["platforms"]["twitter"]
@@ -334,10 +328,8 @@ def test_compute_platform_limits_split_from_warnings():
 
 def test_compute_mixed_notes_keep_genuine_warnings():
     rows = [
-        _post_row("twitter", impressions=0, engagement=0,
-                  notes="quota_exhausted"),
-        _post_row("twitter", impressions=0, engagement=0,
-                  notes="twitter stats HTTP 500"),
+        _post_row("twitter", impressions=0, engagement=0, notes="quota_exhausted"),
+        _post_row("twitter", impressions=0, engagement=0, notes="twitter stats HTTP 500"),
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     tw = out["platforms"]["twitter"]
@@ -347,13 +339,10 @@ def test_compute_mixed_notes_keep_genuine_warnings():
 
 def test_recommend_no_data_gap_rec_for_platform_limits():
     plats = {
-        "twitter": _plat(posts=5, impressions=0, engagement=0,
-                         platform_limits=["quota_exhausted"]),
+        "twitter": _plat(posts=5, impressions=0, engagement=0, platform_limits=["quota_exhausted"]),
     }
     recs = _recommend(plats)
-    assert not any(
-        r["type"] == "data_gap" and r["platform"] == "twitter" for r in recs
-    )
+    assert not any(r["type"] == "data_gap" and r["platform"] == "twitter" for r in recs)
 
 
 def test_compute_no_benchmark_without_followers():
@@ -366,7 +355,7 @@ def test_compute_no_benchmark_without_followers():
 def test_compute_events_pick_latest_per_type():
     rows = [_post_row()]
     evs = [
-        ("instagram", "account_insights", {"reach": 500}),      # newest first
+        ("instagram", "account_insights", {"reach": 500}),  # newest first
         ("instagram", "account_insights", {"reach": 300}),
         ("instagram", "audience_demographics", {"country": {"GR": 60}}),
     ]
@@ -398,7 +387,7 @@ def test_compute_sanitizes_negative_metrics():
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     li = out["platforms"]["linkedin"]
-    assert li["impressions"] == 100       # negative row repaired, not summed
+    assert li["impressions"] == 100  # negative row repaired, not summed
     assert li["engagement"] == 5
     assert li["data_quality"]["sanitized_rows"] >= 3  # imp + eng + er…
     assert out["preprocessing"]["sanitized_rows"] >= 3
@@ -460,32 +449,42 @@ def test_compute_follower_all_zero_series_ignored():
 def test_recommend_viral_outlier():
     plats = {
         "linkedin": _plat(
-            focus_tier="main", posts=5,
-            outliers=[{
-                "post_id": "abc12345-viral", "kind": "viral",
-                "engagement": 15, "engagement_rate": 15.0,
-                "platform_median_engagement": 2,
-            }],
+            focus_tier="main",
+            posts=5,
+            outliers=[
+                {
+                    "post_id": "abc12345-viral",
+                    "kind": "viral",
+                    "engagement": 15,
+                    "engagement_rate": 15.0,
+                    "platform_median_engagement": 2,
+                }
+            ],
         ),
         "threads": _plat(posts=5),
     }
     recs = _recommend(plats)
     out_rec = next(r for r in recs if r["type"] == "outlier")
     assert out_rec["platform"] == "linkedin"
-    assert out_rec["priority"] == "high"      # main tier → high priority
+    assert out_rec["priority"] == "high"  # main tier → high priority
     assert "7.5×" in out_rec["text"]
-    assert "boost" in out_rec["text"]         # linkedin has ads
+    assert "boost" in out_rec["text"]  # linkedin has ads
 
 
 def test_recommend_underperformer_no_rec():
     plats = {
         "linkedin": _plat(
-            focus_tier="main", posts=5,
-            outliers=[{
-                "post_id": "dead-post1", "kind": "underperformer",
-                "engagement": 0, "engagement_rate": 0.0,
-                "platform_median_engagement": 5,
-            }],
+            focus_tier="main",
+            posts=5,
+            outliers=[
+                {
+                    "post_id": "dead-post1",
+                    "kind": "underperformer",
+                    "engagement": 0,
+                    "engagement_rate": 0.0,
+                    "platform_median_engagement": 5,
+                }
+            ],
         ),
     }
     assert not any(r["type"] == "outlier" for r in _recommend(plats))
@@ -495,8 +494,7 @@ def test_recommend_follower_anomaly():
     plats = {
         "tiktok": _plat(
             posts=5,
-            follower_growth={"net": 55, "current": 555, "accounts": 1,
-                             "anomaly": {"delta": 60, "at": "2026-09-20T10:00:00"}},
+            follower_growth={"net": 55, "current": 555, "accounts": 1, "anomaly": {"delta": 60, "at": "2026-09-20T10:00:00"}},
         ),
     }
     recs = _recommend(plats)
@@ -507,9 +505,9 @@ def test_recommend_follower_anomaly():
 def test_recommend_data_quality_resets():
     plats = {
         "linkedin": _plat(
-            focus_tier="main", posts=5,
-            data_quality={"snapshots": 5, "sanitized_rows": 2,
-                          "counter_resets": 4, "outlier_posts": 0},
+            focus_tier="main",
+            posts=5,
+            data_quality={"snapshots": 5, "sanitized_rows": 2, "counter_resets": 4, "outlier_posts": 0},
         ),
     }
     recs = _recommend(plats)
@@ -529,9 +527,12 @@ def test_recommend_empty():
 def test_recommend_channel_focus_with_benchmark():
     plats = {
         "linkedin": _plat(
-            focus_tier="main", engagement=80, posts=10,
+            focus_tier="main",
+            engagement=80,
+            posts=10,
             benchmark={
-                "ratio": 1.5, "benchmark_pct": 3.6,
+                "ratio": 1.5,
+                "benchmark_pct": 3.6,
                 "your_er_by_followers_pct": 5.4,
                 "verdict": "above_benchmark",
             },
@@ -568,9 +569,7 @@ def test_recommend_deprioritize_merged_and_excludes_data_gaps():
         # weak: has impressions but low engagement
         "threads": _plat(avg_engagement_rate=1.0, engagement=3, posts=5),
         # zero impressions = data gap, must NOT be deprioritized
-        "instagram": _plat(avg_engagement_rate=0.0, engagement=0,
-                           impressions=0, posts=5,
-                           data_warnings=["insights_scope_missing"]),
+        "instagram": _plat(avg_engagement_rate=0.0, engagement=0, impressions=0, posts=5, data_warnings=["insights_scope_missing"]),
     }
     recs = _recommend(plats)
     deps = [r for r in recs if r["type"] == "deprioritize"]
@@ -578,16 +577,13 @@ def test_recommend_deprioritize_merged_and_excludes_data_gaps():
     assert "threads" in deps[0]["platform"]
     assert "instagram" not in deps[0]["platform"]
     # and instagram gets a data_gap rec instead
-    assert any(r["type"] == "data_gap" and r["platform"] == "instagram"
-               for r in recs)
+    assert any(r["type"] == "data_gap" and r["platform"] == "instagram" for r in recs)
 
 
 def test_recommend_timing_only_with_engagement_signal():
     plats = {
-        "linkedin": _plat(focus_tier="main", posts=10,
-                          best_weekday_athens=(2, 5.0), best_hour_athens=(9, 4.0)),
-        "threads": _plat(posts=5,
-                         best_weekday_athens=(2, 0.0), best_hour_athens=(9, 0.0)),
+        "linkedin": _plat(focus_tier="main", posts=10, best_weekday_athens=(2, 5.0), best_hour_athens=(9, 4.0)),
+        "threads": _plat(posts=5, best_weekday_athens=(2, 0.0), best_hour_athens=(9, 0.0)),
     }
     recs = _recommend(plats)
     li = next(r for r in recs if r["type"] == "timing" and r["platform"] == "linkedin")
@@ -601,9 +597,12 @@ def test_recommend_timing_only_with_engagement_signal():
 def test_recommend_timing_thin_sample_is_directional():
     plats = {
         "linkedin": _plat(
-            focus_tier="main", posts=4,
-            best_weekday_athens=(4, 3.0), best_hour_athens=(2, 4.0),
-            best_weekday_sample=2, best_hour_sample=3,
+            focus_tier="main",
+            posts=4,
+            best_weekday_athens=(4, 3.0),
+            best_hour_athens=(2, 4.0),
+            best_weekday_sample=2,
+            best_hour_sample=3,
         ),
     }
     recs = _recommend(plats)
@@ -614,9 +613,7 @@ def test_recommend_timing_thin_sample_is_directional():
 
 def test_recommend_momentum_floor_blocks_small_numbers():
     plats = {
-        "linkedin": _plat(focus_tier="main", posts=10,
-                          momentum_7d_engagement_pct=100.0,
-                          engagement_7d=2, engagement_prev_7d=1),
+        "linkedin": _plat(focus_tier="main", posts=10, momentum_7d_engagement_pct=100.0, engagement_7d=2, engagement_prev_7d=1),
     }
     assert not any(r["type"] == "momentum" for r in _recommend(plats))
     plats["linkedin"]["engagement_7d"] = 20
@@ -627,13 +624,10 @@ def test_recommend_momentum_floor_blocks_small_numbers():
 def test_recommend_momentum_fires_on_zero_prior():
     # prior=0 → pct_change is None but the signal is real
     plats = {
-        "linkedin": _plat(focus_tier="main", posts=10,
-                          momentum_7d_engagement_pct=None,
-                          engagement_7d=10, engagement_prev_7d=0),
+        "linkedin": _plat(focus_tier="main", posts=10, momentum_7d_engagement_pct=None, engagement_7d=10, engagement_prev_7d=0),
     }
     recs = _recommend(plats)
-    assert any(r["type"] == "momentum" and r["platform"] == "linkedin"
-               for r in recs)
+    assert any(r["type"] == "momentum" and r["platform"] == "linkedin" for r in recs)
 
 
 def test_recommend_ads_gating_and_demographics():
@@ -641,7 +635,8 @@ def test_recommend_ads_gating_and_demographics():
         # threads has no ads product — excluded even with a top post
         "threads": _plat(posts=10),
         "instagram": _plat(
-            posts=10, engagement=50,
+            posts=10,
+            engagement=50,
             audience_demographics={"audience_country": {"GR": 60, "US": 20}},
         ),
         "linkedin": _plat(focus_tier="main", posts=10),
@@ -682,8 +677,81 @@ def test_recommend_low_confidence_flagged():
 
 
 def test_benchmarks_cover_all_platforms():
-    for name in ("linkedin", "instagram", "facebook", "threads",
-                 "twitter", "tiktok"):
+    for name in ("linkedin", "instagram", "facebook", "threads", "twitter", "tiktok"):
         assert name in PLATFORM_BENCHMARKS
         assert PLATFORM_BENCHMARKS[name]["er_by_followers_pct"] > 0
         assert name in PLATFORM_BEST_PRACTICES
+
+
+def test_recommend_negative_momentum_rec():
+    # prior week +100 engagement delta, recent week +10 → mom ≤ -25
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=13), 50, 500),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=8), 150, 1500),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=2), 160, 1600),
+    ]
+    rows = [_post_row(published_at=NOW - timedelta(days=30))]
+    out = compute_insights(rows, delta_rows, [], [], now=NOW)
+    li = out["platforms"]["linkedin"]
+    assert li["momentum_7d_engagement_pct"] <= -25
+    recs = _recommend(out["platforms"])
+    drop = [r for r in recs if r.get("type") == "momentum" and "dropped" in r["text"]]
+    assert drop and drop[0]["platform"] == "linkedin"
+
+
+def test_recommend_follower_decline_rec():
+    rows = [_post_row("instagram", impressions=500, engagement=30, er=6.0) for _ in range(10)]
+    acct = uuid.uuid4()
+    followers = [
+        _follower_row("instagram", 1250, NOW - timedelta(days=30), acct),
+        _follower_row("instagram", 1000, NOW - timedelta(days=1), acct),
+    ]
+    out = compute_insights(rows, [], followers, [], now=NOW)
+    ig = out["platforms"]["instagram"]
+    assert ig["follower_growth"]["net"] == -250
+    recs = _recommend(out["platforms"])
+    growth = [r for r in recs if r.get("type") == "growth" and "lost" in r["text"]]
+    assert growth and growth[0]["platform"] == "instagram"
+
+
+@pytest.mark.asyncio
+async def test_build_team_insights_delegates_to_compute():
+    from app.services.insights_engine import build_team_insights
+
+    acct = uuid.uuid4()
+    post_rows = [
+        _post_row("linkedin", impressions=200, engagement=10, er=5.0, published_at=NOW - timedelta(days=5)),
+    ]
+    delta_rows = [
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=10), 50, 500),
+        _snap_row("linkedin", "urn:1", NOW - timedelta(days=1), 90, 900),
+    ]
+    follower_rows = [
+        _follower_row("linkedin", 500, NOW - timedelta(days=30), acct),
+        _follower_row("linkedin", 560, NOW - timedelta(days=1), acct),
+    ]
+    # ev_rows unpack positionally in compute_insights — real Row tuples
+    ev_rows = [
+        ("linkedin", "account_insights", {"metric": "x"}),
+    ]
+
+    class _Res:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def all(self):
+            return self._rows
+
+    class _DB:
+        def __init__(self):
+            self.calls = 0
+
+        async def execute(self, stmt):
+            self.calls += 1
+            return _Res([post_rows, delta_rows, follower_rows, ev_rows][self.calls - 1])
+
+    db = _DB()
+    out = await build_team_insights(db, uuid.uuid4(), days=30)
+    assert db.calls == 4
+    assert "linkedin" in out["platforms"]
+    assert out["platforms"]["linkedin"]["posts"] == 1
