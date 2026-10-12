@@ -26,16 +26,16 @@ export function getAxiosErrorDetail(err: unknown): string | undefined {
   const e = err as AxiosError | undefined
 
   // Axios error with API response body
-  const fromData = tryGetDetailFromData((e as any)?.response?.data)
+  const fromData = tryGetDetailFromData((e as { response?: { data?: unknown } })?.response?.data)
   if (fromData) return fromData
 
   // Axios error message
-  const fromMessage = asNonEmptyString((e as any)?.message)
+  const fromMessage = asNonEmptyString((e as { message?: unknown })?.message)
   if (fromMessage) return fromMessage
 
   // Generic error
-  if (err && typeof err === 'object' && 'message' in (err as any)) {
-    const m = asNonEmptyString((err as any).message)
+  if (err && typeof err === 'object' && 'message' in err) {
+    const m = asNonEmptyString((err as { message?: unknown }).message)
     if (m) return m
   }
 

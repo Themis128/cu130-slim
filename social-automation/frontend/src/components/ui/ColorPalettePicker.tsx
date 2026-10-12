@@ -18,7 +18,7 @@ const SWATCHES = [
 ]
 
 export function ColorPalettePicker({ primary, accent, neutrals = [], onChange }: ColorPalettePickerProps) {
-  const update = (field: 'primary' | 'accent', value: string) => onChange({ [field]: value } as any)
+  const update = (field: 'primary' | 'accent', value: string) => onChange({ [field]: value } as Parameters<typeof onChange>[0])
   const addNeutral = (color: string) => {
     if (!neutrals.includes(color)) onChange({ neutrals: [...neutrals, color] })
   }
