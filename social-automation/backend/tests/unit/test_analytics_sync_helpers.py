@@ -2114,3 +2114,697 @@ async def test_telegram_sync_api_error_is_reported_not_raised(monkeypatch):
     )
     r = await A.sync_telegram_channel_metrics(_DB(), acc)
     assert r.errors and "chat not found" in r.errors[0]
+
+
+# ── _meta_insights_get adaptive-retry ladder ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_empty_metrics_falls_through():
+    """Empty metric list → loop breaks → bare GET with base params only."""
+    cli = _Cli(lambda url: _resp(200, {"data": [{"name": "x"}]}))
+    r = await A._meta_insights_get(cli, "http://m", [])
+    assert r.status_code == 200 and len(cli.urls) == 1
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_drops_rejected_metric():
+    """metric[N] rejection → pop it; empty list → break with last response."""
+    calls = []
+
+    async def get(url, **kw):
+        calls.append(url)
+        return _resp(
+            400,
+            {"error": {"message": "metric[0] must be one of the following values: a"}},
+        )
+
+    r = await A._meta_insights_get(SimpleNamespace(get=get), "http://m", ["bad"])
+    assert r.status_code == 400 and len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_unparseable_error_body():
+    """resp.json() raising → empty message → return the 400 unchanged."""
+    bad = _resp(400)
+    bad.json = lambda: (_ for _ in ()).throw(ValueError("no json"))
+    r = await A._meta_insights_get(_Cli(lambda url: bad), "http://m", ["m1"])
+    assert r is bad
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_single_metric_100_returns():
+    """(#100) with a single metric left → give up, return the 400."""
+    cli = _Cli(
+        lambda url: _resp(
+            400, {"error": {"message": "(#100) The value must be a valid insights metric"}}
+        )
+    )
+    r = await A._meta_insights_get(cli, "http://m", ["m1"])
+    assert r.status_code == 400 and len(cli.urls) == 1
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_probe_merges_supported():
+    """(#100) batch → per-metric probes merge the supported subset."""
+
+    class _Seq:
+        def __init__(self):
+            self.n = 0
+
+        async def get(self, url, **kw):
+            self.n += 1
+            if self.n == 1:
+                return _resp(
+                    400,
+                    {"error": {"message": "(#100) The value must be a valid insights metric"}},
+                )
+            if self.n == 2:
+                return _resp(200, {"data": [{"name": "m1"}]})
+            return _resp(400, {"error": {"message": "rejected"}})
+
+    r = await A._meta_insights_get(_Seq(), "http://m", ["m1", "m2"])
+    assert r.status_code == 200 and r.json()["data"] == [{"name": "m1"}]
+
+
+@pytest.mark.asyncio
+async def test_meta_insights_get_probe_all_fail_returns_last():
+    """(#100) batch where every probe fails → return the last probe error."""
+
+    class _All:
+        async def get(self, url, **kw):
+            return _resp(
+                400,
+                {"error": {"message": "(#100) The value must be a valid insights metric"}},
+            )
+
+    r = await A._meta_insights_get(_All(), "http://m", ["m1", "m2"])
+    assert r.status_code == 400
+
+
+# ── _fetch_linkedin_org_stats per-URN fallback ladder ─────────────────
+
+
+@pytest.mark.asyncio
+async def test_li_org_stats_unknown_urn_soft_failures():
+    """Unknown URN kind → tries both param forms; soft 404s → stats_unavailable."""
+
+    def fn(url):
+        r = _resp(404)
+        r.text = "not_found"
+        return r
+
+    out = await A._fetch_linkedin_org_stats(
+        _Cli(fn), "t", "urn:li:organization:1", ["mystery-urn"]
+    )
+    assert out["mystery-urn"].notes == "stats_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_li_org_stats_unknown_urn_no_stats_element():
+    """200 with unparsable elements → no_stats_element marker."""
+    out = await A._fetch_linkedin_org_stats(
+        _Cli(lambda url: _resp(200, {"elements": [{"nope": 1}]})),
+        "t",
+        "urn:li:organization:1",
+        ["mystery-urn"],
+    )
+    assert out["mystery-urn"].raw["note"] == "no_stats_element"
+
+
+@pytest.mark.asyncio
+async def test_li_follower_stats_all_http_errors():
+    out = await A._fetch_linkedin_follower_stats(
+        _Cli(lambda url: _resp(500)), "t", "urn:li:organization:1"
+    )
+    assert "demographics_error" in out
+    assert "gains_error" in out
+    assert "total_error" in out
+
+
+@pytest.mark.asyncio
+async def test_li_page_stats_mixed_results():
+    def fn(url):
+        if "timeIntervals" in url:
+            return _resp(200, {"elements": [{"views": 3}]})
+        return _resp(500)
+
+    out = await A._fetch_linkedin_page_stats(_Cli(fn), "t", "urn:li:organization:1")
+    assert "lifetime_error" in out and out["period"]["daily"] == [{"views": 3}]
+
+
+@pytest.mark.asyncio
+async def test_li_member_post_analytics_all_500():
+    """Per-query-type ≥400 (non-auth) → HTTP string recorded, loop continues."""
+    out = await A._fetch_member_post_analytics(
+        _Cli(lambda url: _resp(500)), "t", "urn:li:share:1"
+    )
+    for qt in A._MEMBER_POST_QUERY_TYPES:
+        assert out["data"][qt] == "HTTP 500"
+
+
+@pytest.mark.asyncio
+async def test_li_org_post_urns_empty_page_breaks():
+    """Second page with no elements → break out of pagination."""
+    now_ms = int(datetime.now(UTC).timestamp() * 1000)
+
+    def fn(url):
+        if "start=20" in url:
+            return _resp(200, {"elements": []})
+        return _resp(
+            200,
+            {
+                "elements": [
+                    {"id": "urn:li:share:9", "publishedAt": now_ms, "commentary": "hi"}
+                ],
+                "paging": {"total": 40},
+            },
+        )
+
+    out = await A._list_org_post_urns(
+        _Cli(fn), "t", "urn:li:organization:1", since=datetime.now(UTC) - timedelta(days=7)
+    )
+    assert len(out) == 1 and out[0]["urn"] == "urn:li:share:9"
+
+
+@pytest.mark.asyncio
+async def test_sync_linkedin_member_creator_analytics_merge(_li_patches, monkeypatch):
+    """Item without urn is skipped; creator analytics merges into the bundle."""
+    import app.services.linkedin_sidecar as lsc
+
+    monkeypatch.setattr(
+        lsc,
+        "LinkedInSidecarClient",
+        lambda: SimpleNamespace(
+            get_profile_activity=AsyncMock(
+                return_value={"profile_url": "p", "followers": 0, "posts": [{"no_urn": 1}]}
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        A,
+        "_fetch_member_post_analytics",
+        AsyncMock(return_value={"data": {"IMPRESSION": 10}}),
+    )
+    t = _target("urn:li:share:555")
+    db = _DB(results=[[t]])
+    acc = _account(platform="linkedin", access_token_enc="enc", meta_data={}, scopes=[])
+    r = await A.sync_linkedin_account(db, acc)
+    assert r.errors == []
+    bundles = [c.kwargs["metrics"] for c in A._persist_snapshot.await_args_list]
+    assert any((b.raw or {}).get("creator_analytics") == {"IMPRESSION": 10} for b in bundles)
+
+
+# ── _scrape_twitter_timeline scroll tolerance ─────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_scrape_twitter_timeline_scroll_error_tolerated(monkeypatch):
+    """A scroll evaluate failure is swallowed; extraction still runs."""
+    import app.services.browser_bridge as bb
+    import app.services.browser_orchestrator as bo
+
+    b = SimpleNamespace(
+        navigate=AsyncMock(),
+        evaluate=AsyncMock(
+            side_effect=[
+                RuntimeError("scroll boom"),
+                None,
+                None,
+                None,
+                {"result": {"posts": [{"id": "t1"}], "followers": 3}},
+            ]
+        ),
+    )
+    _BrowserSession.browser = b
+    bridge = SimpleNamespace(ensure_session=AsyncMock(return_value={"status": "active"}))
+    monkeypatch.setattr(bb, "BrowserBridgeClient", lambda *a, **kw: bridge)
+    monkeypatch.setattr(bo, "browser_session", lambda *a, **kw: _BrowserSession())
+    monkeypatch.setattr(A.asyncio, "sleep", AsyncMock())
+    out = await A._scrape_twitter_timeline("cu_dev")
+    assert out["posts"] == [{"id": "t1"}]
+
+
+# ── sync_twitter_account edge branches ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_empty_tweet_id(_tw_patches):
+    """Target without platform_post_id → per-target loop continue."""
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(200, {"data": []}),
+            _resp(200, {"data": {"public_metrics": {}}}),
+        ]
+    )
+    r = await A.sync_twitter_account(_DB(results=[[_target("")]]), _tw_acc())
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_timeline_item_edges(_tw_patches):
+    """Discovery items: dup/no-id → continue; bad created_at → keep; old → skip."""
+    now = datetime.now(UTC)
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(
+                200,
+                {
+                    "data": [
+                        {"id": "999", "created_at": now.isoformat()},
+                        {"no_id": 1},
+                        {"id": "t_bad", "created_at": "garbage"},
+                        {"id": "t_old", "created_at": (now - timedelta(days=400)).isoformat()},
+                        {"id": "t_new", "created_at": now.isoformat(), "public_metrics": {"impression_count": 7}},
+                    ]
+                },
+            ),
+            _resp(200, {"data": {"public_metrics": {}}}),
+        ]
+    )
+    r = await A.sync_twitter_account(_DB(results=[[_target("999")]]), _tw_acc())
+    assert r.synced == 3  # local 999 + t_bad (created=None keeps it) + t_new
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_discovery_http_other(_tw_patches):
+    """Non-quota HTTP error on timeline → generic error recorded."""
+    _Client.get = AsyncMock(side_effect=[_resp(500), _resp(200, {"data": {}})])
+    r = await A.sync_twitter_account(_DB(results=[[]]), _tw_acc())
+    assert any("timeline discovery HTTP 500" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_client_raises(_tw_patches):
+    """httpx failure → timeline + users/me both capture the exception."""
+    _Client.get = AsyncMock(side_effect=RuntimeError("net down"))
+    r = await A.sync_twitter_account(_DB(results=[[]]), _tw_acc())
+    assert any("timeline discovery: net down" in e for e in r.errors)
+    assert any("users/me: net down" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_scrape_item_edges(_tw_patches, monkeypatch):
+    """Scraped posts: dup/no-id → continue; bad posted → keep; old → skip."""
+    now = datetime.now(UTC)
+    monkeypatch.setattr(
+        A,
+        "_scrape_twitter_timeline",
+        AsyncMock(
+            return_value={
+                "followers": None,
+                "posts": [
+                    {"no_id": 1},
+                    {"id": "999"},
+                    {"id": "s_bad", "posted": "garbage"},
+                    {"id": "s_old", "posted": (now - timedelta(days=400)).isoformat()},
+                    {"id": "s_new", "posted": now.isoformat(), "views": 5},
+                ],
+            }
+        ),
+    )
+    _Client.get = AsyncMock(side_effect=[_resp(404), _resp(200, {"data": {}})])
+    r = await A.sync_twitter_account(_DB(results=[[_target("999")]]), _tw_acc())
+    assert r.synced == 3  # local 999 + s_bad + s_new
+    assert any("timeline discovery HTTP 404" in e for e in r.errors)
+
+
+# ── _fetch_facebook_post_metrics value edges ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fb_post_metrics_value_edges(monkeypatch):
+    """Missing metrics + out-of-range/non-dict values → zeros via fallbacks."""
+    monkeypatch.setattr(
+        A,
+        "_meta_insights_get",
+        AsyncMock(
+            return_value=_resp(
+                200,
+                {
+                    "data": [
+                        {"name": "post_media_view", "values": []},
+                        {
+                            "name": "post_activity_by_action_type",
+                            "values": [{"value": "not-a-dict"}],
+                        },
+                    ]
+                },
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        A,
+        "_facebook_object_metrics",
+        AsyncMock(return_value={"comments": 4, "shares": 2, "likes": 9}),
+    )
+    m = await A._fetch_facebook_post_metrics(SimpleNamespace(), "pt", "p1")
+    assert m.comments == 4 and m.shares == 2
+
+
+@pytest.mark.asyncio
+async def test_fb_post_metrics_no_activity_breakdown(monkeypatch):
+    """Post without the activity metric → _breakdown returns 0 → object counters."""
+    monkeypatch.setattr(
+        A,
+        "_meta_insights_get",
+        AsyncMock(
+            return_value=_resp(
+                200, {"data": [{"name": "post_media_view", "values": [{"value": 5}]}]}
+            )
+        ),
+    )
+    monkeypatch.setattr(
+        A,
+        "_facebook_object_metrics",
+        AsyncMock(return_value={"comments": 1, "shares": 0, "likes": 2}),
+    )
+    m = await A._fetch_facebook_post_metrics(SimpleNamespace(), "pt", "p1")
+    assert m.comments == 1 and m.impressions == 5
+
+
+# ── sync_facebook_account edge branches ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sync_facebook_empty_post_id(_fb_patches):
+    _Client.get = AsyncMock(return_value=_resp(200, {"data": []}))
+    r = await A.sync_facebook_account(_DB(results=[[_target("")]]), _fb_page())
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_facebook_discovery_item_edges(_fb_patches):
+    """Covered dup, bad created_time, too-old item → skip/keep correctly."""
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(
+                200,
+                {
+                    "data": [
+                        {"id": "pg-1_1"},
+                        {"id": "pg-1_2", "created_time": "garbage"},
+                        {
+                            "id": "pg-1_3",
+                            "created_time": (datetime.now(UTC) - timedelta(days=400)).isoformat(),
+                        },
+                    ]
+                },
+            ),
+            _resp(200, {"data": []}),
+        ]
+    )
+    r = await A.sync_facebook_account(_DB(results=[[_target("pg-1_1")]]), _fb_page())
+    assert r.errors == []
+    assert r.synced == 2  # local pg-1_1 + pg-1_2 (created=None keeps it)
+
+
+@pytest.mark.asyncio
+async def test_sync_facebook_all_excepts(_fb_patches, monkeypatch):
+    """Discovery, page-insights, and attribution failures all captured."""
+    _Client.get = AsyncMock(
+        side_effect=[RuntimeError("disc down"), RuntimeError("attr down")]
+    )
+    monkeypatch.setattr(
+        A, "_meta_insights_get", AsyncMock(side_effect=RuntimeError("insights down"))
+    )
+    r = await A.sync_facebook_account(_DB(results=[[]]), _fb_page())
+    assert any("post discovery: disc down" in e for e in r.errors)
+    assert any("page insights: insights down" in e for e in r.errors)
+    assert any("follower attribution: attr down" in e for e in r.errors)
+
+
+# ── sync_instagram_account edge branches ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_empty_media_id(_ig_patches):
+    _Client.get = AsyncMock(return_value=_resp(200, {"data": []}))
+    r = await A.sync_instagram_account(_DB(results=[[_target("")]]), _ig_acc())
+    assert r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_discovery_bad_timestamp(_ig_patches):
+    """Unparseable timestamp → created=None → item kept and persisted."""
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(200, {"data": [{"id": "m_bad", "timestamp": "garbage"}, {"no_id": 1}]}),
+            _resp(200, {"data": []}),
+            _resp(200, {"data": []}),
+            _resp(200, {"data": []}),
+            _resp(200, {"data": []}),
+        ]
+    )
+    r = await A.sync_instagram_account(_DB(results=[[]]), _ig_acc())
+    assert r.synced == 1 and r.errors == []
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_discovery_except(_ig_patches):
+    _Client.get = AsyncMock(side_effect=RuntimeError("boom"))
+    r = await A.sync_instagram_account(_DB(results=[[]]), _ig_acc())
+    assert any("media discovery: boom" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_sync_ig_insight_blocks_except(_ig_patches):
+    """Each insight block's failure is captured without aborting the rest."""
+    calls = []
+
+    async def _get(url, **kw):
+        calls.append(url)
+        if len(calls) == 1:
+            return _resp(200, {"data": []})
+        raise RuntimeError("ig down")
+
+    _Client.get = AsyncMock(side_effect=_get)
+    r = await A.sync_instagram_account(_DB(results=[[]]), _ig_acc())
+    for frag in ("account insights", "demographics", "follow_type split", "online_followers"):
+        assert any(frag in e for e in r.errors)
+
+
+# ── sync_threads_account edge branches ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_fetch_threads_profile_non_200():
+    out = await A._fetch_threads_profile(_Cli(lambda url: _resp(500)), "t", "u1")
+    assert out == {}
+
+
+@pytest.mark.asyncio
+async def test_sync_threads_item_edges(_th_patches):
+    """Empty target, dup/no-id items, bad timestamp, new item."""
+    _Client.get = AsyncMock(
+        return_value=_resp(
+            200,
+            {
+                "data": [
+                    {"no_id": 1},
+                    {"id": "m1"},
+                    {"id": "th_bad", "timestamp": "garbage"},
+                    {"id": "th_new", "timestamp": datetime.now(UTC).isoformat(), "text": "t"},
+                ]
+            },
+        )
+    )
+    r = await A.sync_threads_account(
+        _DB(results=[[_target("m1"), _target("")]]), _th_acc()
+    )
+    assert r.synced == 3  # m1 + th_bad (created=None keeps it) + th_new
+
+
+@pytest.mark.asyncio
+async def test_sync_threads_discovery_except(_th_patches):
+    _Client.get = AsyncMock(side_effect=RuntimeError("th down"))
+    r = await A.sync_threads_account(_DB(results=[[]]), _th_acc())
+    assert any("post discovery: th down" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_sync_threads_avatar_from_profile(_th_patches, monkeypatch):
+    monkeypatch.setattr(
+        A,
+        "_fetch_threads_profile",
+        AsyncMock(
+            return_value={"username": "cu", "threads_profile_picture_url": "https://pic"}
+        ),
+    )
+    acc = _th_acc()
+    await A.sync_threads_account(_DB(results=[[]]), acc)
+    assert acc.avatar_url == "https://pic"
+
+
+# ── _scrape_tiktok_profile cleanup + sync_tiktok_account edges ────────
+
+
+def test_scrape_tiktok_cookie_cleanup_error(monkeypatch):
+    """Cookie tempfile unlink failure is swallowed."""
+    import sys
+    from types import ModuleType
+
+    class _YDL:
+        def __init__(self, opts):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+        def extract_info(self, url, download=False):
+            return {"entries": [], "channel_follower_count": 1, "channel_id": "c"}
+
+    mod = ModuleType("yt_dlp")
+    mod.YoutubeDL = _YDL
+    monkeypatch.setitem(sys.modules, "yt_dlp", mod)
+    monkeypatch.setattr(A.os, "unlink", lambda p: (_ for _ in ()).throw(OSError("busy")))
+    out = A._scrape_tiktok_profile("cu", {"sessionid": "x"})
+    assert out["videos"] == {} and out["followers"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_tiktok_platform_specific_id_map(_tt_patches, monkeypatch):
+    """platform_specific video ids map scraped vids back to local posts."""
+    t = _target(
+        "7312345", post_ps={"tiktok": {"video_id": "99", "public_post_id": "98"}}
+    )
+    monkeypatch.setattr(
+        A, "_fetch_tiktok_video_stats", AsyncMock(return_value=A.MetricBundle(likes=1))
+    )
+    monkeypatch.setattr(
+        A,
+        "_scrape_tiktok_profile",
+        lambda u, c: {
+            "videos": {"99": A.MetricBundle(likes=5)},
+            "followers": 0,
+            "channel_id": "c",
+        },
+    )
+    acc = _account(
+        platform="tiktok",
+        access_token_enc="enc",
+        username="cu",
+        meta_data={"tiktok_web_cookies": {"sessionid": "x"}},
+        scopes=[],
+    )
+    await A.sync_tiktok_account(_DB(results=[[t]]), acc)
+    calls = A._persist_snapshot.await_args_list
+    assert any(
+        c.kwargs.get("post_id") == t.post_id and c.kwargs.get("platform_post_id") == "99"
+        for c in calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_sync_tiktok_scrape_skips_api_covered(_tt_patches, monkeypatch):
+    """Videos already persisted via Display API are skipped in the scrape loop."""
+    t = _target("7312345")
+    monkeypatch.setattr(
+        A, "_fetch_tiktok_video_stats", AsyncMock(return_value=A.MetricBundle(likes=1))
+    )
+    monkeypatch.setattr(
+        A,
+        "_scrape_tiktok_profile",
+        lambda u, c: {
+            "videos": {"7312345": A.MetricBundle(likes=9)},
+            "followers": 0,
+            "channel_id": "c",
+        },
+    )
+    acc = _account(
+        platform="tiktok",
+        access_token_enc="enc",
+        username="cu",
+        meta_data={"tiktok_web_cookies": {"sessionid": "x"}},
+        scopes=[],
+    )
+    await A.sync_tiktok_account(_DB(results=[[t]]), acc)
+    # only the API persist ran — the scraped duplicate vid was skipped
+    assert A._persist_snapshot.await_count == 1
+    assert A._persist_snapshot.await_args.kwargs["platform_post_id"] == "7312345"
+
+
+@pytest.mark.asyncio
+async def test_sync_tiktok_userinfo_and_sidecar_except(_tt_patches, monkeypatch):
+    """user.info failure captured; dead-sidecar check swallowed silently."""
+    _Client.get = AsyncMock(side_effect=RuntimeError("api down"))
+    monkeypatch.setattr(
+        A,
+        "_scrape_tiktok_profile",
+        lambda u, c: {"videos": {}, "followers": 0, "channel_id": ""},
+    )
+    acc = _account(
+        platform="tiktok",
+        access_token_enc="enc",
+        username="cu",
+        meta_data={"tiktok_web_cookies": {"sessionid": "x"}},
+        scopes=["user.info.stats"],
+    )
+    r = await A.sync_tiktok_account(_DB(results=[[]]), acc)
+    assert any("user.info" in e for e in r.errors)
+    assert not any("web session expired" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_sync_tiktok_scrape_raises(_tt_patches, monkeypatch):
+    def _boom(u, c):
+        raise RuntimeError("scrape down")
+
+    monkeypatch.setattr(A, "_scrape_tiktok_profile", _boom)
+    acc = _account(
+        platform="tiktok",
+        access_token_enc="enc",
+        username="cu",
+        meta_data={"tiktok_web_cookies": {"sessionid": "x"}},
+        scopes=[],
+    )
+    r = await A.sync_tiktok_account(_DB(results=[[]]), acc)
+    assert any("scrape @cu" in e for e in r.errors)
+
+
+# ── sync_telegram outer except + team dispatch ────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_telegram_sync_outer_except(monkeypatch):
+    """Non-API failures (client construction) → error string, never raise."""
+
+    def _boom(account):
+        raise RuntimeError("no client")
+
+    monkeypatch.setattr("app.api.telegram._client_for", _boom)
+    acc = _account(
+        platform="telegram",
+        username="tg-bot",
+        meta_data={"telegram_channel": {"chat_id": "-1"}},
+    )
+    r = await A.sync_telegram_channel_metrics(_DB(), acc)
+    assert any("no client" in e for e in r.errors)
+
+
+@pytest.mark.asyncio
+async def test_sync_team_analytics_platform_filter(monkeypatch):
+    """platforms= filter + twitter/instagram/telegram dispatch branches."""
+    tw = _account(platform="twitter")
+    ig = _account(platform="instagram")
+    tg = _account(platform="telegram")
+    monkeypatch.setattr(
+        A, "sync_twitter_account", AsyncMock(return_value=A.SyncResult(synced=1))
+    )
+    monkeypatch.setattr(
+        A, "sync_instagram_account", AsyncMock(return_value=A.SyncResult(synced=2))
+    )
+    monkeypatch.setattr(
+        A,
+        "sync_telegram_channel_metrics",
+        AsyncMock(return_value=A.SyncResult(synced=3)),
+    )
+    monkeypatch.setattr(A, "_persist_follower_snapshot", AsyncMock())
+    db = _DB(results=[[tw, ig, tg]])
+    out = await A.sync_team_analytics(
+        db, uuid.uuid4(), platforms=["twitter", "instagram", "telegram"]
+    )
+    assert out.synced == 6
