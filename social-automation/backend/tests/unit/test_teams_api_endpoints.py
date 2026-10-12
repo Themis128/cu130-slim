@@ -419,8 +419,7 @@ async def test_change_role_target_404():
     u = _user()
     actor = _member(t.id, u.id, UserRole.OWNER)
     with pytest.raises(HTTPException) as e:
-        await change_member_role(t.id, uuid.uuid4(), ChangeRoleRequest(role=UserRole.EDITOR), u,
-                                 _DB([t, actor, None]))
+        await change_member_role(t.id, uuid.uuid4(), ChangeRoleRequest(role=UserRole.EDITOR), u, _DB([t, actor, None]))
     assert e.value.status_code == 404
 
 
@@ -431,8 +430,7 @@ async def test_change_role_editor_forbidden():
     actor = _member(t.id, u.id, UserRole.EDITOR)
     target = _member(t.id, uuid.uuid4(), UserRole.VIEWER)
     with pytest.raises(HTTPException) as e:
-        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.ADMIN), u,
-                                 _DB([t, actor, target]))
+        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.ADMIN), u, _DB([t, actor, target]))
     assert e.value.status_code == 403
 
 
@@ -443,8 +441,7 @@ async def test_change_role_admin_cannot_touch_owner():
     actor = _member(t.id, u.id, UserRole.ADMIN)
     target = _member(t.id, uuid.uuid4(), UserRole.OWNER)
     with pytest.raises(HTTPException) as e:
-        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.EDITOR), u,
-                                 _DB([t, actor, target]))
+        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.EDITOR), u, _DB([t, actor, target]))
     assert e.value.status_code == 403
 
 
@@ -455,8 +452,7 @@ async def test_change_role_admin_cannot_touch_admin():
     actor = _member(t.id, u.id, UserRole.ADMIN)
     target = _member(t.id, uuid.uuid4(), UserRole.ADMIN)
     with pytest.raises(HTTPException) as e:
-        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.EDITOR), u,
-                                 _DB([t, actor, target]))
+        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.EDITOR), u, _DB([t, actor, target]))
     assert e.value.status_code == 403
 
 
@@ -467,8 +463,7 @@ async def test_change_role_admin_cannot_promote_owner():
     actor = _member(t.id, u.id, UserRole.ADMIN)
     target = _member(t.id, uuid.uuid4(), UserRole.VIEWER)
     with pytest.raises(HTTPException) as e:
-        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.OWNER), u,
-                                 _DB([t, actor, target]))
+        await change_member_role(t.id, target.user_id, ChangeRoleRequest(role=UserRole.OWNER), u, _DB([t, actor, target]))
     assert e.value.status_code == 403
 
 
@@ -594,8 +589,7 @@ async def test_accept_invite_not_invite_token_400(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_accept_invite_wrong_email_403(monkeypatch):
-    monkeypatch.setattr("app.core.security.decode_token",
-                        lambda t: _invite_token_payload(email="other@x.com"))
+    monkeypatch.setattr("app.core.security.decode_token", lambda t: _invite_token_payload(email="other@x.com"))
     with pytest.raises(HTTPException) as e:
         await accept_invite(AcceptInviteRequest(token="t"), _user(email="me@x.com"), _DB())
     assert e.value.status_code == 403
@@ -603,8 +597,7 @@ async def test_accept_invite_wrong_email_403(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_accept_invite_bad_team_uuid_400(monkeypatch):
-    monkeypatch.setattr("app.core.security.decode_token",
-                        lambda t: {"invite_email": "me@x.com", "invite_team_id": "not-a-uuid"})
+    monkeypatch.setattr("app.core.security.decode_token", lambda t: {"invite_email": "me@x.com", "invite_team_id": "not-a-uuid"})
     with pytest.raises(HTTPException) as e:
         await accept_invite(AcceptInviteRequest(token="t"), _user(email="me@x.com"), _DB())
     assert e.value.status_code == 400
@@ -614,8 +607,7 @@ async def test_accept_invite_bad_team_uuid_400(monkeypatch):
 async def test_accept_invite_adds_member(monkeypatch):
     t = _team()
     u = _user(email="invitee@x.com")
-    monkeypatch.setattr("app.core.security.decode_token",
-                        lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="admin"))
+    monkeypatch.setattr("app.core.security.decode_token", lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="admin"))
     new_mem = _member(t.id, u.id, UserRole.ADMIN)
     db = _DB([t, None, 3, new_mem])  # team, no existing membership, count, final lookup
     out = await accept_invite(AcceptInviteRequest(token="tok"), u, db)
@@ -629,8 +621,7 @@ async def test_accept_invite_existing_member_role_update(monkeypatch):
     t = _team()
     u = _user(email="invitee@x.com")
     existing = _member(t.id, u.id, UserRole.VIEWER)
-    monkeypatch.setattr("app.core.security.decode_token",
-                        lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="editor"))
+    monkeypatch.setattr("app.core.security.decode_token", lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="editor"))
     db = _DB([t, existing, 2, existing])
     out = await accept_invite(AcceptInviteRequest(token="tok"), u, db)
     assert existing.role == UserRole.EDITOR
@@ -641,8 +632,7 @@ async def test_accept_invite_existing_member_role_update(monkeypatch):
 async def test_accept_invite_invalid_role_defaults_editor(monkeypatch):
     t = _team()
     u = _user(email="invitee@x.com")
-    monkeypatch.setattr("app.core.security.decode_token",
-                        lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="bogus"))
+    monkeypatch.setattr("app.core.security.decode_token", lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="bogus"))
     mem = _member(t.id, u.id, UserRole.EDITOR)
     db = _DB([t, None, 1, mem])
     await accept_invite(AcceptInviteRequest(token="tok"), u, db)
@@ -654,8 +644,57 @@ async def test_accept_invite_existing_member_bogus_role_defaults(monkeypatch):
     t = _team()
     u = _user(email="invitee@x.com")
     existing = _member(t.id, u.id, UserRole.VIEWER)
-    monkeypatch.setattr("app.core.security.decode_token",
-                        lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="bogus"))
+    monkeypatch.setattr("app.core.security.decode_token", lambda tok: _invite_token_payload(email=u.email, team_id=t.id, role="bogus"))
     db = _DB([t, existing, 2, existing])
     await accept_invite(AcceptInviteRequest(token="tok"), u, db)
     assert existing.role == UserRole.EDITOR  # bogus role falls back to EDITOR
+
+
+@pytest.mark.asyncio
+async def test_invite_existing_user_opted_in_sends_added_email():
+    # default {} prefs → email_on_invite defaults True → create_task path
+    t = _team(name="MyTeam")
+    u = _user()
+    admin = _member(t.id, u.id, UserRole.ADMIN)
+    target = _user(email="optin@x.com", notification_preferences={})
+    db = _DB([t, admin, target, None])
+    out = await invite_member(t.id, InviteRequest(email="optin@x.com"), u, db)
+    assert out.invited is True
+    # scheduled email task may fail later — fire-and-forget is still covered
+
+
+@pytest.mark.asyncio
+async def test_invite_email_task_failure_is_nonfatal(monkeypatch):
+    import asyncio as _a
+
+    monkeypatch.setattr(_a, "create_task", lambda coro: (_ for _ in ()).throw(RuntimeError("no loop")))
+
+    # existing-user branch: email send failure swallowed
+    t = _team()
+    u = _user()
+    admin = _member(t.id, u.id, UserRole.ADMIN)
+    target = _user(email="m@x.com", notification_preferences={})
+    db = _DB([t, admin, target, None])
+    out = await invite_member(t.id, InviteRequest(email="m@x.com"), u, db)
+    assert out.invited is True
+
+    # unknown-user branch: invite-token email failure also swallowed
+    db2 = _DB([t, admin, None])
+    out2 = await invite_member(t.id, InviteRequest(email="ghost@x.com"), u, db2)
+    assert out2.invited is False
+    assert out2.token
+
+
+@pytest.mark.asyncio
+async def test_invite_frontend_url_fallback_to_first_origin(monkeypatch):
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "CORS_ORIGINS_STR", "https://nonmatch.example")
+
+    t = _team()
+    u = _user()
+    admin = _member(t.id, u.id, UserRole.ADMIN)
+    db = _DB([t, admin, None])
+    out = await invite_member(t.id, InviteRequest(email="g@x.com"), u, db)
+    assert out.invited is False

@@ -108,14 +108,19 @@ async def test_get_insights_success(client):
 
 @pytest.mark.asyncio
 async def test_get_profile_success(client):
-    fake = _FakeAsyncClient(_FakeResponse(200, {
-        "id": "user-456",
-        "username": "cloudless_gr",
-        "name": "cloudless.gr",
-        "threads_profile_picture_url": "https://example.com/pic.jpg",
-        "threads_biography": "Serverless cloud for startups",
-        "is_verified": False,
-    }))
+    fake = _FakeAsyncClient(
+        _FakeResponse(
+            200,
+            {
+                "id": "user-456",
+                "username": "cloudless_gr",
+                "name": "cloudless.gr",
+                "threads_profile_picture_url": "https://example.com/pic.jpg",
+                "threads_biography": "Serverless cloud for startups",
+                "is_verified": False,
+            },
+        )
+    )
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
         result = await client.get_profile()
@@ -171,9 +176,7 @@ async def test_create_video_container_as_carousel_item(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "creation-vid-item"}))
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
-        creation_id = await client.create_video_container(
-            "https://example.com/clip.mp4", is_carousel_item=True
-        )
+        creation_id = await client.create_video_container("https://example.com/clip.mp4", is_carousel_item=True)
 
     assert creation_id == "creation-vid-item"
     assert fake.calls[0]["data"]["media_type"] == "VIDEO"
@@ -277,3 +280,97 @@ async def test_503_504_maps_to_503(client):
 
     assert exc_info.value.status_code == 503
     assert "Gateway timeout" in exc_info.value.response_text
+
+
+# ---------------------------------------------------------------------------
+# Validation + error-branch edges
+# ---------------------------------------------------------------------------
+
+
+def test_validate_media_id_rejects_empty_and_bad_format():
+    with pytest.raises(ValueError, match="Media ID is empty"):
+        api._validate_media_id("   ")
+    with pytest.raises(ValueError, match="Invalid Threads media ID"):
+        api._validate_media_id("bad id with spaces and slashes /")
+    assert api._validate_media_id(" 17891234 ") == "17891234"
+
+
+def test_headers_require_token():
+    c = api.ThreadsAPIClient(access_token="", user_id="u")
+    with pytest.raises(ValueError, match="access token is required"):
+        c._headers()
+
+
+@pytest.mark.asyncio
+async def test_create_text_container_requires_text(client):
+    with pytest.raises(ValueError, match="Text content is required"):
+        await client.create_text_container("   ")
+
+
+@pytest.mark.asyncio
+async def test_create_image_container_requires_url(client):
+    with pytest.raises(ValueError, match="Image URL is required"):
+        await client.create_image_container("")
+
+
+@pytest.mark.asyncio
+async def test_create_video_container_requires_url(client):
+    with pytest.raises(ValueError, match="Video URL is required"):
+        await client.create_video_container("")
+
+
+@pytest.mark.asyncio
+async def test_create_carousel_item_requires_url(client):
+    with pytest.raises(ValueError, match="Image URL is required"):
+        await client.create_carousel_item("")
+
+
+@pytest.mark.asyncio
+async def test_create_carousel_container_bounds(client):
+    with pytest.raises(ValueError, match="At least two"):
+        await client.create_carousel_container(["only-one"])
+    with pytest.raises(ValueError, match="more than 20"):
+        await client.create_carousel_container([f"c{i}" for i in range(21)])
+
+
+@pytest.mark.asyncio
+async def test_create_container_no_creation_id_raises(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
+        with pytest.raises(api.ThreadsAPIError, match="no creation_id"):
+            await client.create_text_container("hello")
+
+
+@pytest.mark.asyncio
+async def test_publish_container_no_media_id_raises(client):
+    fake = _FakeAsyncClient(_FakeResponse(200, {}))
+    with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
+        with pytest.raises(api.ThreadsAPIError, match="no media_id"):
+            await client.publish_container("17890001")
+
+
+@pytest.mark.asyncio
+async def test_wait_for_container_ready_error_and_timeout(client, monkeypatch):
+    # ERROR status surfaces the recorded container error — each poll
+    # creates a fresh AsyncClient, so the factory must return new clients.
+    err_resp = _FakeResponse(200, {"status": "ERROR", "error_message": "media rejected"})
+    with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=30.0: _FakeAsyncClient(err_resp)):
+        with pytest.raises(api.ThreadsAPIError, match="processing failed"):
+            await client.wait_for_container_ready("17890001", timeout=5, interval=0.01)
+
+    # timeout path — always IN_PROGRESS
+    prog_resp = _FakeResponse(200, {"status": "IN_PROGRESS"})
+    with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=30.0: _FakeAsyncClient(prog_resp)):
+        with pytest.raises(api.ThreadsAPIError, match="not ready within"):
+            await client.wait_for_container_ready("17890001", timeout=0.01, interval=0.005)
+
+
+@pytest.mark.asyncio
+async def test_check_container_status_validates_id_and_records_error(client):
+    with pytest.raises(ValueError, match="Invalid Threads media ID"):
+        await client.check_container_status("bad id/")
+
+    fake = _FakeAsyncClient(_FakeResponse(200, {"status": "IN_PROGRESS", "error_message": "warming"}))
+    with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
+        assert await client.check_container_status("17890001") == "IN_PROGRESS"
+    assert client._last_container_error == "warming"
