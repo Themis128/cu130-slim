@@ -882,3 +882,352 @@ async def test_similar_assets_skips_bad_ids(monkeypatch):
     out = await similar_assets(a.id, team.id, _user(), db)
     assert len(out) == 1
     assert out[0].ai_caption == "cap"
+
+
+# ── coverage tails ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_view_force_jpeg_unconvertible_415(tmp_path, monkeypatch):
+    (tmp_path / "pic.png").write_bytes(_png_bytes(mode="RGB"))
+    monkeypatch.setattr(media, "UPLOAD_DIR", str(tmp_path))
+
+    def _boom(*a, **k):
+        raise RuntimeError("codec missing")
+
+    monkeypatch.setattr(media, "_reencode_image_bytes", _boom)
+    with pytest.raises(HTTPException) as e:
+        await view_media(path="pic.png", format="jpeg")
+    assert e.value.status_code == 415
+
+
+@pytest.mark.asyncio
+async def test_view_tiff_reencodes_to_png(tmp_path, monkeypatch):
+    buf = io.BytesIO()
+    Image.new("RGB", (4, 4), (10, 20, 30)).save(buf, format="TIFF")
+    (tmp_path / "scan.tiff").write_bytes(buf.getvalue())
+    monkeypatch.setattr(media, "UPLOAD_DIR", str(tmp_path))
+    out = await view_media(path="scan.tiff", format=None)
+    assert out.media_type == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_view_unsafe_path_falls_to_remote(tmp_path, monkeypatch):
+    def _boom(*a, **k):
+        raise ValueError("unsafe")
+
+    monkeypatch.setattr(media, "safe_resolve", _boom)
+    monkeypatch.setattr(media.minio_storage, "minio_enabled", lambda: False)
+    monkeypatch.setattr(media.r2_storage, "get_object", AsyncMock(return_value=_png_bytes(mode="RGB")))
+    out = await view_media(path="pic.png", format=None)
+    assert out.media_type == "image/png"
+
+
+@pytest.mark.asyncio
+async def test_view_minio_non404_propagates(tmp_path, monkeypatch):
+    monkeypatch.setattr(media, "UPLOAD_DIR", str(tmp_path))
+    monkeypatch.setattr(media.minio_storage, "minio_enabled", lambda: True)
+    monkeypatch.setattr(
+        media.minio_storage, "get_object", AsyncMock(side_effect=HTTPException(status_code=500, detail="s3 down"))
+    )
+    with pytest.raises(HTTPException) as e:
+        await view_media(path="remote/pic.png", format=None)
+    assert e.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_list_media_video_type():
+    team = _team()
+    db = _DB(results=[[]], team=team, scalar_value=0)
+    out = await list_media(team.id, 1, 20, "video", None, None, None, None, _user(), db)
+    assert out.total == 0
+
+
+@pytest.mark.asyncio
+async def test_get_media_success():
+    a = _asset()
+    out = await get_media(a.id, a.team_id, _user(), _DB([a]))
+    assert out is a
+
+
+@pytest.mark.asyncio
+async def test_update_media_404():
+    with pytest.raises(HTTPException) as e:
+        await update_media(uuid.uuid4(), MediaAssetUpdateRequest(filename="x"), uuid.uuid4(), _user(), _DB([None]))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_media_404():
+    with pytest.raises(HTTPException) as e:
+        await delete_media(uuid.uuid4(), uuid.uuid4(), _user(), _DB([None]))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_local_file_and_traversal(tmp_path, monkeypatch):
+    monkeypatch.setattr(media, "UPLOAD_DIR", str(tmp_path))
+    (tmp_path / "old.png").write_bytes(b"x")
+    team = _team()
+    ok = _asset(team_id=team.id, storage_backend="local", storage_path="old.png")
+    bad = _asset(team_id=team.id, storage_backend="local", storage_path="../evil.png")
+    db = _DB(results=[[ok, bad]], team=team)
+    out = await bulk_delete_media(BulkDeleteRequest(ids=[ok.id, bad.id]), team.id, _user(), db)
+    assert out["deleted"] == 2
+    assert not (tmp_path / "old.png").exists()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_infographic_full_path(monkeypatch):
+    team = _team()
+    png = _png_bytes(mode="RGB")
+    asset = _asset(team_id=team.id, meta_data=None)
+    _gen_patches(monkeypatch, comfy_png=png, asset=asset)
+    mod = sys.modules["app.services.infographic_renderer"]
+    mod.is_infographic_request = lambda p: True
+    mod.generate_infographic_content = AsyncMock(return_value={"title": "T", "bullets": []})
+    mod.sanitize_prompt_for_background = lambda p: p + " no-text"
+    mod.render_infographic = lambda c, b, **k: b + b"-overlay"
+    out = await generate_image(MediaGenerateImageRequest(prompt="infographic of steps"), team.id, _user(), _DB(team=team))
+    assert out is asset
+    mod.generate_infographic_content.assert_awaited_once()
+    assert asset.meta_data["inference_provider"] == "comfyui-flux"
+
+
+@pytest.mark.asyncio
+async def test_generate_image_infographic_content_fails(monkeypatch):
+    team = _team()
+    png = _png_bytes(mode="RGB")
+    asset = _asset(team_id=team.id, meta_data={})
+    _gen_patches(monkeypatch, comfy_png=png, asset=asset)
+    mod = sys.modules["app.services.infographic_renderer"]
+    mod.is_infographic_request = lambda p: True
+    mod.generate_infographic_content = AsyncMock(side_effect=RuntimeError("llm down"))
+    out = await generate_image(MediaGenerateImageRequest(prompt="infographic x"), team.id, _user(), _DB(team=team))
+    assert out is asset
+
+
+@pytest.mark.asyncio
+async def test_generate_image_infographic_overlay_fails(monkeypatch):
+    team = _team()
+    png = _png_bytes(mode="RGB")
+    asset = _asset(team_id=team.id, meta_data={})
+    _gen_patches(monkeypatch, comfy_png=png, asset=asset)
+    mod = sys.modules["app.services.infographic_renderer"]
+    mod.is_infographic_request = lambda p: True
+    mod.generate_infographic_content = AsyncMock(return_value={"title": "T"})
+    mod.sanitize_prompt_for_background = lambda p: p
+    mod.render_infographic = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("pil broke"))
+    out = await generate_image(MediaGenerateImageRequest(prompt="infographic x"), team.id, _user(), _DB(team=team))
+    assert out is asset
+
+
+@pytest.mark.asyncio
+async def test_generate_image_cf_model_normalize(monkeypatch):
+    import base64
+
+    team = _team()
+    cf_result = {
+        "image_base64": base64.b64encode(_png_bytes(mode="RGB")).decode(),
+        "model": "sd",
+        "provider": "cloudflare",
+    }
+    cf_call = _gen_patches(monkeypatch, comfy_png=RuntimeError("gpu down"), cf_result=cf_result)
+    await generate_image(
+        MediaGenerateImageRequest(prompt="x", options=MediaGenerateOptions(model="stable-diffusion-3")),
+        team.id, _user(), _DB(team=team)
+    )
+    assert cf_call.await_args.kwargs["model"] == "@cf/stabilityai/stable-diffusion-3"
+
+
+@pytest.mark.asyncio
+async def test_generate_image_cf_generic_error_502(monkeypatch):
+    team = _team()
+    cf_call = _gen_patches(monkeypatch, comfy_png=RuntimeError("gpu down"), cf_result=None)
+    cf_call.side_effect = RuntimeError("network boom")
+    with pytest.raises(HTTPException) as e:
+        await generate_image(MediaGenerateImageRequest(prompt="x"), team.id, _user(), _DB(team=team))
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_image_retry_cf_branch(monkeypatch):
+    import base64
+
+    team = _team()
+    cf_result = {
+        "image_base64": base64.b64encode(_png_bytes(mode="RGB")).decode(),
+        "model": "flux",
+        "provider": "cloudflare",
+    }
+    _gen_patches(monkeypatch, comfy_png=RuntimeError("gpu down"), cf_result=cf_result)
+    calls = {"n": 0}
+
+    async def _qa(img, prompt):
+        calls["n"] += 1
+        return {"match": calls["n"] > 1, "reason": "wrong subject"}
+
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", _qa)
+    out = await generate_image(MediaGenerateImageRequest(prompt="x"), team.id, _user(), _DB(team=team))
+    assert out is not None
+    assert calls["n"] == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_image_retry_failure_tolerated(monkeypatch):
+    import base64
+
+    team = _team()
+    cf_ok = {
+        "image_base64": base64.b64encode(_png_bytes(mode="RGB")).decode(),
+        "model": "flux",
+        "provider": "cloudflare",
+    }
+    cf_call = _gen_patches(monkeypatch, comfy_png=RuntimeError("gpu down"), cf_result=cf_ok)
+    cf_call.side_effect = [cf_ok, RuntimeError("retry boom")]
+    monkeypatch.setattr(
+        "app.services.media_ai.verify_media_semantics",
+        AsyncMock(return_value={"match": False, "reason": "bad"}),
+    )
+    out = await generate_image(MediaGenerateImageRequest(prompt="x"), team.id, _user(), _DB(team=team))
+    assert out is not None
+
+
+@pytest.mark.asyncio
+async def test_generate_video_normalizes_steps_cfg_image(monkeypatch):
+    built = {}
+    mod = ModuleType("app.services.comfyui_video")
+    mod.build_wan22_prompt = lambda **k: built.update(k) or {"graph": True}
+    monkeypatch.setitem(sys.modules, "app.services.comfyui_video", mod)
+    sent = []
+    monkeypatch.setattr(media.celery_app, "send_task", lambda name, args: sent.append((name, args)) or SimpleNamespace(id="task-9"))
+    team = _team()
+    out = await generate_video(
+        MediaGenerateVideoRequest(
+            prompt="x",
+            options=MediaGenerateVideoOptions(steps=25, cfg_scale=3.0, image_asset_id="a1"),
+        ),
+        team.id, _user(), _DB(team=team)
+    )
+    assert out.task_id == "task-9"
+    opts = sent[0][1][3]
+    assert opts["steps"] == 20
+    assert opts["cfg_scale"] == 5.0
+    assert built["image_name"] == "x.png"
+
+
+@pytest.mark.asyncio
+async def test_generate_video_status_failed(monkeypatch):
+    res = SimpleNamespace(status="FAILURE", successful=lambda: False, failed=lambda: True, result=RuntimeError("vid boom"))
+    monkeypatch.setattr("celery.result.AsyncResult", lambda *a, **k: res)
+    out = await generate_video_status("t2", uuid.uuid4(), _user())
+    assert out.status == "FAILURE"
+    assert "vid boom" in out.error
+
+
+@pytest.mark.asyncio
+async def test_prepare_upload_no_team():
+    with pytest.raises(HTTPException) as e:
+        await prepare_upload(PresignedUploadRequest(filename="f.png", mime_type="image/png", size_bytes=1), uuid.uuid4(), _user(), _DB())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_no_team():
+    with pytest.raises(HTTPException) as e:
+        await complete_upload(
+            CompleteUploadRequest(key="t/x.png", filename="x.png", mime_type="image/png", size_bytes=1),
+            uuid.uuid4(), _user(), _DB()
+        )
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_complete_upload_celery_fail_tolerated(monkeypatch):
+    team = _team()
+    monkeypatch.setattr(media, "correct_text", AsyncMock(side_effect=lambda t: t))
+    monkeypatch.setattr(media, "correct_tags", AsyncMock(return_value=["t"]))
+    monkeypatch.setattr(media.r2_presigned, "_public_url", lambda k: f"https://pub/{k}")
+
+    def _boom(*a, **k):
+        raise RuntimeError("queue down")
+
+    monkeypatch.setattr(media.celery_app, "send_task", _boom)
+    db = _DB(team=team)
+    out = await complete_upload(
+        CompleteUploadRequest(key=f"{team.id}/2026/x.png", filename="x.png", mime_type="image/png", size_bytes=1),
+        team.id, _user(), db
+    )
+    assert out.storage_backend == "r2"
+
+
+@pytest.mark.asyncio
+async def test_create_collection_no_team():
+    with pytest.raises(HTTPException) as e:
+        await create_collection(MediaCollectionCreateRequest(name="C"), uuid.uuid4(), _user(), _DB())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_list_collections_no_team():
+    with pytest.raises(HTTPException) as e:
+        await list_collections(uuid.uuid4(), _user(), _DB())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_collection_with_assets():
+    team = _team()
+    c = _collection(team_id=team.id)
+    db = _DB([c, [_asset(team_id=team.id), _asset(team_id=team.id), _asset(team_id=team.id)]])
+    out = await get_collection(c.id, team.id, _user(), db)
+    assert out.asset_count == 3
+
+
+@pytest.mark.asyncio
+async def test_update_collection_404():
+    with pytest.raises(HTTPException) as e:
+        await update_collection(uuid.uuid4(), MediaCollectionUpdateRequest(name="N"), uuid.uuid4(), _user(), _DB([None]))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_collection_404():
+    with pytest.raises(HTTPException) as e:
+        await delete_collection(uuid.uuid4(), uuid.uuid4(), _user(), _DB([None]))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_retag_no_team():
+    with pytest.raises(HTTPException) as e:
+        await retag_asset(uuid.uuid4(), uuid.uuid4(), _user(), _DB())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_retag_celery_fail_tolerated(monkeypatch):
+    team = _team()
+    a = _asset(team_id=team.id)
+
+    def _boom(*a_, **k):
+        raise RuntimeError("queue down")
+
+    monkeypatch.setattr(media.celery_app, "send_task", _boom)
+    out = await retag_asset(a.id, team.id, _user(), _DB([a], team=team))
+    assert out is a
+
+
+@pytest.mark.asyncio
+async def test_similar_assets_no_team():
+    with pytest.raises(HTTPException) as e:
+        await similar_assets(uuid.uuid4(), uuid.uuid4(), _user(), _DB())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_similar_assets_404():
+    team = _team()
+    with pytest.raises(HTTPException) as e:
+        await similar_assets(uuid.uuid4(), team.id, _user(), _DB([None], team=team))
+    assert e.value.status_code == 404

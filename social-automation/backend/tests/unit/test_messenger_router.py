@@ -12,6 +12,7 @@ import hmac
 import json
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastapi import HTTPException
@@ -1172,3 +1173,336 @@ class TestBotBuilder:
         out = await messenger.get_bot_personalities(uuid.uuid4(), _user())
         ids = [p["id"] for p in out["personalities"]]
         assert "professional_friendly" in ids and "sales" in ids
+
+
+# ---------------------------------------------------------------------------
+# Coverage tails — client decrypt fallback, icebreaker early returns,
+# setup/profile/send 502 branches, inline lead reply, personal authz,
+# bot brand-index + paused-thread + activate/deactivate edges.
+# ---------------------------------------------------------------------------
+
+class TestCoverageTails:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_client_decrypt_fallback(self, monkeypatch):
+        acct = _page(meta_data={"page_token": "notEA"})
+        monkeypatch.setattr(messenger, "decrypt_token",
+                            Mock(side_effect=ValueError("not encrypted")))
+        c = messenger._get_messenger_client(acct)
+        assert c.kw["access_token"] == "notEA" and c.kw["page_id"] == "pg-1"
+
+    async def test_upsert_icebreaker_early_returns(self):
+        db = FakeDB()
+        # unmappable payload → returns before the account lookup
+        await messenger._upsert_icebreaker_lead(
+            db, page_id="pg-1", sender_psid="s1", payload="NOPE",
+            message_mid="m", timestamp_ms=1)
+        # valid payload but no account → returns
+        await messenger._upsert_icebreaker_lead(
+            db, page_id="pg-1", sender_psid="s1", payload="LEAD_CLOUD",
+            message_mid="m", timestamp_ms=1)
+
+    async def test_upsert_icebreaker_inner_failure(self, monkeypatch):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        monkeypatch.setattr("app.services.leads.upsert_lead",
+                            AsyncMock(side_effect=RuntimeError("db down")))
+        # swallowed — non-fatal by design
+        await messenger._upsert_icebreaker_lead(
+            db, page_id="pg-1", sender_psid="s1", payload="LEAD_AUDIT",
+            message_mid="m", timestamp_ms=1)
+
+    async def test_setup_messenger_edges(self):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        # page_url without scheme → https prepended
+        _MsgClient.page_info = {"name": "P", "website": "cloudless.gr, x"}
+        out = await messenger.setup_messenger(acct.id, None,
+                                              db=db, user=_admin())
+        assert out["page_url"] == "https://cloudless.gr"
+
+        # setup_default_profile raises non-rate-limit → 502
+        _MsgClient.fail_methods = {"setup_default_profile"}
+        _MsgClient.fail_methods_msg = "exploded"
+        with pytest.raises(HTTPException) as e:
+            await messenger.setup_messenger(acct.id, None,
+                                            db=FakeDB(accounts=[acct]),
+                                            user=_admin())
+        assert e.value.status_code == 502
+
+    async def test_get_profile_error_paths(self):
+        acct = _page()
+        # profile fetch fails → 502
+        _MsgClient.fail_methods = {"get_messenger_profile"}
+        with pytest.raises(HTTPException) as e:
+            await messenger.get_messenger_profile(
+                acct.id, db=FakeDB(accounts=[acct]), user=_admin())
+        assert e.value.status_code == 502
+        # subscribed_apps + page_info fail → subscribed False, name fallback
+        _MsgClient.fail_methods = {"get_subscribed_apps", "get_page_info"}
+        out = await messenger.get_messenger_profile(
+            acct.id, db=FakeDB(accounts=[acct]), user=_admin())
+        assert out.subscribed is False and out.page_name == acct.display_name
+
+    async def test_update_profile_all_fields_and_502(self):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        body = messenger.MessengerProfileUpdate(
+            greeting=[{"locale": "default"}],
+            get_started={"payload": "GO"},
+            persistent_menu=[{"type": "web_url"}],
+            whitelisted_domains=["https://x.io"],
+            ice_breakers=[{"question": "q"}])
+        _MsgClient.fail_methods = set()
+        out = await messenger.update_messenger_profile(
+            acct.id, body, db=db, user=_admin())
+        assert set(out["fields"]) == {"greeting", "get_started",
+                                      "persistent_menu", "whitelisted_domains",
+                                      "ice_breakers"}
+        _MsgClient.fail_methods = {"set_messenger_profile"}
+        with pytest.raises(HTTPException) as e:
+            await messenger.update_messenger_profile(
+                acct.id, body, db=FakeDB(accounts=[acct]), user=_admin())
+        assert e.value.status_code == 502
+
+    async def test_delete_fields_unsubscribe_502(self):
+        acct = _page()
+        _MsgClient.fail_methods = {"delete_messenger_profile_fields"}
+        with pytest.raises(HTTPException) as e:
+            await messenger.delete_messenger_profile_fields(
+                acct.id, ["greeting"], db=FakeDB(accounts=[acct]),
+                user=_admin())
+        assert e.value.status_code == 502
+
+        _MsgClient.fail_methods = {"unsubscribe_page"}
+        with pytest.raises(HTTPException) as e:
+            await messenger.unsubscribe_messenger(
+                acct.id, db=FakeDB(accounts=[acct]), user=_admin())
+        assert e.value.status_code == 502
+
+    async def test_send_and_read_endpoints_502(self):
+        acct = _page()
+
+        async def expect_502(fn, fail, *args):
+            _MsgClient.fail_methods = {fail}
+            with pytest.raises(HTTPException) as e:
+                await fn(acct.id, *args, db=FakeDB(accounts=[acct]),
+                         user=_admin())
+            assert e.value.status_code == 502
+
+        await expect_502(messenger.send_message, "send_text",
+                         messenger.SendMessageRequest(recipient_psid="p",
+                                                      text="hi"))
+        await expect_502(messenger.send_message, "send_image_url",
+                         messenger.SendMessageRequest(recipient_psid="p",
+                                                      image_url="https://i"))
+        await expect_502(messenger.send_quick_replies, "send_quick_replies",
+                         messenger.SendQuickRepliesRequest(
+                             recipient_psid="p", text="t",
+                             quick_replies=[{"a": 1}]))
+        await expect_502(messenger.list_conversations, "get_conversations")
+        await expect_502(messenger.get_conversation_messages,
+                         "get_conversation_messages", "conv-1")
+        await expect_502(messenger.get_user_profile, "get_user_profile",
+                         "psid-1")
+
+    async def test_process_inline_lead_reply_and_autoreply_fail(self, monkeypatch):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        capture = "app.services.lead_capture.handle_lead_capture_message"
+
+        # lead reply with quick replies → send_quick_replies then return
+        monkeypatch.setattr(capture, AsyncMock(return_value=SimpleNamespace(
+            text="pick one", quick_replies=[{"q": 1}])))
+        await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
+        assert "send_quick_replies" in _MsgClient.calls
+
+        # lead reply without quick replies → send_text
+        monkeypatch.setattr(capture, AsyncMock(return_value=SimpleNamespace(
+            text="plain", quick_replies=None)))
+        await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
+        assert "send_text" in _MsgClient.calls
+
+        # auto-reply enabled + generator raises → logged, no raise
+        acct.meta_data["messenger_auto_reply"] = {"enabled": True}
+        monkeypatch.setattr(capture, AsyncMock(return_value=None))
+        monkeypatch.setattr(messenger, "_generate_and_send_auto_reply",
+                            AsyncMock(side_effect=RuntimeError("ai down")))
+        await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
+
+    async def test_auto_reply_typing_action_fails(self, monkeypatch):
+        acct = _page()
+        _MsgClient.fail_methods = {"sender_action:typing_on"}
+        monkeypatch.setattr(messenger, "_generate_ai_response",
+                            AsyncMock(return_value="reply text"))
+        await messenger._generate_and_send_auto_reply(
+            acct, "psid", "hello", {"enabled": True})
+        # typing failure swallowed; reply still sent
+        assert "send_text" in _MsgClient.calls
+
+    async def test_personal_account_authz(self):
+        # missing → 404
+        with pytest.raises(HTTPException) as e:
+            await messenger._get_facebook_user_account(
+                FakeDB(), uuid.uuid4(), _user())
+        assert e.value.status_code == 404
+
+        # non-admin without membership → 403
+        acct = _fb_user()
+        with pytest.raises(HTTPException) as e:
+            await messenger._get_facebook_user_account(
+                FakeDB(accounts=[acct], memberships=[]), acct.id, _user())
+        assert e.value.status_code == 403
+
+    async def test_create_bot_page_setup_failures(self, monkeypatch):
+        monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
+        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge",
+                            AsyncMock(return_value=3))
+        acct = _page()
+        req = messenger.BotCreateRequest(name="B")
+        db = FakeDB(accounts=[acct])
+
+        # page_url without scheme + subscribe/profile failures → partial
+        _MsgClient.page_info = {"name": "P", "website": "cloudless.gr"}
+        _MsgClient.fail_methods = {"subscribe_page", "setup_default_profile"}
+        out = await messenger.create_bot(acct.id, req, acct.team_id,
+                                         _admin(), db)
+        assert out["page_setup"]["result"] == "partial"
+
+        # get_page_info raises → outer except → error
+        _MsgClient.fail_methods = {"get_page_info"}
+        out = await messenger.create_bot(acct.id, req, acct.team_id,
+                                         _admin(), FakeDB(accounts=[acct]))
+        assert out["page_setup"]["result"] == "error"
+
+        # brand present → indexed; index raising → warning swallowed
+        _MsgClient.fail_methods = set()
+        brand = SimpleNamespace(team_id=acct.team_id, name="B", tagline="t",
+                                mission="m", industry="i")
+        out = await messenger.create_bot(
+            acct.id, req, acct.team_id, _admin(),
+            FakeDB(accounts=[acct], brands=[brand]))
+        assert out["brand_indexed"] == 3
+        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge",
+                            AsyncMock(side_effect=RuntimeError("rag down")))
+        out = await messenger.create_bot(
+            acct.id, req, acct.team_id, _admin(),
+            FakeDB(accounts=[acct], brands=[brand]))
+        assert out["brand_indexed"] == 0
+
+    async def test_get_bot_paused_thread_error(self, monkeypatch):
+        acct = _page(meta_data={"page_token": "EA",
+                                "messenger_bot": {"name": "b",
+                                                  "paused_threads": ["t9"]}})
+        monkeypatch.setattr("app.services.messenger_chatbot.is_thread_paused",
+                            AsyncMock(side_effect=RuntimeError("redis")))
+        out = await messenger.get_bot(acct.id, acct.team_id, _admin(),
+                                      FakeDB(accounts=[acct]))
+        assert out["paused_threads_status"]["t9"] is False
+
+    async def test_activate_deactivate_user_account(self, monkeypatch):
+        monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
+
+        # deactivate with no bot → 400
+        acct = _fb_user(meta_data={})
+        with pytest.raises(HTTPException) as e:
+            await messenger.deactivate_bot(acct.id, acct.team_id, _admin(),
+                                           FakeDB(accounts=[acct]))
+        assert e.value.status_code == 400
+
+        # activate on personal account → personal auto-reply enabled
+        acct = _fb_user(meta_data={
+            "messenger_bot": {"name": "b", "enabled": False},
+            "personal_messenger_auto_reply": {"enabled": False}})
+        await messenger.activate_bot(acct.id, acct.team_id, _admin(),
+                                     FakeDB(accounts=[acct]))
+        assert acct.meta_data["personal_messenger_auto_reply"]["enabled"] is True
+
+        # deactivate → personal auto-reply disabled
+        await messenger.deactivate_bot(acct.id, acct.team_id, _admin(),
+                                       FakeDB(accounts=[acct]))
+        assert acct.meta_data["personal_messenger_auto_reply"]["enabled"] is False
+
+
+class TestCoverageTails2:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_lead_capture_handler_raises(self, monkeypatch):
+        acct = _page()
+        db = FakeDB(accounts=[acct])
+        monkeypatch.setattr(
+            "app.services.lead_capture.handle_lead_capture_message",
+            AsyncMock(side_effect=RuntimeError("lead db down")))
+        # swallowed by design — no raise
+        await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
+
+    async def test_typing_off_failure_swallowed(self, monkeypatch):
+        acct = _page()
+        _MsgClient.fail_methods = {"sender_action:typing_off"}
+        monkeypatch.setattr(messenger, "_generate_ai_response",
+                            AsyncMock(return_value="reply"))
+        await messenger._generate_and_send_auto_reply(
+            acct, "psid", "hello", {"enabled": True})
+        assert "send_text" in _MsgClient.calls
+
+    async def test_generate_ai_cf_fails_dmr_succeeds(self, monkeypatch):
+        monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
+        monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "acc")
+
+        class _C:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                return False
+
+            async def post(self, url, **kw):
+                if "cloudflare" in url:
+                    raise ConnectionError("cf down")
+                return SimpleNamespace(
+                    status_code=200,
+                    json=lambda: {"choices": [{"message": {"content": "dmr reply"}}]})
+
+        monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: _C())
+        out = await messenger._generate_ai_response("sys", "hi", "m", 50, "fb")
+        assert out == "dmr reply"
+
+    def _bridge_patch(self, monkeypatch):
+        import app.services.browser_bridge as bb
+        monkeypatch.setattr(bb, "BrowserBridgeClient", _FakeBridge)
+        _FakeBridge.session_status = "active"
+        _FakeBridge.error = None
+        return bb
+
+    async def test_personal_bridge_errors(self, monkeypatch):
+        bb = self._bridge_patch(monkeypatch)
+        a = _fb_user()
+        db = FakeDB(accounts=[a])
+        _FakeBridge.error = bb.BrowserBridgeError(500, "bridge down")
+
+        for fn, args in (
+            (messenger.get_personal_conversations, (a.id, _admin(), db)),
+            (messenger.get_personal_messages, (a.id, "t1", False, _admin(), db)),
+        ):
+            with pytest.raises(HTTPException) as e:
+                await fn(*args)
+            assert e.value.status_code == 503 and "bridge down" in e.value.detail
+
+        req = messenger.PersonalMessageSendRequest(thread_id="t1", text="yo")
+        with pytest.raises(HTTPException) as e:
+            await messenger.send_personal_message(a.id, req, _admin(), db)
+        assert e.value.status_code == 503 and "bridge down" in e.value.detail
+
+    async def test_personal_inactive_session_503(self, monkeypatch):
+        self._bridge_patch(monkeypatch)
+        _FakeBridge.session_status = "needs_login"
+        _FakeBridge.session_message = "rel"
+        a = _fb_user()
+        db = FakeDB(accounts=[a])
+        with pytest.raises(HTTPException) as e:
+            await messenger.get_personal_messages(a.id, "t1", False, _admin(), db)
+        assert e.value.status_code == 503
+        req = messenger.PersonalMessageSendRequest(thread_id="t1", text="yo")
+        with pytest.raises(HTTPException) as e:
+            await messenger.send_personal_message(a.id, req, _admin(), db)
+        assert e.value.status_code == 503
