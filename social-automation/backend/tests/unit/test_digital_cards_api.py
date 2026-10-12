@@ -368,3 +368,181 @@ async def test_create_card_from_brand():
     # pillars → services
     assert card.services == [{"title": "T", "description": "D"}]
     assert card.name == "Cloudless"
+
+
+# ── remaining tails ─────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_update_card_serialization_and_404():
+    card = _card()
+    data = D.DigitalCardUpdate(
+        social_links=[D.SocialLinkIn(platform="x", handle="u", url="https://x.io/u")],
+        services=[D.ServiceIn(title="Audit", description="30min")],
+    )
+    db = _DB([_Res(first=card)])
+    out = await D.update_card(card.id, data, uuid.uuid4(), _user(), db)
+    assert card.social_links[0]["url"] == "https://x.io/u"
+    assert card.services[0]["title"] == "Audit"
+    assert out.vcard
+
+    with pytest.raises(HTTPException) as ei:
+        await D.update_card(uuid.uuid4(), D.DigitalCardUpdate(name="n"), uuid.uuid4(), _user(), _DB([_Res()]))
+    assert ei.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_and_vcard_404s():
+    with pytest.raises(HTTPException) as ei:
+        await D.delete_card(uuid.uuid4(), uuid.uuid4(), _user(), _DB([_Res()]))
+    assert ei.value.status_code == 404
+    with pytest.raises(HTTPException) as ei:
+        await D.download_vcard(uuid.uuid4(), uuid.uuid4(), _user(), _DB([_Res()]))
+    assert ei.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_track_save_and_404():
+    card = _card(contact_save_count=1, share_count=2)
+    out = await D.track_card_action("tok", "save", _DB([_Res(first=card)]))
+    assert out == {"ok": True, "action": "save"}
+    assert card.contact_save_count == 2 and card.share_count == 2
+
+    out = await D.track_card_action("tok", "share", _DB([_Res(first=card)]))
+    assert card.share_count == 3
+
+    with pytest.raises(HTTPException) as ei:
+        await D.track_card_action("nope", "save", _DB([_Res()]))
+    assert ei.value.status_code == 404
+
+
+# ── remaining tails ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_get_team_missing():
+    db = _DB()
+    db._team = None
+    with pytest.raises(HTTPException) as ei:
+        await D._get_team(uuid.uuid4(), db)
+    assert ei.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_send_card_template_none_paths(monkeypatch):
+    client = SimpleNamespace(
+        _client=SimpleNamespace(access_token="EAtok"),
+        send_template=AsyncMock(return_value={"messages": [{"id": "t1"}]}),
+    )
+    card = _card()
+
+    # no waba_id → None
+    wa = SimpleNamespace(meta_data={})
+    assert await D._send_card_template(client, wa, "+9", card, "u") is None
+
+    # template fetch non-200 → None
+    wa.meta_data = {"waba_id": "w1"}
+    _http(monkeypatch, gets=[_resp({}, status=500)])
+    assert await D._send_card_template(client, wa, "+9", card, "u") is None
+
+    # send_template raises → None
+    _http(monkeypatch, gets=[_resp({"data": [{"name": D._CARD_TEMPLATE_NAME, "status": "APPROVED", "language": "en"}]})])
+    client.send_template = AsyncMock(side_effect=RuntimeError("api down"))
+    assert await D._send_card_template(client, wa, "+9", card, "u") is None
+
+
+@pytest.mark.asyncio
+async def test_send_card_whatsapp_more_edges(monkeypatch):
+    import app.core.security as SEC
+    import app.services.whatsapp_api as WA
+    import app.services.whatsapp_cloud_client as WCC
+
+    monkeypatch.setattr(SEC, "decrypt_token", lambda t: "EAdec")
+    card = _card()
+    req = D.SendCardRequest(platform="whatsapp", to_phone="+9")
+
+    # account meta missing token/phone_number_id → 400
+    bad_acct = SimpleNamespace(meta_data={"access_token": "", "phone_number_id": "pn"})
+    with pytest.raises(HTTPException) as ei:
+        await D.send_card(card.id, req, uuid.uuid4(), _user(), _DB(results=[_Res(first=card), _Res(first=bad_acct)]))
+    assert ei.value.status_code == 400 and "access_token" in ei.value.detail
+
+    # decrypt_token raising → raw token used, send still works
+    monkeypatch.setattr(SEC, "decrypt_token", Mock(side_effect=ValueError("not encrypted")))
+    wa_acct = SimpleNamespace(meta_data={"access_token": "rawtok", "phone_number_id": "pn-1", "display_phone_number": "0"})
+    client = SimpleNamespace(send_text=AsyncMock(return_value={"messages": [{"id": "m9"}]}), _client=SimpleNamespace(access_token="rawtok"))
+    monkeypatch.setattr(WA, "WhatsAppAPIClient", lambda *a: client)
+    out = await D.send_card(card.id, req, uuid.uuid4(), _user(), _DB(results=[_Res(first=card), _Res(first=wa_acct)]))
+    assert out.success and out.message_id == "m9"
+
+    # plain WhatsAppError (no code) → error surfaced
+    client.send_text = AsyncMock(side_effect=WCC.WhatsAppError("plain wa err"))
+    out = await D.send_card(card.id, req, uuid.uuid4(), _user(), _DB(results=[_Res(first=card), _Res(first=wa_acct)]))
+    assert not out.success and "plain wa err" in out.error
+
+    # generic Exception → error surfaced
+    client.send_text = AsyncMock(side_effect=RuntimeError("kaboom"))
+    out = await D.send_card(card.id, req, uuid.uuid4(), _user(), _DB(results=[_Res(first=card), _Res(first=wa_acct)]))
+    assert not out.success and "kaboom" in out.error
+
+
+@pytest.mark.asyncio
+async def test_send_card_messenger_edges(monkeypatch):
+    import app.core.security as SEC
+
+    card = _card()
+
+    # missing to_phone → 400
+    with pytest.raises(HTTPException) as ei:
+        await D.send_card(card.id, D.SendCardRequest(platform="messenger"), uuid.uuid4(), _user(), _DB(results=[_Res(first=card)]))
+    assert ei.value.status_code == 400 and "PSID" in ei.value.detail
+
+    # page account with no token → 400
+    no_tok = SimpleNamespace(account_id="pg", meta_data={})
+    req = D.SendCardRequest(platform="messenger", to_phone="psid")
+    with pytest.raises(HTTPException) as ei:
+        await D.send_card(card.id, req, uuid.uuid4(), _user(), _DB(results=[_Res(first=card), _Res(first=no_tok)]))
+    assert ei.value.status_code == 400 and "access_token" in ei.value.detail
+
+    # decrypt fails → raw token used; http raises → error result
+    monkeypatch.setattr(SEC, "decrypt_token", Mock(side_effect=ValueError("nope")))
+    fb_page = SimpleNamespace(account_id="pg", meta_data={"access_token": "notEA"})
+
+    class RaisingClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **kw):
+            raise ConnectionError("net down")
+
+    monkeypatch.setattr(D.httpx, "AsyncClient", lambda *a, **kw: RaisingClient())
+    out = await D.send_card(card.id, req, uuid.uuid4(), _user(), _DB(results=[_Res(first=card), _Res(first=fb_page)]))
+    assert not out.success and "net down" in out.error
+
+
+@pytest.mark.asyncio
+async def test_build_social_url_tails():
+    brand = SimpleNamespace(
+        id=uuid.uuid4(), name="B", tagline=None, mission=None, industry=None, website_url=None,
+        visual=SimpleNamespace(primary_color=None, accent_color=None, logo_url=None),
+        voice=SimpleNamespace(messaging_pillars=None),
+    )
+    accounts = [
+        SimpleNamespace(platform="threads", account_type=None, username="cloudless.gr", display_name=None),
+        SimpleNamespace(platform="tiktok", account_type=None, username="cloudless.gr", display_name=None),
+        SimpleNamespace(platform="instagram", account_type=None, username=None, display_name=None),          # no handle → None
+        SimpleNamespace(platform="instagram", account_type=None, username="me@x.com", display_name=None),   # email → None
+        SimpleNamespace(platform="linkedin", account_type="personal", username="first.last", display_name=None),  # dot → None
+        SimpleNamespace(platform="skool", account_type=None, username="comm", display_name=None),            # unknown → None
+    ]
+    db = _DB(results=[_Res(first=brand), _Res(all=accounts)])
+    await D.create_card_from_brand(uuid.uuid4(), _user(), db)
+    links = {(s["platform"], s["handle"]): s["url"] for s in db.added[0].social_links}
+    assert links[("threads", "cloudless.gr")] == "https://threads.net/@cloudless.gr"
+    assert links[("tiktok", "cloudless.gr")] == "https://tiktok.com/@cloudless.gr"
+    assert links[("instagram", "me@x.com")] is None
+    assert links[("linkedin", "first.last")] is None
+    assert links[("skool", "comm")] is None
