@@ -789,3 +789,360 @@ async def test_cf_image_pipeline(monkeypatch):
     out = await I._call_cf_image_pipeline("p", img2img_model="@cf/runwayml/stable-diffusion-v1-5-img2img")
     i2i.assert_awaited_once()
     assert out["image_base64"]
+
+
+# ── batch-16 tails ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_transcribe_workers_ai_missing_creds_and_bad_json(monkeypatch):
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        await I.transcribe_workers_ai(b"wav", "audio/wav")
+    assert ei.value.status_code == 400
+
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "acct", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_API_TOKEN", "", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        await I.transcribe_workers_ai(b"wav", "audio/wav")
+    assert ei.value.status_code == 400
+
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "t", raising=False)
+    _http(monkeypatch, posts=[_Resp(500, text="raw server text")])
+    with pytest.raises(HTTPException) as ei:
+        await I.transcribe_workers_ai(b"wav", "audio/wav")
+    assert ei.value.status_code == 502 and "raw server text" in ei.value.detail
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_chat_missing_creds_and_max_tokens(monkeypatch):
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        await I._call_workers_ai_chat("p", "@cf/meta/llama-3.2-3b-instruct", "k")
+    assert ei.value.status_code == 400
+
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "acct", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_API_TOKEN", "", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        await I._call_workers_ai_chat("p", "@cf/meta/llama-3.2-3b-instruct", "")
+    assert ei.value.status_code == 400
+
+    fake = _http(monkeypatch, posts=[_Resp(200, {"result": {"response": "hi"}})])
+    out = await I._call_workers_ai_chat(
+        "p", "@cf/meta/llama-3.2-3b-instruct", "k", max_tokens=77
+    )
+    assert out["text"] == "hi"
+    assert fake.post_calls[0]["json"]["max_tokens"] == 77
+
+
+@pytest.mark.asyncio
+async def test_local_diffusers_seed_param(monkeypatch):
+    monkeypatch.setattr(I.settings, "LOCAL_DIFFUSERS_URL", "http://sd/v1", raising=False)
+    big = _png_b64((64, 64))
+    fake = _http(monkeypatch, posts=[_Resp(200, {"data": [{"b64_json": big}]})])
+    await I._call_local_diffusers_txt2img("p", model="flux", width=64, height=64, seed=42)
+    assert fake.post_calls[0]["json"]["seed"] == 42
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_img2img_branches(monkeypatch, _cf):
+    src = base64.b64decode(_png_b64((64, 64)))
+    # raw image content-type → base64 wrapped (983)
+    _http(
+        monkeypatch,
+        posts=[_Resp(200, content=b"IMG", headers={"content-type": "image/png"})],
+    )
+    out = await I._call_workers_ai_img2img("p", src)
+    assert out["image_base64"]
+
+    # JSON with no image data → 502 (994)
+    _http(monkeypatch, posts=[_Resp(200, {"result": {"nothing": 1}})])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_workers_ai_img2img("p", src)
+    assert ei.value.status_code == 502
+
+    # capacity exhausted + HF fallback also fails → original error (1022-23, 1025)
+    monkeypatch.setattr(I.settings, "HUGGINGFACE_API_KEY", "hk", raising=False)
+    monkeypatch.setattr(
+        I, "_call_hf_img2img", AsyncMock(side_effect=HTTPException(502, "hf down"))
+    )
+    _http(
+        monkeypatch,
+        posts=[_Resp(429, text="capacity"), _Resp(429, text="capacity"),
+               _Resp(429, text="capacity"), _Resp(429, text="capacity")],
+    )
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    with pytest.raises(HTTPException) as ei:
+        await I._call_workers_ai_img2img("p", src, max_retries=2)
+    assert "capacity" in ei.value.detail
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_flux2_edit_branches(monkeypatch, _cf):
+    monkeypatch.setattr("asyncio.sleep", AsyncMock())
+    src = base64.b64decode(_png_b64((64, 64)))
+    # non-200 non-429 → 502 (1075)
+    _http(monkeypatch, posts=[_Resp(500, text="down")])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_workers_ai_flux2_edit("p", src, max_retries=1)
+    assert ei.value.status_code == 502
+
+    # JSON result path → return dict (1097)
+    _http(monkeypatch, posts=[_Resp(200, {"result": {"image": "b64x"}})])
+    out = await I._call_workers_ai_flux2_edit("p", src, max_retries=1)
+    assert out["image_base64"] == "b64x"
+
+
+def test_workers_ai_credentials_errors(monkeypatch):
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        I._workers_ai_credentials()
+    assert ei.value.status_code == 400
+
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "acct", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_API_TOKEN", "", raising=False)
+    with pytest.raises(HTTPException) as ei:
+        I._workers_ai_credentials()
+    assert ei.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_workers_ai_batch_error_branches(monkeypatch, _cf):
+    # submit non-200/202 → 502 (1266)
+    _http(monkeypatch, posts=[_Resp(500, text="down")])
+    with pytest.raises(HTTPException) as ei:
+        await I.submit_workers_ai_batch("@cf/m", [{"prompt": "x"}])
+    assert ei.value.status_code == 502
+
+    # submit success:false → 502 (1275)
+    _http(monkeypatch, posts=[_Resp(200, {"success": False, "errors": ["e"]})])
+    with pytest.raises(HTTPException) as ei:
+        await I.submit_workers_ai_batch("@cf/m", [{"prompt": "x"}])
+    assert ei.value.status_code == 502
+
+    # submit envelope format → result via data["result"] (1281)
+    _http(
+        monkeypatch,
+        posts=[_Resp(200, {"success": True, "result": {"request_id": "r2", "status": "queued"}})],
+    )
+    out = await I.submit_workers_ai_batch("@cf/m", [{"prompt": "x"}])
+    assert out["request_id"] == "r2"
+
+    # retrieve non-200 → 502 (1310)
+    _http(monkeypatch, posts=[_Resp(404, text="gone")])
+    with pytest.raises(HTTPException) as ei:
+        await I.retrieve_workers_ai_batch("@cf/m", "r1")
+    assert ei.value.status_code == 502
+
+    # retrieve direct format → result = data (1323)
+    _http(monkeypatch, posts=[_Resp(200, {"status": "processing", "responses": []})])
+    out = await I.retrieve_workers_ai_batch("@cf/m", "r1")
+    assert out["status"] == "processing"
+
+
+@pytest.mark.asyncio
+async def test_hf_chat_schema_json_mode(monkeypatch):
+    fake = _http(
+        monkeypatch,
+        posts=[_Resp(200, {"choices": [{"message": {"content": '{"a":1}'}}]})],
+    )
+    out = await I._call_hf_chat("p", "m", "k", schema={"type": "object"})
+    assert out == {"a": 1}
+    payload = fake.post_calls[0]["json"]
+    assert payload["response_format"] == {"type": "json_object"}
+    assert "ONLY valid JSON" in payload["messages"][1]["content"]
+
+
+@pytest.mark.asyncio
+async def test_hf_txt2img_non_flux_params(monkeypatch):
+    fake = _http(monkeypatch, posts=[_Resp(200, content=b"PNG")])
+    await I._call_hf_txt2img("p", "stabilityai/sdxl", "k", negative_prompt="neg")
+    params = fake.post_calls[0]["json"]["parameters"]
+    assert params["negative_prompt"] == "neg"
+    assert params["guidance_scale"] == 7.5
+
+
+@pytest.mark.asyncio
+async def test_pixazo_non_200_and_groq_text(monkeypatch):
+    _http(monkeypatch, posts=[_Resp(500, text="down")])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_pixazo_txt2img("p", "k")
+    assert ei.value.status_code == 502
+
+    _http(monkeypatch, posts=[_Resp(200, {"choices": [{"message": {"content": "plain"}}]})])
+    out = await I._call_groq_chat("p", "m", "k")
+    assert out == {"text": "plain"}
+
+
+@pytest.mark.asyncio
+async def test_do_call_inference_cf_model_fix_and_reraises(monkeypatch, _cf):
+    chat = AsyncMock(return_value={"text": "cf"})
+    monkeypatch.setattr(I, "_call_workers_ai_chat", chat)
+
+    # image model misconfigured as default + schema → corrected to CF_TEXT_FREE (1657)
+    monkeypatch.setattr(
+        I, "_get_provider_config",
+        AsyncMock(return_value=("", "@cf/black-forest-labs/flux-1-schnell", "k")),
+    )
+    out = await I._do_call_inference("p", "cloudflare", schema={"type": "object"})
+    assert out == {"text": "cf"}
+    assert chat.await_args.kwargs["model"] == I.CF_TEXT_FREE
+
+    # empty configured model + schema → CF_TEXT_FREE (1659)
+    chat.reset_mock()
+    monkeypatch.setattr(I, "_get_provider_config", AsyncMock(return_value=("", "", "k")))
+    out = await I._do_call_inference("p", "cloudflare", schema={"type": "object"})
+    assert chat.await_args.kwargs["model"] == I.CF_TEXT_FREE
+
+
+@pytest.mark.asyncio
+async def test_do_call_inference_reraise_branches(monkeypatch, _cf):
+    quota = HTTPException(429, "neurons exhausted")
+    monkeypatch.setattr(I.settings, "PIXAZO_API_KEY", "", raising=False)
+    monkeypatch.setattr(I.settings, "TOGETHER_API_KEY", "", raising=False)
+    monkeypatch.setattr(I.settings, "HUGGINGFACE_API_KEY", "", raising=False)
+    monkeypatch.setattr(I.settings, "GROQ_API_KEY", "", raising=False)
+
+    # image quota + allow_fallback + no fallback keys → bare raise (1714)
+    monkeypatch.setattr(I, "_call_workers_ai_image", AsyncMock(side_effect=quota))
+    with pytest.raises(HTTPException) as ei:
+        await I._do_call_inference(
+            "p", "cloudflare", model_override="@cf/black-forest-labs/flux-1-schnell"
+        )
+    assert ei.value.status_code == 429
+
+    # text non-quota → raise (1721)
+    monkeypatch.setattr(I, "_call_workers_ai_chat", AsyncMock(side_effect=HTTPException(400, "bad")))
+    with pytest.raises(HTTPException) as ei:
+        await I._do_call_inference("p", "cloudflare")
+    assert ei.value.status_code == 400
+
+    # text quota + allow_fallback=False → raise (1723)
+    monkeypatch.setattr(I, "_call_workers_ai_chat", AsyncMock(side_effect=quota))
+    with pytest.raises(HTTPException) as ei:
+        await I._do_call_inference("p", "cloudflare", allow_fallback=False)
+    assert ei.value.status_code == 429
+
+    # text quota + allow_fallback + no groq/hf keys → bare raise (1742)
+    with pytest.raises(HTTPException) as ei:
+        await I._do_call_inference("p", "cloudflare")
+    assert ei.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_call_inference_tracked_model_branches(monkeypatch):
+    tracked = {}
+    monkeypatch.setattr(
+        I, "usage_tracker", SimpleNamespace(
+            track_inference=AsyncMock(side_effect=lambda **kw: tracked.update(kw))
+        )
+    )
+    monkeypatch.setattr(I, "_text_provider_chain", AsyncMock(return_value=["groq"]))
+    monkeypatch.setattr(I, "_circuit_is_open", lambda _p: False)
+    monkeypatch.setattr(I, "_circuit_record_success", lambda _p: None)
+    monkeypatch.setattr(I, "_do_call_inference", AsyncMock(return_value={"text": "x"}))
+
+    # configured model from provider config → tracked (1840)
+    monkeypatch.setattr(
+        I, "_get_provider_config", AsyncMock(return_value=("u", "cfg-model", "k"))
+    )
+    await I.call_inference("p", "groq", db=SimpleNamespace())
+    assert tracked["model"] == "cfg-model"
+
+    # no db + no override → tracked falls back to provider_name (1849)
+    tracked.clear()
+    await I.call_inference("p", "groq", db=None)
+    assert tracked["model"] == "groq"
+
+    # @cf/... override on a non-CF provider → dropped to None (1885)
+    do = AsyncMock(return_value={"text": "x"})
+    monkeypatch.setattr(I, "_do_call_inference", do)
+    monkeypatch.setattr(I, "_text_provider_chain", AsyncMock(return_value=["dmr"]))
+    await I.call_inference("p", "dmr", model_override="@cf/meta/llama-3.2-3b-instruct")
+    assert do.await_args.kwargs["model_override"] is None
+
+
+@pytest.mark.asyncio
+async def test_call_dmr_chat_result_shapes(monkeypatch):
+    import app.services.dmr as DMR
+
+    # schema + json payload → unwrapped (1996)
+    monkeypatch.setattr(
+        DMR, "call_dmr_chat", AsyncMock(return_value={"json": {"a": 1}})
+    )
+    assert await I._call_dmr_chat("p", schema={"type": "object"}) == {"a": 1}
+
+    # schema + parse_error → returned as-is (1999)
+    raw = {"text": "{bad", "_parse_error": True}
+    monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(return_value=raw))
+    assert await I._call_dmr_chat("p", schema={"type": "object"}) is raw
+
+
+@pytest.mark.asyncio
+async def test_openai_compat_params_and_json(monkeypatch):
+    # temperature + max_tokens for a non-reasoning model (2031, 2033)
+    fake = _http(
+        monkeypatch,
+        posts=[_Resp(200, {"choices": [{"message": {"content": "hi"}}]})],
+    )
+    out = await I._call_openai_compat("p", "http://x/v1", "mistral-large", "k", max_tokens=64)
+    assert out == {"text": "hi"}
+    payload = fake.post_calls[0]["json"]
+    assert payload["temperature"] == 0.7 and payload["max_tokens"] == 64
+
+    # schema → json instruction + response_format + parse (2025, 2035, 2048)
+    fake = _http(
+        monkeypatch,
+        posts=[_Resp(200, {"choices": [{"message": {"content": '{"b":2}'}}]})],
+    )
+    out = await I._call_openai_compat(
+        "p", "http://x/v1", "mistral-large", "k", schema={"type": "object"}
+    )
+    assert out == {"b": 2}
+    payload = fake.post_calls[0]["json"]
+    assert payload["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.asyncio
+async def test_nvidia_flux_image_param(monkeypatch):
+    fake = _http(monkeypatch, posts=[_Resp(200, {"image": "aGk="})])
+    await I._call_nvidia_flux("p", "http://nv/flux", "k", image="seed-b64")
+    assert fake.post_calls[0]["json"]["image"] == "seed-b64"
+
+
+@pytest.mark.asyncio
+async def test_nvidia_flux_dev_no_image(monkeypatch):
+    _http(monkeypatch, posts=[_Resp(200, {"image": ""})])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_nvidia_flux_dev("p", "http://nv/dev", "k")
+    assert ei.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_local_sd35_negative_and_artifact(monkeypatch):
+    fake = _http(
+        monkeypatch,
+        posts=[_Resp(200, {"artifacts": [{"base64": "aGk="}]})],
+    )
+    out = await I._call_local_sd35("p", "http://sd/v1", negative_prompt="neg")
+    assert out == b"hi"
+    assert fake.post_calls[0]["json"]["negative_prompt"] == "neg"
+
+    _http(monkeypatch, posts=[_Resp(200, {"artifacts": [{"base64": ""}]})])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_local_sd35("p", "http://sd/v1")
+    assert ei.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_nvidia_flux_pipeline_no_image(monkeypatch):
+    monkeypatch.setattr(I, "_call_nvidia_flux_dev", AsyncMock(return_value=b"PNG"))
+    _http(monkeypatch, posts=[_Resp(200, {"image": ""})])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_nvidia_flux_pipeline(
+            "p", "http://nv/dev", "k1", "http://nv/ktx", "k2"
+        )
+    assert ei.value.status_code == 502
