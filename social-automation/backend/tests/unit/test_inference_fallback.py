@@ -13,6 +13,7 @@ Covers:
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -852,3 +853,67 @@ class TestDmrPlatformRouting:
 
         await inf.call_inference("hello", provider_name="dmr", platform="tiktok")
         assert calls and calls[0]["platform"] == "tiktok"
+
+
+# ── tail coverage: Pixazo/Together fallbacks, tracked_model, json parse ──
+
+
+@pytest.mark.asyncio
+async def test_cf_txt2img_quota_pixazo_fallback(monkeypatch):
+    """CF txt2img quota → Pixazo FLUX Schnell fallback returns its result."""
+    monkeypatch.setattr(inference, "_get_provider_config", AsyncMock(return_value=("http://cf", "@cf/black-forest-labs/flux-1-schnell", "key")))
+    monkeypatch.setattr(inference, "_is_workers_ai_image_model", lambda m: True)
+    monkeypatch.setattr(inference, "_call_workers_ai_image", AsyncMock(side_effect=HTTPException(status_code=429, detail="quota")))
+    monkeypatch.setattr(inference, "_is_cf_quota_error", lambda exc: True)
+    monkeypatch.setattr(inference.settings, "PIXAZO_API_KEY", "pk")
+    monkeypatch.setattr(inference.settings, "TOGETHER_API_KEY", "")
+    monkeypatch.setattr(inference, "_call_pixazo_txt2img", AsyncMock(return_value={"image_base64": "cGl4"}))
+    out = await inference._do_call_inference("a cloud", provider_name="cloudflare")
+    assert out == {"image_base64": "cGl4"}
+    inference._call_pixazo_txt2img.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_cf_txt2img_quota_pixazo_fails_together(monkeypatch):
+    """Pixazo failure on quota → next fallback in the chain (Together)."""
+    monkeypatch.setattr(inference, "_get_provider_config", AsyncMock(return_value=("http://cf", "@cf/black-forest-labs/flux-1-schnell", "key")))
+    monkeypatch.setattr(inference, "_is_workers_ai_image_model", lambda m: True)
+    monkeypatch.setattr(inference, "_call_workers_ai_image", AsyncMock(side_effect=HTTPException(status_code=429, detail="quota")))
+    monkeypatch.setattr(inference, "_is_cf_quota_error", lambda exc: True)
+    monkeypatch.setattr(inference.settings, "PIXAZO_API_KEY", "pk")
+    monkeypatch.setattr(inference.settings, "TOGETHER_API_KEY", "tk")
+    monkeypatch.setattr(inference, "_call_pixazo_txt2img", AsyncMock(side_effect=HTTPException(status_code=500, detail="down")))
+    monkeypatch.setattr(inference, "_call_together_txt2img", AsyncMock(return_value={"image_base64": "dG9n"}))
+    out = await inference._do_call_inference("a cloud", provider_name="cloudflare")
+    assert out == {"image_base64": "dG9n"}
+
+
+@pytest.mark.asyncio
+async def test_call_inference_provider_config_failure_and_error_tracking(monkeypatch):
+    """_get_provider_config raise → tracked_model=None; generic failure →
+    usage_tracker records success=False then re-raises."""
+    monkeypatch.setattr(inference, "_get_provider_config", AsyncMock(side_effect=RuntimeError("db down")))
+    monkeypatch.setattr(inference, "_do_call_inference", AsyncMock(side_effect=RuntimeError("provider exploded")))
+    track = AsyncMock()
+    monkeypatch.setattr(inference.usage_tracker, "track_inference", track)
+    with pytest.raises(RuntimeError, match="provider exploded"):
+        await inference.call_inference("x", provider_name="dmr", db=SimpleNamespace())
+    track.assert_awaited_once()
+    kw = track.await_args.kwargs
+    # provider-config failure tolerated → tracked_model falls back to provider default
+    assert kw["success"] is False
+    assert "provider exploded" in kw["error"]
+
+
+def test_parse_json_response_regex_fallback():
+    # Balanced-brace extraction returns None (quote-state swallows the first
+    # '{'), so the greedy regex recovers the valid object.
+    out = inference._parse_json_response('\\" {"k": 1}')
+    assert out == {"k": 1}
+
+
+def test_parse_json_response_all_candidates_fail():
+    # Extracted object invalid → regex span invalid → 500.
+    with pytest.raises(HTTPException) as e:
+        inference._parse_json_response('{a: } x {"k":1}')
+    assert e.value.status_code == 500

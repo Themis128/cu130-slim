@@ -1871,3 +1871,94 @@ async def test_igweb_upload_and_configure_failures(monkeypatch, tmp_path):
     }
     r3 = await P._publish_instagram_via_web(_ig_web_account(), "hi", _post(), [str(img)])
     assert "configure failed" in r3.error
+
+
+# ── coverage tails: bluesky media-loop edges ─────────────────────────
+
+
+class _BskyTail:
+    def __init__(self, *a, **kw):
+        self.calls = []
+
+    async def create_session(self):
+        self.calls.append(("session",))
+
+    async def upload_blob(self, data, mime):
+        self.calls.append(("blob", mime))
+        return {"ref": "b"}
+
+    async def create_post(self, text, images=None, video=None):
+        self.calls.append(("post", len(images or []), bool(video)))
+        return {"uri": "at://did:plc:x/app.bsky.feed.post/rk1"}
+
+
+_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06"
+    b"\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
+    b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+@pytest.mark.asyncio
+async def test_publish_bluesky_image_loop_edges(monkeypatch, tmp_path):
+    """.bmp mime fallback + corrupt image dims + MAX_IMAGES break."""
+    bmp = tmp_path / "a.bmp"
+    bmp.write_bytes(b"garbage-bmp-bytes" + b"\x00" * 12000)
+    bad = tmp_path / "b.png"
+    bad.write_bytes(b"not-a-png" + b"\x00" * 12000)
+    pngs = []
+    for i in range(5):
+        p = tmp_path / f"p{i}.png"
+        p.write_bytes(_PNG + b"\x00" * 12000)
+        pngs.append(str(p))
+    client = _BskyTail()
+    import app.services.bluesky_api as bapi
+
+    monkeypatch.setattr(bapi, "BlueskyClient", lambda *a, **kw: client)
+    acc = _account("bluesky", username="u.bsky.social")
+    r = await P._publish_bluesky("pw", "hi", acc, _post(), [str(bmp), str(bad), *pngs], None)
+    assert r.success
+    blobs = [c for c in client.calls if c[0] == "blob"]
+    post_call = [c for c in client.calls if c[0] == "post"][0]
+    # .bmp → image/bmp not in IMAGE_MIMES → jpeg fallback
+    assert blobs[0][1] == "image/jpeg"
+    # images capped at MAX_IMAGES (4) → loop break skips the rest
+    assert post_call[1] == 4
+
+
+@pytest.mark.asyncio
+async def test_publish_bluesky_video_break(monkeypatch, tmp_path):
+    """mp4 first → video embed, loop break skips remaining images."""
+    vid = tmp_path / "v.mp4"
+    vid.write_bytes(b"\x00" * 12000)
+    img = tmp_path / "p.png"
+    img.write_bytes(_PNG + b"\x00" * 12000)
+    client = _BskyTail()
+    import app.services.bluesky_api as bapi
+
+    monkeypatch.setattr(bapi, "BlueskyClient", lambda *a, **kw: client)
+    acc = _account("bluesky", username="u.bsky.social")
+    r = await P._publish_bluesky("pw", "hi", acc, _post(), [str(vid), str(img)], None)
+    assert r.success
+    post_call = [c for c in client.calls if c[0] == "post"][0]
+    assert post_call[2] is True  # video attached
+    assert post_call[1] == 0  # image after mp4 never reached
+
+
+@pytest.mark.asyncio
+async def test_publish_bluesky_api_error(monkeypatch, tmp_path):
+    """BlueskyAPIError → structured failure with status code + body."""
+    from app.services.bluesky_api import BlueskyAPIError
+
+    class _Fail(_BskyTail):
+        async def create_post(self, *a, **kw):
+            raise BlueskyAPIError(429, "rate limited", "https://bsky/create")
+
+    monkeypatch_client = _Fail()
+    import app.services.bluesky_api as bapi
+
+    monkeypatch.setattr(bapi, "BlueskyClient", lambda *a, **kw: monkeypatch_client)
+    acc = _account("bluesky", username="u.bsky.social")
+    r = await P._publish_bluesky("pw", "hi", acc, _post(), [], None)
+    assert r.success is False
+    assert "429" in r.error and "rate limited" in r.error

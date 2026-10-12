@@ -656,3 +656,149 @@ def test_media_public_url_branches(monkeypatch):
     assert P._media_public_url("/abs/path.png") is None  # abs path not servable via r2
     monkeypatch.setattr(P._settings, "R2_PUBLIC_URL", "", raising=False)
     assert P._media_public_url("key/img.png") is None
+
+
+def test_x_retry_at_bad_header_values():
+    # Non-numeric reset headers → ValueError swallowed → None (no candidates).
+    e = _XErr(429, "rate-limit", headers={"x-user-limit-24hour-reset": "abc"})
+    assert P._x_retry_at(e) is None
+    e2 = _XErr(429, "rate-limit", headers={"x-rate-limit-reset": "bad", "retry-after": "also-bad"})
+    assert P._x_retry_at(e2) is None
+
+
+# ── batch-14 tails ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_paths_skips_missing_storage_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    a = SimpleNamespace(id=1, storage_path=None, storage_backend="r2", filename="a.jpg")
+    out = await P._resolve_media_paths(SimpleNamespace(media_ids=[a.id]), _DB(results=[[a]]))
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_paths_minio_backend(tmp_path, monkeypatch):
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    a = SimpleNamespace(id=2, storage_path="remote/a.jpg", storage_backend="minio", filename="a.jpg")
+    monkeypatch.setattr(
+        "app.services.minio_storage.get_object", AsyncMock(return_value=b"\xff\xd8\xff")
+    )
+    out = await P._resolve_media_paths(SimpleNamespace(media_ids=[a.id]), _DB(results=[[a]]))
+    assert len(out) == 1 and out[0].startswith(str(tmp_path))
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_paths_fetch_failure(tmp_path, monkeypatch):
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    a = SimpleNamespace(id=3, storage_path="remote/x.jpg", storage_backend="r2", filename="x.jpg")
+    monkeypatch.setattr(
+        "app.services.r2_storage.get_object", AsyncMock(side_effect=RuntimeError("down"))
+    )
+    out = await P._resolve_media_paths(SimpleNamespace(media_ids=[a.id]), _DB(results=[[a]]))
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_media_storage_paths_empty():
+    out = await P._resolve_media_storage_paths(SimpleNamespace(media_ids=[]), _DB())
+    assert out == []
+
+
+def test_validate_media_getsize_oserror(tmp_path, monkeypatch):
+    p = tmp_path / "a.jpg"
+    p.write_bytes(b"x")
+
+    def _raise(_p):
+        raise OSError("io fail")
+
+    import os
+
+    monkeypatch.setattr(os.path, "getsize", _raise)
+    r = P.validate_media_for_platform("twitter", [str(p)])
+    assert r is not None and r.skipped is True and "unreadable" in (r.error or "").lower()
+
+
+def test_validate_media_pdf_unreadable(tmp_path, monkeypatch):
+    p = tmp_path / "a.pdf"
+    p.write_bytes(b"%PDF-fake-header-pad")
+    import builtins
+
+    real_open = builtins.open
+
+    def picky(path, *a, **kw):
+        if str(path) == str(p):
+            raise OSError("denied")
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", picky)
+    r = P.validate_media_for_platform("linkedin", [str(p)])
+    assert r is not None and r.skipped is True and "unreadable" in (r.error or "").lower()
+
+
+def test_media_public_url_tunnel_oserror_r2_fallback(monkeypatch):
+    monkeypatch.setattr(P._settings, "MEDIA_PUBLIC_BASE_URL", "")
+    monkeypatch.setattr(P._settings, "R2_PUBLIC_URL", "https://r2.example.com")
+    import builtins
+
+    real_open = builtins.open
+
+    def picky(path, *a, **kw):
+        if path == "/run/tunnel/url":
+            raise OSError("no tunnel")
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", picky)
+    assert P._media_public_url("rel/key.jpg") == "https://r2.example.com/rel/key.jpg"
+
+
+def test_sidecar_file_path_variants():
+    assert P._sidecar_file_path("pics/a.jpg") == "/uploads/pics/a.jpg"
+    assert P._sidecar_file_path("/abs/none.jpg") is None
+
+
+def test_media_public_url_tunnel_success(monkeypatch):
+    import builtins
+    import io
+
+    monkeypatch.setattr(P._settings, "MEDIA_PUBLIC_BASE_URL", "")
+    real_open = builtins.open
+
+    def picky(path, *a, **kw):
+        if path == "/run/tunnel/url":
+            return io.StringIO("https://tunnel.example.com\n")
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr("builtins.open", picky)
+    out = P._media_public_url("/abs/img.jpg")
+    assert out and out.startswith("https://tunnel.example.com/api/v1/media/view")
+
+
+def test_x_media_client_scopes_and_signer(monkeypatch):
+    captured = {}
+
+    def _ctor(**kw):
+        captured.update(kw)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(P, "TwitterAPIClient", _ctor)
+    # media.write scope → plain OAuth2 client
+    P._x_media_client("tok", SimpleNamespace(scopes=["media.write", "tweet.write"]))
+    assert captured.get("media_signer") is None
+    # no scope, no OAuth1 creds → still plain client
+    monkeypatch.setattr(P, "_x_oauth1_media_signer", lambda: None)
+    captured.clear()
+    P._x_media_client("tok", SimpleNamespace(scopes=[]))
+    assert captured.get("media_signer") is None
+    # no scope but OAuth1 signer available → media_signer attached
+    monkeypatch.setattr(P, "_x_oauth1_media_signer", lambda: "SIG")
+    captured.clear()
+    P._x_media_client("tok", SimpleNamespace(scopes=["tweet.write"]))
+    assert captured["media_signer"] == "SIG"
+
+
+def test_has_facebook_browser_session():
+    assert P._has_facebook_browser_session(
+        SimpleNamespace(meta_data={"browser_storage_state": {"x": 1}})
+    ) is True
+    assert P._has_facebook_browser_session(SimpleNamespace(meta_data=None)) is False
