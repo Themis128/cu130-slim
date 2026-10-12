@@ -24,6 +24,7 @@ from app.services.free_instagram_client import FreeInstagramError
 from app.services.instagram_private_api import InstagramPrivateAPIError
 from app.services.linkedin_sidecar import LinkedInSidecarError
 from app.services.tiktok_browser import TikTokBrowserError
+from app.services.tiktok_profile import TikTokProfileError
 from app.services.twitter_profile import TwitterProfileError
 
 
@@ -821,3 +822,400 @@ async def test_import_ig_session_sidecar_rejects(monkeypatch):
     with pytest.raises(HTTPException) as e:
         await P.import_instagram_session_from_browser(current_user=None, db=_DB())
     assert e.value.status_code == 503
+
+
+# ── coverage tails ────────────────────────────────────────────────────
+
+
+def test_real_bridge_factories(monkeypatch):
+    captured = {}
+
+    class _C:
+        def __init__(self, url, platform=None):
+            captured.update(url=url, platform=platform)
+
+    monkeypatch.setattr(P, "BrowserBridgeClient", _C)
+    P._get_browser_bridge_client("threads")
+    assert captured["platform"] == "threads"
+    assert P._get_browser_bridge_url() == P.settings.INSTAGRAM_PRIVATE_API_URL
+    assert type(P._get_tiktok_browser_service()).__name__ == "TikTokBrowserService"
+
+
+@pytest.mark.asyncio
+async def test_upload_picture_unsupported_platform(monkeypatch):
+    a = _acc("bluesky")
+    monkeypatch.setattr(P, "_get_account", AsyncMock(return_value=a))
+    file = SimpleNamespace(read=AsyncMock(return_value=b"img"))
+    with pytest.raises(HTTPException) as exc:
+        await P.upload_profile_picture(a.id, SimpleNamespace(id=1), _DB(), file)
+    assert exc.value.status_code == 400 and "not supported" in exc.value.detail
+
+
+@pytest.mark.asyncio
+async def test_platform_login_settings_fetch_swallowed(monkeypatch):
+    client = SimpleNamespace(
+        login=AsyncMock(return_value={"session_id": "sess-1"}),
+        get_settings=AsyncMock(side_effect=RuntimeError("no settings")),
+    )
+    monkeypatch.setattr(P, "_get_instagram_private_client", lambda: client)
+    monkeypatch.setattr(P, "secret_store",
+                        SimpleNamespace(get=AsyncMock(return_value=None)))
+    monkeypatch.setattr(P, "flag_modified", lambda *a: None)
+    a = _acc("instagram")
+    monkeypatch.setattr(P, "_get_account", AsyncMock(return_value=a))
+    req = P.InstagramLoginRequest(username="u", password="p")
+    out = await P.platform_login(a.id, req, SimpleNamespace(id=1), _DB())
+    assert out.logged_in is True
+
+
+@pytest.mark.asyncio
+async def test_update_threads_settings_guards(monkeypatch):
+    req = P.ThreadsSettingsUpdateRequest(show_instagram_badge=True)
+    a = _acc("instagram")
+    monkeypatch.setattr(P, "_get_account", AsyncMock(return_value=a))
+    with pytest.raises(HTTPException) as exc:
+        await P.update_threads_settings(a.id, req, SimpleNamespace(id=1), _DB())
+    assert exc.value.status_code == 400
+    a2 = _acc("threads", username=None)
+    monkeypatch.setattr(P, "_get_account", AsyncMock(return_value=a2))
+    with pytest.raises(HTTPException) as exc:
+        await P.update_threads_settings(a2.id, req, SimpleNamespace(id=1), _DB())
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_instagram_bridge_non400_falls_to_free(monkeypatch):
+    from app.services.browser_bridge import BrowserBridgeError
+
+    bridge = SimpleNamespace(
+        get_instagram_profile=AsyncMock(
+            side_effect=BrowserBridgeError(500, "bridge down")))
+    monkeypatch.setattr(P, "_get_browser_bridge_client", lambda p: bridge)
+    monkeypatch.setattr(
+        P, "free_instagram_client",
+        SimpleNamespace(get_user_by_username=AsyncMock(
+            return_value={"username": "cg", "full_name": "CG"})))
+    acc = _acc("instagram", meta={})  # no session → skip sidecar path
+    out = await P._get_instagram_profile(acc)
+    assert out.username == "cg"
+
+
+@pytest.mark.asyncio
+async def test_get_threads_api_failure_bridge_fallback(monkeypatch):
+    import app.services.threads_api as ta
+
+    api = SimpleNamespace(
+        get_profile=AsyncMock(side_effect=RuntimeError("api down")))
+    monkeypatch.setattr(ta, "ThreadsAPIClient", lambda **kw: api)
+    monkeypatch.setattr("app.core.security.decrypt_token", lambda t: "tok")
+    bridge = SimpleNamespace(
+        get_threads_profile=AsyncMock(
+            return_value={"username": "cg", "biography": "b"}))
+    monkeypatch.setattr(P, "_get_browser_bridge_client", lambda p: bridge)
+    acc = _acc("threads", access_token_enc="tok")
+    out = await P._get_threads_profile(acc)
+    assert out.username == "cg" and out.raw["biography"] == "b"
+
+
+@pytest.mark.asyncio
+async def test_update_instagram_fields_and_bridge_error(monkeypatch):
+    from app.services.browser_bridge import BrowserBridgeError
+
+    bridge = SimpleNamespace(
+        update_instagram_profile=AsyncMock(
+            return_value={"status": "updated",
+                          "updated_fields": ["full_name"]}))
+    monkeypatch.setattr(P, "_get_browser_bridge_client", lambda p: bridge)
+    acc = _acc("instagram", meta={})
+    out = await P._update_instagram_profile(
+        acc, _upd(about="a", full_name="n", phone="p", email="e"), _DB())
+    assert out.success
+
+    bridge.update_instagram_profile = AsyncMock(
+        side_effect=BrowserBridgeError(500, "down"))
+    with pytest.raises(HTTPException) as exc:
+        await P._update_instagram_profile(acc, _upd(about="a"), _DB())
+    assert exc.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_facebook_page_update_phone_bio_and_errors(monkeypatch):
+    monkeypatch.setattr(P, "decrypt_token", lambda t: "tok")
+    client = SimpleNamespace(update_page_info=AsyncMock())
+    monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: client)
+    acc = _acc(platform="facebook")
+    out = await P._update_facebook_page_profile(
+        acc, _upd(phone="p", biography="b"))
+    assert out.success
+    client.update_page_info.assert_awaited_with(phone="p", description="b")
+
+    client.update_page_info = AsyncMock(
+        side_effect=FacebookAPIError(400, "bad", "url"))
+    with pytest.raises(HTTPException) as exc:
+        await P._update_facebook_page_profile(acc, _upd(phone="p"))
+    assert exc.value.status_code == 400
+
+    client.update_page_info = AsyncMock(side_effect=ValueError("v bad"))
+    with pytest.raises(HTTPException) as exc:
+        await P._update_facebook_page_profile(acc, _upd(phone="p"))
+    assert exc.value.status_code == 400
+
+    client.upload_profile_picture = AsyncMock(
+        side_effect=FacebookAPIError(403, "denied", "url"))
+    with pytest.raises(HTTPException) as exc:
+        await P._upload_facebook_page_picture(acc, b"i")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_facebook_user_picture_sidecar_error(monkeypatch):
+    client = SimpleNamespace(
+        upload_picture=AsyncMock(
+            side_effect=FacebookSidecarError(500, "down")))
+    monkeypatch.setattr(P, "_get_facebook_sidecar",
+                        AsyncMock(return_value=client))
+    with pytest.raises(HTTPException) as exc:
+        await P._upload_facebook_user_picture(_acc(platform="facebook"), b"i")
+    assert exc.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_linkedin_sidecar_and_profile_errors(monkeypatch):
+    # set_session fails → HTTPException
+    acc = _acc(platform="linkedin",
+               meta={"browser_storage_state": {"c": 1}})
+    client = SimpleNamespace(
+        set_session=AsyncMock(
+            side_effect=LinkedInSidecarError(401, "expired")))
+    monkeypatch.setattr(P, "LinkedInSidecarClient", lambda: client)
+    with pytest.raises(HTTPException) as exc:
+        await P._get_linkedin_sidecar(acc)
+    assert exc.value.status_code == 401
+
+    # person get_profile fails → HTTPException
+    bad = SimpleNamespace(
+        get_profile=AsyncMock(
+            side_effect=LinkedInSidecarError(502, "down")))
+    monkeypatch.setattr(P, "_get_linkedin_sidecar",
+                        AsyncMock(return_value=bad))
+    with pytest.raises(HTTPException) as exc:
+        await P._get_linkedin_profile(
+            _acc(platform="linkedin", username="me@x.com"))
+    assert exc.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_linkedin_update_edges(monkeypatch):
+    client = SimpleNamespace(
+        update_headline=AsyncMock(), update_about=AsyncMock(),
+        update_website=AsyncMock(), update_location=AsyncMock(),
+        add_experience=AsyncMock(), add_education=AsyncMock(),
+        update_company_about=AsyncMock(),
+        update_company_website=AsyncMock())
+    monkeypatch.setattr(P, "_get_linkedin_sidecar",
+                        AsyncMock(return_value=client))
+    company = _acc(platform="linkedin", username="cloudless-gr")
+    person = _acc(platform="linkedin", username="me@x.com")
+
+    # company: website + headline fields
+    out = await P._update_linkedin_profile(
+        company, _upd(website="w", headline="h"))
+    assert out.success and "website" in out.updated_fields
+    client.update_company_about.assert_awaited_with("cloudless-gr", "h")
+
+    # company sidecar error → HTTPException
+    client.update_company_about = AsyncMock(
+        side_effect=LinkedInSidecarError(500, "x"))
+    with pytest.raises(HTTPException) as exc:
+        await P._update_linkedin_profile(company, _upd(headline="h"))
+    assert exc.value.status_code == 500
+    client.update_company_about = AsyncMock()
+
+    # company with only unsupported fields → fail soft
+    out = await P._update_linkedin_profile(company, _upd(phone="p"))
+    assert out.success is False
+
+    # person: website field
+    out = await P._update_linkedin_profile(person, _upd(website="w"))
+    assert out.success and "website" in out.updated_fields
+
+    # person sidecar error → HTTPException
+    client.update_website = AsyncMock(
+        side_effect=LinkedInSidecarError(500, "x"))
+    with pytest.raises(HTTPException):
+        await P._update_linkedin_profile(person, _upd(website="w"))
+
+    # cover upload error
+    bad = SimpleNamespace(
+        upload_cover=AsyncMock(
+            side_effect=LinkedInSidecarError(500, "x")))
+    monkeypatch.setattr(P, "_get_linkedin_sidecar",
+                        AsyncMock(return_value=bad))
+    with pytest.raises(HTTPException) as exc:
+        await P._upload_linkedin_cover(_acc(platform="linkedin"), b"c")
+    assert exc.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_twitter_location_and_errors(monkeypatch):
+    svc = SimpleNamespace(
+        update_profile=lambda **kw: {"updated_fields": list(kw.keys())},
+        update_profile_image=lambda b: None,
+        update_profile_banner=lambda b: None,
+    )
+    monkeypatch.setattr(P, "_get_twitter_service",
+                        AsyncMock(return_value=svc))
+    acc = _acc(platform="twitter")
+    out = await P._update_twitter_profile(acc, _upd(location="Athens"))
+    assert "location" in out.updated_fields
+
+    svc.update_profile = lambda **kw: (_ for _ in ()).throw(
+        TwitterProfileError(500, "x"))
+    with pytest.raises(HTTPException) as exc:
+        await P._update_twitter_profile(acc, _upd(location="l"))
+    assert exc.value.status_code == 500
+
+    svc.update_profile_image = lambda b: (_ for _ in ()).throw(
+        TwitterProfileError(500, "x"))
+    with pytest.raises(HTTPException):
+        await P._upload_twitter_picture(acc, b"i")
+
+    svc.update_profile_banner = lambda b: (_ for _ in ()).throw(
+        TwitterProfileError(500, "x"))
+    with pytest.raises(HTTPException):
+        await P._upload_twitter_banner(acc, b"b")
+
+
+@pytest.mark.asyncio
+async def test_tiktok_profile_errors(monkeypatch):
+    monkeypatch.setattr(P, "decrypt_token", lambda t: "tok")
+    monkeypatch.setattr(P, "secret_store",
+                        SimpleNamespace(get=AsyncMock(return_value="1")))
+    svc = SimpleNamespace(
+        can_write=True,
+        get_profile=AsyncMock(
+            side_effect=TikTokProfileError(500, "x")),
+        update_signature=AsyncMock(
+            side_effect=TikTokProfileError(500, "x")),
+        update_nickname=AsyncMock())
+    monkeypatch.setattr(P, "TikTokProfileService", lambda **kw: svc)
+    acc = _acc(platform="tiktok")
+    with pytest.raises(HTTPException) as exc:
+        await P._get_tiktok_profile(acc)
+    assert exc.value.status_code == 500
+
+    with pytest.raises(HTTPException) as exc:
+        await P._update_tiktok_profile(acc, _upd(about="a"))
+    assert exc.value.status_code == 500
+
+    # only unsupported fields → fail soft
+    svc.update_signature = AsyncMock()
+    out = await P._update_tiktok_profile(acc, _upd(website="w"))
+    assert out.success is False and "website" in out.ignored_fields
+
+
+@pytest.mark.asyncio
+async def test_browser_endpoints_success(monkeypatch):
+    u = SimpleNamespace(id=1)
+    ok = _resp(200, {"ok": True})
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _HTTP(resp=ok))
+    assert await P.browser_session_status(current_user=u) == {"ok": True}
+    assert await P.browser_session_cookies(current_user=u) == {"ok": True}
+    assert await P.stop_browser_session(current_user=u) == {"ok": True}
+    assert await P.extract_browser_cookies(current_user=u) == {"ok": True}
+    assert await P.browser_novnc_url(current_user=u) == {"ok": True}
+    assert await P.browser_platforms(current_user=u) == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_extract_cookies_http_status_error(monkeypatch):
+    err_resp = _resp(404, {"detail": "gone"})
+
+    class _E(_HTTP):
+        async def post(self, url, **kw):
+            raise httpx.HTTPStatusError(
+                "e", request=err_resp.request, response=err_resp)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _E())
+    with pytest.raises(HTTPException) as exc:
+        await P.extract_browser_cookies(current_user=SimpleNamespace(id=1))
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_import_session_edges(monkeypatch):
+    u = SimpleNamespace(id=1)
+    # cookies endpoint HTTPStatusError → 4xx HTTPException
+    err_resp = _resp(401, {"detail": "x"})
+
+    class _CookiesErr(_HTTP):
+        async def get(self, url, **kw):
+            raise httpx.HTTPStatusError(
+                "e", request=err_resp.request, response=err_resp)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _CookiesErr())
+    with pytest.raises(HTTPException) as exc:
+        await P.import_instagram_session_from_browser(
+            current_user=u, db=_DB())
+    assert exc.value.status_code == 401
+
+    # sidecar returns raw string session id
+    seq = iter([_resp(200, {"cookies": {"sessionid": "sid-abc"}}),
+                _resp(200, "plain-session-id")])
+
+    class _Seq2(_HTTP):
+        async def get(self, url, **kw):
+            return next(seq)
+
+        async def post(self, url, **kw):
+            return next(seq)
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Seq2())
+    monkeypatch.setattr(P, "flag_modified", lambda *a: None)
+    acc = _acc(platform="instagram")
+    db = _DB(results=[[acc]])
+    out = await P.import_instagram_session_from_browser(
+        current_user=u, db=db)
+    assert out["success"]
+
+    # sidecar returns non-str non-dict payload → str() fallback
+    seq = iter([_resp(200, {"cookies": {"sessionid": "sid-abc"}}),
+                _resp(200, 42)])
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Seq2())
+    db = _DB(results=[[acc]])
+    out = await P.import_instagram_session_from_browser(
+        current_user=u, db=db)
+    assert out["success"]
+
+
+@pytest.mark.asyncio
+async def test_web_session_status_edges(monkeypatch):
+    u = SimpleNamespace(id=1)
+    # no instagram account → 404
+    with pytest.raises(HTTPException) as exc:
+        await P.get_instagram_web_session_status(current_user=u, db=_DB())
+    assert exc.value.status_code == 404
+
+    acc = _acc(platform="instagram", meta={
+        "web_session": {"sessionid": "s", "csrftoken": "c",
+                        "ds_user_id": "d"}})
+
+    # resp.json() raises (HTML reply) → still "valid"
+    html = _resp(200, headers={"content-type": "text/html"}, text="<html>")
+    html.json = lambda: (_ for _ in ()).throw(ValueError("no json"))
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda **kw: _HTTP(resp=html))
+    monkeypatch.setattr(P, "decrypt_field", lambda v: v)
+    acc.meta_data = {"private_api_session_id": "s",
+                     "private_api_csrf_token": "c",
+                     "private_api_ds_user_id": "d"}
+    out = await P.get_instagram_web_session_status(
+        current_user=u, db=_DB(results=[[acc]]))
+    assert out["configured"] is True
+
+    # unexpected status → invalid
+    monkeypatch.setattr(httpx, "AsyncClient",
+                        lambda **kw: _HTTP(resp=_resp(418, text="teapot")))
+    out = await P.get_instagram_web_session_status(
+        current_user=u, db=_DB(results=[[acc]]))
+    assert out["valid"] is False and "418" in out["message"]

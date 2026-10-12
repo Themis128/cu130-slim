@@ -456,7 +456,7 @@ async def publish_now(post_id: uuid.UUID, team_id: TeamId, current_user: User = 
                     "preferred_phrases": voice.preferred_phrases,
                 }
             compliance = await score_brand_compliance(
-                content=post.content or "",
+                content=post.content_text or "",
                 brand=brand_dict,
                 voice=voice_dict,
             )
