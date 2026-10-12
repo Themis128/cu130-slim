@@ -1003,3 +1003,324 @@ async def test_target_status_line(monkeypatch):
     # no targets → None
     db2 = _FakeDB(results=[_res(scalars_all=[]), _res(scalars_all=[])])
     assert await W._target_status_line(post, db2) is None
+
+
+# ── remaining tails ──────────────────────────────────────────────────
+
+
+def test_set_platform_specific_swallows_non_orm(monkeypatch):
+    W = _real_worker(monkeypatch)
+    monkeypatch.setattr(W, "flag_modified", lambda *a, **kw: (_ for _ in ()).throw(AttributeError("no _sa")))
+    post = SimpleNamespace(platform_specific=None)
+    W._set_platform_specific(post, {"a": 1})
+    assert post.platform_specific == {"a": 1}
+
+
+def test_clear_deferral_state_residual_states(monkeypatch):
+    W = _real_worker(monkeypatch)
+    a1, a2 = str(uuid.uuid4()), str(uuid.uuid4())
+    post = SimpleNamespace(platform_specific={W._DEFER_STATE_KEY: {a1: {"x": 1}, a2: {"y": 2}}})
+    W._clear_deferral_state(post, a1)
+    # one state remains → dict reassigned, key kept
+    assert post.platform_specific[W._DEFER_STATE_KEY] == {a2: {"y": 2}}
+
+    # clearing the last state pops the key entirely
+    W._clear_deferral_state(post, a2)
+    assert W._DEFER_STATE_KEY not in post.platform_specific
+
+
+@pytest.mark.asyncio
+async def test_notify_publish_failure_full_lines(monkeypatch):
+    W = _real_worker(monkeypatch)
+    sent = []
+    monkeypatch.setattr(W, "post_alert_to_slack", AsyncMock(side_effect=lambda t, **kw: sent.append(t)))
+    monkeypatch.setattr(W, "publish_failure_buttons", lambda qid: [])
+    post = _post(content_text="a" * 300)
+    await W._notify_publish_failure(
+        post=post,
+        account=_acct(platform="tiktok"),
+        queue_item=_qitem(),
+        reason="quota hit\nplease retry",
+        targets_summary="published on linkedin",
+    )
+    text = sent[0]
+    assert ">" in text  # preview line
+    assert "Other platforms" in text
+    assert "quota hit please retry" in text  # reason flattened
+
+
+@pytest.mark.asyncio
+async def test_notify_publish_success_webhook_error_and_email(monkeypatch):
+    W = _real_worker(monkeypatch)
+
+    class _C:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **kw):
+            raise RuntimeError("hook down")
+
+    monkeypatch.setenv("PUBLISH_SUCCESS_WEBHOOK_URL", "https://hook/x")
+    monkeypatch.setattr(W.httpx, "AsyncClient", lambda *a, **kw: _C())
+
+    # author with notifications opted in → email sent
+    author = SimpleNamespace(notification_preferences={"email_new_post": True}, email="a@x")
+    db = _FakeDB([_res(one=author)])
+    monkeypatch.setattr(W, "task_session", lambda: _DBCtx(db))
+    sent = []
+    monkeypatch.setattr(
+        "app.services.email_templates.send_post_published_email",
+        AsyncMock(side_effect=lambda *a, **kw: sent.append(a)),
+    )
+    post = _post(user_id=uuid.uuid4(), workflow_run_id=None, workflow_id=None)
+    await W._notify_publish_success(post, _acct(platform="linkedin"), "https://li/1")
+    assert sent  # email fired despite webhook failure
+
+
+@pytest.mark.asyncio
+async def test_maybe_send_publish_summary_edges(monkeypatch):
+    W = _real_worker(monkeypatch)
+    post = _post()
+
+    # no published targets → early return (scalar→0 active, rows=[])
+    db = _FakeDB([_res(all_=[])], scalars=[0])
+    await W._maybe_send_publish_summary(db, post)
+
+    # execute raises → warning swallowed
+    class _BadDB:
+        async def execute(self, *a, **kw):
+            raise RuntimeError("db gone")
+
+    await W._maybe_send_publish_summary(_BadDB(), post)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_target_status_line_db_error(monkeypatch):
+    W = _real_worker(monkeypatch)
+
+    class _BadDB:
+        async def execute(self, *a, **kw):
+            raise RuntimeError("db gone")
+
+    assert await W._target_status_line(_post(), _BadDB()) is None
+
+
+@pytest.mark.asyncio
+async def test_pq_failed_pub_records_post_id_and_meta(monkeypatch):
+    # publish fails but returned a platform_post_id + meta → target records both
+    item = _qitem(attempts=2, max_attempts=3)  # final attempt → FAILED branch
+    post = _post(id=item.post_id)
+    acct = _acct(id=item.social_account_id)
+    target = _target()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(
+        W,
+        "publish_to_platform",
+        AsyncMock(
+            return_value=W.PublishResult(
+                success=False,
+                error="later publish step failed",
+                platform_post_id="pid-9",
+                platform_meta={"tiktok": {"publish_id": "p9"}},
+            )
+        ),
+    )
+    await W._process_publish_queue_async()
+    assert target.platform_post_id == "pid-9"
+    assert post.platform_specific["tiktok"]["publish_id"] == "p9"
+
+
+@pytest.mark.asyncio
+async def test_pq_media_dedup_error_is_nonfatal(monkeypatch):
+    item = _qitem()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=_post(id=item.post_id)),
+            _res(one=_acct(id=item.social_account_id)),
+            _res(one=_target()),
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(W, "media_duplicate_reason", AsyncMock(side_effect=RuntimeError("dedup broke")))
+    monkeypatch.setattr(W, "publish_to_platform", AsyncMock(return_value=W.PublishResult(success=True, platform_post_id="p1")))
+    await W._process_publish_queue_async()
+    assert item.status == QueueStatus.COMPLETED  # dedup failure didn't block publish
+
+
+@pytest.mark.asyncio
+async def test_pq_unhandled_exception_marks_err_target(monkeypatch):
+    item = _qitem(attempts=2, max_attempts=3)  # final attempt
+    post = _post(id=item.post_id)
+    acct = _acct(id=item.social_account_id)
+    target = _target()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+            _res(scalars_all=[]),  # recent-texts dup check
+            # exception-path selects: err_post, err_account, err_target
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(W, "media_duplicate_reason", AsyncMock(side_effect=RuntimeError("dedup broke")))
+    monkeypatch.setattr(W, "publish_to_platform", AsyncMock(side_effect=RuntimeError("platform exploded")))
+    monkeypatch.setattr(W, "_target_status_line", AsyncMock(return_value=None))
+    await W._process_publish_queue_async()
+    assert item.status == QueueStatus.FAILED
+    assert target.status == "failed"
+    assert "Unhandled exception" in target.error_message
+
+
+@pytest.mark.asyncio
+async def test_requeue_sweep_limit_break(monkeypatch):
+    # limit=0 → break on first row
+    row = (
+        _target(error_message="rate limit: deferral limit reached capacity", platform_post_id=None, status="failed"),
+        _post(status=PostStatus.FAILED, platform_specific={}),
+        _acct(platform="twitter"),
+    )
+    db = _FakeDB([_res(all_=[row])])
+    _patch_db(monkeypatch, db)
+    r = await W._requeue_capacity_stuck_x_async(limit=0)
+    assert r["requeued"] == []
+
+
+def test_sync_task_wrappers(monkeypatch):
+    # requeue_capacity_stuck_x_targets: enabled + requeued → sync
+    ran = []
+    monkeypatch.setattr(W, "run_async", lambda c: ran.append(c) or {"requeued": ["x"], "deleted": 0})
+    monkeypatch.setattr(
+        W,
+        "get_settings",
+        lambda: SimpleNamespace(
+            X_CAPACITY_SWEEP_ENABLED=True,
+            PUBLISH_DEFER_MAX_HOURS=72.0,
+        ),
+    )
+    out = W.requeue_capacity_stuck_x_targets()
+    assert out["requeued"] == ["x"]
+
+    # disabled → early return
+    monkeypatch.setattr(W, "get_settings", lambda: SimpleNamespace(X_CAPACITY_SWEEP_ENABLED=False))
+    assert W.requeue_capacity_stuck_x_targets()["disabled"] is True
+
+    # cleanup_publish_queue: deleted>0 → sync
+    monkeypatch.setattr(W, "run_async", lambda c: {"deleted": 3})
+    assert W.cleanup_publish_queue(3)["deleted"] == 3
+
+    # reconcile_instagram_publish: recovered → return; retry → self.retry; else → outcome
+    monkeypatch.setattr(W, "run_async", lambda c: {"recovered": True})
+    assert W.reconcile_instagram_publish.run("p", "a")["recovered"] is True
+
+    monkeypatch.setattr(W, "run_async", lambda c: {"retry": True})
+    monkeypatch.setattr(W.reconcile_instagram_publish, "retry", lambda **kw: (_ for _ in ()).throw(RuntimeError("retry")))
+    with pytest.raises(RuntimeError):
+        W.reconcile_instagram_publish.run("p", "a")
+
+    monkeypatch.setattr(W, "run_async", lambda c: {"ok": True})
+    assert W.reconcile_instagram_publish.run("p", "a")["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_notify_publish_success_email_failure_swallowed(monkeypatch):
+    W = _real_worker(monkeypatch)
+    monkeypatch.delenv("PUBLISH_SUCCESS_WEBHOOK_URL", raising=False)
+    author = SimpleNamespace(notification_preferences={"email_new_post": True}, email="a@x")
+    db = _FakeDB([_res(one=author)])
+    monkeypatch.setattr(W, "task_session", lambda: _DBCtx(db))
+    monkeypatch.setattr(
+        "app.services.email_templates.send_post_published_email",
+        AsyncMock(side_effect=RuntimeError("smtp down")),
+    )
+    post = _post(user_id=uuid.uuid4(), workflow_run_id=None, workflow_id=None)
+    await W._notify_publish_success(post, _acct(platform="linkedin"), "https://li/1")  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_maybe_send_publish_summary_active_rows_return(monkeypatch):
+    W = _real_worker(monkeypatch)
+    # in-flight queue row exists → skip summary entirely
+    db = _FakeDB([_res(one=object())])
+    await W._maybe_send_publish_summary(db, _post())
+
+
+@pytest.mark.asyncio
+async def test_pq_failed_pub_flat_meta_value(monkeypatch):
+    item = _qitem(attempts=2, max_attempts=3)
+    post = _post(id=item.post_id)
+    acct = _acct(id=item.social_account_id)
+    target = _target()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(
+        W,
+        "publish_to_platform",
+        AsyncMock(
+            return_value=W.PublishResult(
+                success=False,
+                error="late fail",
+                platform_meta={"flat_key": "flat_val"},
+            )
+        ),
+    )
+    await W._process_publish_queue_async()
+    assert post.platform_specific["flat_key"] == "flat_val"
+
+
+@pytest.mark.asyncio
+async def test_pq_exception_err_selects_also_fail(monkeypatch):
+    # publish raises AND the error-path selects raise → all err_* stay None
+    item = _qitem(attempts=2, max_attempts=3)
+    post = _post(id=item.post_id)
+    acct = _acct(id=item.social_account_id)
+    target = _target()
+
+    class _DB(_FakeDB):
+        async def execute(self, q):
+            if not self._results:
+                raise RuntimeError("err select gone")
+            res = self._results.popleft()
+            if isinstance(res, Exception):
+                raise res
+            return res
+
+    db = _DB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    monkeypatch.setattr(W, "publish_to_platform", AsyncMock(side_effect=RuntimeError("boom")))
+    await W._process_publish_queue_async()
+    assert item.status == QueueStatus.FAILED
