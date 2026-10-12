@@ -569,3 +569,493 @@ async def test_post_tweet_failure_paths():
     ]
     out4 = await s4.c.post_tweet("x")
     assert "Composer still open" in out4["error"]
+
+
+@pytest.mark.asyncio
+async def test_click_visible_continue_paths():
+    # found → mouse_click at coords → True
+    s = _Stub()
+    s.ev_queue = [{"result": {"found": True, "x": 10.0, "y": 20.0, "label": "Next"}}]
+    assert await s.c._click_visible_continue() is True
+    s.c.mouse_click.assert_awaited_once_with(10.0, 20.0)
+
+    # not found → False
+    s = _Stub()
+    s.ev_queue = [{"result": {"found": False}}]
+    assert await s.c._click_visible_continue() is False
+
+    # non-dict / malformed result → False
+    s = _Stub()
+    s.ev_queue = [{"result": "nope"}]
+    assert await s.c._click_visible_continue() is False
+
+
+@pytest.mark.asyncio
+async def test_twitter_login_remaining_branches():
+    # step-1 loggedIn probe → already authenticated
+    s = _Stub()
+    s.ev_queue = [{"result": {"form": False, "loggedIn": True}}]
+    out = await s.c.twitter_login("u", "p")
+    assert out["status"] == "logged_in" and "already" in out["url"]
+
+    # step-2 loggedIn → authenticated during flow
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(return_value=True)
+    s.ev_queue = [
+        {"result": {"form": True, "loggedIn": False}},
+        {"result": {"pwReady": False, "loggedIn": True}},
+    ]
+    out = await s.c.twitter_login("u", "p")
+    assert out["status"] == "logged_in"
+
+    # step-2 err probe → password rejected
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(return_value=True)
+    s.ev_queue = [
+        {"result": {"form": True, "loggedIn": False}},
+        {"result": {"pwReady": False, "loggedIn": False, "err": True}},
+    ]
+    out = await s.c.twitter_login("u", "p")
+    assert "rejected the password" in out["error"]
+
+    # pwReady never → password step did not render
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(return_value=True)
+    s.ev_queue = [{"result": {"form": True, "loggedIn": False}}]  # then {} forever
+    out = await s.c.twitter_login("u", "p", timeout_s=0.001)
+    assert "password step did not render" in out["error"]
+
+    # continue missing on step 2 — first click (step 1) succeeds
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(side_effect=[True, False])
+    s.ev_queue = [
+        {"result": {"form": True, "loggedIn": False}},
+        {"result": {"pwReady": True, "loggedIn": False}},
+    ]
+    out = await s.c.twitter_login("u", "p")
+    assert "Continue button not found (step 2)" in out["error"]
+
+    # post-continue: arkose → captcha error
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(return_value=True)
+    s.c.is_twitter_logged_in = AsyncMock(return_value={"logged_in": False})
+    s.ev_queue = [
+        {"result": {"form": True, "loggedIn": False}},
+        {"result": {"pwReady": True, "loggedIn": False}},
+        {"result": {"arkose": True}},
+    ]
+    out = await s.c.twitter_login("u", "p")
+    assert "arkose" in out["error"]
+
+    # post-continue: err → rejected password
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(return_value=True)
+    s.c.is_twitter_logged_in = AsyncMock(return_value={"logged_in": False})
+    s.ev_queue = [
+        {"result": {"form": True, "loggedIn": False}},
+        {"result": {"pwReady": True, "loggedIn": False}},
+        {"result": {"err": True}},
+    ]
+    out = await s.c.twitter_login("u", "p")
+    assert "rejected the password" in out["error"]
+
+    # post-continue: never logs in → timeout
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(return_value=True)
+    s.c.is_twitter_logged_in = AsyncMock(return_value={"logged_in": False})
+    s.ev_queue = [
+        {"result": {"form": True, "loggedIn": False}},
+        {"result": {"pwReady": True, "loggedIn": False}},
+    ]
+    out = await s.c.twitter_login("u", "p", timeout_s=0.001)
+    assert "did not complete" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_get_threads_settings_switch_and_found_parsing():
+    s = _Stub()
+    s.ev_queue = [
+        # modal-open evaluate? get_threads_settings evaluates once for raw data
+        {
+            "result": {
+                "settings": {
+                    "switch_0": {"label": "Show Instagram badge", "checked": True},
+                    "switch_1": {"label": "Something else", "checked": False},
+                },
+                "found": {"Show recent views": {"line_index": 3, "next_lines": []}},
+            }
+        },
+        {"result": "clicked"},  # modal close
+    ]
+    out = await s.c.get_threads_settings("cloudless.gr")
+    assert out["show_instagram_badge"] is True
+    assert out["show_recent_views"] is True  # inferred from found text
+
+    # modal-close raising is swallowed
+    s = _Stub()
+    s.ev_queue = [{"result": {"settings": {}, "found": {}}}, RuntimeError("boom")]
+    out = await s.c.get_threads_settings("u")
+    assert out == {"show_instagram_badge": None, "show_recent_views": None}
+
+
+@pytest.mark.asyncio
+async def test_update_threads_settings_toggles():
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"found": True, "clicked": True}},  # instagram badge toggle
+        {"result": {"found": True, "already_set": True}},  # recent views toggle
+        {"result": "clicked"},  # Done
+    ]
+    out = await s.c.update_threads_settings("cloudless.gr", show_instagram_badge=True, show_recent_views=False)
+    assert out["status"] == "updated"
+    assert "show_instagram_badge" in out["updated_fields"]
+    assert "show_recent_views" in out["updated_fields"]
+
+    # toggle eval raises → warning, still returns
+    s = _Stub()
+    s.ev_queue = [RuntimeError("eval died"), {"result": "clicked"}]
+    out = await s.c.update_threads_settings("u", show_instagram_badge=True)
+    assert out["updated_fields"] == []
+
+    # Done-click raising is swallowed
+    s = _Stub()
+    s.ev_queue = [{"result": {"found": True, "clicked": True}}, RuntimeError("boom")]
+    out = await s.c.update_threads_settings("u", show_instagram_badge=True)
+    assert out["status"] == "updated"
+
+
+@pytest.mark.asyncio
+async def test_fast_conversation_read_fallbacks():
+    # empty basic result → SPA fallback
+    s = _Stub()
+    s.ev_queue = [{"result": {"conversations": [], "count": 0}}]
+    s.c.get_personal_messenger_conversations = AsyncMock(return_value={"conversations": [{"x": 1}], "source": "spa"})
+    out = await s.c.get_personal_messenger_conversations_fast()
+    assert out["source"] == "spa"
+
+    # exception during fast read → SPA fallback
+    s = _Stub()
+    s.ev_queue = [RuntimeError("basic page broke")]
+    s.c.get_personal_messenger_conversations = AsyncMock(return_value={"conversations": [], "source": "spa"})
+    out = await s.c.get_personal_messenger_conversations_fast()
+    assert out["source"] == "spa"
+
+
+@pytest.mark.asyncio
+async def test_fast_message_read_fallbacks():
+    s = _Stub()
+    s.ev_queue = [{"result": {"messages": [], "count": 0}}]
+    s.c.get_personal_messenger_messages = AsyncMock(return_value={"messages": [{"id": 1}], "source": "spa"})
+    out = await s.c.get_personal_messenger_messages_fast("t1")
+    assert out["source"] == "spa"
+
+    s = _Stub()
+    s.ev_queue = [RuntimeError("nope")]
+    s.c.get_personal_messenger_messages = AsyncMock(return_value={"messages": [], "source": "spa"})
+    out = await s.c.get_personal_messenger_messages_fast("t1", is_e2ee=True)
+    s.c.get_personal_messenger_messages.assert_awaited_once_with("t1", is_e2ee=True)
+
+
+@pytest.mark.asyncio
+async def test_send_tiktok_dm_branches():
+    # conversation row not found
+    s = _Stub()
+    s.ev_queue = [{"result": {"found": False}}]
+    out = await s.c.send_tiktok_dm_message("c1", "hi")
+    assert out["error"] == "conversation not found"
+
+    # editor missing → error returned
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"found": True}},
+        {"result": {"error": "Could not find the message input box"}},
+    ]
+    out = await s.c.send_tiktok_dm_message("c1", "hi")
+    assert "input box" in out["error"]
+
+    # send button missing → Enter fallback, still ok
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"found": True}},
+        {"result": {"status": "typed"}},
+        {"result": {"status": "no_button"}},
+        {"result": {}},  # enter fallback
+    ]
+    out = await s.c.send_tiktok_dm_message("c1", "hi")
+    assert out["sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_instagram_dm_branches():
+    # inbox fetch error → early return
+    s = _Stub()
+    s.ev_queue = [{"result": {"error": "Thread not found for recipient 42"}}]
+    out = await s.c.send_instagram_dm_message("42", "hi")
+    assert "Thread not found" in out["error"]
+
+    # editor missing → error
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"status": "navigating", "thread_id": "t9"}},
+        {"result": {"error": "Could not find message input"}},
+    ]
+    out = await s.c.send_instagram_dm_message("42", "hi")
+    assert "message input" in out["error"]
+
+    # no send button AND no editor → explicit error
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"status": "navigating", "thread_id": "t9"}},
+        {"result": {"status": "typed"}},
+        {"result": {"status": "no_button"}},
+    ]
+    out = await s.c.send_instagram_dm_message("42", "hi")
+    assert out["error"] == "Could not find send button or press Enter"
+
+    # happy path via button
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"status": "navigating", "thread_id": "t9"}},
+        {"result": {"status": "typed"}},
+        {"result": {"status": "sent", "method": "button"}},
+    ]
+    out = await s.c.send_instagram_dm_message("42", "hi")
+    assert out["sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_send_threads_and_twitter_dm_tails():
+    # threads: type-error early return + enter fallback
+    s = _Stub()
+    s.ev_queue = [{"result": {"error": "no editor"}}]
+    out = await s.c.send_threads_dm_message("t1", "hi")
+    assert "no editor" in out["error"]
+
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"status": "typed"}},
+        {"result": {"status": "no_button"}},
+        {"result": {}},
+    ]
+    out = await s.c.send_threads_dm_message("t1", "hi")
+    assert out["sent"] is True
+
+    # twitter: same tails
+    s = _Stub()
+    s.ev_queue = [{"result": {"error": "no editor"}}]
+    out = await s.c.send_twitter_dm_message("t1", "hi")
+    assert "no editor" in out["error"]
+
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"status": "typed"}},
+        {"result": {"status": "no_button"}},
+        {"result": {}},
+    ]
+    out = await s.c.send_twitter_dm_message("t1", "hi")
+    assert out["sent"] is True
+
+
+@pytest.mark.asyncio
+async def test_ensure_session_verified_dead_window(monkeypatch):
+    # start_session raises → skip window, plain waiting
+    s = _Stub()
+    s.c.start_session = AsyncMock(side_effect=bb.BrowserBridgeError(500, "boom"))
+    out = await s.c.ensure_session("facebook")
+    assert out["status"] == "waiting"
+    s.c._dead_marker_set.assert_not_called()
+
+    # session_status raises → break → waiting, no dead marker
+    s = _Stub()
+    s.c.start_session = AsyncMock(return_value={"ok": True})
+    s.c.session_status = AsyncMock(side_effect=RuntimeError("probe died"))
+    out = await s.c.ensure_session("facebook")
+    assert out["status"] == "waiting"
+    s.c._dead_marker_set.assert_not_called()
+
+    # status reports a different platform → break → waiting
+    s = _Stub()
+    s.c.start_session = AsyncMock(return_value={"ok": True})
+    s.c.session_status = AsyncMock(return_value={"platform": "tiktok", "status": "active"})
+    out = await s.c.ensure_session("facebook")
+    assert out["status"] == "waiting"
+    s.c._dead_marker_set.assert_not_called()
+
+    # status flips to error → break → waiting
+    s = _Stub()
+    s.c.start_session = AsyncMock(return_value={"ok": True})
+    s.c.session_status = AsyncMock(return_value={"platform": "facebook", "status": "error"})
+    out = await s.c.ensure_session("facebook")
+    assert out["status"] == "waiting"
+
+    # active + cookies → session active
+    s = _Stub()
+    s.c.start_session = AsyncMock(return_value={"ok": True})
+    s.c.session_status = AsyncMock(
+        return_value={
+            "platform": "facebook",
+            "status": "active",
+            "cookies_found": True,
+        }
+    )
+    out = await s.c.ensure_session("facebook")
+    assert out["status"] == "active"
+
+    # full window elapses on this platform's session → verified dead → marker set
+    s = _Stub()
+    s.c.start_session = AsyncMock(return_value={"ok": True})
+    s.c.session_status = AsyncMock(
+        return_value={
+            "platform": "facebook",
+            "status": "starting",
+            "cookies_found": False,
+        }
+    )
+    out = await s.c.ensure_session("facebook")
+    assert out["status"] == "waiting"
+    s.c._dead_marker_set.assert_awaited_once_with("facebook")
+
+
+@pytest.mark.asyncio
+async def test_is_twitter_logged_in_edge_paths():
+    # evaluate raises BrowserBridgeError → logged_out + error detail
+    s = _Stub()
+    s.ev_queue = [bb.BrowserBridgeError(502, "bridge down")]
+    out = await s.c.is_twitter_logged_in()
+    assert out["logged_in"] is False and "bridge down" in out["error"]
+
+    # non-dict probe result → logged_out
+    s = _Stub()
+    s.ev_queue = [{"result": ["weird"]}]
+    out = await s.c.is_twitter_logged_in()
+    assert out["logged_in"] is False
+
+    # off-x.com page → navigates home and re-probes
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"url": "https://facebook.com", "loggedIn": False}},
+        {"result": {"url": "https://x.com/home", "loggedIn": True, "handle": "TBaltzakis"}},
+    ]
+    out = await s.c.is_twitter_logged_in()
+    assert out["logged_in"] is True and out["handle"] == "TBaltzakis"
+    assert s.nav_calls == ["https://x.com/home"]
+
+    # off-x.com page, navigate raises → error
+    s = _Stub()
+    s.ev_queue = [{"result": {"url": "https://facebook.com", "loggedIn": False}}]
+
+    async def nav_boom(url):
+        raise bb.BrowserBridgeError(500, "nav failed")
+
+    s.c.navigate = nav_boom
+    out = await s.c.is_twitter_logged_in()
+    assert out["logged_in"] is False and "nav failed" in out["error"]
+
+    # re-probe returns non-dict → logged_out with url
+    s = _Stub()
+    s.ev_queue = [
+        {"result": {"url": "https://facebook.com", "loggedIn": False}},
+        {"result": "notadict"},
+    ]
+    out = await s.c.is_twitter_logged_in()
+    assert out["logged_in"] is False and out["url"] == "https://facebook.com"
+
+
+@pytest.mark.asyncio
+async def test_e2ee_pin_dialog_and_typing_indicator():
+    # PIN prompt present but no pin → True with warning
+    s = _Stub()
+    s.ev_queue = [{"result": {"found": True, "hasPinInput": False, "hasPinPrompt": True}}]
+    assert await s.c._handle_e2ee_pin_dialog(pin=None) is True
+
+    # _navigate_to_thread with is_e2ee → calls pin handler
+    s = _Stub()
+    s.c._handle_e2ee_pin_dialog = AsyncMock(return_value=True)
+    s.req_queue = [{"status": "ok"}] * 4  # open+type steps vary
+    s.ev_queue = [{"result": {}}] * 4
+    try:
+        await s.c._navigate_to_thread("t1", is_e2ee=True)
+    except Exception:
+        pass  # downstream DOM steps may vary — only the pin call matters
+    s.c._handle_e2ee_pin_dialog.assert_awaited()
+
+    # typing indicator swallows evaluate errors
+    s = _Stub()
+    s.ev_queue = [RuntimeError("eval boom")]
+    await s.c.trigger_typing_indicator("t1", duration=1)  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_request_contention_exhausted(fake_httpx):
+    # every response 409 → "browser busy" after retries
+    _HttpxClient.queue = [_Resp(409, text="busy") for _ in range(40)]
+    c = _client()
+    try:
+        await c._request("POST", "/session/start", {})
+        raise AssertionError("should have raised")
+    except bb.BrowserBridgeError as e:
+        assert e.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_ensure_session_waiting_probe_error():
+    # session mid-login ("waiting") → poll loop; second status probe raising
+    # is treated as {"status": "error"} → break → falls through to waiting
+    s = _Stub()
+    s.c.session_status = AsyncMock(
+        side_effect=[
+            {"status": "waiting", "platform": "facebook"},
+            RuntimeError("probe died"),
+        ]
+    )
+    s.c.start_session = AsyncMock(return_value={"ok": True})
+    out = await s.c.ensure_session("facebook")
+    assert out["status"] == "waiting"
+
+
+@pytest.mark.asyncio
+async def test_twitter_login_step1_poll_iteration():
+    # first probe: neither form nor loggedIn → loop iterates (covers sleep)
+    s = _Stub()
+    s.c._click_visible_continue = AsyncMock(return_value=True)
+    s.c.is_twitter_logged_in = AsyncMock(return_value={"logged_in": True, "url": "https://x.com/home"})
+    s.ev_queue = [
+        {"result": {"form": False, "loggedIn": False}},  # not ready yet
+        {"result": {"form": True, "loggedIn": False}},  # form renders
+        {"result": {"pwReady": True, "loggedIn": False}},
+        {"result": {}},
+    ]
+    out = await s.c.twitter_login("u", "p")
+    assert out["status"] == "logged_in"
+
+
+@pytest.mark.asyncio
+async def test_update_threads_profile_bio_eval_error():
+    s = _Stub()
+    s.ev_queue = [RuntimeError("eval died")]
+    with pytest.raises(bb.BrowserBridgeError, match="Threads bio update failed"):
+        await s.c.update_threads_profile("u", biography="new bio")
+
+
+@pytest.mark.asyncio
+async def test_get_threads_settings_recent_views_switch_and_badge_found():
+    s = _Stub()
+    s.ev_queue = [
+        {
+            "result": {
+                "settings": {"switch_0": {"label": "Show recent views", "checked": False}},
+                "found": {"Show Instagram badge": {"line_index": 1, "next_lines": []}},
+            }
+        },
+        {"result": "clicked"},
+    ]
+    out = await s.c.get_threads_settings("u")
+    assert out["show_recent_views"] is False  # from switch match
+    assert out["show_instagram_badge"] is True  # inferred from found text
+
+
+@pytest.mark.asyncio
+async def test_e2ee_pin_dialog_found_without_prompt_returns_false():
+    s = _Stub()
+    s.ev_queue = [{"result": {"found": True, "hasPinInput": False, "hasPinPrompt": False}}]
+    assert await s.c._handle_e2ee_pin_dialog(pin=None) is False
