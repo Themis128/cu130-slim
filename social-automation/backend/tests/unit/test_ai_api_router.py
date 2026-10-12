@@ -833,6 +833,7 @@ async def test_remove_background_white():
 
 
 from app.api.ai import (  # noqa: E402
+    EmojiBatchRequest,
     EmojiGenerateRequest,
     GenerateContentRequest,
     GenerateWorkflowRequest,
@@ -1479,3 +1480,619 @@ async def test_generate_content_telegram_guide(monkeypatch):
     sent = infer.await_args.args[0]
     assert "Telegram channel" in sent  # telegram guide, not the linkedin default
     assert "1024" in sent  # caption cap called out
+
+
+# ── tail coverage: error re-raises, advisory branches, provider fallbacks ──
+
+
+@pytest.mark.asyncio
+async def test_transcribe_http_error_reraises(monkeypatch):
+    monkeypatch.setattr(ai, "transcribe_workers_ai", AsyncMock(side_effect=HTTPException(status_code=400, detail="bad stt")))
+    with pytest.raises(HTTPException) as e:
+        await transcribe_audio(_REQ, _Upload(b"wav"), None, _user(), _DB())
+    assert e.value.status_code == 400  # re-raised, not wrapped to 500
+
+
+@pytest.mark.asyncio
+async def test_batch_submit_http_error_reraises(monkeypatch):
+    monkeypatch.setattr(ai, "submit_workers_ai_batch", AsyncMock(side_effect=HTTPException(status_code=429, detail="quota")))
+    with pytest.raises(HTTPException) as e:
+        await submit_batch_inference(BatchInferenceSubmitRequest(model="@cf/x", requests=[BatchInferenceItem(text="hi")]), _user())
+    assert e.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_batch_retrieve_error_branches(monkeypatch):
+    monkeypatch.setattr(ai, "retrieve_workers_ai_batch", AsyncMock(side_effect=HTTPException(status_code=404, detail="gone")))
+    with pytest.raises(HTTPException) as e:
+        await retrieve_batch_inference(BatchInferenceRetrieveRequest(model="m", request_id="r"), _user())
+    assert e.value.status_code == 404
+
+    monkeypatch.setattr(ai, "retrieve_workers_ai_batch", AsyncMock(side_effect=RuntimeError("boom")))
+    with pytest.raises(HTTPException) as e:
+        await retrieve_batch_inference(BatchInferenceRetrieveRequest(model="m", request_id="r"), _user())
+    assert e.value.status_code == 500
+
+
+@pytest.mark.asyncio
+async def test_analyze_content_spellcheck_matches(monkeypatch):
+    monkeypatch.setattr(
+        ai, "call_inference",
+        AsyncMock(return_value={
+            "sentiment": "neutral", "readability_score": 5.0, "estimated_reach": "mid",
+            "suggestions": [], "hashtag_score": 5, "engagement_prediction": "mid"}),
+    )
+    monkeypatch.setattr(ai, "check_plain_english", lambda t: [])
+    seo_mod = _mod("app.services.seo")
+    monkeypatch.setattr(seo_mod, "analyze_seo", AsyncMock(return_value={"score": {"total": 70}}))
+    ok = SimpleNamespace(
+        raise_for_status=lambda: None,
+        json=lambda: {"matches": [{"message": "typo"}]},
+    )
+    _Client.post = AsyncMock(return_value=ok)
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    out = await analyze_content(AnalyzeContentRequest(content="hello wurld", platform="linkedin"), _team_id(), _user(), _DB(team=_team()))
+    assert out.spellcheck_issues == [{"message": "typo"}]
+
+
+# ── generate_image remaining branches ─────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_generate_image_brand_enhancement(monkeypatch):
+    _img_patches(monkeypatch, diffusers={"image_base64": "aW1n"})
+    import app.services.brand_assets as ba
+
+    monkeypatch.setattr(ba, "build_brand_image_prompt", lambda v, voice, p: f"BRANDED::{p}")
+    brand = SimpleNamespace(id=uuid.uuid4())
+    visual = SimpleNamespace(
+        primary_color="#00fff5", accent_color="#ff00ff", neutral_colors=["#111"],
+        image_style="flat", photography_direction="studio",
+    )
+    voice = SimpleNamespace(tone_dimensions={"bold": 0.9})
+    team = _team()
+    db = _DB(results=[brand, visual, voice], team=team)
+    import app.services.inference as inf
+
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=db)
+    assert out.image_base64 == "aW1n"
+    assert inf._call_local_diffusers_txt2img.await_args.kwargs["prompt"] == "BRANDED::a cloud"
+
+
+@pytest.mark.asyncio
+async def test_generate_image_infographic_content_failure_falls_back(monkeypatch):
+    _img_patches(monkeypatch, diffusers={"image_base64": "aW1n"}, infographic=True)
+    import app.services.infographic_renderer as igr
+
+    monkeypatch.setattr(igr, "generate_infographic_content", AsyncMock(side_effect=RuntimeError("llm down")))
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.image_base64 == "aW1n"  # plain generation proceeds
+
+
+@pytest.mark.asyncio
+async def test_generate_image_diffusers_fails_cf_fallback(monkeypatch):
+    _img_patches(monkeypatch, cf={"image_base64": "Y2Y="})
+    import app.services.inference as inf
+
+    monkeypatch.setattr(inf, "_call_local_diffusers_txt2img", AsyncMock(side_effect=HTTPException(status_code=500, detail="gpu down")))
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.image_base64 == "Y2Y="
+    inf._call_workers_ai_image.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_image_all_providers_fail_502(monkeypatch):
+    _img_patches(monkeypatch)
+    import app.services.inference as inf
+
+    monkeypatch.setattr(inf, "_call_local_diffusers_txt2img", AsyncMock(side_effect=HTTPException(status_code=500, detail="gpu down")))
+    monkeypatch.setattr(inf, "_call_workers_ai_image", AsyncMock(side_effect=HTTPException(status_code=500, detail="cf down")))
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_image_cloudflare_provider_paths(monkeypatch):
+    _img_patches(monkeypatch, cf={"image_base64": "Y2Y="})
+    # happy: provider=cloudflare → direct CF call
+    out = await ai.generate_image(_img_req(provider="cloudflare"), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.image_base64 == "Y2Y="
+
+    # non-image model → 400
+    _img_patches(monkeypatch, cf={"image_base64": "Y2Y="}, is_image_model=False)
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image(_img_req(provider="cloudflare", model="@cf/meta/llama-3.2"), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 400
+
+    # CF raise → 502 (no fallback configured for explicit cloudflare)
+    _img_patches(monkeypatch)
+    import app.services.inference as inf
+
+    monkeypatch.setattr(inf, "_call_workers_ai_image", AsyncMock(side_effect=HTTPException(status_code=500, detail="cf down")))
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image(_img_req(provider="cloudflare"), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_image_infographic_overlay_failure_uses_raw(monkeypatch):
+    _img_patches(monkeypatch, diffusers={"image_base64": "aW1n"}, infographic=True)
+    import app.services.infographic_renderer as igr
+
+    def _boom(*a, **k):
+        raise RuntimeError("pil broken")
+
+    monkeypatch.setattr(igr, "render_infographic", _boom)
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.image_base64 == "aW1n"  # raw background kept
+
+
+@pytest.mark.asyncio
+async def test_generate_image_pipeline_kontext_key_missing(monkeypatch):
+    import app.services.inference as inf
+
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "query_similar", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        inf, "_get_provider_config",
+        AsyncMock(side_effect=[("http://nv", "m", "key"), ("http://nv", "m", None)]),
+    )
+    req = SimpleNamespace(
+        prompt="p", negative_prompt="", enhance_prompt=True, cfg_scale=3.5, seed=0,
+        steps=4, width=1024, height=1024, enhance_cfg_scale=3.5, enhance_steps=4,
+    )
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_image_pipeline(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 400
+    assert "Kontext" in e.value.detail
+
+
+# ── drafts / post_draft remaining branches ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_list_drafts_no_team_404():
+    with pytest.raises(HTTPException) as e:
+        await list_drafts(uuid.uuid4(), _user(), _DB(team=None))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_post_draft_no_team_404():
+    with pytest.raises(HTTPException) as e:
+        await post_draft(PostDraftRequest(draft_id="d", platform="linkedin"), uuid.uuid4(), _user(), _DB(team=None))
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_post_draft_with_account_id(monkeypatch):
+    draft = json.dumps({"prompt": "p", "image_base64": "", "caption": "cap", "hashtags": []})
+    monkeypatch.setattr(ai.chroma_client, "get_content", AsyncMock(return_value=f"DRAFT:{draft}"))
+
+    class _Conn:
+        def __enter__(self):
+            return "conn"
+
+        def __exit__(self, *a):
+            return None
+
+    monkeypatch.setattr(ai.celery_app, "connection_or_acquire", lambda: _Conn())
+    sent = []
+    monkeypatch.setattr(ai.publish_post_now, "apply_async", lambda **k: sent.append(k))
+    monkeypatch.setattr(ai.process_publish_queue, "apply_async", lambda **k: sent.append(k))
+    acc = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(results=[acc], team=_team())
+    out = await post_draft(
+        PostDraftRequest(draft_id="d", platform="linkedin", account_id=str(acc.id)),
+        uuid.uuid4(), _user(), db,
+    )
+    assert out.success is True
+
+
+@pytest.mark.asyncio
+async def test_post_draft_corrupt_json_422(monkeypatch):
+    acc = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(results=[acc], team=_team())
+    monkeypatch.setattr(ai.chroma_client, "get_content", AsyncMock(return_value="DRAFT:{not-json"))
+    with pytest.raises(HTTPException) as e:
+        await post_draft(PostDraftRequest(draft_id="d", platform="linkedin"), uuid.uuid4(), _user(), db)
+    assert e.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_post_draft_image_persist_failure_422(monkeypatch):
+    draft = json.dumps({"prompt": "p", "image_base64": base64.b64encode(b"png").decode(), "caption": "c", "hashtags": []})
+    acc = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(results=[acc], team=_team())
+    monkeypatch.setattr(ai.chroma_client, "get_content", AsyncMock(return_value=f"DRAFT:{draft}"))
+    monkeypatch.setattr(ai, "persist_generated_image", AsyncMock(side_effect=RuntimeError("r2 down")))
+    with pytest.raises(HTTPException) as e:
+        await post_draft(PostDraftRequest(draft_id="d", platform="linkedin"), uuid.uuid4(), _user(), db)
+    assert e.value.status_code == 422
+
+
+# ── generate_content compliance advisory ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_generate_content_compliance_failure_swallowed(monkeypatch):
+    team = _team()
+    db = _DB(results=[team])
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr("app.services.chroma_client.query_similar", AsyncMock(return_value=[]))
+    monkeypatch.setattr("app.services.chroma_client.add_content", AsyncMock())
+    import app.services.brand_compliance as bc
+
+    monkeypatch.setattr(bc, "load_brand_context", AsyncMock(return_value=({"b": 1}, {"voice_signature": {}}, "brandctx")))
+    monkeypatch.setattr(bc, "score_brand_compliance", AsyncMock(side_effect=RuntimeError("scorer down")))
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(pe, "rewrite_plain_english", AsyncMock(side_effect=lambda c, **kw: c))
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value={"content": "post", "hashtags": [], "suggested_media": "img"}))
+    import app.services.quality_pipeline as qp
+
+    quality = SimpleNamespace(content="post", hashtags=[], seo_score={"total": 80}, nlp_report={}, to_dict=lambda: {"score": 80})
+    monkeypatch.setattr(qp, "apply_quality_pipeline", AsyncMock(return_value=quality))
+    out = await generate_content(GenerateContentRequest(prompt="p", platform="linkedin"), uuid.uuid4(), db=db, current_user=_user())
+    assert out.brand_compliance is None  # advisory failure tolerated
+
+
+@pytest.mark.asyncio
+async def test_suggest_hashtags_tiered_skips_empty(monkeypatch):
+    monkeypatch.setattr(
+        ai, "call_inference",
+        AsyncMock(return_value={
+            "safe": [{"tag": "", "estimated_reach": "x"}, {"tag": "broad", "estimated_reach": "hi"}],
+            "rising": [], "niche": [{"tag": "  ", "estimated_reach": "low"}],
+        }),
+    )
+    out = await suggest_hashtags_tiered(SuggestHashtagsRequest(content="x", platform="linkedin"), _user(), _DB())
+    assert out.hashtags == ["broad"]
+    assert out.tiers["niche"] == []
+
+
+# ── generate_workflow remaining branches ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_explicit_template_id(monkeypatch):
+    intent = {
+        "intent": "digest", "platforms": ["linkedin"], "needs_image": False,
+        "needs_scheduling": False, "schedule_hint": None, "data_sources": [], "complexity": "simple",
+    }
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value=intent))
+    tpl = SimpleNamespace(id=uuid.uuid4(), prompt_template="do {{thing}}", n8n_workflow_json={"nodes": [], "name": "tpl"})
+    db = _DB(results=[tpl], team=_team())
+    req = GenerateWorkflowRequest(prompt="use my template", template_id=tpl.id)
+    out = await generate_workflow(req, uuid.uuid4(), db=db, current_user=_user())
+    assert out.template_id == tpl.id
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_builtin_full_nodes(monkeypatch):
+    intent = {
+        "intent": "carousel", "platforms": ["linkedin"], "needs_image": True,
+        "needs_scheduling": True, "schedule_hint": "tue 9am", "data_sources": ["github"], "complexity": "medium",
+    }
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(return_value=intent))
+    db = _DB(results=[None], team=_team())  # no template → build from intent
+    out = await generate_workflow(GenerateWorkflowRequest(prompt="full pipeline"), uuid.uuid4(), db=db, current_user=_user())
+    names = [n["name"] for n in out.n8n_workflow_json["nodes"]]
+    assert "GitHub Trigger" in names
+    assert "Generate Image" in names
+    assert "Schedule" in names
+
+
+# ── save_generation_template internals ───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_save_generation_template_updates_existing():
+    team = _team()
+    tmpl = SimpleNamespace(id=uuid.uuid4(), n8n_workflow_json={"old": 1}, tags=["old"])
+    db = _DB(results=[tmpl])
+    out = await ai._save_generation_template(
+        db=db, team=team, user=_user(), name="tpl", category="gen",
+        prompt_template="p", settings={"new": 1}, tags=["new"],
+    )
+    assert out is tmpl
+    assert tmpl.n8n_workflow_json == {"new": 1} and tmpl.tags == ["new"]
+
+
+@pytest.mark.asyncio
+async def test_save_generation_template_creates_new():
+    db = _DB(results=[None])
+    out = await ai._save_generation_template(
+        db=db, team=_team(), user=_user(), name="tpl", category="gen",
+        prompt_template="p", settings={"s": 1}, tags=["t"],
+    )
+    assert out in db.added
+    assert out.name == "tpl" and out.category == "gen" and out.id is not None
+
+
+# ── carousel advisory branches ────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_inference_http_error(monkeypatch):
+    _carousel_patches(monkeypatch)
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(side_effect=HTTPException(status_code=429, detail="quota")))
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_carousel(_carousel_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert e.value.status_code == 429  # re-raised, not wrapped
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_advisory_failures(monkeypatch):
+    _carousel_patches(monkeypatch)
+    import app.services.spellcheck as sp
+
+    monkeypatch.setattr(sp, "auto_correct", AsyncMock(side_effect=RuntimeError("lt down")))
+    import app.services.seo as seomod
+
+    monkeypatch.setattr(seomod, "analyze_seo", AsyncMock(side_effect=RuntimeError("seo down")))
+    out = await ai.generate_carousel(_carousel_req(), _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out.suggested_caption == "clean cap"  # spellcheck advisory failure tolerated
+    assert out.seo_score is None
+
+
+@pytest.mark.asyncio
+async def test_generate_carousel_pipeline_advisory_failures(monkeypatch):
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    monkeypatch.setattr(ai.chroma_client, "add_content", AsyncMock())
+    copy = SimpleNamespace(
+        slides=[SimpleNamespace(slide_type="cover", title="T", body="b", highlight=None)],
+        suggested_caption="cap", hashtags=["a"],
+    )
+    monkeypatch.setattr(ai, "generate_carousel", AsyncMock(return_value=copy))
+    import app.services.plain_english as pe
+
+    monkeypatch.setattr(
+        pe, "run_nlp_check_and_fix",
+        AsyncMock(return_value=([{"slide_type": "cover", "title": "T", "body": "b"}], "cap", SimpleNamespace(to_dict=lambda: {}))),
+    )
+    # bg pipeline succeeds → PIL decodes the image (line 2677)
+    buf = io.BytesIO()
+    Image.new("RGB", (8, 8)).save(buf, "PNG")
+    monkeypatch.setattr(ai, "_call_cf_image_pipeline", AsyncMock(return_value={"image_base64": base64.b64encode(buf.getvalue()).decode()}))
+    import app.services.carousel_pipeline as cp
+
+    monkeypatch.setattr(cp, "compose_branded_slide", lambda *a, **kw: Image.new("RGB", (64, 64)))
+    monkeypatch.setattr(ai, "persist_generated_image", AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4(), storage_path="c.png")))
+    import app.services.spellcheck as sp
+
+    monkeypatch.setattr(sp, "auto_correct", AsyncMock(side_effect=RuntimeError("lt down")))
+    import app.services.seo as seomod
+
+    monkeypatch.setattr(seomod, "analyze_seo", AsyncMock(side_effect=RuntimeError("seo down")))
+    monkeypatch.setattr(ai, "_save_generation_template", AsyncMock(side_effect=RuntimeError("db down")))
+    req = ai.GenerateCarouselPipelineRequest(topic="cloud ops")
+    out = await ai.generate_carousel_pipeline(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert len(out.slides) == 1
+    assert out.seo_score is None  # two attempts failed → warning tolerated
+
+
+@pytest.mark.asyncio
+async def test_run_carousel_and_publish_template_save_failure(monkeypatch):
+    import app.services.carousel_pipeline as cp
+
+    monkeypatch.setattr(cp, "run_cloudless_carousel_pipeline", AsyncMock(return_value={"post_id": "p1", "published": True}))
+    monkeypatch.setattr(ai, "_save_generation_template", AsyncMock(side_effect=RuntimeError("db down")))
+    req = SimpleNamespace(
+        topic="ops", num_slides=5, tone="pro", include_cta=True, text_model="m",
+        text_provider="dmr", txt2img_model="f", target_account_id=None,
+        publish=True, wait_for_publish=False, custom_slides=None,
+        custom_caption=None, custom_hashtags=None,
+    )
+    out = await ai.run_carousel_and_publish(req, _team_id(), current_user=_user(), db=_DB(team=_team()))
+    assert out["published"] is True  # template-save failure never fails the response
+
+
+# ── spellcheck / dmr_status / background-removal edges ───────────────
+
+
+@pytest.mark.asyncio
+async def test_spellcheck_502_on_http_error(monkeypatch):
+    _req = httpx.Request("POST", "http://lt/v2/check")
+    _resp = httpx.Response(500, request=_req)
+
+    def _raise():
+        raise httpx.HTTPStatusError("server", request=_req, response=_resp)
+
+    bad = SimpleNamespace(raise_for_status=_raise)
+    _Client.post = AsyncMock(return_value=bad)
+    monkeypatch.setattr(ai, "httpx", SimpleNamespace(AsyncClient=_Client, HTTPStatusError=httpx.HTTPStatusError, RequestError=httpx.RequestError))
+    with pytest.raises(HTTPException) as e:
+        await spellcheck(SpellcheckRequest(text="abc"), _user())
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_dmr_status_validate_failure_tolerated(monkeypatch):
+    mod = _mod("app.services.dmr")
+    monkeypatch.setattr(mod, "_check_dmr_health", AsyncMock(return_value=True))
+    monkeypatch.setattr(mod, "_get_vram_info", AsyncMock(return_value={"used": 1}))
+    monkeypatch.setattr(mod, "validate_dmr_models", AsyncMock(side_effect=RuntimeError("crash")))
+    monkeypatch.setattr(mod, "is_warmup_done", lambda: True)
+    out = await dmr_status(_REQ, _user())
+    assert out.online is True
+    assert out.missing_models == []
+
+
+@pytest.mark.asyncio
+async def test_remove_background_white_no_pixels(monkeypatch):
+    fake = SimpleNamespace(load=lambda: None)
+    monkeypatch.setattr(Image, "open", lambda *a, **k: SimpleNamespace(convert=lambda fmt: fake))
+    with pytest.raises(RuntimeError, match="pixel data"):
+        await _remove_background_white(base64.b64encode(b"x").decode())
+
+
+# ── emoji remaining branches ──────────────────────────────────────────
+
+
+def _emoji_patches(monkeypatch, *, diffusers=None, cf=None, vision=None, parse=None, dmr_raises=False, bg_fails=False):
+    """Shared seams for generate_emoji tail tests."""
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    import app.services.dmr as dmr
+    import app.services.inference as inf
+
+    if dmr_raises:
+        monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dmr down")))
+    else:
+        monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"text": "enhanced concept here"}))
+    monkeypatch.setattr(inf, "_call_local_diffusers_txt2img", AsyncMock(return_value=diffusers))
+    monkeypatch.setattr(inf, "_get_provider_config", AsyncMock(return_value=(None, "m", "key")))
+    monkeypatch.setattr(inf, "_call_workers_ai_image", AsyncMock(return_value=cf))
+    monkeypatch.setattr(dmr, "call_dmr_vision", AsyncMock(return_value=vision))
+    if parse is not None:
+        monkeypatch.setattr(dmr, "_parse_json_response", lambda t: parse)
+    if bg_fails:
+        monkeypatch.setattr(ai, "_remove_background_white", AsyncMock(side_effect=RuntimeError("rembg down")))
+    else:
+        monkeypatch.setattr(ai, "_remove_background_white", AsyncMock(side_effect=lambda b, **kw: "BG" + b))
+    return inf
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_dmr_enhance_failure_falls_back(monkeypatch):
+    _emoji_patches(monkeypatch, diffusers={"image_base64": "AAA="}, dmr_raises=True)
+    out = await generate_emoji(_REQ, EmojiGenerateRequest(concept="rocket", enhance_prompt=True), uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert out.image_base64 == "BGAAA="
+    assert "rocket" in out.enhanced_prompt  # raw concept used
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_cloudflare_provider_success(monkeypatch):
+    inf = _emoji_patches(
+        monkeypatch, cf={"image_base64": "Y2Y="},
+        dmr_raises=True, vision=None,
+    )
+    monkeypatch.setattr(inf, "_call_local_diffusers_txt2img", AsyncMock(side_effect=HTTPException(status_code=500, detail="gpu busy")))
+    req = EmojiGenerateRequest(concept="x", enhance_prompt=False, background="white", remove_bg=False)
+    out = await generate_emoji(_REQ, req, uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert out.provider == "cloudflare"
+    assert out.image_base64 == "Y2Y="
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_bg_removal_failure_uses_raw(monkeypatch):
+    _emoji_patches(monkeypatch, diffusers={"image_base64": "AAA="}, bg_fails=True)
+    req = EmojiGenerateRequest(concept="x", enhance_prompt=False, background="transparent", remove_bg=True)
+    out = await generate_emoji(_REQ, req, uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert out.image_base64 == "AAA="  # raw kept when rembg fails
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_vision_quality_paths(monkeypatch):
+    # parse-error → raw_assessment fallback
+    _emoji_patches(
+        monkeypatch, diffusers={"image_base64": "AAA="}, vision="some verdict",
+        parse={"_parse_error": True},
+    )
+    req = EmojiGenerateRequest(concept="x", enhance_prompt=False, background="white", remove_bg=False)
+    out = await generate_emoji(_REQ, req, uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert out.quality_check == {"raw_assessment": "some verdict"}
+
+    # clean parse → structured quality check
+    _emoji_patches(
+        monkeypatch, diffusers={"image_base64": "AAA="}, vision='{"score": 9}',
+        parse={"score": 9},
+    )
+    out = await generate_emoji(_REQ, req, uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert out.quality_check == {"score": 9}
+
+    # vision raising → swallowed, no quality check
+    _emoji_patches(monkeypatch, diffusers={"image_base64": "AAA="})
+    import app.services.dmr as dmr
+
+    monkeypatch.setattr(dmr, "call_dmr_vision", AsyncMock(side_effect=RuntimeError("vision down")))
+    out = await generate_emoji(_REQ, req, uuid.uuid4(), db=_DB(team=None), current_user=_user())
+    assert out.quality_check is None
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_batch_validation():
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_emoji_batch(_REQ, EmojiBatchRequest(concepts=[f"c{i}" for i in range(11)]), uuid.uuid4(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 400
+
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_emoji_batch(_REQ, EmojiBatchRequest(concepts=[]), uuid.uuid4(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_generate_emoji_batch_mixed_results(monkeypatch):
+    monkeypatch.setattr(ai, "check_quota", AsyncMock())
+    ok = SimpleNamespace(image_base64="AAA=", provider="local-diffusers", quality_check=None)
+    monkeypatch.setattr(ai, "generate_emoji", AsyncMock(side_effect=[ok, RuntimeError("gpu busy")]))
+    out = await ai.generate_emoji_batch(
+        _REQ, EmojiBatchRequest(concepts=["good", "bad"], background="white", remove_bg=False),
+        uuid.uuid4(), current_user=_user(), db=_DB(team=_team()),
+    )
+    assert out.emojis[0]["success"] is True and out.emojis[0]["image_base64"] == "AAA="
+    assert out.emojis[1]["success"] is False and "gpu busy" in out.emojis[1]["error"]
+
+
+# ── blog article generation failure paths ─────────────────────────────
+
+
+def _blog_patches(monkeypatch, infer):
+    import app.services.blog_articles as ba
+
+    monkeypatch.setattr(ba, "slugify", lambda s: "")
+    monkeypatch.setattr(ba, "default_slug", lambda t: "2026-10-10-t")
+    monkeypatch.setattr(ba, "get_published_article", AsyncMock(return_value=None))
+    monkeypatch.setattr(ba, "build_article_prompt", lambda *a: "p")
+    monkeypatch.setattr(ba, "ARTICLE_SCHEMA", {})
+    monkeypatch.setattr(ba, "assemble_article", lambda slug, gen, topic: {"slug": slug, "title": "T", "excerpt": "e", "category": "Cloud", "readTime": "4m"})
+    monkeypatch.setattr(ai, "call_inference", AsyncMock(side_effect=infer) if isinstance(infer, Exception) else AsyncMock(return_value=infer))
+    return ba
+
+
+@pytest.mark.asyncio
+async def test_generate_blog_article_call_failure_502(monkeypatch):
+    _blog_patches(monkeypatch, RuntimeError("dmr down"))
+    body = SimpleNamespace(slug=None, topic="t", publish=False, extra_context="")
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_blog_article_raw_text_recovery(monkeypatch):
+    _blog_patches(monkeypatch, {"text": 'preamble {"title": "T", "excerpt": "e"} tail'})
+    body = SimpleNamespace(slug=None, topic="t", publish=False, extra_context="")
+    out = await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB(team=None))
+    assert out.slug == "2026-10-10-t"
+
+
+@pytest.mark.asyncio
+async def test_generate_blog_article_none_result_502(monkeypatch):
+    _blog_patches(monkeypatch, None)
+    body = SimpleNamespace(slug=None, topic="t", publish=False, extra_context="")
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_blog_article_bad_json_in_text_502(monkeypatch):
+    # Empty "json" payload forces the raw-text recovery block, where the
+    # regex match on malformed JSON surfaces the JSONDecodeError handler.
+    _blog_patches(monkeypatch, {"json": {}, "text": "{a: }"})
+    body = SimpleNamespace(slug=None, topic="t", publish=False, extra_context="")
+    with pytest.raises(HTTPException) as e:
+        await ai.generate_blog_article(_REQ, body, _team_id(), current_user=_user(), db=_DB(team=None))
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_generate_image_brand_lookup_failure_tolerated(monkeypatch):
+    _img_patches(monkeypatch, diffusers={"image_base64": "aW1n"})
+    team = _team()
+    db = _DB(team=team)
+    db.execute = AsyncMock(side_effect=RuntimeError("pg down"))
+    out = await ai.generate_image(_img_req(), _team_id(), current_user=_user(), db=db)
+    assert out.image_base64 == "aW1n"  # brand enhancement is optional

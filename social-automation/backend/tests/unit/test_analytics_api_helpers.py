@@ -452,3 +452,42 @@ class TestTeamForUser:
 
         out = await analytics._team_for_user(DB(), uuid.uuid4())
         assert out[0] == "team"
+
+
+# ---------------------------------------------------------------------------
+# Follower-count fetcher tails
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fb_follower_wrong_platform():
+    assert await analytics._facebook_follower_count(_account("instagram")) == 0
+
+
+@pytest.mark.asyncio
+async def test_fb_follower_graph_exception(http):
+    http.error = RuntimeError("net down")
+    assert await analytics._facebook_follower_count(_account("facebook")) == -1
+
+
+@pytest.mark.asyncio
+async def test_ig_follower_wrong_platform():
+    assert await analytics._instagram_follower_count(_account("tiktok")) == 0
+
+
+@pytest.mark.asyncio
+async def test_threads_follower_exception(http):
+    http.error = RuntimeError("net down")
+    assert await analytics._threads_follower_count(_account("threads")) == -1
+
+
+@pytest.mark.asyncio
+async def test_tiktok_follower_wrong_platform():
+    assert await analytics._tiktok_follower_count(_account("facebook")) == -1
+
+
+@pytest.mark.asyncio
+async def test_tiktok_follower_both_paths_fail(http):
+    http.error = RuntimeError("net down")
+    acc = _account("tiktok", username="@cl")
+    assert await analytics._tiktok_follower_count(acc) == -1
