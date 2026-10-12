@@ -59,10 +59,9 @@ class _Redis:
 class _Bridge:
     """Browser-bridge fake — evaluate routes on the JS constant."""
 
-    def __init__(self, pages=None, nav_exc=None, status="done",
-                 start_ok=True, sleep=None):
-        self.pages = pages or {}   # js-expr-substring -> evaluate payload
-        self.nav_exc = nav_exc     # dict url->exc or exc
+    def __init__(self, pages=None, nav_exc=None, status="done", start_ok=True, sleep=None):
+        self.pages = pages or {}  # js-expr-substring -> evaluate payload
+        self.nav_exc = nav_exc  # dict url->exc or exc
         self.status = status
         self.start_ok = start_ok
         self.nav_calls: list[str] = []
@@ -89,6 +88,7 @@ class _Bridge:
         self.force_used = force
         if not self.start_ok:
             from app.services.browser_bridge import BrowserBridgeError
+
             raise BrowserBridgeError("busy", "")
 
 
@@ -97,8 +97,7 @@ class _Res:
         self._first = first
 
     def scalars(self):
-        return SimpleNamespace(first=lambda: self._first,
-                               all=lambda: [self._first] if self._first else [])
+        return SimpleNamespace(first=lambda: self._first, all=lambda: [self._first] if self._first else [])
 
 
 class _DB:
@@ -135,6 +134,7 @@ class _SessionCM:
 
 def _bridge_error(msg="x"):
     from app.services.browser_bridge import BrowserBridgeError
+
     return BrowserBridgeError(msg, "")
 
 
@@ -144,19 +144,16 @@ def _common(monkeypatch):
     monkeypatch.setenv("SOCIAL_ADMIN_EMAIL", "a@b.c")
 
 
-def _wire(monkeypatch, bridge, redis=None, db=None, slack_alert=None,
-          slack_digest=None):
+def _wire(monkeypatch, bridge, redis=None, db=None, slack_alert=None, slack_digest=None):
     import app.services.browser_bridge as BB
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(BB, "BrowserBridgeClient", lambda *a, **k: bridge)
     r = redis or _Redis()
     monkeypatch.setattr(S, "_redis", AsyncMock(return_value=r))
-    monkeypatch.setattr(S, "_worker_db",
-                        lambda: _SessionCM(db or _DB()))
-    monkeypatch.setattr(SN, "post_alert_to_slack",
-                        slack_alert or AsyncMock())
-    monkeypatch.setattr(SN, "post_digest_text_to_slack",
-                        slack_digest or AsyncMock())
+    monkeypatch.setattr(S, "_worker_db", lambda: _SessionCM(db or _DB()))
+    monkeypatch.setattr(SN, "post_alert_to_slack", slack_alert or AsyncMock())
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", slack_digest or AsyncMock())
     return r
 
 
@@ -165,8 +162,7 @@ def _wire(monkeypatch, bridge, redis=None, db=None, slack_alert=None,
 
 def test_extract_task():
     assert S._extract_task("no markers") == ""
-    out = S._extract_task(
-        "YOUR TASK\n  do the thing\n  today COMMUNITY ACTION x")
+    out = S._extract_task("YOUR TASK\n  do the thing\n  today COMMUNITY ACTION x")
     assert out == "do the thing today"
     # 1200-char cap
     assert len(S._extract_task("YOUR TASK " + "x" * 2000)) == 1200
@@ -174,8 +170,7 @@ def test_extract_task():
 
 @pytest.mark.asyncio
 async def test_eval_json():
-    client = SimpleNamespace(evaluate=AsyncMock(
-        return_value={"result": '{"a": 1}'}))
+    client = SimpleNamespace(evaluate=AsyncMock(return_value={"result": '{"a": 1}'}))
     assert await S._eval_json(client, "js") == {"a": 1}
     client.evaluate = AsyncMock(return_value={"result": "not-json"})
     assert await S._eval_json(client, "js") == "not-json"
@@ -209,11 +204,13 @@ async def test_acquire_browser():
 def test_run_async_paths(monkeypatch):
     async def _coro():
         return 42
+
     import app.worker._async as W
 
     def _run(coro):
         coro.close()
         return 42
+
     monkeypatch.setattr(W, "run_async", _run)
     assert S._run_async(_coro()) == 42
 
@@ -231,37 +228,30 @@ async def test_create_draft(monkeypatch):
     # already drafted → None (no inference call)
     monkeypatch.setattr(INF, "call_inference", AsyncMock())
     db = _DB(queue=[_Res(first=uuid.uuid4())])
-    assert await S._create_draft(db, tid, uid, aid, "md", "t", "txt",
-                                 "task") is None
+    assert await S._create_draft(db, tid, uid, aid, "md", "t", "txt", "task") is None
     INF.call_inference.assert_not_awaited()
 
     # inference empty → None
-    monkeypatch.setattr(BC, "load_brand_context", AsyncMock(
-        return_value=(1, 2, "ctx")))
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        return_value={}))
+    monkeypatch.setattr(BC, "load_brand_context", AsyncMock(return_value=(1, 2, "ctx")))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={}))
     db = _DB(queue=[_Res()])
-    assert await S._create_draft(db, tid, uid, aid, "md", "t", "txt",
-                                 "") is None
+    assert await S._create_draft(db, tid, uid, aid, "md", "t", "txt", "") is None
 
     # list text → joined
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        return_value={"text": ["l1", "l2"]}))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"text": ["l1", "l2"]}))
     db = _DB(queue=[_Res()])
     out = await S._create_draft(db, tid, uid, aid, "md", "t", "txt", "")
     assert out and db.added[0].content_text == "l1\nl2"
     assert db.added[0].meta_data["needs_media"] is True
 
     # JSON envelope → unwrapped
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        return_value={"text": '{"response": "envelope post"}'}))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"text": '{"response": "envelope post"}'}))
     db = _DB(queue=[_Res()])
     out = await S._create_draft(db, tid, uid, aid, "md", "t", "txt", "")
     assert db.added[0].content_text == "envelope post"
 
     # plain text happy path
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        return_value={"response": "real post"}))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"response": "real post"}))
     db = _DB(queue=[_Res()])
     out = await S._create_draft(db, tid, uid, aid, "md", "t", "txt", "")
     assert out and db.commits == 1 and len(db.added) == 2  # Post + Target
@@ -290,17 +280,14 @@ async def test_watch_gates(monkeypatch):
     assert "browser unavailable" in out["reason"]
 
     # no session + acquire fails → busy
-    bridge = _Bridge(
-        nav_exc=_bridge_error("No active browser session"),
-        start_ok=False)
+    bridge = _Bridge(nav_exc=_bridge_error("No active browser session"), start_ok=False)
     _wire(monkeypatch, bridge)
     out = await S._watch()
     assert "browser busy" in out["reason"]
 
     # logged out → slack alert once, flag set; second run → no alert
     alert = AsyncMock()
-    bridge = _Bridge(pages={"location.href": {"url": "https://skool.com/about",
-                                          "text": "about page"}})
+    bridge = _Bridge(pages={"location.href": {"url": "https://skool.com/about", "text": "about page"}})
     r = _wire(monkeypatch, bridge, slack_alert=alert)
     out = await S._watch()
     assert out["reason"] == "logged out"
@@ -313,21 +300,20 @@ async def test_watch_gates(monkeypatch):
 @pytest.mark.asyncio
 async def test_watch_seed_sweep(monkeypatch):
     alert, digest = AsyncMock(), AsyncMock()
-    modules = [{"t": "DAY 1: x", "h": "/c?md=" + "a" * 32},
-               {"t": "week", "h": "/c?md=" + "b" * 32}]
+    modules = [{"t": "DAY 1: x", "h": "/c?md=" + "a" * 32}, {"t": "week", "h": "/c?md=" + "b" * 32}]
     posts = [{"t": "a post", "h": "/sofia-kakkava-coaching/abc123"}]
-    bridge = _Bridge(pages={
-        "location.href": {"url": S._COURSE_URL, "text": "ok"},
-        'a[href*="md="]': modules,
-        "Leaderboards": posts,
-    })
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok"},
+            'a[href*="md="]': modules,
+            "Leaderboards": posts,
+        }
+    )
     team = SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4())
     user = SimpleNamespace(id=uuid.uuid4())
     acct = SimpleNamespace(id=uuid.uuid4())
-    db = _DB(queue=[_Res(first=team), _Res(first=user),
-                    _Res(first=acct)])
-    r = _wire(monkeypatch, bridge, db=db, slack_alert=alert,
-              slack_digest=digest)
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct)])
+    r = _wire(monkeypatch, bridge, db=db, slack_alert=alert, slack_digest=digest)
     out = await S._watch()
     assert out["seeded"] is True and out["new_modules"] == 0
     # everything silently marked seen
@@ -340,12 +326,13 @@ async def test_watch_new_day_module(monkeypatch):
     alert, digest = AsyncMock(), AsyncMock()
     md = "c" * 32
     lesson = "YOUR TASK post about it COMMUNITY ACTION"
-    bridge = _Bridge(pages={
-        "location.href": {"url": S._COURSE_URL, "text": "ok",
-                          "lesson": lesson},
-        'a[href*="md="]': [{"t": "DAY 3: thing", "h": f"/c?md={md}"}],
-        "Leaderboards": [],
-    })
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok", "lesson": lesson},
+            'a[href*="md="]': [{"t": "DAY 3: thing", "h": f"/c?md={md}"}],
+            "Leaderboards": [],
+        }
+    )
     # _JS_TEXT fires on both classroom + lesson pages
     calls = {"n": 0}
     orig_eval = bridge.evaluate
@@ -354,20 +341,18 @@ async def test_watch_new_day_module(monkeypatch):
         if "location.href" in expr:
             calls["n"] += 1
             body = lesson if calls["n"] > 1 else "ok"
-            return {"result": json.dumps(
-                {"url": S._COURSE_URL, "text": body})}
+            return {"result": json.dumps({"url": S._COURSE_URL, "text": body})}
         return await orig_eval(expr)
+
     bridge.evaluate = _eval
 
     team = SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4())
     user = SimpleNamespace(id=uuid.uuid4())
     acct = SimpleNamespace(id=uuid.uuid4())
-    db = _DB(queue=[_Res(first=team), _Res(first=user),
-                    _Res(first=acct), _Res()])
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct), _Res()])
     r = _Redis()
     r.kv["skool:vec:seeded"] = "1"
-    _wire(monkeypatch, bridge, redis=r, db=db, slack_alert=alert,
-          slack_digest=digest)
+    _wire(monkeypatch, bridge, redis=r, db=db, slack_alert=alert, slack_digest=digest)
     draft = AsyncMock(return_value="d" * 32)
     monkeypatch.setattr(S, "_create_draft", draft)
     out = await S._watch()
@@ -381,18 +366,18 @@ async def test_watch_new_day_module(monkeypatch):
 @pytest.mark.asyncio
 async def test_watch_partial_render_and_posts(monkeypatch):
     digest = AsyncMock()
-    bridge = _Bridge(pages={
-        "location.href": {"url": S._COURSE_URL, "text": "ok"},
-        'a[href*="md="]': [{"t": "x", "h": "/c?md=" + "a" * 32}],
-        "Leaderboards": [{"t": "new community post",
-                          "h": "/sofia-kakkava-coaching/zzz999"}],
-    })
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok"},
+            'a[href*="md="]': [{"t": "x", "h": "/c?md=" + "a" * 32}],
+            "Leaderboards": [{"t": "new community post", "h": "/sofia-kakkava-coaching/zzz999"}],
+        }
+    )
     r = _Redis()
     r.kv["skool:vec:seeded"] = "1"
     r.sets["skool:vec:seen_modules"] = {"a" * 32, "b" * 32}  # 2 known
     team = SimpleNamespace(id=uuid.uuid4(), owner_id=None)
-    db = _DB(queue=[_Res(first=team), _Res(first=None),
-                    _Res(first=None)])
+    db = _DB(queue=[_Res(first=team), _Res(first=None), _Res(first=None)])
     _wire(monkeypatch, bridge, redis=r, db=db, slack_digest=digest)
     out = await S._watch()
     # partial render (1 < 2 known) → module diff skipped
@@ -406,31 +391,27 @@ async def test_watch_partial_render_and_posts(monkeypatch):
 @pytest.mark.asyncio
 async def test_watch_stranded_draft_retry(monkeypatch):
     alert = AsyncMock()
-    bridge = _Bridge(pages={
-        "location.href": {"url": S._COURSE_URL, "text": "ok"},
-        'a[href*="md="]': [],
-        "Leaderboards": [],
-    })
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok"},
+            'a[href*="md="]': [],
+            "Leaderboards": [],
+        }
+    )
     r = _Redis()
     r.kv["skool:vec:seeded"] = "1"
     # stranded DAY lesson, 1 attempt — retryable
-    r.hashes["skool:vec:lesson:dead1"] = {
-        "title": "DAY 5: x", "text": "t", "task": "k",
-        "draft_attempts": "1"}
+    r.hashes["skool:vec:lesson:dead1"] = {"title": "DAY 5: x", "text": "t", "task": "k", "draft_attempts": "1"}
     # exhausted attempts — skipped
-    r.hashes["skool:vec:lesson:dead2"] = {
-        "title": "DAY 6: y", "draft_attempts": "3"}
+    r.hashes["skool:vec:lesson:dead2"] = {"title": "DAY 6: y", "draft_attempts": "3"}
     # already drafted — skipped
-    r.hashes["skool:vec:lesson:dead3"] = {
-        "title": "DAY 7: z", "draft_id": "ok"}
+    r.hashes["skool:vec:lesson:dead3"] = {"title": "DAY 7: z", "draft_id": "ok"}
     team = SimpleNamespace(id=uuid.uuid4(), owner_id=None)
     user = SimpleNamespace(id=uuid.uuid4())
     acct = SimpleNamespace(id=uuid.uuid4())
-    db = _DB(queue=[_Res(first=team), _Res(first=user),
-                    _Res(first=acct)])
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct)])
     _wire(monkeypatch, bridge, redis=r, db=db, slack_alert=alert)
-    monkeypatch.setattr(S, "_create_draft", AsyncMock(
-        return_value="e" * 32))
+    monkeypatch.setattr(S, "_create_draft", AsyncMock(return_value="e" * 32))
     out = await S._watch()
     assert out["drafts"] == ["e" * 32]
     assert r.hashes["skool:vec:lesson:dead1"]["draft_id"] == "e" * 32
@@ -438,10 +419,174 @@ async def test_watch_stranded_draft_retry(monkeypatch):
 
     # retry failure → attempts incremented
     r.hashes["skool:vec:lesson:dead1"].pop("draft_id")
-    monkeypatch.setattr(S, "_create_draft", AsyncMock(
-        return_value=None))
-    db = _DB(queue=[_Res(first=team), _Res(first=user),
-                    _Res(first=acct)])
+    monkeypatch.setattr(S, "_create_draft", AsyncMock(return_value=None))
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct)])
     _wire(monkeypatch, bridge, redis=r, db=db)
     out = await S._watch()
     assert r.hashes["skool:vec:lesson:dead1"]["draft_attempts"] == "2"
+
+
+# ── remaining tails ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_run_async_inside_running_loop(monkeypatch):
+    import app.worker._async as W
+
+    monkeypatch.setattr(W, "run_async", lambda c: (c.close(), "x")[1])
+
+    async def _coro():
+        return 99
+
+    # running loop → ThreadPoolExecutor path
+    assert S._run_async(_coro()) == "x"
+
+
+@pytest.mark.asyncio
+async def test_redis_helper(monkeypatch):
+    import redis.asyncio as aioredis
+
+    fake = object()
+    monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: fake)
+    assert await S._redis() is fake
+
+
+def test_watch_skool_vec_wrapper(monkeypatch):
+    import app.worker._async as W
+
+    monkeypatch.setattr(W, "run_async", lambda c: (c.close(), {"ok": 1})[1])
+    assert S.watch_skool_vec.run() == {"ok": 1}
+
+
+@pytest.mark.asyncio
+async def test_create_draft_invalid_json_envelope(monkeypatch):
+    import app.services.brand_compliance as BC
+    import app.services.inference as INF
+
+    tid, uid, aid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    monkeypatch.setattr(BC, "load_brand_context", AsyncMock(return_value=(1, 2, "ctx")))
+    # text starts with '{' but is not parseable → except-pass → raw kept
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"text": "{not valid json at all"}))
+    db = _DB(queue=[_Res()])
+    out = await S._create_draft(db, tid, uid, aid, "md", "t", "txt", "")
+    assert out and db.added[0].content_text == "{not valid json at all"
+
+
+@pytest.mark.asyncio
+async def test_watch_browser_busy_acquire_and_retry(monkeypatch):
+    # first navigate raises "busy" → acquire succeeds → navigate retried
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok"},
+            'a[href*="md="]': [],
+            "Leaderboards": [],
+        }
+    )
+    calls = {"n": 0}
+
+    async def _nav(url):
+        calls["n"] += 1
+        bridge.nav_calls.append(url)
+        if calls["n"] == 1:
+            raise _bridge_error("browser busy: poller holds session")
+
+    bridge.navigate = _nav
+    r = _Redis()
+    r.kv["skool:vec:seeded"] = "1"
+    _wire(monkeypatch, bridge, redis=r)
+    out = await S._watch()
+    assert bridge.nav_calls.count(S._COURSE_URL) == 2  # retry after acquire
+    assert out["new_modules"] == 0
+
+
+@pytest.mark.asyncio
+async def test_watch_lesson_fetch_and_draft_errors(monkeypatch):
+    alert = AsyncMock()
+    md = "d" * 32
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok"},
+            'a[href*="md="]': [{"t": "DAY 4: z", "h": f"/c?md={md}"}],
+            "Leaderboards": [],
+        }
+    )
+    # lesson-page navigate raises → lesson_text="" but flow continues
+    orig_nav = bridge.navigate
+
+    async def _nav(url):
+        if url == S._LESSON_URL.format(md=md):
+            raise RuntimeError("lesson 500")
+        await orig_nav(url)
+
+    bridge.navigate = _nav
+    team = SimpleNamespace(id=uuid.uuid4(), owner_id=None)
+    user = SimpleNamespace(id=uuid.uuid4())
+    acct = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct)])
+    r = _Redis()
+    r.kv["skool:vec:seeded"] = "1"
+    _wire(monkeypatch, bridge, redis=r, db=db, slack_alert=alert)
+    # _create_draft raising → logger.exception → hincrby attempts
+    monkeypatch.setattr(S, "_create_draft", AsyncMock(side_effect=RuntimeError("dmr down")))
+    out = await S._watch()
+    assert out["drafts"] == []
+    # 1 (new-module attempt) + 1 (retry-sweep attempt in same sweep) = 2
+    assert r.hashes[f"skool:vec:lesson:{md}"]["draft_attempts"] == "2"
+    assert alert.await_count == 1  # DAY alert still sent (no-draft variant)
+
+
+@pytest.mark.asyncio
+async def test_watch_non_day_module_digest(monkeypatch):
+    digest = AsyncMock()
+    md = "e" * 32
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok"},
+            'a[href*="md="]': [{"t": "Community Setup", "h": f"/c?md={md}"}],
+            "Leaderboards": [],
+        }
+    )
+    r = _Redis()
+    r.kv["skool:vec:seeded"] = "1"
+    team = SimpleNamespace(id=uuid.uuid4(), owner_id=None)
+    user = SimpleNamespace(id=uuid.uuid4())
+    acct = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct)])
+    _wire(monkeypatch, bridge, redis=r, db=db, slack_digest=digest)
+    out = await S._watch()
+    assert out["new_modules"] == 1
+    assert digest.await_count == 1  # non-DAY → digest, not alert+draft
+
+
+@pytest.mark.asyncio
+async def test_watch_retry_sweep_break_and_failure(monkeypatch):
+    bridge = _Bridge(
+        pages={
+            "location.href": {"url": S._COURSE_URL, "text": "ok"},
+            'a[href*="md="]': [],
+            "Leaderboards": [],
+        }
+    )
+    r = _Redis()
+    r.kv["skool:vec:seeded"] = "1"
+    # 3 stranded lessons → retried hits the 2-per-sweep cap → break
+    for i in range(3):
+        r.hashes[f"skool:vec:lesson:st{i}"] = {"title": f"DAY {i}: t", "text": "t", "task": "k", "draft_attempts": "1"}
+    team = SimpleNamespace(id=uuid.uuid4(), owner_id=None)
+    user = SimpleNamespace(id=uuid.uuid4())
+    acct = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct)])
+    _wire(monkeypatch, bridge, redis=r, db=db)
+    monkeypatch.setattr(S, "_create_draft", AsyncMock(return_value="f" * 32))
+    out = await S._watch()
+    assert len(out["drafts"]) == 2  # cap enforced
+
+    # _create_draft raising in the retry sweep → did=None → attempts bumped
+    r2 = _Redis()
+    r2.kv["skool:vec:seeded"] = "1"
+    r2.hashes["skool:vec:lesson:zz"] = {"title": "DAY 9: t", "text": "t", "task": "k", "draft_attempts": "1"}
+    db = _DB(queue=[_Res(first=team), _Res(first=user), _Res(first=acct)])
+    _wire(monkeypatch, bridge, redis=r2, db=db)
+    monkeypatch.setattr(S, "_create_draft", AsyncMock(side_effect=RuntimeError("dmr down")))
+    await S._watch()
+    assert r2.hashes["skool:vec:lesson:zz"]["draft_attempts"] == "2"

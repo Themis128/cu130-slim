@@ -1,6 +1,6 @@
 """Unit tests for the Threads REST API client."""
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -374,3 +374,17 @@ async def test_check_container_status_validates_id_and_records_error(client):
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
         assert await client.check_container_status("17890001") == "IN_PROGRESS"
     assert client._last_container_error == "warming"
+
+
+@pytest.mark.asyncio
+async def test_wait_for_container_ready_error_status(client, monkeypatch):
+    client._last_container_error = "media decode failed"
+    monkeypatch.setattr(client, "check_container_status", AsyncMock(return_value="ERROR"))
+    with pytest.raises(api.ThreadsAPIError, match="ERROR"):
+        await client.wait_for_container_ready("17890001", timeout=5, interval=0.01)
+
+
+@pytest.mark.asyncio
+async def test_wait_for_container_ready_finished(client, monkeypatch):
+    monkeypatch.setattr(client, "check_container_status", AsyncMock(return_value="FINISHED"))
+    await client.wait_for_container_ready("17890001", timeout=5, interval=0.01)
