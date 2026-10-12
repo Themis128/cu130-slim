@@ -105,7 +105,18 @@ async def media_gpu_lock(
     try:
         waited = 0.0
         while waited < acquire_timeout_s:
-            if await r.set(_LOCK_KEY, token, nx=True, ex=ttl_s):
+            try:
+                got = await r.set(_LOCK_KEY, token, nx=True, ex=ttl_s)
+            except Exception as exc:
+                # from_url is lazy — the first command is what actually
+                # connects. Fail open the same way a refused constructor does.
+                logger.warning(
+                    "[gpu-arbiter] Redis unreachable (%s) — running unserialized",
+                    type(exc).__name__,
+                )
+                yield
+                return
+            if got:
                 acquired = True
                 break
             await asyncio.sleep(_LOCK_POLL_S)
@@ -197,7 +208,16 @@ async def dmr_slot(*, _for_media: bool = False) -> AsyncIterator[None]:
     try:
         waited = 0.0
         while waited < _DMR_LOCK_ACQUIRE_S:
-            if await r.set(_DMR_LOCK_KEY, token, nx=True, ex=_DMR_LOCK_TTL_S):
+            try:
+                got = await r.set(_DMR_LOCK_KEY, token, nx=True, ex=_DMR_LOCK_TTL_S)
+            except Exception as exc:
+                logger.warning(
+                    "[gpu-arbiter] Redis unreachable (%s) — DMR unserialized",
+                    type(exc).__name__,
+                )
+                yield
+                return
+            if got:
                 acquired = True
                 break
             await asyncio.sleep(1.0)

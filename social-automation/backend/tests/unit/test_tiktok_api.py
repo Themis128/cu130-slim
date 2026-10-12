@@ -559,6 +559,10 @@ def test_parse_frame_rate():
     assert api._parse_frame_rate("30/1") == 30.0
     assert api._parse_frame_rate("30000/1001") == pytest.approx(29.97, rel=1e-3)
     assert api._parse_frame_rate("0/0") is None
+    assert api._parse_frame_rate("N/A") is None
+    assert api._parse_frame_rate("1/0") is None
+    assert api._parse_frame_rate("30") == 30.0
+    assert api._parse_frame_rate("nope") is None
     assert api._parse_frame_rate(None) is None
 
 

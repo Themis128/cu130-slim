@@ -316,11 +316,12 @@ Other agent MCP servers in `.devin/mcp_config.json`: `metabase` (CognitionAI met
 ## Testing & coverage ratchet (added 2026-10-11)
 
 - Backend suite: `tests/unit/` (213+ files) run with `pytest` + `pytest-cov`
-  (`--cov=app`) inside the `social-api` container — ~94% line coverage on
-  `app/`. Batches: #577/#578/#579 (platform services, worker tasks, API
-  modules — bluesky, whatsapp_cloud, blog_articles, s3_sigv4,
-  telegram_chatbot, web_analytics, media_enhance, recurring, dodo/dmr
-  health, audit/secrets/cf_db/leads/meta_growth APIs).
+  (`--cov=app`) inside the `social-api` container — ~97% line coverage on
+  `app/`. Batches: #577–#580 (platform services, worker tasks, API
+  modules), #581–#587 (worker publishing, browser_bridge, session_healer,
+  carousel/skool/threads/messengers), plus later tails (lead_emails,
+  gpu_arbiter Redis-command fail-open, link-preview SSRF edges, support
+  report route, content_scorer/web_search/infographic leftovers).
 - **Test policy**: exercise real production code; fakes only at
   infrastructure boundaries — `httpx`/`AsyncClient` transport seams, Redis
   (`fakeredis`), browser bridges, Docker CLI, DB session factories, GPU

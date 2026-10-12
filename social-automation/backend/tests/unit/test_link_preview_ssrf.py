@@ -80,3 +80,50 @@ def test_redirect_loop_capped():
 
     with pytest.raises(ValueError, match="Too many"):
         run(handler, "https://public.example/")
+
+
+def test_resolve_public_ip_guards(monkeypatch):
+    def boom(*_a, **_k):
+        raise socket.gaierror("fail")
+
+    monkeypatch.setattr(lp.socket, "getaddrinfo", boom)
+    with pytest.raises(ValueError, match="Cannot resolve"):
+        lp._resolve_public_ip("nope.example")
+
+    monkeypatch.setattr(lp.socket, "getaddrinfo", lambda *_a, **_k: [])
+    with pytest.raises(ValueError, match="Cannot resolve"):
+        lp._resolve_public_ip("empty.example")
+
+    monkeypatch.setattr(
+        lp.socket,
+        "getaddrinfo",
+        lambda *_a, **_k: [(socket.AF_INET6, 0, 0, "", ("::ffff:127.0.0.1", 0, 0, 0))],
+    )
+    with pytest.raises(ValueError, match="not publicly routable"):
+        lp._resolve_public_ip("mapped.example")
+
+    monkeypatch.setattr(
+        lp.socket,
+        "getaddrinfo",
+        lambda *_a, **_k: [(socket.AF_INET, 0, 0, "", ("224.0.0.1", 0))],
+    )
+    with pytest.raises(ValueError, match="not publicly routable"):
+        lp._resolve_public_ip("multi.example")
+
+
+def test_redirect_without_location():
+    def handler(_req):
+        return httpx.Response(302, headers={})
+
+    with pytest.raises(ValueError, match="Redirect without"):
+        run(handler, "https://public.example/")
+
+
+def test_protocol_relative_and_root_relative_image():
+    html = '<html><head><meta property="og:image" content="//cdn.example/a.png"></head></html>'
+    result = run(lambda _req: httpx.Response(200, html=html), "https://public.example/x")
+    assert result["image"] == "https://cdn.example/a.png"
+
+    html = '<html><head><meta property="og:image" content="/img.png"></head></html>'
+    result = run(lambda _req: httpx.Response(200, html=html), "https://public.example/x")
+    assert result["image"] == "https://public.example/img.png"

@@ -95,6 +95,27 @@ async def test_skips_results_without_url_and_caps(monkeypatch):
     assert all(r["url"] for r in results)
 
 
+def test_sanitize_log_text_strips_controls():
+    out = ws._sanitize_log_text("a\nb\rc\x00d\te" + "z" * 300, max_len=20)
+    assert "\n" not in out and "\r" not in out and "\x00" not in out
+    assert "\t" in out
+    assert len(out) == 20
+
+
+@pytest.mark.asyncio
+async def test_categories_param_forwarded(monkeypatch):
+    seen = {}
+
+    def handler(req):
+        seen["categories"] = req.url.params.get("categories")
+        return httpx.Response(200, json=_payload(1))
+
+    monkeypatch.setattr(ws.httpx, "AsyncClient", _mock_client(handler))
+    monkeypatch.setattr(ws.settings, "SEARXNG_URL", "http://searxng:8080")
+    results = await ws.web_search("q", categories="news")
+    assert results and seen["categories"] == "news"
+
+
 def test_format_search_context():
     ctx = ws.format_search_context(
         [{"title": "T", "url": "https://x.y", "snippet": "s", "engine": "e"}], "q"

@@ -23,6 +23,31 @@ def test_paddle_digest_registered():
     assert "app.worker.tasks.paddle_digest.send_paddle_slack_digest" in celery_app.tasks
 
 
+def test_worker_loop_signals_start_and_stop(monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr("app.worker._async.start_worker_loop", lambda: calls.append("start"))
+    monkeypatch.setattr("app.worker._async.stop_worker_loop", lambda: calls.append("stop"))
+    from app.worker.celery_app import _start_worker_async_loop, _stop_worker_async_loop
+
+    _start_worker_async_loop()
+    _stop_worker_async_loop()
+    assert calls == ["start", "stop"]
+
+
+def test_paddle_digest_task_wrapper(monkeypatch):
+    import app.worker.tasks.paddle_digest as PD
+
+    monkeypatch.setattr(PD, "run_async", lambda c: (c.close(), {"ok": 1})[1])
+    assert PD.send_paddle_slack_digest() == {"ok": 1}
+
+
+def test_linkedin_ads_report_task_wrapper(monkeypatch):
+    import app.worker.tasks.linkedin_ads_report as LAR
+
+    monkeypatch.setattr(LAR, "run_async", lambda c: (c.close(), {"ok": 1})[1])
+    assert LAR.send_linkedin_ads_report() == {"ok": 1}
+
+
 def test_every_beat_task_module_is_in_include():
     # Registry checks can pass spuriously in the full suite: other tests import
     # task modules during collection, registering them regardless of `include`.

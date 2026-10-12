@@ -114,6 +114,33 @@ def test_dodo_task_wrapper(monkeypatch):
     assert DL.check_dodo_live() == {"ok": 1}
 
 
+@pytest.mark.asyncio
+async def test_dodo_run_async_inside_running_loop(monkeypatch):
+    """When a loop is already running, _run_async hops to a worker thread."""
+
+    async def _coro():
+        return 7
+
+    def fake_run(coro):
+        coro.close()
+        return 7
+
+    monkeypatch.setattr(DL, "run_async", fake_run)
+    assert DL._run_async(_coro()) == 7
+
+
+@pytest.mark.asyncio
+async def test_dodo_redis_factory(monkeypatch):
+    import redis.asyncio as aioredis
+
+    import app.core.config as cfg
+
+    sentinel = object()
+    monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://x"))
+    monkeypatch.setattr(aioredis, "from_url", lambda url: sentinel)
+    assert await DL._redis() is sentinel
+
+
 # ── dmr_health ──────────────────────────────────────────────────────
 
 
@@ -212,3 +239,12 @@ def test_dmr_task_wrappers(monkeypatch):
     monkeypatch.setattr(DH, "run_async", lambda c: (c.close(), {"ok": 1})[1])
     assert DH.check_dmr_health() == {"ok": 1}
     assert DH.keep_warm_dmr_models() == {"ok": 1}
+
+
+@pytest.mark.asyncio
+async def test_dmr_run_async_inside_running_loop(monkeypatch):
+    async def _coro():
+        return {"warm": True}
+
+    monkeypatch.setattr(DH, "run_async", lambda coro: (coro.close(), {"warm": True})[1])
+    assert DH._run_async(_coro()) == {"warm": True}

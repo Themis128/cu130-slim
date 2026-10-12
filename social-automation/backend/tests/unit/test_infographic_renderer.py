@@ -170,6 +170,52 @@ class TestInfographicRendering:
         result = render_infographic(content, bg)
         assert isinstance(result, bytes)
 
+    def test_bad_background_bytes_still_render(self):
+        content = {
+            "title": "Broken BG",
+            "sections": [{"icon": "1", "heading": "H", "body": "B"}],
+            "footer": "Visit us today",
+        }
+        result = render_infographic(content, b"not-an-image")
+        img = Image.open(io.BytesIO(result))
+        assert img.size == (1024, 1024)
+
+    def test_font_work_sans_missing_falls_back(self, monkeypatch):
+        import app.services.infographic_renderer as IR
+
+        monkeypatch.setattr(IR.os.path, "exists", lambda _p: False)
+        f = IR._font(20, "bold")
+        assert f is not None
+
+        sentinel = IR.ImageFont.ImageFont()
+
+        def fake_truetype(*_a, **_k):
+            return sentinel
+
+        monkeypatch.setattr(
+            IR.os.path, "exists", lambda p: "DejaVu" in p or "dejavu" in p
+        )
+        monkeypatch.setattr(IR.ImageFont, "truetype", fake_truetype)
+        assert IR._font(18, "regular") is sentinel
+
+    def test_draw_wrapped_truncates_with_ellipsis(self):
+        from PIL import ImageDraw
+
+        import app.services.infographic_renderer as IR
+
+        img = Image.new("RGB", (200, 80), (0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        y = IR._draw_wrapped_text(
+            draw,
+            "one two three four five six seven eight nine ten",
+            (0, 0),
+            IR._font(20),
+            (255, 255, 255),
+            40,
+            max_lines=1,
+        )
+        assert y > 0
+
     def test_handles_special_characters(self):
         content = {
             "title": "Test — with 'quotes' and \"double\"",

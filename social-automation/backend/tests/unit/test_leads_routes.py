@@ -103,6 +103,15 @@ def _req():
     })
 
 
+@pytest.fixture(autouse=True)
+def _unwrap_rate_limiter(monkeypatch):
+    """Call the view directly — SlowAPI's limiter is an infra boundary."""
+    fn = LD.create_lead_public
+    while hasattr(fn, "__wrapped__"):
+        fn = fn.__wrapped__
+    monkeypatch.setattr(LD, "create_lead_public", fn)
+
+
 @pytest.fixture
 def pub_env(monkeypatch):
     lead = _lead_row()

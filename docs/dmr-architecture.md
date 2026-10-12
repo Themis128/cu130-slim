@@ -188,7 +188,8 @@ FIFO admission — API and all four worker processes queue on the same key.
   can't slip a different model in mid-heal) and inside the streaming
   generator for `stream=True` calls.
 - Bounded: `DMR_LOCK_ACQUIRE` wait, 660 s TTL — crashes degrade to
-  unserialized execution rather than deadlock; Redis down → no-op.
+  unserialized execution rather than deadlock; Redis down (constructor
+  or first SET — `from_url` is lazy) → no-op.
 - `media_gpu_lock()` holds `dmr_slot(_for_media=True)` for the render's
   duration: in-flight DMR calls drain first, callers that passed the
   media-busy check queue behind the render, then resident models are

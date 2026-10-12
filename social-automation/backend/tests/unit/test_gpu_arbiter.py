@@ -198,6 +198,28 @@ async def test_dmr_slot_redis_down_noop(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dmr_slot_set_raises_fail_open(monkeypatch):
+    class _BoomSet(_FakeRedis):
+        async def set(self, *a, **k):
+            raise ConnectionError("name or service not known")
+
+    _patch_redis(monkeypatch, _BoomSet())
+    async with GA.dmr_slot():
+        pass
+
+
+@pytest.mark.asyncio
+async def test_media_gpu_lock_set_raises_fail_open(monkeypatch):
+    class _BoomSet(_FakeRedis):
+        async def set(self, *a, **k):
+            raise ConnectionError("name or service not known")
+
+    _patch_redis(monkeypatch, _BoomSet())
+    async with GA.media_gpu_lock():
+        pass
+
+
+@pytest.mark.asyncio
 async def test_dmr_slot_for_media_skips_busy_recheck(monkeypatch):
     r = _FakeRedis()
     _patch_redis(monkeypatch, r)
