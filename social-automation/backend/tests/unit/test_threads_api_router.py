@@ -632,3 +632,100 @@ class TestSessionHelpers:
         )
         assert out["threads_session"]["logged_in"] is False
         assert "error" in out["browser_session"]
+
+
+# ── remaining tails ─────────────────────────────────────────────────
+
+
+class TestBridgeClientFactory:
+    def test_real_factory_constructs_client(self, monkeypatch):
+        captured = {}
+
+        class FakeBridge:
+            def __init__(self, url, platform=None):
+                captured["url"] = url
+                captured["platform"] = platform
+
+        import app.services.browser_bridge as bb
+
+        monkeypatch.setattr(bb, "BrowserBridgeClient", FakeBridge)
+        monkeypatch.delenv("BROWSER_BRIDGE_URL", raising=False)
+        threads._get_browser_bridge_client()
+        assert captured["url"] == "http://browser-novnc:9223"
+        assert captured["platform"] == "threads"
+
+        monkeypatch.setenv("BROWSER_BRIDGE_URL", "http://custom:9999")
+        threads._get_browser_bridge_client()
+        assert captured["url"] == "http://custom:9999"
+
+
+class TestDmErrorBranches:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_dm_messages_bridge_error(self, monkeypatch):
+        from app.services.browser_bridge import BrowserBridgeError
+
+        class Bridge:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def get_threads_dm_messages(self, *a, **kw):
+                raise BrowserBridgeError(503, "bridge down")
+
+        monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
+        a = _account()
+        with pytest.raises(HTTPException) as ei:
+            await threads.read_threads_dm_thread(
+                a.id, "t1", a.team_id, FakeDB(accounts=[a]),
+            )
+        assert ei.value.status_code == 503
+
+    async def test_dm_send_bridge_error(self, monkeypatch):
+        from app.services.browser_bridge import BrowserBridgeError
+
+        class Bridge:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def send_threads_dm_message(self, *a, **kw):
+                raise BrowserBridgeError(500, "send fail")
+
+        monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
+        a = _account()
+        with pytest.raises(HTTPException) as ei:
+            await threads.send_threads_dm(
+                a.id, "t1", {"text": "hi"}, a.team_id, FakeDB(accounts=[a]),
+            )
+        assert ei.value.status_code == 500
+
+    async def test_dm_login_bridge_error(self, monkeypatch):
+        from app.services.browser_bridge import BrowserBridgeError
+
+        class Bridge:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def navigate(self, *a, **kw):
+                raise BrowserBridgeError(502, "nav fail")
+
+        monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
+        a = _account()
+        with pytest.raises(HTTPException) as ei:
+            await threads.threads_dm_login(a.id, a.team_id, FakeDB(accounts=[a]))
+        assert ei.value.status_code == 502
+
+
+class TestHttpStatusFallbacks:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_quota_400_status_returns_default(self):
+        _HTTP.responses = [_Resp(403, {"error": "forbidden"})]
+        a = _account()
+        out = await threads.get_threads_quota(a.team_id, a.id, FakeDB(accounts=[a]))
+        assert out.remaining == 250 and out.used == 0
+
+    async def test_followers_400_status_returns_empty(self):
+        _HTTP.responses = [_Resp(400, {"error": "bad"})]
+        a = _account()
+        out = await threads.get_threads_followers(a.team_id, a.id, FakeDB(accounts=[a]))
+        assert out.values == []

@@ -564,3 +564,95 @@ async def test_x_refresh_token_at_publish(monkeypatch):
 
     monkeypatch.setattr(authmod, "twitter_client", _BadTC())
     assert await P._refresh_oauth2_token(SimpleNamespace(refresh_token_enc=b"enc"), _DB()) is None
+
+
+# ── remaining helper tails ──────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_resolve_music_path_r2_and_minio(tmp_path, monkeypatch):
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
+    import app.services.minio_storage as minio
+    import app.services.r2_storage as r2
+
+    # R2 hit → temp file with ext
+    monkeypatch.setattr(r2, "get_object", AsyncMock(return_value=b"mp3data"))
+    a = SimpleNamespace(id=uuid.uuid4(), storage_path="s/song.mp3", filename="song.mp3", storage_backend="r2")
+    out = await P._resolve_music_path(SimpleNamespace(music_asset_id=a.id), _DB(results=[a]))
+    assert out.endswith(".mp3") and open(out, "rb").read() == b"mp3data"
+
+    # MinIO hit
+    monkeypatch.setattr(minio, "get_object", AsyncMock(return_value=b"wav"))
+    a2 = SimpleNamespace(id=uuid.uuid4(), storage_path="b/track", filename=None, storage_backend="minio")
+    out2 = await P._resolve_music_path(SimpleNamespace(music_asset_id=a2.id), _DB(results=[a2]))
+    assert out2.endswith(".bin")  # no filename ext → .bin
+
+    # fetch raises → None; empty data → None
+    monkeypatch.setattr(r2, "get_object", AsyncMock(side_effect=RuntimeError("r2 down")))
+    out3 = await P._resolve_music_path(SimpleNamespace(music_asset_id=a.id), _DB(results=[a]))
+    assert out3 is None
+    monkeypatch.setattr(r2, "get_object", AsyncMock(return_value=None))
+    assert await P._resolve_music_path(SimpleNamespace(music_asset_id=a.id), _DB(results=[a])) is None
+
+
+@pytest.mark.asyncio
+async def test_mix_audio_ffmpeg_paths(tmp_path, monkeypatch):
+    import shutil
+
+    monkeypatch.setattr(shutil, "which", lambda x: "/usr/bin/ffmpeg")
+
+    class Proc:
+        def __init__(self, rc):
+            self.returncode = rc
+
+        async def communicate(self):
+            return (b"", b"boom")
+
+    import asyncio as aio
+
+    async def fake_exec(*args, **kw):
+        return Proc(1)
+
+    monkeypatch.setattr(aio, "create_subprocess_exec", fake_exec)
+    # ffmpeg rc!=0 → original video path
+    assert await P._mix_audio_into_video("/v.mp4", "/a.mp3") == "/v.mp4"
+
+    async def ok_exec(*args, **kw):
+        return Proc(0)
+
+    monkeypatch.setattr(aio, "create_subprocess_exec", ok_exec)
+    out = await P._mix_audio_into_video("/v.mp4", "/a.mp3")
+    assert out.endswith("_mixed.mp4")
+
+
+def test_images_to_pdf_and_errors(tmp_path):
+    p1 = tmp_path / "a.png"
+    _img(str(p1), 40, 40)
+    pdf = P._images_to_pdf([str(p1)], title="T")
+    assert pdf[:4] == b"%PDF"
+    with pytest.raises(Exception):
+        P._images_to_pdf([], title="T")
+
+
+def test_media_public_url_branches(monkeypatch):
+    monkeypatch.setattr(P._settings, "MEDIA_PUBLIC_BASE_URL", "https://media.io/", raising=False)
+    out = P._media_public_url("u/a.webp", force_jpeg=True)
+    assert out == "https://media.io/api/v1/media/view?path=u/a.webp&format=jpeg"
+
+    # no base → tunnel file → R2 fallback for relative keys
+    import builtins
+
+    real_open = builtins.open
+
+    def no_tunnel(path, *a, **kw):
+        if path == "/run/tunnel/url":
+            raise OSError("no tunnel")
+        return real_open(path, *a, **kw)
+
+    monkeypatch.setattr(builtins, "open", no_tunnel)
+    monkeypatch.setattr(P._settings, "MEDIA_PUBLIC_BASE_URL", "", raising=False)
+    monkeypatch.setattr(P._settings, "R2_PUBLIC_URL", "https://r2.io", raising=False)
+    assert P._media_public_url("key/img.png") == "https://r2.io/key/img.png"
+    assert P._media_public_url("/abs/path.png") is None  # abs path not servable via r2
+    monkeypatch.setattr(P._settings, "R2_PUBLIC_URL", "", raising=False)
+    assert P._media_public_url("key/img.png") is None

@@ -121,7 +121,7 @@ async def test_get_viber_account_guards(_admin):
 
 
 @pytest.mark.asyncio
-async def test_decrypt_auth_token_fallbacks(_crypto, monkeypatch):
+async def test_decrypt_auth_token_basics(_crypto, monkeypatch):
     assert V._decrypt_auth_token(_account()) == "plain-token"
     # meta token broken → falls back to access_token_enc
     monkey = _account(meta_data={"viber_auth_token_enc": None})
@@ -426,3 +426,138 @@ async def test_webhook_message_auto_reply(_admin, _crypto, monkeypatch):
     monkeypatch.setattr(V, "parse_webhook_event", lambda p: {"event": "message", "text": "", "user_id": "u9"})
     out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
     assert out["ignored"] is True
+
+
+# ── remaining tails: token fallbacks, error branches, webhook counters ──
+
+
+@pytest.mark.asyncio
+async def test_decrypt_auth_token_fallbacks(_admin, monkeypatch):
+    # raw meta token fails → falls back to access_token_enc
+    acct = _account(meta_data={"viber_auth_token_enc": "bad"})
+    calls = []
+
+    def dec(t):
+        calls.append(t)
+        if len(calls) == 1:
+            raise ValueError("bad meta token")
+        return "plain-2"
+
+    monkeypatch.setattr(V, "decrypt_token", dec)
+    assert V._decrypt_auth_token(acct) == "plain-2"
+
+    # both fail → 400
+    monkeypatch.setattr(V, "decrypt_token", lambda t: (_ for _ in ()).throw(ValueError("x")))
+    with pytest.raises(HTTPException) as ei:
+        V._decrypt_auth_token(acct)
+    assert ei.value.status_code == 400
+
+    # no meta token at all → straight to access_token_enc
+    monkeypatch.setattr(V, "decrypt_token", lambda t: "acc-tok")
+    acct2 = _account(meta_data={})
+    assert V._decrypt_auth_token(acct2) == "acc-tok"
+
+
+def test_webhook_base_media_fallback(monkeypatch):
+    # MEDIA_PUBLIC_BASE_URL https → scheme://netloc/api/v1
+    monkeypatch.setattr(V, "settings", SimpleNamespace(
+        VIBER_WEBHOOK_BASE="", MEDIA_PUBLIC_BASE_URL="https://cdn.cloudless.gr/x",
+    ))
+    assert V._webhook_base() == "https://cdn.cloudless.gr/api/v1"
+    # non-https → default
+    monkeypatch.setattr(V, "settings", SimpleNamespace(
+        VIBER_WEBHOOK_BASE="", MEDIA_PUBLIC_BASE_URL="http://local",
+    ))
+    assert V._webhook_base() == "https://social.cloudless.gr/api/v1"
+    # explicit base wins
+    monkeypatch.setattr(V, "settings", SimpleNamespace(
+        VIBER_WEBHOOK_BASE="https://w.io/", MEDIA_PUBLIC_BASE_URL="",
+    ))
+    assert V._webhook_base() == "https://w.io"
+
+
+@pytest.mark.asyncio
+async def test_update_credentials_invalid_token_400(_admin, _crypto, monkeypatch):
+    acct = _account()
+    client = SimpleNamespace(get_account_info=AsyncMock(side_effect=V.ViberAPIError(2, "bad tok")))
+    monkeypatch.setattr(V, "ViberAPIClient", lambda tok: client)
+    body = V.ViberCredentialsUpdate(auth_token="badtok")
+    with pytest.raises(HTTPException) as ei:
+        await V.update_viber_credentials(acct.id, body, _DB([_Res(acct)]), _user())
+    assert ei.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_delete_webhook_unset_error_502(_admin, _crypto, monkeypatch):
+    acct = _account()
+    client = SimpleNamespace(unset_webhook=AsyncMock(side_effect=V.ViberAPIError(9, "nope")))
+    monkeypatch.setattr(V, "ViberAPIClient", lambda tok: client)
+    with pytest.raises(HTTPException) as ei:
+        await V.delete_viber_webhook(acct.id, _DB([_Res(acct)]), _user())
+    assert ei.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_send_picture_and_broadcast_errors_502(_admin, _crypto, monkeypatch):
+    acct = _account()
+    client = SimpleNamespace(
+        send_picture=AsyncMock(side_effect=V.ViberAPIError(5, "pic err")),
+        broadcast_text=AsyncMock(side_effect=ValueError("bcast err")),
+    )
+    monkeypatch.setattr(V, "ViberAPIClient", lambda tok: client)
+    with pytest.raises(HTTPException) as ei:
+        await V.send_picture(acct.id, V.SendPictureRequest(receiver="u", media_url="https://x/i.png", text="t"), _DB([_Res(acct)]), _user())
+    assert ei.value.status_code == 502
+    with pytest.raises(HTTPException) as ei:
+        await V.broadcast(acct.id, V.BroadcastRequest(broadcast_list=["u"], text="b"), _DB([_Res(acct)]), _user())
+    assert ei.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_webhook_missing_credentials_400(_admin, monkeypatch):
+    acct = _account(meta_data={}, access_token_enc=None)
+    with pytest.raises(HTTPException) as ei:
+        await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
+    assert ei.value.status_code == 400
+    assert "credentials" in ei.value.detail
+
+
+@pytest.mark.asyncio
+async def test_webhook_unsubscribed_and_welcome_error(_admin, _crypto, monkeypatch):
+    acct = _account(meta_data={
+        "viber_auth_token_enc": "t",
+        "subscribers_count": 1,
+        "viber_auto_reply": {"welcome_message": "hi"},
+    })
+    monkeypatch.setattr(V, "verify_signature", lambda b, s, t: True)
+    monkeypatch.setattr(V, "flag_modified", lambda *a: None)
+
+    # unsubscribed → decrement (floored at 0)
+    monkeypatch.setattr(V, "parse_webhook_event", lambda p: {"event": "unsubscribed"})
+    out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
+    assert out["event"] == "unsubscribed"
+    assert acct.meta_data["subscribers_count"] == 0
+
+    # welcome send fails → welcome_error flag
+    client = SimpleNamespace(send_text=AsyncMock(side_effect=RuntimeError("send down")))
+    monkeypatch.setattr(V, "ViberAPIClient", lambda tok: client)
+    monkeypatch.setattr(V, "parse_webhook_event", lambda p: {"event": "conversation_started", "user_id": "u1", "subscribed": False})
+    out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
+    assert out["welcome_error"] is True
+
+    # non-message unknown event → ignored
+    monkeypatch.setattr(V, "parse_webhook_event", lambda p: {"event": "mystery"})
+    out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
+    assert out["ignored"] is True
+
+
+@pytest.mark.asyncio
+async def test_webhook_auto_reply_error_flag(_admin, _crypto, monkeypatch):
+    acct = _account(meta_data={"viber_auth_token_enc": "t", "viber_auto_reply": {"enabled": True}})
+    monkeypatch.setattr(V, "verify_signature", lambda b, s, t: True)
+    import app.services.viber_chatbot as VC
+
+    monkeypatch.setattr(VC, "process_inbound_message", AsyncMock(side_effect=RuntimeError("bot down")))
+    monkeypatch.setattr(V, "parse_webhook_event", lambda p: {"event": "message", "text": "hey", "user_id": "u9"})
+    out = await V.receive_webhook(acct.id, _request(), _DB([_Res(acct)]))
+    assert out["auto_reply"] is True and out["error"] is True
