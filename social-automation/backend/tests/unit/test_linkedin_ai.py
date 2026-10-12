@@ -27,21 +27,29 @@ def mock_inference(monkeypatch):
     calls: list[dict] = []
 
     async def fake_call_inference(
-        prompt, *,
-        provider_name="cloudflare", db=None, team_id=None,
-        schema=None, model_override=None, max_tokens=None, allow_fallback=True,
+        prompt,
+        *,
+        provider_name="cloudflare",
+        db=None,
+        team_id=None,
+        schema=None,
+        model_override=None,
+        max_tokens=None,
+        allow_fallback=True,
         platform=None,
     ):
-        calls.append({
-            "prompt": prompt,
-            "provider_name": provider_name,
-            "db": db,
-            "team_id": team_id,
-            "schema": schema,
-            "model_override": model_override,
-            "max_tokens": max_tokens,
-            "platform": platform,
-        })
+        calls.append(
+            {
+                "prompt": prompt,
+                "provider_name": provider_name,
+                "db": db,
+                "team_id": team_id,
+                "schema": schema,
+                "model_override": model_override,
+                "max_tokens": max_tokens,
+                "platform": platform,
+            }
+        )
         return {
             "content": "This is generated content.",
             "hashtags": ["cloud", "serverless", "cloudless"],
@@ -126,11 +134,9 @@ def test_rank_best_time_windows_derives_windows_from_published_at():
     from datetime import UTC, datetime, timedelta
 
     # 6 posts published Mondays 07:00 UTC = 09:00 Athens, ER 2.0
-    samples = [(datetime(2026, 1, 5, 7, 0, tzinfo=UTC) + timedelta(days=7 * i), 2.0)
-               for i in range(6)]
+    samples = [(datetime(2026, 1, 5, 7, 0, tzinfo=UTC) + timedelta(days=7 * i), 2.0) for i in range(6)]
     # 8 posts Wednesdays 17:00 UTC = 19:00 Athens, ER 0.5 (below the mean)
-    samples += [(datetime(2026, 1, 7, 17, 0, tzinfo=UTC) + timedelta(days=7 * i), 0.5)
-                for i in range(8)]
+    samples += [(datetime(2026, 1, 7, 17, 0, tzinfo=UTC) + timedelta(days=7 * i), 0.5) for i in range(8)]
 
     windows = linkedin_ai.rank_best_time_windows(samples, "Europe/Athens")
 
@@ -148,11 +154,9 @@ def test_rank_best_time_windows_suppresses_dead_night_scheduler_artifacts():
 
     # 12 posts at 02:00 UTC = 04:00 Athens with the highest ER — a recurring
     # automation slot. Per PR #143 dead-night hours must never be recommended.
-    samples = [(datetime(2026, 1, 5, 2, 0, tzinfo=UTC) + timedelta(days=i), 5.0)
-               for i in range(12)]
+    samples = [(datetime(2026, 1, 5, 2, 0, tzinfo=UTC) + timedelta(days=i), 5.0) for i in range(12)]
     # 4 daytime posts so the sample floor is comfortably met.
-    samples += [(datetime(2026, 1, 5, 9, 0, tzinfo=UTC) + timedelta(days=i), 0.5)
-                for i in range(4)]
+    samples += [(datetime(2026, 1, 5, 9, 0, tzinfo=UTC) + timedelta(days=i), 0.5) for i in range(4)]
 
     windows = linkedin_ai.rank_best_time_windows(samples, "Europe/Athens")
 
@@ -163,8 +167,7 @@ def test_rank_best_time_windows_requires_min_samples_per_slot():
     from datetime import UTC, datetime, timedelta
 
     # 12 posts scattered across different slots — no slot reaches min_n=2.
-    samples = [(datetime(2026, 1, 5, 8, 0, tzinfo=UTC) + timedelta(hours=i), 2.0)
-               for i in range(12)]
+    samples = [(datetime(2026, 1, 5, 8, 0, tzinfo=UTC) + timedelta(hours=i), 2.0) for i in range(12)]
 
     assert linkedin_ai.rank_best_time_windows(samples, "Europe/Athens") == []
 
@@ -217,3 +220,84 @@ def test_build_linkedin_caption_adds_site_and_hashtags():
     assert "#serverless" in caption
     # Should not duplicate the site if it is already in the text.
     assert caption.count("cloudless.gr") == 1
+
+
+@pytest.mark.asyncio
+async def test_call_inference_wraps_provider_errors(monkeypatch):
+    from fastapi import HTTPException
+
+    async def boom(*a, **k):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(linkedin_ai, "call_inference", boom)
+    with pytest.raises(HTTPException) as e:
+        await linkedin_ai.generate_linkedin_post("topic")
+    assert e.value.status_code == 500
+    assert "provider down" in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_call_inference_reraises_http_exception(monkeypatch):
+    from fastapi import HTTPException
+
+    async def http_boom(*a, **k):
+        raise HTTPException(status_code=429, detail="rate limited")
+
+    monkeypatch.setattr(linkedin_ai, "call_inference", http_boom)
+    with pytest.raises(HTTPException) as e:
+        await linkedin_ai.generate_linkedin_post("topic")
+    assert e.value.status_code == 429
+
+
+def test_rank_best_time_windows_skips_none_and_naive_timestamps():
+    from datetime import datetime
+
+    # naive datetimes → treated as UTC; None → skipped entirely
+    samples = [(None, 0.5)] + [
+        (datetime(2026, 10, 6, 9, 0), 0.9)
+        for _ in range(30)  # Tue 09:00 naive
+    ]
+    windows = linkedin_ai.rank_best_time_windows(samples, "UTC")
+    assert all(w["day"] == "Tuesday" and w["time"] == "09:00" for w in windows)
+    assert all(w["sample_size"] == 30 for w in windows)
+
+
+def test_rank_best_time_windows_caps_at_max_windows():
+    from datetime import datetime
+
+    # seed > _MAX_WINDOWS distinct slots, each above the mean
+    samples = []
+    for day in range(7):
+        for hour in range(24):
+            for _ in range(10):
+                samples.append((datetime(2026, 10, 5 + day, hour, 0), 1.0))
+    windows = linkedin_ai.rank_best_time_windows(samples, "UTC")
+    assert len(windows) <= linkedin_ai._MAX_WINDOWS
+
+
+@pytest.mark.asyncio
+async def test_suggest_best_time_derives_windows_from_samples():
+    from datetime import datetime
+
+    # hot slot must beat the account mean, so mix in low-ER filler slots
+    samples = [(datetime(2026, 10, 6, 9, 0), 0.9) for _ in range(30)]
+    for day_off in (1, 2):
+        for _ in range(15):
+            samples.append((datetime(2026, 10, 6 + day_off, 15, 0), 0.05))
+    windows = await linkedin_ai.suggest_best_time_to_post(timezone="UTC", samples=samples)
+    assert windows[0]["day"] == "Tuesday"
+    assert windows[0]["time"] == "09:00"
+    assert "sample_size" in windows[0]  # derived windows, not the static fallback
+
+
+def test_rank_best_time_windows_fewer_than_10_samples():
+    from datetime import datetime
+
+    assert linkedin_ai.rank_best_time_windows([(datetime(2026, 10, 6, 9, 0), 0.9)] * 9, "UTC") == []
+
+
+@pytest.mark.asyncio
+async def test_suggest_best_time_personal_account_extends_windows():
+    windows = await linkedin_ai.suggest_best_time_to_post(account_type="person", timezone="UTC")
+    assert any(w["day"] == "Monday" and w["time"] == "17:00" for w in windows)
+    assert any(w["day"] == "Friday" and w["time"] == "08:00" for w in windows)
