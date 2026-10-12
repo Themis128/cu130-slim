@@ -1,5 +1,7 @@
 """Tests for sanitize_generated_text — model markup artifacts must not publish."""
+
 from app.models.content import Post
+from app.services import content_renderer as cr
 from app.services.content_renderer import (
     normalize_hashtags,
     render_post_text,
@@ -49,10 +51,7 @@ class TestStripEmbeddedMetadata:
 
     def test_both_trailing_blocks_stripped(self):
         content = "Body text\n\nwww.cloudless.gr\n\n#cloudless #devops"
-        assert (
-            strip_embedded_metadata(content, ["cloudless", "devops"], "https://cloudless.gr/")
-            == "Body text"
-        )
+        assert strip_embedded_metadata(content, ["cloudless", "devops"], "https://cloudless.gr/") == "Body text"
 
     def test_clean_content_unchanged(self):
         content = "No embeds here."
@@ -74,10 +73,7 @@ class TestStripEmbeddedMetadata:
     def test_mid_body_url_line_preserved(self):
         # Only trailing lines are stripped — a standalone URL mid-body stays.
         content = "Intro\n\nwww.cloudless.gr\n\n#cloudless"
-        assert (
-            strip_embedded_metadata(content, ["cloudless"], "https://other.gr")
-            == "Intro\n\nwww.cloudless.gr"
-        )
+        assert strip_embedded_metadata(content, ["cloudless"], "https://other.gr") == "Intro\n\nwww.cloudless.gr"
 
     def test_no_metadata_means_no_strip(self):
         content = "Body\n\n#cloudless #devops\nwww.cloudless.gr"
@@ -122,9 +118,7 @@ class TestRenderPostTextDedupe:
         assert text.count("#webdevelopment") == 1
 
     def test_missing_tags_still_appended(self):
-        post = self._post(
-            content_text="Body only.\n\nwww.cloudless.gr\n\n#cloudless #Cloudflare"
-        )
+        post = self._post(content_text="Body only.\n\nwww.cloudless.gr\n\n#cloudless #Cloudflare")
         text = render_post_text(post, "linkedin")
         assert "#websitebuilding" in text
         assert "#webdevelopment" in text
@@ -173,9 +167,7 @@ class TestRenderPostTextDedupe:
         assert "#cloudless" in text
 
     def test_platform_override_also_deduped(self):
-        post = self._post(
-            platform_specific={"linkedin": {"content_text": self.BODY}}
-        )
+        post = self._post(platform_specific={"linkedin": {"content_text": self.BODY}})
         text = render_post_text(post, "linkedin")
         assert text.lower().count("cloudless.gr") == 1
 
@@ -196,3 +188,74 @@ class TestNormalizeHashtags:
     def test_none_and_empty(self):
         assert normalize_hashtags(None) == []
         assert normalize_hashtags([]) == []
+
+
+class TestMarkupEdgeCases:
+    def test_unclosed_hashtag_markup_preserved(self):
+        # no closing '}' → break, markup left untouched
+        text = "intro {hashtag|\\#|dangling"
+        assert sanitize_generated_text(text) == text
+
+    def test_empty_hashtag_markup_scanned_past(self):
+        # '{hashtag|\#|}' immediately closed — keep scanning after '{'
+        out = sanitize_generated_text("a {hashtag|\\#|} b {hashtag|\\#|real}")
+        assert out == "a {hashtag|\\#|} b #real"
+
+    def test_unclosed_placeholder_link_breaks(self):
+        text = "click [link to nowhere"
+        assert sanitize_generated_text(text) == text
+
+
+class TestLinkAlreadyPresent:
+    def test_empty_inputs(self):
+        assert cr._link_already_present("", "cloudless.gr") is False
+        assert cr._link_already_present("body", "") is False
+
+    def test_host_without_dot_rejected(self):
+        assert cr._link_already_present("go localhost now", "localhost") is False
+
+    def test_no_match_returns_false(self):
+        assert cr._link_already_present("totally unrelated copy", "cloudless.gr/x") is False
+
+
+class TestRenderHashtags:
+    def _post(self, **kw):
+        return Post(content_text="t", hashtags=kw.get("hashtags"), platform_specific=None, link_url=None)
+
+    def test_no_hashtags(self):
+        assert cr.render_hashtags(self._post(hashtags=None), "linkedin") == []
+
+    def test_hi_zero_platform(self):
+        monkeypatch_hints = dict(cr._PLATFORM_HINTS)
+        monkeypatch_hints["zero_plat"] = {"ideal_hashtags": (0, 0)}
+        post = self._post(hashtags=["a", "b"])
+        orig = cr._PLATFORM_HINTS
+        cr._PLATFORM_HINTS = monkeypatch_hints
+        try:
+            assert cr.render_hashtags(post, "zero_plat") == []
+        finally:
+            cr._PLATFORM_HINTS = orig
+
+    def test_capped_to_ideal(self):
+        post = self._post(hashtags=[f"t{i}" for i in range(10)])
+        tags = cr.render_hashtags(post, "linkedin")
+        assert len(tags) <= 5 and tags[0] == "t0"
+
+    def test_bad_hint_shape_defaults(self):
+        orig = cr._PLATFORM_HINTS
+        cr._PLATFORM_HINTS = dict(orig, bad_plat={"ideal_hashtags": [1, 2]})
+        try:
+            assert cr._ideal_hashtag_count("bad_plat") == (0, 5)
+        finally:
+            cr._PLATFORM_HINTS = orig
+
+
+def test_render_post_text_truncates(monkeypatch):
+    orig = cr._PLATFORM_HINTS
+    cr._PLATFORM_HINTS = dict(orig, tiny={"max_chars": 20})
+    try:
+        post = Post(content_text="x" * 100, hashtags=None, platform_specific=None, link_url=None)
+        out = render_post_text(post, "tiny")
+        assert out.endswith("…") and len(out) <= 20
+    finally:
+        cr._PLATFORM_HINTS = orig

@@ -33,6 +33,9 @@ class _Res:
     def scalar_one_or_none(self):
         return self._v
 
+    def scalar_one(self):
+        return self._v
+
     def scalars(self):
         return self
 
@@ -386,3 +389,176 @@ async def test_pipeline_title_fallback_and_queue_error(monkeypatch, _pipe_mocks)
     out = await cp.run_cloudless_carousel_pipeline(db=db, user=SimpleNamespace(id=uuid.uuid4()), team=team, topic="my topic", num_slides=3, publish=True)
     assert out["ai_title"] == "my topic"
     assert "queue_warning" in out
+
+
+# ── remaining tails ──────────────────────────────────────────────────
+
+
+def test_font_complete_fallback(monkeypatch):
+    # no font files exist at all → PIL default
+    monkeypatch.setattr(cp.os.path, "exists", lambda p: False)
+    assert cp._font(24, "bold") is not None
+    assert cp._font(24, "regular") is not None
+    # primary missing, fallback present → truetype fallback
+    monkeypatch.setattr(cp.os.path, "exists", lambda p: p in set(cp._FALLBACK.values()))
+    assert cp._font(24, "regular") is not None
+    assert cp._font(24, "bold") is not None
+
+
+def test_infographic_kpi_shrink_and_calendar_defaults():
+    _, draw = _canvas()
+    # calendar without chart_data → default steps
+    cp._draw_infographic(draw, motif="calendar", highlight=None, chart_data=None)
+    # rocket with huge KPI value+label → auto-shrink while-loops
+    _, draw = _canvas()
+    cp._draw_infographic(
+        draw,
+        motif="rocket",
+        highlight="tip",
+        chart_data={
+            "heading": "Nums",
+            "items": [
+                {"value": "9" * 40, "label": "W" * 40},
+                {"value": "v2", "label": "l2"},
+            ],
+        },
+    )
+
+
+def test_infographic_stat_oversized_wraps():
+    _, draw = _canvas()
+    # giant highlight stays >940px even at min size → _draw_wrapped path
+    cp._draw_infographic(draw, motif="stat", highlight="9" * 120, chart_data={"label": "x"})
+    _, draw = _canvas()
+    # medium highlight shrinks into the else draw.text branch
+    cp._draw_infographic(draw, motif="stat", highlight="99.9999%", chart_data={"label": "uptime"})
+
+
+def test_compose_branded_slide_tails(monkeypatch):
+    # near-dup where body is SHORTER than title → body cleared (title kept)
+    title = "Deploy your stack in five minutes today and save real money"
+    body = "Deploy your stack in five minutes"
+    img = cp.compose_branded_slide(None, index=0, total=1, slide_type="content", title=title, body=body, motif="cta")
+    assert img.size == (1080, 1080)
+    # title-length tiers: 31-44 → 52pt, <=30 → 62pt
+    cp.compose_branded_slide(None, index=0, total=1, slide_type="content", title="t" * 35, body="b", motif="cta")
+    cp.compose_branded_slide(None, index=0, total=1, slide_type="content", title="short title", body="b", motif="cta")
+    # body truncation when remaining space is tight (title ~6 lines →
+    # remaining ~60px → max_chars ~1.5k < 4000-char body)
+    cp.compose_branded_slide(None, index=0, total=1, slide_type="content", title="t" * 150, body="word " * 4000, motif="cta")
+
+
+def test_compose_ad_creative_bg_blend():
+    bg = Image.new("RGB", (512, 512), (10, 20, 30))
+    img = cp.compose_ad_creative(
+        width=1080,
+        height=1080,
+        headline="H",
+        subline="s",
+        cta="c",
+        stat="80%",
+        stat_label="faster",
+        brand={"accent": cp.ACCENT, "accent2": cp.ACCENT2, "text": cp.TEXT, "sub": cp.SUB, "domain": "cloudless.gr"},
+        bg_img=bg,
+    )
+    assert img.size == (1080, 1080)
+
+
+@pytest.mark.asyncio
+async def test_build_ad_brand_kit_bg_failure(monkeypatch):
+    monkeypatch.setattr(cp, "persist_generated_image", AsyncMock(side_effect=lambda db, **kw: SimpleNamespace(id=uuid.uuid4())))
+    # background generation raising → swallowed, brand canvas still produced
+    monkeypatch.setattr(cp, "_cf_generate_background", AsyncMock(side_effect=RuntimeError("cf down")))
+    out = await cp.build_ad_brand_kit(_DB(), team_id=None, user_id=1, headline="H", image_prompt="scene", sizes={"square": (1080, 1080)})
+    assert len(out) == 1
+
+
+@pytest.mark.asyncio
+async def test_pipeline_seo_retry_and_bg_ready(monkeypatch, _pipe_mocks):
+    account = _pipe_mocks
+    team = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(results=[account])
+    buf = io.BytesIO()
+    Image.new("RGB", (512, 512), (9, 9, 9)).save(buf, format="PNG")
+    monkeypatch.setattr(cp, "_cf_generate_background", AsyncMock(return_value=Image.open(io.BytesIO(buf.getvalue()))))
+    import app.services.seo as seo_svc
+
+    monkeypatch.setattr(seo_svc, "analyze_seo", AsyncMock(side_effect=RuntimeError("seo down")))
+    out = await cp.run_cloudless_carousel_pipeline(
+        db=db,
+        user=SimpleNamespace(id=uuid.uuid4()),
+        team=team,
+        topic="t",
+        publish=False,
+        custom_slides=[{"title": "s", "body": "b", "slide_type": "cover", "image_prompt": "p", "highlight": "80%"}],
+    )
+    assert out["status"] == "draft"
+
+    # caption spellcheck raising → advisory except-pass (raise only when
+    # the built caption — containing '#tags' — is corrected)
+    async def _sc(t):
+        if "#tags" in (t or ""):
+            raise RuntimeError("spellcheck down")
+        return t
+
+    monkeypatch.setattr(cp, "auto_correct", AsyncMock(side_effect=_sc))
+    monkeypatch.setattr(cp, "_cf_generate_background", AsyncMock(return_value=None))
+    out = await cp.run_cloudless_carousel_pipeline(
+        db=_DB(results=[account]),
+        user=SimpleNamespace(id=uuid.uuid4()),
+        team=team,
+        topic="t",
+        publish=False,
+        custom_slides=[{"title": "s", "body": "b", "slide_type": "cover", "image_prompt": "p"}],
+    )
+    assert out["status"] == "draft"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_wait_for_publish(monkeypatch, _pipe_mocks):
+    import asyncio
+
+    from app.models.content import PostStatus
+
+    account = _pipe_mocks
+    team = SimpleNamespace(id=uuid.uuid4())
+    refreshed = SimpleNamespace(status=PostStatus.PUBLISHED, failure_reason=None, targets=[SimpleNamespace(platform_url="https://li.example/p1")])
+    db = _DB(results=[account])
+    # the poll query runs repeatedly — feed refreshed via a side-execute hook
+    orig_exec = db.execute
+
+    async def _exec(stmt):
+        r = await orig_exec(stmt)
+        if r._v is None:
+            return _Res(refreshed)
+        return r
+
+    db.execute = _exec
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
+    sent = []
+
+    import app.worker.celery_app as ca
+    import app.worker.tasks.publishing as wt
+
+    monkeypatch.setattr(wt.publish_post_now, "apply_async", lambda **kw: sent.append(kw))
+    monkeypatch.setattr(wt.process_publish_queue, "apply_async", lambda **kw: None)
+
+    class _Conn:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(ca.celery_app, "connection_or_acquire", lambda: _Conn())
+    out = await cp.run_cloudless_carousel_pipeline(
+        db=db,
+        user=SimpleNamespace(id=uuid.uuid4()),
+        team=team,
+        topic="t",
+        publish=True,
+        wait_for_publish=True,
+        custom_slides=[{"title": "s", "body": "b", "slide_type": "cover", "image_prompt": "p"}],
+    )
+    assert out["status"] == "published"
+    assert out["platform_url"] == "https://li.example/p1"
