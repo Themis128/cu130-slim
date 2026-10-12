@@ -569,3 +569,185 @@ async def test_list_initiatives(_with_team, monkeypatch):
     monkeypatch.setattr(gi, "initiative_summary", AsyncMock(return_value=[{"x": 1}]))
     out = await A.list_initiatives(_with_team.id, days=30, db=_DB(), current_user=_USER)
     assert out == [{"x": 1}]
+
+
+# ── coverage tails ────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_account_insights_404():
+    with pytest.raises(Exception) as e:
+        await A.get_account_insights(uuid.uuid4(), days=30, db=_DB(None), current_user=_USER)
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_top_posts_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.get_top_posts(uuid.uuid4(), db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_top_posts_platform_filter(_with_team):
+    pid = uuid.uuid4()
+    ts = datetime.now(UTC)
+    db = _DB(
+        [],  # snapshot rows empty → fallback
+        [(pid, "body", "instagram", ts, 500, 25)],
+    )
+    out = await A.get_top_posts(_with_team.id, limit=10, platform="instagram", days=30, db=db, current_user=_USER)
+    assert out[0].post_id == pid
+    assert out[0].engagement_rate == pytest.approx(0.05)
+
+
+@pytest.mark.asyncio
+async def test_engagement_trends_platform_and_snap_day(_with_team):
+    db = _DB(
+        [(datetime(2026, 10, 1), "like", 5)],
+        [(datetime(2026, 10, 2), 99)],
+    )
+    out = await A.get_engagement_trends(_with_team.id, platform="instagram", days=30, db=db, current_user=_USER)
+    assert out[0].likes == 5
+    assert out[1].impressions == 99
+
+
+@pytest.mark.asyncio
+async def test_follower_counts_no_team(_no_team):
+    out = await A.get_follower_counts(uuid.uuid4(), days=30, db=_DB(), current_user=_USER)
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_follower_counts_negative_live(_with_team, monkeypatch):
+    acc = SimpleNamespace(id=uuid.uuid4(), platform="x", username="x", status="active")
+    monkeypatch.setattr(A, "_follower_count", AsyncMock(return_value=-1))
+    db = _DB([acc], [], [])
+    out = await A.get_follower_counts(_with_team.id, days=30, db=db, current_user=_USER)
+    assert out[0].current == 0
+
+
+@pytest.mark.asyncio
+async def test_platform_metrics_no_team(_no_team):
+    out = await A.get_platform_metrics(uuid.uuid4(), days=30, db=_DB(), current_user=_USER)
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_publish_pipeline_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.get_publish_pipeline(uuid.uuid4(), days=30, db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_export_report_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.export_report(uuid.uuid4(), format="csv", days=30, db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_export_report_date_range_and_filters(_with_team):
+    pid = uuid.uuid4()
+    ts = datetime.now(UTC)
+    row = (pid, "linkedin", PostStatus.PUBLISHED, ts, ts, 10, 1, 0, 0, 0)
+    out = await A.export_report(
+        _with_team.id, format="json", days=30,
+        platform="linkedin", account_id=uuid.uuid4(), post_id=pid,
+        start_date=ts - timedelta(days=7), end_date=ts,
+        db=_DB([row]), current_user=_USER,
+    )
+    assert out.media_type == "application/json"
+
+
+@pytest.mark.asyncio
+async def test_trigger_sync_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.trigger_analytics_sync(uuid.uuid4(), body=SyncAnalyticsRequest(), db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_list_snapshots_post_id_filter(_with_team):
+    out = await A.list_analytics_snapshots(_with_team.id, days=30, post_id=uuid.uuid4(), limit=10, db=_DB(["r"]), current_user=_USER)
+    assert out == ["r"]
+
+
+@pytest.mark.asyncio
+async def test_tiktok_videos_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.list_tiktok_videos(uuid.uuid4(), account_id=uuid.uuid4(), cursor=0, max_count=20, db=_DB(), current_user=_USER)
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_tiktok_videos_api_error(_with_team, monkeypatch):
+    from app.services.tiktok_api import TikTokAPIError
+
+    acct = SimpleNamespace(access_token_enc="enc", account_id="open1")
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok")
+    client = SimpleNamespace(
+        list_videos=AsyncMock(side_effect=TikTokAPIError(status_code=429, response_text="rate limited", url="u"))
+    )
+    import app.services.tiktok_api as tt
+
+    monkeypatch.setattr(tt, "TikTokAPIClient", lambda **kw: client)
+    with pytest.raises(Exception) as e:
+        await A.list_tiktok_videos(_with_team.id, account_id=uuid.uuid4(), cursor=0, max_count=20, db=_DB(acct), current_user=_USER)
+    assert e.value.status_code == 429
+
+
+@pytest.mark.asyncio
+async def test_bot_analytics_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.get_bot_analytics_summary(uuid.uuid4(), days=30, db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_overview(_with_team, monkeypatch):
+    import sys
+    from types import ModuleType
+
+    mod = ModuleType("app.services.cf_analytics")
+    mod.get_cf_overview = AsyncMock(return_value={"workers_ai": {"requests": 3}})
+    monkeypatch.setitem(sys.modules, "app.services.cf_analytics", mod)
+    out = await A.get_cloudflare_overview(days=7, current_user=_USER)
+    assert out == {"workers_ai": {"requests": 3}}
+    mod.get_cf_overview.assert_awaited_once_with(days=7)
+
+
+@pytest.mark.asyncio
+async def test_ad_campaigns_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.get_ad_campaigns(uuid.uuid4(), days=30, db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_record_initiative_no_team(_no_team, monkeypatch):
+    import app.services.growth_initiatives as gi
+
+    monkeypatch.setattr(gi, "INITIATIVE_TYPES", {"linkedin_page_invite"})
+    with pytest.raises(Exception) as e:
+        await A.record_initiative_event(InitiativeEventIn(units=1), uuid.uuid4(), db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_record_initiative_account_404(_with_team, monkeypatch):
+    import app.services.growth_initiatives as gi
+
+    monkeypatch.setattr(gi, "INITIATIVE_TYPES", {"linkedin_page_invite"})
+    body = InitiativeEventIn(units=1, social_account_id=uuid.uuid4())
+    with pytest.raises(Exception) as e:
+        await A.record_initiative_event(body, _with_team.id, db=_DB(None), current_user=_USER)
+    assert e.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_initiatives_no_team(_no_team):
+    with pytest.raises(Exception) as e:
+        await A.list_initiatives(uuid.uuid4(), days=30, db=_DB(), current_user=_USER)
+    assert e.value.status_code == 400
