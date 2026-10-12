@@ -138,7 +138,7 @@ describe('API Service', () => {
     it('should return in-memory access token when not in browser', () => {
       // Simulate SSR by removing window
       const originalWindow = global.window
-      // @ts-ignore
+      // @ts-expect-error
       delete global.window
       
       apiModule.setTokens('memory-access', 'memory-refresh')
@@ -146,7 +146,7 @@ describe('API Service', () => {
       
       expect(token).toBe('memory-access')
       
-      // @ts-ignore
+      // @ts-expect-error
       global.window = originalWindow
     })
 
