@@ -559,3 +559,331 @@ async def test_heal_all_unhealthy_list(monkeypatch):
     monkeypatch.setattr(H, "_heal_bridge_platform", _broken)
     stats = await H.heal_all_sessions()
     assert stats["unhealthy"] == ["twitter"]
+
+
+# ── infra helpers (real _get_redis/_worker_db via module-scope originals) ──
+# Captured at import time — before the autouse fixture patches H._get_redis.
+_ORIG_GET_REDIS = H._get_redis
+
+
+@pytest.mark.asyncio
+async def test_real_get_redis_uses_from_url(monkeypatch):
+    import redis.asyncio as aioredis
+
+    sentinel = object()
+    monkeypatch.setattr(aioredis, "from_url", lambda url, **kw: sentinel)
+    assert await _ORIG_GET_REDIS() is sentinel
+
+
+@pytest.mark.asyncio
+async def test_real_worker_db_yields_and_disposes(monkeypatch):
+    disposed = []
+
+    class _Engine:
+        async def dispose(self):
+            disposed.append(True)
+
+    class _Session:
+        pass
+
+    class _Factory:
+        def __call__(self):
+            return self
+
+        async def __aenter__(self):
+            return _Session()
+
+        async def __aexit__(self, *a):
+            return False
+
+    monkeypatch.setattr(H, "create_async_engine", lambda *a, **kw: _Engine())
+    monkeypatch.setattr(H, "async_sessionmaker", lambda *a, **kw: _Factory())
+
+    async with H._worker_db() as session:
+        assert isinstance(session, _Session)
+    assert disposed == [True]
+
+
+# ── remaining tails ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_load_storage_state_none(monkeypatch):
+    acc = SimpleNamespace(meta_data={})  # no browser_storage_state
+    _patch_db(monkeypatch, _res(scalars_all=[acc]))
+    assert await H._load_storage_state("facebook") is None
+
+
+@pytest.mark.asyncio
+async def test_li_sync_cookies_secret_store_failure(monkeypatch):
+    _Http.routes = {
+        ("GET", "/debug/all-cookies"): (200, {"cookies": {"li_at": "tok", "x": "y"}}),
+    }
+    monkeypatch.setattr(H.httpx, "AsyncClient", _Http)
+    sync = AsyncMock()
+    monkeypatch.setattr(H, "_sync_storage_state", sync)
+
+    store = SimpleNamespace(set=AsyncMock(side_effect=RuntimeError("store down")))
+    monkeypatch.setattr("app.services.secret_store.secret_store", store)
+
+    await H._li_sync_cookies()  # must swallow the secret-store failure
+    sync.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_heal_linkedin_exception_path(monkeypatch, _redis):
+    monkeypatch.setattr(H.httpx, "AsyncClient", _Http)
+    _Http.routes = {("GET", "/health"): (200, {"status": "ok"})}
+    _redis.get = AsyncMock(side_effect=RuntimeError("redis read died"))
+    stats = {"linkedin": {}}
+    # the redis.get in the pending-2FA check raises → except path
+
+    monkeypatch.setenv("LINKEDIN_EMAIL", "e@x.com")
+    monkeypatch.setenv("LINKEDIN_PASSWORD", "pw")
+    await H._heal_linkedin(stats)
+    assert stats["linkedin"]["status"] == "error"
+    assert "redis read died" in stats["linkedin"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_heal_facebook_sidecar_exception_path(monkeypatch):
+    _Http.routes = {
+        ("GET", "/session/validate"): (200, {"logged_in": False}),
+    }
+    monkeypatch.setattr(H.httpx, "AsyncClient", _Http)
+    monkeypatch.setattr(H, "_load_storage_state", AsyncMock(side_effect=RuntimeError("db gone")))
+    stats = {"facebook_sidecar": {}}
+    await H._heal_facebook_sidecar(stats)
+    assert stats["facebook_sidecar"]["status"] == "error"
+    assert "db gone" in stats["facebook_sidecar"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_bridge_call_bad_json(monkeypatch):
+    class _BadJson:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def request(self, *a, **kw):
+            return SimpleNamespace(
+                status_code=500,
+                json=lambda: (_ for _ in ()).throw(ValueError("not json")),
+            )
+
+    monkeypatch.setattr(H.httpx, "AsyncClient", _BadJson)
+    code, data = await H._bridge_call("/session/status", "twitter")
+    assert code == 500 and data == {}
+
+
+@pytest.mark.asyncio
+async def test_bridge_extract_no_cookies_and_verify_nav_fail(monkeypatch):
+    # extract endpoint ok but no cookies → False
+    _Http.routes = {("POST", "/session/extract"): (200, {})}
+    monkeypatch.setattr(H.httpx, "AsyncClient", _Http)
+    assert await H._bridge_extract("twitter") is False
+
+    # verify: navigate fails → False
+    _Http.routes = {("POST", "/session/navigate"): (500, {})}
+    assert await H._bridge_verify_not_login("twitter") is False
+
+
+def _seq_bridge(monkeypatch, calls, evals):
+    """Drive _bridge_call with canned (code, data) pairs; evaluate pops evals."""
+    calls = deque(calls)
+    evals = deque(evals)
+
+    async def fake_call(path, platform, body=None, timeout=60.0):
+        if path == "/session/evaluate":
+            return 200, {"result": evals.popleft()}
+        return calls.popleft()
+
+    monkeypatch.setattr(H, "_bridge_call", fake_call)
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_threads_via_instagram_failures(monkeypatch):
+    # navigate fails → False
+    _seq_bridge(monkeypatch, [(500, {})], [])
+    assert await H._bootstrap_threads_via_instagram() is False
+
+    # SSO click fails → False
+    _seq_bridge(monkeypatch, [(200, {}), (500, {})], [True])
+    assert await H._bootstrap_threads_via_instagram() is False
+
+    # SSO page shows no Threads card → False
+    _seq_bridge(
+        monkeypatch,
+        [(200, {}), (200, {})],
+        [True, "unrelated body text"],
+    )
+    assert await H._bootstrap_threads_via_instagram() is False
+
+    # Continue-to-Threads click fails → account-card fallback click fails → False
+    _patch_db(monkeypatch, _res(first="@cloudless.gr"))
+    _seq_bridge(
+        monkeypatch,
+        [(200, {}), (200, {}), (404, {}), (404, {})],
+        [True, "Threads account card"],
+    )
+    assert await H._bootstrap_threads_via_instagram() is False
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_threads_via_instagram_success(monkeypatch):
+    _seq_bridge(
+        monkeypatch,
+        [(200, {}), (200, {}), (200, {})],  # nav, SSO click, continue click
+        [True, "Threads page", False],  # banner, body text, login marker
+    )
+    assert await H._bootstrap_threads_via_instagram() is True
+
+
+@pytest.mark.asyncio
+async def test_bridge_login_and_recover_branches(monkeypatch):
+    # _bridge_login non-200 → False
+    calls = deque([(500, {"error": "x"})])
+
+    async def fake_call(path, platform, body=None, timeout=60.0):
+        return calls.popleft()
+
+    monkeypatch.setattr(H, "_bridge_call", fake_call)
+    assert await H._bridge_login("instagram", "u", "p") is False
+
+    # tiktok: no TIKTOK_SESSION_ID → False
+    monkeypatch.setattr(H, "_secret", AsyncMock(return_value=None))
+    assert await H._recover_bridge_platform("tiktok") is False
+
+    # instagram: no creds → False
+    monkeypatch.setenv("INSTAGRAM_USERNAME", "")
+    monkeypatch.delenv("INSTAGRAM_USERNAME", raising=False)
+    monkeypatch.delenv("INSTAGRAM_PASSWORD", raising=False)
+    assert await H._recover_bridge_platform("instagram") is False
+
+    # twitter: no password → False
+    monkeypatch.delenv("TWITTER_LOGIN_PASSWORD", raising=False)
+    _patch_db(monkeypatch, _res(first="@TBaltzakis"))
+    assert await H._recover_bridge_platform("twitter") is False
+
+    # unknown platform → False
+    assert await H._recover_bridge_platform("myspace") is False
+
+
+@pytest.mark.asyncio
+async def test_heal_bridge_platform_error_poll_and_recovered_paths(monkeypatch, _redis):
+    stats = {}
+
+    # session/start returns 500 → error slot
+    calls = deque(
+        [
+            (200, {"platform": "twitter", "status": "waiting"}),  # status
+            (500, {"error": "bridge exploded"}),  # start
+        ]
+    )
+    monkeypatch.setattr(H, "_bridge_call", lambda *a, **kw: _pop(calls))
+
+    async def _pop(q):
+        return q.popleft()
+
+    monkeypatch.setattr(H, "_bridge_call", lambda *a, **kw: _pop(calls))
+    await H._heal_bridge_platform("twitter", stats)
+    assert stats["twitter"]["status"] == "error"
+
+    # poll_done → extract → healthy + recovered alert
+    stats = {}
+    calls = deque(
+        [
+            (200, {"platform": "twitter", "status": "waiting"}),  # status
+            (200, {}),  # start
+            (200, {"platform": "twitter", "status": "done", "cookies_found": True}),  # poll
+            (200, {"cookies_found": True, "cookies": {"a": "b"}}),  # extract
+        ]
+    )
+    monkeypatch.setattr(H, "_bridge_call", lambda *a, **kw: _pop(calls))
+    monkeypatch.setattr(H, "_sync_browser_cookies", AsyncMock())
+    monkeypatch.setattr(H, "_alert_recovered", AsyncMock())
+    await H._heal_bridge_platform("twitter", stats)
+    assert stats["twitter"]["status"] == "healthy"
+
+    # recovery succeeds, poll stays waiting, but verify_not_login passes → recovered
+    stats = {}
+    calls = deque(
+        [
+            (200, {"platform": "twitter", "status": "waiting"}),  # status
+            (200, {}),  # start
+            (200, {"platform": "twitter", "status": "waiting"}),  # poll xN…
+        ]
+    )
+    monkeypatch.setattr(H, "_bridge_call", lambda *a, **kw: _pop(calls))
+    monkeypatch.setattr(H, "_bridge_poll_done", AsyncMock(side_effect=[False, False]))
+    monkeypatch.setattr(H, "_recover_bridge_platform", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_bridge_verify_not_login", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_bridge_extract", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_alert_recovered", AsyncMock())
+    await H._heal_bridge_platform("twitter", stats)
+    assert stats["twitter"]["status"] == "recovered"
+
+    # _bridge_call itself raises → except → error slot
+    stats = {}
+
+    async def boom(*a, **kw):
+        raise RuntimeError("transport gone")
+
+    monkeypatch.setattr(H, "_bridge_call", boom)
+    await H._heal_bridge_platform("twitter", stats)
+    assert stats["twitter"]["status"] == "error"
+    assert "transport gone" in stats["twitter"]["error"]
+
+
+@pytest.mark.asyncio
+async def test_heal_all_sessions_lock_delete_swallows_errors(monkeypatch, _redis):
+    monkeypatch.setattr(H, "_platforms_with_accounts", AsyncMock(return_value=set()))
+    _redis.delete = AsyncMock(side_effect=RuntimeError("redis gone"))
+    stats = await H.heal_all_sessions()
+    assert stats["unhealthy"] == []
+
+
+@pytest.mark.asyncio
+async def test_alert_helpers_swallow_redis_errors(monkeypatch, _redis):
+    # _alert: redis.set raises → outer except swallows
+    _redis.set = AsyncMock(side_effect=RuntimeError("down"))
+    await H._alert("twitter", "x")  # no raise
+
+    # _alert_recovered: redis.delete raises → swallowed
+    _redis.delete = AsyncMock(side_effect=RuntimeError("down"))
+    await H._alert_recovered("twitter", "x")
+
+    # _clear_dead_marker: redis.delete raises → swallowed
+    _redis.delete = AsyncMock(side_effect=RuntimeError("down"))
+    await H._clear_dead_marker("twitter")
+
+
+@pytest.mark.asyncio
+async def test_heal_bridge_recovery_then_poll_done(monkeypatch):
+    stats = {}
+    calls = deque(
+        [
+            (200, {"platform": "threads", "status": "waiting"}),
+            (200, {}),
+            (200, {"platform": "threads", "status": "waiting"}),
+            (200, {"platform": "threads", "status": "done", "cookies_found": True}),
+            (200, {"cookies_found": True, "cookies": {"a": "b"}}),
+        ]
+    )
+
+    async def fake_call(path, platform, body=None, timeout=60.0):
+        return calls.popleft()
+
+    monkeypatch.setattr(H, "_bridge_call", fake_call)
+    # first poll (initial window) fails, recovery succeeds, second poll done
+    monkeypatch.setattr(H, "_bridge_poll_done", AsyncMock(side_effect=[False, True]))
+    monkeypatch.setattr(H, "_recover_bridge_platform", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_sync_browser_cookies", AsyncMock())
+    monkeypatch.setattr(H, "_alert_recovered", AsyncMock())
+    await H._heal_bridge_platform("threads", stats)
+    assert stats["threads"]["status"] == "recovered"
