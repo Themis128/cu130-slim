@@ -45,6 +45,7 @@ concurrency:
 
 jobs:
   trivy-filesystem:
+    timeout-minutes: 60
     name: Trivy Filesystem Scan
     runs-on: ubuntu-24.04
     permissions:
@@ -56,7 +57,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Run Trivy vulnerability scanner (filesystem)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -76,6 +77,7 @@ jobs:
           wait-for-processing: false
 
   trivy-images:
+    timeout-minutes: 60
     name: Trivy Image Scan
     runs-on: ubuntu-24.04
     permissions:
@@ -159,7 +161,7 @@ jobs:
           docker images
 
       - name: Run Trivy vulnerability scanner (Docker image)
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
@@ -173,7 +175,7 @@ jobs:
 
       - name: Fail on CRITICAL and HIGH for core services
         if: matrix.service != 'comfyui'
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
@@ -187,7 +189,7 @@ jobs:
 
       - name: Report CRITICAL/HIGH for comfyui (non-blocking)
         if: matrix.service == 'comfyui'
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
@@ -209,6 +211,7 @@ jobs:
           wait-for-processing: false
 
   trivy-sbom:
+    timeout-minutes: 60
     name: Generate SBOM
     runs-on: ubuntu-24.04
     permissions:
@@ -272,7 +275,7 @@ jobs:
           echo "ref=$REF" >> "$GITHUB_OUTPUT"
 
       - name: Generate SBOM with Trivy
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
@@ -282,7 +285,7 @@ jobs:
           timeout: '900s'
 
       - name: Generate SBOM in SPDX format
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
@@ -307,6 +310,7 @@ jobs:
           echo "  oras attach ghcr.io/${{ github.repository }}/cu130-slim:${{ github.sha }} --artifact-type application/vnd.cncf.cyclonedx+json sbom-cyclonedx.json"
 
   dependency-review:
+    timeout-minutes: 60
     name: Dependency Review
     runs-on: ubuntu-24.04
     permissions:

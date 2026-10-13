@@ -34,6 +34,7 @@ concurrency:
 
 jobs:
   build-and-push:
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -146,7 +147,7 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
       - name: Report high vulnerabilities for ${{ matrix.service.name }}
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           input: /tmp/image.tar
           format: 'table'
@@ -158,7 +159,7 @@ jobs:
 
       - name: Scan ${{ matrix.service.name }} for critical vulnerabilities
         if: matrix.service.name != 'comfyui'
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           input: /tmp/image.tar
           format: 'table'
@@ -170,7 +171,7 @@ jobs:
 
       - name: Scan comfyui for critical vulnerabilities (non-blocking)
         if: matrix.service.name == 'comfyui'
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
           input: /tmp/image.tar
           format: 'table'
