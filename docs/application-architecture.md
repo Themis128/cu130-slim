@@ -354,6 +354,7 @@ app/services/
 │   ├── twitter_profile.py    — Twitter profile management
 │   ├── x_web.py              — Free X web fallback (tweety post/read, twscrape read; cookie auth, breaker + limits)
 │   ├── telegram_api.py       — Telegram Bot API client
+│   ├── telegram_agent.py     — Channel agent (pillar cadence, polls, welcomes, UTM CTAs)
 │   ├── whatsapp_api.py       — WhatsApp Business helpers
 │   ├── whatsapp_cloud_client.py — WhatsApp Cloud API client
 │   ├── meta_graph.py         — Meta Graph URL builder
@@ -477,7 +478,8 @@ app/services/
 │   ├── web_analytics.py      — Web analytics aggregation
 │   ├── support_report.py     — Support report builder
 │   ├── leads.py              — Lead management
-│   ├── lead_capture.py       — Lead capture pipeline
+│   ├── lead_capture.py       — Shared DM lead-capture FSM (Messenger/IG/
+│   │                           Telegram; Redis session, snapshot/restore)
 │   ├── whatsapp_flows.py     — WhatsApp Flows service
 │   └── publishing.py         — Publishing service
 ```
@@ -651,6 +653,12 @@ Beat Schedule:
 │ refresh-linkedin-sessions│ linkedin_session_refresh        │ weekly   │
 │ check-whatsapp-          │ whatsapp_verify                 │ 30min    │
 │  verification            │                                 │          │
+│ telegram-channel-agent   │ telegram_agent.run_channel_     │ daily    │
+│                          │   agent_daily                   │ 11:00    │
+│                          │  (managed-channel autopilot:    │          │
+│                          │   pillar posts Mon/Wed/Fri,     │          │
+│                          │   Sunday poll, offer CTAs →     │          │
+│                          │   DM lead funnel)               │          │
 │ telegram-group-digests   │ telegram_digest                 │ hrly :05 │
 │ dmr-health-check         │ dmr_health.check_dmr_health     │ 300s     │
 │ keep-warm-dmr-models     │ dmr_health.keep_warm_dmr_models │ 90s      │
