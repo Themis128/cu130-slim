@@ -26,6 +26,7 @@ import base64
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +43,28 @@ from app.services.telegram_api import (
 logger = logging.getLogger(__name__)
 
 AGENT_META_KEY = "telegram_agent"
+
+# UTM convention for channel→site attribution (LTE links). utm_content carries
+# the offer key / pillar tag so the funnel can join clicks back to a post kind.
+UTM = {
+    "utm_source": "telegram",
+    "utm_medium": "channel_post",
+    "utm_campaign": "cloudless-channel-agent",
+}
+_OWNED_HOST_SUFFIX = "cloudless.gr"
+
+
+def tracked_url(url: str, *, content: str) -> str:
+    """Tag an owned-domain link with UTM attribution; pass through the rest."""
+    parts = urlsplit(url)
+    if not parts.hostname or not parts.hostname.endswith(_OWNED_HOST_SUFFIX):
+        return url
+    q = dict(parse_qsl(parts.query))
+    for k, v in UTM.items():
+        q.setdefault(k, v)
+    q.setdefault("utm_content", content)
+    return urlunsplit(parts._replace(query=urlencode(q)))
+
 
 # ── content plan (ported from n8n-workflows/cloudless-telegram-channel.json) ──
 
@@ -222,6 +245,7 @@ def plan_post(now: datetime, pillar_stats: dict[str, dict[str, int]] | None = No
 
     return {
         "pillar": pillar,
+        "key": offer.get("key"),
         "series_tag": offer["tag"],
         "prompt": f"{offer['tag']} {offer['prompt']}",
         "image_prompt": offer["image_prompt"],
@@ -361,7 +385,18 @@ async def run_channel_agent(account: SocialAccount, db: AsyncSession) -> dict[st
     )
     # Offer posts close the loop into a DM lead-capture conversation
     # (t.me/<bot>?start=audit → "/start audit" → FSM → lead + owner alert).
-    rows = [list(r) for r in (plan["buttons"] or [])]
+    # Owned-domain buttons get UTM attribution so site analytics + the
+    # analytics_events funnel can join visits/leads back to this channel.
+    utm_content = plan.get("key") or plan["pillar"]
+    rows = [
+        [
+            {**b, "url": tracked_url(b["url"], content=utm_content)}
+            if isinstance(b.get("url"), str)
+            else dict(b)
+            for b in r
+        ]
+        for r in (plan["buttons"] or [])
+    ]
     bot_username = (account.meta_data or {}).get("bot_username") or account.username
     if plan["pillar"] == "offer" and bot_username:
         rows.append([
@@ -377,7 +412,10 @@ async def run_channel_agent(account: SocialAccount, db: AsyncSession) -> dict[st
         if plan.get("document"):
             results = [
                 await client.send_document(
-                    chat_id, plan["document"], caption=caption, reply_markup=markup
+                    chat_id,
+                    tracked_url(plan["document"], content=utm_content),
+                    caption=caption,
+                    reply_markup=markup,
                 )
             ]
             kind = "document"
@@ -459,6 +497,7 @@ def _record_post_event(
                 "chat_title": managed.get("title"),
                 "kind": kind,
                 "tag": pillar,
+                "utm_campaign": UTM["utm_campaign"],
                 "has_media": kind == "photo",
                 "agent": True,
                 "message_ids": [m.get("message_id") for m in results if isinstance(m, dict)],

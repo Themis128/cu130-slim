@@ -311,7 +311,10 @@ async def test_checklist_offer_sends_pdf_and_pins(monkeypatch):
     assert out["published"]["pillar"] == "offer"
     kinds = [s[0] for s in holder["client"].sent]
     assert kinds[0] == "document"
-    assert holder["client"].sent[0][2].endswith("automation-checklist.pdf")
+    assert holder["client"].sent[0][2].startswith(
+        "https://cloudless.gr/automation-checklist.pdf"
+    )
+    assert "utm_content=checklist" in holder["client"].sent[0][2]
     assert "pin" in kinds  # offers get pinned
     gen_image.assert_not_called()  # document posts skip the FLUX call
 
@@ -412,3 +415,57 @@ async def test_run_agent_sweep(monkeypatch):
     out = await TA.run_agent_sweep()
     assert out["accounts"] == 1 and out["published"] == 1
     assert out["results"][0]["account_id"] == str(acct_on.id)
+
+
+# ── tracked links (LTE): channel → cloudless.gr / social.cloudless.gr ──
+
+
+def test_tracked_url_adds_utm():
+    url = TA.tracked_url("https://cloudless.gr/contact", content="audit")
+    assert "utm_source=telegram" in url
+    assert "utm_medium=channel_post" in url
+    assert "utm_campaign=cloudless-channel-agent" in url
+    assert "utm_content=audit" in url
+    assert url.startswith("https://cloudless.gr/contact?")
+
+
+def test_tracked_url_covers_both_platforms():
+    for base in ("https://cloudless.gr/x", "https://social.cloudless.gr/pricing"):
+        assert "utm_source=telegram" in TA.tracked_url(base, content="p")
+
+
+def test_tracked_url_preserves_query_and_passthrough():
+    url = TA.tracked_url("https://cloudless.gr/a?x=1", content="c")
+    assert "x=1" in url and "utm_source=telegram" in url
+    # non-owned domains (t.me deep links) are untouched
+    assert TA.tracked_url("https://t.me/bot?start=audit", content="c") == "https://t.me/bot?start=audit"
+    # existing utm_* values win (no double-tagging)
+    seeded = "https://cloudless.gr/a?utm_source=newsletter"
+    assert "utm_source=newsletter" in TA.tracked_url(seeded, content="c")
+
+
+@pytest.mark.asyncio
+async def test_offer_markup_carries_utm(monkeypatch):
+    holder, factory = _client_holder()
+    monkeypatch.setattr(TA, "TelegramAPIClient", factory)
+    monkeypatch.setattr(TA, "_bot_token", lambda a: "tok")
+    monkeypatch.setattr(TA, "_generate_copy", AsyncMock(return_value="deal"))
+    monkeypatch.setattr(TA, "_generate_image", AsyncMock(return_value=None))
+    # Friday week 45 → offer pillar
+    monkeypatch.setattr(TA, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 11, 6, 11, tzinfo=UTC)))
+    acct = _account(meta={"telegram_channel": _managed(), "bot_username": "cloudlessbot"})
+    db = _DB()
+    out = await TA.run_channel_agent(acct, db)
+    assert out["published"]["pillar"] == "offer"
+    markup = holder["client"].sent[0][3]
+    site_btn = markup["inline_keyboard"][0][0]["url"]
+    dm_btn = markup["inline_keyboard"][1][0]["url"]
+    assert "utm_source=telegram" in site_btn
+    assert "utm_campaign=cloudless-channel-agent" in site_btn
+    assert "utm_content=" in site_btn
+    assert dm_btn.startswith("https://t.me/cloudlessbot?start=audit")
+    # analytics event records the campaign for funnel joins
+    evt = next(
+        e for e in db.added if getattr(e, "event_type", None) == "channel_post"
+    )
+    assert evt.meta_data["utm_campaign"] == "cloudless-channel-agent"
