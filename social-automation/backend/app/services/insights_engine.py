@@ -272,6 +272,65 @@ def _pct_change(current: float, previous: float) -> float | None:
     return round(((current - previous) / previous) * 100, 1)
 
 
+def _momentum_z(recent: float, prior: float) -> float:
+    """Normal-approximation z for two Poisson rate counts.
+
+    Weekly engagement/impressions are event counts — a raw % change of a
+    small base is noise. ``(recent - prior) / sqrt(recent + prior)`` is the
+    standard two-sample Poisson comparison; |z| >= 1.645 ≈ 90% confidence
+    the rates actually differ.
+    """
+    total = recent + prior
+    if total <= 0:
+        return 0.0
+    return (recent - prior) / (total ** 0.5)
+
+
+def _wilson_low(successes: float, trials: float, z: float = 1.96) -> float | None:
+    """Wilson score lower bound for a proportion (engagement rate).
+
+    Reporting the lower bound keeps small-sample ERs honest — a 2-of-10 post
+    reads as ~6% not 20%, so benchmark verdicts don't over-claim."""
+    if trials <= 0:
+        return None
+    p = successes / trials
+    denom = 1 + z * z / trials
+    centre = p + z * z / (2 * trials)
+    margin = z * ((p * (1 - p) / trials + z * z / (4 * trials * trials)) ** 0.5)
+    return max(0.0, (centre - margin) / denom)
+
+
+def _shrink_mean(total: float, n: int, global_mean: float, k: float = 4.0) -> float:
+    """Empirical-Bayes shrinkage of a bucket mean toward the global mean.
+
+    ``(bucket_total + k * global_mean) / (n + k)`` — a bucket with n posts
+    and mean m gets weight n/(n+k) on its own evidence; k is the prior
+    pseudo-count (≈4 posts of "average" evidence). Small buckets collapse to
+    the platform mean instead of winning on noise."""
+    return (total + k * global_mean) / (n + k)
+
+
+def _theil_sen_slope(series: list[tuple[datetime, int]]) -> float | None:
+    """Robust followers/day from a (timestamp, count) series.
+
+    Median of all pairwise slopes — a single bad scrape or bot-purge spike
+    moves one endpoint and corrupts a first→last delta, but barely moves the
+    median of pairwise slopes (29% breakdown point). Returns None under 3
+    points — below that there is no redundancy to be robust with."""
+    if len(series) < 3:
+        return None
+    pts = sorted(series)
+    t0 = pts[0][0]
+    xy = [((t - t0).total_seconds() / 86400.0, float(v)) for t, v in pts]
+    slopes = [
+        (y2 - y1) / (x2 - x1)
+        for i, (x1, y1) in enumerate(xy)
+        for x2, y2 in xy[i + 1:]
+        if x2 > x1
+    ]
+    return statistics.median(slopes) if slopes else None
+
+
 def _confidence(posts: int, impressions: int) -> str:
     """Statistical confidence in this platform's numbers."""
     if posts >= 10 and impressions >= 500:
@@ -527,11 +586,17 @@ def compute_insights(
         platform = key.split(":", 1)[0]
         first, last = series[0][1], series[-1][1]
         g = follower_growth.setdefault(
-            platform, {"first": 0, "last": 0, "accounts": 0, "anomaly": None}
+            platform, {
+                "first": 0, "last": 0, "accounts": 0,
+                "anomaly": None, "slopes": [],
+            }
         )
         g["first"] += first
         g["last"] += last
         g["accounts"] += 1
+        slope = _theil_sen_slope(series)
+        if slope is not None:
+            g["slopes"].append(slope)
         anomaly = _follower_anomaly(series)
         if anomaly and (g["anomaly"] is None or abs(anomaly["delta"]) > abs(g["anomaly"]["delta"])):
             g["anomaly"] = anomaly
@@ -547,18 +612,23 @@ def compute_insights(
         posts = p["posts"]
         avg_er = round(p["er_eng"] / p["er_imp"] * 100, 2) if p["er_imp"] else 0.0
 
-        def _best(buckets: dict[int, list[int]], min_n: int = 2):
-            """Winning bucket's avg ER must beat the platform mean ER by a
-            margin — otherwise the argmax is noise ordering, not a signal."""
+        def _best(buckets: dict[int, list[int]], min_n: int = 2, skip: set[int] | None = None):
+            """Winning bucket on *shrunk* ER — each bucket's mean is pulled
+            toward the platform mean proportional to its sample size, so a
+            3-post bucket that lucked into a spike doesn't beat a 20-post
+            bucket on noise. The winner must still clear the platform mean
+            by a margin — otherwise the argmax is ordering noise."""
+            total_n = sum(v[0] for v in buckets.values())
+            mean_er = sum(v[1] for v in buckets.values()) / total_n if total_n else 0.0
             cands = [
-                (k, round(v[1] / v[0], 2)) for k, v in buckets.items() if v[0] >= min_n
+                (k, round(_shrink_mean(v[1], v[0], mean_er), 2))
+                for k, v in buckets.items()
+                if v[0] >= min_n and not (skip and k in skip)
             ]
             if not cands:
                 return None
-            total_n = sum(v[0] for v in buckets.values())
-            mean_er = sum(v[1] for v in buckets.values()) / total_n if total_n else 0.0
             win = max(cands, key=lambda kv: kv[1])
-            return win if win[1] > 0 and win[1] >= mean_er * 1.25 else None
+            return win if win[1] > 0 and win[1] >= mean_er * 1.15 else None
 
         media_er = (
             round(p["media_posts"][1] / p["media_posts"][0], 2) if p["media_posts"][0] else None
@@ -566,6 +636,12 @@ def compute_insights(
         text_er = (
             round(p["text_posts"][1] / p["text_posts"][0], 2) if p["text_posts"][0] else None
         )
+        # Shrunk versions for the verdict — a 1-post media sample averaging
+        # high ER shouldn't declare "media wins".
+        all_er = [er for _, _, er in p["post_engagements"]]
+        mean_post_er = sum(all_er) / len(all_er) if all_er else 0.0
+        media_er_s = _shrink_mean(p["media_posts"][1], p["media_posts"][0], mean_post_er)
+        text_er_s = _shrink_mean(p["text_posts"][1], p["text_posts"][0], mean_post_er)
         mom = momentum.get(name, {})
 
         growth = follower_growth.get(name)
@@ -633,9 +709,13 @@ def compute_insights(
         )
 
         # Timing buckets need a real sample — a 2-post bucket's ER max is
-        # noise, not an audience signal.
-        best_hr = _best(p["hours"], min_n=3)
+        # noise, not an audience signal. Dead-night Athens hours (00:00–
+        # 05:59) are excluded: posts landing there are scheduler artifacts
+        # (queue flushes), so their "performance" can't be replicated by
+        # scheduling into the slot anyway.
+        best_hr = _best(p["hours"], min_n=3, skip={0, 1, 2, 3, 4, 5})
         best_wd = _best(p["weekdays"], min_n=3)
+        wilson_low = _wilson_low(p["er_eng"], p["er_imp"])
 
         platforms[name] = {
             "focus_tier": PLATFORM_BEST_PRACTICES.get(name, {}).get("focus", "last"),
@@ -658,11 +738,24 @@ def compute_insights(
             "best_weekday_sample": p["weekdays"][best_wd[0]][0] if best_wd else 0,
             "media_avg_er": media_er,
             "text_avg_er": text_er,
+            "media_avg_er_shrunk": round(media_er_s, 2) if p["media_posts"][0] else None,
+            "text_avg_er_shrunk": round(text_er_s, 2) if p["text_posts"][0] else None,
+            "avg_engagement_rate_wilson_low": (
+                round(wilson_low * 100, 2) if wilson_low is not None else None
+            ),
             "momentum_7d_engagement_pct": _pct_change(
                 mom.get("recent_eng", 0), mom.get("prior_eng", 0)
             ),
             "momentum_7d_impressions_pct": _pct_change(
                 mom.get("recent_imp", 0), mom.get("prior_imp", 0)
+            ),
+            # |z| >= 1.645 → the week-over-week rate shift is ~90%
+            # significant, not sampling noise on a small base.
+            "momentum_7d_engagement_z": round(
+                _momentum_z(mom.get("recent_eng", 0), mom.get("prior_eng", 0)), 2
+            ),
+            "momentum_7d_impressions_z": round(
+                _momentum_z(mom.get("recent_imp", 0), mom.get("prior_imp", 0)), 2
             ),
             "engagement_7d": mom.get("recent_eng", 0),
             "engagement_prev_7d": mom.get("prior_eng", 0),
@@ -672,6 +765,12 @@ def compute_insights(
                     "current": growth["last"],
                     "accounts": growth["accounts"],
                     "anomaly": growth["anomaly"],
+                    # Median of per-account Theil-Sen slopes — robust to
+                    # endpoint scrapes/purges unlike first→last delta.
+                    "slope_per_day": (
+                        round(statistics.median(growth["slopes"]), 2)
+                        if growth["slopes"] else None
+                    ),
                 }
                 if growth
                 else None
@@ -701,6 +800,7 @@ def compute_insights(
             "posts": 0, "impressions": 0, "engagement": 0,
             "likes": 0, "comments": 0, "shares": 0,
             "avg_engagement_rate": 0.0,
+            "avg_engagement_rate_wilson_low": None,
             "median_engagement_rate": 0.0,
             "median_engagement_per_post": 0.0,
             "er_by_followers_pct": None,
@@ -711,8 +811,11 @@ def compute_insights(
             "best_hour_sample": 0,
             "best_weekday_sample": 0,
             "media_avg_er": None, "text_avg_er": None,
+            "media_avg_er_shrunk": None, "text_avg_er_shrunk": None,
             "momentum_7d_engagement_pct": None,
             "momentum_7d_impressions_pct": None,
+            "momentum_7d_engagement_z": 0.0,
+            "momentum_7d_impressions_z": 0.0,
             "engagement_7d": 0, "engagement_prev_7d": 0,
             "follower_growth": (
                 {
@@ -720,6 +823,10 @@ def compute_insights(
                     "current": growth["last"],
                     "accounts": growth["accounts"],
                     "anomaly": growth["anomaly"],
+                    "slope_per_day": (
+                        round(statistics.median(growth["slopes"]), 2)
+                        if growth["slopes"] else None
+                    ),
                 }
                 if growth else None
             ),
@@ -897,13 +1004,14 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                 ),
             })
 
-    # 3. Format recommendations (media vs text) — needs real signal.
+    # 3. Format recommendations (media vs text) — verdict on shrunk means:
+    # each bucket's mean is pulled toward the platform's mean post-ER in
+    # proportion to its sample, so the comparison survives thin buckets.
     for name, p in platforms.items():
-        if (
-            p["media_avg_er"] is not None and p["text_avg_er"] is not None
-            and (p["media_avg_er"] > 0 or p["text_avg_er"] > 0)
-        ):
-            if p["media_avg_er"] > p["text_avg_er"] * 1.2:
+        m_er = p.get("media_avg_er_shrunk")
+        t_er = p.get("text_avg_er_shrunk")
+        if m_er is not None and t_er is not None and (m_er > 0 or t_er > 0):
+            if m_er > t_er * 1.2:
                 recs.append({
                     "type": "format",
                     "priority": "medium",
@@ -914,7 +1022,7 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                         "attach an image/carousel to every post."
                     ),
                 })
-            elif p["text_avg_er"] > p["media_avg_er"] * 1.2:
+            elif t_er > m_er * 1.2:
                 recs.append({
                     "type": "format",
                     "priority": "medium",
@@ -926,10 +1034,15 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                     ),
                 })
 
-    # 4. Momentum — rising/declining channels. Requires a minimum of real
-    # events so 1→2 = "+100%" doesn't fire.
+    # 4. Momentum — rising/declining channels. Two gates: a minimum event
+    # count AND a two-sample Poisson z-test (|z| >= 1.645 ≈ 90% confidence
+    # the rates differ). Raw ±25% on small counts fires on noise; z-scoring
+    # scales the threshold with the sample — 4→2 is -33% but z=-0.8 (noise),
+    # while 40→24 is -40% at z=-2.0 (real).
+    _MOMENTUM_Z_MIN = 1.645
     for name, p in platforms.items():
         mom = p.get("momentum_7d_engagement_pct")
+        z = p.get("momentum_7d_engagement_z") or 0.0
         recent, prior = p["engagement_7d"], p["engagement_prev_7d"]
         if max(recent, prior) < _MOMENTUM_MIN_EVENTS:
             continue
@@ -944,26 +1057,28 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                     "post again this week to compound it."
                 ),
             })
-        elif mom is not None and mom >= 25:
+        elif z >= _MOMENTUM_Z_MIN:
             recs.append({
                 "type": "momentum",
                 "priority": "medium",
                 "platform": name,
                 "text": (
                     f"{name} engagement is up {mom}% week-over-week "
-                    f"({recent} vs {prior} interactions) — increase cadence "
-                    "now while the algorithm favors you."
+                    f"({recent} vs {prior} interactions, statistically "
+                    "significant) — increase cadence now while the "
+                    "algorithm favors you."
                 ),
             })
-        elif mom is not None and mom <= -25:
+        elif z <= -_MOMENTUM_Z_MIN:
             recs.append({
                 "type": "momentum",
                 "priority": "medium",
                 "platform": name,
                 "text": (
                     f"{name} engagement dropped {abs(mom)}% week-over-week "
-                    f"({recent} vs {prior} interactions) — review the last "
-                    "7 days' content mix before scheduling more."
+                    f"({recent} vs {prior} interactions, statistically "
+                    "significant) — review the last 7 days' content mix "
+                    "before scheduling more."
                 ),
             })
 

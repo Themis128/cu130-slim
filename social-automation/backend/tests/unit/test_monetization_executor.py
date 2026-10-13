@@ -70,6 +70,20 @@ def test_resolve_slot_missing_time_uses_platform_baseline():
     assert (local.hour, local.minute) == (20, 0)
 
 
+def test_resolve_slot_prefers_learned_hour_over_baseline():
+    now = datetime.now(UTC)
+    a = MonetizationAction("tiktok", "post", "", "video")
+    local = X._resolve_slot(a, now, learned_hours={"tiktok": 15}).astimezone(ATHENS)
+    assert (local.hour, local.minute) == (15, 0)
+
+
+def test_resolve_slot_explicit_time_beats_learned():
+    now = datetime.now(UTC)
+    a = MonetizationAction("tiktok", "post", "21:00", "video")
+    local = X._resolve_slot(a, now, learned_hours={"tiktok": 15}).astimezone(ATHENS)
+    assert (local.hour, local.minute) == (21, 0)
+
+
 # ── account resolution ────────────────────────────────────────────────────
 
 

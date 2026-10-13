@@ -97,9 +97,19 @@ async def _resolve_account(
     return accounts[0]
 
 
-def _resolve_slot(action: MonetizationAction, now_utc: datetime) -> datetime:
-    """Action's Athens HH:MM → next UTC occurrence; dead-night → baseline."""
-    hhmm = action.time_athens or _PLATFORM_BASELINE.get(action.platform, "10:00")
+def _resolve_slot(
+    action: MonetizationAction,
+    now_utc: datetime,
+    learned_hours: dict[str, int] | None = None,
+) -> datetime:
+    """Action's Athens HH:MM → next UTC occurrence; dead-night → baseline.
+
+    When the action has no time, prefer the insights engine's learned best
+    hour (shrunk-bucket winner, min n=3) over the static baseline."""
+    hhmm = action.time_athens
+    if not hhmm and learned_hours and action.platform in learned_hours:
+        hhmm = f"{learned_hours[action.platform]:02d}:00"
+    hhmm = hhmm or _PLATFORM_BASELINE.get(action.platform, "10:00")
     try:
         hour, minute = (int(x) for x in hhmm.split(":"))
     except ValueError:
@@ -253,9 +263,13 @@ async def schedule_report_actions(
     team: Team,
     actions: list[MonetizationAction],
     report_date: str,
+    learned_hours: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
     """Materialise report actions as SCHEDULED posts. Returns a per-action
-    result list for the report email. Idempotent per report date."""
+    result list for the report email. Idempotent per report date.
+
+    ``learned_hours``: platform → Athens hour from the insights engine's
+    shrunk-bucket best-window analysis; used when an action has no time."""
     from app.models.user import User
 
     results: list[dict[str, Any]] = []
@@ -298,7 +312,7 @@ async def schedule_report_actions(
             results.append(entry)
             continue
 
-        when = _resolve_slot(action, now)
+        when = _resolve_slot(action, now, learned_hours)
         for _ in range(_MAX_SLOT_HOPS):
             if not await _slot_taken(db, team.id, account.id, when):
                 break

@@ -262,16 +262,29 @@ async def gather_account_metrics(db, account) -> dict[str, Any]:
 
     followers = live if live is not None else (snaps[-1][1] if snaps else None)
 
-    recent = [s for s in snaps if s[0] >= datetime.now(UTC) - timedelta(days=14)]
-    gain = 0.0
-    if len(recent) >= 2:
-        span = max((recent[-1][0] - recent[0][0]).days, 1)
+    recent = [
+        s for s in snaps
+        if s[0] >= datetime.now(UTC) - timedelta(days=14) and s[1] > 0
+    ]
+    # Theil-Sen slope — a single bad scrape or purge at either endpoint
+    # corrupts a first→last delta but barely moves the pairwise-slope median.
+    # Falls back to the endpoint delta under 3 points.
+    from app.services.insights_engine import _theil_sen_slope
+
+    slope = _theil_sen_slope(recent)
+    if slope is not None:
+        gain = slope
+    elif len(recent) >= 2:
+        span = max((recent[-1][0] - recent[0][0]).total_seconds() / 86400.0, 1.0)
         gain = (recent[-1][1] - recent[0][1]) / span
+    else:
+        gain = 0.0
 
     metrics: dict[str, Any] = {
         "followers": followers,
         "followers_live": live is not None,
         "gain_per_day": round(gain, 2),
+        "gain_method": "theil_sen" if slope is not None else ("endpoints" if len(recent) >= 2 else "none"),
     }
     if account.platform == "facebook" and isinstance(followers, int):
         by_day: dict[str, int] = {}
