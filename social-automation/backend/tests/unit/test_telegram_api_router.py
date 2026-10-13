@@ -1153,6 +1153,74 @@ async def test_webhook_auto_reply_paths(monkeypatch):
     assert out["error"] is True
 
 
+@pytest.mark.asyncio
+async def test_webhook_lead_capture_private_dm(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    client = _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "/start audit", "chat_type": "private", "chat_id": 7},
+    )
+    reply = SimpleNamespace(
+        text="What’s your company size?",
+        quick_replies=[{"title": "Solo", "payload": "LEAD_SIZE_SOLO"}],
+        completed_lead_id=None,
+    )
+    monkeypatch.setattr(telegram, "_run_lead_capture", AsyncMock(return_value=reply))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["lead_capture"] is True
+    # quick_replies → inline keyboard via send_message_with_markup
+    client.send_message_with_markup.assert_awaited_once()
+    markup = client.send_message_with_markup.await_args[0][2]
+    assert markup["inline_keyboard"][0][0]["callback_data"] == "LEAD_SIZE_SOLO"
+
+
+@pytest.mark.asyncio
+async def test_webhook_lead_callback_advances_fsm(monkeypatch):
+    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    client = _patch_client(monkeypatch, _FakeClient(answer_callback_query=AsyncMock(return_value=True)))
+    _wh_patches(
+        monkeypatch,
+        extract_callback_query=lambda u: {
+            "callback_id": "cb9",
+            "data": "LEAD_INTEREST_AUDIT",
+            "chat_id": 7,
+            "from_user_id": 42,
+        },
+    )
+    reply = SimpleNamespace(
+        text="Perfect — got it.",
+        quick_replies=None,
+        completed_lead_id="lead-1",
+    )
+    fsm = AsyncMock(return_value=reply)
+    monkeypatch.setattr(telegram, "_run_lead_capture", fsm)
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["callback_answered"] is True
+    assert out["lead_capture"] is True and out["lead_id"] == "lead-1"
+    # payload forwarded to the FSM
+    assert fsm.await_args.kwargs["payload"] == "LEAD_INTEREST_AUDIT"
+    client.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_webhook_lead_fallthrough_to_autoreply(monkeypatch):
+    # FSM returns None → normal chatbot path runs
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": False},
+    })
+    _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private", "chat_id": 5},
+    )
+    monkeypatch.setattr(telegram, "_run_lead_capture", AsyncMock(return_value=None))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["auto_reply"] is False  # reached the auto-reply gate
+
+
 # ── channel administration ────────────────────────────────────────────
 
 

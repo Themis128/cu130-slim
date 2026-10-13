@@ -163,7 +163,7 @@ async def handle_lead_capture_message(
     postback_payload: str | None = None,
     meta_data: dict[str, Any] | None = None,
 ) -> LeadCaptureReply | None:
-    """Lead capture state machine for Messenger/Instagram DMs (Redis-backed).
+    """Lead capture state machine for Messenger/Instagram/Telegram DMs (Redis-backed).
 
     Returns:
     - None if not in lead-capture mode (caller should continue normal bot flow)

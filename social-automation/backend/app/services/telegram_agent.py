@@ -359,7 +359,18 @@ async def run_channel_agent(account: SocialAccount, db: AsyncSession) -> dict[st
         None if plan.get("document")
         else await _generate_image(db, account, plan["image_prompt"])
     )
-    markup = inline_keyboard(plan["buttons"]) if plan["buttons"] else None
+    # Offer posts close the loop into a DM lead-capture conversation
+    # (t.me/<bot>?start=audit → "/start audit" → FSM → lead + owner alert).
+    rows = [list(r) for r in (plan["buttons"] or [])]
+    bot_username = (account.meta_data or {}).get("bot_username") or account.username
+    if plan["pillar"] == "offer" and bot_username:
+        rows.append([
+            {
+                "text": "💬 Chat with us",
+                "url": f"https://t.me/{bot_username}?start=audit",
+            }
+        ])
+    markup = inline_keyboard(rows) if rows else None
 
     caption = text[:1024]
     try:

@@ -119,6 +119,49 @@ def _record_channel_event(
     )
 
 
+async def _run_lead_capture(
+    db: AsyncSession,
+    account: SocialAccount,
+    inbound: dict[str, Any],
+    *,
+    payload: str,
+) -> Any:
+    """Invoke the shared lead-capture FSM for a Telegram DM thread.
+
+    Returns ``LeadCaptureReply`` when the flow handled the message, ``None``
+    when the caller should continue the normal chatbot path.
+    """
+    from app.models.lead import LeadSource
+    from app.services.lead_capture import handle_lead_capture_message
+
+    return await handle_lead_capture_message(
+        db,
+        team_id=account.team_id,
+        source=LeadSource.telegram_dm,
+        social_account_id=account.id,
+        thread_id=str(inbound["chat_id"]),
+        inbound_text=str(inbound.get("text") or ""),
+        postback_payload=payload,
+        meta_data={
+            "chat_type": inbound.get("chat_type") or "private",
+            "chat_title": inbound.get("chat_title") or "",
+        },
+    )
+
+
+def _lead_markup(reply: Any) -> dict[str, Any] | None:
+    """Map Messenger-style quick_replies to a Telegram inline keyboard."""
+    qrs = getattr(reply, "quick_replies", None) or []
+    if not qrs:
+        return None
+    rows = [
+        [{"text": str(qr.get("title") or "")[:40], "callback_data": str(qr.get("payload") or "")[:64]}]
+        for qr in qrs[:8]
+        if qr.get("title") and qr.get("payload")
+    ]
+    return inline_keyboard(rows) if rows else None
+
+
 def _log_channel_post(
     db: AsyncSession,
     account: SocialAccount,
@@ -1715,6 +1758,31 @@ async def receive_webhook(
             flag_modified(account, "meta_data")
             await db.commit()
             response["callback_answered"] = True
+
+            # LEAD_* button taps advance the lead-capture FSM for that DM.
+            data = str(callback.get("data") or "")
+            if data.startswith("LEAD_") and callback.get("chat_id"):
+                lead_reply = await _run_lead_capture(
+                    db,
+                    account,
+                    {
+                        "chat_id": callback["chat_id"],
+                        "chat_type": "private",
+                        "text": "",
+                    },
+                    payload=data,
+                )
+                if lead_reply:
+                    markup = _lead_markup(lead_reply)
+                    if markup:
+                        await client.send_message_with_markup(
+                            callback["chat_id"], lead_reply.text, markup
+                        )
+                    else:
+                        await client.send_message(callback["chat_id"], lead_reply.text)
+                    response["lead_capture"] = True
+                    if lead_reply.completed_lead_id:
+                        response["lead_id"] = str(lead_reply.completed_lead_id)
         except Exception as exc:
             logger.warning(
                 "Telegram callback ack failed account=%s: %s",
@@ -1802,6 +1870,34 @@ async def receive_webhook(
             response["auto_reply"] = False
             response["reason"] = "group_requires_mention"
             return response
+
+    # ── Lead capture FSM: qualify private DMs before the AI bot replies ──
+    # Channel-post CTA buttons deep-link t.me/<bot>?start=audit → "/start
+    # audit" hits is_lead_capture_trigger via the "audit" keyword. Reuses the
+    # Messenger/Instagram state machine; LEAD_* button taps come back through
+    # the callback_query branch below.
+    if inbound.get("chat_type") == "private":
+        try:
+            lead_reply = await _run_lead_capture(db, account, inbound, payload="")
+            if lead_reply:
+                client = _client_for(account)
+                markup = _lead_markup(lead_reply)
+                if markup:
+                    await client.send_message_with_markup(
+                        inbound["chat_id"], lead_reply.text, markup
+                    )
+                else:
+                    await client.send_message(inbound["chat_id"], lead_reply.text)
+                response["lead_capture"] = True
+                if lead_reply.completed_lead_id:
+                    response["lead_id"] = str(lead_reply.completed_lead_id)
+                return response
+        except Exception as exc:  # noqa: BLE001 — lead flow never blocks the bot
+            logger.debug(
+                "Telegram lead capture failed account=%s: %s",
+                _sanitize(str(account_id)),
+                _sanitize(str(exc)),
+            )
 
     auto_reply = meta.get("telegram_auto_reply", {})
     if not auto_reply.get("enabled", False):
