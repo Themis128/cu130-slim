@@ -211,10 +211,6 @@ def agent_enabled(account: SocialAccount) -> bool:
     return bool(managed.get("chat_id")) and _agent_cfg(account).get("enabled", True)
 
 
-def _iso_week(dt: datetime) -> int:
-    return int(dt.strftime("%G")) * 100 + int(dt.strftime("%V"))
-
-
 def plan_post(now: datetime, pillar_stats: dict[str, dict[str, int]] | None = None) -> dict[str, Any] | None:
     """Pick today's content plan. Returns None on non-posting days."""
     dow = now.weekday()  # Mon=0
@@ -609,4 +605,17 @@ async def run_agent_sweep() -> dict[str, Any]:
             except Exception as exc:  # noqa: BLE001 — one bad account never blocks the rest
                 logger.warning("telegram-agent run failed account=%s: %s", account.id, exc)
                 summary["results"].append({"account_id": str(account.id), "error": str(exc)[:200]})
+    errors = [r for r in summary["results"] if r.get("error")]
+    if errors:
+        try:
+            from app.services.slack_notifications import post_alert_to_slack
+
+            lines = "\n".join(
+                f"• `{r['account_id']}`: {r['error'][:160]}" for r in errors[:5]
+            )
+            await post_alert_to_slack(
+                f"Telegram channel agent hit {len(errors)} error(s):\n{lines}"
+            )
+        except Exception:  # noqa: BLE001 — alerting must never break the sweep
+            logger.warning("telegram-agent slack alert failed", exc_info=True)
     return summary

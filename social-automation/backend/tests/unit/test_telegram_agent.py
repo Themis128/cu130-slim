@@ -469,3 +469,40 @@ async def test_offer_markup_carries_utm(monkeypatch):
         e for e in db.added if getattr(e, "event_type", None) == "channel_post"
     )
     assert evt.meta_data["utm_campaign"] == "cloudless-channel-agent"
+
+
+@pytest.mark.asyncio
+async def test_sweep_alerts_slack_on_errors(monkeypatch):
+    acct = _account(meta={"telegram_channel": _managed()})
+
+    class _Sess:
+        async def __aenter__(self):
+            return _SweepDB([acct])
+
+        async def __aexit__(self, *a):
+            return False
+
+    class _SweepDB(_DB):
+        def __init__(self, rows):
+            super().__init__()
+            self._rows = rows
+
+        async def execute(self, *a, **kw):
+            return SimpleNamespace(
+                scalars=lambda: SimpleNamespace(all=lambda: self._rows),
+                all=lambda: [],
+            )
+
+    import app.services.slack_notifications as SN
+    import app.worker._async as WA
+
+    monkeypatch.setattr(WA, "task_session", lambda: _Sess())
+    monkeypatch.setattr(TA, "refresh_pillar_stats", AsyncMock(return_value={}))
+    monkeypatch.setattr(TA, "run_channel_agent", AsyncMock(return_value={"error": "telegram send failed (403)"}))
+    alert = AsyncMock()
+    monkeypatch.setattr(SN, "post_alert_to_slack", alert)
+
+    out = await TA.run_agent_sweep()
+    assert out["results"][0]["error"].startswith("telegram send failed")
+    alert.assert_awaited_once()
+    assert "Telegram channel agent" in alert.call_args[0][0]
