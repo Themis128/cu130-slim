@@ -733,6 +733,14 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 
 ## Docker Compose Stack (36 services + 1 blue/green slot)
 
+> **Base-image registry:** all `FROM` lines and CI service images pull via
+> `mirror.gcr.io/library/*` (Google's free Docker Hub mirror), not
+> `public.ecr.aws`. ECR Public rate-limits anonymous pulls from GitHub
+> Actions runners (HTTP 429), which flaked `container-scan` and backend CI
+> repeatedly (fixed 2026-10-13, PR #596 + follow-up). Trivy DB mirrors
+> prefer GHCR with ECR as fallback (`TRIVY_*_REPOSITORY` in security.yml
+> and trivy-scan.yml).
+
 ### Core Application
 
 ```
