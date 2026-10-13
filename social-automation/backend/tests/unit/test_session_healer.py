@@ -324,6 +324,29 @@ async def test_li_login_and_2fa_flows(monkeypatch):
     assert stats["linkedin"]["status"] == "needs_manual_login"
 
 
+@pytest.mark.asyncio
+async def test_li_login_email_from_secret_store(monkeypatch):
+    """LINKEDIN_EMAIL absent from env (not in container passthrough) but
+    present in the secret store → credential login still proceeds."""
+    monkeypatch.setattr(H, "_env", lambda n: "")  # env totally empty
+    monkeypatch.setattr(
+        H,
+        "_secret",
+        AsyncMock(side_effect=lambda n: {"LINKEDIN_EMAIL": "e@x", "LINKEDIN_PASSWORD": "pw"}.get(n, "")),
+    )
+    monkeypatch.setattr(H, "_alert", AsyncMock())
+    monkeypatch.setattr(H, "_li_sync_cookies", AsyncMock())
+    _Http.routes = {
+        ("GET", "/health"): (200, {"status": "ok"}),
+        ("GET", "/session"): (200, {"logged_in": False}),
+        ("POST", "/login"): (200, {"logged_in": True}),
+    }
+    monkeypatch.setattr(H.httpx, "AsyncClient", _Http)
+    stats = _stats()
+    await H._heal_linkedin(stats)
+    assert stats["linkedin"]["status"] == "recovered"
+
+
 # ── facebook sidecar heal ─────────────────────────────────────────────
 
 
