@@ -561,6 +561,8 @@ async def get_conversation_messages(
 
     try:
         messages = await client.get_conversation_messages(conversation_id, limit=limit)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to get conversation messages: {e}")
 
@@ -592,6 +594,8 @@ async def get_user_profile(
 
     try:
         profile = await client.get_user_profile(psid)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Failed to get user profile: {e}")
 
