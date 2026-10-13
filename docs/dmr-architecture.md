@@ -279,6 +279,19 @@ Important gaps:
 ## Fallback & resilience
 
 - **Text inference**: DMR → Cloudflare Workers AI (only auto fallback).
+- **Provider-table semantics** (`_text_provider_chain`, `inference.py`, fixed
+  2026-10-13 #603): a team with **zero** `ai_providers` rows gets the built-in
+  `dmr → cloudflare` chain (an empty table previously collapsed the chain to
+  `[dmr]` only, silently killing the CF fallback); rows present with **all
+  disabled** are honored as an explicit opt-out (CF is never attempted); an
+  explicit `provider_name=` request always leads the chain and is attempted
+  even when its row is disabled — same treatment for `dmr` and `cloudflare`.
+- **DMR runner recovery**: if `docker-model-runner` is pruned (scheduled
+  `docker system prune`), reinstall with
+  `docker model install-runner --backend vllm --gpu cuda --port 12435` +
+  `_MODEL_RUNNER_TREAT_DESKTOP_AS_MOBY=1`; the model volume survives, the
+  watchdog reapplies canonical per-model configs (`--n-gpu-layers 0`) after
+  every runner `StartedAt` change.
 - **Chatbots**: DMR → Cloudflare Workers AI → static reply.
 - **Images**: local-diffusers (SD 1.5) → Cloudflare Workers AI.
 - **Circuit breaker**: 3 DMR failures → route to Cloudflare for 60 s.

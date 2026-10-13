@@ -589,7 +589,7 @@ Current chain (oldest → newest, 39 revisions):
 9. [AI media enhancement](09-ai-media-enhancement.md)
 10. [TikTok content posting](10-tiktok-content-posting.md)
 11. [Meta lead capture](11-meta-lead-capture.md)
-12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send, AI auto-reply
+12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send, AI auto-reply, channel agent, DM lead funnel
 17. [X free web fallback](17-x-web-fallback.md) — `X_WEB_*` cookie-auth tweety/twscrape fallback for X API 402 credits-depleted (off by default)
 
 ## Current plans

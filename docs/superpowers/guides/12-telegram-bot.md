@@ -54,7 +54,7 @@ Bots **cannot start chats**. The user must open the bot first (`t.me/your_bot`).
 
 - Text messages: up to 4096 characters.
 - Webhook ports: 443, 80, 88, 8443; URL must be HTTPS.
-- Feed-style publishing is not supported — Telegram is messaging-only (soft-skipped like WhatsApp).
+- Feed-style publishing via `publish_to_platform` is not supported — Telegram is messaging-only (soft-skipped like WhatsApp). The managed **channel** is posted to by the channel agent instead (below).
 
 ## Group watch (stay updated)
 
@@ -91,6 +91,33 @@ Telegram’s Bot API **cannot** disable Group Privacy or add the bot to a group 
 | Activity | `GET /api/v1/telegram/{id}/group-watch/activity` |
 
 Celery beat task `telegram-group-digests` runs hourly and sends when the local hour matches `digest_hour`.
+
+## Channel agent (autopilot for "Cloudless — Automation HQ")
+
+`app/services/telegram_agent.py` + Celery beat `telegram-channel-agent`
+(daily 11:00 → `run_channel_agent_daily`) replaced the old n8n
+`cloudless-telegram-channel` workflow (deactivated 2026-10-13).
+
+| Day | Post |
+|-----|------|
+| Monday | authority pillar |
+| Wednesday | engagement pillar |
+| Friday | rotating — offer every 3rd week, else the pillar with the best joins-per-post rate (from `channel_post`/`member_joined` analytics; falls back to authority/proof) |
+| Sunday | native Telegram poll (rotating question bank, `polls_enabled` toggle) |
+| Other days | no post |
+
+- Offer posts are **pinned** and carry the DM funnel CTA (below).
+- New members get a daily-throttled welcome post (webhook `member_joined`);
+  join requests are auto-approved (`chat_join_request` updates).
+- Copy via the shared inference chain (DMR → Cloudflare), images via the
+  ComfyUI/CF pipeline → branded R2 asset; posts go out via `sendPhoto`
+  (or `sendDocument` for the checklist offer).
+- Config lives in `account.meta_data["telegram_agent"]` (`enabled`,
+  `polls_enabled`, `pillar_stats`, `last_post_date`); the managed channel is
+  `meta_data["telegram_channel"]`. Agent runs only when a managed channel
+  exists and `enabled` isn't false.
+- Every send records a `channel_post` analytics event (tag, kind, media
+  status, `utm_campaign`) that feeds joins-per-post adaptation.
 
 ## DM lead-capture funnel (channel → DM → Lead)
 
