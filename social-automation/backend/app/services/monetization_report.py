@@ -365,7 +365,13 @@ async def _llm_strategy(
                 "impressions": p.get("impressions"),
                 "engagement": p.get("engagement"),
                 "avg_engagement_rate": p.get("avg_engagement_rate"),
+                # Wilson lower bound — the honest floor on ER for small
+                # samples; momentum only counts when z marks it real.
+                "er_wilson_low_pct": p.get("avg_engagement_rate_wilson_low"),
                 "momentum_engagement_pct": p.get("momentum_7d_engagement_pct"),
+                "momentum_significant": abs(
+                    p.get("momentum_7d_engagement_z") or 0
+                ) >= 1.645,
                 "best_hour_athens": (p.get("best_hour_athens") or [None])[0],
                 "outlier_posts": len(p.get("outliers") or []),
             }
@@ -614,8 +620,18 @@ async def run_monetization_report_for_all_teams(
             db, team=team, insight_days=insight_days
         )
         if execute and report.actions:
+            # Learned best hours from the insights engine (shrunk buckets,
+            # min n=3) feed the scheduler when an action has no time —
+            # data-driven scheduling instead of static baselines.
+            learned_hours = {
+                name: p["best_hour_athens"][0]
+                for name, p in (report.insights.get("platforms") or {}).items()
+                if p.get("best_hour_athens")
+            }
             report.scheduled = await schedule_report_actions(
-                db, team, report.actions, report.generated_at.date().isoformat()
+                db, team, report.actions,
+                report.generated_at.date().isoformat(),
+                learned_hours=learned_hours,
             )
         if send:
             report = await email_monetization_report(report)

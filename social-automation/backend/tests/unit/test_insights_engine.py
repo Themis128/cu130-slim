@@ -96,6 +96,7 @@ def _plat(**over):
         "media_avg_er": 6.0,
         "text_avg_er": 4.0,
         "momentum_7d_engagement_pct": None,
+        "momentum_7d_engagement_z": None,  # computed below when unset
         "engagement_7d": 0,
         "engagement_prev_7d": 0,
         "follower_growth": None,
@@ -106,6 +107,13 @@ def _plat(**over):
         "top_post": {"post_id": "x", "engagement_rate": 8.0, "impressions": 200},
     }
     base.update(over)
+    if base["momentum_7d_engagement_z"] is None:
+        # Mirror compute_insights: two-sample Poisson z on the week counts.
+        recent, prior = base["engagement_7d"], base["engagement_prev_7d"]
+        base["momentum_7d_engagement_z"] = (
+            (recent - prior) / ((recent + prior) ** 0.5)
+            if recent + prior > 0 else 0.0
+        )
     return base
 
 
@@ -240,8 +248,10 @@ def test_compute_aggregates_per_platform():
 
 def test_compute_timing_buckets_athens():
     # 23:30 UTC = 02:30 next day Athens (EEST, UTC+3) — weekday must shift too.
-    # The winner must also beat the platform mean ER by the 1.25 margin gate,
+    # The winner must also beat the platform mean ER by the margin gate,
     # so add a weaker bucket (Mon 14:00 Athens) to make the signal real.
+    # NOTE: 02:30 Athens is a dead-night hour — excluded from best_hour as a
+    # scheduler artifact, so the Mon 14:00 bucket wins the hour contest.
     pub = datetime(2026, 9, 17, 23, 30, tzinfo=UTC)  # Thu UTC → Fri Athens
     weak = datetime(2026, 9, 14, 11, 0, tzinfo=UTC)  # Mon UTC → Mon Athens
     rows = [
@@ -254,9 +264,14 @@ def test_compute_timing_buckets_athens():
     ]
     out = compute_insights(rows, [], [], [], now=NOW)
     li = out["platforms"]["linkedin"]
-    assert li["best_hour_athens"] == (2, 8.0)
-    assert li["best_weekday_athens"] == (4, 8.0)  # Friday in Athens
-    assert li["best_hour_sample"] == 3
+    # Dead-night hour 2 excluded from candidacy; the only daytime bucket
+    # (Mon 14:00, shrunk mean 26/7 ≈ 3.71) doesn't clear the mean×1.15
+    # margin — so the honest answer is "no learned hour", not a fake one.
+    assert li["best_hour_athens"] is None
+    # Weekday buckets aren't dead-night filtered — Friday still wins on
+    # shrunk ER (24 + 4*5)/7 ≈ 6.29, and the UTC→Athens day shift held.
+    assert li["best_weekday_athens"] == (4, 6.29)  # Friday in Athens
+    assert li["best_hour_sample"] == 0
     assert li["best_weekday_sample"] == 3
 
 
@@ -618,6 +633,8 @@ def test_recommend_momentum_floor_blocks_small_numbers():
     assert not any(r["type"] == "momentum" for r in _recommend(plats))
     plats["linkedin"]["engagement_7d"] = 20
     plats["linkedin"]["engagement_prev_7d"] = 10
+    # 20 vs 10: z = 10/√30 ≈ 1.83 — statistically significant, must fire.
+    plats["linkedin"]["momentum_7d_engagement_z"] = 10 / (30 ** 0.5)
     assert any(r["type"] == "momentum" for r in _recommend(plats))
 
 
