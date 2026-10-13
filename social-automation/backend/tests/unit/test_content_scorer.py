@@ -2,6 +2,9 @@
 from app.services.content_scorer import (
     ContentScore,
     HashtagStrategy,
+    _count_syllables,
+    _flesch_reading_ease,
+    _has_stats_signal,
     build_hashtag_strategy,
     score_content,
 )
@@ -89,6 +92,20 @@ class TestScoreContent:
         text = "a" * 200
         score = score_content(text, "twitter")
         assert score.length_fit == 100.0  # 200/280 = 71% (in optimal range)
+
+    def test_length_fit_near_limit(self):
+        # LinkedIn limit 3000; 91% of limit is the >0.9 branch (90.0)
+        score = score_content("a" * 2730, "linkedin")
+        assert score.length_fit == 90.0
+
+    def test_stats_signal_currency(self):
+        assert _has_stats_signal("save $50 a month") is True
+        assert _has_stats_signal("no numbers here") is False
+
+    def test_flesch_and_syllable_edges(self):
+        assert _flesch_reading_ease("   ") == 0.0
+        assert _count_syllables("") == 0
+        assert _count_syllables("...") == 0
 
 
 class TestBuildHashtagStrategy:
