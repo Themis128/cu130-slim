@@ -1762,12 +1762,16 @@ async def _text_provider_chain(
     enabled = set(priority)
     if db and team_id:
         result = await db.execute(
-            select(AIProvider.name).where(
+            select(AIProvider.name, AIProvider.is_enabled).where(
                 AIProvider.team_id == team_id,
-                AIProvider.is_enabled.is_(True),
             )
         )
-        enabled = set(result.scalars().all())
+        provider_rows = result.all()
+        # Only an *explicit* provider config overrides the built-in chain —
+        # an empty table means "never configured" (use defaults), while
+        # rows with every provider disabled is an intentional opt-out.
+        if provider_rows:
+            enabled = {name for name, on in provider_rows if on}
 
     cloud = [name for name in priority if credentials[name] and name in enabled]
     # Phase 4.1: respect per-provider fallbacks list from DB if configured

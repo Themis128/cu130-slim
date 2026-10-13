@@ -503,7 +503,7 @@ async def test_text_provider_chain(monkeypatch):
     # DB-driven enabled set + custom fallbacks
     calls = iter(
         [
-            SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: ["cloudflare"])),
+            SimpleNamespace(all=lambda: [("cloudflare", True)]),
             SimpleNamespace(scalar=lambda: "groq, cloudflare"),
         ]
     )
@@ -511,6 +511,39 @@ async def test_text_provider_chain(monkeypatch):
     chain = await I._text_provider_chain("cloudflare", uuid.uuid4(), db)
     # groq dropped (no creds), cloudflare kept, dmr appended
     assert chain[0] == "cloudflare" and "dmr" in chain
+
+
+@pytest.mark.asyncio
+async def test_text_provider_chain_empty_table_uses_defaults(monkeypatch):
+    """Zero AIProvider rows = 'never configured' → built-in dmr→cf chain,
+    NOT an empty enabled set that silently kills the CF fallback."""
+    monkeypatch.setattr(I.settings, "DMR_URL", "http://dmr", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "a", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "t", raising=False)
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(all=lambda: []))
+    )
+    chain = await I._text_provider_chain("dmr", uuid.uuid4(), db)
+    assert chain == ["dmr", "cloudflare"]
+
+
+@pytest.mark.asyncio
+async def test_text_provider_chain_all_disabled_is_opt_out(monkeypatch):
+    """Rows exist but every provider disabled → explicit opt-out honored."""
+    monkeypatch.setattr(I.settings, "DMR_URL", "http://dmr", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "a", raising=False)
+    monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "t", raising=False)
+    calls = iter(
+        [
+            SimpleNamespace(all=lambda: [("dmr", False), ("cloudflare", False)]),
+            SimpleNamespace(scalar=lambda: None),
+        ]
+    )
+    db = SimpleNamespace(execute=AsyncMock(side_effect=lambda *a, **k: next(calls)))
+    chain = await I._text_provider_chain("cloudflare", uuid.uuid4(), db)
+    # cloud = [] (all disabled) → requested provider head + dmr local only
+    assert "cloudflare" in chain
+    assert "dmr" in chain
 
 
 @pytest.mark.asyncio
