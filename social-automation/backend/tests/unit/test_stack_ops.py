@@ -47,7 +47,7 @@ class _Resp:
 
 @pytest.fixture(autouse=True)
 def _reset_cache(monkeypatch):
-    monkeypatch.setattr(stack_ops, "_cache", (0.0, {}))
+    monkeypatch.setattr(stack_ops, "_cache", {"ts": 0.0, "data": {}})
     yield
 
 
@@ -82,7 +82,8 @@ async def test_statuses_non_200_and_exception(monkeypatch):
 async def test_statuses_stale_cache_returned_on_failure(monkeypatch):
     # Seed a stale cache entry — TTL expired but data survives failures.
     monkeypatch.setattr(
-        stack_ops, "_cache", (time.monotonic() - 999, {"svc": {"state": "running"}})
+        stack_ops, "_cache",
+        {"ts": time.monotonic() - 999, "data": {"svc": {"state": "running"}}},
     )
     _patch_http(monkeypatch, _FakeHTTP(get_exc=RuntimeError("x")))
     assert await stack_ops.statuses() == {"svc": {"state": "running"}}

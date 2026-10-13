@@ -615,10 +615,10 @@ def _coerce_model_for_task(
         return model
     logger.warning(
         "DMR model %r cannot serve %s requests (family=%s) — using %s",
-        model,
-        task,
-        family,
-        fallback,
+        sanitize_log_text(model, 120),
+        sanitize_log_text(task, 60),
+        sanitize_log_text(family, 60),
+        sanitize_log_text(fallback, 120),
     )
     return fallback
 
@@ -1444,7 +1444,7 @@ async def _call_dmr_chat_internal(
     # tight timeout so a wedged runner still fails fast.
     cold_timeout = float(getattr(settings, "DMR_COLD_TIMEOUT", 240.0))
     if cold_timeout > timeout and not _is_resident(model, await _running_dmr_models()):
-        logger.info("DMR: %s not resident — cold-load timeout %.0fs", model, cold_timeout)
+        logger.info("DMR: %s not resident — cold-load timeout %.0fs", sanitize_log_text(model, 120), cold_timeout)
         timeout = cold_timeout
 
     # Improvement #7: streaming support
@@ -1477,7 +1477,7 @@ async def _call_dmr_chat_internal(
                         # Skipped for CPU-pinned models: their loads don't
                         # need VRAM, and unload-all would abort the in-flight
                         # CPU load we're about to retry.
-                        logger.warning("DMR runner load failed for %s — healing GPU state", model)
+                        logger.warning("DMR runner load failed for %s — healing GPU state", sanitize_log_text(model, 120))
                         if not _model_is_cpu_pinned(model):
                             await _free_gpu_memory()
                         await _ensure_model_configured(model, force=True)

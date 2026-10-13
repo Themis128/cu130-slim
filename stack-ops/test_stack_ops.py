@@ -13,47 +13,38 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import stack_ops
-from stack_ops import (
-    HTTP_VERBS,
-    LISTENERS,
-    SERVICES,
-    api_handler,
-    handle_conn,
-    is_secondary_alias,
-    resolve_container,
-)
 
 
 class TestConfigIntegrity(unittest.TestCase):
     def test_every_listener_points_at_a_service(self):
-        for port, name in LISTENERS.items():
-            self.assertIn(name, SERVICES, f"listener :{port} -> missing {name}")
+        for port, name in stack_ops.LISTENERS.items():
+            self.assertIn(name, stack_ops.SERVICES, f"listener :{port} -> missing {name}")
 
     def test_every_service_has_host_port_target(self):
-        for name, svc in SERVICES.items():
+        for name, svc in stack_ops.SERVICES.items():
             host, _, port = svc["target"].rpartition(":")
             self.assertTrue(host, f"{name}: bad target {svc['target']}")
             self.assertTrue(port.isdigit(), f"{name}: bad target {svc['target']}")
 
     def test_every_group_dep_exists(self):
-        for name, svc in SERVICES.items():
+        for name, svc in stack_ops.SERVICES.items():
             for dep in svc.get("group", []):
-                self.assertIn(dep, SERVICES, f"{name}: missing dep {dep}")
+                self.assertIn(dep, stack_ops.SERVICES, f"{name}: missing dep {dep}")
 
     def test_every_service_has_positive_idle_min(self):
-        for name, svc in SERVICES.items():
+        for name, svc in stack_ops.SERVICES.items():
             self.assertGreater(svc.get("idle_min", 0), 0, name)
 
     def test_no_listener_port_collision(self):
-        self.assertEqual(len(LISTENERS), len(set(LISTENERS)))
+        self.assertEqual(len(stack_ops.LISTENERS), len(set(stack_ops.LISTENERS)))
 
     def test_alias_targets_use_same_container(self):
         # Aliases pointing at one container must not disagree about ports
         # that already exist as canonical listeners (except intentionally
         # remapped ports like comfyui's 8199 side-door).
         by_container = {}
-        for name, svc in SERVICES.items():
-            by_container.setdefault(resolve_container(name), set()).add(
+        for name, svc in stack_ops.SERVICES.items():
+            by_container.setdefault(stack_ops.resolve_container(name), set()).add(
                 svc["target"].rsplit(":", 1)[0])
         for container, hosts in by_container.items():
             self.assertEqual(len(hosts), 1,
@@ -66,23 +57,23 @@ class TestAliasResolution(unittest.TestCase):
         # differed from the key — comfyui's container is
         # social-media-comfyui-gpu, which is NOT another service key, so it
         # must stay managed (this was the auto-sleep gap).
-        self.assertEqual(resolve_container("comfyui"), "social-media-comfyui-gpu")
-        self.assertFalse(is_secondary_alias("comfyui"))
+        self.assertEqual(stack_ops.resolve_container("comfyui"), "social-media-comfyui-gpu")
+        self.assertFalse(stack_ops.is_secondary_alias("comfyui"))
 
     def test_novnc_ui_is_secondary_alias(self):
-        self.assertEqual(resolve_container("browser-novnc-ui"), "browser-novnc")
-        self.assertTrue(is_secondary_alias("browser-novnc-ui"))
+        self.assertEqual(stack_ops.resolve_container("browser-novnc-ui"), "browser-novnc")
+        self.assertTrue(stack_ops.is_secondary_alias("browser-novnc-ui"))
 
     def test_plain_service_and_unknown(self):
-        self.assertFalse(is_secondary_alias("languagetool"))
-        self.assertFalse(is_secondary_alias("nonexistent"))
-        self.assertEqual(resolve_container("nonexistent"), "nonexistent")
+        self.assertFalse(stack_ops.is_secondary_alias("languagetool"))
+        self.assertFalse(stack_ops.is_secondary_alias("nonexistent"))
+        self.assertEqual(stack_ops.resolve_container("nonexistent"), "nonexistent")
 
     def test_canonical_set_covers_all_containers(self):
-        canonical = {resolve_container(n)
-                     for n in SERVICES if not is_secondary_alias(n)}
-        for name in SERVICES:
-            self.assertIn(resolve_container(name), canonical)
+        canonical = {stack_ops.resolve_container(n)
+                     for n in stack_ops.SERVICES if not stack_ops.is_secondary_alias(n)}
+        for name in stack_ops.SERVICES:
+            self.assertIn(stack_ops.resolve_container(name), canonical)
 
 
 class TestWaitPagePredicate(unittest.TestCase):
@@ -92,10 +83,10 @@ class TestWaitPagePredicate(unittest.TestCase):
     def test_verbs_cover_common_methods(self):
         for verb in (b"GET ", b"POST", b"PUT ", b"HEAD", b"OPTI", b"DELE",
                      b"PATC"):
-            self.assertIn(verb, HTTP_VERBS)
+            self.assertIn(verb, stack_ops.HTTP_VERBS)
 
     def test_socks5_greeting_is_not_http(self):
-        self.assertNotIn(b"\x05\x01\x00"[:4], HTTP_VERBS)
+        self.assertNotIn(b"\x05\x01\x00"[:4], stack_ops.HTTP_VERBS)
 
 
 class TestTimestampParsing(unittest.TestCase):
@@ -113,7 +104,7 @@ class TestTimestampParsing(unittest.TestCase):
 
 
 class ApiTestBase(unittest.IsolatedAsyncioTestCase):
-    """Spin the real api_handler on an ephemeral port with docker faked."""
+    """Spin the real stack_ops.api_handler on an ephemeral port with docker faked."""
 
     async def _serve(self, handler, **patch_kwargs):
         self._docker_p = patch.object(stack_ops, "docker",
@@ -141,7 +132,7 @@ class ApiTestBase(unittest.IsolatedAsyncioTestCase):
 
 class TestControlApi(ApiTestBase):
     async def asyncSetUp(self):
-        await self._serve(api_handler)
+        await self._serve(stack_ops.api_handler)
 
     async def test_healthz(self):
         code, body = await self._req("GET", "/healthz")
@@ -163,7 +154,7 @@ class TestControlApi(ApiTestBase):
     async def test_status_returns_every_service(self):
         code, body = await self._req("GET", "/status")
         self.assertEqual(code, 200)
-        self.assertEqual(set(body), set(SERVICES))
+        self.assertEqual(set(body), set(stack_ops.SERVICES))
         for info in body.values():
             self.assertIn(info["state"],
                           ("running", "starting", "stopped", "missing"))
@@ -171,7 +162,7 @@ class TestControlApi(ApiTestBase):
 
 class TestControlApiFailures(ApiTestBase):
     async def asyncSetUp(self):
-        await self._serve(api_handler, sleep_service=False, wake=False)
+        await self._serve(stack_ops.api_handler, sleep_service=False, wake=False)
 
     async def test_sleep_failure_returns_500(self):
         # regression: /sleep used to report success unconditionally
@@ -195,7 +186,7 @@ class TestSleepAll(ApiTestBase):
         self._p = patch.object(stack_ops, "sleep_service", new=fake_sleep)
         self._p.start()
         self.addCleanup(self._p.stop)
-        await self._serve(api_handler)
+        await self._serve(stack_ops.api_handler)
 
     async def test_sleep_all_hits_canonical_only(self):
         code, body = await self._req("POST", "/sleep-all")
@@ -210,10 +201,10 @@ class TestSleepAll(ApiTestBase):
 
 class TestKeepawake(ApiTestBase):
     async def asyncSetUp(self):
-        await self._serve(api_handler)
+        await self._serve(stack_ops.api_handler)
 
     async def test_keepawake_keyed_by_container(self):
-        # regression: keepawake was stored under the alias, but the sleeper
+        # regression: stack_ops.keepawake was stored under the alias, but the sleeper
         # checks the container name — so /keepawake/comfyui never protected
         # social-media-comfyui-gpu.
         code, _ = await self._req("POST", "/keepawake/comfyui?ttl=600")
@@ -224,15 +215,15 @@ class TestKeepawake(ApiTestBase):
 
 
 class ProxyTestBase(unittest.IsolatedAsyncioTestCase):
-    """Drive handle_conn with a fake service + in-process echo upstream."""
+    """Drive stack_ops.handle_conn with a fake service + in-process echo upstream."""
 
     async def _proxy_to(self, svc_name="__test_svc__", **svc_over):
         svc = {"target": "127.0.0.1:1", "idle_min": 1}
         svc.update(svc_over)
-        SERVICES[svc_name] = svc
-        self.addCleanup(SERVICES.pop, svc_name)
+        stack_ops.SERVICES[svc_name] = svc
+        self.addCleanup(stack_ops.SERVICES.pop, svc_name)
         self._srv = await asyncio.start_server(
-            lambda r, w: handle_conn(r, w, svc_name), "127.0.0.1", 0)
+            lambda r, w: stack_ops.handle_conn(r, w, svc_name), "127.0.0.1", 0)
         self.addCleanup(self._srv.close)
         return self._srv.sockets[0].getsockname()[1]
 

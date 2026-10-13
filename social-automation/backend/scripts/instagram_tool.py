@@ -226,7 +226,7 @@ def main() -> None:
     args = ap.parse_args()
 
     coro = {
-        "accounts": lambda: cmd_accounts(),
+        "accounts": cmd_accounts,
         "me": lambda: cmd_me(args.account),
         "quota": lambda: cmd_quota(args.account),
         "insights": lambda: cmd_insights(args.account, args.days, args.metric),

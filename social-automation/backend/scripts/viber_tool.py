@@ -153,7 +153,7 @@ def main() -> None:
     args = ap.parse_args()
 
     coro = {
-        "accounts": lambda: cmd_accounts(),
+        "accounts": cmd_accounts,
         "info": lambda: cmd_info(args.account),
         "webhook": lambda: cmd_webhook(args.account),
         "online": lambda: cmd_online(args.account, args.user_ids),

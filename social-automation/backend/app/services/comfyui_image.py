@@ -26,6 +26,7 @@ import secrets
 import httpx
 
 from app.core.config import get_settings
+from app.core.log_sanitize import sanitize_log_text
 from app.services import stack_ops
 from app.services.comfyui_video import _cancel_prompt
 
@@ -160,7 +161,7 @@ async def generate_image(
         if not prompt_id:
             raise ComfyUIImageError(f"ComfyUI returned no prompt_id: {resp}")
 
-        logger.info("[comfyui-image] submitted prompt_id=%s (%dx%d)", prompt_id, width, height)
+        logger.info("[comfyui-image] submitted prompt_id=%s (%dx%d)", sanitize_log_text(prompt_id, 120), width, height)
 
         deadline = asyncio.get_event_loop().time() + timeout_s
         try:

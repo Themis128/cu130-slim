@@ -13,7 +13,6 @@ when ComfyUI/DMR GPU jobs are idle. CHECK the ComfyUI queue first.
 """
 import json
 import os
-import sys
 from pathlib import Path
 
 BASE_MODEL = "unsloth/Qwen3-4B-Instruct-2507-bnb-4bit"
@@ -127,4 +126,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 STACK_OPS_URL = os.environ.get("STACK_OPS_URL", "http://stack-ops:8787")
 _CACHE_TTL_S = 15.0
-_cache: tuple[float, dict[str, dict[str, Any]]] = (0.0, {})
+_cache: dict[str, Any] = {"ts": 0.0, "data": {}}
 
 
 async def statuses() -> dict[str, dict[str, Any]]:
@@ -29,20 +29,19 @@ async def statuses() -> dict[str, dict[str, Any]]:
     Fail-open: returns {} when stack-ops is unreachable so callers keep
     working on stacks without it.
     """
-    global _cache
-    ts, cached = _cache
-    if time.monotonic() - ts < _CACHE_TTL_S:
-        return cached
+    if time.monotonic() - _cache["ts"] < _CACHE_TTL_S:
+        return _cache["data"]
     try:
         async with httpx.AsyncClient(timeout=6.0) as client:
             resp = await client.get(f"{STACK_OPS_URL.rstrip('/')}/status")
             if resp.status_code == 200:
                 data = resp.json()
-                _cache = (time.monotonic(), data)
+                _cache["ts"] = time.monotonic()
+                _cache["data"] = data
                 return data
     except Exception as exc:  # stack-ops down — degrade silently
         logger.debug("stack-ops status unavailable: %s", exc)
-    return cached
+    return _cache["data"]
 
 
 async def service_state(container_name: str) -> str | None:
