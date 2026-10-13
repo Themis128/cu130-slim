@@ -1,5 +1,5 @@
 # Build stage
-FROM public.ecr.aws/docker/library/node:22-alpine AS builder
+FROM mirror.gcr.io/library/node:22-alpine AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM public.ecr.aws/docker/library/nginx:alpine
+FROM mirror.gcr.io/library/nginx:alpine
 
 # Install system dependencies and apply OS security patches
 RUN apk update && apk upgrade --available
