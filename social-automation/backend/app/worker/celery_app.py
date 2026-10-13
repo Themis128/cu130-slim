@@ -30,6 +30,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_session_refresh",
         "app.worker.tasks.whatsapp_verify",
         "app.worker.tasks.telegram_digest",
+        "app.worker.tasks.telegram_agent",
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -176,6 +177,7 @@ celery_app.conf.update(
         "app.worker.tasks.digest.send_daily_strategy_report": {"queue": "default"},
         "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
+        "app.worker.tasks.telegram_agent.run_channel_agent_daily": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
         "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
@@ -427,6 +429,15 @@ celery_app.conf.update(
         "check-whatsapp-verification": {
             "task": "app.worker.tasks.whatsapp_verify.check_whatsapp_verification",
             "schedule": crontab(minute="*/30"),  # every 30 minutes
+            "options": {"queue": "default"},
+        },
+        # Telegram channel agent — daily autopilot for the managed channel
+        # (supersedes the n8n cloudless-telegram-channel workflow): pillar
+        # content Mon/Wed/Fri, Sunday poll, adaptation from funnel analytics.
+        # Welcomes + join-request approvals are webhook-driven, not scheduled.
+        "telegram-channel-agent": {
+            "task": "app.worker.tasks.telegram_agent.run_channel_agent_daily",
+            "schedule": crontab(hour=11, minute=0),
             "options": {"queue": "default"},
         },
         # Telegram group digests → owner DM via Bot API sendMessage.

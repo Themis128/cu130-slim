@@ -531,6 +531,24 @@ class TelegramAPIClient:
         )
         return bool(result)
 
+    async def approve_chat_join_request(
+        self, chat_id: int | str, user_id: int
+    ) -> bool:
+        """Official ``approveChatJoinRequest`` — admit a pending join request."""
+        result = await self._call(
+            "approveChatJoinRequest", {"chat_id": chat_id, "user_id": user_id}
+        )
+        return bool(result)
+
+    async def decline_chat_join_request(
+        self, chat_id: int | str, user_id: int
+    ) -> bool:
+        """Official ``declineChatJoinRequest``."""
+        result = await self._call(
+            "declineChatJoinRequest", {"chat_id": chat_id, "user_id": user_id}
+        )
+        return bool(result)
+
 
 # Update types we subscribe to for group watch + auto-reply.
 # Docs: https://core.telegram.org/bots/api#update
@@ -539,8 +557,39 @@ TELEGRAM_ALLOWED_UPDATES = [
     "edited_message",
     "my_chat_member",
     "chat_member",
+    "chat_join_request",
     "callback_query",
 ]
+
+
+def extract_chat_join_request(update: dict[str, Any]) -> dict[str, Any] | None:
+    """Parse ``chat_join_request`` — a user asking to join a private chat.
+
+    Fired when an invite link with ``creates_join_request`` was used; the bot
+    must then approveChatJoinRequest or declineChatJoinRequest.
+    """
+    event = update.get("chat_join_request")
+    if not isinstance(event, dict):
+        return None
+    chat = event.get("chat") or {}
+    user = event.get("from") or {}
+    invite = event.get("invite_link") or {}
+    chat_id = chat.get("id")
+    user_id = user.get("id")
+    if chat_id is None or user_id is None:
+        return None
+    return {
+        "update_id": update.get("update_id"),
+        "chat_id": chat_id,
+        "chat_type": chat.get("type"),
+        "chat_title": chat.get("title") or chat.get("username") or "",
+        "user_id": user_id,
+        "username": user.get("username") or "",
+        "first_name": user.get("first_name") or "",
+        "bio": event.get("bio") or "",
+        "invite_link_name": invite.get("name") or "",
+        "invite_link": invite.get("invite_link") or "",
+    }
 
 
 def extract_inbound_text_update(update: dict[str, Any]) -> dict[str, Any] | None:
