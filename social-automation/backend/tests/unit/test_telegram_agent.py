@@ -254,6 +254,7 @@ async def test_sunday_poll(monkeypatch):
     monkeypatch.setattr(TA, "_bot_token", lambda a: "tok")
     # Sunday 2026-10-18, ISO week 42
     monkeypatch.setattr(TA, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 10, 18, 11, tzinfo=UTC)))
+    monkeypatch.setattr(TA, "_generate_poll", AsyncMock(return_value=None))  # static fallback
     acct = _account(meta={"telegram_channel": _managed()})
     out = await TA.run_channel_agent(acct, _DB())
     assert "poll" in out
@@ -263,6 +264,61 @@ async def test_sunday_poll(monkeypatch):
     # Second call same week → no duplicate poll
     out2 = await TA.run_channel_agent(acct, _DB())
     assert "poll" not in out2
+
+
+@pytest.mark.asyncio
+async def test_sunday_poll_dmr_generated(monkeypatch):
+    """polls_ai default on → DMR question/options win over the static rotation."""
+    holder, factory = _client_holder()
+    monkeypatch.setattr(TA, "TelegramAPIClient", factory)
+    monkeypatch.setattr(TA, "_bot_token", lambda a: "tok")
+    monkeypatch.setattr(TA, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 10, 18, 11, tzinfo=UTC)))
+    monkeypatch.setattr(
+        TA, "_generate_poll", AsyncMock(return_value=("AI question?", ["Yes", "No", "Maybe"]))
+    )
+    acct = _account(meta={"telegram_channel": _managed()})
+    out = await TA.run_channel_agent(acct, _DB())
+    kind, _, question, options = holder["client"].sent[0]
+    assert kind == "poll"
+    assert question == "AI question?" and options == ["Yes", "No", "Maybe"]
+    assert out["poll"] == "AI question?"
+
+
+@pytest.mark.asyncio
+async def test_sunday_poll_dmr_disabled_uses_rotation(monkeypatch):
+    """cfg polls_ai=false → static POLLS rotation, _generate_poll never called."""
+    holder, factory = _client_holder()
+    monkeypatch.setattr(TA, "TelegramAPIClient", factory)
+    monkeypatch.setattr(TA, "_bot_token", lambda a: "tok")
+    monkeypatch.setattr(TA, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 10, 18, 11, tzinfo=UTC)))
+    gen = AsyncMock(return_value=("unused", ["a", "b"]))
+    monkeypatch.setattr(TA, "_generate_poll", gen)
+    acct = _account(meta={"telegram_channel": _managed(),
+                          "telegram_agent": {"polls_ai": False}})
+    out = await TA.run_channel_agent(acct, _DB())
+    assert "poll" in out
+    gen.assert_not_called()
+    _, _, question, options = holder["client"].sent[0]
+    assert question != "unused"
+    expected_q, expected_opts = TA.POLLS[42 % len(TA.POLLS)]
+    assert question == expected_q and options == expected_opts
+
+
+@pytest.mark.asyncio
+async def test_generate_poll_validates_payload():
+    """_generate_poll returns None on empty/garbage payloads."""
+    acct = _account()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(TA, "call_inference", AsyncMock(return_value={"question": "", "options": []}))
+        assert await TA._generate_poll(_DB(), acct) is None
+        mp.setattr(TA, "call_inference", AsyncMock(side_effect=RuntimeError("dmr down")))
+        assert await TA._generate_poll(_DB(), acct) is None
+        mp.setattr(
+            TA, "call_inference",
+            AsyncMock(return_value={"question": " Q? ", "options": [" a ", "", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]}),
+        )
+        q, opts = await TA._generate_poll(_DB(), acct)
+        assert q == "Q?" and len(opts) == 10  # trimmed + capped at Telegram's 10
 
 
 @pytest.mark.asyncio

@@ -329,16 +329,49 @@ async def _generate_copy(db: AsyncSession, account: SocialAccount, prompt: str) 
     return (quality.content or content).strip()
 
 
+async def _generate_poll(
+    db: AsyncSession, account: SocialAccount
+) -> tuple[str, list[str]] | None:
+    """DMR-written poll via ``_POLL_SCHEMA``; ``None`` → caller uses POLLS."""
+    try:
+        result = await call_inference(
+            "Write one engagement poll for a cloud-automation Telegram channel "
+            "aimed at founders and ops engineers. Return JSON with 'question' "
+            "(one short question) and 'options' (3-4 short answer choices). "
+            "Plain English, no emojis in options.",
+            provider_name="dmr",
+            db=db,
+            team_id=account.team_id,
+            schema=_POLL_SCHEMA,
+            platform="telegram",
+        )
+    except Exception:  # noqa: BLE001 — inference failure falls back to rotation
+        return None
+    question = str(result.get("question") or "").strip()
+    options = [str(o).strip() for o in (result.get("options") or []) if str(o).strip()]
+    if not question or len(options) < 2:
+        return None
+    return question, options[:10]
+
+
 async def _weekly_poll(
-    client: TelegramAPIClient, chat_id: Any, cfg: dict[str, Any], now: datetime
+    client: TelegramAPIClient,
+    chat_id: Any,
+    cfg: dict[str, Any],
+    now: datetime,
+    db: AsyncSession | None = None,
+    account: SocialAccount | None = None,
 ) -> dict[str, Any] | None:
-    """Sunday poll — rotates through POLLS; DMR may rewrite the question."""
+    """Sunday poll — DMR-written when enabled, POLLS rotation as fallback."""
     if not cfg.get("polls_enabled", True):
         return None
     week = int(now.strftime("%V"))
     if cfg.get("last_poll_week") == week:
         return None  # already sent this ISO week
     question, options = POLLS[week % len(POLLS)]
+    if db is not None and account is not None and cfg.get("polls_ai", True):
+        if generated := await _generate_poll(db, account):
+            question, options = generated
     await client.send_poll(chat_id, question, options)
     cfg["last_poll_week"] = week
     return {"kind": "poll", "question": question}
@@ -361,7 +394,7 @@ async def run_channel_agent(account: SocialAccount, db: AsyncSession) -> dict[st
 
     # Sunday = poll day, no feed post.
     if now.weekday() == 6:
-        poll = await _weekly_poll(client, chat_id, cfg, now)
+        poll = await _weekly_poll(client, chat_id, cfg, now, db, account)
         if poll:
             out["poll"] = poll["question"]
         _save_cfg(account, cfg)
