@@ -206,10 +206,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/content/media/upload` — POST
 - `/api/v1/content/media/{media_id}` — DELETE
 - `/api/v1/content/pillars` — GET, POST
-- `/api/v1/content/pillars/{pillar_id}` — DELETE, PATCH
+- `/api/v1/content/pillars/{pillar_id}` — PATCH, DELETE
 - `/api/v1/content/posts` — GET, POST
 - `/api/v1/content/posts/calendar` — GET
-- `/api/v1/content/posts/{post_id}` — GET, DELETE, PATCH
+- `/api/v1/content/posts/{post_id}` — GET, PATCH, DELETE
 - `/api/v1/content/posts/{post_id}/approve` — POST
 - `/api/v1/content/posts/{post_id}/comments` — POST
 - `/api/v1/content/posts/{post_id}/cross-post` — POST
@@ -225,7 +225,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/digital-cards/from-brand` — POST
 - `/api/v1/digital-cards/public/{token}` — GET
 - `/api/v1/digital-cards/public/{token}/track` — POST
-- `/api/v1/digital-cards/{card_id}` — GET, DELETE, PATCH
+- `/api/v1/digital-cards/{card_id}` — GET, PATCH, DELETE
 - `/api/v1/digital-cards/{card_id}/send` — POST
 - `/api/v1/digital-cards/{card_id}/vcard` — GET
 
@@ -283,11 +283,11 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/media/assets` — GET
 - `/api/v1/media/assets/bulk-delete` — POST
-- `/api/v1/media/assets/{asset_id}` — GET, DELETE, PATCH
+- `/api/v1/media/assets/{asset_id}` — GET, PATCH, DELETE
 - `/api/v1/media/assets/{asset_id}/similar` — GET
 - `/api/v1/media/assets/{asset_id}/tag` — POST
 - `/api/v1/media/collections` — GET, POST
-- `/api/v1/media/collections/{collection_id}` — GET, DELETE, PATCH
+- `/api/v1/media/collections/{collection_id}` — GET, PATCH, DELETE
 - `/api/v1/media/collections/{collection_id}/assets` — POST
 - `/api/v1/media/collections/{collection_id}/assets/{asset_id}` — DELETE
 - `/api/v1/media/enhance/assets/{asset_id}/alt-text` — POST
@@ -360,6 +360,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/ops/console` — GET
 - `/api/v1/ops/daily-digest` — POST
 - `/api/v1/ops/daily-digest/preview` — GET
+- `/api/v1/ops/monetization-report` — POST
 - `/api/v1/ops/paddle-digest` — POST
 - `/api/v1/ops/paddle-digest/preview` — GET
 - `/api/v1/ops/session-heal` — POST
@@ -422,9 +423,9 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/teams` — GET, POST
 - `/api/v1/teams/accept-invite` — POST
-- `/api/v1/teams/{team_id}` — GET, DELETE, PATCH
+- `/api/v1/teams/{team_id}` — GET, PATCH, DELETE
 - `/api/v1/teams/{team_id}/invite` — POST
-- `/api/v1/teams/{team_id}/members/{user_id}` — POST, DELETE, PATCH
+- `/api/v1/teams/{team_id}/members/{user_id}` — POST, PATCH, DELETE
 
 ## `telegram`
 
@@ -436,8 +437,8 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/telegram/{account_id}/bot/create` — POST
 - `/api/v1/telegram/{account_id}/bot/deactivate` — POST
 - `/api/v1/telegram/{account_id}/bot/personalities` — GET
-- `/api/v1/telegram/{account_id}/channels` — GET
 - `/api/v1/telegram/{account_id}/channel-config` — GET, PUT
+- `/api/v1/telegram/{account_id}/channels` — GET
 - `/api/v1/telegram/{account_id}/chat-admins` — GET
 - `/api/v1/telegram/{account_id}/chat-description` — PUT
 - `/api/v1/telegram/{account_id}/chat-info` — GET
@@ -566,13 +567,13 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/workflows` — GET
 - `/api/v1/workflows/content-templates` — GET, POST
-- `/api/v1/workflows/content-templates/{template_id}` — DELETE, PATCH
+- `/api/v1/workflows/content-templates/{template_id}` — PATCH, DELETE
 - `/api/v1/workflows/deploy/{workflow_id}` — POST
 - `/api/v1/workflows/execute/{workflow_id}` — POST
 - `/api/v1/workflows/generate` — POST
 - `/api/v1/workflows/import-cloudless-carousel` — POST
 - `/api/v1/workflows/templates` — GET, POST
-- `/api/v1/workflows/templates/{template_id}` — GET, DELETE, PATCH
+- `/api/v1/workflows/templates/{template_id}` — GET, PATCH, DELETE
 - `/api/v1/workflows/{workflow_id}` — GET, DELETE
 - `/api/v1/workflows/{workflow_id}/executions` — GET
 - `/api/v1/workflows/{workflow_id}/undeploy` — POST
