@@ -256,3 +256,28 @@ async def test_deliver_manifest_attachments(monkeypatch, tmp_path):
     kwargs = sent.await_args.kwargs
     assert kwargs["attachments"][0]["data"] == b"png"
     assert kwargs["attachments"][0]["cid"] == "c1"
+
+
+def test_notebook_fallback_mapping_uses_monetization_code_path():
+    # A monetization notebook failure must fall back to the monetization
+    # code path — never silently substitute a strategy brief.
+    assert NR._CODE_FALLBACKS["monetization_daily"] is NR._fallback_monetization
+    assert NR._CODE_FALLBACKS["daily_strategy_brief"] is NR._fallback_strategy
+
+
+def test_notebook_report_monetization_fallback(monkeypatch):
+    import app.services.notebook_runner as runner
+
+    monkeypatch.setattr(runner, "run_report_notebook",
+                        lambda nb, p: (_ for _ in ()).throw(RuntimeError("kernel died")))
+    seen = {}
+
+    def _fake_run_async(coro):
+        seen["coro"] = coro
+        coro.close()
+        return {"ok": True}
+
+    monkeypatch.setattr(NR, "run_async", _fake_run_async)
+    out = NR.run_notebook_report("monetization_daily", fallback_to_code=True)
+    assert out["executed"] is False
+    assert seen["coro"].cr_code == NR._fallback_monetization.__code__

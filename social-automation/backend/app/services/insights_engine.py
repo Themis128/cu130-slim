@@ -255,6 +255,24 @@ def _count_resets(points: list[tuple[datetime, int, int]]) -> int:
     )
 
 
+def _counter_deltas(series: list[int]) -> list[int]:
+    """Per-interval deltas of a cumulative counter, reset-aware.
+
+    A decrease means the counter reset (post deleted, stat correction,
+    API weirdness) — the correct interval delta is the new counter value,
+    not 0 (clipping throws away everything counted that day) and not the
+    negative diff (nonsense). Returns a list aligned with ``series``
+    (first element is the initial reading).
+    """
+    out: list[int] = []
+    for i, v in enumerate(series):
+        if i == 0 or v >= series[i - 1]:
+            out.append(v if i == 0 else v - series[i - 1])
+        else:
+            out.append(v)
+    return out
+
+
 def _follower_anomaly(series: list[tuple[datetime, int]]) -> dict[str, Any] | None:
     """Largest single-step follower change that beats the anomaly floor."""
     worst: dict[str, Any] | None = None
