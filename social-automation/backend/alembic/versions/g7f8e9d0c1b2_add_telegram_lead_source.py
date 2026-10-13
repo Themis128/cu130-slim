@@ -22,8 +22,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Postgres cannot drop enum values — rebuild the type instead.
+    # Existing telegram_dm rows would fail the cast, so re-tag them as
+    # generic website leads first (keeps the lead, loses only the source).
     op.execute(
         """
+        UPDATE leads SET source = 'website' WHERE source = 'telegram_dm';
         ALTER TYPE leadsource RENAME TO leadsource_old;
         CREATE TYPE leadsource AS ENUM (
             'whatsapp_flow','whatsapp_dm','facebook_messenger','instagram_dm','website'

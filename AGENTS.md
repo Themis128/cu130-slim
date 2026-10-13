@@ -215,6 +215,8 @@ SocialAuto supports seven feed platforms (OAuth, publishing, analytics, token re
 
 Feed-platform DMs and messaging channels share a unified bot reply engine in `app/services/messenger_chatbot.py` (`generate_contextual_reply`). WhatsApp uses `app/services/whatsapp_chatbot.py`; Telegram Bot API uses `app/services/telegram_chatbot.py` (webhook inbound, `chat_id` threads).
 
+**Telegram DM lead funnel:** the channel agent's offer posts carry a `t.me/<bot>?start=audit` deep link plus UTM-tagged site CTAs; `/start audit` in the bot DM runs the shared lead-capture FSM (`lead_capture.py`, source `telegram_dm`) → Lead row → owner alert. Lead prompts honor `telegram_auto_reply.enabled` and paused threads, roll the Redis session back on failed sends, and re-ask on stale button taps. Owner linking (`/linkowner`, `/start linkowner`, or a bare `/start` only while unlinked) can never be hijacked by funnel deep links — see `docs/superpowers/guides/12-telegram-bot.md`.
+
 **Reply pipeline (per inbound message):**
 1. **Deterministic pricing safeguard** — keyword detection (English + Greek) intercepts pricing questions before the LLM and returns a hardcoded response directing to `cloudless.gr` for a free audit. Prevents the 8B model from hallucinating specific euro amounts.
 2. **Intent detection** — classifies as business, personal, question, spam, or greeting (DMR → CF fallback).

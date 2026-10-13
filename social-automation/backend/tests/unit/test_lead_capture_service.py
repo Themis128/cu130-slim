@@ -304,3 +304,76 @@ class TestFallbacks:
         r.fail_close = True
         out, _ = await _call(r, text="", payload="GET_STARTED")
         assert out is not None
+
+
+class TestStaleButtons:
+    """Telegram keeps old inline keyboards live — a tap on a button from a
+    previous step must re-ask the current question, not count as an invalid
+    answer (two counted misses close the session)."""
+
+    @pytest.mark.asyncio
+    async def test_size_button_during_interest_reasks(self, monkeypatch):
+        r = _redis(monkeypatch)
+        state = {"step": "interest", "fields": {"name": "J", "email": "j@x.co"}}
+        out, stored = await _call(r, payload="LEAD_SIZE_SOLO", state=state)
+        assert "interested" in out.text.lower()
+        assert out.quick_replies  # interest buttons re-sent
+        # Session preserved, still on interest, no attempts counted
+        st = json.loads(stored)
+        assert st["step"] == "interest"
+        assert st["fields"]["email"] == "j@x.co"
+        assert "attempts" not in st
+
+    @pytest.mark.asyncio
+    async def test_interest_button_during_size_reasks(self, monkeypatch):
+        r = _redis(monkeypatch)
+        state = {"step": "company_size", "fields": {"name": "J"}}
+        out, stored = await _call(r, payload="LEAD_INTEREST_CLOUD", state=state)
+        assert "size" in out.text.lower()
+        st = json.loads(stored)
+        assert st["step"] == "company_size"
+        assert "attempts" not in st
+
+    @pytest.mark.asyncio
+    async def test_matching_step_payload_still_advances(self, monkeypatch):
+        r = _redis(monkeypatch)
+        out, stored = await _call(
+            r, payload="LEAD_SIZE_SOLO", state={"step": "company_size", "fields": {}}
+        )
+        assert "interested" in out.text.lower()
+        assert json.loads(stored)["step"] == "interest"
+
+    @pytest.mark.asyncio
+    async def test_lead_payload_during_name_step_reasks(self, monkeypatch):
+        r = _redis(monkeypatch)
+        out, stored = await _call(
+            r, payload="LEAD_SIZE_SOLO", state={"step": "name", "fields": {}}
+        )
+        assert "name" in out.text.lower()
+        assert json.loads(stored)["step"] == "name"
+
+
+class TestSessionSnapshot:
+    @pytest.mark.asyncio
+    async def test_snapshot_restore_roundtrip(self, monkeypatch):
+        r = _redis(monkeypatch)
+        team = uuid.uuid4()
+        key = f"lead:capture:telegram_dm:{team}:chat9"
+        r.store[key] = '{"step": "email", "fields": {"name": "J"}}'
+
+        snap = await LC.snapshot_lead_session(LeadSource.telegram_dm, team, "chat9")
+        assert snap == '{"step": "email", "fields": {"name": "J"}}'
+
+        # simulate FSM advancing, then restore
+        r.store[key] = '{"step": "company_size"}'
+        await LC.restore_lead_session(LeadSource.telegram_dm, team, "chat9", snap)
+        assert r.store[key] == snap
+
+        # empty snapshot clears the key
+        await LC.restore_lead_session(LeadSource.telegram_dm, team, "chat9", None)
+        assert key not in r.store
+
+    @pytest.mark.asyncio
+    async def test_snapshot_empty_returns_none(self, monkeypatch):
+        _redis(monkeypatch)
+        assert await LC.snapshot_lead_session(LeadSource.telegram_dm, uuid.uuid4(), "nope") is None

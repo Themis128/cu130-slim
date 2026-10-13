@@ -149,6 +149,49 @@ async def _run_lead_capture(
     )
 
 
+async def _lead_enabled_and_active(
+    account: SocialAccount, chat_id: Any, meta: dict[str, Any]
+) -> bool:
+    """Lead prompts are bot automation: they honor the same master switch
+    (``telegram_auto_reply.enabled`` — set by deactivate_bot) and the
+    operator's human-handoff pause, exactly like the chatbot does."""
+    auto_reply = meta.get("telegram_auto_reply", {})
+    if not auto_reply.get("enabled", False):
+        return False
+    try:
+        from app.services.telegram_chatbot import is_thread_paused
+
+        return not await is_thread_paused(str(account.id), str(chat_id))
+    except Exception:  # noqa: BLE001 — pause check fails open like is_thread_paused
+        return True
+
+
+async def _deliver_lead_reply(
+    client: Any,
+    account: SocialAccount,
+    chat_id: Any,
+    lead_reply: Any,
+    snapshot: str | None,
+) -> bool:
+    """Send the FSM's reply; on Telegram failure restore the pre-handle
+    session so the user is re-asked the question they never saw."""
+    from app.models.lead import LeadSource
+    from app.services.lead_capture import restore_lead_session
+
+    markup = _lead_markup(lead_reply)
+    try:
+        if markup:
+            await client.send_message_with_markup(chat_id, lead_reply.text, markup)
+        else:
+            await client.send_message(chat_id, lead_reply.text)
+        return True
+    except TelegramAPIError:
+        await restore_lead_session(
+            LeadSource.telegram_dm, account.team_id, str(chat_id), snapshot
+        )
+        raise
+
+
 def _lead_markup(reply: Any) -> dict[str, Any] | None:
     """Map Messenger-style quick_replies to a Telegram inline keyboard."""
     qrs = getattr(reply, "quick_replies", None) or []
@@ -1761,7 +1804,17 @@ async def receive_webhook(
 
             # LEAD_* button taps advance the lead-capture FSM for that DM.
             data = str(callback.get("data") or "")
-            if data.startswith("LEAD_") and callback.get("chat_id"):
+            if (
+                data.startswith("LEAD_")
+                and callback.get("chat_id")
+                and await _lead_enabled_and_active(account, callback["chat_id"], meta)
+            ):
+                from app.models.lead import LeadSource
+                from app.services.lead_capture import snapshot_lead_session
+
+                snapshot = await snapshot_lead_session(
+                    LeadSource.telegram_dm, account.team_id, str(callback["chat_id"])
+                )
                 lead_reply = await _run_lead_capture(
                     db,
                     account,
@@ -1773,13 +1826,9 @@ async def receive_webhook(
                     payload=data,
                 )
                 if lead_reply:
-                    markup = _lead_markup(lead_reply)
-                    if markup:
-                        await client.send_message_with_markup(
-                            callback["chat_id"], lead_reply.text, markup
-                        )
-                    else:
-                        await client.send_message(callback["chat_id"], lead_reply.text)
+                    await _deliver_lead_reply(
+                        client, account, callback["chat_id"], lead_reply, snapshot
+                    )
                     response["lead_capture"] = True
                     if lead_reply.completed_lead_id:
                         response["lead_id"] = str(lead_reply.completed_lead_id)
@@ -1876,22 +1925,32 @@ async def receive_webhook(
     # audit" hits is_lead_capture_trigger via the "audit" keyword. Reuses the
     # Messenger/Instagram state machine; LEAD_* button taps come back through
     # the callback_query branch below.
-    if inbound.get("chat_type") == "private":
+    if inbound.get("chat_type") == "private" and inbound.get("chat_id") and await _lead_enabled_and_active(
+        account, inbound["chat_id"], meta
+    ):
         try:
+            from app.models.lead import LeadSource
+            from app.services.lead_capture import snapshot_lead_session
+
+            snapshot = await snapshot_lead_session(
+                LeadSource.telegram_dm, account.team_id, str(inbound["chat_id"])
+            )
             lead_reply = await _run_lead_capture(db, account, inbound, payload="")
             if lead_reply:
                 client = _client_for(account)
-                markup = _lead_markup(lead_reply)
-                if markup:
-                    await client.send_message_with_markup(
-                        inbound["chat_id"], lead_reply.text, markup
-                    )
-                else:
-                    await client.send_message(inbound["chat_id"], lead_reply.text)
+                await _deliver_lead_reply(
+                    client, account, inbound["chat_id"], lead_reply, snapshot
+                )
                 response["lead_capture"] = True
                 if lead_reply.completed_lead_id:
                     response["lead_id"] = str(lead_reply.completed_lead_id)
                 return response
+        except TelegramAPIError:
+            # Session rolled back by _deliver_lead_reply — the user's next
+            # message re-asks the step they never saw. Don't hand the same
+            # update to the chatbot (its send would likely fail too).
+            response["lead_send_failed"] = True
+            return response
         except Exception as exc:  # noqa: BLE001 — lead flow never blocks the bot
             logger.debug(
                 "Telegram lead capture failed account=%s: %s",

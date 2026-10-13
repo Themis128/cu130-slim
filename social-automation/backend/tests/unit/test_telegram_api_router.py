@@ -1155,7 +1155,11 @@ async def test_webhook_auto_reply_paths(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_webhook_lead_capture_private_dm(monkeypatch):
-    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": True},
+    })
     client = _patch_client(monkeypatch)
     _wh_patches(
         monkeypatch,
@@ -1166,6 +1170,8 @@ async def test_webhook_lead_capture_private_dm(monkeypatch):
         quick_replies=[{"title": "Solo", "payload": "LEAD_SIZE_SOLO"}],
         completed_lead_id=None,
     )
+    import app.services.lead_capture as lc_mod
+    monkeypatch.setattr(lc_mod, "snapshot_lead_session", AsyncMock(return_value=None))
     monkeypatch.setattr(telegram, "_run_lead_capture", AsyncMock(return_value=reply))
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["lead_capture"] is True
@@ -1177,7 +1183,11 @@ async def test_webhook_lead_capture_private_dm(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_webhook_lead_callback_advances_fsm(monkeypatch):
-    acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": True},
+    })
     client = _patch_client(monkeypatch, _FakeClient(answer_callback_query=AsyncMock(return_value=True)))
     _wh_patches(
         monkeypatch,
@@ -1194,6 +1204,8 @@ async def test_webhook_lead_callback_advances_fsm(monkeypatch):
         completed_lead_id="lead-1",
     )
     fsm = AsyncMock(return_value=reply)
+    import app.services.lead_capture as lc_mod
+    monkeypatch.setattr(lc_mod, "snapshot_lead_session", AsyncMock(return_value=None))
     monkeypatch.setattr(telegram, "_run_lead_capture", fsm)
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["callback_answered"] is True
@@ -1219,6 +1231,109 @@ async def test_webhook_lead_fallthrough_to_autoreply(monkeypatch):
     monkeypatch.setattr(telegram, "_run_lead_capture", AsyncMock(return_value=None))
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["auto_reply"] is False  # reached the auto-reply gate
+
+
+@pytest.mark.asyncio
+async def test_webhook_lead_disabled_bot_skips_fsm(monkeypatch):
+    """deactivate_bot (auto_reply.enabled=false) must also stop lead prompts —
+    a trigger message like '/start audit' gets no automated FSM reply."""
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": False},
+    })
+    _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "/start audit", "chat_type": "private", "chat_id": 7},
+    )
+    fsm = AsyncMock()
+    monkeypatch.setattr(telegram, "_run_lead_capture", fsm)
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    fsm.assert_not_called()
+    assert "lead_capture" not in out
+    assert out["auto_reply"] is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_lead_paused_thread_skips_fsm(monkeypatch):
+    """A thread paused for human handoff gets no lead prompts."""
+    import app.services.telegram_chatbot as chatbot_mod
+
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": True},
+    })
+    _patch_client(monkeypatch)
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "audit", "chat_type": "private", "chat_id": 7},
+    )
+    monkeypatch.setattr(chatbot_mod, "is_thread_paused", AsyncMock(return_value=True))
+    fsm = AsyncMock()
+    monkeypatch.setattr(telegram, "_run_lead_capture", fsm)
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    fsm.assert_not_called()
+    assert "lead_capture" not in out
+
+
+@pytest.mark.asyncio
+async def test_webhook_lead_send_failure_restores_session(monkeypatch):
+    """If the prompt send fails, the pre-handle Redis session is restored so
+    the user's next message re-asks the step they never saw — and the update
+    is NOT handed to the chatbot."""
+    import app.services.lead_capture as lc_mod
+
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": True},
+    })
+    client = _patch_client(
+        monkeypatch,
+        _FakeClient(send_message=telegram.TelegramAPIError(500, "telegram down")),
+    )
+    _wh_patches(
+        monkeypatch,
+        extract_inbound_text_update=lambda u: {"text": "jane@x.co", "chat_type": "private", "chat_id": 7},
+    )
+    monkeypatch.setattr(lc_mod, "snapshot_lead_session", AsyncMock(return_value='{"step": "email"}'))
+    restore = AsyncMock()
+    monkeypatch.setattr(lc_mod, "restore_lead_session", restore)
+    reply = SimpleNamespace(text="Company size?", quick_replies=None, completed_lead_id=None)
+    monkeypatch.setattr(telegram, "_run_lead_capture", AsyncMock(return_value=reply))
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["lead_send_failed"] is True
+    restore.assert_awaited_once()
+    assert restore.await_args.args[3] == '{"step": "email"}'
+    client.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_webhook_lead_callback_disabled_skips(monkeypatch):
+    """LEAD_* callback taps are ignored when the bot is deactivated."""
+    acc = _tg_account(meta_data={
+        "bot_token_enc": "e",
+        "bot_username": "b",
+        "telegram_auto_reply": {"enabled": False},
+    })
+    _patch_client(monkeypatch, _FakeClient(answer_callback_query=AsyncMock(return_value=True)))
+    _wh_patches(
+        monkeypatch,
+        extract_callback_query=lambda u: {
+            "callback_id": "cb9",
+            "data": "LEAD_INTEREST_AUDIT",
+            "chat_id": 7,
+            "from_user_id": 42,
+        },
+    )
+    fsm = AsyncMock()
+    monkeypatch.setattr(telegram, "_run_lead_capture", fsm)
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
+    assert out["callback_answered"] is True
+    fsm.assert_not_called()
+    assert "lead_capture" not in out
 
 
 # ── channel administration ────────────────────────────────────────────

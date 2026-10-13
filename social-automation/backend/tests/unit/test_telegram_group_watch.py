@@ -448,6 +448,56 @@ async def test_owner_link_command():
 
 
 @pytest.mark.asyncio
+async def test_owner_link_hijack_protection():
+    """Channel-CTA deep links and stranger /start must never rebind
+    owner_chat_id (they'd route private group alerts to a random reader)."""
+    client = SimpleNamespace(send_message=AsyncMock())
+    owner_cfg = {"owner_chat_id": "777", "enabled": True}
+
+    # /start with a funnel payload → never a link command
+    cfg, ok = await gw.handle_owner_link_command(
+        client=client,
+        inbound={"chat_type": "private", "chat_id": 999, "text": "/start audit"},
+        cfg=owner_cfg)
+    assert ok is False and cfg["owner_chat_id"] == "777"
+
+    # /start with any other payload → not a link either
+    cfg, ok = await gw.handle_owner_link_command(
+        client=client,
+        inbound={"chat_type": "private", "chat_id": 999, "text": "/start foo"},
+        cfg={})
+    assert ok is False and "owner_chat_id" not in cfg
+
+    # Bare /start while owner is linked to a different chat → ignored
+    cfg, ok = await gw.handle_owner_link_command(
+        client=client,
+        inbound={"chat_type": "private", "chat_id": 999, "text": "/start"},
+        cfg=owner_cfg)
+    assert ok is False and cfg["owner_chat_id"] == "777"
+
+    # Bare /start while unlinked → still binds (owner onboarding)
+    cfg, ok = await gw.handle_owner_link_command(
+        client=client,
+        inbound={"chat_type": "private", "chat_id": 999, "text": "/start"},
+        cfg={})
+    assert ok and cfg["owner_chat_id"] == "999"
+
+    # Explicit /start linkowner relinks even when an owner exists
+    cfg, ok = await gw.handle_owner_link_command(
+        client=client,
+        inbound={"chat_type": "private", "chat_id": 555, "text": "/start linkowner"},
+        cfg=owner_cfg, bot_username="b")
+    assert ok and cfg["owner_chat_id"] == "555"
+
+    # Same-owner bare /start → idempotent "Already linked" path
+    cfg, ok = await gw.handle_owner_link_command(
+        client=client,
+        inbound={"chat_type": "private", "chat_id": 777, "text": "/start"},
+        cfg=owner_cfg, bot_username="b")
+    assert ok and cfg["owner_chat_id"] == "777"
+
+
+@pytest.mark.asyncio
 async def test_mistaken_botfather_command():
     client = SimpleNamespace(send_message=AsyncMock())
     # non-private / non-cmd / non-botfather cmd → False

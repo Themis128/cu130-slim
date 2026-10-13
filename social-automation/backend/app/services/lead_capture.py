@@ -75,6 +75,64 @@ def _lead_prompts(*, greek: bool) -> dict[str, str]:
     }
 
 
+def _session_key(source: LeadSource, team_id: uuid.UUID, thread_id: str) -> str:
+    return f"lead:capture:{source.value}:{team_id}:{thread_id}"
+
+
+async def snapshot_lead_session(
+    source: LeadSource, team_id: uuid.UUID, thread_id: str
+) -> str | None:
+    """Return the raw Redis session for this thread (None when absent).
+
+    Callers that must deliver the FSM's reply over a fallible transport
+    (Telegram send) snapshot before handling and restore on send failure —
+    otherwise a failed send strands the user on a step they never saw.
+    """
+    settings = get_settings()
+    redis_url = getattr(settings, "MESSENGER_REDIS_URL", None) or settings.REDIS_URL
+    import redis.asyncio as aioredis
+
+    r = aioredis.from_url(redis_url, decode_responses=True)
+    try:
+        return await r.get(_session_key(source, team_id, thread_id))
+    finally:
+        try:
+            await r.aclose()
+        except Exception:
+            pass
+
+
+async def restore_lead_session(
+    source: LeadSource, team_id: uuid.UUID, thread_id: str, raw: str | None
+) -> None:
+    """Write a session snapshot back (or clear it when raw is None)."""
+    settings = get_settings()
+    redis_url = getattr(settings, "MESSENGER_REDIS_URL", None) or settings.REDIS_URL
+    import redis.asyncio as aioredis
+
+    r = aioredis.from_url(redis_url, decode_responses=True)
+    try:
+        key = _session_key(source, team_id, thread_id)
+        if raw is None:
+            await r.delete(key)
+        else:
+            await r.setex(key, 3600, raw)
+    finally:
+        try:
+            await r.aclose()
+        except Exception:
+            pass
+
+
+# Payload prefixes valid per FSM step. Telegram keeps old inline keyboards
+# alive — a tap on a stale button must re-ask the current question, not
+# count as an invalid answer (two counted misses close the session).
+_STEP_PAYLOAD_PREFIX: dict[str, str] = {
+    LeadCaptureStep.company_size: "LEAD_SIZE_",
+    LeadCaptureStep.interest: "LEAD_INTEREST_",
+}
+
+
 def _interest_quick_replies(*, greek: bool) -> list[dict[str, Any]]:
     if greek:
         return [
@@ -87,6 +145,24 @@ def _interest_quick_replies(*, greek: bool) -> list[dict[str, Any]]:
         {"content_type": "text", "title": "Growth", "payload": "LEAD_INTEREST_GROWTH"},
         {"content_type": "text", "title": "Free audit", "payload": "LEAD_INTEREST_AUDIT"},
     ]
+
+
+def _step_prompt(step: str, *, greek: bool) -> LeadCaptureReply:
+    """Re-emit the question for the current step (stale-button recovery)."""
+    prompts = _lead_prompts(greek=greek)
+    if step == LeadCaptureStep.email:
+        return LeadCaptureReply(text=prompts["ask_email"])
+    if step == LeadCaptureStep.company_size:
+        return LeadCaptureReply(
+            text=prompts["ask_company_size"],
+            quick_replies=_company_size_quick_replies(greek=greek),
+        )
+    if step == LeadCaptureStep.interest:
+        return LeadCaptureReply(
+            text=prompts["ask_interest"],
+            quick_replies=_interest_quick_replies(greek=greek),
+        )
+    return LeadCaptureReply(text=prompts["ask_name"])
 
 
 def _company_size_quick_replies(*, greek: bool) -> list[dict[str, Any]]:
@@ -175,7 +251,7 @@ async def handle_lead_capture_message(
 
     import redis.asyncio as aioredis
 
-    key = f"lead:capture:{source.value}:{team_id}:{thread_id}"
+    key = _session_key(source, team_id, thread_id)
     r = aioredis.from_url(redis_url, decode_responses=True)
     try:
         existing_raw = await r.get(key)
@@ -201,6 +277,14 @@ async def handle_lead_capture_message(
         fields: dict[str, Any] = state.get("fields") or {}
         payload = (postback_payload or "").strip().upper()
         text = (inbound_text or "").strip()
+
+        # Stale inline-button taps (Telegram keeps old keyboards live):
+        # a LEAD_* payload that doesn't belong to the current step re-asks
+        # the current question instead of counting toward the retry limit.
+        if payload.startswith("LEAD_"):
+            expected = _STEP_PAYLOAD_PREFIX.get(step)
+            if expected is None or not payload.startswith(expected):
+                return _step_prompt(step, greek=greek)
 
         # Escape hatch — explicit opt-out ends the flow and acknowledges it.
         if is_lead_capture_exit(text):
