@@ -357,14 +357,17 @@ async def _llm_strategy(
     from app.services.inference import call_inference
 
     platform_pulse = []
-    for p in (insights.get("platforms") or [])[:8]:
+    for name, p in list((insights.get("platforms") or {}).items())[:8]:
         platform_pulse.append(
             {
-                "platform": p.get("platform"),
+                "platform": name,
                 "posts_30d": p.get("posts"),
                 "impressions": p.get("impressions"),
                 "engagement": p.get("engagement"),
-                "momentum_pct": p.get("momentum_pct"),
+                "avg_engagement_rate": p.get("avg_engagement_rate"),
+                "momentum_engagement_pct": p.get("momentum_7d_engagement_pct"),
+                "best_hour_athens": (p.get("best_hour_athens") or [None])[0],
+                "outlier_posts": len(p.get("outliers") or []),
             }
         )
 
