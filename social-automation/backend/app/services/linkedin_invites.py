@@ -39,7 +39,6 @@ _PAGE_PUBLIC_URL = "https://www.linkedin.com/company/cloudless-gr/"
 # LinkedIn renamed the entry point: "Invite connections" → "Invite to follow"
 # on the admin dashboard (verified Oct 2026). Match either label.
 _INVITE_TEXT = "Invite connections"
-_INVITE_RE = re.compile(r"^(?:invite connections|invite to follow)", re.IGNORECASE)
 # JS-side equivalent for in-page finders (innerText match, case-insensitive).
 _INVITE_JS = "/^(invite connections|invite to follow)/i"
 

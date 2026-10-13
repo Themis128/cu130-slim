@@ -10,7 +10,7 @@ Output: data/media_prompts.jsonl (+ a -video.jsonl variant).
 """
 import json
 import random
-import sys
+import re
 from pathlib import Path
 
 OUT = Path(__file__).resolve().parent.parent / "data"
@@ -213,11 +213,10 @@ REAL_FALLBACK = (
 
 
 def _hook(text: str) -> str:
-    import re
     # Keep the first paragraph — production sends the caption lead, not the
     # hashtag/CTA tail. Strip emoji, hashtags, URLs, boilerplate.
     first = text.split("\n\n")[0]
-    line = next((l.strip() for l in first.split("\n") if l.strip()), "")
+    line = next((ln.strip() for ln in first.split("\n") if ln.strip()), "")
     line = re.sub(r"https?://\S+|#\w+", " ", line)
     line = re.sub(r"[^\w\s€$%&'’\-–—.?!,:;()/]", " ", line)  # emoji/symbols
     return " ".join(line.split())[:110]
@@ -241,7 +240,6 @@ def _real_target(prompts) -> str:
 
 
 def _clean_input(text: str, limit: int) -> str:
-    import re
     text = re.sub(r"https?://\S+|#\w+", " ", text)
     text = re.sub(r"[^\w\s€$%&'’\-–—.?!,:;()/]", " ", text)
     return " ".join(text.split())[:limit]
@@ -269,7 +267,6 @@ _META_RE = __import__("re").compile(
 
 def _normalize_scene(p: str) -> str:
     """Reduce a real generation prompt to its scene content."""
-    import re
     s = p.strip().rstrip(".")
     s = re.sub(r"(?i)^\s*(marketing image for|a clean infographic|"
                r"minimalist flat illustration of|realistic photo of|photo of)\s*:?",
@@ -340,11 +337,9 @@ def row(system: str, user: str, assistant: str) -> dict:
         {"role": "assistant", "content": assistant},
     ]}
 
-import re as _re
-
-_SECRET_RE = _re.compile(
+_SECRET_RE = re.compile(
     r"(eyJ[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{20,}|xox[baprs]-|"
-    r"AKIA[0-9A-Z]{16}|-----BEGIN|Bearer\s+\S{20,})", _re.I)
+    r"AKIA[0-9A-Z]{16}|-----BEGIN|Bearer\s+\S{20,})", re.I)
 _PROTOCOL = ('<|im_', '<tool_call', '<think')
 
 
@@ -385,4 +380,4 @@ def main() -> None:
     print(f"wrote {len(img_rows)} image rows, {len(vid_rows)} video rows to {OUT}")
 
 if __name__ == "__main__":
-    sys.exit(main())
+    main()

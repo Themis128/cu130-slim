@@ -27,13 +27,11 @@ import httpx
 from sqlalchemy import select
 from sqlalchemy.orm.attributes import flag_modified
 
-from app.core.config import get_settings
 from app.core.security import decrypt_token
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
-_settings = get_settings()
 
 GRAPH_API_VERSION = "v26.0"
 GRAPH_BASE = "https://graph.facebook.com"
