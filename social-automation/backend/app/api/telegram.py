@@ -29,11 +29,13 @@ from app.db.session import get_db
 from app.models.analytics import AnalyticsEvent
 from app.models.social_account import SocialAccount
 from app.models.user import User
+from app.services.telegram_agent import _agent_cfg, agent_enabled, maybe_welcome_member
 from app.services.telegram_api import (
     TELEGRAM_ALLOWED_UPDATES,
     TelegramAPIClient,
     TelegramAPIError,
     extract_callback_query,
+    extract_chat_join_request,
     extract_chat_member_update,
     extract_inbound_text_update,
     extract_my_chat_member_update,
@@ -1653,6 +1655,48 @@ async def receive_webhook(
                 _sanitize(str(exc)),
             )
             response["notify_error"] = True
+        # Channel agent: throttled welcome post for the new member (no-op
+        # when the agent/welcomes are disabled).
+        if joined:
+            try:
+                response["welcomed"] = await maybe_welcome_member(
+                    _client_for(account), account, member_event, db
+                )
+            except Exception:  # noqa: BLE001
+                response["welcomed"] = False
+        return response
+
+    # ── chat_join_request: pending join via creates_join_request link ──
+    join_req = extract_chat_join_request(update)
+    if join_req:
+        try:
+            if agent_enabled(account) and _agent_cfg(account).get("auto_approve", True):
+                client = _client_for(account)
+                ok = await client.approve_chat_join_request(
+                    join_req["chat_id"], int(join_req["user_id"])
+                )
+                response["join_request"] = "approved" if ok else "approve_failed"
+                _record_channel_event(
+                    db,
+                    account,
+                    "join_request_approved" if ok else "join_request_auto_approve_failed",
+                    {
+                        "chat_id": str(join_req["chat_id"]),
+                        "chat_title": join_req.get("chat_title") or "",
+                        "actor": join_req.get("username") or join_req.get("first_name"),
+                        "invite_link_name": join_req.get("invite_link_name"),
+                    },
+                )
+                await db.commit()
+            else:
+                response["join_request"] = "pending_manual"
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Telegram join-request handler failed account=%s: %s",
+                _sanitize(str(account_id)),
+                _sanitize(str(exc)),
+            )
+            response["join_request"] = "error"
         return response
 
     # ── callback_query: inline-keyboard button press — ack it ──
