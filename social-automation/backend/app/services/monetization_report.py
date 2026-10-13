@@ -141,13 +141,16 @@ class MonetizationReport:
     def to_html(self) -> str:
         esc = _html_escape
         gen_local = self.generated_at.astimezone(ZoneInfo(self.timezone))
-        parts = [
-            "<h2>SocialAuto — Daily Monetization Report</h2>",
-            f"<p><i>{esc(gen_local.strftime('%Y-%m-%d %H:%M %Z'))}</i></p>",
+        gate_table_head = (
             "<h3>Program gates</h3><table border=1 cellpadding=6 cellspacing=0 "
             "style='border-collapse:collapse'>"
             "<tr><th>Platform</th><th>Account</th><th>Followers</th>"
-            "<th>Gate progress</th></tr>",
+            "<th>Gate progress</th></tr>"
+        )
+        parts = [
+            "<h2>SocialAuto — Daily Monetization Report</h2>",
+            f"<p><i>{esc(gen_local.strftime('%Y-%m-%d %H:%M %Z'))}</i></p>",
+            gate_table_head,
         ]
         for g in self.gates:
             cells = []
