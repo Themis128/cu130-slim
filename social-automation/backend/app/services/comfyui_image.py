@@ -161,7 +161,12 @@ async def generate_image(
         if not prompt_id:
             raise ComfyUIImageError(f"ComfyUI returned no prompt_id: {resp}")
 
-        logger.info("[comfyui-image] submitted prompt_id=%s (%dx%d)", sanitize_log_text(prompt_id, 120), width, height)
+        logger.info(
+            "[comfyui-image] submitted prompt_id=%s (%sx%s)",
+            sanitize_log_text(prompt_id, 120),
+            sanitize_log_text(width, 20),
+            sanitize_log_text(height, 20),
+        )
 
         deadline = asyncio.get_event_loop().time() + timeout_s
         try:
