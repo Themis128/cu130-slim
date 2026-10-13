@@ -66,10 +66,57 @@ def _base_patches(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("channel", ["whatsapp", "telegram", "viber"])
+@pytest.mark.parametrize("channel", ["whatsapp", "viber"])
 async def test_messaging_channels_skip(_base_patches, channel):
     r = await P.publish_to_platform(_account(channel), _post(), None)
     assert r.skipped and "messaging channel" in r.error
+
+
+@pytest.mark.asyncio
+async def test_telegram_skips_without_managed_channel(_base_patches, monkeypatch):
+    monkeypatch.setattr(P, "validate_media_for_platform", lambda *a, **kw: None)
+    monkeypatch.setattr(P, "_build_post_text", lambda post, platform: "hello")
+    r = await P.publish_to_platform(_account("telegram"), _post(), None)
+    assert r.skipped and "managed channel" in r.error
+
+
+@pytest.mark.asyncio
+async def test_telegram_publishes_photo_to_channel(_base_patches, monkeypatch):
+    monkeypatch.setattr(P, "validate_media_for_platform", lambda *a, **kw: None)
+    monkeypatch.setattr(P, "_build_post_text", lambda post, platform: "hello")
+    monkeypatch.setattr(P, "_resolve_media_paths", AsyncMock(return_value=["/tmp/a.jpg"]))
+    monkeypatch.setattr(P, "_resolve_media_storage_paths", AsyncMock(return_value=["uploads/a.jpg"]))
+    monkeypatch.setattr(P, "_media_public_url", lambda sp, **kw: f"https://x/{sp}")
+    send_photo = AsyncMock(return_value={"message_id": 42})
+    fake_client = SimpleNamespace(send_photo=send_photo)
+    monkeypatch.setattr(P, "TelegramAPIClient", lambda tok: fake_client)
+    db = SimpleNamespace(add=lambda *a: None, commit=AsyncMock(), rollback=AsyncMock())
+    acc = _account("telegram", meta_data={"telegram_channel": {"chat_id": "-1001", "title": "HQ"}})
+    r = await P.publish_to_platform(acc, _post(), db)
+    assert r.success and r.platform_post_id == "42"
+    send_photo.assert_awaited_once_with("-1001", "https://x/uploads/a.jpg", caption="hello")
+
+
+@pytest.mark.asyncio
+async def test_telegram_album_and_overflow_text(_base_patches, monkeypatch):
+    long_text = "x" * 2000
+    monkeypatch.setattr(P, "validate_media_for_platform", lambda *a, **kw: None)
+    monkeypatch.setattr(P, "_build_post_text", lambda post, platform: long_text)
+    monkeypatch.setattr(P, "_resolve_media_paths", AsyncMock(return_value=["/a.jpg", "/b.png"]))
+    monkeypatch.setattr(P, "_resolve_media_storage_paths", AsyncMock(return_value=["u/a.jpg", "u/b.png"]))
+    monkeypatch.setattr(P, "_media_public_url", lambda sp, **kw: f"https://x/{sp}")
+    send_group = AsyncMock(return_value=[{"message_id": 1}, {"message_id": 2}])
+    send_msg = AsyncMock(return_value={"message_id": 3})
+    fake_client = SimpleNamespace(send_media_group=send_group, send_message=send_msg)
+    monkeypatch.setattr(P, "TelegramAPIClient", lambda tok: fake_client)
+    db = SimpleNamespace(add=lambda *a: None, commit=AsyncMock(), rollback=AsyncMock())
+    acc = _account("telegram", meta_data={"telegram_channel": {"chat_id": "-1001"}})
+    r = await P.publish_to_platform(acc, _post(), db)
+    assert r.success and r.platform_post_id == "1"
+    media = send_group.await_args.args[1]
+    assert [m["type"] for m in media] == ["photo", "photo"]
+    assert media[0]["caption"] == long_text[:1024]
+    send_msg.assert_awaited_once_with("-1001", long_text)
 
 
 @pytest.mark.asyncio

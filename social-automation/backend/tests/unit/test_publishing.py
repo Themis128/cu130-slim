@@ -223,13 +223,14 @@ async def test_publish_to_platform_whatsapp_is_soft_skipped():
 
 
 @pytest.mark.asyncio
-async def test_publish_to_platform_telegram_is_soft_skipped():
+async def test_publish_to_platform_telegram_is_not_a_messaging_skip():
+    """Telegram publishes to the managed channel — it must not hit the
+    whatsapp/viber messaging-channel skip (whatever later guard fires)."""
     account = SimpleNamespace(platform="telegram", access_token_enc=b"unused")
     post = SimpleNamespace()
     result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
     assert result.success is False
-    assert result.skipped is True
-    assert "telegram" in (result.error or "").lower()
+    assert "messaging channel" not in (result.error or "").lower()
 
 
 @pytest.mark.asyncio

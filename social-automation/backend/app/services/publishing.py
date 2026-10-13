@@ -39,6 +39,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import decrypt_field, decrypt_token
+from app.models.analytics import AnalyticsEvent
 from app.models.content import MediaAsset, Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.services.duplicate_detector import is_duplicate
@@ -54,6 +55,7 @@ from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION, facebook_graph_url
 from app.services.spellcheck import auto_correct, detect_gibberish
+from app.services.telegram_api import TelegramAPIClient, TelegramAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
@@ -341,6 +343,15 @@ _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
         "max_bytes": 8 * _MB, "max_video_bytes": 1 * _GB,
         "ratio_min": 1 / 10, "ratio_max": 10.0, "max_count": 20,
     },
+    # Telegram Bot API (managed channel): sendPhoto ≤10MB via URL,
+    # sendVideo/sendDocument ≤50MB; sendMediaGroup albums cap at 10 items.
+    "telegram": {
+        "required": True, "allow_pdf": True, "max_pdf_bytes": 50 * _MB,
+        "formats": (".jpg", ".jpeg", ".png", ".webp") + (".mp4",),
+        "min_dim": 1, "max_dim": 10000, "dim_axis": "both",
+        "max_bytes": 10 * _MB, "max_video_bytes": 50 * _MB,
+        "ratio_min": None, "ratio_max": None, "max_count": 10,
+    },
     # AT Protocol lexicon caps: 4 images ≤2MB each, single mp4 ≤300MB.
     # Videos: embed.video accepts video/mp4 only.
     "bluesky": {
@@ -545,11 +556,12 @@ async def publish_to_platform(
     post: Post,
     db: AsyncSession,
 ) -> PublishResult:
-    # WhatsApp is a messaging channel (Cloud API), not a feed-style social platform.
-    # If a post target includes WhatsApp (e.g. legacy UI or automation), skip it so
-    # other platforms can still publish successfully.
-    if account.platform in ("whatsapp", "telegram", "viber"):
-        channel = {"whatsapp": "WhatsApp", "telegram": "Telegram", "viber": "Viber"}[
+    # WhatsApp/Viber are messaging channels, not feed-style social platforms.
+    # If a post target includes one (e.g. legacy UI or automation), skip it so
+    # other platforms can still publish successfully. Telegram is NOT in this
+    # set — the managed channel gets feed posts via _publish_telegram.
+    if account.platform in ("whatsapp", "viber"):
+        channel = {"whatsapp": "WhatsApp", "viber": "Viber"}[
             account.platform
         ]
         return PublishResult(
@@ -658,13 +670,14 @@ async def publish_to_platform(
         "threads": _publish_threads,
         "tiktok": _publish_tiktok,
         "bluesky": _publish_bluesky,
+        "telegram": _publish_telegram,
     }
     fn = dispatch.get(account.platform)
     if fn is None:
         return PublishResult(success=False, error=f"Unsupported platform: {account.platform}")
 
     try:
-        if account.platform in ("instagram", "twitter"):
+        if account.platform in ("instagram", "twitter", "telegram"):
             return await fn(access_token, text, account, post, media_paths, storage_paths, db)
         return await fn(access_token, text, account, post, media_paths, storage_paths)
     except httpx.HTTPStatusError as exc:
@@ -3253,4 +3266,157 @@ async def _publish_bluesky(
             f"https://bsky.app/profile/{account.username}/post/{rkey}"
             if account.username and rkey else None
         ),
+    )
+
+
+# ── Telegram ──────────────────────────────────────────────────────────────────
+# Managed-channel posts via Bot API send* methods. The channel is a private
+# broadcast destination ("Cloudless — Automation HQ"), not a feed — the bot
+# posts as admin to meta.telegram_channel.chat_id. Media goes as public URLs
+# (_media_public_url → social.cloudless.gr/api/v1/media/view) which Telegram
+# servers fetch; captions cap at 1024 chars so longer copy splits into a
+# follow-up sendMessage.
+
+_TG_ALBUM_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".mp4")
+_TG_VIDEO_EXTS = (".mp4", ".mov", ".webm", ".avi")
+
+
+def _log_telegram_channel_post(
+    db: AsyncSession,
+    account: SocialAccount,
+    chat_id: Any,
+    results: list[Any],
+    kind: str,
+) -> None:
+    """Queue a ``channel_post`` analytics event for the datalake funnel.
+
+    Mirrors app/api/telegram.py::_log_channel_post — kept local so the worker
+    path does not import the API router.
+    """
+    meta = account.meta_data or {}
+    managed = meta.get("telegram_channel") or {}
+    db.add(
+        AnalyticsEvent(
+            team_id=account.team_id,
+            social_account_id=account.id,
+            event_type="channel_post",
+            platform="telegram",
+            occurred_at=datetime.now(UTC),
+            meta_data={
+                "chat_id": str(chat_id),
+                "chat_title": managed.get("title"),
+                "kind": kind,
+                "has_media": True,
+                "message_ids": [
+                    m.get("message_id") for m in results if isinstance(m, dict)
+                ],
+            },
+        )
+    )
+
+
+async def _publish_telegram(
+    access_token: str,
+    text: str,
+    account: SocialAccount,
+    post: Post,
+    media_paths: list[str],
+    storage_paths: list[str],
+    db: AsyncSession,
+) -> PublishResult:
+    meta = account.meta_data or {}
+    managed = meta.get("telegram_channel") or {}
+    chat_id = managed.get("chat_id")
+    if not chat_id:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                "Telegram: no managed channel configured — set one via "
+                "PUT /telegram/{account_id}/channel-config first."
+            ),
+        )
+
+    urls = [
+        (sp, u)
+        for sp in (storage_paths or [])
+        if (u := _media_public_url(sp))
+    ]
+    if media_paths and not urls:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                "Telegram: media could not be exposed via a public URL "
+                "(MEDIA_PUBLIC_BASE_URL unset) — deterministic config gap, "
+                "retrying cannot help."
+            ),
+        )
+
+    client = TelegramAPIClient(access_token)
+    caption = text[:1024]
+    overflow = len(text) > 1024
+    results: list[Any] = []
+    kind = "message"
+
+    try:
+        if not urls:
+            results.append(await client.send_message(chat_id, text))
+        elif len(urls) == 1:
+            sp, u = urls[0]
+            low = sp.lower()
+            if low.endswith(_TG_VIDEO_EXTS):
+                kind = "video"
+                r = await client.send_video(chat_id, u, caption=caption)
+            elif low.endswith(".pdf"):
+                kind = "document"
+                r = await client.send_document(chat_id, u, caption=caption)
+            else:
+                kind = "photo"
+                r = await client.send_photo(chat_id, u, caption=caption)
+            results.append(r)
+        elif all(sp.lower().endswith(_TG_ALBUM_EXTS) for sp, _ in urls):
+            kind = "album"
+            media = [
+                {
+                    "type": "video" if sp.lower().endswith(".mp4") else "photo",
+                    "media": u,
+                }
+                for sp, u in urls[:10]
+            ]
+            media[0]["caption"] = caption
+            results.extend(await client.send_media_group(chat_id, media))
+        else:
+            # Mixed photo/doc payloads can't album — send each with the
+            # caption riding the first item.
+            kind = "mixed"
+            for i, (sp, u) in enumerate(urls[:10]):
+                cap = caption if i == 0 else None
+                low = sp.lower()
+                if low.endswith(".pdf"):
+                    results.append(await client.send_document(chat_id, u, caption=cap))
+                elif low.endswith(_TG_VIDEO_EXTS):
+                    results.append(await client.send_video(chat_id, u, caption=cap))
+                else:
+                    results.append(await client.send_photo(chat_id, u, caption=cap))
+        if overflow:
+            # Captions cap at 1024 — the full copy follows as its own message.
+            results.append(await client.send_message(chat_id, text))
+    except TelegramAPIError as exc:
+        return PublishResult(
+            success=False,
+            error=f"Telegram publish failed ({exc.status_code}): {exc.description[:300]}",
+        )
+
+    try:
+        _log_telegram_channel_post(db, account, chat_id, results, kind)
+        await db.commit()
+    except Exception:  # noqa: BLE001 — logging must never fail the publish
+        logger.warning("telegram channel_post event log failed", exc_info=True)
+        await db.rollback()
+
+    message_ids = [m.get("message_id") for m in results if isinstance(m, dict)]
+    return PublishResult(
+        success=True,
+        platform_post_id=str(message_ids[0]) if message_ids else None,
     )
