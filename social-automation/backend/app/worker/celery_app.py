@@ -243,14 +243,21 @@ celery_app.conf.update(
         # before the strategy brief: evaluates every account against its
         # creator-program gate, writes per-platform strategy via the
         # inference chain, and schedules the resulting actions as real
-        # posts through the normal publish queue.
+        # posts through the normal publish queue. Notebook-generated so
+        # the layout/charts are editable from the Jupyter UI; falls back
+        # to the code-path report (build → execute → email) on failure.
         "daily-monetization-report": {
-            "task": "app.worker.tasks.monetization.run_daily_monetization_report",
+            "task": "app.worker.tasks.notebook_reports.run_notebook_report",
             "schedule": crontab(
                 hour=settings.MONETIZATION_REPORT_HOUR,
                 minute=settings.MONETIZATION_REPORT_MINUTE,
             ),
-            "kwargs": {"send": True, "execute": True},
+            "kwargs": {
+                "notebook": "monetization_daily",
+                "parameters": {"insight_days": 30, "execute": True},
+                "send": True,
+                "fallback_to_code": True,
+            },
         },
         # Morning strategy brief → email. Notebook-generated (papermill in
         # the worker env) so the report layout/charts are editable from the

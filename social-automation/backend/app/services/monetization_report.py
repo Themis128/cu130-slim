@@ -582,6 +582,33 @@ async def email_monetization_report(report: MonetizationReport) -> MonetizationR
     return report
 
 
+async def execute_report_actions(
+    db: AsyncSession, team: Team, report: MonetizationReport
+) -> list[dict[str, Any]]:
+    """Schedule a report's actions through the executor.
+
+    Learned best hours from the insights engine (shrunk buckets, min n=3)
+    feed the scheduler when an action has no explicit time — data-driven
+    scheduling instead of static baselines. Shared by the code-path runner
+    and the notebook renderer so both apply the same wiring.
+    """
+    from app.services.monetization_executor import schedule_report_actions
+
+    if not report.actions:
+        return []
+    learned_hours = {
+        name: p["best_hour_athens"][0]
+        for name, p in (report.insights.get("platforms") or {}).items()
+        if p.get("best_hour_athens")
+    }
+    report.scheduled = await schedule_report_actions(
+        db, team, report.actions,
+        report.generated_at.date().isoformat(),
+        learned_hours=learned_hours,
+    )
+    return report.scheduled
+
+
 async def run_monetization_report_for_all_teams(
     db: AsyncSession,
     *,
@@ -594,8 +621,6 @@ async def run_monetization_report_for_all_teams(
     The executor runs BEFORE the email so the report shows what was actually
     scheduled — matching the owner's "report → platform executes" flow.
     """
-    from app.services.monetization_executor import schedule_report_actions
-
     teams = (await db.execute(select(Team))).scalars().all()
     results: list[dict[str, Any]] = []
     for team in teams:
@@ -619,20 +644,8 @@ async def run_monetization_report_for_all_teams(
         report = await build_monetization_report(
             db, team=team, insight_days=insight_days
         )
-        if execute and report.actions:
-            # Learned best hours from the insights engine (shrunk buckets,
-            # min n=3) feed the scheduler when an action has no time —
-            # data-driven scheduling instead of static baselines.
-            learned_hours = {
-                name: p["best_hour_athens"][0]
-                for name, p in (report.insights.get("platforms") or {}).items()
-                if p.get("best_hour_athens")
-            }
-            report.scheduled = await schedule_report_actions(
-                db, team, report.actions,
-                report.generated_at.date().isoformat(),
-                learned_hours=learned_hours,
-            )
+        if execute:
+            await execute_report_actions(db, team, report)
         if send:
             report = await email_monetization_report(report)
         results.append(

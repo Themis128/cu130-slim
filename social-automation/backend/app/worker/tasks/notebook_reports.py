@@ -19,6 +19,36 @@ from app.worker._async import run_async
 logger = logging.getLogger(__name__)
 
 
+async def _fallback_strategy(parameters: dict[str, Any], *, send: bool) -> Any:
+    from app.worker.tasks.digest import _send_strategy_async
+
+    return await _send_strategy_async(
+        insight_days=parameters.get("insight_days", 30), send=send
+    )
+
+
+async def _fallback_monetization(parameters: dict[str, Any], *, send: bool) -> Any:
+    from app.db.session import async_session_maker
+    from app.services.monetization_report import run_monetization_report_for_all_teams
+
+    async with async_session_maker() as db:
+        return await run_monetization_report_for_all_teams(
+            db,
+            insight_days=parameters.get("insight_days", 30),
+            send=send,
+            execute=parameters.get("execute", True),
+        )
+
+
+# Notebook name → code-path equivalent. A notebook failure must never
+# silently substitute the WRONG report (e.g. a strategy brief for a failed
+# monetization run).
+_CODE_FALLBACKS = {
+    "daily_strategy_brief": _fallback_strategy,
+    "monetization_daily": _fallback_monetization,
+}
+
+
 @shared_task(name="app.worker.tasks.notebook_reports.run_notebook_report")
 def run_notebook_report(
     notebook: str,
@@ -40,10 +70,10 @@ def run_notebook_report(
         logger.exception("Notebook report %s failed", notebook)
         if not fallback_to_code:
             raise
-        from app.worker.tasks.digest import _send_strategy_async
-
         fallback = run_async(
-            _send_strategy_async(insight_days=(parameters or {}).get("insight_days", 30), send=send)
+            _CODE_FALLBACKS.get(notebook, _fallback_strategy)(
+                parameters or {}, send=send
+            )
         )
         return {
             "notebook": notebook,

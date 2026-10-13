@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from app.services.insights_engine import (
+    _counter_deltas,
     _momentum_z,
     _shrink_mean,
     _theil_sen_slope,
@@ -109,3 +110,21 @@ def test_wilson_low_converges_on_big_n():
 def test_wilson_low_edge_cases():
     assert _wilson_low(0, 100) == 0.0
     assert _wilson_low(5, 0) is None
+
+
+# ── Reset-aware cumulative deltas ─────────────────────────────────────────
+
+
+def test_counter_deltas_monotonic():
+    assert _counter_deltas([100, 150, 150, 200]) == [100, 50, 0, 50]
+
+
+def test_counter_deltas_reset_counts_new_value():
+    # 500 → 60 is a counter reset (correction/deletion), not -440:
+    # the interval's delta is the new counter value, not 0.
+    assert _counter_deltas([500, 520, 60, 110]) == [500, 20, 60, 50]
+
+
+def test_counter_deltas_edge():
+    assert _counter_deltas([]) == []
+    assert _counter_deltas([7]) == [7]
