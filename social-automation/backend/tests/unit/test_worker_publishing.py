@@ -1205,9 +1205,21 @@ async def test_requeue_sweep_limit_break(monkeypatch):
 
 
 def test_sync_task_wrappers(monkeypatch):
+    # The sync wrappers build a coroutine then hand it to run_async; the
+    # stub must close it or pytest reports "coroutine was never awaited".
+    def _run(payload):
+        def _fake(c):
+            c.close()
+            return payload
+        return _fake
+
     # requeue_capacity_stuck_x_targets: enabled + requeued → sync
     ran = []
-    monkeypatch.setattr(W, "run_async", lambda c: ran.append(c) or {"requeued": ["x"], "deleted": 0})
+    def _record(c):
+        ran.append(c)
+        c.close()
+        return {"requeued": ["x"], "deleted": 0}
+    monkeypatch.setattr(W, "run_async", _record)
     monkeypatch.setattr(
         W,
         "get_settings",
@@ -1224,19 +1236,19 @@ def test_sync_task_wrappers(monkeypatch):
     assert W.requeue_capacity_stuck_x_targets()["disabled"] is True
 
     # cleanup_publish_queue: deleted>0 → sync
-    monkeypatch.setattr(W, "run_async", lambda c: {"deleted": 3})
+    monkeypatch.setattr(W, "run_async", _run({"deleted": 3}))
     assert W.cleanup_publish_queue(3)["deleted"] == 3
 
     # reconcile_instagram_publish: recovered → return; retry → self.retry; else → outcome
-    monkeypatch.setattr(W, "run_async", lambda c: {"recovered": True})
+    monkeypatch.setattr(W, "run_async", _run({"recovered": True}))
     assert W.reconcile_instagram_publish.run("p", "a")["recovered"] is True
 
-    monkeypatch.setattr(W, "run_async", lambda c: {"retry": True})
+    monkeypatch.setattr(W, "run_async", _run({"retry": True}))
     monkeypatch.setattr(W.reconcile_instagram_publish, "retry", lambda **kw: (_ for _ in ()).throw(RuntimeError("retry")))
     with pytest.raises(RuntimeError):
         W.reconcile_instagram_publish.run("p", "a")
 
-    monkeypatch.setattr(W, "run_async", lambda c: {"ok": True})
+    monkeypatch.setattr(W, "run_async", _run({"ok": True}))
     assert W.reconcile_instagram_publish.run("p", "a")["ok"] is True
 
 
