@@ -158,9 +158,12 @@ async def _lead_enabled_and_active(
     auto_reply = meta.get("telegram_auto_reply", {})
     if not auto_reply.get("enabled", False):
         return False
-    from app.services.telegram_chatbot import is_thread_paused
+    try:
+        from app.services.telegram_chatbot import is_thread_paused
 
-    return not await is_thread_paused(str(account.id), str(chat_id))
+        return not await is_thread_paused(str(account.id), str(chat_id))
+    except Exception:  # noqa: BLE001 — pause check fails open like is_thread_paused
+        return True
 
 
 async def _deliver_lead_reply(
@@ -1922,7 +1925,7 @@ async def receive_webhook(
     # audit" hits is_lead_capture_trigger via the "audit" keyword. Reuses the
     # Messenger/Instagram state machine; LEAD_* button taps come back through
     # the callback_query branch below.
-    if inbound.get("chat_type") == "private" and await _lead_enabled_and_active(
+    if inbound.get("chat_type") == "private" and inbound.get("chat_id") and await _lead_enabled_and_active(
         account, inbound["chat_id"], meta
     ):
         try:
