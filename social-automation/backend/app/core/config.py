@@ -385,11 +385,15 @@ class Settings(BaseSettings):
     SLACK_REFRESH_TOKEN: str = ""
     # Default is the current live channel id in the Cloudless workspace.
     # Override in /app/.env (mounted from host) for your own Slack workspace.
-    SLACK_CHANNEL_ID: str = "C0C1F1K3DDF"  # #socialauto
+    SLACK_CHANNEL_ID: str = "C0BT263L17U"  # #socialauto
     SLACK_DIGEST_HOUR: int = 9  # Europe/Athens via Celery timezone
     # Daily strategy email (insights engine → action playbook).
     STRATEGY_REPORT_HOUR: int = 10  # Europe/Athens via Celery timezone
     STRATEGY_REPORT_MINUTE: int = 30  # Europe/Athens via Celery timezone
+    # Daily monetization report (program gates → strategy → auto-scheduled
+    # posts) — runs before the strategy brief so actions land on the calendar.
+    MONETIZATION_REPORT_HOUR: int = 8  # Europe/Athens via Celery timezone
+    MONETIZATION_REPORT_MINUTE: int = 30  # Europe/Athens via Celery timezone
 
     # Slack alerts (#socialauto-alerts) — warnings/errors and operational failures.
     # Prefer Incoming Webhook URL to the alerts channel; alternatively reuse

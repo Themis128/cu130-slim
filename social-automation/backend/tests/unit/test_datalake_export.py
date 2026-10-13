@@ -430,7 +430,7 @@ def test_export_async_full_run(monkeypatch):
                  "_export_followers", "_export_account_events", "_export_leads",
                  "_export_telegram_channels", "_export_web_events",
                  "_export_ad_snapshots", "_export_ad_daily",
-                 "_export_ad_demographics"):
+                 "_export_ad_demographics", "_export_monetization"):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[{"r": 1}]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"q": 1}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={"e": 1}))
@@ -440,8 +440,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 15  # 12 tables + edge + reports + insights
-    assert out["bytes"] == 150
+    assert out["files"] == 16  # 13 tables + edge + reports + insights
+    assert out["bytes"] == 160
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
@@ -458,7 +458,7 @@ def test_export_async_insights_and_put_failures(monkeypatch):
                  "_export_followers", "_export_account_events", "_export_leads",
                  "_export_telegram_channels", "_export_web_events",
                  "_export_ad_snapshots", "_export_ad_daily",
-                 "_export_ad_demographics"):
+                 "_export_ad_demographics", "_export_monetization"):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))

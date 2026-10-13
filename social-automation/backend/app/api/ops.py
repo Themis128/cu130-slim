@@ -157,6 +157,37 @@ class PaddleDigestResponse(BaseModel):
     error: str | None = None
 
 
+@router.post("/monetization-report")
+async def trigger_monetization_report(
+    send: bool = Query(True),
+    execute: bool = Query(True),
+    insight_days: int = Query(30, ge=7, le=90),
+    async_queue: bool = Query(
+        False,
+        description="If true, enqueue Celery task instead of running inline",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Daily monetization report — evaluates every active account against
+    its creator-program gate, generates per-platform strategy via the
+    inference chain, auto-schedules the resulting actions as posts
+    (execute=true), and emails the report to DIGEST_EMAIL_TO (send=true).
+    """
+    _ = current_user
+    if async_queue:
+        from app.worker.tasks.monetization import run_daily_monetization_report
+
+        run_daily_monetization_report.delay(send=send, execute=execute)
+        return {"queued": True}
+    from app.services.monetization_report import run_monetization_report_for_all_teams
+
+    reports = await run_monetization_report_for_all_teams(
+        db, insight_days=insight_days, send=send, execute=execute
+    )
+    return {"reports": reports}
+
+
 @router.post("/paddle-digest", response_model=PaddleDigestResponse)
 async def trigger_paddle_digest(
     post_to_slack: bool = Query(True),

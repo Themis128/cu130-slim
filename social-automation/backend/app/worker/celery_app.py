@@ -42,6 +42,7 @@ celery_app = Celery(
         "app.worker.tasks.session_healer",
         "app.worker.tasks.lead_emails",
         "app.worker.tasks.skool_watch",
+        "app.worker.tasks.monetization",
     ],
 )
 
@@ -237,6 +238,19 @@ celery_app.conf.update(
             "task": "app.worker.tasks.digest.send_weekly_slack_digest",
             "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_month=1),
             "kwargs": {"days": 30, "post_to_slack": True, "post_to_email": True},
+        },
+        # Daily monetization report → email + auto-scheduled posts. Runs
+        # before the strategy brief: evaluates every account against its
+        # creator-program gate, writes per-platform strategy via the
+        # inference chain, and schedules the resulting actions as real
+        # posts through the normal publish queue.
+        "daily-monetization-report": {
+            "task": "app.worker.tasks.monetization.run_daily_monetization_report",
+            "schedule": crontab(
+                hour=settings.MONETIZATION_REPORT_HOUR,
+                minute=settings.MONETIZATION_REPORT_MINUTE,
+            ),
+            "kwargs": {"send": True, "execute": True},
         },
         # Morning strategy brief → email. Notebook-generated (papermill in
         # the worker env) so the report layout/charts are editable from the
