@@ -410,7 +410,10 @@ RULES:
 - Funnel CTAs only where earned by the content; ~1 in 3 actions max may carry
   the free-audit/Polar CTA.
 
-Return ONLY the JSON object."""
+Return ONLY a JSON object in EXACTLY this shape:
+{{"sections": [{{"platform": "linkedin", "headline": "...", "strategy": "..."}}],
+ "actions": [{{"platform": "linkedin", "time_local": "09:30",
+              "format": "image", "instruction": "..."}}]}}"""
 
     try:
         result = await call_inference(
@@ -424,6 +427,28 @@ Return ONLY the JSON object."""
     except Exception as exc:  # noqa: BLE001
         logger.warning("monetization LLM strategy failed: %s", str(exc)[:160])
         return [], []
+
+    # DMR's schema arg is a soft hint — models occasionally answer with a
+    # nested {"strategy": {platform: {actions: [...]}}} shape instead.
+    if not result.get("sections") and isinstance(result.get("strategy"), dict):
+        nested = result["strategy"]
+        result = {
+            "sections": [
+                {"platform": p, "headline": (v or {}).get("headline", ""),
+                 "strategy": (v or {}).get("strategy", "")}
+                for p, v in nested.items() if isinstance(v, dict)
+            ],
+            "actions": [
+                {
+                    "platform": p,
+                    "time_local": a.get("time_local") or a.get("time") or "",
+                    "format": a.get("format") or "",
+                    "instruction": a.get("instruction") or a.get("action") or "",
+                }
+                for p, v in nested.items() if isinstance(v, dict)
+                for a in (v.get("actions") or []) if isinstance(a, dict)
+            ],
+        }
 
     sections = [
         {
