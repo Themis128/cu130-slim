@@ -343,7 +343,7 @@ async def _heal_linkedin(stats: dict) -> None:
 
         # A previous /login may be sitting on an approved 2FA checkpoint —
         # the probe above already re-checked it, so fall through to login.
-        email = _env("LINKEDIN_EMAIL")
+        email = _env("LINKEDIN_EMAIL") or await _secret("LINKEDIN_EMAIL")
         password = _env("LINKEDIN_PASSWORD") or await _secret("LINKEDIN_PASSWORD")
         if not email or not password:
             stats["linkedin"]["status"] = "needs_manual_login"
