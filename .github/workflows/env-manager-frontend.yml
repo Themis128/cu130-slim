@@ -20,6 +20,7 @@ concurrency:
 
 jobs:
   backend-test:
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -55,6 +56,7 @@ jobs:
           mypy main.py --ignore-missing-imports
 
   frontend-test:
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
