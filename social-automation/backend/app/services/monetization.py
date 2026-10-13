@@ -28,8 +28,11 @@ Threshold sources (verify before relying — programs change):
   followers. Personal accounts only — Business accounts are ineligible.
   Rewardable content: >1min original videos with ≥1,000 For-You-feed views;
   Duets/Stitches/Photo Mode/sponsored content don't earn.
-- X Ads Revenue Sharing: Premium/Premium+ + ≥500 followers + ≥5M organic
-  impressions in trailing 3 months.
+- X Original Content Rewards (replaced Creator Revenue Sharing — new
+  enrollments closed 2026-08-07, program retired 2026-09-07): active
+  Premium/Premium+/Premium Business + ≥500 VERIFIED followers + ≥500k
+  Home Timeline impressions from verified users in trailing 90 days,
+  paid on qualified impressions from Premium users.
 - Instagram Subscriptions/Gifts: invite-gated; ~10k followers is the
   de-facto eligibility band (Gifts need 5k+ in eligible regions).
 - LinkedIn/Threads/Bluesky/messaging platforms: no creator monetization —
@@ -92,13 +95,17 @@ PLATFORM_PROGRAMS: dict[str, dict[str, Any]] = {
         ],
     },
     "twitter": {
-        "program": "X Ads Revenue Sharing",
+        "program": "X Original Content Rewards",
         "criteria": [
-            ("followers", "followers ≥ 500", 500, "users/me public_metrics"),
-            ("premium", "X Premium / Premium+ active", True,
+            ("followers", "verified followers ≥ 500", 500,
+             "users/me public_metrics — verified-only count isn't API-split; "
+             "total followers is the floor"),
+            ("premium", "X Premium / Premium+ / Premium Business active", True,
              "manual — subscription state isn't API-readable"),
-            ("impressions_90d", "≥5M organic impressions / 90 days", 5_000_000,
-             "pay-per-use endpoint — check in X analytics UI when needed"),
+            ("impressions_90d",
+             "≥500K Home Timeline impressions from verified users / 90 days",
+             500_000,
+             "not API-readable on free tier — check X analytics UI"),
         ],
     },
     "instagram": {
@@ -181,3 +188,125 @@ def days_to_goal(current: int, target: int, daily_gain: float) -> int | None:
     if daily_gain <= 0:
         return None
     return round((target - current) / daily_gain)
+
+
+# ---------------------------------------------------------------------------
+# Live metric gathering — service-level version of scripts/monetization_tool.py
+# so the daily report can evaluate programs without a subprocess.
+# ---------------------------------------------------------------------------
+
+
+def _account_token(account) -> str:
+    from app.core.security import decrypt_token
+
+    enc = account.access_token_enc
+    return decrypt_token(enc if isinstance(enc, bytes) else enc.encode())
+
+
+async def gather_account_metrics(db, account) -> dict[str, Any]:
+    """Assemble the metrics dict ``evaluate_program`` consumes for one account.
+
+    followers: live platform call where possible, else latest follower_snapshot.
+    days_held: consecutive UTC days at/above 500 followers (FB Stars gate).
+    views_30d: TikTok video-view sum over the trailing 30 days.
+    Also returns ``gain_per_day`` (14d net/day) for trend display.
+    """
+    import logging
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import select
+
+    from app.models.analytics import FollowerSnapshot
+
+    log = logging.getLogger(__name__)
+    cutoff = datetime.now(UTC) - timedelta(days=60)
+    rows = await db.execute(
+        select(FollowerSnapshot.captured_at, FollowerSnapshot.followers)
+        .where(
+            FollowerSnapshot.social_account_id == account.id,
+            FollowerSnapshot.captured_at >= cutoff,
+        )
+        .order_by(FollowerSnapshot.captured_at)
+    )
+    snaps = [(r[0], r[1]) for r in rows.all()]
+
+    live: int | None = None
+    try:
+        if account.platform == "instagram":
+            from app.services.instagram_api import InstagramAPIClient
+
+            meta = account.meta_data or {}
+            client = InstagramAPIClient(
+                _account_token(account),
+                account.account_id,
+                use_business_login_api=meta.get("login_type") == "business_login",
+            )
+            live = int((await client.get_profile()).get("followers_count") or 0) or None
+        elif account.platform == "tiktok":
+            from app.services.tiktok_api import TikTokAPIClient
+
+            client = TikTokAPIClient(
+                access_token=_account_token(account), open_id=account.account_id
+            )
+            data = (await client.get_stats()).get("data") or {}
+            live = int(data.get("follower_count") or 0) or None
+        elif account.platform == "twitter":
+            from app.services.twitter_api import TwitterAPIClient
+
+            data = (await TwitterAPIClient(_account_token(account)).get_me_metrics()).get(
+                "data"
+            ) or {}
+            live = int((data.get("public_metrics") or {}).get("followers_count") or 0)
+    except Exception as exc:  # noqa: BLE001
+        log.info("live followers failed for %s: %s", account.platform, str(exc)[:120])
+
+    followers = live if live is not None else (snaps[-1][1] if snaps else None)
+
+    recent = [s for s in snaps if s[0] >= datetime.now(UTC) - timedelta(days=14)]
+    gain = 0.0
+    if len(recent) >= 2:
+        span = max((recent[-1][0] - recent[0][0]).days, 1)
+        gain = (recent[-1][1] - recent[0][1]) / span
+
+    metrics: dict[str, Any] = {
+        "followers": followers,
+        "followers_live": live is not None,
+        "gain_per_day": round(gain, 2),
+    }
+    if account.platform == "facebook" and isinstance(followers, int):
+        by_day: dict[str, int] = {}
+        for ts, n in snaps:
+            key = (ts if ts.tzinfo else ts.replace(tzinfo=UTC)).date().isoformat()
+            by_day[key] = max(by_day.get(key, 0), n)
+        held = 0
+        day = datetime.now(UTC).date()
+        while by_day.get(day.isoformat(), 0) >= 500:
+            held += 1
+            day -= timedelta(days=1)
+        metrics["days_held"] = held
+    if account.platform == "tiktok":
+        try:
+            from app.services.tiktok_api import TikTokAPIClient
+
+            client = TikTokAPIClient(
+                access_token=_account_token(account), open_id=account.account_id
+            )
+            ts_cutoff = datetime.now(UTC).timestamp() - 30 * 86400
+            total, cursor = 0, 0
+            while True:
+                data = (await client.list_videos(cursor=cursor, max_count=20)).get(
+                    "data"
+                ) or {}
+                vids = data.get("videos") or []
+                if not vids:
+                    break
+                for v in vids:
+                    if (v.get("create_time") or 0) >= ts_cutoff:
+                        total += int(v.get("view_count") or 0)
+                if not data.get("has_more"):
+                    break
+                cursor = data.get("cursor") or 0
+            metrics["views_30d"] = total
+        except Exception as exc:  # noqa: BLE001
+            log.info("tiktok views_30d failed: %s", str(exc)[:120])
+    return metrics

@@ -534,6 +534,65 @@ async def _export_reports_index() -> list[dict]:
     return out
 
 
+async def _export_monetization(db: AsyncSession) -> list[dict]:
+    """One row per active account — creator-program gate evaluation so the
+    site's materialize ETL can render monetization readiness next to the
+    funnel tables."""
+    from app.models.social_account import SocialAccount
+    from app.services.monetization import (
+        FUNNEL_ONLY,
+        evaluate_program,
+        gather_account_metrics,
+    )
+
+    accounts = (
+        await db.execute(select(SocialAccount).where(SocialAccount.status == "active"))
+    ).scalars().all()
+    now = datetime.now(UTC).isoformat()
+    rows: list[dict] = []
+    for a in accounts:
+        try:
+            metrics = await gather_account_metrics(db, a)
+        except Exception as exc:  # noqa: BLE001 — skip, don't abort the export
+            rows.append(
+                {
+                    "platform": a.platform,
+                    "account_id": str(a.id),
+                    "error": str(exc)[:200],
+                    "evaluated_at": now,
+                }
+            )
+            continue
+        report = evaluate_program(a.platform, metrics, account_type=a.account_type)
+        rows.append(
+            {
+                "platform": a.platform,
+                "account_id": str(a.id),
+                "username": a.username,
+                "account_type": a.account_type,
+                "followers": metrics.get("followers"),
+                "gain_per_day": metrics.get("gain_per_day"),
+                "program": report.program if report else None,
+                "role": None if report else FUNNEL_ONLY.get(a.platform, "funnel"),
+                "criteria": (
+                    [
+                        {
+                            "name": c.name,
+                            "current": c.current,
+                            "target": c.target,
+                            "met": c.met,
+                        }
+                        for c in report.criteria
+                    ]
+                    if report
+                    else []
+                ),
+                "evaluated_at": now,
+            }
+        )
+    return rows
+
+
 async def _export_ops_health(db: AsyncSession) -> dict:
     """Current ops snapshot: queue state, recent failures, sync freshness."""
     queue = (
@@ -611,6 +670,7 @@ async def _export_async() -> dict:
             "lake/socialauto-ads/daily.json": await _export_ad_daily(db),
             "lake/socialauto-ads/demographics.json": await _export_ad_demographics(db),
             "lake/socialauto-ops/health.json": await _export_ops_health(db),
+            "lake/socialauto-monetization/gates.json": await _export_monetization(db),
         }
 
         tables["lake/socialauto-edge-metrics/daily.json"] = await _export_edge_metrics()
