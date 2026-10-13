@@ -31,8 +31,8 @@ def test_tiktok_creator_rewards_partial():
 def test_twitter_needs_premium_flag():
     r = m.evaluate_program("twitter", {"followers": 600})
     by_name = {c.name: c for c in r.criteria}
-    assert by_name["followers ≥ 500"].met is True
-    assert by_name["X Premium / Premium+ active"].met is None  # manual
+    assert by_name["verified followers ≥ 500"].met is True
+    assert by_name["X Premium / Premium+ / Premium Business active"].met is None  # manual
 
 
 def test_funnel_platforms_have_no_program():
