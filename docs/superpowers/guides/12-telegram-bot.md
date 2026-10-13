@@ -92,6 +92,46 @@ Telegram’s Bot API **cannot** disable Group Privacy or add the bot to a group 
 
 Celery beat task `telegram-group-digests` runs hourly and sends when the local hour matches `digest_hour`.
 
+## DM lead-capture funnel (channel → DM → Lead)
+
+The channel agent (`telegram_agent.py`) turns broadcast posts into qualified leads.
+
+```
+offer post (authority/engagement/proof/offer pillars, weekly cadence)
+  → offer posts append a "💬 Chat with us" button
+  → t.me/<bot>?start=audit deep link
+  → "/start audit" in the bot DM → lead-capture FSM (Redis, 1h TTL)
+  → name → email → company size (buttons) → interest (buttons)
+  → Lead row (source=telegram_dm) → owner notification (Slack/email)
+```
+
+### How it works
+
+- The FSM is shared with Messenger/Instagram (`app/services/lead_capture.py`);
+  Telegram uses `LeadSource.telegram_dm` and `thread_id = chat_id`.
+- `LEAD_SIZE_*` / `LEAD_INTEREST_*` inline buttons return via `callback_query`.
+- **Tracked links:** every owned-domain CTA (`cloudless.gr`,
+  `social.cloudless.gr`, the checklist PDF) is tagged
+  `utm_source=telegram & utm_medium=channel_post & utm_campaign=cloudless-channel-agent
+  & utm_content=<offer key>`; `t.me` links are untouched and existing `utm_*`
+  params are preserved. `channel_post` analytics events record the campaign.
+- **Join attribution:** create named invite links (`create_chat_invite_link`)
+  per surface — `website` for cloudless.gr `/telegram`, `social` for
+  social.cloudless.gr placements. Join events carry `invite_link_name`.
+
+### Safety gates
+
+- Lead prompts only run when `telegram_auto_reply.enabled` is true (the
+  deactivate-bot switch) **and** the thread is not paused for human handoff.
+- If the Telegram send of a prompt fails, the Redis session is rolled back —
+  the user's next message re-asks the question they never saw.
+- Stale inline buttons (Telegram keeps old keyboards live) re-ask the current
+  step instead of counting as invalid answers.
+- **Owner linking is protected:** only `/linkowner`, `/watch`, or
+  `/start linkowner` bind `owner_chat_id`. A bare `/start` binds only when no
+  owner is set; `/start <payload>` (e.g. `audit`) always goes to the funnel and
+  can never re-route owner alerts to a reader.
+
 ## API cheat sheet
 
 | Action | Endpoint |

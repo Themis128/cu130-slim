@@ -342,14 +342,23 @@ async def handle_owner_link_command(
     parts = text.split()
     cmd = parts[0].split("@", 1)[0].lower()
     link_cmds = {"/linkowner", "/watch"}
-    # Bare /start and /start linkowner both link the owner for group-watch onboarding
-    is_link = cmd in link_cmds or cmd == "/start"
+    payload = parts[1].lower() if len(parts) > 1 else ""
+    # Deep-link payloads (e.g. the channel CTA's "/start audit") belong to
+    # other flows — binding owner_chat_id here would route private group
+    # alerts/digests to a random reader. Only explicit owner commands or a
+    # bare/"linkowner" /start may bind.
+    is_link = cmd in link_cmds or (cmd == "/start" and payload in {"", "linkowner"})
     if not is_link:
         return cfg, False
 
     already = bool(cfg.get("owner_chat_id")) and str(cfg.get("owner_chat_id")) == str(
         inbound["chat_id"]
     )
+    if cmd == "/start" and payload != "linkowner" and cfg.get("owner_chat_id") and not already:
+        # Owner already linked to a different chat — a bare /start from
+        # anyone else (e.g. a channel subscriber opening the bot) must not
+        # rebind owner alerts. Explicit /linkowner still relinks.
+        return cfg, False
     cfg = dict(cfg)
     cfg["owner_chat_id"] = str(inbound["chat_id"])
     cfg["owner_username"] = inbound.get("sender_username") or cfg.get("owner_username")
