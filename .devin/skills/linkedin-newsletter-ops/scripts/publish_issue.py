@@ -369,7 +369,7 @@ def main():
         print("[5/6] SEO skipped", flush=True)
 
     print("[6/6] publish dialog…", flush=True)
-    result = publish(args.post_text, args.dry_run)
+    result = publish(args.post_text, args.dry_run, args.schedule_iso)
     print("RESULT:", result)
 
 
