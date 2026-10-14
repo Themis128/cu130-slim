@@ -163,7 +163,7 @@
       "type": "n8n-nodes-base.code",
       "position": [1460, -140],
       "parameters": {
-        "jsCode": "const r = $json || {};\nconst art = (() => { try { return $('Generate Blog Article').item.json || {}; } catch (e) { return {}; } })();\nconst ok = r.status === 'ok' && (r.published === true || r.dry_run === true);\nreturn [{\n  json: {\n    ok,\n    title: r.title || art.title || null,\n    article_slug: art.slug || null,\n    article_url: r.article_url || null,\n    word_count: r.word_count || 0,\n    published: !!r.published,\n    scheduled: !!r.scheduled,\n    dry_run: !!r.dry_run,\n    warnings: r.warnings || [],\n    steps: r.steps || [],\n    error: ok ? null : (r.detail || r.error || r.message || 'publish_failed')\n  }\n}];"
+        "jsCode": "const r = $json || {};\nconst art = (() => { try { return $('Generate Blog Article').item.json || {}; } catch (e) { return {}; } })();\nconst ok = r.status === 'ok' && (r.published === true || r.dry_run === true);\nconst flat = (v) => typeof v === 'string' ? v : (v ? JSON.stringify(v).slice(0, 300) : null);\nreturn [{\n  json: {\n    ok,\n    title: r.title || art.title || null,\n    article_slug: art.slug || null,\n    article_url: r.article_url || null,\n    word_count: r.word_count || 0,\n    published: !!r.published,\n    scheduled: !!r.scheduled,\n    dry_run: !!r.dry_run,\n    warnings: r.warnings || [],\n    steps: r.steps || [],\n    error: ok ? null : (flat(r.detail) || flat(r.error) || flat(r.message) || 'publish_failed')\n  }\n}];"
       },
       "typeVersion": 2,
       "id": "nl-normalize"
