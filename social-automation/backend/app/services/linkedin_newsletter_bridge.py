@@ -433,27 +433,45 @@ class LinkedInNewsletterBridge:
         # Click the LAST visible Next — the media modal can leave a stale
         # Next button in the DOM, and the first match may be inside a hidden
         # layer. Then poll for the dialog — render time varies.
-        await self._eval(
-            '(()=>{const btns=[...document.querySelectorAll("button")]'
-            '.filter(b=>b.offsetParent&&(b.innerText||"").trim().startsWith("Next"));'
-            'if(!btns.length)return "no-next";btns[btns.length-1].click();'
-            'return "clicked"})()'
-        )
-        dialogs: list[str] = []
-        for _ in range(10):
-            await asyncio.sleep(1.5)
-            dialogs = json.loads(
-                await self._eval(
-                    'JSON.stringify([...document.querySelectorAll("[role=dialog]")]'
-                    '.map(d=>d.innerText.slice(0,500)))'
-                )
+        edit_url = await self._eval("location.href")
+        for nav_attempt in range(2):
+            await self._eval(
+                '(()=>{const btns=[...document.querySelectorAll("button")]'
+                '.filter(b=>b.offsetParent&&(b.innerText||"").trim().startsWith("Next"));'
+                'if(!btns.length)return "no-next";btns[btns.length-1].click();'
+                'return "clicked"})()'
             )
+            dialogs: list[str] = []
+            for _ in range(10):
+                await asyncio.sleep(1.5)
+                dialogs = json.loads(
+                    await self._eval(
+                        'JSON.stringify([...document.querySelectorAll("[role=dialog]")]'
+                        '.map(d=>d.innerText.slice(0,500)))'
+                    )
+                )
+                if any(
+                    "edition of your newsletter" in d
+                    or "Post to Anyone + Subscribers" in d
+                    for d in dialogs
+                ):
+                    break
             if any(
-                "edition of your newsletter" in d or "Post to Anyone + Subscribers" in d
+                "edition of your newsletter" in d
+                or "Post to Anyone + Subscribers" in d
                 for d in dialogs
             ):
                 break
-        else:
+            # Ember's click listener can wedge after earlier modal churn —
+            # the draft is auto-saved, so reload once and retry Next.
+            if nav_attempt == 0 and isinstance(edit_url, str) and "/article/edit/" in edit_url:
+                steps.append("no publish dialog — reloading editor")
+                await self._client.navigate(edit_url)
+                if not await self._wait_editor(90):
+                    raise LinkedInNewsletterBridgeError(
+                        "editor did not remount after reload"
+                    )
+                continue
             raise LinkedInNewsletterBridgeError(f"publish dialog not found: {dialogs}")
         steps.append("publish dialog open")
 

@@ -23,7 +23,9 @@ import base64
 import json
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
 from skill_http import api_base, request  # noqa: E402
@@ -161,6 +163,10 @@ def set_seo(seo_title: str, seo_desc: str):
     for field_id, value in ((ids[0], seo_title), (ids[1], seo_desc)):
         if not value:
             continue
+        # SEO title max is 60 chars — a longer value makes Save silently
+        # refuse (dialog stays open, no error). Truncate rather than stall.
+        if field_id == ids[0]:
+            value = value[:60]
         v = value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
         evaluate(
             f'(()=>{{const el=document.getElementById("{field_id}");'
@@ -168,11 +174,119 @@ def set_seo(seo_title: str, seo_desc: str):
             'const s=Object.getOwnPropertyDescriptor(proto.prototype,"value").set;'
             f's.call(el,"{v}");el.dispatchEvent(new Event("input",{{bubbles:true}}));'
             'return el.value.length})()')
-    call("POST", "/session/click", {"selector": "button", "text": "Save"})
-    time.sleep(2)
+    # JS click inside the modal + verify it closes — a Playwright click on
+    # "Save" can land on a stale match and leave the dialog open, which then
+    # swallows the publish-dialog detection.
+    evaluate('(()=>{const dlg=[...document.querySelectorAll("[role=dialog],'
+             '.artdeco-modal")].filter(d=>d.offsetParent).pop();'
+             'const btn=[...dlg.querySelectorAll("button")]'
+             '.find(b=>(b.innerText||"").trim()==="Save");'
+             'if(!btn)return "no-save";btn.click();return "clicked"})()')
+    for _ in range(6):
+        time.sleep(1.5)
+        if not json.loads(evaluate(
+            'JSON.stringify([...document.querySelectorAll("[role=dialog],'
+            '.artdeco-modal")].filter(d=>d.offsetParent).length)')):
+            return
+    raise RuntimeError("SEO dialog did not close after Save — check field validation")
 
 
-def publish(post_text: str, dry_run: bool) -> str:
+def _ptr_click(el_expr: str) -> str:
+    """Full pointer sequence — calendar cells and timepicker options ignore
+    a lone .click() and Playwright flags them 'not visible'."""
+    return evaluate(
+        f'(()=>{{const el={el_expr};if(!el)return "missing";'
+        'el.scrollIntoView({block:"center"});'
+        'const rc=el.getBoundingClientRect();'
+        'const o={bubbles:true,cancelable:true,composed:true,view:window,'
+        'clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,'
+        'pointerId:1,isPrimary:true,pointerType:"mouse"};'
+        'el.dispatchEvent(new PointerEvent("pointerdown",o));'
+        'el.dispatchEvent(new MouseEvent("mousedown",o));'
+        'el.dispatchEvent(new PointerEvent("pointerup",o));'
+        'el.dispatchEvent(new MouseEvent("mouseup",o));'
+        'el.dispatchEvent(new MouseEvent("click",o));'
+        'return "ok"})()')
+
+
+def set_schedule(schedule_iso: str):
+    """Drive the publish dialog's "Schedule post" picker.
+
+    The #share-post__scheduled-date/-time text inputs are display-only —
+    setting them programmatically does NOT move the picker model. Real
+    selection = pointer-click a button[data-calendar-day] (aria-label like
+    "Wednesday, October 21, 2026.") + a [role=option] in the expanded
+    timepicker. "Next" returns to the publish dialog, primary button
+    becomes "Schedule".
+    """
+    dt = datetime.fromisoformat(schedule_iso)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("Europe/Athens"))
+    local = dt.astimezone(ZoneInfo("Europe/Athens"))
+    day_label = local.strftime("%A, %B ") + str(local.day) + local.strftime(", %Y")
+    hour12 = local.hour % 12 or 12
+    time_label = f"{hour12}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
+
+    clicked = evaluate(
+        '(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
+        '.filter(d=>d.offsetParent).pop();if(!dlg)return "no-dialog";'
+        'const btn=[...dlg.querySelectorAll("button")]'
+        '.find(b=>(b.getAttribute("aria-label")||"")==="Schedule post");'
+        'if(!btn)return "no-schedule";btn.click();return "clicked"})()')
+    if clicked != "clicked":
+        raise RuntimeError(f"Schedule post button: {clicked}")
+    for _ in range(8):
+        time.sleep(1)
+        if evaluate('!!document.getElementById("share-post__scheduled-date")'):
+            break
+    else:
+        raise RuntimeError("schedule picker did not open")
+
+    lbl = day_label.replace("\\", "\\\\").replace('"', '\\"')
+    hit = _ptr_click(
+        '[...document.querySelectorAll("[role=dialog],.artdeco-modal")].filter(d=>d.offsetParent).pop()'
+        f'?.querySelector(\'button[data-calendar-day][aria-label^="{lbl}"]\')')
+    if hit != "ok":
+        raise RuntimeError(f"calendar day not found for {day_label}: {hit}")
+    time.sleep(1)
+    got = evaluate('document.getElementById("share-post__scheduled-date").value')
+    if got != local.strftime("%m/%d/%Y"):
+        raise RuntimeError(f"calendar pick failed: {got}")
+
+    evaluate('(()=>{const dlg=[...document.querySelectorAll("[role=dialog],'
+             '.artdeco-modal")].filter(d=>d.offsetParent).pop();'
+             'const b=[...dlg.querySelectorAll("button")]'
+             '.find(b=>/Expand timepicker/i.test((b.innerText||"")'
+             '+(b.getAttribute("aria-label")||"")));'
+             'if(b)b.click();return !!b})()')
+    time.sleep(1.5)
+    hit = _ptr_click(
+        '[...document.querySelectorAll("[role=option],[role=listbox] li,[role=listbox] div")]'
+        f'.filter(e=>e.offsetParent).find(e=>(e.innerText||"").trim()==="{time_label}")')
+    if hit != "ok":
+        raise RuntimeError(f"time option {time_label} not found")
+    time.sleep(1)
+    got = evaluate('document.getElementById("share-post__scheduled-time").value')
+    if got != time_label:
+        raise RuntimeError(f"timepick failed: {got}")
+
+    clicked = evaluate(
+        '(()=>{const dlg=[...document.querySelectorAll("[role=dialog],'
+        '.artdeco-modal")].filter(d=>d.offsetParent).pop();'
+        'const btn=[...dlg.querySelectorAll("button")]'
+        '.find(b=>(b.innerText||"").trim()==="Next");'
+        'if(!btn)return "no-next";btn.click();return "clicked"})()')
+    if clicked != "clicked":
+        raise RuntimeError(f"schedule Next: {clicked}")
+    time.sleep(3)
+    confirm = evaluate('(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
+                       '.filter(d=>d.offsetParent).pop();'
+                       'return dlg?(dlg.innerText||"").slice(0,300):"none"})()')
+    if "Posting" not in str(confirm):
+        raise RuntimeError(f"schedule not committed: {confirm}")
+
+
+def publish(post_text: str, dry_run: bool, schedule_iso: str | None = None) -> str:
     # Click the LAST visible Next — the media modal can leave a stale Next in
     # the DOM; the first match may sit inside a hidden layer.
     evaluate('(()=>{const btns=[...document.querySelectorAll("button")]'
@@ -197,16 +311,19 @@ def publish(post_text: str, dry_run: bool) -> str:
                  f'document.execCommand("insertText",false,"{t}");'
                  "return ed.innerText.length})()")
         time.sleep(1)
+    if schedule_iso:
+        set_schedule(schedule_iso)
     if dry_run:
-        return "DRY-RUN: dialog open, not publishing"
+        return "DRY-RUN: dialog open" + (", scheduled slot set" if schedule_iso else "") + ", not publishing"
+    wanted = "Schedule" if schedule_iso else "Publish"
     clicked = evaluate(
         '(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
         '.filter(d=>d.offsetParent).pop();if(!dlg)return "no-dialog";'
         'const btn=[...dlg.querySelectorAll("button")]'
-        '.find(b=>(b.innerText||"").trim()==="Publish");'
-        'if(!btn)return "no-publish";btn.click();return "clicked"})()')
+        f'.find(b=>(b.innerText||"").trim()==="{wanted}");'
+        f'if(!btn)return "no-{wanted.lower()}";btn.click();return "clicked"}})()')
     if clicked != "clicked":
-        raise RuntimeError(f"Publish button: {clicked}")
+        raise RuntimeError(f"{wanted} button: {clicked}")
     time.sleep(6)
     return evaluate("location.href", timeout=15)
 
@@ -219,6 +336,8 @@ def main():
     ap.add_argument("--seo-title", default="")
     ap.add_argument("--seo-desc", default="")
     ap.add_argument("--post-text", default="")
+    ap.add_argument("--schedule-iso", default=None,
+                    help="ISO datetime (offset or Europe/Athens) — schedules instead of publishing")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--editor-timeout", type=int, default=180)
     args = ap.parse_args()
