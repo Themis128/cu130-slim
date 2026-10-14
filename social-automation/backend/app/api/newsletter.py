@@ -281,16 +281,6 @@ async def linkedin_issue(
     if result is None:
         if body.browser == "sidecar":
             raise HTTPException(status_code=502, detail=sidecar_error)
-        if body.schedule_iso:
-            # The bridge path publishes immediately — it cannot honor a
-            # scheduled release, so fail rather than publish at the wrong time.
-            raise HTTPException(
-                status_code=502,
-                detail=(
-                    f"sidecar failed ({sidecar_error}) and the browser-bridge "
-                    "fallback cannot schedule issues — retry the sidecar"
-                ),
-            )
         via = "bridge"
         bridge_html = html_body or _text_to_html(text_body or "")
         try:
@@ -301,6 +291,7 @@ async def linkedin_issue(
                 seo_title=body.seo_title or title,
                 seo_description=(seo_description or "")[:300] or None,
                 post_description=post_description,
+                schedule_iso=body.schedule_iso,
                 dry_run=body.dry_run,
             )
         except (LinkedInNewsletterBridgeError, BrowserBridgeError, httpx.HTTPError) as exc:

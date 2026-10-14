@@ -29,7 +29,9 @@ import json
 import logging
 import re
 import time
+from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from app.core.config import get_settings
 from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
@@ -175,7 +177,9 @@ class LinkedInNewsletterBridge:
         )
         if len(ids) < 2:
             raise LinkedInNewsletterBridgeError(f"SEO dialog fields not found: {ids}")
-        for field_id, value in ((ids[0], seo_title), (ids[1], seo_description)):
+        # SEO title max is 60 chars — a longer value makes Save silently
+        # refuse (dialog stays open, no error). Truncate rather than stall.
+        for field_id, value in ((ids[0], seo_title[:60]), (ids[1], seo_description)):
             if not value:
                 continue
             await self._eval(
@@ -186,8 +190,171 @@ class LinkedInNewsletterBridge:
                 'el.dispatchEvent(new Event("input",{bubbles:true}));'
                 'return el.value.length})()'
             )
-        await self._client.click("button", text="Save")
-        await asyncio.sleep(2)
+        # JS click inside the modal + verify it closes — a Playwright
+        # force-click on "Save" can land on a stale match and leave the
+        # dialog open, which then swallows the publish-dialog detection.
+        await self._eval(
+            '(()=>{const dlg=[...document.querySelectorAll("[role=dialog],'
+            '.artdeco-modal")].filter(d=>d.offsetParent).pop();'
+            'const btn=[...dlg.querySelectorAll("button")]'
+            '.find(b=>(b.innerText||"").trim()==="Save");'
+            'if(!btn)return "no-save";btn.click();return "clicked"})()'
+        )
+        for _ in range(6):
+            await asyncio.sleep(1.5)
+            open_dlgs = await self._eval(
+                'JSON.stringify([...document.querySelectorAll("[role=dialog],'
+                '.artdeco-modal")].filter(d=>d.offsetParent).length)'
+            )
+            if not int(open_dlgs):
+                return
+        raise LinkedInNewsletterBridgeError(
+            "SEO dialog did not close after Save — check field validation"
+        )
+
+    async def _set_schedule(self, schedule_iso: str) -> None:
+        """Drive the publish dialog's "Schedule post" picker.
+
+        Opens via ``button[aria-label="Schedule post"]``. The picker's
+        ``#share-post__scheduled-date``/``…-time`` text inputs are display-
+        only — setting them programmatically does NOT move the model (the
+        header keeps showing the default). Real selection means clicking a
+        calendar day cell (``button[data-calendar-day]`` with a full
+        ``aria-label`` like "Wednesday, October 21, 2026.") and a
+        ``[role=option]`` in the expanded timepicker listbox — both with a
+        full pointer event sequence (JS .click() alone does not commit).
+        "Next" returns to the publish dialog where the primary button
+        becomes "Schedule".
+        """
+        try:
+            dt = datetime.fromisoformat(schedule_iso)
+        except ValueError as exc:
+            raise LinkedInNewsletterBridgeError(
+                f"invalid schedule_iso: {schedule_iso}"
+            ) from exc
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("Europe/Athens"))
+        local = dt.astimezone(ZoneInfo("Europe/Athens"))
+        # e.g. "Wednesday, October 21, 2026" — calendar aria-label prefix
+        day_label = local.strftime("%A, %B ") + str(local.day) + local.strftime(", %Y")
+        hour12 = local.hour % 12 or 12
+        time_label = f"{hour12}:{local.minute:02d} {'AM' if local.hour < 12 else 'PM'}"
+
+        clicked = await self._eval(
+            '(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
+            '.filter(d=>d.offsetParent).pop();if(!dlg)return "no-dialog";'
+            'const btn=[...dlg.querySelectorAll("button")]'
+            '.find(b=>(b.getAttribute("aria-label")||"")==="Schedule post");'
+            'if(!btn)return "no-schedule";btn.click();return "clicked"})()'
+        )
+        if clicked != "clicked":
+            raise LinkedInNewsletterBridgeError(
+                f"Schedule post button: {clicked}"
+            )
+        for _ in range(8):
+            await asyncio.sleep(1)
+            ready = await self._eval(
+                '!!document.getElementById("share-post__scheduled-date")'
+            )
+            if ready:
+                break
+        else:
+            raise LinkedInNewsletterBridgeError("schedule picker did not open")
+
+        # Calendar day — full pointer sequence (a lone .click() is ignored
+        # and Playwright flags the cell "not visible").
+        day_hit = await self._eval(
+            '(()=>{const dlg=[...document.querySelectorAll("[role=dialog],'
+            '.artdeco-modal")].filter(d=>d.offsetParent).pop();'
+            f'const lbl="{_js_str(day_label)}";'
+            'const b=[...dlg.querySelectorAll("button[data-calendar-day]")]'
+            '.find(b=>(b.getAttribute("aria-label")||"").startsWith(lbl));'
+            'if(!b)return "no-day";'
+            'const rc=b.getBoundingClientRect();'
+            'const o={bubbles:true,cancelable:true,composed:true,view:window,'
+            'clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,'
+            'pointerId:1,isPrimary:true,pointerType:"mouse"};'
+            'b.dispatchEvent(new PointerEvent("pointerdown",o));'
+            'b.dispatchEvent(new MouseEvent("mousedown",o));'
+            'b.dispatchEvent(new PointerEvent("pointerup",o));'
+            'b.dispatchEvent(new MouseEvent("mouseup",o));'
+            'b.dispatchEvent(new MouseEvent("click",o));'
+            'return "ok"})()'
+        )
+        if day_hit != "ok":
+            raise LinkedInNewsletterBridgeError(
+                f"calendar day not found for {day_label}: {day_hit}"
+            )
+        await asyncio.sleep(1)
+        got = await self._eval(
+            'document.getElementById("share-post__scheduled-date").value'
+        )
+        expected_date = local.strftime("%m/%d/%Y")
+        if got != expected_date:
+            raise LinkedInNewsletterBridgeError(
+                f"calendar pick failed: expected {expected_date}, got {got}"
+            )
+
+        # Timepicker — expand, scroll target option into view, pointer-click.
+        await self._eval(
+            '(()=>{const dlg=[...document.querySelectorAll("[role=dialog],'
+            '.artdeco-modal")].filter(d=>d.offsetParent).pop();'
+            'const b=[...dlg.querySelectorAll("button")]'
+            '.find(b=>/Expand timepicker/i.test((b.innerText||"")'
+            '+(b.getAttribute("aria-label")||"")));'
+            'if(b)b.click();return !!b})()'
+        )
+        await asyncio.sleep(1.5)
+        time_hit = await self._eval(
+            '(()=>{const opts=[...document.querySelectorAll("[role=option],'
+            '[role=listbox] li,[role=listbox] div")].filter(e=>e.offsetParent);'
+            f'const t=opts.find(e=>(e.innerText||"").trim()==="{time_label}");'
+            'if(!t)return "no-option";'
+            't.scrollIntoView({block:"center"});'
+            'const rc=t.getBoundingClientRect();'
+            'const o={bubbles:true,cancelable:true,composed:true,view:window,'
+            'clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,'
+            'pointerId:1,isPrimary:true,pointerType:"mouse"};'
+            't.dispatchEvent(new PointerEvent("pointerdown",o));'
+            't.dispatchEvent(new MouseEvent("mousedown",o));'
+            't.dispatchEvent(new PointerEvent("pointerup",o));'
+            't.dispatchEvent(new MouseEvent("mouseup",o));'
+            't.dispatchEvent(new MouseEvent("click",o));'
+            'return "ok"})()'
+        )
+        if time_hit != "ok":
+            raise LinkedInNewsletterBridgeError(
+                f"time option {time_label} not found: {time_hit}"
+            )
+        await asyncio.sleep(1)
+        got_time = await self._eval(
+            'document.getElementById("share-post__scheduled-time").value'
+        )
+        if got_time != time_label:
+            raise LinkedInNewsletterBridgeError(
+                f"timepick failed: expected {time_label}, got {got_time}"
+            )
+
+        # "Next" commits the picked date/time back to the publish dialog.
+        clicked = await self._eval(
+            '(()=>{const dlg=[...document.querySelectorAll("[role=dialog],'
+            '.artdeco-modal")].filter(d=>d.offsetParent).pop();'
+            'const btn=[...dlg.querySelectorAll("button")]'
+            '.find(b=>(b.innerText||"").trim()==="Next");'
+            'if(!btn)return "no-next";btn.click();return "clicked"})()'
+        )
+        if clicked != "clicked":
+            raise LinkedInNewsletterBridgeError(f"schedule Next: {clicked}")
+        await asyncio.sleep(3)
+        confirm = await self._eval(
+            '(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
+            '.filter(d=>d.offsetParent).pop();'
+            'return dlg?(dlg.innerText||"").slice(0,300):"none"})()'
+        )
+        if "Posting" not in str(confirm):
+            raise LinkedInNewsletterBridgeError(
+                f"schedule not committed: {confirm}"
+            )
 
     async def publish_issue(
         self,
@@ -198,6 +365,7 @@ class LinkedInNewsletterBridge:
         seo_title: str | None = None,
         seo_description: str | None = None,
         post_description: str | None = None,
+        schedule_iso: str | None = None,
         dry_run: bool = False,
         editor_timeout_s: float = 180.0,
     ) -> dict[str, Any]:
@@ -301,6 +469,10 @@ class LinkedInNewsletterBridge:
             await asyncio.sleep(1)
             steps.append("announcement text set")
 
+        if schedule_iso:
+            await self._set_schedule(schedule_iso)
+            steps.append("scheduled")
+
         if dry_run:
             steps.append("dry-run: publish dialog open, not publishing")
             return {
@@ -310,20 +482,26 @@ class LinkedInNewsletterBridge:
                 "via": "browser-bridge",
             }
 
+        # After _set_schedule the primary button reads "Schedule" instead of
+        # "Publish" — accept whichever is present.
+        wanted = "Schedule" if schedule_iso else "Publish"
         clicked = await self._eval(
             '(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
             '.filter(d=>d.offsetParent).pop();if(!dlg)return "no-dialog";'
             'const btn=[...dlg.querySelectorAll("button")]'
-            '.find(b=>(b.innerText||"").trim()==="Publish");'
-            'if(!btn)return "no-publish";btn.click();return "clicked"})()'
+            f'.find(b=>(b.innerText||"").trim()==="{wanted}");'
+            'if(!btn)return "no-"+("'
+            + wanted.lower()
+            + '");btn.click();return "clicked"})()'
         )
         if clicked != "clicked":
-            raise LinkedInNewsletterBridgeError(f"Publish button: {clicked}")
+            raise LinkedInNewsletterBridgeError(f"{wanted} button: {clicked}")
         await asyncio.sleep(6)
         url = await self._eval("location.href")
-        steps.append("published")
+        steps.append("published" if not schedule_iso else "schedule confirmed")
         return {
-            "published": True,
+            "published": not schedule_iso,
+            "scheduled": bool(schedule_iso),
             "article_url": url,
             "steps": steps,
             "via": "browser-bridge",

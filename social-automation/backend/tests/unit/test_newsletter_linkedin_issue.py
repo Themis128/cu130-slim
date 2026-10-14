@@ -361,20 +361,29 @@ async def test_issue_browser_bridge_skips_sidecar(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_issue_schedule_refuses_bridge_fallback(monkeypatch):
+async def test_issue_schedule_forwards_to_bridge_fallback(monkeypatch):
     _stub_sidecar(monkeypatch, _Http(status=500, text="timeout"))
-    bridge = _stub_bridge(monkeypatch)
+    bridge = _stub_bridge(
+        monkeypatch,
+        _Bridge(result={
+            "published": False,
+            "scheduled": True,
+            "article_url": "https://www.linkedin.com/article/edit/123/",
+            "steps": ["bridge session claimed", "scheduled"],
+        }),
+    )
     with _patched_settings():
-        with pytest.raises(HTTPException) as e:
-            await newsletter_api.linkedin_issue(
-                newsletter_api.LinkedInIssueRequest(
-                    title="t", text_body="b", schedule_iso="2026-10-20T09:00:00+03:00"
-                ),
-                _request(),
-                db=None,
-            )
-    assert e.value.status_code == 502 and "cannot schedule" in e.value.detail
-    assert bridge.calls == []
+        resp = await newsletter_api.linkedin_issue(
+            newsletter_api.LinkedInIssueRequest(
+                title="t", text_body="b", schedule_iso="2026-10-20T09:00:00+03:00",
+                render_cover=False,
+            ),
+            _request(),
+            db=None,
+        )
+    # bridge cannot be assumed — schedule_iso must be forwarded verbatim
+    assert bridge.calls[0]["schedule_iso"] == "2026-10-20T09:00:00+03:00"
+    assert resp.scheduled is True and resp.published is False
 
 
 @pytest.mark.asyncio
