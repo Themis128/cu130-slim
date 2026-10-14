@@ -284,6 +284,9 @@ async def test_with_retry_after_zero_retries():
 def test_presigned_download_missing_creds(monkeypatch):
     import app.services.r2_presigned as r2
 
+    # Clear R2_PUBLIC_URL too — the .env loaded by tests/integration/conftest.py
+    # supplies a real public base, which short-circuits before the creds check.
+    monkeypatch.setattr(r2.settings, "R2_PUBLIC_URL", "")
     monkeypatch.setattr(r2, "_r2_creds", lambda: None)
     assert r2.presigned_download_url("key.png") is None
 
