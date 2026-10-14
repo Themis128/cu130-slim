@@ -154,6 +154,14 @@ async function ensureBrowser(fresh = false) {
   // NOTE: no context.route() interception here — CDP Fetch interception
   // leaks to LinkedIn's bot detection (pages boot to an empty skeleton).
   page = await context.newPage();
+  // LinkedIn opens some surfaces (article/newsletter editor links) via
+  // target=_blank. Track popups so `page` always points at the newest tab.
+  context.on("page", (p) => {
+    agentLog("H-POP", "context.page", "popup became active page", {
+      url: p.url(),
+    });
+    page = p;
+  });
   if (process.env.LINKEDIN_DEBUG_CONSOLE === "1") {
     page.on("pageerror", (e) =>
       console.log("[pageerror]", String(e && e.message).slice(0, 300)),
@@ -3297,21 +3305,43 @@ async function handleNewsletterPublish(body) {
   };
 
   await ensureBrowser();
-  await navigate("https://www.linkedin.com/article/new/");
-  step("navigated");
+  // A bare /article/new/ document never hydrates its Ember app reliably
+  // (boot-splash loop, verified repeatedly). The feed → "Write article"
+  // link opens the editor inside an already-booted app — an SPA transition
+  // or a target=_blank popup (context.on('page') swaps the global `page`).
+  await navigate("https://www.linkedin.com/feed/");
+  step("feed-loaded");
 
   if (!isLinkedInPageUrl(page.url()) || page.url().includes("/login")) {
     throw new Error("Not logged in — session expired");
   }
 
-  // The editor app boot-loops (document reloads repeatedly, CDN assets 403)
-  // before it finally hydrates — observed 1-3 min. waitForSelector survives
-  // the reloads; plain findElement races them and loses.
+  const writeLink = await findElement(['a[href="/article/new/"]'], {
+    timeout: 20000,
+  });
+  if (!writeLink) throw new Error('"Write article" link not found on feed');
+  await writeLink.click();
+  step("write-article-clicked");
+
   const EDITOR_SEL =
     'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
-  try {
-    await page.waitForSelector(EDITOR_SEL, { timeout: 240000 });
-  } catch (_) {
+  const deadline = Date.now() + 240000;
+  let editorFound = false;
+  while (Date.now() < deadline && !editorFound) {
+    for (const p of context.pages()) {
+      try {
+        if (p.url().includes("/article/new") && (await p.$(EDITOR_SEL))) {
+          page = p;
+          editorFound = true;
+          break;
+        }
+      } catch (_) {
+        /* page mid-navigation */
+      }
+    }
+    if (!editorFound) await page.waitForTimeout(3000);
+  }
+  if (!editorFound) {
     const shot = await page.screenshot({ type: "png" }).catch(() => null);
     const shotPath = shot
       ? saveDebugScreenshot(shot, "article-editor-dead")
