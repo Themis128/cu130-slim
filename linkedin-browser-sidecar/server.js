@@ -3334,8 +3334,17 @@ async function handleNewsletterPublish(body) {
   while (Date.now() < deadline && !editorFound) {
     for (const p of context.pages()) {
       try {
-        if (p.url().includes("/article/new") && (await p.$(EDITOR_SEL))) {
+        if (!p.url().includes("/article/new")) continue;
+        if (p !== page) {
+          // Editor opened as a popup — the feed tab stays loaded alongside
+          // it and the pair blew past the 4G cgroup cap once. Swap and free
+          // it immediately, not after hydration.
           page = p;
+          for (const q of context.pages()) {
+            if (q !== page) q.close().catch(() => {});
+          }
+        }
+        if (await p.$(EDITOR_SEL)) {
           editorFound = true;
           break;
         }
@@ -3343,7 +3352,7 @@ async function handleNewsletterPublish(body) {
         /* page mid-navigation */
       }
     }
-    if (!editorFound) await page.waitForTimeout(3000);
+    if (!editorFound) await page.waitForTimeout(3000).catch(() => {});
   }
   if (!editorFound) {
     const shot = await page.screenshot({ type: "png" }).catch(() => null);
@@ -3353,6 +3362,9 @@ async function handleNewsletterPublish(body) {
     throw new Error(
       `Article editor did not render within 240s${shotPath ? ` (screenshot: ${shotPath})` : ""}`,
     );
+  }
+  for (const p of context.pages()) {
+    if (p !== page) await p.close().catch(() => {});
   }
   await page.waitForTimeout(2000);
   step("editor-ready");
