@@ -286,14 +286,13 @@ def set_schedule(schedule_iso: str):
         raise RuntimeError(f"schedule not committed: {confirm}")
 
 
-def publish(post_text: str, dry_run: bool, schedule_iso: str | None = None) -> str:
+def _open_publish_dialog() -> list[str]:
     # Click the LAST visible Next — the media modal can leave a stale Next in
     # the DOM; the first match may sit inside a hidden layer.
     evaluate('(()=>{const btns=[...document.querySelectorAll("button")]'
              '.filter(b=>b.offsetParent&&(b.innerText||"").trim().startsWith("Next"));'
              'if(!btns.length)return "no-next";btns[btns.length-1].click();'
              'return "clicked"})()')
-    dlg: list[str] = []
     for _ in range(10):
         time.sleep(2)
         dlg = json.loads(evaluate(
@@ -301,8 +300,25 @@ def publish(post_text: str, dry_run: bool, schedule_iso: str | None = None) -> s
             '.map(d=>d.innerText.slice(0,500)))'))
         if any("edition of your newsletter" in t or "Post to Anyone + Subscribers" in t
                for t in dlg):
-            break
-    else:
+            return dlg
+    return dlg
+
+
+def publish(post_text: str, dry_run: bool, schedule_iso: str | None = None) -> str:
+    edit_url = evaluate("location.href")
+    dlg = _open_publish_dialog()
+    if not any("edition of your newsletter" in t or "Post to Anyone + Subscribers" in t
+               for t in dlg):
+        # Ember's click listener can wedge after earlier modal churn — the
+        # draft is auto-saved, so reload /article/edit/<id>/ once and retry.
+        if isinstance(edit_url, str) and "/article/edit/" in edit_url:
+            print("      no dialog — reloading editor", flush=True)
+            call("POST", "/session/navigate", {"url": edit_url}, timeout=90)
+            if not wait_editor(90):
+                raise RuntimeError("editor did not remount after reload")
+            dlg = _open_publish_dialog()
+    if not any("edition of your newsletter" in t or "Post to Anyone + Subscribers" in t
+               for t in dlg):
         raise RuntimeError(f"publish dialog not found: {dlg}")
     if post_text:
         t = post_text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
