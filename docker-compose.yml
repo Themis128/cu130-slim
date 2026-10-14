@@ -1420,6 +1420,7 @@ services:
       # fingerprint) — connect directly by default; set LINKEDIN_PROXY to opt in.
       - LINKEDIN_PROXY=${LINKEDIN_PROXY:-}
       - LINKEDIN_RATE_LIMIT_COOLDOWN_MS=${LINKEDIN_RATE_LIMIT_COOLDOWN_MS:-21600000}
+      - LINKEDIN_DEBUG_CONSOLE=${LINKEDIN_DEBUG_CONSOLE:-0}
     volumes:
       - linkedin_browser_data:/data
     depends_on:

@@ -146,6 +146,23 @@ async function ensureBrowser(fresh = false) {
   // NOTE: no context.route() interception here — CDP Fetch interception
   // leaks to LinkedIn's bot detection (pages boot to an empty skeleton).
   page = await context.newPage();
+  if (process.env.LINKEDIN_DEBUG_CONSOLE === "1") {
+    page.on("pageerror", (e) =>
+      console.log("[pageerror]", String(e && e.message).slice(0, 300)),
+    );
+    page.on("console", (m) => {
+      if (m.type() === "error" || m.type() === "warning") {
+        console.log("[console." + m.type() + "]", m.text().slice(0, 300));
+      }
+    });
+    page.on("requestfailed", (r) =>
+      console.log(
+        "[reqfail]",
+        r.url().slice(0, 140),
+        r.failure() && r.failure().errorText,
+      ),
+    );
+  }
 }
 
 async function closeBrowser() {
