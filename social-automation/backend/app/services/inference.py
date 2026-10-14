@@ -1909,9 +1909,11 @@ async def call_inference(
         else:
             if last_error:
                 raise last_error
-            raise HTTPException(status_code=502, detail="No inference provider is available")
+            raise HTTPException(  # pragma: no cover — non-empty attempt list always sets last_error or breaks
+                status_code=502, detail="No inference provider is available"
+            )
 
-        if used_provider is None:
+        if used_provider is None:  # pragma: no cover — a completed try sets used_provider
             raise HTTPException(status_code=502, detail="No inference provider is available")
 
         latency_ms = int((time.perf_counter() - start) * 1000)

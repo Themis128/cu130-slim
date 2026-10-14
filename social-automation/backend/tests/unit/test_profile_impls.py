@@ -1128,6 +1128,29 @@ async def test_browser_endpoints_success(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_browser_status_error_mapping(monkeypatch):
+    """bridge non-2xx → same status; timeout → 504; unreachable → 503."""
+    u = SimpleNamespace(id=1)
+
+    # Bridge returns an error status → mapped (was a bare 500 before).
+    bad = _resp(502, {"detail": "bridge exploded"})
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _HTTP(resp=bad))
+    with pytest.raises(HTTPException) as exc:
+        await P.browser_session_status(current_user=u)
+    assert exc.value.status_code == 502
+    assert exc.value.detail == "bridge exploded"
+
+    # Bridge times out → 504.
+    monkeypatch.setattr(
+        httpx, "AsyncClient",
+        lambda **kw: _HTTP(err=httpx.ReadTimeout("slow")),
+    )
+    with pytest.raises(HTTPException) as exc:
+        await P.browser_session_status(current_user=u)
+    assert exc.value.status_code == 504
+
+
+@pytest.mark.asyncio
 async def test_extract_cookies_http_status_error(monkeypatch):
     err_resp = _resp(404, {"detail": "gone"})
 

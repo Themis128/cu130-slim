@@ -331,7 +331,7 @@ async def _process_account(
                 }
                 for c in bridge_result.get("conversations", [])
             ]}
-        else:
+        else:  # pragma: no cover — client is None only when bridge is set or we returned above
             return 0
     except InstagramAPIError as exc:
         if _is_app_rate_limit(exc):
@@ -413,7 +413,7 @@ async def _process_account(
                     is_outbound = str(sender_id) in my_ids
                 elif sender_key == "is_sent_by_viewer":
                     is_outbound = bool(msg.get(sender_key, False))
-                else:
+                else:  # pragma: no cover — sender_key is only ever "from" or "is_sent_by_viewer"
                     sender_id = msg.get(sender_key, "")
                     is_outbound = str(sender_id) in my_ids
                 if not is_outbound and msg.get(text_field):
@@ -436,7 +436,7 @@ async def _process_account(
             else:
                 text = inbound_messages[0]
 
-            if not text:
+            if not text:  # pragma: no cover — inbound_messages only holds non-empty stripped text
                 continue
 
             # 4. Check if already replied — compare the combined text

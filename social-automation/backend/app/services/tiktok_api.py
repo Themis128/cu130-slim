@@ -214,7 +214,7 @@ def _video_chunk_plan(video_size: int) -> tuple[int, int]:
     chunk_size = DEFAULT_CHUNK_SIZE
     total_chunk_count = _expected_chunk_count(video_size, chunk_size)
     final_chunk = video_size - (total_chunk_count - 1) * chunk_size
-    if final_chunk > MAX_FINAL_CHUNK_SIZE:
+    if final_chunk > MAX_FINAL_CHUNK_SIZE:  # pragma: no cover — final_chunk is always < 2*chunk_size (20 MB) with floor-division count
         raise ValueError("final TikTok upload chunk would exceed 128 MB")
     if total_chunk_count > MAX_CHUNK_COUNT:
         raise ValueError("video requires more than 1000 chunks")

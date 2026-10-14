@@ -1839,10 +1839,20 @@ async def browser_session_status(
             resp = await client.get(f"{_BROWSER_BRIDGE_URL}/session/status")
             resp.raise_for_status()
             return resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.json().get("detail", e.response.text),
+            )
         except httpx.ConnectError:
             raise HTTPException(
                 status_code=503,
                 detail="Browser bridge container not reachable.",
+            )
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=504,
+                detail="Browser bridge session status timed out.",
             )
 
 

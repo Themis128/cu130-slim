@@ -206,7 +206,7 @@ async def _process_account(
                 continue
 
             text = last_inbound.get("text", "").strip()
-            if not text:
+            if not text:  # pragma: no cover — the scan above only selects non-empty stripped text
                 continue
 
             # 4. Check if already replied

@@ -5,6 +5,7 @@ import pytest
 
 # Only load .env file if not in CI environment
 is_ci = os.environ.get("CI") == "true"
+_dotenv: dict = {}
 if not is_ci:
     # Find the nearest .env walking up — covers both the container layout
     # (/app/tests/… → /app/.env) and host runs (…/backend/tests/… → repo .env).
@@ -18,9 +19,10 @@ if not is_ci:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
+                    _dotenv[key] = value.strip('"')
                     # Real env vars take precedence over .env so callers can
                     # override (e.g. point DATABASE_URL at a *_test database).
-                    os.environ.setdefault(key, value.strip('"'))
+                    os.environ.setdefault(key, _dotenv[key])
 
 # Override UPLOAD_DIR for tests to a temporary directory
 os.environ["UPLOAD_DIR"] = "/tmp/uploads"
@@ -39,10 +41,18 @@ if not is_ci and "DATABASE_URL" not in os.environ:
     )
 
 # Only override redis URL for local development (not CI)
-if not is_ci and "REDIS_URL" not in os.environ:
-    # Override the redis URL to use the host port for the redis container
-    # The redis container is mapped to port 6379 on the host
-    os.environ["REDIS_URL"] = "redis://:redis_password@localhost:6379/0"
+if not is_ci:
+    # The root tests/conftest.py seeds an unauthenticated localhost REDIS_URL
+    # before this file loads, which shadows .env's authenticated URL and makes
+    # the docker-stack Redis checks fail against the real local stack (it
+    # requires a password). Prefer .env's URL — mapping the container hostname
+    # to localhost like _host_url in test_docker_stack.py — unless the operator
+    # already exported a non-default REDIS_URL.
+    _redis_from_env = _dotenv.get("REDIS_URL")
+    if _redis_from_env and os.environ.get("REDIS_URL") in (None, "redis://localhost:6379/0"):
+        os.environ["REDIS_URL"] = _redis_from_env.replace("redis:6379", "localhost:6379")
+    elif "REDIS_URL" not in os.environ:
+        os.environ["REDIS_URL"] = "redis://:redis_password@localhost:6379/0"
 
 # Now import the app and other modules
 import pytest_asyncio  # noqa: E402

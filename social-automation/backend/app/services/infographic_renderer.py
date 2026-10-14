@@ -21,7 +21,7 @@ import logging
 import os
 from typing import Any
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from app.services.inference import call_inference
 
@@ -259,7 +259,7 @@ def render_infographic(
             bg = Image.open(io.BytesIO(background_bytes)).convert("RGBA")
             bg = bg.resize((width, height), Image.LANCZOS)
             # Apply a heavy blur to eliminate any text features, then blend at 15%
-            bg = bg.filter(Image.GaussianBlur(radius=30))
+            bg = bg.filter(ImageFilter.GaussianBlur(radius=30))
             bg.putalpha(38)  # 15% opacity
             img = Image.alpha_composite(img.convert("RGBA"), bg).convert("RGB")
         except Exception:

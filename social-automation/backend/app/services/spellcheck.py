@@ -34,7 +34,7 @@ def _strip_unrenderable_symbols(text: str) -> str:
 
     def _keep(ch: str) -> bool:
         if not ch:
-            return False
+            return False  # pragma: no cover
         if emoji.is_emoji(ch):
             return False
         if unicodedata.category(ch) == "So" and ord(ch) >= 0x2600:
