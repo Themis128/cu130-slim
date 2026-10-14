@@ -79,7 +79,12 @@ def paste_body(html: str) -> int:
         'const sel=document.getSelection();const r=document.createRange();'
         'r.selectNodeContents(pm);sel.removeAllRanges();sel.addRange(r);'
         'document.execCommand("delete");'
-        f'const html=atob("{b64}");const dt=new DataTransfer();'
+        # atob() yields raw bytes — feeding them straight to setData reads them
+        # as Latin-1 and mangles every non-ASCII char (— → â€", € → â‚¬).
+        # Decode as UTF-8 via TextDecoder first.
+        f'const bytes=Uint8Array.from(atob("{b64}"),c=>c.charCodeAt(0));'
+        'const html=new TextDecoder("utf-8").decode(bytes);'
+        'const dt=new DataTransfer();'
         'dt.setData("text/html",html);'
         'pm.dispatchEvent(new ClipboardEvent("paste",'
         '{clipboardData:dt,bubbles:true,cancelable:true}));'

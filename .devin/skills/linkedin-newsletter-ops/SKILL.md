@@ -61,10 +61,21 @@ pm.dispatchEvent(new ClipboardEvent('paste',
 ```
 
 Verified: ProseMirror consumes the DataTransfer and renders with its own
-classes. To REPLACE existing content first select all:
-`range.selectNodeContents(pm); sel.addRange(range); execCommand('delete')`
-(`execCommand('selectAll')` does NOT expand into the PM selection — pasting
-then appends instead of replacing).
+classes. Two pitfalls burned Issue #2's first version:
+
+- **Encoding:** `atob(b64)` returns raw bytes — feeding them straight to
+  `setData` reads them as Latin-1 and produces mojibake (`—` → `â€"`,
+  `€` → `â‚¬`, `’` → `â€™`). Decode as UTF-8:
+  `new TextDecoder('utf-8').decode(Uint8Array.from(atob(b64), c=>c.charCodeAt(0)))`.
+  Always sanity-check `innerText` for `â`/`ï¿½` before publishing.
+- **Replace vs append:** `execCommand('selectAll')` does NOT expand into the
+  PM selection — pasting then appends. Clear via DOM range
+  (`Range.selectNodeContents(pm)` + `execCommand('delete')`), verify
+  `pm.innerText.length <= 1`, *then* paste. Verify the paste left exactly
+  one copy (`(innerText.match(/<phrase>/g)||[]).length === 1`).
+
+To fix a published issue: navigate `/article/edit/<article-id>/`, replace the
+body the same way, click **Update** — republishes in place, no new feed post.
 
 **Publish-dialog post text uses Quill, not ProseMirror** — synthetic paste is
 ignored there; use `document.execCommand('insertText', false, text)` on
