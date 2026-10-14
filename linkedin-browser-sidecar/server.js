@@ -3316,8 +3316,10 @@ async function handleNewsletterPublish(body) {
     throw new Error("Not logged in — session expired");
   }
 
+  // The sharebox link renders late — the feed SPA can take a minute to
+  // hydrate after a cold navigate.
   const writeLink = await findElement(['a[href="/article/new/"]'], {
-    timeout: 20000,
+    timeout: 90000,
   });
   if (!writeLink) throw new Error('"Write article" link not found on feed');
   await writeLink.click();
