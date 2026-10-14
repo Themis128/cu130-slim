@@ -256,3 +256,47 @@ async def test_error_mapping(monkeypatch):
         with pytest.raises(L.LinkedInSidecarError) as e:
             await coro
         assert e.value.status_code == 404 and e.value.detail == "gone"
+
+
+@pytest.mark.asyncio
+async def test_publish_newsletter_issue(monkeypatch):
+    c = _client(monkeypatch, _Http(default=_resp(200, {
+        "status": "ok", "published": True, "steps": ["editor-ready"],
+        "article_url": "https://www.linkedin.com/pulse/x",
+    })))
+    out = await c.publish_newsletter_issue(
+        title="Issue #2 — real numbers",
+        html_body="<h2>Sec</h2><p>body</p>",
+        cover_base64="QUJD",
+        cover_filename="cover.png",
+        newsletter_name="The Cloudless Build Log",
+        seo_title="seo",
+        seo_description="desc",
+        post_description="feed text",
+        dry_run=False,
+    )
+    assert out["published"] is True
+    m, u, kw = c._http.calls[-1]
+    assert m == "POST" and u == "/newsletter/publish"
+    p = kw["json"]
+    assert p["title"] == "Issue #2 — real numbers"
+    assert p["html_body"].startswith("<h2>")
+    assert p["cover_base64"] == "QUJD"
+    assert p["newsletter_name"] == "The Cloudless Build Log"
+    assert p["seo_title"] == "seo" and p["seo_description"] == "desc"
+    assert p["post_description"] == "feed text"
+    assert p["dry_run"] is False
+    assert "text_body" not in p  # unset fields omitted
+
+
+@pytest.mark.asyncio
+async def test_publish_newsletter_issue_dry_run_and_error(monkeypatch):
+    c = _client(monkeypatch)
+    await c.publish_newsletter_issue(title="t", text_body="b", dry_run=True)
+    assert c._http.calls[-1][2]["json"]["dry_run"] is True
+    assert c._http.calls[-1][2]["json"]["text_body"] == "b"
+
+    c = _client(monkeypatch, _Http(default=_resp(500, text="editor dead")))
+    with pytest.raises(L.LinkedInSidecarError) as e:
+        await c.publish_newsletter_issue(title="t", text_body="b")
+    assert e.value.status_code == 500 and e.value.detail == "editor dead"

@@ -157,8 +157,9 @@ Output format rules (STRICT — the renderer is not full markdown):
   paragraphs and "- " bullet lists. Blocks separated by blank lines.
 - ONLY "## " headings — never "#", "###" or deeper.
 - Inline formatting allowed: **bold**, `code`, [text](https://url).
-- 500-800 words. No title line, no meta commentary, no conclusion fluff like
-  "In conclusion".
+- 1100-1400 words. LinkedIn newsletter + SEO best practice is a ≥6-minute
+  read; under ~1000 words reads as a long post, not an article. No title
+  line, no meta commentary, no conclusion fluff like "In conclusion".
 - excerpt: one sentence, under 160 chars, plain text.
 - readTime: like "6 min read" (estimate ~200 wpm).
 - category: exactly one of {", ".join(VALID_CATEGORIES)}.

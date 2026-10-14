@@ -1,0 +1,282 @@
+{
+  "id": "linkedin-newsletter-weekly",
+  "name": "LinkedIn Newsletter — The Cloudless Build Log (weekly)",
+  "nodes": [
+    {
+      "name": "Weekly Monday 11:00 Athens",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [0, 0],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 11 * * 1"
+            }
+          ]
+        }
+      },
+      "typeVersion": 1.2,
+      "id": "nl-schedule-mon11"
+    },
+    {
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "position": [0, 160],
+      "parameters": {
+        "path": "linkedin-newsletter-weekly",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "typeVersion": 2,
+      "id": "nl-webhook",
+      "webhookId": "linkedin-newsletter-weekly"
+    },
+    {
+      "name": "Respond Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "position": [2020, 160],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "typeVersion": 1.1,
+      "id": "nl-respond"
+    },
+    {
+      "name": "Resolve Newsletter Config",
+      "type": "n8n-nodes-base.code",
+      "position": [280, 0],
+      "parameters": {
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    // generate-blog-article is idempotent per slug — the 09:00 weekly\n    // workflow already created this week's article; passing the same topic\n    // reuses it instead of generating a duplicate.\n    article_topic: body.article_topic || $env.CLOUDLESS_NEWSLETTER_TOPIC || 'Weekly Cloud Computing Trends',\n    newsletter_name: body.newsletter_name || 'The Cloudless Build Log',\n    dry_run: body.dry_run === true,\n    publish: body.publish !== false\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "id": "nl-resolve-config"
+    },
+    {
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "position": [520, 140],
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "typeVersion": 2,
+      "id": "nl-generate-totp"
+    },
+    {
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [520, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            { "name": "username", "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}" },
+            { "name": "password", "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}" },
+            { "name": "otp", "value": "={{ $('Generate TOTP').item.json.otp }}" }
+          ]
+        },
+        "options": { "timeout": 60000 }
+      },
+      "typeVersion": 4.2,
+      "id": "nl-login",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "position": [740, 0],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "notEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "typeVersion": 2.2,
+      "id": "nl-login-ok"
+    },
+    {
+      "name": "Generate Blog Article",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [980, -140],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-blog-article' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"topic\": {{ JSON.stringify($('Resolve Newsletter Config').item.json.article_topic) }} }",
+        "options": { "timeout": 300000 }
+      },
+      "typeVersion": 4.2,
+      "id": "nl-gen-article",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Publish LinkedIn Issue",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1220, -140],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/newsletter/linkedin/issue' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Service-Token",
+              "value": "={{ $env.NEWSLETTER_SERVICE_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"article_slug\": {{ JSON.stringify($('Generate Blog Article').item.json.slug || '') }}, \"newsletter_name\": {{ JSON.stringify($('Resolve Newsletter Config').item.json.newsletter_name) }}, \"post_description\": {{ JSON.stringify($('Generate Blog Article').item.json.social_post || '') }}, \"dry_run\": {{ $('Resolve Newsletter Config').item.json.dry_run }} }",
+        "options": { "timeout": 480000 }
+      },
+      "typeVersion": 4.2,
+      "id": "nl-publish-issue",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "position": [1460, -140],
+      "parameters": {
+        "jsCode": "const r = $json || {};\nconst art = (() => { try { return $('Generate Blog Article').item.json || {}; } catch (e) { return {}; } })();\nconst ok = r.status === 'ok' && (r.published === true || r.dry_run === true);\nconst flat = (v) => typeof v === 'string' ? v : (v ? JSON.stringify(v).slice(0, 300) : null);\nreturn [{\n  json: {\n    ok,\n    title: r.title || art.title || null,\n    article_slug: art.slug || null,\n    article_url: r.article_url || null,\n    word_count: r.word_count || 0,\n    published: !!r.published,\n    scheduled: !!r.scheduled,\n    dry_run: !!r.dry_run,\n    warnings: r.warnings || [],\n    steps: r.steps || [],\n    error: ok ? null : (flat(r.detail) || flat(r.error) || flat(r.message) || 'publish_failed')\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "id": "nl-normalize"
+    },
+    {
+      "name": "Notify #newsletter",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [1700, -140],
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.SLACK_BOT_TOKEN }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={ \"channel\": {{ JSON.stringify($env.SLACK_NEWSLETTER_CHANNEL_ID || 'C0BBDKY6Q9E') }}, \"text\": {{ JSON.stringify($json.ok ? (':newspaper: LinkedIn newsletter ' + ($json.dry_run ? 'DRY RUN' : 'published') + ' — *' + ($json.title || '') + '*' + ($json.article_url ? '\\n' + $json.article_url : '') + '\\n' + ($json.word_count || 0) + ' words' + (($json.warnings && $json.warnings.length) ? ' · ' + $json.warnings.join('; ') : '')) : (':warning: LinkedIn newsletter publish failed — ' + ($json.error || 'unknown') + ($json.title ? ' (' + $json.title + ')' : ''))) }} }",
+        "options": { "timeout": 30000 }
+      },
+      "typeVersion": 4.2,
+      "id": "nl-slack-notify",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "position": [980, 140],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "ok", "name": "ok", "value": false, "type": "boolean" },
+            { "id": "error", "name": "error", "value": "social_api_login_failed", "type": "string" },
+            { "id": "title", "name": "title", "value": "", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 3.4,
+      "id": "nl-login-failed"
+    },
+    {
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "position": [1220, 60],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Newsletter Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "typeVersion": 2.2,
+      "id": "nl-publish-gate"
+    }
+  ],
+  "connections": {
+    "Weekly Monday 11:00 Athens": {
+      "main": [[{ "node": "Resolve Newsletter Config", "type": "main", "index": 0 }]]
+    },
+    "Webhook": {
+      "main": [[{ "node": "Resolve Newsletter Config", "type": "main", "index": 0 }]]
+    },
+    "Resolve Newsletter Config": {
+      "main": [[{ "node": "Generate TOTP", "type": "main", "index": 0 }]]
+    },
+    "Generate TOTP": {
+      "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]]
+    },
+    "Login Social API": {
+      "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]]
+    },
+    "Login OK?": {
+      "main": [
+        [{ "node": "Generate Blog Article", "type": "main", "index": 0 }],
+        [{ "node": "Login Failed", "type": "main", "index": 0 }]
+      ]
+    },
+    "Generate Blog Article": {
+      "main": [[{ "node": "Publish?", "type": "main", "index": 0 }]]
+    },
+    "Publish?": {
+      "main": [
+        [{ "node": "Publish LinkedIn Issue", "type": "main", "index": 0 }],
+        [{ "node": "Normalize Result", "type": "main", "index": 0 }]
+      ]
+    },
+    "Publish LinkedIn Issue": {
+      "main": [[{ "node": "Normalize Result", "type": "main", "index": 0 }]]
+    },
+    "Normalize Result": {
+      "main": [[{ "node": "Notify #newsletter", "type": "main", "index": 0 }]]
+    },
+    "Notify #newsletter": {
+      "main": [[{ "node": "Respond Webhook", "type": "main", "index": 0 }]]
+    },
+    "Login Failed": {
+      "main": [[{ "node": "Notify #newsletter", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens"
+  }
+}
