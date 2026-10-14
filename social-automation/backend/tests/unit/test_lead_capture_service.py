@@ -202,8 +202,7 @@ class TestCompanySizeStep:
         assert st["fields"]["company_size"] == "200+"
 
     # NOTE: "21-50"/"51-200" digit fallbacks are unreachable — any text
-    # containing both '2' and '5' resolves to s_2_5 first (ordering bug
-    # in production; tests assert actual behavior).
+    # Most-specific ranges are matched before the broad '2'+'5' digit check.
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         "text,expected",
@@ -211,8 +210,8 @@ class TestCompanySizeStep:
             ("1 person", "solo"),
             ("2-5 of us", "2-5"),
             ("6-20 staff", "6-20"),
-            ("21 50 team", "2-5"),
-            ("51 200 seats", "2-5"),
+            ("21 50 team", "21-50"),
+            ("51 200 seats", "51-200"),
             ("200 strong", "200+"),
         ],
     )

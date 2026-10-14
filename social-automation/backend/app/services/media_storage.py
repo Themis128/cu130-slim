@@ -117,7 +117,7 @@ def downscale_image_bytes(
     resample = getattr(Image, "Resampling", Image).LANCZOS
     out = img.convert("RGBA") if img.mode in ("P", "LA") else img
     if out.mode == "P":
-        out = out.convert("RGBA")
+        out = out.convert("RGBA")  # pragma: no cover
     out = out.resize(new_size, resample)
 
     buf = io.BytesIO()
