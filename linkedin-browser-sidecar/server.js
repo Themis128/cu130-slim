@@ -3280,131 +3280,142 @@ async function handleNewsletterPublish(body) {
     throw new Error("Not logged in — session expired");
   }
 
-  // Wait for the editor shell — either the title field or body editor.
-  const editorReady = await findElement(
-    [
-      '[contenteditable="true"]',
-      'input[placeholder*="itle"]',
-      'textarea[placeholder*="itle"]',
-      ".ql-editor",
-      ".editor-content",
-      '[data-placeholder*="Write"]',
-    ],
-    { timeout: 15000 },
-  );
-  if (!editorReady) {
+  // The editor app boot-loops (document reloads repeatedly, CDN assets 403)
+  // before it finally hydrates — observed 1-3 min. waitForSelector survives
+  // the reloads; plain findElement races them and loses.
+  const EDITOR_SEL =
+    'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
+  try {
+    await page.waitForSelector(EDITOR_SEL, { timeout: 240000 });
+  } catch (_) {
     const shot = await page.screenshot({ type: "png" }).catch(() => null);
     if (shot) fs.writeFileSync("/tmp/article-editor-dead.png", shot);
-    throw new Error("Article editor did not render (screenshot: /tmp/article-editor-dead.png)");
+    throw new Error(
+      "Article editor did not render within 240s (screenshot: /tmp/article-editor-dead.png)",
+    );
   }
+  await page.waitForTimeout(2000);
   step("editor-ready");
 
-  // ── 1. Pick the newsletter from the "Publish as" dropdown ──────────────
-  // Top-left control next to the member name. Skip when the user explicitly
-  // wants an individual (non-newsletter) article.
+  // ── 1. Newsletter scope ────────────────────────────────────────────────
+  // The top-left dropdown already displays "<member name> / <newsletter>".
+  // Only intervene when the wanted newsletter is not the selected one.
   if (newsletter_name !== "individual") {
     const wanted = (newsletter_name || "Cloudless Build Log").toLowerCase();
-    const publishAs = await findAndClick(
-      [
-        'button:has-text("Publish as")',
-        'button[aria-label*="Publish as"]',
-        'button[aria-label*="author"]',
-        // the avatar/name dropdown in the editor header
-        '.share-creation-state__publisher-info button',
-        'header button:has(img)',
-      ],
-      { retries: 1, settleMs: 1200 },
-    );
-    if (publishAs) {
-      // The dropdown lists "Individual article" + newsletter names.
-      const option = await findElement(
-        [
-          `div[role="menu"] *:has-text("${wanted}")`,
-          `[role="listbox"] *:has-text("${wanted}")`,
-          `button:has-text("${wanted}")`,
-          `li:has-text("${wanted}")`,
-        ],
-        { timeout: 5000 },
-      );
-      if (option) {
-        await option.click();
-        await page.waitForTimeout(1500);
-        step("newsletter-selected");
-      } else {
-        agentLog("H-NL", "newsletter/publish", "newsletter option not found — continuing as individual article", { wanted });
-        await page.keyboard.press("Escape");
-      }
+    const scopeBtn = page
+      .locator(".artdeco-dropdown__trigger")
+      .filter({ hasText: /Themistoklis|Build Log|newsletter|Publish/i })
+      .first();
+    const current = ((await scopeBtn.innerText().catch(() => "")) || "")
+      .toLowerCase();
+    if (current.includes(wanted)) {
+      step("newsletter-already-selected");
     } else {
-      agentLog("H-NL", "newsletter/publish", "no publish-as dropdown — editor may already be scoped", {});
+      const opened = await scopeBtn
+        .click()
+        .then(() => true)
+        .catch(() => false);
+      if (opened) {
+        await page.waitForTimeout(1200);
+        const option = await findElement(
+          [
+            `.artdeco-dropdown__content *:has-text("${wanted}")`,
+            `[role="menu"] *:has-text("${wanted}")`,
+            `[role="listbox"] *:has-text("${wanted}")`,
+          ],
+          { timeout: 5000 },
+        );
+        if (option) {
+          await option.click();
+          await page.waitForTimeout(1500);
+          step("newsletter-selected");
+        } else {
+          agentLog(
+            "H-NL",
+            "newsletter/publish",
+            "newsletter option not found in dropdown",
+            { wanted },
+          );
+          await page.keyboard.press("Escape");
+        }
+      } else {
+        agentLog("H-NL", "newsletter/publish", "no scope dropdown found", {});
+      }
     }
   }
 
-  // ── 2. Cover image (base64 → temp file → file input) ────────────────────
+  // ── 2. Cover image (base64 → temp file → filechooser) ───────────────────
+  // Verified: the "Upload from computer" button (aria-label) opens a native
+  // file chooser — no persistent <input type=file> exists in the DOM.
   let coverTmp = null;
   if (cover_base64) {
     coverTmp = bufferToTempFile(
       Buffer.from(cover_base64, "base64"),
       cover_filename || "cover.jpg",
     );
-    const fileInput = await findElement(
+    const uploadBtn = await findElement(
       [
-        'input[type="file"][accept*="image"]',
-        'input[type="file"]',
+        'button[aria-label="Upload from computer"]',
+        'button:has-text("Upload from computer")',
+        'button[aria-label*="Upload"]',
+        'button[aria-label*="cover"]',
       ],
-      { timeout: 4000, visible: false },
+      { timeout: 5000 },
     );
-    if (fileInput) {
-      await fileInput.setInputFiles(coverTmp);
-      await page.waitForTimeout(3000);
-      step("cover-uploaded");
-    } else {
-      // Fall back to clicking the upload button to reveal the input.
-      const uploaded = await findAndClick(
-        [
-          'button[aria-label*="Upload"]',
-          'button:has-text("Upload from computer")',
-          'button[aria-label*="cover"]',
-          'button[aria-label*="image"]',
-        ],
-        { retries: 1 },
-      );
-      if (uploaded) {
-        const fi = await findElement(['input[type="file"]'], { timeout: 4000, visible: false });
+    if (uploadBtn) {
+      try {
+        const [chooser] = await Promise.all([
+          page.waitForEvent("filechooser", { timeout: 8000 }),
+          uploadBtn.click(),
+        ]);
+        await chooser.setFiles(coverTmp);
+        await page.waitForTimeout(4000);
+        step("cover-uploaded");
+      } catch (_) {
+        // Fallback: a hidden input[type=file] may exist after the click.
+        const fi = await findElement(['input[type="file"]'], {
+          timeout: 4000,
+          visible: false,
+        });
         if (fi) {
           await fi.setInputFiles(coverTmp);
-          await page.waitForTimeout(3000);
+          await page.waitForTimeout(4000);
           step("cover-uploaded");
+        } else {
+          agentLog("H-NL", "newsletter/publish", "cover upload control not found", {});
         }
       }
+    } else {
+      agentLog("H-NL", "newsletter/publish", "cover upload button not found", {});
     }
   }
 
-  // ── 3. Title ────────────────────────────────────────────────────────────
+  // ── 3. Title — verified: textarea[placeholder="Title"] ─────────────────
   const titleInput = await findElement(
     [
+      'textarea[placeholder="Title"]',
       'input[placeholder="Title"]',
       'input[aria-label="Title"]',
-      'textarea[placeholder="Title"]',
       'h1[contenteditable="true"]',
-      '[data-test-id*="title"] [contenteditable="true"]',
       'input[name*="title"]',
     ],
-    { timeout: 8000 },
+    { timeout: 10000 },
   );
   if (!titleInput) throw new Error("Could not locate the title field");
   await titleInput.click();
   await page.keyboard.type(title, { delay: 12 });
   step("title-filled");
 
-  // ── 4. Body — insert HTML into the rich-text editor ─────────────────────
-  // Typing 1.5k words char-by-char is slow and loses structure; execCommand
-  // insertHTML fires real input events so the editor's state stays in sync.
+  // ── 4. Body — verified: div.ProseMirror[contenteditable="true"] ────────
+  // execCommand insertHTML fires real input events so the editor's state
+  // stays in sync; typing 1.5k words char-by-char is slow and loses
+  // structure.
   const bodyEditor = await findElement(
     [
+      'div.ProseMirror[contenteditable="true"]',
+      'div[contenteditable="true"][aria-label*="Article editor"]',
       '[data-placeholder*="Write"][contenteditable="true"]',
-      '.ql-editor[contenteditable="true"]',
       'div[contenteditable="true"][role="textbox"]',
-      'article [contenteditable="true"]',
       '[contenteditable="true"]',
     ],
     { timeout: 8000 },
@@ -3434,40 +3445,54 @@ async function handleNewsletterPublish(body) {
   await page.waitForTimeout(1500);
   step("body-filled");
 
-  // ── 5. SEO fields via the Manage panel ──────────────────────────────────
+  // ── 5. SEO fields — verified: Manage menu → Settings → seoTitle/seoDescription
   if (seo_title || seo_description) {
     const manage = await findAndClick(
-      [
-        'button:has-text("Manage")',
-        'button[aria-label*="Manage"]',
-        'button:has-text("Settings")',
-      ],
-      { retries: 1 },
+      ['button[aria-label="Manage menu"]', 'button:has-text("Manage")'],
+      { retries: 1, settleMs: 1000 },
     );
     if (manage) {
-      const seoToggle = await findAndClick(
-        ['*:has-text("SEO settings")', 'button:has-text("SEO")', 'label:has-text("SEO")'],
-        { retries: 1, settleMs: 800 },
+      const settingsItem = await findElement(
+        [
+          '.artdeco-dropdown__content li:has-text("Settings")',
+          '.artdeco-dropdown__content *:has-text("Settings")',
+          '[role="menu"] *:has-text("Settings")',
+        ],
+        { timeout: 4000 },
       );
-      if (seoToggle || seo_title) {
-        const titleField = await findElement(
-          ['input[aria-label*="SEO title"]', 'input[placeholder*="SEO title"]', 'input[name*="seo_title"]'],
-          { timeout: 3000 },
-        );
-        if (titleField && seo_title) {
-          await titleField.fill(seo_title);
+      if (settingsItem) {
+        await settingsItem.click();
+        await page.waitForTimeout(1500);
+        const dlg = 'div[role="dialog"] ';
+        if (seo_title) {
+          const f = await findElement(
+            [`${dlg}input[name="seoTitle"]`, `${dlg}input[placeholder*="title"]`],
+            { timeout: 4000 },
+          );
+          if (f) await f.fill(seo_title);
         }
-        const descField = await findElement(
-          ['textarea[aria-label*="SEO description"]', 'textarea[placeholder*="SEO description"]', 'textarea[name*="seo_description"]'],
-          { timeout: 3000 },
-        );
-        if (descField && seo_description) {
-          await descField.fill(seo_description);
+        if (seo_description) {
+          const f = await findElement(
+            [
+              `${dlg}textarea[name="seoDescription"]`,
+              `${dlg}textarea[placeholder*="article"]`,
+            ],
+            { timeout: 4000 },
+          );
+          if (f) await f.fill(seo_description);
         }
-        // Close the panel — same Manage/Back control.
-        await page.keyboard.press("Escape").catch(() => {});
+        const saved = await findAndClick(
+          [`${dlg}button:has-text("Save")`],
+          { retries: 0, settleMs: 1200 },
+        );
+        if (!saved) await page.keyboard.press("Escape").catch(() => {});
         step("seo-set");
+      } else {
+        agentLog("H-NL", "newsletter/publish", "Settings menu item not found", {});
+        await page.keyboard.press("Escape").catch(() => {});
       }
+    } else {
+      agentLog("H-NL", "newsletter/publish", "Manage menu not found", {});
     }
   }
 
@@ -3485,24 +3510,77 @@ async function handleNewsletterPublish(body) {
   }
 
   // ── 6. Publish / schedule ───────────────────────────────────────────────
+  // Verified: the "Next" button (.article-editor-nav__publish) NAVIGATES to
+  // a publish-review surface — it does not open a same-page dialog.
+  const nextBtn = await findElement(
+    [
+      ".article-editor-nav__publish",
+      'button:has-text("Next")',
+      'button[aria-label*="Next"]',
+    ],
+    { timeout: 10000 },
+  );
+  if (!nextBtn) throw new Error("Could not find the Next/publish button");
+  await Promise.all([
+    page.waitForNavigation({ timeout: 30000 }).catch(() => {}),
+    nextBtn.click(),
+  ]);
+  await page.waitForTimeout(4000);
+  step("review-page");
+
+  // The review surface shows the companion feed-post field, a schedule
+  // clock, and the final Publish/Schedule button.
+  if (post_description) {
+    const descEditor = await findElement(
+      [
+        '[contenteditable="true"][aria-label*="post"]',
+        '[contenteditable="true"][data-placeholder*="share"]',
+        '[contenteditable="true"][data-placeholder*="post"]',
+        'div[role="dialog"] [contenteditable="true"]',
+        "textarea",
+        '[contenteditable="true"]',
+      ],
+      { timeout: 6000 },
+    );
+    if (descEditor) {
+      await descEditor.click();
+      await page.keyboard.type(post_description, { delay: 8 });
+      await page.waitForTimeout(800);
+      step("post-description-set");
+    }
+  }
+
   if (schedule_iso) {
     const clock = await findAndClick(
-      ['button[aria-label*="Schedule"]', 'button[aria-label*="clock"]', 'button:has-text("Schedule")'],
+      [
+        'button[aria-label*="Schedule"]',
+        'button[aria-label*="clock"]',
+        'button:has-text("Schedule")',
+      ],
       { retries: 1 },
     );
     if (clock) {
       const dt = new Date(schedule_iso);
-      // LinkedIn's schedule dialog has a date input and time input.
       const dateField = await findElement(
-        ['input[type="date"]', 'input[aria-label*="date"]', 'input[placeholder*="Date"]'],
+        [
+          'input[type="date"]',
+          'input[aria-label*="date"]',
+          'input[placeholder*="Date"]',
+        ],
         { timeout: 4000 },
       );
       if (dateField) {
         const pad = (n) => String(n).padStart(2, "0");
-        await dateField.fill(`${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`);
+        await dateField.fill(
+          `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`,
+        );
       }
       const timeField = await findElement(
-        ['input[type="time"]', 'input[aria-label*="time"]', 'input[placeholder*="Time"]'],
+        [
+          'input[type="time"]',
+          'input[aria-label*="time"]',
+          'input[placeholder*="Time"]',
+        ],
         { timeout: 3000 },
       );
       if (timeField) {
@@ -3510,7 +3588,7 @@ async function handleNewsletterPublish(body) {
         await timeField.fill(`${pad(dt.getHours())}:${pad(dt.getMinutes())}`);
       }
       await findAndClick(
-        ['button:has-text("Next")', 'button:has-text("Schedule")', 'button:has-text("Confirm")'],
+        ['button:has-text("Next")', 'button:has-text("Done")'],
         { retries: 1 },
       );
       step("scheduled-time-set");
@@ -3518,51 +3596,29 @@ async function handleNewsletterPublish(body) {
     }
   }
 
-  // Publish button — opens the confirmation/preview dialog.
-  const publishBtn = await findElement(
-    ['button:has-text("Publish")', 'button[aria-label*="Publish"]'],
-    { timeout: 8000 },
-  );
-  if (!publishBtn) throw new Error("Could not find the Publish button");
-  await publishBtn.click();
-  await page.waitForTimeout(2500);
-  step("publish-clicked");
-
-  // The confirmation dialog asks for the companion feed-post text.
-  if (post_description) {
-    const descEditor = await findElement(
-      [
-        'div[role="dialog"] [contenteditable="true"]',
-        'div[role="dialog"] textarea',
-      ],
-      { timeout: 5000 },
-    );
-    if (descEditor) {
-      await descEditor.click();
-      await page.keyboard.type(post_description, { delay: 8 });
-      await page.waitForTimeout(800);
-    }
-  }
-
   const confirmBtn = await findElement(
     [
-      'div[role="dialog"] button:has-text("Publish")',
-      'div[role="dialog"] button:has-text("Schedule")',
-      'button.share-publish-actions__publish-btn',
+      'button:has-text("Publish")',
+      'button:has-text("Schedule")',
+      'button[aria-label*="Publish"]',
+      "button.share-publish-actions__publish-btn",
     ],
-    { timeout: 8000 },
+    { timeout: 10000 },
   );
-  if (confirmBtn) {
-    await confirmBtn.click();
-    await page.waitForTimeout(4000);
-    step("published");
-    result.published = true;
-  } else {
-    agentLog("H-NL", "newsletter/publish", "no confirm dialog — publish may have completed directly", {});
-    result.published = true;
+  if (!confirmBtn) {
+    const shot = await page.screenshot({ type: "png" }).catch(() => null);
+    if (shot) fs.writeFileSync("/tmp/article-publish-dead.png", shot);
+    throw new Error(
+      "Could not find the final Publish/Schedule button (screenshot: /tmp/article-publish-dead.png)",
+    );
   }
+  await confirmBtn.click();
+  await page.waitForTimeout(5000);
+  step("published");
+  result.published = true;
 
-  // Best-effort: capture the published article URL.
+  // Best-effort: capture the published article URL — the review surface
+  // navigates to the live /pulse/ article after publishing.
   await page.waitForTimeout(3000);
   const currentUrl = page.url();
   if (currentUrl.includes("/pulse/")) result.article_url = currentUrl;

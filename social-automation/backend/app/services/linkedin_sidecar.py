@@ -360,3 +360,49 @@ class LinkedInSidecarClient:
             if r.status_code >= 400:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
+
+    # ── Newsletter / long-form articles ────────────────────────────────────
+
+    async def publish_newsletter_issue(
+        self,
+        *,
+        title: str,
+        html_body: str | None = None,
+        text_body: str | None = None,
+        cover_base64: str | None = None,
+        cover_filename: str | None = None,
+        newsletter_name: str | None = None,
+        seo_title: str | None = None,
+        seo_description: str | None = None,
+        schedule_iso: str | None = None,
+        post_description: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Publish (or dry-run) a LinkedIn newsletter issue / article.
+
+        LinkedIn exposes no API for newsletters, so this drives the article
+        editor in the browser sidecar. The editor app boot-loops for 1-4 min
+        before hydrating, hence the 420s request timeout.
+
+        ``dry_run=True`` fills every field and stops before the final
+        publish click — used to validate the flow end-to-end.
+        """
+        payload: dict[str, Any] = {"title": title, "dry_run": dry_run}
+        for key, value in (
+            ("html_body", html_body),
+            ("text_body", text_body),
+            ("cover_base64", cover_base64),
+            ("cover_filename", cover_filename),
+            ("newsletter_name", newsletter_name),
+            ("seo_title", seo_title),
+            ("seo_description", seo_description),
+            ("schedule_iso", schedule_iso),
+            ("post_description", post_description),
+        ):
+            if value is not None:
+                payload[key] = value
+        async with self._client as c:
+            r = await c.post("/newsletter/publish", json=payload, timeout=420.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
