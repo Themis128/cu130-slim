@@ -104,22 +104,18 @@ async function ensureBrowser(fresh = false) {
 
   const proxyServer = process.env.LINKEDIN_PROXY || process.env.PROXY_URL || "";
   const launchOpts = {
-    headless: true,
+    // Headed mode under Xvfb (see Dockerfile CMD). Headless Chromium is
+    // fingerprinted hard by LinkedIn — the article editor boot-looped on a
+    // skeleton page for hours while a headed-under-xvfb run booted it fine.
+    // Reference: github.com/xtea/auto-linkedin (patchright + headed Chrome).
+    headless: false,
     args: [
-      "--disable-blink-features=AutomationControlled",
-      "--disable-features=IsolateOrigins,site-per-process",
-      "--disable-site-isolation-trials",
       "--no-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-gpu",
-      // Software-WebGL (SwiftShader) costs hundreds of MB per context —
-      // LinkedIn's feed probes WebGL and the renderer ballooned past 4G
-      // (cgroup oom_kill, 2026-10-14). Leave WebGL unavailable; the editor
-      // only probes it.
-      "--disable-webgl",
-      // No context.route() interception (leaks to bot detection), but Blink
-      // -level image/video disables are invisible and cut feed memory hugely.
-      "--blink-settings=imagesEnabled=false,autoplayPolicy=documentUserActivationRequired",
+      // Do NOT stack --disable-* stealth flags (AutomationControlled,
+      // site-isolation off, WebGL off, images off…): the flag set itself is
+      // a fingerprint anomaly vs real Chrome and LinkedIn serves a skeleton
+      // page. Patchright handles automation stealth at the binary level.
       "--disable-infobars",
       "--window-size=1920,1080",
     ],
@@ -3316,11 +3312,17 @@ async function handleNewsletterPublish(body) {
     throw new Error("Not logged in — session expired");
   }
 
-  // The sharebox link renders late — the feed SPA can take a minute to
-  // hydrate after a cold navigate.
-  const writeLink = await findElement(['a[href="/article/new/"]'], {
-    timeout: 90000,
-  });
+  // The feed SPA self-reloads once or twice after a cold navigate — each
+  // locator check throws during navigation — and the sharebox link hydrates
+  // late. Poll with retries that survive destroyed contexts.
+  let writeLink = null;
+  const linkDeadline = Date.now() + 150000;
+  while (Date.now() < linkDeadline && !writeLink) {
+    writeLink = await findElement(['a[href="/article/new/"]'], {
+      timeout: 5000,
+    });
+    if (!writeLink) await page.waitForTimeout(4000).catch(() => {});
+  }
   if (!writeLink) throw new Error('"Write article" link not found on feed');
   await writeLink.click();
   step("write-article-clicked");
