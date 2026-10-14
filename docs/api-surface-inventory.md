@@ -350,6 +350,7 @@ asserts every live route appears here — regenerate this file when adding route
 ## `newsletter`
 
 - `/api/v1/newsletter/cover` — POST
+- `/api/v1/newsletter/linkedin/issue` — POST
 
 ## `ops`
 
