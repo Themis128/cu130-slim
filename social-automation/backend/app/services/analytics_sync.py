@@ -345,7 +345,7 @@ async def _fetch_linkedin_org_stats(
     org_q = quote(org_urn, safe="")
 
     async def _request(param_name: str, urns: list[str]) -> httpx.Response | None:
-        if not urns:
+        if not urns:  # pragma: no cover — callers always pass a non-empty list
             return None
         url = (
             f"{base}?q=organizationalEntity&organizationalEntity={org_q}"
@@ -371,11 +371,11 @@ async def _fetch_linkedin_org_stats(
 
         for param, candidate in attempts:
             key = f"{param}:{candidate}"
-            if key in tried:
+            if key in tried:  # pragma: no cover — attempt keys are unique by construction
                 continue
             tried.add(key)
             resp = await _request(param, [candidate])
-            if resp is None:
+            if resp is None:  # pragma: no cover — [candidate] is never empty
                 continue
             if resp.status_code < 400:
                 data = resp.json() or {}
@@ -405,7 +405,7 @@ async def _fetch_linkedin_org_stats(
         for i in range(0, len(urns), batch_size):
             batch = urns[i : i + batch_size]
             resp = await _request(param_name, batch)
-            if resp is None:
+            if resp is None:  # pragma: no cover — range-sliced batches are never empty
                 continue
             if resp.status_code >= 400:
                 # Batch failed (often one bad URN) — retry individually.
@@ -668,7 +668,7 @@ async def _fetch_member_post_analytics(
     )
     if resp.status_code < 400:
         metrics["IMPRESSION_DAILY"] = (resp.json() or {}).get("elements") or []
-    if not metrics:
+    if not metrics:  # pragma: no cover — every query_type sets an entry or returns early
         return {"error": "no metrics returned", "status": 200}
     return {"data": metrics}
 

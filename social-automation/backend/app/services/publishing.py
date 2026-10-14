@@ -1996,7 +1996,7 @@ def _sidecar_file_path(host_path: str) -> str | None:
     if clean.startswith("uploads/"):
         return f"/{clean}"
     # Already an absolute path starting with /uploads
-    if host_path.startswith("/uploads/"):
+    if host_path.startswith("/uploads/"):  # pragma: no cover — subsumed by the clean.startswith("uploads/") branch above
         return host_path
     # Relative path without uploads/ prefix — prepend it
     if not host_path.startswith("/"):

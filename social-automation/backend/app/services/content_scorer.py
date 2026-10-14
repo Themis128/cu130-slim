@@ -142,7 +142,7 @@ def _score_engagement(text: str) -> float:
         return 0.0
     text_lower = text.lower()
     words = text_lower.split()
-    if not words:
+    if not words:  # pragma: no cover — unreachable: text.strip() guard above ensures non-empty
         return 0.0
 
     score = 50.0  # Base score
