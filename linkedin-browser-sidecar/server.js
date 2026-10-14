@@ -3301,15 +3301,24 @@ async function handleNewsletterPublish(body) {
   };
 
   await ensureBrowser();
-  // Direct nav works in headed mode (the documented "Editor does not load"
-  // failure is a headless-fingerprint issue — we run under Xvfb now).
-  // This avoids the feed entirely, which is what OOM-killed the renderer.
-  await navigate("https://www.linkedin.com/article/new/");
-  step("navigated");
+  // The editor only hydrates when the feed has booted the LinkedIn app
+  // first (service worker + session warm-up) — a cold /article/new/
+  // document boot-loops on a blank page even headed (verified 2026-10-14).
+  // auto-linkedin does the same: feed session-check → article/new.
+  await navigate("https://www.linkedin.com/feed/");
+  step("feed-loaded");
 
   if (!isLinkedInPageUrl(page.url()) || page.url().includes("/login")) {
     throw new Error("Not logged in — session expired");
   }
+  // In-document navigation (not a fresh page.goto document) — mirrors the
+  // "Write article" link path that hydrated the editor in live recon.
+  await page
+    .evaluate(() => {
+      location.href = "https://www.linkedin.com/article/new/";
+    })
+    .catch(() => {});
+  step("editor-nav");
 
   const EDITOR_SEL =
     'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
