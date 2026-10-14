@@ -42,7 +42,9 @@ EDITOR_URL = "https://www.linkedin.com/article/new/"
 FEED_URL = "https://www.linkedin.com/feed/"
 
 # A lone "â"/"Ã"/"ð" prefixing punctuation is the atob-Latin-1 signature.
-_MOJIBAKE_RE = re.compile(r"[âÃð][€€™œœ\x80-\xbf]")
+# €/™/œ are the cp1252 renderings of bytes 0x80/0x99/0x9C; \x80-\xbf catches
+# raw Latin-1 continuation bytes.
+_MOJIBAKE_RE = re.compile(r"[âÃð][€™œ\x80-\xbf]")
 
 
 class LinkedInNewsletterBridgeError(Exception):

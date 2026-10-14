@@ -1026,7 +1026,10 @@ async def upload_file(req: FileUploadRequest):
     if req.file_base64:
         tmpdir = tempfile.mkdtemp(prefix="bridge-upload-")
         os.chmod(tmpdir, 0o700)
-        file_path = os.path.join(tmpdir, req.file_name or "upload.bin")
+        # Keep only a safe basename — the caller controls file_name and could
+        # otherwise escape tmpdir via path traversal.
+        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(req.file_name or "upload.bin")) or "upload.bin"
+        file_path = os.path.join(tmpdir, safe_name)
         with open(file_path, "wb") as fh:
             fh.write(base64.b64decode(req.file_base64))
         os.chmod(file_path, 0o600)
