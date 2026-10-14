@@ -3428,25 +3428,63 @@ async function handleNewsletterPublish(body) {
   );
   if (!bodyEditor) throw new Error("Could not locate the body editor");
   await bodyEditor.click();
-  if (html_body) {
-    await page.evaluate(
-      (html) => document.execCommand("insertHTML", false, html),
-      html_body,
+  // LinkedIn's article editor enforces Trusted Types — execCommand
+  // ("insertHTML", str) throws "requires 'TrustedHTML' assignment". A real
+  // clipboard paste is the preferred path anyway: the editor's native paste
+  // handler builds proper ProseMirror doc nodes. Fall back to a TrustedHTML
+  // -wrapped insertHTML, then a raw string for builds without the policy.
+  const insertHtml =
+    html_body ||
+    text_body
+      .split(/\n{2,}/)
+      .map((p) => `<p>${p.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>`)
+      .join("");
+  let bodyInserted = false;
+  try {
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: "https://www.linkedin.com",
+      });
+    await page.evaluate(async (html) => {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          "text/html": new Blob([html], { type: "text/html" }),
+        }),
+      ]);
+    }, insertHtml);
+    await bodyEditor.click();
+    await page.keyboard.press("Control+V");
+    await page.waitForTimeout(1200);
+    bodyInserted =
+      (await bodyEditor.evaluate((el) => el.innerText.trim().length)) > 0;
+    if (bodyInserted) step("body-pasted");
+  } catch (err) {
+    agentLog(
+      "H-NL",
+      "newsletter/publish",
+      `clipboard paste unavailable (${err.message}) — falling back to insertHTML`,
     );
-  } else {
-    // Plain text — insert line-broken so paragraphs survive.
-    await page.evaluate(
-      (t) =>
-        document.execCommand(
-          "insertHTML",
-          false,
-          t
-            .split(/\n{2,}/)
-            .map((p) => `<p>${p.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>`)
-            .join(""),
-        ),
-      text_body,
-    );
+  }
+  if (!bodyInserted) {
+    const inserted = await page.evaluate((html) => {
+      const toTrusted = (s) => {
+        for (const name of ["linkedin-newsletter", "default"]) {
+          try {
+            const policy = window.trustedTypes?.createPolicy?.(name, {
+              createHTML: (x) => x,
+            });
+            if (policy) return policy.createHTML(s);
+          } catch {
+            /* name disallowed — try the next */
+          }
+        }
+        return s; // no Trusted Types enforcement on this build
+      };
+      return document.execCommand("insertHTML", false, toTrusted(html));
+    }, insertHtml);
+    if (!inserted) throw new Error("Body insertion failed (insertHTML rejected)");
+    step("body-inserted");
   }
   await page.waitForTimeout(1500);
   step("body-filled");
