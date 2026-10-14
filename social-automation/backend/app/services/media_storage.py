@@ -123,7 +123,7 @@ def downscale_image_bytes(
     buf = io.BytesIO()
     fmt = (img.format or "PNG").upper()
     if fmt in ("JPEG", "JPG"):
-        if out.mode in ("RGBA", "P"):
+        if out.mode in ("RGBA", "P"):  # pragma: no cover — JPEG inputs decode to L/RGB/CMYK
             out = out.convert("RGB")
         out.save(buf, format="JPEG", quality=85, optimize=True)
     elif fmt == "WEBP":

@@ -643,6 +643,10 @@ def test_instagrapi_import_fallback(monkeypatch):
 
     import app.services.instagrapi_client as ic
 
+    # Snapshot original namespace: reload() re-creates class objects, which
+    # orphans the references earlier importers hold (e.g. publishing's
+    # `except InstagrapiError`). Restore identity afterwards.
+    orig_ns = dict(vars(ic))
     monkeypatch.setitem(sys.modules, "instagrapi", None)
     monkeypatch.setitem(sys.modules, "instagrapi.exceptions", None)
     importlib.reload(ic)
@@ -651,6 +655,7 @@ def test_instagrapi_import_fallback(monkeypatch):
     finally:
         monkeypatch.undo()
         importlib.reload(ic)
+        ic.__dict__.update(orig_ns)
 
 
 # ── app.services.link_preview — stream size cap ────────────────────────────
