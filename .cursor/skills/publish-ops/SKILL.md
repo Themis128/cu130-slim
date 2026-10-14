@@ -157,6 +157,19 @@ Classification classes: `app-bug` → fix code · `config` → env/console ·
 | `Media ID is not available` | `media_publish` before container `FINISHED` | Poll `GET {container_id}?fields=status_code` until `FINISHED` before publishing |
 | `Post button disabled` / `Could not find the tweet composer` / `Continue button not found` | X web UI selector drift | Update bridge X selectors (login flow + composer) |
 
+#### Quality gate — content held back by design
+
+| Signature | Root cause | Fix |
+|---|---|---|
+| `Quality gate: seo_score N/100 below minimum 80` on a `skipped` target | Go-live gate (`_enforce_publish_quality` in `worker/tasks/publishing.py`) — composite SEO score stayed under `PUBLISH_MIN_SEO_SCORE` after spellcheck + NLP fix + auto-improve loop | Edit the post copy (more substance, fewer jargon/buzzwords, hashtags in the platform's ideal range, one link for LinkedIn/FB), then requeue — the content-hash cache re-checks automatically. `post.platform_specific.quality_gate` has the score breakdown |
+| `Quality gate: …mangled tokens: X, Y` | Residual gibberish (`detect_gibberish`) survived the improve loop | Fix the mangled tokens in the copy (dropped space / stray capital) and requeue |
+| Gate never runs | `PUBLISH_MIN_SEO_SCORE=0` (disabled) or post has no `content_text` | Gate only guards text posts; media-only posts have separate rules |
+
+Details: the gate caches its verdict in `platform_specific.quality_gate`
+keyed by content SHA-1 — multi-target posts pay the LanguageTool/DMR cost
+once; edited copy (new hash) re-checks. It fails *open* on infra errors so
+a broken pipeline can never wedge the queue.
+
 #### Transient / info — no action
 
 - `Session already active for X` / `Browser busy` — shared bridge serializes sessions; queue retries handle it.

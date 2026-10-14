@@ -77,13 +77,21 @@ Rewards 10k+100k/30d, X 500+Premium+5M imp, IG ~10k). See `monetization-ops`.
 
 1. Generate via `POST /api/v1/ai/generate-content` (or `/improve-content`) —
    writes in the owner voice on the right platform.
-2. NLP plain-English check + SEO score **≥90** before publish.
+2. NLP plain-English check + SEO score **≥90** at generation (pipeline
+   target); **≥80 hard gate at publish** — `PUBLISH_MIN_SEO_SCORE=80`,
+   `_enforce_publish_quality` in `worker/tasks/publishing.py` runs the full
+   pipeline again right before `publish_to_platform` and **skips + alerts**
+   the target when the composite score stays under 80 or gibberish tokens
+   survive. Verdict cached per content hash; edit copy → auto re-check.
 3. **Lead check (DAY 13)**: the post must move the reader — where they are →
    one clear shift → where they go + one question CTA. If it only informs,
    rewrite. `voice_signature.day13_prompts.check_script` is the review
    prompt; format specs live in `day13_formats`.
-4. **Protect from LanguageTool `auto_correct`**: proper nouns, hashtags,
-   `urn:li:` mention markup, domains — never "corrected".
+4. **LanguageTool `auto_correct` is category-aware**: real-error rules
+   (TYPOS/GRAMMAR/CASING/PUNCTUATION/…) auto-apply; style classes
+   (STYLE/TYPOGRAPHY/REDUNDANCY — `LANGUAGETOOL_SKIP_CATEGORIES`) are
+   *skipped* so intended voice isn't rewritten. Proper nouns, hashtags,
+   `urn:li:` mention markup, domains remain protected — never "corrected".
 5. Coach attribution: `#sofiakakkavacoach` hashtag only — never her name in prose.
 6. **No duplicated posts** — never the same content/story twice, including the
    same piece repackaged in a different format. Different cuts per platform OK.
