@@ -112,6 +112,9 @@ async function ensureBrowser(fresh = false) {
       "--no-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
+      // Software-WebGL fallback is deprecated; opt in so pages that probe
+      // WebGL (incl. the LinkedIn article editor) get a working context.
+      "--enable-unsafe-swiftshader",
       "--disable-infobars",
       "--window-size=1920,1080",
     ],
