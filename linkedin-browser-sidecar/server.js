@@ -165,6 +165,12 @@ async function ensureBrowser(fresh = false) {
         r.failure() && r.failure().errorText,
       ),
     );
+    page.on("response", (r) => {
+      const s = r.status();
+      if (s >= 400 && s !== 404) {
+        console.log("[resp" + s + "]", r.url().slice(0, 160));
+      }
+    });
   }
 }
 
