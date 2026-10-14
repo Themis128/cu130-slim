@@ -3301,31 +3301,15 @@ async function handleNewsletterPublish(body) {
   };
 
   await ensureBrowser();
-  // A bare /article/new/ document never hydrates its Ember app reliably
-  // (boot-splash loop, verified repeatedly). The feed → "Write article"
-  // link opens the editor inside an already-booted app — an SPA transition
-  // or a target=_blank popup (context.on('page') swaps the global `page`).
-  await navigate("https://www.linkedin.com/feed/");
-  step("feed-loaded");
+  // Direct nav works in headed mode (the documented "Editor does not load"
+  // failure is a headless-fingerprint issue — we run under Xvfb now).
+  // This avoids the feed entirely, which is what OOM-killed the renderer.
+  await navigate("https://www.linkedin.com/article/new/");
+  step("navigated");
 
   if (!isLinkedInPageUrl(page.url()) || page.url().includes("/login")) {
     throw new Error("Not logged in — session expired");
   }
-
-  // The feed SPA self-reloads once or twice after a cold navigate — each
-  // locator check throws during navigation — and the sharebox link hydrates
-  // late. Poll with retries that survive destroyed contexts.
-  let writeLink = null;
-  const linkDeadline = Date.now() + 150000;
-  while (Date.now() < linkDeadline && !writeLink) {
-    writeLink = await findElement(['a[href="/article/new/"]'], {
-      timeout: 5000,
-    });
-    if (!writeLink) await page.waitForTimeout(4000).catch(() => {});
-  }
-  if (!writeLink) throw new Error('"Write article" link not found on feed');
-  await writeLink.click();
-  step("write-article-clicked");
 
   const EDITOR_SEL =
     'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
@@ -3334,17 +3318,8 @@ async function handleNewsletterPublish(body) {
   while (Date.now() < deadline && !editorFound) {
     for (const p of context.pages()) {
       try {
-        if (!p.url().includes("/article/new")) continue;
-        if (p !== page) {
-          // Editor opened as a popup — the feed tab stays loaded alongside
-          // it and the pair blew past the 4G cgroup cap once. Swap and free
-          // it immediately, not after hydration.
+        if (p.url().includes("/article/new") && (await p.$(EDITOR_SEL))) {
           page = p;
-          for (const q of context.pages()) {
-            if (q !== page) q.close().catch(() => {});
-          }
-        }
-        if (await p.$(EDITOR_SEL)) {
           editorFound = true;
           break;
         }
@@ -3362,9 +3337,6 @@ async function handleNewsletterPublish(body) {
     throw new Error(
       `Article editor did not render within 240s${shotPath ? ` (screenshot: ${shotPath})` : ""}`,
     );
-  }
-  for (const p of context.pages()) {
-    if (p !== page) await p.close().catch(() => {});
   }
   await page.waitForTimeout(2000);
   step("editor-ready");
