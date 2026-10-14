@@ -43,6 +43,7 @@ overlapping runs — a second call returns `{skipped: ...}`.
 | Layer | Probe | Auto-recovery | Manual fallback |
 |---|---|---|---|
 | LinkedIn sidecar `:9225` | `GET /session` (navigates /feed/) | 1. stale 429 circuit → `POST /session/clear-rate-limit` (>6h past expiry) 2. credential `POST /login` (LINKEDIN_EMAIL + LINKEDIN_PASSWORD env/secret) → app-push 2FA auto-approves when the owner taps Yes | `pending_2fa` → Slack alert asks for app approval or SMS code. **Never cookie-transplant LinkedIn — `li_at` is fingerprint-bound and gets revoked globally.** |
+| LinkedIn on bridge `:9223` | `POST /session/start {"platform":"linkedin","interactive":true,"force":true}` → `/session/status` shows `li_at` | Persistent bridge profile already holds a live LinkedIn session (verified Oct 2026) — usable as the newsletter/editor fallback when the sidecar profile is flagged (`linkedin-newsletter-ops`) | If `li_at` absent → noVNC manual login at :6080 |
 | Facebook sidecar `:9226` | `GET /session/validate` (deep check incl. profile-picker detection) | Re-inject stored `meta_data.browser_storage_state` via `POST /session verify:true` — same-class restores accepted | `needs_manual_login` → Slack alert |
 | Bridge platforms `:9223` (facebook, instagram, threads, twitter, tiktok) | `GET /session/status` + `POST /session/start` (X-Platform tagged) | Platform-specific — see below | `needs_manual_login` → Slack alert with noVNC URL |
 
