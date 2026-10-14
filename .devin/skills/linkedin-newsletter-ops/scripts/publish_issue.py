@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import subprocess
 import sys
 import time
 from pathlib import Path
@@ -70,15 +69,22 @@ def fill_title(title: str):
 
 
 def paste_body(html: str) -> int:
-    b64 = base64.b64encode(html.encode()).decode()
-    res = json.loads(evaluate(
-        f'(()=>{{const pm=document.querySelector("div.ProseMirror[contenteditable=true]");'
-        f'if(!pm)return "NO-PM";pm.focus();'
-        # select existing content so paste replaces (execCommand selectAll
-        # does not extend into the PM model — do a DOM range instead)
+    # Clear first (DOM range delete — execCommand selectAll does not extend
+    # into the PM model), then paste in a SEPARATE call: PM applies the
+    # synthetic paste asynchronously and a same-tick clear+paste can race the
+    # MutationObserver so the model later reverts the DOM to empty
+    # ("Body text is required" at publish despite paste having "worked").
+    evaluate(
+        '(()=>{const pm=document.querySelector("div.ProseMirror[contenteditable=true]");'
+        'if(!pm)return "NO-PM";pm.focus();'
         'const sel=document.getSelection();const r=document.createRange();'
         'r.selectNodeContents(pm);sel.removeAllRanges();sel.addRange(r);'
-        'document.execCommand("delete");'
+        'document.execCommand("delete");return "cleared"})()')
+    time.sleep(1)
+    b64 = base64.b64encode(html.encode()).decode()
+    paste_expr = (
+        '(()=>{const pm=document.querySelector("div.ProseMirror[contenteditable=true]");'
+        'if(!pm)return "NO-PM";pm.focus();'
         # atob() yields raw bytes — feeding them straight to setData reads them
         # as Latin-1 and mangles every non-ASCII char (— → â€", € → â‚¬).
         # Decode as UTF-8 via TextDecoder first.
@@ -88,30 +94,63 @@ def paste_body(html: str) -> int:
         'dt.setData("text/html",html);'
         'pm.dispatchEvent(new ClipboardEvent("paste",'
         '{clipboardData:dt,bubbles:true,cancelable:true}));'
-        'return JSON.stringify({words:(pm.innerText||"").trim().split(/\\s+/).length});})()',
-        timeout=60))
-    return int(res["words"])
+        'return "ok"})()')
+    verify_expr = (
+        '(()=>{const pm=document.querySelector("div.ProseMirror[contenteditable=true]");'
+        'return JSON.stringify({words:(pm.innerText||"").trim()'
+        '.split(/\\s+/).filter(Boolean).length})})()')
+    for _ in range(2):
+        evaluate(paste_expr, timeout=60)
+        time.sleep(2)  # settle — only the persisted word count is real
+        res = json.loads(evaluate(verify_expr))
+        if res.get("words"):
+            return int(res["words"])
+    raise RuntimeError("body paste did not persist after retry")
 
 
-def upload_cover(png_path: str, container: str):
-    subprocess.run(["docker", "cp", png_path, f"{container}:/tmp/nl-cover.png"], check=True)
+def upload_cover(png_path: str):
+    # file_base64 avoids the docker cp dance entirely — the bridge decodes
+    # to a private temp file inside its own container.
+    b64 = base64.b64encode(Path(png_path).read_bytes()).decode()
     d = call("POST", "/session/upload", {
         "selector": "input[type=file]",
-        "file_path": "/tmp/nl-cover.png",
+        "file_base64": b64,
+        "file_name": "newsletter-cover.png",
         "click_selector": 'button:has-text("Upload from computer")',
     }, timeout=120)
     if not d.get("uploaded"):
         raise RuntimeError(f"cover upload failed: {d}")
     time.sleep(5)
+    # The upload leaves the media-editor modal open — its own Next confirms
+    # the cover; leaving it up swallows the Manage click.
+    evaluate('(()=>{const m=document.querySelector('
+             '".article-editor__media-editor-modal");if(!m)return "absent";'
+             'const btn=[...m.querySelectorAll("button")]'
+             '.find(b=>(b.innerText||"").trim()==="Next");'
+             'if(!btn)return "no-next";btn.click();return "closed"})()')
+    time.sleep(2)
 
 
 def set_seo(seo_title: str, seo_desc: str):
-    call("POST", "/session/click", {"selector": "button", "text": "Manage"})
-    time.sleep(2)
-    evaluate('(()=>{const els=[...document.querySelectorAll("li[role=menuitem],'
-             '.artdeco-dropdown__item,[role=menu] div,button")]'
-             '.filter(e=>e.offsetParent&&e.innerText&&e.innerText.trim()==="Settings");'
-             'if(els.length){els[0].click();return "clicked"}return "notfound"})()')
+    # The Manage dropdown lazy-renders on a trusted click — a Playwright
+    # force-click does NOT open it; a JS .click() on the toggle does. Menu
+    # items are <li> holding div[role=button] in a <ul> with no role=menu.
+    evaluate('(()=>{const btn=document.querySelector('
+             '".article-editor-manage-menu button");'
+             'if(!btn)return "no-manage";btn.click();return "clicked"})()')
+    for _ in range(6):
+        time.sleep(2)
+        clicked = evaluate(
+            '(()=>{const li=[...document.querySelectorAll('
+            '".article-editor-manage-menu li")]'
+            '.find(e=>(e.innerText||"").trim()==="Settings");'
+            'if(!li)return "notfound";'
+            '(li.querySelector("[role=button]")||li).click();'
+            'return "clicked"})()')
+        if clicked == "clicked":
+            break
+    else:
+        raise RuntimeError("Manage → Settings menu item not found")
     time.sleep(3)
     ids = json.loads(evaluate(
         '(()=>{const dlg=document.querySelector("[role=dialog],.artdeco-modal");'
@@ -134,12 +173,22 @@ def set_seo(seo_title: str, seo_desc: str):
 
 
 def publish(post_text: str, dry_run: bool) -> str:
-    call("POST", "/session/click", {"selector": "button", "text": "Next"})
-    time.sleep(5)
-    dlg = json.loads(evaluate(
-        'JSON.stringify([...document.querySelectorAll("[role=dialog]")]'
-        '.map(d=>d.innerText.slice(0,120)))'))
-    if not any("edition of your newsletter" in t for t in dlg):
+    # Click the LAST visible Next — the media modal can leave a stale Next in
+    # the DOM; the first match may sit inside a hidden layer.
+    evaluate('(()=>{const btns=[...document.querySelectorAll("button")]'
+             '.filter(b=>b.offsetParent&&(b.innerText||"").trim().startsWith("Next"));'
+             'if(!btns.length)return "no-next";btns[btns.length-1].click();'
+             'return "clicked"})()')
+    dlg: list[str] = []
+    for _ in range(10):
+        time.sleep(2)
+        dlg = json.loads(evaluate(
+            'JSON.stringify([...document.querySelectorAll("[role=dialog]")]'
+            '.map(d=>d.innerText.slice(0,500)))'))
+        if any("edition of your newsletter" in t or "Post to Anyone + Subscribers" in t
+               for t in dlg):
+            break
+    else:
         raise RuntimeError(f"publish dialog not found: {dlg}")
     if post_text:
         t = post_text.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ")
@@ -150,7 +199,14 @@ def publish(post_text: str, dry_run: bool) -> str:
         time.sleep(1)
     if dry_run:
         return "DRY-RUN: dialog open, not publishing"
-    call("POST", "/session/click", {"selector": "button", "text": "Publish"})
+    clicked = evaluate(
+        '(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
+        '.filter(d=>d.offsetParent).pop();if(!dlg)return "no-dialog";'
+        'const btn=[...dlg.querySelectorAll("button")]'
+        '.find(b=>(b.innerText||"").trim()==="Publish");'
+        'if(!btn)return "no-publish";btn.click();return "clicked"})()')
+    if clicked != "clicked":
+        raise RuntimeError(f"Publish button: {clicked}")
     time.sleep(6)
     return evaluate("location.href", timeout=15)
 
@@ -164,7 +220,6 @@ def main():
     ap.add_argument("--seo-desc", default="")
     ap.add_argument("--post-text", default="")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--container", default="browser-novnc")
     ap.add_argument("--editor-timeout", type=int, default=180)
     args = ap.parse_args()
 
@@ -186,7 +241,7 @@ def main():
     print(f"      body pasted ({words} words)", flush=True)
 
     print("[4/6] uploading cover…", flush=True)
-    upload_cover(str(args.cover), args.container)
+    upload_cover(str(args.cover))
 
     if args.seo_title or args.seo_desc:
         print("[5/6] SEO settings…", flush=True)

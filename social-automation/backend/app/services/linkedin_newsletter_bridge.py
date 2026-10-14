@@ -277,12 +277,15 @@ class LinkedInNewsletterBridge:
             dialogs = json.loads(
                 await self._eval(
                     'JSON.stringify([...document.querySelectorAll("[role=dialog]")]'
-                    '.map(d=>d.innerText.slice(0,120)))'
+                    '.map(d=>d.innerText.slice(0,500)))'
                 )
             )
-            if any("edition of your newsletter" in d for d in dialogs):
+            if any(
+                "edition of your newsletter" in d or "Post to Anyone + Subscribers" in d
+                for d in dialogs
+            ):
                 break
-        if not any("edition of your newsletter" in d for d in dialogs):
+        else:
             raise LinkedInNewsletterBridgeError(f"publish dialog not found: {dialogs}")
         steps.append("publish dialog open")
 
