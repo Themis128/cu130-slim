@@ -106,7 +106,7 @@ def _flesch_reading_ease(text: str) -> float:
         return 0.0
     syllables = sum(_count_syllables(word) for word in text.split())
     if sentences == 0:
-        return 0.0
+        return 0.0  # pragma: no cover — sentences is clamped to >=1 above
     score = 206.835 - 1.015 * (words / sentences) - 84.6 * (syllables / words)
     return max(0.0, min(100.0, score))
 
@@ -142,7 +142,7 @@ def _score_engagement(text: str) -> float:
         return 0.0
     text_lower = text.lower()
     words = text_lower.split()
-    if not words:
+    if not words:  # pragma: no cover — unreachable: text.strip() guard above ensures non-empty
         return 0.0
 
     score = 50.0  # Base score

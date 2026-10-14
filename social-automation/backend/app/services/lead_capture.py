@@ -348,14 +348,14 @@ async def handle_lead_capture_message(
                     t = text.replace(" ", "")
                     if t.startswith("1"):
                         size = LeadCompanySize.solo
-                    elif "2" in t and "5" in t:
-                        size = LeadCompanySize.s_2_5
-                    elif "6" in t and "20" in t:
-                        size = LeadCompanySize.s_6_20
-                    elif "21" in t and "50" in t:
-                        size = LeadCompanySize.s_21_50
                     elif "51" in t and "200" in t:
                         size = LeadCompanySize.s_51_200
+                    elif "21" in t and "50" in t:
+                        size = LeadCompanySize.s_21_50
+                    elif "6" in t and "20" in t:
+                        size = LeadCompanySize.s_6_20
+                    elif "2" in t and "5" in t:
+                        size = LeadCompanySize.s_2_5
                     elif "200" in t:
                         size = LeadCompanySize.s_200_plus
 

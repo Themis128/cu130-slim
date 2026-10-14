@@ -22,3 +22,13 @@ if not os.environ.get("REDIS_URL"):
 
 if not os.environ.get("MESSENGER_REDIS_URL"):
     os.environ["MESSENGER_REDIS_URL"] = "redis://localhost:6379/1"
+
+# tests/integration/conftest.py loads the repo's real .env into os.environ
+# (setdefault) before unit-test modules import Settings. When a developer .env
+# carries real INSTAGRAM_* credentials, the module-level _settings in
+# app.services.publishing picks them up and unit tests silently take the live
+# instagrapi path (real Redis/network). Seed safe-empty defaults here — this
+# conftest always loads first — so unit tests stay hermetic unless the
+# operator explicitly exports credentials.
+for _key in ("INSTAGRAM_USERNAME", "INSTAGRAM_PASSWORD", "INSTAGRAM_PROXY", "INSTAGRAM_PROXY_POOL"):
+    os.environ.setdefault(_key, "")

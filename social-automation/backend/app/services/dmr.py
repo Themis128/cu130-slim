@@ -1530,7 +1530,7 @@ async def _call_dmr_chat_internal(
                 last_exc = exc
                 raise
 
-    raise ConnectionError(f"DMR failed after retries: {last_exc}")
+    raise ConnectionError(f"DMR failed after retries: {last_exc}")  # pragma: no cover — the last attempt always raises inside the loop
 
 
 async def _stream_dmr_chat(payload: dict, timeout: float):

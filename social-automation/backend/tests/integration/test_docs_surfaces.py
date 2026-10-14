@@ -196,7 +196,11 @@ class TestLiveProbes:
 # but still checked for existence via the schema itself.
 SWEEP_SKIP = re.compile(
     r"oauth/.*/(authorize|callback)$|instagram2?/authorize|instagram2/callback|"
-    r"export-data|reports/export|generate-image|webhook|data-deletion"
+    r"export-data|reports/export|generate-image|webhook|data-deletion|"
+    # Browser-automation surfaces: real browser sessions into TikTok that can
+    # legitimately exceed the probe timeout on cold start — same class as oauth
+    # callbacks. Existence is still verified via the OpenAPI schema.
+    r"profile/tiktok/"
 )
 
 # GET endpoints that must respond WITHOUT auth (everything else must 401/403).

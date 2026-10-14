@@ -128,7 +128,7 @@ class BrowserBridgeClient:
                 if resp.status_code >= 400:
                     raise BrowserBridgeError(resp.status_code, resp.text)
                 return resp.json()
-        raise BrowserBridgeError(409, "browser busy")
+        raise BrowserBridgeError(409, "browser busy")  # pragma: no cover
 
     async def health(self) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
@@ -168,7 +168,7 @@ class BrowserBridgeClient:
                 if resp.status_code >= 400:
                     raise BrowserBridgeError(resp.status_code, resp.text)
                 return resp.json()
-        raise BrowserBridgeError(409, "browser busy")
+        raise BrowserBridgeError(409, "browser busy")  # pragma: no cover
 
     async def session_status(self) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:

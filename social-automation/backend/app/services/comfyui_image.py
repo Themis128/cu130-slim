@@ -58,7 +58,7 @@ def build_flux_prompt(
         if not 256 <= dim <= 1440:
             raise ValueError(f"{name} must be 256..1440 on the 8GB card")
     if width * height > 1440 * 1440:
-        raise ValueError("width*height exceeds the 2MP practical limit on 8GB")
+        raise ValueError("width*height exceeds the 2MP practical limit on 8GB")  # pragma: no cover
     if not 1 <= steps <= 20:
         raise ValueError("steps must be 1..20 (schnell is 4-step distilled)")
 
