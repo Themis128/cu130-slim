@@ -3322,21 +3322,36 @@ async function handleNewsletterPublish(body) {
 
   const EDITOR_SEL =
     'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
-  const deadline = Date.now() + 240000;
-  let editorFound = false;
-  while (Date.now() < deadline && !editorFound) {
+  // First cold boot can exceed 240s while the Aero bundles fetch; the second
+  // attempt runs against warm HTTP cache and hydrates fast (verified live:
+  // cold failed at 240s, warm found instantly). Retry-nav once before
+  // declaring the editor dead.
+  const waitForEditor = async () => {
+    const deadline = Date.now() + 240000;
+    while (Date.now() < deadline) {
+      for (const p of context.pages()) {
+        try {
+          if (p.url().includes("/article/new") && (await p.$(EDITOR_SEL))) {
+            page = p;
+            return true;
+          }
+        } catch (_) {
+          /* page mid-navigation */
+        }
+      }
+      await page.waitForTimeout(3000).catch(() => {});
+    }
+    return false;
+  };
+  let editorFound = await waitForEditor();
+  if (!editorFound) {
+    step("editor-cold-timeout-retry");
     for (const p of context.pages()) {
       try {
-        if (p.url().includes("/article/new") && (await p.$(EDITOR_SEL))) {
-          page = p;
-          editorFound = true;
-          break;
-        }
-      } catch (_) {
-        /* page mid-navigation */
-      }
+        if (p.url().includes("/article/new")) await p.reload().catch(() => {});
+      } catch (_) {}
     }
-    if (!editorFound) await page.waitForTimeout(3000).catch(() => {});
+    editorFound = await waitForEditor();
   }
   if (!editorFound) {
     const shot = await page.screenshot({ type: "png" }).catch(() => null);
