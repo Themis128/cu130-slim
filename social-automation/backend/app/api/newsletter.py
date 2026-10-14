@@ -1,19 +1,39 @@
-"""Newsletter cover endpoints — server-to-server generation for cloudless.gr.
+"""Newsletter endpoints — covers + LinkedIn issue publishing.
 
 The cloudless.gr weekly newsletter cron calls POST /newsletter/cover before
 assembling the issue; SocialAuto renders the branded banner and returns the
-PNG bytes. Auth: X-Service-Token must match SOCIALAUTO_SERVICE_TOKEN.
+PNG bytes. Auth: X-Service-Token must match NEWSLETTER_SERVICE_TOKEN.
+
+POST /newsletter/linkedin/issue publishes (or dry-runs) a LinkedIn
+newsletter edition. LinkedIn exposes no newsletter API, so the request is
+forwarded to the linkedin-browser-sidecar which drives the article editor.
+Content resolves three ways, in precedence order:
+
+1. explicit ``title`` + ``html_body``/``text_body`` — caller supplies all,
+2. ``article_slug`` — reuses the published cloudless.gr blog article from
+   the R2 datalake (republishing the weekly blog article as the LinkedIn
+   edition is the documented best practice),
+3. ``topic`` — generates a fresh long-form article via
+   ``generate_linkedin_article`` (DMR + plain-English rewrite).
 """
 
 from __future__ import annotations
 
+import base64
+import html as html_mod
+import re
 import secrets
 from datetime import date
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.db.session import get_db
+from app.services import blog_articles
+from app.services.linkedin_ai import generate_linkedin_article
+from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
 from app.services.newsletter_cover import default_issue_date, render_newsletter_cover
 
 router = APIRouter(tags=["newsletter"])
