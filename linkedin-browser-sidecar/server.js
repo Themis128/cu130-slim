@@ -112,9 +112,14 @@ async function ensureBrowser(fresh = false) {
       "--no-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
-      // Software-WebGL fallback is deprecated; opt in so pages that probe
-      // WebGL (incl. the LinkedIn article editor) get a working context.
-      "--enable-unsafe-swiftshader",
+      // Software-WebGL (SwiftShader) costs hundreds of MB per context —
+      // LinkedIn's feed probes WebGL and the renderer ballooned past 4G
+      // (cgroup oom_kill, 2026-10-14). Leave WebGL unavailable; the editor
+      // only probes it.
+      "--disable-webgl",
+      // No context.route() interception (leaks to bot detection), but Blink
+      // -level image/video disables are invisible and cut feed memory hugely.
+      "--blink-settings=imagesEnabled=false,autoplayPolicy=documentUserActivationRequired",
       "--disable-infobars",
       "--window-size=1920,1080",
     ],
@@ -429,6 +434,16 @@ const TEMP_ROOT = path.join(
   path.dirname(process.env.SESSION_FILE || "/data/li-session.json"),
   "tmp",
 );
+
+/** Save a debug screenshot into a private mkdtemp dir; returns the path. */
+function saveDebugScreenshot(shot, prefix = "debug") {
+  fs.mkdirSync(TEMP_ROOT, { recursive: true, mode: 0o700 });
+  const dir = fs.mkdtempSync(path.join(TEMP_ROOT, `${prefix}-`));
+  fs.chmodSync(dir, 0o700);
+  const p = path.join(dir, "shot.png");
+  fs.writeFileSync(p, shot, { mode: 0o600 });
+  return p;
+}
 
 /** Save a Buffer to a private temp file under /data (mkdtemp + mode 0o600). */
 function bufferToTempFile(buffer, filename) {
@@ -2473,7 +2488,10 @@ async function handleUpdateCompanyAbout(req, res) {
 
     if (!editBtn) {
       // Take a screenshot for debugging
-      await page.screenshot({ path: "/tmp/li-edit-debug.png" });
+      const dbgShot = await page
+        .screenshot({ type: "png" })
+        .then((s) => saveDebugScreenshot(s, "li-edit-debug"))
+        .catch(() => null);
       return res.status(404).json({
         error: 'Could not locate the company "Edit about" button',
         url: page.url(),
@@ -3295,9 +3313,11 @@ async function handleNewsletterPublish(body) {
     await page.waitForSelector(EDITOR_SEL, { timeout: 240000 });
   } catch (_) {
     const shot = await page.screenshot({ type: "png" }).catch(() => null);
-    if (shot) fs.writeFileSync("/tmp/article-editor-dead.png", shot);
+    const shotPath = shot
+      ? saveDebugScreenshot(shot, "article-editor-dead")
+      : null;
     throw new Error(
-      "Article editor did not render within 240s (screenshot: /tmp/article-editor-dead.png)",
+      `Article editor did not render within 240s${shotPath ? ` (screenshot: ${shotPath})` : ""}`,
     );
   }
   await page.waitForTimeout(2000);
@@ -3651,9 +3671,11 @@ async function handleNewsletterPublish(body) {
   );
   if (!confirmBtn) {
     const shot = await page.screenshot({ type: "png" }).catch(() => null);
-    if (shot) fs.writeFileSync("/tmp/article-publish-dead.png", shot);
+    const shotPath = shot
+      ? saveDebugScreenshot(shot, "article-publish-dead")
+      : null;
     throw new Error(
-      "Could not find the final Publish/Schedule button (screenshot: /tmp/article-publish-dead.png)",
+      `Could not find the final Publish/Schedule button${shotPath ? ` (screenshot: ${shotPath})` : ""}`,
     );
   }
   await confirmBtn.click();

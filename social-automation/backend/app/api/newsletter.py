@@ -86,7 +86,9 @@ _WORD_RE = re.compile(r"\S+")
 
 
 def _word_count(html_or_text: str) -> int:
-    return len(_WORD_RE.findall(re.sub(r"<[^>]+>", " ", html_or_text)))
+    # `[^<>]*` (not `[^>]+`) keeps tag-stripping linear on `<`-heavy input —
+    # CodeQL py/polynomial-redos.
+    return len(_WORD_RE.findall(re.sub(r"<[^<>]*>", " ", html_or_text)))
 
 
 def _article_html_from_generated(generated: dict) -> str:
