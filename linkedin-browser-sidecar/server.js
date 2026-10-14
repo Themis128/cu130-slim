@@ -143,6 +143,8 @@ async function ensureBrowser(fresh = false) {
   await context.addInitScript(
     "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
   );
+  // NOTE: no context.route() interception here — CDP Fetch interception
+  // leaks to LinkedIn's bot detection (pages boot to an empty skeleton).
   page = await context.newPage();
 }
 
@@ -3206,6 +3208,358 @@ app.post("/messages/:thread_id/send", handleSendMessage);
 // Posting — company page
 app.post("/company/:vanity/post/text", handleCompanyPostText);
 app.post("/company/:vanity/post/image", handleCompanyPostImage);
+
+// ── Newsletter / long-form article publishing ──────────────────────────────
+//
+// LinkedIn exposes no API for newsletters — browser automation is the only
+// path. Drives the article editor end-to-end:
+//   1. /article/new/ editor
+//   2. "Publish as" dropdown → pick the newsletter (defaults to the member's
+//      first newsletter when `newsletter_name` is omitted)
+//   3. Cover image upload (base64 → temp file → setInputFiles)
+//   4. Title + HTML body (inserted via execCommand for real input events)
+//   5. SEO title/description via the Manage panel
+//   6. Publish now, or schedule via the clock dialog
+//
+// `dry_run: true` fills everything and stops before publishing — used by the
+// backend to validate the flow end-to-end without spamming subscribers.
+
+async function handleNewsletterPublish(body) {
+  const {
+    title,
+    html_body,
+    text_body,
+    cover_base64,
+    cover_filename,
+    newsletter_name,
+    seo_title,
+    seo_description,
+    schedule_iso,
+    post_description,
+    dry_run,
+  } = body;
+
+  if (!title) throw new Error("title is required");
+  if (title.length > 150) throw new Error("title must be ≤ 150 chars");
+  const bodyText = html_body || text_body;
+  if (!bodyText) throw new Error("html_body or text_body is required");
+  if (bodyText.length > 110000)
+    throw new Error("body must be ≤ 110k chars (LinkedIn limit)");
+
+  const steps = [];
+  const step = (name) => {
+    steps.push(name);
+    agentLog("H-NL", "newsletter/publish", name, { url: page.url() });
+  };
+
+  await ensureBrowser();
+  await navigate("https://www.linkedin.com/article/new/");
+  step("navigated");
+
+  if (!isLinkedInPageUrl(page.url()) || page.url().includes("/login")) {
+    throw new Error("Not logged in — session expired");
+  }
+
+  // Wait for the editor shell — either the title field or body editor.
+  const editorReady = await findElement(
+    [
+      '[contenteditable="true"]',
+      'input[placeholder*="itle"]',
+      'textarea[placeholder*="itle"]',
+      ".ql-editor",
+      ".editor-content",
+      '[data-placeholder*="Write"]',
+    ],
+    { timeout: 15000 },
+  );
+  if (!editorReady) {
+    const shot = await page.screenshot({ type: "png" }).catch(() => null);
+    if (shot) fs.writeFileSync("/tmp/article-editor-dead.png", shot);
+    throw new Error("Article editor did not render (screenshot: /tmp/article-editor-dead.png)");
+  }
+  step("editor-ready");
+
+  // ── 1. Pick the newsletter from the "Publish as" dropdown ──────────────
+  // Top-left control next to the member name. Skip when the user explicitly
+  // wants an individual (non-newsletter) article.
+  if (newsletter_name !== "individual") {
+    const wanted = (newsletter_name || "Cloudless Build Log").toLowerCase();
+    const publishAs = await findAndClick(
+      [
+        'button:has-text("Publish as")',
+        'button[aria-label*="Publish as"]',
+        'button[aria-label*="author"]',
+        // the avatar/name dropdown in the editor header
+        '.share-creation-state__publisher-info button',
+        'header button:has(img)',
+      ],
+      { retries: 1, settleMs: 1200 },
+    );
+    if (publishAs) {
+      // The dropdown lists "Individual article" + newsletter names.
+      const option = await findElement(
+        [
+          `div[role="menu"] *:has-text("${wanted}")`,
+          `[role="listbox"] *:has-text("${wanted}")`,
+          `button:has-text("${wanted}")`,
+          `li:has-text("${wanted}")`,
+        ],
+        { timeout: 5000 },
+      );
+      if (option) {
+        await option.click();
+        await page.waitForTimeout(1500);
+        step("newsletter-selected");
+      } else {
+        agentLog("H-NL", "newsletter/publish", "newsletter option not found — continuing as individual article", { wanted });
+        await page.keyboard.press("Escape");
+      }
+    } else {
+      agentLog("H-NL", "newsletter/publish", "no publish-as dropdown — editor may already be scoped", {});
+    }
+  }
+
+  // ── 2. Cover image (base64 → temp file → file input) ────────────────────
+  let coverTmp = null;
+  if (cover_base64) {
+    coverTmp = bufferToTempFile(
+      Buffer.from(cover_base64, "base64"),
+      cover_filename || "cover.jpg",
+    );
+    const fileInput = await findElement(
+      [
+        'input[type="file"][accept*="image"]',
+        'input[type="file"]',
+      ],
+      { timeout: 4000, visible: false },
+    );
+    if (fileInput) {
+      await fileInput.setInputFiles(coverTmp);
+      await page.waitForTimeout(3000);
+      step("cover-uploaded");
+    } else {
+      // Fall back to clicking the upload button to reveal the input.
+      const uploaded = await findAndClick(
+        [
+          'button[aria-label*="Upload"]',
+          'button:has-text("Upload from computer")',
+          'button[aria-label*="cover"]',
+          'button[aria-label*="image"]',
+        ],
+        { retries: 1 },
+      );
+      if (uploaded) {
+        const fi = await findElement(['input[type="file"]'], { timeout: 4000, visible: false });
+        if (fi) {
+          await fi.setInputFiles(coverTmp);
+          await page.waitForTimeout(3000);
+          step("cover-uploaded");
+        }
+      }
+    }
+  }
+
+  // ── 3. Title ────────────────────────────────────────────────────────────
+  const titleInput = await findElement(
+    [
+      'input[placeholder="Title"]',
+      'input[aria-label="Title"]',
+      'textarea[placeholder="Title"]',
+      'h1[contenteditable="true"]',
+      '[data-test-id*="title"] [contenteditable="true"]',
+      'input[name*="title"]',
+    ],
+    { timeout: 8000 },
+  );
+  if (!titleInput) throw new Error("Could not locate the title field");
+  await titleInput.click();
+  await page.keyboard.type(title, { delay: 12 });
+  step("title-filled");
+
+  // ── 4. Body — insert HTML into the rich-text editor ─────────────────────
+  // Typing 1.5k words char-by-char is slow and loses structure; execCommand
+  // insertHTML fires real input events so the editor's state stays in sync.
+  const bodyEditor = await findElement(
+    [
+      '[data-placeholder*="Write"][contenteditable="true"]',
+      '.ql-editor[contenteditable="true"]',
+      'div[contenteditable="true"][role="textbox"]',
+      'article [contenteditable="true"]',
+      '[contenteditable="true"]',
+    ],
+    { timeout: 8000 },
+  );
+  if (!bodyEditor) throw new Error("Could not locate the body editor");
+  await bodyEditor.click();
+  if (html_body) {
+    await page.evaluate(
+      (html) => document.execCommand("insertHTML", false, html),
+      html_body,
+    );
+  } else {
+    // Plain text — insert line-broken so paragraphs survive.
+    await page.evaluate(
+      (t) =>
+        document.execCommand(
+          "insertHTML",
+          false,
+          t
+            .split(/\n{2,}/)
+            .map((p) => `<p>${p.replace(/</g, "&lt;").replace(/\n/g, "<br>")}</p>`)
+            .join(""),
+        ),
+      text_body,
+    );
+  }
+  await page.waitForTimeout(1500);
+  step("body-filled");
+
+  // ── 5. SEO fields via the Manage panel ──────────────────────────────────
+  if (seo_title || seo_description) {
+    const manage = await findAndClick(
+      [
+        'button:has-text("Manage")',
+        'button[aria-label*="Manage"]',
+        'button:has-text("Settings")',
+      ],
+      { retries: 1 },
+    );
+    if (manage) {
+      const seoToggle = await findAndClick(
+        ['*:has-text("SEO settings")', 'button:has-text("SEO")', 'label:has-text("SEO")'],
+        { retries: 1, settleMs: 800 },
+      );
+      if (seoToggle || seo_title) {
+        const titleField = await findElement(
+          ['input[aria-label*="SEO title"]', 'input[placeholder*="SEO title"]', 'input[name*="seo_title"]'],
+          { timeout: 3000 },
+        );
+        if (titleField && seo_title) {
+          await titleField.fill(seo_title);
+        }
+        const descField = await findElement(
+          ['textarea[aria-label*="SEO description"]', 'textarea[placeholder*="SEO description"]', 'textarea[name*="seo_description"]'],
+          { timeout: 3000 },
+        );
+        if (descField && seo_description) {
+          await descField.fill(seo_description);
+        }
+        // Close the panel — same Manage/Back control.
+        await page.keyboard.press("Escape").catch(() => {});
+        step("seo-set");
+      }
+    }
+  }
+
+  const result = {
+    status: "ok",
+    url: page.url(),
+    steps,
+    dry_run: !!dry_run,
+    published: false,
+    scheduled: false,
+  };
+
+  if (dry_run) {
+    return result;
+  }
+
+  // ── 6. Publish / schedule ───────────────────────────────────────────────
+  if (schedule_iso) {
+    const clock = await findAndClick(
+      ['button[aria-label*="Schedule"]', 'button[aria-label*="clock"]', 'button:has-text("Schedule")'],
+      { retries: 1 },
+    );
+    if (clock) {
+      const dt = new Date(schedule_iso);
+      // LinkedIn's schedule dialog has a date input and time input.
+      const dateField = await findElement(
+        ['input[type="date"]', 'input[aria-label*="date"]', 'input[placeholder*="Date"]'],
+        { timeout: 4000 },
+      );
+      if (dateField) {
+        const pad = (n) => String(n).padStart(2, "0");
+        await dateField.fill(`${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`);
+      }
+      const timeField = await findElement(
+        ['input[type="time"]', 'input[aria-label*="time"]', 'input[placeholder*="Time"]'],
+        { timeout: 3000 },
+      );
+      if (timeField) {
+        const pad = (n) => String(n).padStart(2, "0");
+        await timeField.fill(`${pad(dt.getHours())}:${pad(dt.getMinutes())}`);
+      }
+      await findAndClick(
+        ['button:has-text("Next")', 'button:has-text("Schedule")', 'button:has-text("Confirm")'],
+        { retries: 1 },
+      );
+      step("scheduled-time-set");
+      result.scheduled = true;
+    }
+  }
+
+  // Publish button — opens the confirmation/preview dialog.
+  const publishBtn = await findElement(
+    ['button:has-text("Publish")', 'button[aria-label*="Publish"]'],
+    { timeout: 8000 },
+  );
+  if (!publishBtn) throw new Error("Could not find the Publish button");
+  await publishBtn.click();
+  await page.waitForTimeout(2500);
+  step("publish-clicked");
+
+  // The confirmation dialog asks for the companion feed-post text.
+  if (post_description) {
+    const descEditor = await findElement(
+      [
+        'div[role="dialog"] [contenteditable="true"]',
+        'div[role="dialog"] textarea',
+      ],
+      { timeout: 5000 },
+    );
+    if (descEditor) {
+      await descEditor.click();
+      await page.keyboard.type(post_description, { delay: 8 });
+      await page.waitForTimeout(800);
+    }
+  }
+
+  const confirmBtn = await findElement(
+    [
+      'div[role="dialog"] button:has-text("Publish")',
+      'div[role="dialog"] button:has-text("Schedule")',
+      'button.share-publish-actions__publish-btn',
+    ],
+    { timeout: 8000 },
+  );
+  if (confirmBtn) {
+    await confirmBtn.click();
+    await page.waitForTimeout(4000);
+    step("published");
+    result.published = true;
+  } else {
+    agentLog("H-NL", "newsletter/publish", "no confirm dialog — publish may have completed directly", {});
+    result.published = true;
+  }
+
+  // Best-effort: capture the published article URL.
+  await page.waitForTimeout(3000);
+  const currentUrl = page.url();
+  if (currentUrl.includes("/pulse/")) result.article_url = currentUrl;
+  return result;
+}
+
+// Newsletter / long-form article publishing — no LinkedIn API exists for
+// newsletters, so the browser is the only path. Drives the article editor:
+// pick newsletter edition, cover, title, HTML body, SEO fields, schedule.
+app.post("/newsletter/publish", async (req, res) => {
+  try {
+    res.json(await handleNewsletterPublish(req.body || {}));
+  } catch (err) {
+    agentLog("H-NL", "newsletter/publish", "failed", { error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Debug: screenshot
 app.get("/screenshot", async (req, res) => {

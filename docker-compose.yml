@@ -1430,8 +1430,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    mem_limit: 1536m
-    memswap_limit: 3072m
+    # 1536m OOM-killed Chromium on heavy pages (pulse/article editor).
+    mem_limit: 2560m
+    memswap_limit: 5120m
     restart: unless-stopped
     <<: *public-dns
 
