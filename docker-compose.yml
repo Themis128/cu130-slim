@@ -1436,10 +1436,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    # 1536m OOM-killed Chromium on heavy pages (pulse/article editor);
-    # 2560m still oom_killed on /feed+editor (memory.peak hit the cap 2026-10-14).
-    mem_limit: 4096m
-    memswap_limit: 6144m
+    # 1536m/2560m/4096m all oom_killed the renderer on feed+editor —
+    # headed (xvfb) Chromium needs real headroom on LinkedIn's Ember app.
+    mem_limit: 6144m
+    memswap_limit: 8192m
     restart: unless-stopped
     <<: *public-dns
 
