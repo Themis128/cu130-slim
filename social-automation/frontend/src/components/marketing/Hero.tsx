@@ -27,12 +27,14 @@ export function Hero() {
             AI-powered social media automation
           </span>
           <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl lg:text-6xl">
-            Automate Your Social Media with AI
+            Agency-grade social automation, without the agency
           </h1>
           <p className="max-w-xl text-lg text-muted-foreground">
-            Generate on-brand content, schedule across six platforms, and track
-            performance — all from one powerful dashboard powered by Cloudflare
-            and local AI.
+            Built for founders and small teams who can't justify a social-media
+            hire: AI content generation, scheduling across six networks plus
+            messaging channels, and analytics in one dashboard — the same stack
+            that runs cloudless.gr's own social presence in production every
+            day.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button asChild size="lg">

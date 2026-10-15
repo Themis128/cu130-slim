@@ -1493,9 +1493,16 @@ or managed later from the **Discount tab** on `/settings/billing`:
 
 ## Public Edge & Lead Funnel
 
-`social.cloudless.gr` sits behind **Cloudflare Access** (admin SSO). Only
-explicitly bypassed path prefixes are public — everything else hits the
-Access login wall:
+`social.cloudless.gr` is **public** — the `socialauto-app` Access app has a
+first-precedence `public-ga-bypass` policy (see `scripts/cf_access.py
+public-mode`), added when the product opened self-serve signup: the
+admin-email gate was blocking `/`, `/register`, and `/login`, which broke
+the public funnel behind otherwise-public marketing pages. The app's own
+JWT auth is the security boundary; Access still sits in front but bypasses
+everyone until `public-mode off` re-gates it (e.g. incident lockdown).
+
+The per-path bypass apps below remain as explicit documentation of which
+prefixes third parties must always reach unauthenticated:
 
 | Public path | Purpose |
 |---|---|
@@ -1508,10 +1515,13 @@ Access login wall:
 | `/api/v1/billing/*` webhooks | Polar/Dodo payment webhooks |
 | `/api/v1/media/view` | Public media fetches (TikTok `PULL_FROM_URL`, Meta `image_url`) |
 
-`/api/v1/leads/public` is **not** bypassed — `cloudless.gr` reaches it
-server-to-server with a Cloudflare Access **service token**
-(`cloudless-site-bridge`), sent as `CF-Access-Client-Id` /
-`CF-Access-Client-Secret` headers. The token value lives in D1
+`/api/v1/leads/public` has no dedicated path app — it is reachable
+publicly like the rest of the site (the endpoint is designed for
+unauthenticated use: 10/min rate limit, honeypot, email-only payload).
+`cloudless.gr` still reaches it server-to-server with the
+`cloudless-site-bridge` Access **service token** headers
+(`CF-Access-Client-Id` / `CF-Access-Client-Secret`); those pass through
+the bypass untouched. The token value lives in D1
 `app_config` (`SOCIALAUTO_SERVICE_TOKEN`) on the cloudless.gr side —
 never in this repo.
 

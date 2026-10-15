@@ -20,7 +20,7 @@ one ingress across all replicas, so a replica that can't resolve an origin
 tunnel that can't resolve every origin in that tunnel's ingress.
 ```
 
-Public edge is **Cloudflare Access-gated** (app `socialauto-app`, admin emails only). Public Access bypass apps exist for paths that third parties must reach unauthenticated:
+Public edge: `social.cloudless.gr` is **public** — the `socialauto-app` Access app carries a first-precedence `public-ga-bypass` policy (`scripts/cf_access.py public-mode on|off|status`) because the product is a public SaaS (live Polar billing, public pricing/features, self-serve signup). The admin-email allowlist + `site-bridge service token` policies remain in the app but sit behind the bypass. Everything is protected by the app's own JWT auth instead — `/api/v1/*` endpoints enforce team/user auth, `/api/v1/auth/*` and public webhooks are unauthenticated by design. Older per-path bypass apps remain for documentation/audit clarity:
 
 | Access app | Path prefix | Why public |
 |---|---|---|

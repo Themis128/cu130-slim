@@ -20,7 +20,11 @@ const faqs = [
   },
   {
     q: 'Which platforms are supported?',
-    a: 'SocialAuto supports LinkedIn, Facebook, Instagram, Twitter/X, TikTok, and Threads with secure OAuth connections and automatic token refresh.',
+    a: 'SocialAuto connects LinkedIn, Facebook, Instagram, Twitter/X, TikTok, Threads, Messenger, and Telegram — eight channels from one composer, with secure OAuth connections and automatic token refresh.',
+  },
+  {
+    q: 'Who is SocialAuto for?',
+    a: 'Founders and small teams who need a consistent, on-brand social presence but can\u2019t justify an agency retainer or a dedicated hire. If you\u2019re comparing schedulers, freelancers, or doing it manually — SocialAuto is the automation layer we run for our own brand at cloudless.gr every day.',
   },
   {
     q: 'What does "unlimited posts" mean?',

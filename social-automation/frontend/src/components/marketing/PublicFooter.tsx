@@ -43,8 +43,8 @@ export function PublicFooter() {
               <span className="text-lg">SocialAuto</span>
             </Link>
             <p className="mt-3 max-w-xs text-sm text-muted-foreground">
-              Automate your social media with AI-powered content generation,
-              scheduling, and analytics.
+              Agency-grade social automation for founders and small teams —
+              AI content, scheduling across eight channels, and analytics.
             </p>
           </div>
 

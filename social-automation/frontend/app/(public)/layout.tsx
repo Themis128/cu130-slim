@@ -5,7 +5,7 @@ import { PublicFooter } from '@/components/marketing/PublicFooter'
 export const metadata = {
   title: 'SocialAuto - AI Social Media Automation',
   description:
-    'Automate your social media with AI-powered content generation, multi-platform publishing, smart scheduling, and analytics.',
+    'Agency-grade social media automation for founders and small teams — AI content generation, publishing across six networks plus Messenger and Telegram, smart scheduling, and analytics.',
 }
 
 export default function PublicLayout({ children }: { children: ReactNode }) {

@@ -5,6 +5,8 @@ const platforms = [
   { name: 'Twitter / X', abbr: 'X' },
   { name: 'TikTok', abbr: 'TT' },
   { name: 'Threads', abbr: '@' },
+  { name: 'Messenger', abbr: 'M' },
+  { name: 'Telegram', abbr: 'TG' },
 ]
 
 export function PlatformSupport() {
@@ -16,12 +18,12 @@ export function PlatformSupport() {
             Publish to every platform that matters
           </h2>
           <p className="mt-3 text-muted-foreground">
-            Connect six social networks with secure OAuth and publish from one
-            unified composer.
+            Connect six social networks with secure OAuth, plus Messenger and
+            Telegram — all published from one unified composer.
           </p>
         </div>
 
-        <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mt-10 grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-8">
           {platforms.map((p) => (
             <div
               key={p.name}
