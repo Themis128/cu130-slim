@@ -127,6 +127,7 @@ async def feed_index(request: Request) -> dict[str, Any]:
             {"path": "/service-feed/activity", "kind": "recent publish outcomes"},
             {"path": "/service-feed/digest", "kind": "daily digest items"},
             {"path": "/service-feed/status", "kind": "queue + account health"},
+            {"path": "/service-feed/leads", "kind": "recent inbound leads"},
         ],
         "mapping_hint": {
             "items": "items",
@@ -333,4 +334,52 @@ async def feed_status(
         )
     return FeedResponse(
         source="SocialAuto status", generated_at=stamp, items=items
+    )
+
+
+@router.get("/leads", response_model=FeedResponse)
+async def feed_leads(
+    request: Request,
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> FeedResponse:
+    """Recent inbound leads — names and sources, never raw emails."""
+    _require_feed_token(request)
+    team = await _feed_team(db)
+    stamp = datetime.now(UTC).isoformat()
+    if team is None:
+        return FeedResponse(
+            source="SocialAuto leads", generated_at=stamp, items=[]
+        )
+
+    from app.models.lead import Lead
+
+    leads = (
+        await db.execute(
+            select(Lead)
+            .where(Lead.team_id == team.id)
+            .order_by(Lead.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+
+    items = [
+        FeedItem(
+            title=f"{lead.name} — {lead.source}",
+            excerpt=" · ".join(
+                part
+                for part in (
+                    f"interest: {lead.interest}" if lead.interest else "",
+                    f"company: {lead.company_size}" if lead.company_size else "",
+                    _snippet(lead.notes, 100),
+                )
+                if part
+            ),
+            date=lead.created_at.isoformat(),
+            author=str(lead.source),
+        )
+        for lead in leads
+    ]
+    return FeedResponse(
+        source="SocialAuto leads", generated_at=stamp, items=items
     )

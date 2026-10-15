@@ -63,7 +63,7 @@ class _Result:
 
 
 def _fake_db(*, team=None, team_counts=None, targets=None, media=None,
-             queue=None, attention=None):
+             queue=None, attention=None, leads=None):
     """AsyncSession stand-in dispatching on the selected entities."""
     team = team if team is not None else SimpleNamespace(id=TEAM_ID, name="T")
 
@@ -75,6 +75,8 @@ def _fake_db(*, team=None, team_counts=None, targets=None, media=None,
             return _Result(media or [])
         if "publish_queue" in s:
             return _Result(queue or [])
+        if " leads" in s or "from leads" in s:
+            return _Result(leads or [])
         if "social_accounts" in s:
             # select(team_id, count()) → auto team pick; select(SocialAccount)
             # → unhealthy-account list.
@@ -238,3 +240,33 @@ async def test_digest_reshapes_real_report(monkeypatch):
     titles = [i.title for i in out.items]
     assert any("Managed cloud" in t for t in titles)
     assert any("post didn't publish" in t for t in titles)
+
+
+@pytest.mark.asyncio
+async def test_leads_feed_never_exposes_email():
+    lead = SimpleNamespace(
+        name="Jane Doe",
+        email="jane@example.com",
+        source="website",
+        interest="cloud",
+        company_size="2-5",
+        notes="newsletter — Free Cloud Migration Playbook",
+        created_at=datetime(2026, 10, 15, 9, 0, tzinfo=UTC),
+    )
+    db = _fake_db(team_counts=[(TEAM_ID, 11)], leads=[lead])
+    with _settings():
+        out = await feed_api.feed_leads(_request(), limit=10, db=db)
+    assert len(out.items) == 1
+    item = out.items[0]
+    assert "Jane Doe" in item.title and "website" in item.title
+    assert "jane@example.com" not in item.model_dump_json()
+    assert "interest: cloud" in item.excerpt
+
+
+@pytest.mark.asyncio
+async def test_leads_feed_requires_token():
+    db = _fake_db(team_counts=[(TEAM_ID, 11)])
+    with _settings():
+        with pytest.raises(HTTPException) as e:
+            await feed_api.feed_leads(_request(""), limit=10, db=db)
+    assert e.value.status_code == 401
