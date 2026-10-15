@@ -416,6 +416,14 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/secrets` — GET
 - `/api/v1/secrets/{key}` — GET, POST, PUT, DELETE
 
+## `service-feed`
+
+- `/api/v1/service-feed` — GET
+- `/api/v1/service-feed/activity` — GET
+- `/api/v1/service-feed/digest` — GET
+- `/api/v1/service-feed/leads` — GET
+- `/api/v1/service-feed/status` — GET
+
 ## `support`
 
 - `/api/v1/support/report` — POST
