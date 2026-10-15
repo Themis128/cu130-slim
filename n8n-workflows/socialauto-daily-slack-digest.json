@@ -100,7 +100,12 @@
           ]
         },
         "options": {
-          "timeout": 120000
+          "timeout": 120000,
+          "retry": {
+            "enabled": true,
+            "maxTries": 3,
+            "waitBetweenTries": 5000
+          }
         }
       },
       "id": "call-daily-digest",
@@ -115,7 +120,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nconst md = (first.markdown || '').trim();\nconst date = new Date().toISOString().slice(0, 10);\nconst body = md.replace(/\\*([^*\\n]+)\\*/g, '**$1**');\nconst basic = Buffer.from(($env.NEXTCLOUD_USERNAME || '') + ':' + ($env.NEXTCLOUD_APP_PASSWORD || '')).toString('base64');\nreturn [{\n  json: {\n    pageId: `socialauto-digest-${date}`,\n    title: `SocialAuto Digest \u2014 ${date}`,\n    markdown: body,\n    basic: `Basic ${basic}`,\n  }\n}];"
+        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\n// pick the team's report that actually has data \u2014 DB has multiple empty 'CI Test' teams\nconst first = reports.find(x => ((x.overview && (x.overview.connected_accounts || x.overview.total_posts)) > 0)) || reports[0] || {};\nconst md = (first.markdown || '').trim();\nconst date = new Date().toISOString().slice(0, 10);\nconst body = md.replace(/\\*([^*\\n]+)\\*/g, '**$1**');\nconst basic = Buffer.from(($env.NEXTCLOUD_USERNAME || '') + ':' + ($env.NEXTCLOUD_APP_PASSWORD || '')).toString('base64');\nreturn [{\n  json: {\n    pageId: `socialauto-digest-${date}`,\n    title: `SocialAuto Digest \u2014 ${date}`,\n    markdown: body,\n    basic: `Basic ${basic}`,\n  }\n}];"
       },
       "id": "format-intravox-digest",
       "name": "Format IntraVox Digest",
@@ -123,38 +128,6 @@
       "typeVersion": 2,
       "position": [
         980,
-        100
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "has-digest",
-              "leftValue": "={{ $json.markdown }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "notEmpty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "has-intravox-digest",
-      "name": "Has Digest?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2.2,
-      "position": [
-        1200,
         100
       ]
     },
@@ -194,7 +167,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const created = $json;\nconst fmt = $('Format IntraVox Digest').item.json;\nif (!created.uniqueId) {\n  return [{ json: { uniqueId: null, pageJson: null, create_error: created.error || created.message || 'no uniqueId' } }];\n}\nconst page = {\n  uniqueId: created.uniqueId,\n  title: fmt.title,\n  language: 'en',\n  layout: {\n    columns: 1,\n    rows: [\n      { columns: 1, backgroundColor: 'var(--color-primary-element)', widgets: [\n        { type: 'heading', column: 1, order: 1, content: fmt.title, level: 1 },\n        { type: 'text', column: 1, order: 2, content: fmt.markdown },\n      ]},\n    ],\n  },\n};\nreturn [{ json: { uniqueId: created.uniqueId, pageJson: JSON.stringify(page) } }];"
+        "jsCode": "const created = $json;\nconst fmt = $('Format IntraVox Digest').item.json;\nconst uid = created.uniqueId || $('Find Existing Page').item.json.existingUid;\nif (!uid) {\n  return [{ json: { uniqueId: null, pageJson: null, create_error: created.error || created.message || 'no uniqueId' } }];\n}\nconst page = {\n  uniqueId: uid,\n  title: fmt.title,\n  language: 'en',\n  layout: {\n    columns: 1,\n    rows: [\n      { columns: 1, backgroundColor: 'var(--color-primary-element)', widgets: [\n        { type: 'heading', column: 1, order: 1, content: fmt.title, level: 1 },\n        { type: 'text', column: 1, order: 2, content: fmt.markdown },\n      ]},\n    ],\n  },\n};\nreturn [{ json: { uniqueId: uid, pageJson: JSON.stringify(page) } }];"
       },
       "id": "build-intravox-update",
       "name": "Build IntraVox Payload",
@@ -241,7 +214,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nlet intravox = null;\ntry {\n  const upd = $('Update IntraVox Content').item.json;\n  intravox = upd.uniqueId ? `page ${upd.uniqueId}` : (upd.error || 'failed');\n} catch (e) {\n  intravox = $('Format IntraVox Digest').item.json.markdown ? 'failed' : 'skipped-empty';\n}\nreturn [{\n  json: {\n    ok: true,\n    message: r.message || '',\n    posted_to_slack: !!first.posted_to_slack,\n    slack_error: first.slack_error || null,\n    issue_count: (first.issues || []).length,\n    team_name: first.team_name || null,\n    intravox: intravox,\n  }\n}];"
+        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst active = reports.find(x => ((x.overview && (x.overview.connected_accounts || x.overview.total_posts)) > 0)) || reports[0] || {};\nlet intravox = null;\ntry {\n  const upd = $('Update IntraVox Content').item.json;\n  intravox = upd.uniqueId ? `page ${upd.uniqueId}` : (upd.error || 'failed');\n} catch (e) {\n  intravox = $('Format IntraVox Digest').item.json.markdown ? 'failed' : 'skipped-empty';\n}\nreturn [{\n  json: {\n    ok: true,\n    message: r.message || '',\n    posted_to_slack: !!active.posted_to_slack,\n    slack_error: active.slack_error || null,\n    issue_count: (active.issues || []).length,\n    team_name: active.team_name || null,\n    teams_reported: reports.length,\n    intravox: intravox,\n  }\n}];"
       },
       "id": "summarize",
       "name": "Summarize Result",
@@ -263,6 +236,113 @@
       "position": [
         500,
         240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://cloud.cloudless.gr/apps/intravox/api/pages?path=en",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "OCS-APIRequest",
+              "value": "true"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Format IntraVox Digest').item.json.basic }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "list-intravox-pages",
+      "name": "List IntraVox Pages",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const fmt = $('Format IntraVox Digest').item.json;\nconst raw = $('List IntraVox Pages').item.json;\nconst items = Array.isArray(raw) ? raw : (raw.pages || raw.items || []);\nconst hit = items.find(x => x.id === fmt.pageId) || null;\nreturn [{ json: { existingUid: hit ? hit.uniqueId : null } }];"
+      },
+      "id": "find-existing-page",
+      "name": "Find Existing Page",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1420,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "exists",
+              "leftValue": "={{ $json.existingUid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-existing-page",
+      "name": "Page Exists?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1640,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-digest",
+              "leftValue": "={{ $json.markdown }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-intravox-digest",
+      "name": "Has Digest?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        980,
+        220
       ]
     }
   ],
@@ -333,24 +413,6 @@
         ]
       ]
     },
-    "Has Digest?": {
-      "main": [
-        [
-          {
-            "node": "Create IntraVox Page",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Summarize Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Create IntraVox Page": {
       "main": [
         [
@@ -389,6 +451,64 @@
         [
           {
             "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List IntraVox Pages": {
+      "main": [
+        [
+          {
+            "node": "Find Existing Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Existing Page": {
+      "main": [
+        [
+          {
+            "node": "Page Exists?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Page Exists?": {
+      "main": [
+        [
+          {
+            "node": "Build IntraVox Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create IntraVox Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Digest?": {
+      "main": [
+        [
+          {
+            "node": "List IntraVox Pages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize Result",
             "type": "main",
             "index": 0
           }
