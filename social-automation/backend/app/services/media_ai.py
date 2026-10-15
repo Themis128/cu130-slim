@@ -330,6 +330,19 @@ async def auto_tag_asset(asset_id: uuid.UUID | str, session_factory=None) -> Non
             logger.warning("auto_tag_asset: asset %s not found", asset_id)
             return
 
+        if asset.mime_type and asset.mime_type.startswith("video/"):
+            # Videos get the same treatment via frame extraction —
+            # caption/tags come from sampled frames through the shared
+            # vision chain, plus probed metadata, a quality rollup, and a
+            # stored poster frame (see services/video_ai.py).
+            from app.services import video_ai
+
+            try:
+                await video_ai.auto_tag_video_asset(asset, db)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("video auto-tag failed for %s: %s", asset_id, exc)
+            return
+
         if asset.mime_type and not asset.mime_type.startswith("image/"):
             logger.info("auto_tag_asset: skipping non-image asset %s", asset_id)
             return
