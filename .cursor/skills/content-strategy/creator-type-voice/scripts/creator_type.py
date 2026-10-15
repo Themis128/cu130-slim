@@ -17,6 +17,7 @@ Usage:
     creator_type.py blueprint [apply]       # DAY 12 post blueprint (live)
     creator_type.py day13 [apply]           # DAY 13 leading content (live)
     creator_type.py day14 [apply]           # DAY 14 show-don't-tell (live)
+    creator_type.py day15 [apply]           # DAY 15 show-how-you-think (live)
     creator_type.py verify [platform]       # generate a sample post
 """
 
@@ -335,6 +336,84 @@ DAY14_PROMPTS = {
 }
 
 # ---------------------------------------------------------------------------
+# DAY 15 — Show How You Think (3 week/Day15/) — week-3 capstone
+#
+# Anyone can share a tip or an opinion; real authority is showing the
+# thinking behind the take. Written into
+# voice_signature.show_how_you_think, .day15_framework, .day15_prompts.
+# ---------------------------------------------------------------------------
+
+DAY15_THINKING = (
+    "DAY 15 — Show How You Think. Most content shares conclusions; the "
+    "best content shares thinking. Tips and opinions are everywhere — "
+    "what's rare is watching someone reason. Don't just say what you "
+    "believe: show the reasoning (what you observed, what changed your "
+    "mind, what you tested), show the tension (the moment you were "
+    "wrong, the belief you had to let go of — that's where trust "
+    "lives), show the process (how you arrive at decisions or solve a "
+    "problem — the process is the proof), and show the nuance ('it "
+    "depends' is authoritative IF you can say what it depends on). "
+    "Four mistakes that kill thinking posts: JUMPING TO THE CONCLUSION "
+    "(the journey is the content, not the destination), MAKING IT TOO "
+    "NEAT (real thinking is messy — show the doubt and resistance or "
+    "it sounds fake), STILL SOUNDING LIKE AN EXPERT (stay in the "
+    "story, not on the pedestal), MAKING IT TOO LONG (every sentence "
+    "moves the journey forward — if a line doesn't add, cut it)."
+)
+
+# The 5-step writing framework — old belief → trigger → tension →
+# new belief → reader's turn.
+DAY15_FRAMEWORK = {
+    "step1_old_belief": (
+        "Start with what you used to believe — the conventional "
+        "wisdom, the thing most people in the industry still say."
+    ),
+    "step2_changed_mind": (
+        "Show what changed your mind — a specific moment, a piece of "
+        "data, a client, a conversation. Something real, not an "
+        "abstract epiphany."
+    ),
+    "step3_tension": (
+        "Show the tension or struggle — changing your thinking wasn't "
+        "easy; the doubt, the resistance, the thing you had to let go "
+        "of."
+    ),
+    "step4_new_belief": (
+        "Land the new belief — what you now know, what replaced the "
+        "old belief. The cleaner the better."
+    ),
+    "step5_their_turn": (
+        "Make it about them — end with what it means for the reader, "
+        "one question or one direction."
+    ),
+}
+
+# Sofia's two ready-made AI prompts — a thinking-post generator and a
+# de-polisher that restores the messy honest voice.
+DAY15_PROMPTS = {
+    "write_thinking": (
+        "I want to write a post that shows how my thinking changed. "
+        "Here is what I used to believe: [WRITE WHAT YOU BELIEVED "
+        "BEFORE]. Here is what changed my mind: [DESCRIBE THE SPECIFIC "
+        "MOMENT, CLIENT, DATA, OR CONVERSATION]. Here is what I now "
+        "believe: [WRITE YOUR NEW BELIEF]. Write this as a thinking "
+        "post. Show the journey not just the conclusion. Include the "
+        "tension and the doubt. End with one specific question for "
+        "the reader. Sound like a real person, not a brand."
+    ),
+    "make_less_polished": (
+        "Here is my thinking post: [PASTE YOUR DRAFT]. It sounds too "
+        "polished. Make it more real by: 1) adding the doubt or "
+        "resistance I felt before I changed my mind, 2) making the "
+        "trigger more specific (a name, a number, a sentence someone "
+        "said), 3) removing any sentence that sounds like an expert "
+        "statement, 4) making it sound like I'm talking to one "
+        "specific person not an audience. Keep my voice. Make it "
+        "feel like a real moment not a lesson."
+    ),
+}
+
+# ---------------------------------------------------------------------------
 # Full Visibility Era foundation — the remaining days beyond DAY 1/2/6/8/12
 # plus the Messaging House / ICP from the Purely Personal content-foundation
 # report (Back 2 business/content-foundation-themis.html). `foundations`
@@ -625,6 +704,27 @@ def cmd_day14(apply: bool = False) -> None:
     print("\nApplied show_dont_tell + day14_approaches + day14_prompts.")
 
 
+def cmd_day15(apply: bool = False) -> None:
+    sig = _api("GET", "/brand/voice").get("voice_signature", {}) or {}
+    live = sig.get("show_how_you_think", "")
+    print("voice_signature.show_how_you_think:")
+    print(" ", (live if isinstance(live, str) else json.dumps(live))[:300])
+    print("\nvoice_signature.day15_framework keys:",
+          ", ".join((sig.get("day15_framework") or {}).keys()) or "(not set)")
+    if not apply:
+        print("\nrun 'creator_type.py day15 apply' to write DAY 15 "
+              "(show_how_you_think + day15_framework + day15_prompts)")
+        return
+    merged = {
+        **sig,
+        "show_how_you_think": DAY15_THINKING,
+        "day15_framework": DAY15_FRAMEWORK,
+        "day15_prompts": DAY15_PROMPTS,
+    }
+    _api("PUT", "/brand/voice", {"voice_signature": merged})
+    print("\nApplied show_how_you_think + day15_framework + day15_prompts.")
+
+
 def cmd_verify(platform: str = "linkedin") -> None:
     res = _api("POST", "/ai/generate-content", {
         "prompt": "Why small teams waste money on servers they don't need",
@@ -656,6 +756,8 @@ def main() -> None:
         cmd_day13(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "day14":
         cmd_day14(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
+    elif cmd == "day15":
+        cmd_day15(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "verify":
         cmd_verify(sys.argv[2] if len(sys.argv) > 2 else "linkedin")
     else:

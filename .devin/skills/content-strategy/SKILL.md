@@ -338,6 +338,39 @@ Apply/inspect live: `creator_type.py day14` (show) /
 `creator_type.py day14 apply` (writes `show_dont_tell` +
 `day14_approaches` + `day14_prompts`).
 
+### DAY 15 — Show How You Think (adopted, week-3 capstone)
+
+Source: `3 week/Day15/`. Tips and opinions are everywhere — real
+authority is showing the thinking behind the take: the reasoning, the
+tension, the process, the nuance ("it depends" is authoritative only
+when you can say what it depends on). Stored as
+`voice_signature.show_how_you_think`, `.day15_framework`,
+`.day15_prompts`.
+
+**The 5-step thinking post** (`day15_framework`):
+
+1. **Old belief** — the conventional wisdom everyone still says.
+2. **What changed your mind** — a specific moment, data point, client,
+   conversation — never an abstract epiphany.
+3. **The tension** — the doubt, the resistance, what you had to let go
+   of. This is where trust lives.
+4. **New belief** — what replaced it, landed clean.
+5. **Their turn** — what it means for the reader + one question/direction.
+
+**Four mistakes**: jumping to the conclusion (the journey IS the
+content), making it too neat (messy = believable), still sounding like
+an expert (story not pedestal), making it too long (every line moves
+the journey).
+
+**Sofia's two AI prompts** (`day15_prompts`): `write_thinking` builds
+the post from old/new belief + trigger; `make_less_polished` strips
+expert-sounding polish and restores doubt/specificity — the QA gate
+for thinking posts.
+
+Apply/inspect live: `creator_type.py day15` (show) /
+`creator_type.py day15 apply` (writes `show_how_you_think` +
+`day15_framework` + `day15_prompts`).
+
 ### VEC 2.0 — where the challenge actually lives
 
 The Visibility Era Challenge 2.0 runs on **Skool + Telegram**, not on the
