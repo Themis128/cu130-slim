@@ -151,6 +151,23 @@ STUN binding requests) and prints an honest pass/fail summary.
   LIMIT 30000)` looped to zero (deleted ~364k rows). Find the storage id
   via `oc_storages` (`local::/omv-storage/` = 5); filecache paths are
   storage-relative, no `files/` prefix.
+- **Split-horizon DNS for mail** (fixed 2026-10-15): services run
+  `dns: [1.1.1.1, 8.8.8.8]` so `mail.cloudless.gr` resolves to the PUBLIC
+  IP, not omv-ha (192.168.1.130). The `nextcloud` app container carries
+  `extra_hosts: mail.cloudless.gr:192.168.1.130` but `nextcloud-cron`
+  didn't → Mail app cron sync connected out-and-back to a wrong TLS
+  endpoint and aborted before auth (`imap-login: no auth attempts` on
+  dovecot, ~970 errors/day in nextcloud.log). Any container that talks to
+  LAN services by public hostname needs the same `extra_hosts` override.
+- **`nextcloud-worker` service** (added 2026-10-15): runs
+  `occ taskprocessing:worker` as `www-data` — dedicated AI-task worker.
+  Clears the admin check "Task Processing worker does not seem to be
+  running" (check reads appconfig `core.ai.taskprocessing_worker_last_iteration`,
+  heartbeats every few sec). Without it AI tasks (Assistant/DMR) only run
+  on the 5-min cron tick.
+- **aio-talk `changed-users` warning is informational** (2026-10-15):
+  latest aio-talk tag still ships signaling `2.1.1~docker` — the spreed
+  app's expected feature isn't released upstream yet. No fix available.
 - Recreated containers = ~40 s Nextcloud blip; fine for ops work.
 
 ## nextcloud-integration
