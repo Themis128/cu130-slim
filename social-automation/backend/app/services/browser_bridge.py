@@ -141,6 +141,7 @@ class BrowserBridgeClient:
         platform: str,
         force: bool = False,
         contention_retries: int = 0,
+        interactive: bool = False,
     ) -> dict[str, Any]:
         """Start a browser session for ``platform``.
 
@@ -152,6 +153,11 @@ class BrowserBridgeClient:
         Pass ``force=True`` only for manual recovery of a wedged session.
         Keep retries modest: they run inside the publish task's soft time
         limit alongside other queue rows.
+
+        ``interactive=True`` grants the session a longer busy-hold
+        (INTERACTIVE_BUSY_HOLD, 900s) so multi-step publish flows
+        (e.g. the LinkedIn newsletter editor) are not preempted by
+        hourly pollers mid-run.
         """
         for attempt in range(contention_retries + 1):
             async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
@@ -160,6 +166,7 @@ class BrowserBridgeClient:
                     json={
                         "platform": platform,
                         "force": force,
+                        "interactive": interactive,
                     },
                 )
                 if resp.status_code == 409 and attempt < contention_retries:
@@ -519,15 +526,27 @@ class BrowserBridgeClient:
         )
 
     async def upload_file(
-        self, selector: str, file_path: str, click_selector: str | None = None
+        self,
+        selector: str,
+        file_path: str | None = None,
+        click_selector: str | None = None,
+        file_base64: str | None = None,
+        file_name: str | None = None,
     ) -> dict[str, Any]:
-        """Upload a file via the bridge's native Playwright set_input_files."""
+        """Upload a file via the bridge's native Playwright set_input_files.
+
+        ``file_path`` must exist inside the bridge container; callers with
+        no shared filesystem pass ``file_base64``+``file_name`` and the
+        bridge materializes the bytes to a private temp file first.
+        """
         return await self._request(
             "POST",
             "/session/upload",
             {
                 "selector": selector,
                 "file_path": file_path,
+                "file_base64": file_base64,
+                "file_name": file_name,
                 "click_selector": click_selector,
             },
         )

@@ -26,6 +26,15 @@ Read `social-content-core` first (account map, Kakkava source, quality gate, fun
 |---------|----|-------|-----|
 | Personal | `18d5cd59-f0c2-4fc4-986e-03601734c7a5` | Founder, first-person | **Finished stories only** — wins, metrics, completed builds |
 | Company Page | `9c4451bb-e820-489f-8676-76ddbc788ffe` | Corporate "we" | Product value, carousels, audit funnel |
+| Newsletter | personal profile only (LinkedIn binds newsletters to their author) | Founder build-log | **The Cloudless Build Log** — weekly; documented exception to the business-accounts rule |
+
+## Newsletter — "The Cloudless Build Log"
+
+Weekly edition via `POST /api/v1/newsletter/linkedin/issue` (topic/slug/explicit
+content → branded cover → SEO → sidecar or bridge publish) — full runbook,
+failure signatures, and the verified bridge fallback path in the
+`linkedin-newsletter-ops` skill. n8n `linkedin-newsletter-weekly` runs Monday
+11:00 Athens and notifies Slack. First live issue 2026-10-14 (~158 subs).
 
 ## Content rules
 

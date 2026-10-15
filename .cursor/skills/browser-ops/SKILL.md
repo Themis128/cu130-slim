@@ -743,6 +743,13 @@ The SocialAuto `ProfileUpdateRequest` schema supports:
 | Repeated "Execution context destroyed" on eval       | SPA re-navigates during hydration        | Retry the eval 3-4x with 2.5s waits         |
 | `ERR_ABORTED` on activity-page navigate              | Transient SPA redirect                   | Retry navigateAndCheck up to 3x             |
 | Member post stats missing (`member_stats_not_implemented`) | `ugcPosts` needs restricted `r_member_social` | `GET /profile/activity` scrapes the recent-activity page |
+| `/article/new/` splash loop (logo bar forever, `pm:false`) | LinkedIn anti-bot fingerprint on headless Chromium, or flagged profile | Sidecar must run headed under Xvfb; cold boot >240s → warm-feed nav + retry; persistent → bridge :9223 fallback (`linkedin-newsletter-ops`) |
+| Sidecar `page.goto: Page crashed` | cgroup OOM — `memory.peak == memory.max`, `oom_kill=1` | Limit ≥6G + swap; strip `--enable-unsafe-swiftshader`/software-WebGL flags (LinkedIn GPU probing allocates GBs) |
+| `execCommand('insertHTML')` → `requires 'TrustedHTML' assignment` | LinkedIn enforces Trusted Types | Synthetic `ClipboardEvent('paste')` with `DataTransfer.setData('text/html')` into `div.ProseMirror` — verified live Oct 2026 |
+| `execCommand('selectAll')` then paste **appends** | PM selection ≠ DOM selection | `Range.selectNodeContents(pm)` + `execCommand('delete')` first |
+| Publish-dialog text ignored via paste | Dialog composer is Quill, not ProseMirror | `document.execCommand('insertText')` on `[role=dialog] .ql-editor` |
+| "Discard draft?" confirm after Dismiss click | Publish-dialog X is destructive-confirm | `Discard` returns to auto-saved draft at `/article/edit/<id>/` — safe detour for Manage→Settings SEO fields |
+| `/article/new/` ↔ `/feed/` redirect loop | Session/profile flagged by risk engine | Do not retry-loop; use bridge :9223 session or re-auth sidecar |
 
 ### Member activity scrape (`GET /profile/activity`)
 

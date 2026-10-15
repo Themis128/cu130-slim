@@ -104,22 +104,18 @@ async function ensureBrowser(fresh = false) {
 
   const proxyServer = process.env.LINKEDIN_PROXY || process.env.PROXY_URL || "";
   const launchOpts = {
-    headless: true,
+    // Headed mode under Xvfb (see Dockerfile CMD). Headless Chromium is
+    // fingerprinted hard by LinkedIn — the article editor boot-looped on a
+    // skeleton page for hours while a headed-under-xvfb run booted it fine.
+    // Reference: github.com/xtea/auto-linkedin (patchright + headed Chrome).
+    headless: false,
     args: [
-      "--disable-blink-features=AutomationControlled",
-      "--disable-features=IsolateOrigins,site-per-process",
-      "--disable-site-isolation-trials",
       "--no-sandbox",
       "--disable-dev-shm-usage",
-      "--disable-gpu",
-      // Software-WebGL (SwiftShader) costs hundreds of MB per context —
-      // LinkedIn's feed probes WebGL and the renderer ballooned past 4G
-      // (cgroup oom_kill, 2026-10-14). Leave WebGL unavailable; the editor
-      // only probes it.
-      "--disable-webgl",
-      // No context.route() interception (leaks to bot detection), but Blink
-      // -level image/video disables are invisible and cut feed memory hugely.
-      "--blink-settings=imagesEnabled=false,autoplayPolicy=documentUserActivationRequired",
+      // Do NOT stack --disable-* stealth flags (AutomationControlled,
+      // site-isolation off, WebGL off, images off…): the flag set itself is
+      // a fingerprint anomaly vs real Chrome and LinkedIn serves a skeleton
+      // page. Patchright handles automation stealth at the binary level.
       "--disable-infobars",
       "--window-size=1920,1080",
     ],
@@ -154,6 +150,14 @@ async function ensureBrowser(fresh = false) {
   // NOTE: no context.route() interception here — CDP Fetch interception
   // leaks to LinkedIn's bot detection (pages boot to an empty skeleton).
   page = await context.newPage();
+  // LinkedIn opens some surfaces (article/newsletter editor links) via
+  // target=_blank. Track popups so `page` always points at the newest tab.
+  context.on("page", (p) => {
+    agentLog("H-POP", "context.page", "popup became active page", {
+      url: p.url(),
+    });
+    page = p;
+  });
   if (process.env.LINKEDIN_DEBUG_CONSOLE === "1") {
     page.on("pageerror", (e) =>
       console.log("[pageerror]", String(e && e.message).slice(0, 300)),
@@ -3297,21 +3301,59 @@ async function handleNewsletterPublish(body) {
   };
 
   await ensureBrowser();
-  await navigate("https://www.linkedin.com/article/new/");
-  step("navigated");
+  // The editor only hydrates when the feed has booted the LinkedIn app
+  // first (service worker + session warm-up) — a cold /article/new/
+  // document boot-loops on a blank page even headed (verified 2026-10-14).
+  // auto-linkedin does the same: feed session-check → article/new.
+  await navigate("https://www.linkedin.com/feed/");
+  step("feed-loaded");
 
   if (!isLinkedInPageUrl(page.url()) || page.url().includes("/login")) {
     throw new Error("Not logged in — session expired");
   }
+  // In-document navigation (not a fresh page.goto document) — mirrors the
+  // "Write article" link path that hydrated the editor in live recon.
+  await page
+    .evaluate(() => {
+      location.href = "https://www.linkedin.com/article/new/";
+    })
+    .catch(() => {});
+  step("editor-nav");
 
-  // The editor app boot-loops (document reloads repeatedly, CDN assets 403)
-  // before it finally hydrates — observed 1-3 min. waitForSelector survives
-  // the reloads; plain findElement races them and loses.
   const EDITOR_SEL =
     'div.ProseMirror[contenteditable="true"], div[contenteditable="true"][aria-label*="Article editor"]';
-  try {
-    await page.waitForSelector(EDITOR_SEL, { timeout: 240000 });
-  } catch (_) {
+  // First cold boot can exceed 240s while the Aero bundles fetch; the second
+  // attempt runs against warm HTTP cache and hydrates fast (verified live:
+  // cold failed at 240s, warm found instantly). Retry-nav once before
+  // declaring the editor dead.
+  const waitForEditor = async () => {
+    const deadline = Date.now() + 240000;
+    while (Date.now() < deadline) {
+      for (const p of context.pages()) {
+        try {
+          if (p.url().includes("/article/new") && (await p.$(EDITOR_SEL))) {
+            page = p;
+            return true;
+          }
+        } catch (_) {
+          /* page mid-navigation */
+        }
+      }
+      await page.waitForTimeout(3000).catch(() => {});
+    }
+    return false;
+  };
+  let editorFound = await waitForEditor();
+  if (!editorFound) {
+    step("editor-cold-timeout-retry");
+    for (const p of context.pages()) {
+      try {
+        if (p.url().includes("/article/new")) await p.reload().catch(() => {});
+      } catch (_) {}
+    }
+    editorFound = await waitForEditor();
+  }
+  if (!editorFound) {
     const shot = await page.screenshot({ type: "png" }).catch(() => null);
     const shotPath = shot
       ? saveDebugScreenshot(shot, "article-editor-dead")

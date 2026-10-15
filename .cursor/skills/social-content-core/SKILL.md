@@ -26,7 +26,7 @@ triggers:
 | facebook | `ad83c946-0f6b-4fbf-bc63-543d2c2237f5` | cloudless.gr (page ID 116436681562585) | **Canonical brand page** — Messenger bot lives here |
 | facebook | `e280d96f-2807-4150-babe-f388d02bcfba` | Cloudless.gr | **DELETED 2026-10-02 — never target** |
 | instagram | `38ddbd44-8811-4d0b-be62-a23fd2f50490` | cloudless.gr | Brand |
-| linkedin | `18d5cd59-f0c2-4fc4-986e-03601734c7a5` | personal (baltzakis.themis) | Founder voice, finished stories |
+| linkedin | `18d5cd59-f0c2-4fc4-986e-03601734c7a5` | personal (baltzakis.themis) | Founder voice, finished stories + **The Cloudless Build Log** newsletter (LinkedIn binds newsletters to their author — documented exception to the business-accounts rule; see `linkedin-newsletter-ops`) |
 | linkedin | `9c4451bb-e820-489f-8676-76ddbc788ffe` | cloudless-gr | Company Page, corporate voice |
 | threads | `1071dcd5-1bc9-4770-923c-d897eb124485` | cloudless.gr | Brand |
 | tiktok | `dcda73fb-75b6-47af-b9d1-c1ba404d91a8` | cloudless.gr | Brand |

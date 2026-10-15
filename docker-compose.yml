@@ -332,7 +332,7 @@ services:
       - NEWSLETTER_SERVICE_TOKEN=${NEWSLETTER_SERVICE_TOKEN:-}
       # chat.postMessage → #newsletter channel (no dedicated webhook exists)
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
-      - SLACK_NEWSLETTER_CHANNEL_ID=${SLACK_NEWSLETTER_CHANNEL_ID:-C0BBDKY6Q9E}
+      - SLACK_NEWSLETTER_CHANNEL_ID=${SLACK_NEWSLETTER_CHANNEL_ID:-C0C1B8PMTUN}
       - NODE_FUNCTION_ALLOW_BUILTIN=crypto
       - CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID=${CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID:-9c4451bb-e820-489f-8676-76ddbc788ffe}
       - CLOUDLESS_FACEBOOK_ACCOUNT_ID=${CLOUDLESS_FACEBOOK_ACCOUNT_ID:-e280d96f-2807-4150-babe-f388d02bcfba}
@@ -734,6 +734,7 @@ services:
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
       - LINKEDIN_REDIRECT_URI=${LINKEDIN_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/linkedin/callback}
+      - NEWSLETTER_SERVICE_TOKEN=${NEWSLETTER_SERVICE_TOKEN:-}
       - LINKEDIN_EXTRA_SCOPES=${LINKEDIN_EXTRA_SCOPES:-}
       - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
       - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
@@ -1436,10 +1437,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    # 1536m OOM-killed Chromium on heavy pages (pulse/article editor);
-    # 2560m still oom_killed on /feed+editor (memory.peak hit the cap 2026-10-14).
-    mem_limit: 4096m
-    memswap_limit: 6144m
+    # 1536m/2560m/4096m all oom_killed the renderer on feed+editor —
+    # headed (xvfb) Chromium needs real headroom on LinkedIn's Ember app.
+    mem_limit: 6144m
+    memswap_limit: 8192m
     restart: unless-stopped
     <<: *public-dns
 

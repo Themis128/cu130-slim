@@ -184,7 +184,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={ \"channel\": {{ JSON.stringify($env.SLACK_NEWSLETTER_CHANNEL_ID || 'C0BBDKY6Q9E') }}, \"text\": {{ JSON.stringify($json.ok ? (':newspaper: LinkedIn newsletter ' + ($json.dry_run ? 'DRY RUN' : 'published') + ' — *' + ($json.title || '') + '*' + ($json.article_url ? '\\n' + $json.article_url : '') + '\\n' + ($json.word_count || 0) + ' words' + (($json.warnings && $json.warnings.length) ? ' · ' + $json.warnings.join('; ') : '')) : (':warning: LinkedIn newsletter publish failed — ' + ($json.error || 'unknown') + ($json.title ? ' (' + $json.title + ')' : ''))) }} }",
+        "jsonBody": "={ \"channel\": {{ JSON.stringify($env.SLACK_NEWSLETTER_CHANNEL_ID || 'C0C1B8PMTUN') }}, \"text\": {{ JSON.stringify($json.ok ? (':newspaper: LinkedIn newsletter ' + ($json.dry_run ? 'DRY RUN' : 'published') + ' — *' + ($json.title || '') + '*' + ($json.article_url ? '\\n' + $json.article_url : '') + '\\n' + ($json.word_count || 0) + ' words' + (($json.warnings && $json.warnings.length) ? ' · ' + $json.warnings.join('; ') : '')) : (':warning: LinkedIn newsletter publish failed — ' + ($json.error || 'unknown') + ($json.title ? ' (' + $json.title + ')' : ''))) }} }",
         "options": { "timeout": 30000 }
       },
       "typeVersion": 4.2,

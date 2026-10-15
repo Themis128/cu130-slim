@@ -11,10 +11,13 @@ The bridge runs on port 9223 inside the container.
 """
 
 import asyncio
+import base64
 import contextvars
 import json
 import os
 import re
+import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -999,7 +1002,9 @@ async def mouse_click(req: MouseClickRequest):
 
 class FileUploadRequest(BaseModel):
     selector: str
-    file_path: str
+    file_path: str | None = None
+    file_base64: str | None = None
+    file_name: str | None = None
     click_selector: str | None = None
 
 
@@ -1010,15 +1015,49 @@ async def upload_file(req: FileUploadRequest):
     If click_selector is provided, clicks that element first and intercepts
     the resulting filechooser event (needed for Instagram's photo upload).
     Otherwise, uses set_input_files directly on the selector.
+
+    ``file_path`` points inside this container; ``file_base64``+``file_name``
+    decodes caller-supplied bytes to a private temp file first — needed when
+    the caller (e.g. social-api) has no shared filesystem with the bridge.
     """
     page = await _ensure_live_page()
+    file_path = req.file_path
+    tmpdir = None
+    if req.file_base64:
+        tmpdir = tempfile.mkdtemp(prefix="bridge-upload-")
+        os.chmod(tmpdir, 0o700)
+        # The caller controls file_name — never let it into a filesystem path
+        # (CodeQL py/path-injection). Preserve only an allowlisted extension
+        # as a constant so platforms can MIME-sniff by suffix.
+        ext = os.path.splitext(req.file_name or "")[1].lower()
+        if ext == ".png":
+            upload_name = "upload.png"
+        elif ext in (".jpg", ".jpeg"):
+            upload_name = "upload.jpg"
+        elif ext == ".webp":
+            upload_name = "upload.webp"
+        elif ext == ".gif":
+            upload_name = "upload.gif"
+        elif ext == ".pdf":
+            upload_name = "upload.pdf"
+        elif ext == ".mp4":
+            upload_name = "upload.mp4"
+        else:
+            upload_name = "upload.bin"
+        generated = os.path.join(tmpdir, upload_name)
+        with open(generated, "wb") as fh:
+            fh.write(base64.b64decode(req.file_base64))
+        os.chmod(generated, 0o600)
+        file_path = generated
+    if not file_path:
+        raise HTTPException(422, "file_path or file_base64 is required")
     try:
         if req.click_selector:
             # Set up filechooser listener BEFORE clicking
             async def handle_filechooser(files):
-                await page.set_input_files(files, [req.file_path])
+                await page.set_input_files(files, [file_path])
 
-            page.on("filechooser", lambda fc: asyncio.create_task(fc.set_files(req.file_path)))
+            page.on("filechooser", lambda fc: asyncio.create_task(fc.set_files(file_path)))
 
             # Click the element that triggers the file picker
             click_el = await _pick_visible(page.locator(req.click_selector))
@@ -1026,17 +1065,20 @@ async def upload_file(req: FileUploadRequest):
                 raise HTTPException(404, f"Click element not found: {req.click_selector}")
             await click_el.click()
             await page.wait_for_timeout(5000)
-            return {"status": "ok", "uploaded": True, "method": "filechooser", "click_selector": req.click_selector, "file": req.file_path}
+            return {"status": "ok", "uploaded": True, "method": "filechooser", "click_selector": req.click_selector, "file": file_path}
         else:
             el = await _pick_visible(page.locator(req.selector))
             if el is None:
                 raise HTTPException(404, f"Element not found: {req.selector}")
-            await el.set_input_files(req.file_path)
-            return {"status": "ok", "uploaded": True, "method": "set_input_files", "selector": req.selector, "file": req.file_path}
+            await el.set_input_files(file_path)
+            return {"status": "ok", "uploaded": True, "method": "set_input_files", "selector": req.selector, "file": file_path}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Upload failed: {e}")
+    finally:
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 class CookieRequest(BaseModel):

@@ -264,9 +264,38 @@ async def test_issue_422_min_words(monkeypatch):
     assert e.value.status_code == 422 and "min_words" in e.value.detail
 
 
+class _Bridge:
+    """Stubs the browser-novnc bridge publish path (external HTTP boundary)."""
+
+    def __init__(self, result=None, error=None):
+        self.result = result or {
+            "published": True,
+            "article_url": "https://www.linkedin.com/pulse/x-y/",
+            "steps": ["bridge session claimed", "editor mounted", "published"],
+            "via": "browser-bridge",
+        }
+        self.error = error
+        self.calls: list[dict] = []
+
+    async def publish_issue(self, **kw):
+        self.calls.append(kw)
+        if self.error:
+            raise newsletter_api.LinkedInNewsletterBridgeError(self.error)
+        return self.result
+
+
+def _stub_bridge(monkeypatch, bridge=None):
+    bridge = bridge or _Bridge()
+    monkeypatch.setattr(
+        newsletter_api, "LinkedInNewsletterBridge", lambda *a, **k: bridge
+    )
+    return bridge
+
+
 @pytest.mark.asyncio
-async def test_issue_502_on_sidecar_error(monkeypatch):
+async def test_issue_502_when_sidecar_and_bridge_both_fail(monkeypatch):
     _stub_sidecar(monkeypatch, _Http(status=500, text="editor dead"))
+    _stub_bridge(monkeypatch, _Bridge(error="editor did not mount"))
     with _patched_settings():
         with pytest.raises(HTTPException) as e:
             await newsletter_api.linkedin_issue(
@@ -274,4 +303,99 @@ async def test_issue_502_on_sidecar_error(monkeypatch):
                 _request(),
                 db=None,
             )
-    assert e.value.status_code == 502 and "editor dead" in e.value.detail
+    assert e.value.status_code == 502
+    assert "editor dead" in e.value.detail and "editor did not mount" in e.value.detail
+
+
+@pytest.mark.asyncio
+async def test_issue_502_on_sidecar_error_without_fallback(monkeypatch):
+    _stub_sidecar(monkeypatch, _Http(status=500, text="editor dead"))
+    with _patched_settings():
+        with pytest.raises(HTTPException) as e:
+            await newsletter_api.linkedin_issue(
+                newsletter_api.LinkedInIssueRequest(
+                    title="t", text_body="b", browser="sidecar"
+                ),
+                _request(),
+                db=None,
+            )
+    assert e.value.status_code == 502 and e.value.detail == "editor dead"
+
+
+@pytest.mark.asyncio
+async def test_issue_auto_falls_back_to_bridge(monkeypatch):
+    _stub_sidecar(monkeypatch, _Http(status=500, text="splash loop"))
+    bridge = _stub_bridge(monkeypatch)
+    with _patched_settings():
+        resp = await newsletter_api.linkedin_issue(
+            newsletter_api.LinkedInIssueRequest(
+                title="Issue #3", html_body=_long_body(900), render_cover=False
+            ),
+            _request(),
+            db=None,
+        )
+    assert resp.browser == "bridge" and resp.published is True
+    assert resp.article_url == "https://www.linkedin.com/pulse/x-y/"
+    assert any("browser-bridge fallback" in w for w in resp.warnings)
+    # Bridge got the resolved title/body, not the sidecar's payload
+    assert bridge.calls[0]["title"] == "Issue #3"
+    assert "<p>" in bridge.calls[0]["html_body"]
+
+
+@pytest.mark.asyncio
+async def test_issue_browser_bridge_skips_sidecar(monkeypatch):
+    http = _stub_sidecar(monkeypatch)
+    bridge = _stub_bridge(monkeypatch)
+    with _patched_settings():
+        resp = await newsletter_api.linkedin_issue(
+            newsletter_api.LinkedInIssueRequest(
+                title="t", text_body="para one\n\npara two",
+                browser="bridge", render_cover=False,
+            ),
+            _request(),
+            db=None,
+        )
+    assert resp.browser == "bridge" and http.calls == []
+    # text_body converted to HTML paragraphs for the ProseMirror paste
+    assert bridge.calls[0]["html_body"] == "<p>para one</p>\n<p>para two</p>"
+
+
+@pytest.mark.asyncio
+async def test_issue_schedule_forwards_to_bridge_fallback(monkeypatch):
+    _stub_sidecar(monkeypatch, _Http(status=500, text="timeout"))
+    bridge = _stub_bridge(
+        monkeypatch,
+        _Bridge(result={
+            "published": False,
+            "scheduled": True,
+            "article_url": "https://www.linkedin.com/article/edit/123/",
+            "steps": ["bridge session claimed", "scheduled"],
+        }),
+    )
+    with _patched_settings():
+        resp = await newsletter_api.linkedin_issue(
+            newsletter_api.LinkedInIssueRequest(
+                title="t", text_body="b", schedule_iso="2026-10-20T09:00:00+03:00",
+                render_cover=False,
+            ),
+            _request(),
+            db=None,
+        )
+    # bridge cannot be assumed — schedule_iso must be forwarded verbatim
+    assert bridge.calls[0]["schedule_iso"] == "2026-10-20T09:00:00+03:00"
+    assert resp.scheduled is True and resp.published is False
+
+
+@pytest.mark.asyncio
+async def test_issue_sidecar_success_reports_sidecar_browser(monkeypatch):
+    _stub_sidecar(monkeypatch)
+    _stub_bridge(monkeypatch)
+    with _patched_settings():
+        resp = await newsletter_api.linkedin_issue(
+            newsletter_api.LinkedInIssueRequest(
+                title="t", text_body="b", render_cover=False
+            ),
+            _request(),
+            db=None,
+        )
+    assert resp.browser == "sidecar" and resp.published is True

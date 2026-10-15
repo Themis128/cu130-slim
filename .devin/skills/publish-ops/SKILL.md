@@ -144,6 +144,9 @@ Classification classes: `app-bug` → fix code · `config` → env/console ·
 | `Browser session not logged in` | Bridge/sidecar session dead | noVNC re-login or `session-ops` skill (cookie move) |
 | `does not exist, cannot be loaded due to missing permissions` | Stale media id or missing scope | Usually media deleted on platform or wrong account — check |
 | `publish_cancelled` (TikTok) | MEDIA_UPLOAD inbox draft dismissed | Republish; DIRECT_POST needs approved app audit |
+| `403 CSRF check failed` (all LinkedIn `/voyager/api/*`) | `li_at` invalidated — fingerprint-bound, cookie transplant revoked globally | `POST :9225/login` credentials → app-push/SMS 2FA (each retry = new code); never transplant |
+| `Page crashed` / `oom_kill` in sidecar cgroup | Chromium renderer OOM — `memory.peak == memory.max` | Raise limit (headed needs ≥6G); strip `--enable-unsafe-swiftshader` / software-WebGL flags |
+| `Article editor did not render within Ns` | LinkedIn serves splash loop to flagged/headless profile | Sidecar must run headed under Xvfb; if persistent → drive bridge 9223 fallback (`linkedin-newsletter-ops`) |
 
 #### App bugs — fix in code
 

@@ -9,4 +9,7 @@ COPY server.js ./
 
 EXPOSE 9225
 
-CMD ["node", "server.js"]
+# Headed Chromium under Xvfb — LinkedIn fingerprints headless hard (the
+# article editor boot-loops on a skeleton page). 1920x1080x24 matches the
+# context viewport.
+CMD ["xvfb-run", "-a", "-s", "-screen 0 1920x1080x24", "node", "server.js"]

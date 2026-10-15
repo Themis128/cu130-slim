@@ -81,6 +81,15 @@ webhook (`n8n_trigger_webhook`) over retry.
 | Schedule | daily **09:00 Europe/Athens** |
 | Calls | social-api login → `POST /api/v1/ops/daily-digest` → Slack |
 
+| Workflow id | `linkedin-newsletter-weekly` |
+| Name | LinkedIn Newsletter — The Cloudless Build Log |
+| JSON | `n8n-workflows/linkedin-newsletter-weekly.json` |
+| Prod webhook | `POST http://localhost:5678/webhook/linkedin-newsletter-weekly` |
+| Schedule | weekly Monday **11:00 Europe/Athens** |
+| Calls | `POST /api/v1/newsletter/linkedin/issue` (`X-Service-Token: NEWSLETTER_SERVICE_TOKEN`) → Slack notify |
+| Slack channel | `SLACK_NEWSLETTER_CHANNEL_ID` → `#socialauto-publishing` `C0C1B8PMTUN`. **The old default `C0BBDKY6Q9E` is a stale foreign-workspace ID — any node still pointing at it fails `channel_not_found`** |
+| Failure signature | `httpx.ReadTimeout` at the sidecar call = editor hydration flake → run `linkedin-newsletter-ops/scripts/probe_editor.py`, fall back to `publish_issue.py` (bridge path) |
+
 Plus 13 social post workflows (`{platform}-{text|image|carousel}-post`,
 `marketing-image-generation`, `weekly-cloud-computing-post`) — each with a
 `/webhook/<name>` production webhook. All accept `publish:false` for dry-runs
