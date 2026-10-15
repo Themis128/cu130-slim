@@ -13,7 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Response
 
 import app.api.service_feed as feed_api
 from app.services.slack_digest import DigestIssue, DigestReport
@@ -94,7 +94,7 @@ def _fake_db(*, team=None, team_counts=None, targets=None, media=None,
 async def test_503_when_token_unconfigured():
     with _settings(token=""):
         with pytest.raises(HTTPException) as e:
-            await feed_api.feed_index(_request("s3cret"))
+            await feed_api.feed_index(_request("s3cret"), response=Response())
     assert e.value.status_code == 503
     assert "INTRANET_FEED_TOKEN" in e.value.detail
 
@@ -103,22 +103,24 @@ async def test_503_when_token_unconfigured():
 async def test_401_on_missing_or_wrong_token():
     with _settings():
         with pytest.raises(HTTPException) as missing:
-            await feed_api.feed_index(_request(""))
+            await feed_api.feed_index(_request(""), response=Response())
         with pytest.raises(HTTPException) as wrong:
-            await feed_api.feed_index(_request("nope"))
+            await feed_api.feed_index(_request("nope"), response=Response())
     assert missing.value.status_code == 401
     assert wrong.value.status_code == 401
 
 
 @pytest.mark.asyncio
 async def test_feed_index_lists_feeds():
+    response = Response()
     with _settings():
-        out = await feed_api.feed_index(_request())
+        out = await feed_api.feed_index(_request(), response=response)
     paths = {f["path"] for f in out["feeds"]}
     assert "/service-feed/activity" in paths
     assert "/service-feed/digest" in paths
     assert "/service-feed/status" in paths
     assert out["mapping_hint"]["items"] == "items"
+    assert response.headers["cache-control"] == "private, max-age=300"
 
 
 def _post_target_row(status="published", error=None, platform="linkedin"):
@@ -153,7 +155,7 @@ async def test_activity_maps_targets_to_feed_items():
         media=[],
     )
     with _settings():
-        out = await feed_api.feed_activity(_request(), limit=20, db=db)
+        out = await feed_api.feed_activity(_request(), response=Response(), limit=20, db=db)
     assert len(out.items) == 2
     pub = out.items[0]
     assert pub.url == "https://linkedin.com/feed/x"
@@ -168,7 +170,7 @@ async def test_activity_maps_targets_to_feed_items():
 async def test_activity_no_team_returns_empty():
     db = _fake_db(team=None, team_counts=[])
     with _settings():
-        out = await feed_api.feed_activity(_request(), db=db)
+        out = await feed_api.feed_activity(_request(), response=Response(), db=db)
     assert out.items == []
 
 
@@ -176,7 +178,7 @@ async def test_activity_no_team_returns_empty():
 async def test_pinned_team_id_used():
     db = _fake_db(targets=[])
     with _settings(team_id=str(TEAM_ID)):
-        out = await feed_api.feed_activity(_request(), limit=20, db=db)
+        out = await feed_api.feed_activity(_request(), response=Response(), limit=20, db=db)
     assert out.items == []
 
 
@@ -193,7 +195,7 @@ async def test_status_maps_queue_and_unhealthy_accounts():
         ],
     )
     with _settings():
-        out = await feed_api.feed_status(_request(), db=db)
+        out = await feed_api.feed_status(_request(), response=Response(), db=db)
     assert "pending" in out.items[0].title
     assert any("linkedin" in i.title and "expired" in i.title for i in out.items)
 
@@ -202,7 +204,7 @@ async def test_status_maps_queue_and_unhealthy_accounts():
 async def test_status_healthy_message_when_no_attention():
     db = _fake_db(team_counts=[(TEAM_ID, 11)], queue=[], attention=[])
     with _settings():
-        out = await feed_api.feed_status(_request(), db=db)
+        out = await feed_api.feed_status(_request(), response=Response(), db=db)
     assert out.items[-1].title == "All connected accounts healthy"
 
 
@@ -234,7 +236,7 @@ async def test_digest_reshapes_real_report(monkeypatch):
     )
     db = _fake_db(team_counts=[(TEAM_ID, 11)])
     with _settings():
-        out = await feed_api.feed_digest(_request(), db=db)
+        out = await feed_api.feed_digest(_request(), response=Response(), db=db)
     assert "16 published" in out.items[0].title
     assert "2083" in out.items[0].excerpt
     titles = [i.title for i in out.items]
@@ -255,7 +257,7 @@ async def test_leads_feed_never_exposes_email():
     )
     db = _fake_db(team_counts=[(TEAM_ID, 11)], leads=[lead])
     with _settings():
-        out = await feed_api.feed_leads(_request(), limit=10, db=db)
+        out = await feed_api.feed_leads(_request(), response=Response(), limit=10, db=db)
     assert len(out.items) == 1
     item = out.items[0]
     assert "Jane Doe" in item.title and "website" in item.title
@@ -268,5 +270,5 @@ async def test_leads_feed_requires_token():
     db = _fake_db(team_counts=[(TEAM_ID, 11)])
     with _settings():
         with pytest.raises(HTTPException) as e:
-            await feed_api.feed_leads(_request(""), limit=10, db=db)
+            await feed_api.feed_leads(_request(""), response=Response(), limit=10, db=db)
     assert e.value.status_code == 401
