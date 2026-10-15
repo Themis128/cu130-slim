@@ -113,6 +113,20 @@ STUN binding requests) and prints an honest pass/fail summary.
 
 ### Known quirks
 
+- **Apache segfault crash-loop** (hit 2026-10-07→15, fixed by restart):
+  signature = `cloud.cloudless.gr` 502 through the tunnel + container
+  `unhealthy` + log full of `child pid <n> exit signal Segmentation
+  fault (11)` every few seconds while `nextcloud-cron`/background jobs
+  keep working (PHP itself is fine — only web workers die). Cause is
+  volatile state (APCu/php-redis SHM corruption), not code — the image
+  hadn't changed. Fix: `docker restart nextcloud` (~40s blip), verify
+  `status.php` 200 + zero new segfaults. **Then backfill**: media uploads
+  during the outage silently skipped their mirror —
+  `SELECT id FROM media_assets WHERE meta_data->>'nextcloud_path' IS NULL
+  AND created_at > now() - interval '<N> days'` and enqueue
+  `export_media_to_nextcloud.delay(str(id))` per row from inside
+  `social-worker-media` (the skill scripts' manual-export one-liner works
+  too, one call per asset).
 - **Fontconfig tmpfs** (PR #244, live on omv): `/var/cache/fontconfig` was
   root-owned → `www-data` warnings + per-request font rescans. `tmpfs` mounts
   on `nextcloud`, `nextcloud-cron`, `notify-push` fix it. If the warning
