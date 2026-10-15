@@ -196,6 +196,24 @@ Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
    `n8n_get_execution` (per-node errors via Postgres fallback — the API key
    403s on /executions). The last executed node in `lastNodeExecuted` is
    the failing one.
+7. **`contentType:'json'` is dead config on httpRequest ≥4.2** — the body
+   ships EMPTY silently; remote APIs just 400. The only working contract
+   is `sendBody:true` + `specifyBody:'json'` + `jsonBody` (proven in
+   `facebook-text-post.json` etc.). `contentType:'form-urlencoded'` +
+   `bodyParameters` is the valid keypair equivalent (login node).
+8. **`httpBasicAuth` credentials can silently ship bad auth in prod**
+   (2026-10-15: node received NC guest-page HTML while identical
+   in-container requests with the same creds succeeded; the credential
+   store/wiring is opaque to debugging). Some workflows do work with them
+   (`nextcloud-drop-to-draft`), but the reliable pattern is an explicit
+   `Authorization` header computed in a Code node from `$env` —
+   `Basic base64($env.NEXTCLOUD_USERNAME + ':' + $env.NEXTCLOUD_APP_PASSWORD)`
+   — same `$env` mechanism as `SOCIAL_ADMIN_*` on login nodes.
+   `NEXTCLOUD_USERNAME`/`NEXTCLOUD_APP_PASSWORD` are in the n8n service
+   env (docker-compose) specifically for this.
+9. **Audit before deploy**: `python3
+   .cursor/skills/n8n-cloudless/scripts/audit-http-nodes.py n8n-workflows/`
+   catches both patterns (exit 1 on findings).
 
 ## Do not
 
