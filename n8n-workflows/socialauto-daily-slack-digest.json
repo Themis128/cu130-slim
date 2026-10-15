@@ -115,7 +115,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nconst md = (first.markdown || '').trim();\nconst date = new Date().toISOString().slice(0, 10);\nconst body = md.replace(/\\*([^*\\n]+)\\*/g, '**$1**');\nreturn [{\n  json: {\n    pageId: `socialauto-digest-${date}`,\n    title: `SocialAuto Digest \u2014 ${date}`,\n    markdown: body,\n  }\n}];"
+        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nconst md = (first.markdown || '').trim();\nconst date = new Date().toISOString().slice(0, 10);\nconst body = md.replace(/\\*([^*\\n]+)\\*/g, '**$1**');\nconst basic = Buffer.from(($env.NEXTCLOUD_USERNAME || '') + ':' + ($env.NEXTCLOUD_APP_PASSWORD || '')).toString('base64');\nreturn [{\n  json: {\n    pageId: `socialauto-digest-${date}`,\n    title: `SocialAuto Digest \u2014 ${date}`,\n    markdown: body,\n    basic: `Basic ${basic}`,\n  }\n}];"
       },
       "id": "format-intravox-digest",
       "name": "Format IntraVox Digest",
@@ -162,29 +162,25 @@
       "parameters": {
         "method": "POST",
         "url": "https://cloud.cloudless.gr/apps/intravox/api/pages",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "OCS-APIRequest",
               "value": "true"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Format IntraVox Digest').item.json.basic }}"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "jsonBody": "={{ JSON.stringify({ id: $json.pageId, title: $json.title, language: 'en', parentPath: 'en/news/updates' }) }}",
+        "jsonBody": "={\n  \"id\": {{ JSON.stringify($json.pageId) }},\n  \"title\": {{ JSON.stringify($json.title) }},\n  \"language\": \"en\",\n  \"parentPath\": \"en/news/updates\"\n}",
         "options": {
           "timeout": 30000
-        }
-      },
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "p1dWdf8CJvHiQtmz",
-          "name": "Nextcloud WebDAV basic"
-        }
+        },
+        "specifyBody": "json"
       },
       "id": "create-intravox-page",
       "name": "Create IntraVox Page",
@@ -213,29 +209,25 @@
       "parameters": {
         "method": "PUT",
         "url": "=https://cloud.cloudless.gr/apps/intravox/api/pages/{{ $json.uniqueId }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBasicAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
               "name": "OCS-APIRequest",
               "value": "true"
+            },
+            {
+              "name": "Authorization",
+              "value": "={{ $('Format IntraVox Digest').item.json.basic }}"
             }
           ]
         },
         "sendBody": true,
-        "contentType": "json",
-        "jsonBody": "={{ JSON.parse($json.pageJson) }}",
+        "jsonBody": "={{ $json.pageJson }}",
         "options": {
           "timeout": 30000
-        }
-      },
-      "credentials": {
-        "httpBasicAuth": {
-          "id": "p1dWdf8CJvHiQtmz",
-          "name": "Nextcloud WebDAV basic"
-        }
+        },
+        "specifyBody": "json"
       },
       "id": "update-intravox-content",
       "name": "Update IntraVox Content",

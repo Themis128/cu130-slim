@@ -311,6 +311,10 @@ services:
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false
       - N8N_TEMPLATES_ENABLED=false
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Nextcloud app password for IntraVox API calls from workflows
+      # (digest → intranet news). Basic auth is computed in-node.
+      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME}
+      - NEXTCLOUD_APP_PASSWORD=${NEXTCLOUD_APP_PASSWORD}
       - GENERIC_TIMEZONE=Europe/Athens
       - TZ=Europe/Athens
       # --- Postgres as n8n database backend (shared with stack) ---
