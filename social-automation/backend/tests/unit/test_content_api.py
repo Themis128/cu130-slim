@@ -327,6 +327,15 @@ async def test_duplicate_and_cross_post(_seams, monkeypatch):
     tgt = [o for o in db.added if type(o).__name__ == "PostTarget"][0]
     assert tgt.social_account_id == biz.id  # page preferred
 
+    # source post with existing targets: meta_data must carry the account id
+    # as a string — a raw UUID breaks JSONB serialization at commit time.
+    post2b = _post(targets=[_target()])
+    db = _DB(results=[_Res(one=post2b), _Res(all=[biz])])
+    await C.cross_post_to_platform(post2b.id, req, uuid.uuid4(), _user(), db)
+    new_post = [o for o in db.added if type(o).__name__ == "Post"][0]
+    assert isinstance(new_post.meta_data["source_platform"], str)
+    assert new_post.meta_data["source_platform"] == str(post2b.targets[0].social_account_id)
+
     # no candidate → 404
     db = _DB(results=[_Res(one=post2), _Res(all=[])])
     with pytest.raises(HTTPException) as ei:

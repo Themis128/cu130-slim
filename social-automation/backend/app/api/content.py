@@ -607,7 +607,7 @@ async def cross_post_to_platform(
         link_url=post.link_url,
         link_preview_override=post.link_preview_override,
         scheduled_at=request.schedule_at,
-        meta_data={"cross_posted_from": str(post_id), "source_platform": post.targets[0].social_account_id if post.targets else None},
+        meta_data={"cross_posted_from": str(post_id), "source_platform": str(post.targets[0].social_account_id) if post.targets else None},
         music_asset_id=post.music_asset_id,
     )
     db.add(new_post)
