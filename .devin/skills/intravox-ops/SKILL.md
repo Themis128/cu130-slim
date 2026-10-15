@@ -59,6 +59,10 @@ Commands: `health`, `pages-list --lang en`, `page-get <uid>`,
   `occ config:app:set`. Fields: `type:'custom'`, `baseUrl`,
   `customEndpoint`, `authMethod:'apikey'`, `apiKeyHeader:'X-Service-Token'`,
   `token` (plaintext on POST — service encrypts), `responseMapping`.
+  **401 "Invalid service token" on cron fetches** = stored plaintext
+  differed from `INTRANET_FEED_TOKEN` (quotes/whitespace or rotation) —
+  GET the connections, re-POST with the exact stripped `.env` value,
+  verify via `/api/feed/external`.
 - Saved connections: `socialauto-activity`, `socialauto-digest`,
   `socialauto-status` → baseUrl `https://social.cloudless.gr`.
 - Feed widget config on a page: `type:'feed'`,
