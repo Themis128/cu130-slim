@@ -1,6 +1,6 @@
 {
   "id": "socialauto-daily-slack-digest",
-  "name": "SocialAuto Daily Digest → #socialauto",
+  "name": "SocialAuto Daily Digest \u2192 #socialauto",
   "active": true,
   "nodes": [
     {
@@ -115,14 +115,148 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nreturn [{\n  json: {\n    ok: true,\n    message: r.message || '',\n    posted_to_slack: !!first.posted_to_slack,\n    slack_error: first.slack_error || null,\n    issue_count: (first.issues || []).length,\n    team_name: first.team_name || null,\n  }\n}];"
+        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nconst md = (first.markdown || '').trim();\nconst date = new Date().toISOString().slice(0, 10);\nconst body = md.replace(/\\*([^*\\n]+)\\*/g, '**$1**');\nreturn [{\n  json: {\n    pageId: `socialauto-digest-${date}`,\n    title: `SocialAuto Digest \u2014 ${date}`,\n    markdown: body,\n  }\n}];"
+      },
+      "id": "format-intravox-digest",
+      "name": "Format IntraVox Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-digest",
+              "leftValue": "={{ $json.markdown }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-intravox-digest",
+      "name": "Has Digest?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1200,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://cloud.cloudless.gr/apps/intravox/api/pages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "OCS-APIRequest",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify({ id: $json.pageId, title: $json.title, language: 'en', parentPath: 'en/news/updates' }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "p1dWdf8CJvHiQtmz",
+          "name": "Nextcloud WebDAV basic"
+        }
+      },
+      "id": "create-intravox-page",
+      "name": "Create IntraVox Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        80
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const created = $json;\nconst fmt = $('Format IntraVox Digest').item.json;\nif (!created.uniqueId) {\n  return [{ json: { uniqueId: null, pageJson: null, create_error: created.error || created.message || 'no uniqueId' } }];\n}\nconst page = {\n  uniqueId: created.uniqueId,\n  title: fmt.title,\n  language: 'en',\n  layout: {\n    columns: 1,\n    rows: [\n      { columns: 1, backgroundColor: 'var(--color-primary-element)', widgets: [\n        { type: 'heading', column: 1, order: 1, content: fmt.title, level: 1 },\n        { type: 'text', column: 1, order: 2, content: fmt.markdown },\n      ]},\n    ],\n  },\n};\nreturn [{ json: { uniqueId: created.uniqueId, pageJson: JSON.stringify(page) } }];"
+      },
+      "id": "build-intravox-update",
+      "name": "Build IntraVox Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://cloud.cloudless.gr/apps/intravox/api/pages/{{ $json.uniqueId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "OCS-APIRequest",
+              "value": "true"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.parse($json.pageJson) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "p1dWdf8CJvHiQtmz",
+          "name": "Nextcloud WebDAV basic"
+        }
+      },
+      "id": "update-intravox-content",
+      "name": "Update IntraVox Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1860,
+        80
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst first = reports[0] || {};\nlet intravox = null;\ntry {\n  const upd = $('Update IntraVox Content').item.json;\n  intravox = upd.uniqueId ? `page ${upd.uniqueId}` : (upd.error || 'failed');\n} catch (e) {\n  intravox = $('Format IntraVox Digest').item.json.markdown ? 'failed' : 'skipped-empty';\n}\nreturn [{\n  json: {\n    ok: true,\n    message: r.message || '',\n    posted_to_slack: !!first.posted_to_slack,\n    slack_error: first.slack_error || null,\n    issue_count: (first.issues || []).length,\n    team_name: first.team_name || null,\n    intravox: intravox,\n  }\n}];"
       },
       "id": "summarize",
       "name": "Summarize Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        980,
+        2080,
         100
       ]
     },
@@ -186,6 +320,68 @@
       ]
     },
     "Run Daily Digest": {
+      "main": [
+        [
+          {
+            "node": "Format IntraVox Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format IntraVox Digest": {
+      "main": [
+        [
+          {
+            "node": "Has Digest?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Digest?": {
+      "main": [
+        [
+          {
+            "node": "Create IntraVox Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create IntraVox Page": {
+      "main": [
+        [
+          {
+            "node": "Build IntraVox Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build IntraVox Payload": {
+      "main": [
+        [
+          {
+            "node": "Update IntraVox Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update IntraVox Content": {
       "main": [
         [
           {
