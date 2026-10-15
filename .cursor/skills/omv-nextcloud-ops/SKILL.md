@@ -113,6 +113,18 @@ STUN binding requests) and prints an honest pass/fail summary.
 
 ### Known quirks
 
+- **OpenMetrics `/metrics` endpoint** (NC 33+, live 2026-10-15): Prometheus
+  on the omv k3s cluster scrapes `http://192.168.1.200:11000/metrics` via
+  ScrapeConfig `monitoring/nextcloud-metrics` (manifest in cloudless.gr
+  `infrastructure/monitoring/blackbox-exporter.yaml`, dashboard
+  `nextcloud-omv`). Endpoint is IP-allowlisted —
+  `openmetrics_allowed_clients` in config.php must contain the **docker
+  bridge CIDR `172.18.0.0/16`**, not just the pod/LAN CIDRs: pod→published-
+  port traffic arrives at Apache NAT'd as `172.18.0.1` (docker bridge
+  gateway), so a `10.42.0.0/16`-only allowlist 403s every scrape. Symptom:
+  target `down` with `server returned HTTP status 403` while LAN curl
+  succeeds. Set array values per-index:
+  `occ config:system:set openmetrics_allowed_clients <idx> --value=<CIDR>`.
 - **Apache segfault crash-loop** (hit 2026-10-07→15, fixed by restart):
   signature = `cloud.cloudless.gr` 502 through the tunnel + container
   `unhealthy` + log full of `child pid <n> exit signal Segmentation
