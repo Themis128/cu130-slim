@@ -391,3 +391,155 @@ async def test_auto_correct_no_replacements_and_lt_down(monkeypatch):
 async def test_auto_correct_empty_and_blank():
     assert await spellcheck.auto_correct("") == ""
     assert await spellcheck.auto_correct("   ") == "   "
+
+
+# -- auto_correct_detailed: category filter + overlap + report ----------------
+#
+# LanguageTool's HTTP surface is the only stubbed boundary — the masking,
+# filtering, and offset machinery all runs for real.
+
+
+class _FakeLTResp:
+    def __init__(self, matches):
+        self._matches = matches
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return {"matches": self._matches}
+
+
+class _FakeLTClient:
+    def __init__(self, matches):
+        self._matches = matches
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, data=None, headers=None):
+        return _FakeLTResp(self._matches)
+
+
+def _lt_match(offset, length, repl, rule_id="TEST_RULE", category="TYPOS"):
+    return {
+        "offset": offset,
+        "length": length,
+        "message": "test message",
+        "rule": {"id": rule_id, "category": {"id": category}},
+        "replacements": [{"value": repl}],
+    }
+
+
+def _patch_lt(monkeypatch, matches):
+    client = _FakeLTClient(matches)
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient", lambda **_kw: client)
+
+
+@pytest.mark.asyncio
+async def test_detailed_applies_error_rule_and_reports(monkeypatch):
+    from app.services.spellcheck import auto_correct_detailed
+
+    _patch_lt(monkeypatch, [_lt_match(2, 5, "have")])
+    corrected, applied = await auto_correct_detailed("I havve cats.")
+    assert corrected == "I have cats."
+    assert len(applied) == 1
+    assert applied[0]["rule_id"] == "TEST_RULE"
+    assert applied[0]["category"] == "TYPOS"
+    assert applied[0]["replacement"] == "have"
+
+
+@pytest.mark.asyncio
+async def test_detailed_skips_style_category(monkeypatch):
+    from app.services.spellcheck import auto_correct_detailed
+
+    _patch_lt(monkeypatch, [_lt_match(0, 10, "Ship code", category="STYLE")])
+    corrected, applied = await auto_correct_detailed("Ship code.")
+    assert corrected == "Ship code."
+    assert applied == []
+
+
+@pytest.mark.asyncio
+async def test_detailed_skips_ai_rule_prefix(monkeypatch):
+    from app.services.spellcheck import auto_correct_detailed
+
+    _patch_lt(
+        monkeypatch,
+        [_lt_match(0, 4, "This", rule_id="AI_HB_GEC_FIX", category="MISC")],
+    )
+    corrected, applied = await auto_correct_detailed("This are ok.")
+    assert applied == []
+    assert corrected == "This are ok."
+
+
+@pytest.mark.asyncio
+async def test_detailed_overlap_first_processed_wins(monkeypatch):
+    """Two rules covering the same span — the higher-offset match is applied
+    (walked first, end→start) and the overlapping one is dropped."""
+    from app.services.spellcheck import auto_correct_detailed
+
+    # "I havve cats." — match A covers 'avve' (offset 3..7), match B covers
+    # 'havve' (offset 2..7). A processed first (higher offset), B skipped.
+    _patch_lt(
+        monkeypatch,
+        [
+            _lt_match(2, 5, "have", rule_id="RULE_B"),
+            _lt_match(3, 4, "ave", rule_id="RULE_A"),
+        ],
+    )
+    corrected, applied = await auto_correct_detailed("I havve cats.")
+    assert corrected == "I have cats."
+    assert [a["rule_id"] for a in applied] == ["RULE_A"]
+
+
+@pytest.mark.asyncio
+async def test_detailed_never_touches_protected_spans(monkeypatch):
+    from app.services.spellcheck import auto_correct_detailed
+
+    text = "Deploy to cloudless.gr today."
+    start = text.index("cloudless.gr")
+    _patch_lt(monkeypatch, [_lt_match(start, 12, "cloudless. Gr")])
+    corrected, applied = await auto_correct_detailed(text)
+    assert "cloudless.gr" in corrected
+    assert applied == []
+
+
+@pytest.mark.asyncio
+async def test_detailed_lt_down_returns_normalized(monkeypatch):
+    from app.services.spellcheck import auto_correct_detailed
+
+    class _DownClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            raise RuntimeError("LT unreachable")
+
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient", lambda **_kw: _DownClient())
+    corrected, applied = await auto_correct_detailed("  hello   world ")
+    assert corrected == "hello world"  # normalization still applies
+    assert applied == []
+
+
+@pytest.mark.asyncio
+async def test_detailed_no_matches_returns_normalized(monkeypatch):
+    from app.services.spellcheck import auto_correct_detailed
+
+    _patch_lt(monkeypatch, [])
+    corrected, applied = await auto_correct_detailed("All   good  here.")
+    assert corrected == "All good here."
+    assert applied == []
+
+
+@pytest.mark.asyncio
+async def test_auto_correct_wrapper_returns_only_text(monkeypatch):
+    _patch_lt(monkeypatch, [_lt_match(0, 4, "This")])
+    result = await auto_correct("Thsi works.")
+    assert isinstance(result, str)
+    assert result.startswith("This")

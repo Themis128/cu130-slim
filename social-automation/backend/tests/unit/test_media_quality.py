@@ -531,3 +531,72 @@ class TestAutoConfigureQuality:
 
         assert result.enhanced_prompt is None
         assert result.quality is None
+
+
+# ===========================================================================
+# 9. apply_media_quality — gibberish guard on user-facing text
+# ===========================================================================
+
+class TestMediaQualityGibberish:
+
+    @pytest.mark.asyncio
+    async def test_gibberish_tokens_propagated(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        """Mangled tokens surviving correction are flagged on the result."""
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(return_value=["mangledtoken"]),
+        )
+        result = await apply_media_quality(
+            caption="A nice photo of a mangledtoken product",
+        )
+        assert result.gibberish_tokens == ["mangledtoken"]
+        assert result.to_dict()["gibberish_tokens"] == ["mangledtoken"]
+
+    @pytest.mark.asyncio
+    async def test_gibberish_clean_text_empty(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(return_value=[]),
+        )
+        result = await apply_media_quality(caption="A clean caption for the asset")
+        assert result.gibberish_tokens == []
+
+    @pytest.mark.asyncio
+    async def test_gibberish_failure_non_fatal(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(side_effect=RuntimeError("LT down")),
+        )
+        result = await apply_media_quality(caption="A nice photo")
+        assert result.caption == "A nice photo"
+        assert result.gibberish_tokens == []
+
+    @pytest.mark.asyncio
+    async def test_gibberish_dedupes_caption_and_alt(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(return_value=["sametoken"]),
+        )
+        result = await apply_media_quality(
+            caption="Caption text here",
+            alt_text="Alt text here",
+        )
+        assert result.gibberish_tokens == ["sametoken"]
+
+    @pytest.mark.asyncio
+    async def test_gibberish_skipped_when_no_user_text(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        spy = AsyncMock(return_value=[])
+        monkeypatch.setattr("app.services.media_quality.detect_gibberish", spy)
+        result = await apply_media_quality(prompt="a red apple")
+        spy.assert_not_awaited()
+        assert result.gibberish_tokens == []

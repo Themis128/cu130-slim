@@ -101,6 +101,25 @@ class Settings(BaseSettings):
         "Kakkava,Redis,cloudless,cloudless.gr,SocialAuto,Polar,n8n,noVNC,"
         "instagrapi,TikTok,LinkedIn,DevOps,FinOps,Airflow,asyncpg,Sofia"
     )
+    # LanguageTool rule categories auto_correct must NOT apply — these rewrite
+    # intended voice rather than fix errors (STYLE rewrites short punchy
+    # sentences; TYPOGRAPHY injects curly quotes/em-dashes that Sofia scoring
+    # penalizes; REDUNDANCY strips deliberate emphasis; WIKIPEDIA/AI_HB rules
+    # are premium hints). Comma-separated category IDs.
+    LANGUAGETOOL_SKIP_CATEGORIES: str = (
+        "STYLE,TYPOGRAPHY,REDUNDANCY,WIKIPEDIA,COLLOQUIALISMS,CASUAL,CREATIVE_WRITING"
+    )
+    # Rule-id prefixes auto_correct must NOT apply (LanguageTool's premium
+    # AI-generated hints — noisy on short social copy).
+    LANGUAGETOOL_SKIP_RULE_PREFIXES: str = "AI_HB_,PREMIUM_"
+
+    # Publish quality gate — a post going live must score at or above this
+    # composite SEO/NLP score after the auto-improvement loop runs. Posts
+    # below the bar are skipped (never burned retries) and Slack-alerted for
+    # manual fix + requeue. Set to 0 to disable the gate.
+    PUBLISH_MIN_SEO_SCORE: int = 80
+    # Improvement rounds the gate may run before accepting/rejecting.
+    PUBLISH_QUALITY_MAX_ITERATIONS: int = 2
 
     # Self-hosted SearXNG metasearch (deployed on omv — see deploy/omv-workspace).
     # JSON API used by /api/v1/ai/web-search and web-grounded generate-content.

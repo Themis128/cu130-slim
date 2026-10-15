@@ -19,6 +19,7 @@ available version of each field is returned with a diagnostic report.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -27,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.cf_models import CF_TEXT_FREE
 from app.services.media_spellcheck import correct_tags, correct_text
+from app.services.spellcheck import detect_gibberish
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,7 @@ class MediaQualityResult:
     seo_score: dict[str, Any] = field(default_factory=dict)
     nlp_report: dict[str, Any] = field(default_factory=dict)
     spellcheck_applied: bool = False
+    gibberish_tokens: list[str] = field(default_factory=list)
     improved: bool = False
     iterations: int = 0
 
@@ -64,6 +67,7 @@ class MediaQualityResult:
             "seo_score": self.seo_score,
             "nlp_report": self.nlp_report,
             "spellcheck_applied": self.spellcheck_applied,
+            "gibberish_tokens": self.gibberish_tokens,
             "improved": self.improved,
             "iterations": self.iterations,
         }
@@ -123,32 +127,29 @@ async def apply_media_quality(
     effective_model = model or (CF_TEXT_FREE if provider_name == "cloudflare" else None)
 
     # ── Step 1: Spellcheck all text fields ─────────────────────────────
+    # Each field is an independent LanguageTool call — run them
+    # concurrently; a single field failure must not block the rest.
     if run_spellcheck:
+        async def _fix(value: str) -> str:
+            fixed = await correct_text(value)
+            return fixed if fixed and fixed.strip() else value
+
         try:
-            if result.prompt:
-                fixed = await correct_text(result.prompt)
-                if fixed and fixed.strip():
-                    result.prompt = fixed
-                    result.spellcheck_applied = True
-            if result.negative_prompt:
-                fixed = await correct_text(result.negative_prompt)
-                if fixed and fixed.strip():
-                    result.negative_prompt = fixed
-                    result.spellcheck_applied = True
-            if result.caption:
-                fixed = await correct_text(result.caption)
-                if fixed and fixed.strip():
-                    result.caption = fixed
-                    result.spellcheck_applied = True
-            if result.alt_text:
-                fixed = await correct_text(result.alt_text)
-                if fixed and fixed.strip():
-                    result.alt_text = fixed
-                    result.spellcheck_applied = True
-            if result.tags:
-                fixed_tags = await correct_tags(result.tags)
-                if fixed_tags:
-                    result.tags = fixed_tags
+            tasks = {
+                "prompt": _fix(result.prompt) if result.prompt else None,
+                "negative_prompt": _fix(result.negative_prompt) if result.negative_prompt else None,
+                "caption": _fix(result.caption) if result.caption else None,
+                "alt_text": _fix(result.alt_text) if result.alt_text else None,
+                "tags": correct_tags(result.tags) if result.tags else None,
+            }
+            keys = [k for k, t in tasks.items() if t is not None]
+            outcomes = await asyncio.gather(*(tasks[k] for k in keys), return_exceptions=True)
+            for key, outcome in zip(keys, outcomes, strict=True):
+                if isinstance(outcome, BaseException):
+                    logger.warning("Media spellcheck on %s failed (non-fatal): %s", key, outcome)
+                    continue
+                if outcome:
+                    setattr(result, key, outcome)
                     result.spellcheck_applied = True
         except Exception as exc:
             logger.warning("Media spellcheck failed (non-fatal): %s", exc)
@@ -184,7 +185,26 @@ async def apply_media_quality(
             except Exception as exc:
                 logger.warning("Media NLP check on %s failed (non-fatal): %s", field_name, exc)
 
-    # ── Step 3: SEO scoring on caption (if substantial enough) ─────────
+    # ── Step 3: Gibberish check on user-facing text ────────────────────
+    # Corrected captions/alt text can still hide mangled tokens (dropped
+    # spaces, stray capitals) LanguageTool could not fix — flag them in the
+    # report so the asset is audited before its text ships anywhere.
+    gibberish_checks = [
+        detect_gibberish(t) for t in (result.caption, result.alt_text) if t and t.strip()
+    ]
+    if gibberish_checks:
+        try:
+            flagged = await asyncio.gather(*gibberish_checks, return_exceptions=True)
+            for tokens in flagged:
+                if isinstance(tokens, BaseException):
+                    continue
+                for tok in tokens:
+                    if tok not in result.gibberish_tokens:
+                        result.gibberish_tokens.append(tok)
+        except Exception as exc:
+            logger.warning("Media gibberish check failed (non-fatal): %s", exc)
+
+    # ── Step 4: SEO scoring on caption (if substantial enough) ─────────
     if run_seo and result.caption and len(result.caption) >= _MIN_SEO_CAPTION_LEN:
         try:
             full_text = result.caption

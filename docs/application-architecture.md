@@ -285,9 +285,12 @@ app/api/
 ├── whatsapp.py      (36) — WhatsApp Cloud API, setup, profile, register, bot
 ├── whatsapp_flows.py (14) — WhatsApp Flows CRUD, validate, publish, send
 ├── telegram.py      (38) — Telegram bot, channel posting, group watch, chatbot
-├── newsletter.py     (1) — POST /api/v1/newsletter/cover: branded issue-cover PNG
-│                           for the cloudless.gr Build Log newsletter (X-Service-Token
-│                           == NEWSLETTER_SERVICE_TOKEN; 1200x675 PIL render)
+├── newsletter.py     (2) — POST /api/v1/newsletter/cover: branded issue-cover PNG
+│                           (1200x675 PIL render), and
+│                           POST /api/v1/newsletter/linkedin/issue: publishes a
+│                           LinkedIn newsletter issue via the personal-profile
+│                           article editor. Both require X-Service-Token ==
+│                           NEWSLETTER_SERVICE_TOKEN.
 
 Integration flow (newsletter covers): cloudless.gr's weekly cron
 (`/api/cron/newsletter-auto`, Mondays 09:00 Athens) POSTs the issue title to
@@ -295,6 +298,19 @@ this endpoint, uploads the returned PNG to R2 (`newsletter/covers/<slug>.png`,
 served at `/api/newsletter/covers/<slug>.png`) and embeds it in the email +
 article. SocialAuto owns generation; cloudless.gr owns delivery. Shared
 secret: NEWSLETTER_SERVICE_TOKEN on both sides.
+
+Integration flow (LinkedIn newsletter issues — "The Cloudless Build Log"):
+n8n workflow `linkedin-newsletter-weekly` (Monday 11:00 Athens) resolves or
+generates the weekly issue → `POST /newsletter/linkedin/issue` → the route
+renders the branded cover, fills SEO title/description, and publishes.
+`browser` picks the driver — `auto` (default): LinkedIn sidecar `:9225`
+first, then `linkedin_newsletter_bridge` on the shared `browser-novnc`
+bridge when the sidecar errors/times out (its Chromium profile loops on
+LinkedIn's anti-bot; the bridge's persistent profile hydrates the editor).
+`schedule_iso` schedules in LinkedIn's own publish dialog (real calendar
+cell + timepicker selection — display-only inputs don't commit); `dry_run`
+stops at the publish dialog. Personal-profile-bound = documented exception
+to the business-accounts rule.
 ├── workflows.py     (18) — templates, generate, deploy, executions
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store
@@ -414,13 +430,20 @@ app/services/
 │   └── content_renderer.py   — Content rendering
 │
 ├── ── Quality ───────────────────────────────────────────────
-│   ├── media_quality.py      — Quality pipeline
+│   ├── media_quality.py      — Media text quality pipeline (concurrent
+│   │                           per-field spellcheck + NLP + SEO +
+│   │                           gibberish flag on caption/alt_text)
 │   ├── media_spellcheck.py    — Media spellcheck
-│   ├── spellcheck.py          — LanguageTool spellcheck
+│   ├── spellcheck.py          — LanguageTool spellcheck; auto_correct_detailed
+│   │                           is category-aware (error rules apply, style
+│   │                           classes skip) + overlap-safe + fix report
 │   ├── plain_english.py       — NLP plain-English check/fix
 │   ├── content_scorer.py      — Content SEO scoring
 │   ├── seo.py                 — SEO optimization
-│   ├── quality_pipeline.py    — Full quality pipeline
+│   ├── quality_pipeline.py    — Full quality pipeline +
+│   │                           apply_publish_gate (PUBLISH_MIN_SEO_SCORE=80
+│   │                           go-live bar; verdict cached per content hash;
+│   │                           fails open on infra errors)
 │   ├── duplicate_detector.py  — Duplicate content detection
 │   └── url_safety.py          — URL safety check
 │
@@ -967,12 +990,15 @@ User creates post         Frontend             Backend              Worker
      │                       │                   │     at scheduled   │
      │                       │                   │     time           │
      │                       │                   │───────────────────▶│
-     │                       │                   │                    │ 8. Publish
+     │                       │                   │                    │ 8. Quality gate:
+     │                       │                   │                    │    spellcheck→NLP→
+     │                       │                   │                    │    SEO≥80 else skip
+     │                       │                   │                    │ 9. Publish
      │                       │                   │                    │    to platform
      │                       │                   │                    │    (OAuth API)
-     │                       │                   │  9. Update status  │
+     │                       │                   │ 10. Update status  │
      │                       │                   │◀───────────────────│
-     │                       │                   │ 10. Sync analytics │
+     │                       │                   │ 11. Sync analytics │
      │                       │                   │    (next cycle)    │
 ```
 

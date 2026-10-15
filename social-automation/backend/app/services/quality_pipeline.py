@@ -257,6 +257,104 @@ Return JSON with: content (string), hashtags (array of strings without #)"""
     return result
 
 
+# ── Publish-time gate ──────────────────────────────────────────────────────
+
+@dataclass
+class PublishGateResult:
+    """Outcome of the go-live quality gate.
+
+    ``passed=False`` means the content stayed below the minimum composite
+    score after the improvement loop (or still carries gibberish tokens) —
+    the caller must not publish it. ``content`` always holds the best
+    available version (spellchecked/NLP-fixed/improved where possible).
+    """
+
+    passed: bool
+    content: str
+    overall: int = 0
+    min_score: int = 0
+    gibberish_tokens: list[str] = field(default_factory=list)
+    improved: bool = False
+    reason: str = ""
+    report: dict[str, Any] = field(default_factory=dict)
+
+
+async def apply_publish_gate(
+    *,
+    content: str,
+    platform: str,
+    hashtags: list[str] | None = None,
+    db: AsyncSession | None = None,
+    team_id: Any | None = None,
+    provider_name: str = "dmr",
+    min_score: int | None = None,
+    max_iterations: int | None = None,
+) -> PublishGateResult:
+    """Enforce the go-live quality bar on post content.
+
+    Runs the full pipeline (spellcheck → NLP fix → SEO score + auto-improve)
+    then requires ``overall >= PUBLISH_MIN_SEO_SCORE`` with zero residual
+    gibberish tokens. Advisory on infrastructure failure — if scoring itself
+    fails the gate passes with the best-effort content rather than blocking
+    a publish over an internal error. ``PUBLISH_MIN_SEO_SCORE=0`` disables.
+    """
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    threshold = settings.PUBLISH_MIN_SEO_SCORE if min_score is None else min_score
+    iterations = (
+        settings.PUBLISH_QUALITY_MAX_ITERATIONS if max_iterations is None else max_iterations
+    )
+
+    if threshold <= 0 or not content or not content.strip():
+        return PublishGateResult(
+            passed=True,
+            content=content,
+            min_score=threshold,
+            reason="disabled" if threshold <= 0 else "no_content",
+        )
+
+    try:
+        quality = await apply_quality_pipeline(
+            content=content,
+            platform=platform,
+            hashtags=hashtags or [],
+            db=db,
+            team_id=team_id,
+            provider_name=provider_name,
+            target_score=threshold,
+            max_iterations=iterations,
+        )
+    except Exception as exc:  # never block a publish on internal failure
+        logger.warning("Publish gate failed open (non-fatal): %s", exc)
+        return PublishGateResult(
+            passed=True,
+            content=content,
+            min_score=threshold,
+            reason=f"gate_error:{exc!r}"[:200],
+        )
+
+    overall = int((quality.seo_score or {}).get("overall") or 0)
+    passed = overall >= threshold and not quality.gibberish_tokens
+    reason = ""
+    if not passed:
+        parts = [f"seo_score {overall}/100 below minimum {threshold}"]
+        if quality.gibberish_tokens:
+            parts.append("mangled tokens: " + ", ".join(quality.gibberish_tokens[:5]))
+        reason = "; ".join(parts)
+
+    return PublishGateResult(
+        passed=passed,
+        content=quality.content,
+        overall=overall,
+        min_score=threshold,
+        gibberish_tokens=quality.gibberish_tokens,
+        improved=quality.improved or quality.spellcheck_applied,
+        reason=reason,
+        report=quality.to_dict(),
+    )
+
+
 # ── Decorator for automatic quality enforcement ────────────────────────────
 
 def with_quality(

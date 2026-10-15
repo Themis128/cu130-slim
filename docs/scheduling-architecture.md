@@ -46,7 +46,36 @@ Creating a post with `scheduled_at` sets `PostStatus.SCHEDULED` and one
   alert like any other error.
 - On failure → `attempts += 1`; at `max_attempts` the row is `FAILED`, target
   `failed` with `error_message`, failure notification sent.
-- Post text passes `auto_correct` (LanguageTool) right before publish.
+
+### Go-live quality gate (`_enforce_publish_quality`)
+
+Before `publish_to_platform`, every text post must clear
+`PUBLISH_MIN_SEO_SCORE` (default **80**, `0` disables). The gate
+(`apply_publish_gate` in `services/quality_pipeline.py`) runs the full
+pipeline — LanguageTool spellcheck → NLP plain-English fix → composite
+SEO score → LLM auto-improve loop (≤ `PUBLISH_QUALITY_MAX_ITERATIONS`,
+default 2) — then requires `overall >= threshold` **and** zero residual
+`detect_gibberish` tokens:
+
+- **Pass** → the corrected/improved copy replaces `post.content_text` and
+  publishes. Verdict cached in `platform_specific.quality_gate` keyed by
+  the content SHA-1 — a post queued for N accounts pays the
+  LanguageTool/DMR cost once; edited copy (new hash) re-checks.
+- **Fail** → queue row `COMPLETED`, target `skipped` with
+  `error_message="Quality gate: seo_score N/100 below minimum 80 …"`,
+  Slack alert. Not retried — the fix is editing the copy.
+- **Fail-open** — a pipeline/infra error never blocks a publish;
+  media-only posts (no `content_text`) bypass the gate entirely.
+
+The spellcheck inside the pipeline is **category-aware**
+(`auto_correct_detailed`): real-error rules (TYPOS/GRAMMAR/CASING/
+PUNCTUATION/…) auto-apply while voice-rewriting classes
+(`LANGUAGETOOL_SKIP_CATEGORIES` — STYLE, TYPOGRAPHY, REDUNDANCY,
+WIKIPEDIA) and `AI_HB_*` hints are skipped so intended copy isn't
+rewritten. Overlapping rules apply once — no text corruption.
+`publish_to_platform` then re-runs `auto_correct` on the *assembled*
+text (content + hashtags + link + platform override) plus its own
+gibberish/duplicate/media guards as the last line of defence.
 
 ### Idempotency & dedupe (migration `c8d9e0f1a2b3`)
 
@@ -133,3 +162,27 @@ still fire per platform.
    LinkedIn carousels.
 4. TikTok only: `publish_mode=DIRECT_POST` + valid `privacy_level` for fully
    automatic publish; otherwise it schedules into the app inbox.
+
+## LinkedIn newsletter issues
+
+A separate scheduling surface — newsletters are bound to the author's
+personal LinkedIn profile and have no API, so they don't flow through
+`publish_queue`:
+
+- **Cadence** — n8n workflow `linkedin-newsletter-weekly` (Monday 11:00
+  Athens cron + manual webhook) calls
+  `POST /api/v1/newsletter/linkedin/issue` (`X-Service-Token` auth).
+- **Drivers** — `browser` field picks the transport: `auto` (default) tries
+  the LinkedIn sidecar `:9225` then falls back to the shared
+  `browser-novnc` bridge on `LinkedInSidecarError`/httpx timeouts;
+  `sidecar`/`bridge` force one path. Both drive the real article editor.
+- **`schedule_iso`** — schedules inside LinkedIn's own publish dialog
+  ("Schedule post" → calendar cell + timepicker — the text inputs are
+  display-only, selection needs real pointer events). Times are the
+  account's local zone (Europe/Athens). Scheduled issues land under
+  LinkedIn Manage → Scheduled; verified with Issue #3 (Wed Oct 21, 2026
+  10:00 EEST).
+- **dry_run** — fills title/body/cover/SEO/announcement and stops at the
+  publish dialog, for validating the flow without shipping.
+- See `.devin/skills/linkedin-newsletter-ops/SKILL.md` for the full runbook
+  (selectors, failure signatures, encoding pitfalls).

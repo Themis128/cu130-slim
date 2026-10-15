@@ -122,15 +122,46 @@ def _mask(text: str, spans: list[tuple[int, int]]) -> str:
     return "".join(chars)
 
 
-async def auto_correct(text: str, language: str = "en-US") -> str:
-    """Return spell/grammar-corrected text after proper pre-processing.
+def _skip_categories() -> frozenset[str]:
+    """Rule categories that must never be auto-applied — they rewrite
+    intended voice (STYLE shortens punchy copy, TYPOGRAPHY injects curly
+    quotes/em-dashes Sofia scoring penalizes, REDUNDANCY strips deliberate
+    emphasis)."""
+    return frozenset(
+        c.strip()
+        for c in get_settings().LANGUAGETOOL_SKIP_CATEGORIES.split(",")
+        if c.strip()
+    )
 
-    Falls back to the normalized original silently on any LanguageTool error.
+
+def _skip_rule_prefixes() -> tuple[str, ...]:
+    return tuple(
+        p.strip()
+        for p in get_settings().LANGUAGETOOL_SKIP_RULE_PREFIXES.split(",")
+        if p.strip()
+    )
+
+
+def _match_skippable(match: dict, skip_cats: frozenset[str], skip_prefixes: tuple[str, ...]) -> bool:
+    """True when the rule is a style hint rather than a real error."""
+    rule = match.get("rule") or {}
+    if (rule.get("category") or {}).get("id") in skip_cats:
+        return True
+    rule_id = rule.get("id") or ""
+    return any(rule_id.startswith(p) for p in skip_prefixes)
+
+
+async def auto_correct_detailed(text: str, language: str = "en-US") -> tuple[str, list[dict]]:
+    """Like :func:`auto_correct` but returns the applied fixes as well.
+
+    Returns ``(corrected_text, applied)`` where ``applied`` is a list of
+    ``{rule_id, category, message, replacement, offset, length}`` dicts —
+    callers can persist/log *what* changed, and audits can distinguish a
+    real misspelling fix from a refused style suggestion.
     """
     if not text or not text.strip():
-        return text
+        return text, []
 
-    # Pre-process before sending so LanguageTool offsets are stable.
     normalized = _normalize(text)
     protected = _protected_spans(normalized)
     masked = _mask(normalized, protected) if protected else normalized
@@ -149,31 +180,64 @@ async def auto_correct(text: str, language: str = "en-US") -> str:
         matches = resp.json().get("matches", [])
     except Exception as exc:
         logger.warning("LanguageTool auto-correct unavailable: %s", exc)
-        return normalized  # return at least the normalized form
+        return normalized, []  # return at least the normalized form
 
     if not matches:
-        return normalized
+        return normalized, []
 
-    # Apply replacements from end → start so earlier offsets stay valid.
-    # Masked text has identical length, so offsets map 1:1 onto `normalized`.
-    matches.sort(key=lambda m: m.get("offset", 0), reverse=True)
-    corrected = normalized
-    applied = 0
-    for m in matches:
+    skip_cats = _skip_categories()
+    skip_prefixes = _skip_rule_prefixes()
+
+    # Drop non-error rules, then apply end → start so earlier offsets stay
+    # valid. Masked text has identical length, so offsets map 1:1 onto
+    # `normalized`. LT can return two rules covering the same span — the
+    # match processed first (highest offset, since we walk backwards) wins;
+    # applying both would corrupt the text.
+    eligible = [m for m in matches if not _match_skippable(m, skip_cats, skip_prefixes)]
+    accepted: list[dict] = []
+    accepted_spans: list[tuple[int, int]] = []
+    for m in sorted(eligible, key=lambda m: m.get("offset", 0), reverse=True):
         replacements = m.get("replacements", [])
         if not replacements:
             continue
         offset = m.get("offset", 0)
         length = m.get("length", 0)
+        if any(offset < e and offset + length > s for s, e in accepted_spans):
+            continue  # overlaps a match already claimed — applying both corrupts text
         if any(offset < e and offset + length > s for s, e in protected):
             continue  # match touches a protected span — never apply
-        best = replacements[0]["value"]
-        corrected = corrected[:offset] + best + corrected[offset + length:]
-        applied += 1
+        rule = m.get("rule") or {}
+        accepted.append(
+            {
+                "rule_id": rule.get("id", ""),
+                "category": (rule.get("category") or {}).get("id", ""),
+                "message": m.get("message", "")[:200],
+                "replacement": replacements[0]["value"],
+                "offset": offset,
+                "length": length,
+            }
+        )
+        accepted_spans.append((offset, offset + length))
 
-    if applied:
-        logger.info("Auto-corrected %d issue(s) in %d-char text", applied, len(text))
+    corrected = normalized
+    for m in accepted:
+        corrected = corrected[: m["offset"]] + m["replacement"] + corrected[m["offset"] + m["length"]:]
 
+    if accepted:
+        logger.info(
+            "Auto-corrected %d issue(s) in %d-char text (%d rule(s) skipped as style hints)",
+            len(accepted), len(text), len(matches) - len(accepted),
+        )
+
+    return corrected, accepted
+
+
+async def auto_correct(text: str, language: str = "en-US") -> str:
+    """Return spell/grammar-corrected text after proper pre-processing.
+
+    Falls back to the normalized original silently on any LanguageTool error.
+    """
+    corrected, _applied = await auto_correct_detailed(text, language=language)
     return corrected
 
 

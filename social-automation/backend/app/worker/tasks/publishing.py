@@ -25,12 +25,12 @@ from app.services.publishing import (
     _resolve_ig_user_token,
     publish_to_platform,
 )
+from app.services.quality_pipeline import PublishGateResult, apply_publish_gate
 from app.services.slack_notifications import (
     post_alert_to_slack,
     post_publishing_to_slack,
     publish_failure_buttons,
 )
-from app.services.spellcheck import auto_correct
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
@@ -307,6 +307,54 @@ def _content_preview(post: Post, limit: int = 140) -> str:
     # `<@U…>`, or link syntax must not ping users or reformat as links.
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     return text[: limit - 1] + "…" if len(text) > limit else text
+
+
+async def _enforce_publish_quality(post: Post, account: SocialAccount, db: AsyncSession) -> PublishGateResult | None:
+    """Run the go-live quality gate once per post+content version.
+
+    The post must reach ``PUBLISH_MIN_SEO_SCORE`` after spellcheck → NLP fix
+    → SEO auto-improvement, with zero residual gibberish tokens. The result
+    is cached in ``post.platform_specific["quality_gate"]`` keyed by the
+    SHA-1 of the final content — a post queued for several accounts pays
+    the LanguageTool/DMR cost once, and edited copy (new hash) re-checks.
+    Mutates ``post.content_text`` to the corrected version on success.
+    Returns ``None`` when the gate is disabled or there is no text to check.
+    """
+    text = getattr(post, "content_text", None) or ""
+    if not text.strip():
+        return None
+    digest = hashlib.sha1(text.encode()).hexdigest()
+    ps = dict(post.platform_specific or {})
+    cached = ps.get("quality_gate") or {}
+    if cached.get("content_hash") == digest and "passed" in cached:
+        return PublishGateResult(
+            passed=bool(cached.get("passed")),
+            content=text,
+            overall=int(cached.get("overall") or 0),
+            min_score=int(cached.get("min_score") or 0),
+            reason=str(cached.get("reason") or "cached"),
+        )
+
+    gate = await apply_publish_gate(
+        content=text,
+        platform=account.platform,
+        hashtags=list(getattr(post, "hashtags", None) or []),
+        db=db,
+        team_id=getattr(post, "team_id", None),
+    )
+    if gate.content and gate.content != text:
+        post.content_text = gate.content
+        digest = hashlib.sha1(gate.content.encode()).hexdigest()
+    ps["quality_gate"] = {
+        "content_hash": digest,
+        "passed": gate.passed,
+        "overall": gate.overall,
+        "min_score": gate.min_score,
+        "reason": gate.reason,
+        "checked_at": datetime.now(UTC).isoformat(),
+    }
+    _set_platform_specific(post, ps)
+    return gate
 
 
 async def _post_publish_summary_to_slack(
@@ -593,8 +641,26 @@ async def _process_publish_queue_async() -> None:
                         await db.commit()
                         continue
 
-                if post.content_text:
-                    post.content_text = await auto_correct(post.content_text)
+                # Go-live quality gate: content must reach the minimum
+                # composite SEO/NLP score (PUBLISH_MIN_SEO_SCORE) after
+                # spellcheck + NLP fix + auto-improvement, with zero
+                # residual gibberish. A miss skips the target — no burned
+                # retries — and alerts for manual fix + requeue.
+                gate = await _enforce_publish_quality(post, account, db)
+                if gate is not None and not gate.passed:
+                    item.status = QueueStatus.COMPLETED
+                    if target:
+                        target.status = "skipped"
+                        target.error_message = f"Quality gate: {gate.reason}"[:1000]
+                    await db.flush()
+                    await _rollup_post_status(post, db)
+                    await db.commit()
+                    await post_alert_to_slack(
+                        f":warning: *Quality gate blocked a publish* — "
+                        f"{account.platform} target of post `{post.id}` scored "
+                        f"{gate.overall}/100 (min {gate.min_score}). {gate.reason}"
+                    )
+                    continue
 
                 pub = await publish_to_platform(account, post, db)
 

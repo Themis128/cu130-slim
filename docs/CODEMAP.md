@@ -108,7 +108,8 @@ services/          platform clients + infra — facebook_api, instagram_api
                    (InstagramAPIClient + InstagramWebDMClient), threads_api,
                    tiktok_api, twitter_api, linkedin_api, messenger_api, bluesky_api,
                    whatsapp_api, telegram_api, viber_api, browser_bridge
-                   (BrowserBridgeClient), browser_orchestrator, *_sidecar clients,
+                   (BrowserBridgeClient), linkedin_newsletter_bridge (newsletter
+                   publish fallback), browser_orchestrator, *_sidecar clients,
                    dmr (DMR client), inference (provider routing), media_*,
                    db_router (D1→Postgres dual-write), d1/kv/vectorize/chroma/minio
                    clients, content_*, brand_*, lead_capture, *_chatbot
@@ -241,13 +242,39 @@ strategy brief (21:00 EEST) runs this way; `send_email*` accepts
 - DB: D1 → Postgres · Cache: KV → Redis · Vector: Vectorize → Chroma
 - Storage: R2 → MinIO → disk · Text inference: DMR → Workers AI · Images: local Diffusers → Workers AI
 
-## Newsletter cover endpoint (added 2026-10-11, #566)
+## Newsletter endpoints (cover #566; issue publish #620+)
 
 `POST /api/v1/newsletter/cover` — service-token authed (`NEWSLETTER_SERVICE_TOKEN`,
 `X-Service-Token` header), renders a branded PNG cover and uploads it to R2.
 Consumed by the cloudless.gr weekly-newsletter cronjob (`--max-time 240` for
 the render).cloudless.gr side: `src/lib/newsletter-cover.ts` +
 `/api/newsletter/covers/[slug]`.
+
+`POST /api/v1/newsletter/linkedin/issue` — same auth; publishes "The Cloudless
+Build Log" (personal-profile newsletter — LinkedIn binds newsletters to the
+author, documented exception to the business-accounts rule). `browser` picks
+the driver: `auto` = LinkedIn sidecar `:9225` → `linkedin_newsletter_bridge`
+on shared `browser-novnc` :9223 when the sidecar errors/times out (its profile
+hydrates the editor where the sidecar loops on anti-bot). `schedule_iso`
+drives LinkedIn's own Schedule-post picker (real calendar-cell + timepicker
+pointer clicks — text inputs are display-only); `dry_run` stops at the publish
+dialog. Bridge upload takes `file_base64` (no docker cp needed). Weekly cadence
+via n8n `linkedin-newsletter-weekly` (Mon 11:00 Athens). Runbook:
+`.devin/skills/linkedin-newsletter-ops/`.
+
+## Publish quality gate (added 2026-10-15)
+
+Every text post must score **≥80** composite SEO/NLP (`PUBLISH_MIN_SEO_SCORE`,
+0 disables) before `publish_to_platform` — `_enforce_publish_quality` in
+`worker/tasks/publishing.py` runs `apply_publish_gate` (spellcheck → NLP fix →
+SEO score → LLM improve loop, ≤ `PUBLISH_QUALITY_MAX_ITERATIONS`). Below the
+bar or residual gibberish → target `skipped` + Slack alert, no burned retries.
+Verdict cached in `platform_specific.quality_gate` per content SHA-1 (multi-
+target posts check once; edited copy re-checks). Fails open on infra errors.
+Spellcheck is category-aware (`auto_correct_detailed`): error rules apply,
+STYLE/TYPOGRAPHY/REDUNDANCY/`AI_HB_*` skipped (`LANGUAGETOOL_SKIP_CATEGORIES`).
+Media text fields (`apply_media_quality`) correct concurrently + flag gibberish
+on caption/alt_text.
 
 ## Beat schedule highlights
 

@@ -361,3 +361,100 @@ async def test_with_quality_setattr_meta_fields(monkeypatch):
     assert out.seo_score == {"overall": 90}
     assert out.nlp_report == {"r": 2}
     assert out.quality["improved"] is True
+
+
+# ── apply_publish_gate ───────────────────────────────────────────────────────
+
+
+def _gate_patches(monkeypatch, overall=95, gibberish=None, content="fixed copy"):
+    """Stub the pipeline's external boundary (LT + DMR) for gate tests."""
+    monkeypatch.setattr(
+        qp,
+        "apply_quality_pipeline",
+        AsyncMock(
+            return_value=qp.QualityResult(
+                content=content,
+                hashtags=[],
+                seo_score={"overall": overall},
+                gibberish_tokens=gibberish or [],
+                improved=True,
+            )
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_gate_disabled_when_min_score_zero(monkeypatch):
+    _gate_patches(monkeypatch)
+    result = await qp.apply_publish_gate(content="anything", platform="linkedin", min_score=0)
+    assert result.passed is True
+    assert result.reason == "disabled"
+    qp.apply_quality_pipeline.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_gate_passes_empty_content(monkeypatch):
+    _gate_patches(monkeypatch)
+    result = await qp.apply_publish_gate(content="  ", platform="linkedin", min_score=80)
+    assert result.passed is True
+    assert result.reason == "no_content"
+    qp.apply_quality_pipeline.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_gate_passes_at_or_above_min_score(monkeypatch):
+    _gate_patches(monkeypatch, overall=80)
+    result = await qp.apply_publish_gate(
+        content="raw", platform="linkedin", min_score=80
+    )
+    assert result.passed is True
+    assert result.overall == 80
+    assert result.content == "fixed copy"  # improved copy is what ships
+
+
+@pytest.mark.asyncio
+async def test_gate_blocks_below_min_score(monkeypatch):
+    _gate_patches(monkeypatch, overall=62)
+    result = await qp.apply_publish_gate(
+        content="raw", platform="linkedin", min_score=80
+    )
+    assert result.passed is False
+    assert "62/100" in result.reason
+    assert "80" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_gate_blocks_on_residual_gibberish(monkeypatch):
+    """Score can be fine yet gibberish remains — still must not publish."""
+    _gate_patches(monkeypatch, overall=95, gibberish=["GGr", "clientsget"])
+    result = await qp.apply_publish_gate(
+        content="raw", platform="linkedin", min_score=80
+    )
+    assert result.passed is False
+    assert "GGr" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_gate_fails_open_on_pipeline_error(monkeypatch):
+    """An internal gate failure must not wedge the queue — fail open with
+    the original content rather than blocking a publish on our bug."""
+    monkeypatch.setattr(
+        qp,
+        "apply_quality_pipeline",
+        AsyncMock(side_effect=RuntimeError("inference down")),
+    )
+    result = await qp.apply_publish_gate(
+        content="raw", platform="linkedin", min_score=80
+    )
+    assert result.passed is True
+    assert result.content == "raw"
+    assert result.reason.startswith("gate_error:")
+
+
+@pytest.mark.asyncio
+async def test_gate_uses_settings_threshold_by_default(monkeypatch):
+    _gate_patches(monkeypatch, overall=85)
+    # Default PUBLISH_MIN_SEO_SCORE is 80 — 85 passes without explicit min.
+    result = await qp.apply_publish_gate(content="raw", platform="linkedin")
+    assert result.passed is True
+    assert result.min_score == 80
