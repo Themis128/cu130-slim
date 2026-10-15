@@ -30,6 +30,8 @@ import {
   Send,
   FileBarChart,
   Activity,
+  ExternalLink,
+  type LucideIcon,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/Avatar'
@@ -37,7 +39,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Separator } from '@/components/ui/Separator'
 import { useAuth } from '@/hooks/useAuth'
 
-const navigation = [
+const navigation: { name: string; href: string; icon: LucideIcon; external?: boolean }[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { name: 'Posts', href: '/content', icon: FileText },
   { name: 'LinkedIn', href: '/content/linkedin', icon: Linkedin },
@@ -59,6 +61,7 @@ const navigation = [
   { name: 'Ops Console', href: '/ops', icon: Activity },
   { name: 'Analytics', href: '/analytics', icon: BarChart3 },
   { name: 'Reports', href: '/reports', icon: FileBarChart },
+  { name: 'Intranet', href: 'https://cloud.cloudless.gr/apps/intravox/', icon: ExternalLink, external: true },
   { name: 'Settings', href: '/settings', icon: Settings },
 ]
 
@@ -95,11 +98,12 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto" aria-label="Main navigation" data-tour="nav">
         {navigation.map((item) => {
-          const isActive = pathname === item.href || (pathname && pathname.startsWith(item.href + '/'))
+          const isActive = !item.external && (pathname === item.href || (pathname && pathname.startsWith(item.href + '/')))
           return (
             <Link
               key={item.name}
               href={item.href}
+              {...(item.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 isActive
