@@ -48,7 +48,8 @@ Always draw from `/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia/` (extract with
 DAY 1 (creator type), DAY 2 (2-platform rule), DAY 3 (own your lane),
 DAY 4 (5-second profile test), DAY 5 (bio that sells), `2 week/`,
 `3 week/` (DAY 11 hooks, DAY 12 post blueprint, DAY 13 content-that-leads +
-one-script-four-formats), `Linkedin/`.
+one-script-four-formats, DAY 14 show-don't-tell storytelling),
+`Linkedin/`.
 
 Core frameworks: niche formula "We help [WHO] who [PROBLEM] so they can [RESULT]";
 "Clarity attracts. Vagueness gets ignored"; plain audience-first language.

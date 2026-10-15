@@ -308,6 +308,36 @@ Apply/inspect live: `creator_type.py day13` (show) /
 `creator_type.py day13 apply` (writes `content_that_leads` +
 `day13_formats` + `day13_prompts`).
 
+### DAY 14 — Show Don't Tell (adopted)
+
+Source: `3 week/Day14/` — claims are forgotten, stories are believed.
+Never claim expertise ("10 years experience", "hundreds of clients");
+prove it through a specific moment, mistake, or result. Stored as
+`voice_signature.show_dont_tell` (upgraded from the FOUNDATIONS
+one-liner), `.day14_approaches`, `.day14_prompts`.
+
+**Three storytelling approaches** (`day14_approaches`) — pick one per post:
+
+| Approach | Structure | Use when |
+|---|---|---|
+| **The Moment** | where you were → what happened → what changed → what it means for them | a session/work/life moment taught something real |
+| **The Mistake** | what you believed → when it didn't work → what you changed → what you know now | we got it wrong before right — honesty > perfection |
+| **The Result** | where they started → the real problem → what shifted → where they are now | a client/user got a result — show the journey |
+
+**Four mistakes that kill a story**: too vague (name who/what/when),
+no specific trigger (name the exact moment/conversation/number),
+making it about you (spotlight stays on the client/reader),
+skipping the struggle (the doubt and wrong turn are where connection lives).
+
+**Sofia's two AI prompts** (`day14_prompts`): `write_story` turns a
+moment/mistake/result into the structured post; `make_specific` is the
+draft reviewer — adds one concrete detail, deepens the struggle, strips
+self-promotion, hardens the ending. Doubles as a QA gate.
+
+Apply/inspect live: `creator_type.py day14` (show) /
+`creator_type.py day14 apply` (writes `show_dont_tell` +
+`day14_approaches` + `day14_prompts`).
+
 ### VEC 2.0 — where the challenge actually lives
 
 The Visibility Era Challenge 2.0 runs on **Skool + Telegram**, not on the

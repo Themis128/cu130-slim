@@ -16,6 +16,7 @@ Usage:
     creator_type.py platforms               # DAY 2 platform tiers (live)
     creator_type.py blueprint [apply]       # DAY 12 post blueprint (live)
     creator_type.py day13 [apply]           # DAY 13 leading content (live)
+    creator_type.py day14 [apply]           # DAY 14 show-don't-tell (live)
     creator_type.py verify [platform]       # generate a sample post
 """
 
@@ -249,6 +250,87 @@ DAY13_PROMPTS = {
         "somewhere different from where they started, and is the CTA a "
         "clear next step? Tell me what is working and what to fix. Be "
         "direct."
+    ),
+}
+
+# ---------------------------------------------------------------------------
+# DAY 14 — Show Don't Tell (3 week/Day14/)
+#
+# Claims are forgotten; stories are believed. Written into
+# voice_signature.show_dont_tell (upgraded from the FOUNDATIONS one-liner),
+# .day14_approaches, .day14_prompts.
+# ---------------------------------------------------------------------------
+
+DAY14_SHOW = (
+    "DAY 14 — Show Don't Tell. Claims are forgotten; stories are "
+    "believed. Never claim expertise ('10 years experience', 'hundreds "
+    "of clients', 'passionate about what I do') — prove it through a "
+    "specific moment, mistake, or result. Telling is self-declared and "
+    "means nothing; showing is specific, believable, real. If a "
+    "sentence could come from any competitor, replace it with a moment "
+    "only we could describe. Pick one of the three approaches in "
+    "day14_approaches and write the story. Four mistakes that kill a "
+    "story: TOO VAGUE (name who, what, when — specific details make it "
+    "believable), NO SPECIFIC TRIGGER (name the exact moment, "
+    "conversation, or number that caused the shift), MAKING IT ABOUT "
+    "YOU (the spotlight stays on the client/reader — the moment it "
+    "moves to how brilliant we are, we lose them), SKIPPING THE "
+    "STRUGGLE (the doubt, the wrong turn, the almost-gave-up is where "
+    "the connection lives — never jump problem-to-result)."
+)
+
+# The three storytelling approaches — pick one per post.
+DAY14_APPROACHES = {
+    "moment": (
+        "One specific moment that changed something. Structure: 1) "
+        "start exactly where you were, 2) what happened / what you "
+        "noticed, 3) what changed because of it, 4) what it means for "
+        "the reader. Use when something happened in a session, in the "
+        "work, or in life that taught something real. Opener shape: "
+        "'I was halfway through [the work] when [the surprising thing "
+        "someone said or did].'"
+    ),
+    "mistake": (
+        "What went wrong and what was learned. Structure: 1) what you "
+        "believed or did before, 2) what happened when it didn't work, "
+        "3) what you changed, 4) what you know now. Use when we got it "
+        "wrong before we got it right — honesty builds more trust than "
+        "perfection. Opener shape: 'For the first [timeframe] I "
+        "[did the wrong thing]. I thought [the wrong belief] was the "
+        "answer.'"
+    ),
+    "result": (
+        "What happened for someone we worked with. Structure: 1) "
+        "where they started, specifically, 2) what the real problem "
+        "was, 3) what shifted for them, 4) where they are now. Use "
+        "when a client or user got a result — show the journey, not "
+        "just the outcome. Opener shape: '[They] came to us after "
+        "[failing the same thing N times]. They didn't need a new "
+        "[plan] — they needed to understand why they kept stopping "
+        "at the same point.'"
+    ),
+}
+
+# Sofia's two ready-made AI prompts — a story generator and a
+# specificity reviewer (doubles as a QA gate for story posts).
+DAY14_PROMPTS = {
+    "write_story": (
+        "I want to write a story post. Here is what happened: "
+        "[DESCRIBE THE MOMENT, MISTAKE, OR RESULT IN YOUR OWN WORDS — "
+        "EVEN JUST BULLET POINTS]. Write this as a "
+        "[MOMENT / MISTAKE / RESULT] story. Structure: start with the "
+        "specific situation, show what happened or what changed, end "
+        "with what it means for the reader. Keep it short, honest, "
+        "and conversational. Sound like a real person, not a brand."
+    ),
+    "make_specific": (
+        "Here is my story post: [DRAFT]. Make it more specific by: "
+        "1) adding one concrete detail (a number, a timeframe, a "
+        "specific moment), 2) making the struggle feel more real "
+        "(what exactly was happening?), 3) removing any claim that "
+        "sounds like self-promotion, 4) making the ending land harder "
+        "(what does it actually mean for the reader?). Keep my voice "
+        "— don't make it sound polished or corporate."
     ),
 }
 
@@ -522,6 +604,27 @@ def cmd_day13(apply: bool = False) -> None:
     print("\nApplied content_that_leads + day13_formats + day13_prompts.")
 
 
+def cmd_day14(apply: bool = False) -> None:
+    sig = _api("GET", "/brand/voice").get("voice_signature", {}) or {}
+    live = sig.get("show_dont_tell", "")
+    print("voice_signature.show_dont_tell:")
+    print(" ", (live if isinstance(live, str) else json.dumps(live))[:300])
+    print("\nvoice_signature.day14_approaches keys:",
+          ", ".join((sig.get("day14_approaches") or {}).keys()) or "(not set)")
+    if not apply:
+        print("\nrun 'creator_type.py day14 apply' to write DAY 14 "
+              "(show_dont_tell + day14_approaches + day14_prompts)")
+        return
+    merged = {
+        **sig,
+        "show_dont_tell": DAY14_SHOW,
+        "day14_approaches": DAY14_APPROACHES,
+        "day14_prompts": DAY14_PROMPTS,
+    }
+    _api("PUT", "/brand/voice", {"voice_signature": merged})
+    print("\nApplied show_dont_tell + day14_approaches + day14_prompts.")
+
+
 def cmd_verify(platform: str = "linkedin") -> None:
     res = _api("POST", "/ai/generate-content", {
         "prompt": "Why small teams waste money on servers they don't need",
@@ -551,6 +654,8 @@ def main() -> None:
         cmd_foundations(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "day13":
         cmd_day13(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
+    elif cmd == "day14":
+        cmd_day14(apply=len(sys.argv) > 2 and sys.argv[2] == "apply")
     elif cmd == "verify":
         cmd_verify(sys.argv[2] if len(sys.argv) > 2 else "linkedin")
     else:
