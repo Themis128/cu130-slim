@@ -348,3 +348,55 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
 - Page API works for scripting: `POST /apps/intravox/api/pages`
   `{id,title,language,parentPath?}` → 201; `GET /api/pages/tree?language=en`.
   The `/api/v1/pages` collection route 404s — use `/api/pages`.
+
+### IntraVox integration + app expansion (live 2026-10-15, PR #636)
+
+- **SocialAuto digest → IntraVox**: n8n `socialauto-daily-slack-digest` now
+  creates `en/news/updates/socialauto-digest-YYYY-MM-DD` pages (heading+text
+  widgets, real `reports[].markdown`). Two pitfalls burned in:
+  - n8n `httpRequest` 4.2 **ignores `contentType:'json'`** — needs
+    `specifyBody:'json'` + `jsonBody`, else body ships empty (IntraVox 400s
+    "Missing required fields").
+  - `httpBasicAuth` credentials on nodes **never reach the wire** in
+    production runs (guest 404/login page). Working pattern: compute
+    `Basic base64(user:appPw)` in a Code node from `$env.NEXTCLOUD_USERNAME` /
+    `$env.NEXTCLOUD_APP_PASSWORD` (passed into the n8n service via compose)
+    and send an explicit `Authorization` header.
+- **IntraVox API quirks**: widget `type` strings are hyphenated
+  (`file-story`, `news`) — unknown types are **silently stripped** on PUT.
+  News-widget `sourcePath` is relative to the language root (`news`, not
+  `en/news`). Verify via `GET /api/news?sourcePath=news`.
+- **Homepage news widget** surfaces `en/news` items (incl. digests).
+- **Kakkava library**: 32 PDFs mirrored from
+  `/mnt/c/.../OneDrive/Kakkava Sofia/` to
+  `IntraVox/media/Visibility Era/` (WebDAV PUT); `file-story` widget on the
+  Visibility Era & Social page reads it.
+- **Uptime**: Prometheus `Probe` CRs `selfhosted-intravox` +
+  `tunnel-cloud` (blackbox-exporter, label `release: kube-prom`) — verified
+  `probe_success=1`. Kuma push monitors exist but need UI auth (no admin
+  creds stored) — the Probe path needs none.
+- **New apps (NC 34)**: `approval` 3.3.2 (IntraVox publication gate wired:
+  tags Pending/Approved/Rejected ids 1/2/3, rule 1 — Editors request,
+  Admins approve, `unapprove_when_modified=1`), `files_automatedtagging`,
+  `guests` (whitelist incl. `intravox`), `external` (top-nav links:
+  Intranet/SocialAuto/n8n/Grafana/EspoCRM), `impersonate`, `news` (3 feeds
+  in "Content Research"), `metavox`.
+  **Incompatible with NC 34**: `files_downloadactivity`,
+  `ransomware_protection` — don't retry.
+- **Approval tables** (pgsql `nextcloud` db on nextcloud-db):
+  `oc_approval_rules` (tag ids), `oc_approval_rule_requesters|_approvers`
+  (`entity_type` 0=user 1=group 2=circle).
+
+### Bottleneck: Apache segfault storm (2026-10-15)
+
+- During `spreed` app update + a 32-PDF upload/preview scan, **every Apache
+  child segfaulted (signal 11)** — all PHP routes 502'd through the tunnel
+  while `/status.php` + intravox `/api/health` (lightweight) still 200'd.
+  `docker ps` kept reporting **healthy** — the Docker healthcheck doesn't
+  catch a wedged Apache (localhost curl returned 000).
+- Symptom signature: guest-page 404/502 HTML for API calls that authed fine
+  minutes earlier; access log stops mid-request; `AH00052: child pid X
+  exit signal Segmentation fault` repeating.
+- Recovery: `docker restart nextcloud` (children don't self-recover once
+  the parent exhausts). Root trigger = concurrent app-archive extraction +
+  preview generation on ARM/8GB — keep heavy uploads batched and off-peak.
