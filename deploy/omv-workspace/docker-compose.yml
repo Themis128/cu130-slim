@@ -122,6 +122,30 @@ services:
           mode: 0o755
     entrypoint: /cron.sh
     dns: [1.1.1.1, 8.8.8.8]
+    extra_hosts:
+      - "mail.cloudless.gr:192.168.1.130"
+
+  # Dedicated TaskProcessing (AI) worker — clears the admin-panel warning
+  # "Task Processing worker does not seem to be running" and processes
+  # AI tasks (Assistant/DMR) immediately instead of on the 5-min cron tick.
+  nextcloud-worker:
+    image: nextcloud:34-apache
+    container_name: nextcloud-worker
+    restart: unless-stopped
+    depends_on:
+      - nextcloud
+    tmpfs:
+      - /var/cache/fontconfig
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
+    user: www-data
+    entrypoint: php
+    command: ["-f", "/var/www/html/occ", "taskprocessing:worker"]
+    dns: [1.1.1.1, 8.8.8.8]
+    extra_hosts:
+      - "mail.cloudless.gr:192.168.1.130"
 
   collabora:
     image: collabora/code:26.04.4.2.1
@@ -142,7 +166,7 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
 
   talk-hpb:
-    image: nextcloud/aio-talk:20260929_105435
+    image: nextcloud/aio-talk:20261014_095932
     container_name: nextcloud-talk-hpb
     restart: unless-stopped
     init: true
