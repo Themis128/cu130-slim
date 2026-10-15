@@ -8,6 +8,24 @@ set -u
 
 cd "$(git rev-parse --show-toplevel)" || exit 0
 
+# Guard: `main`/`master` are PR-only on GitHub — a commit made while HEAD is
+# on the default branch is transparently redirected to a timestamped local
+# branch; the commit itself proceeds normally.
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+case "$branch" in
+  main|master)
+    new="local/${branch}-$(date +%Y%m%d-%H%M%S)"
+    if ! git checkout -b "$new" >/dev/null 2>&1; then
+      echo "[pre-commit] could not create fallback branch '$new' — refusing to commit on '$branch'" >&2
+      exit 1
+    fi
+    cat >&2 <<MSG
+[pre-commit] '$branch' is protected (PR-only) — committing on '$new' instead.
+[pre-commit] next: git push -u origin $new && gh pr create
+MSG
+    ;;
+esac
+
 staged=$(git diff --cached --name-only --diff-filter=ACM | grep '^social-automation/backend/.*\.py$' || true)
 [ -z "$staged" ] && exit 0
 
