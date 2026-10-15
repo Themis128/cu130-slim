@@ -1745,6 +1745,43 @@ services:
     restart: unless-stopped
     <<: *public-dns
 
+  # Exposes the DMR OpenAI-compatible API on the LAN for hosts that cannot
+  # see host.docker.internal (omv Nextcloud Assistant → integration_openai
+  # points here). Plain TCP forwarder to host.docker.internal:12435 —
+  # LAN-only by topology (no auth; anyone on 192.168.1.0/24 can reach it).
+  dmr-lan-proxy:
+    image: node:24
+    container_name: dmr-lan-proxy
+    command:
+      - node
+      - -e
+      - |
+        const net = require('net');
+        net.createServer((s) => {
+          s.on('error', () => {});
+          const d = net.connect(12435, 'host.docker.internal');
+          d.on('error', () => s.destroy());
+          s.pipe(d).pipe(s);
+        }).listen(12436, '0.0.0.0', () => console.log('dmr-lan-proxy up'));
+    ports:
+      - "12436:12436"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('net').connect(12436,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 64m
+    memswap_limit: 128m
+    restart: unless-stopped
+    <<: *public-dns
+
   # Jupyter scratchpad for ad-hoc analytics against social-postgres.
   # Localhost-only (SSH tunnel / Tailscale) — token auth from .env.
   # Never expose this port publicly: it is remote code execution.

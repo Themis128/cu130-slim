@@ -300,3 +300,28 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
   cloudless.gr/contact as the "no-account video call" option. Talk HPB +
   STUN verified working; restrictive-NAT clients may need TURN (CGNAT
   limitation documented in omv-nextcloud-ops).
+
+### Nextcloud Assistant + DMR AI backend (live 2026-10-15)
+
+- **`assistant` 3.5.0** + **`integration_openai` 4.5.2** installed; Assistant
+  header menu enabled (`assistant assistant_enabled=1`).
+- Backend is the **WSL-host DMR** via **`dmr-lan-proxy`** (compose service,
+  `node:24` TCP forwarder): omv reaches it at
+  `http://192.168.1.23:12436/engines/llama.cpp/v1`. `host.docker.internal` is
+  invisible from LAN under WSL2 — the proxy is the bridge. LAN-only, no auth.
+- Appconfig (`occ config:app:set integration_openai <k> --value=<v>`):
+  `url` → the proxy URL · `service_name` → `DMR local — cu130` ·
+  `api_key` → `dmr-local` (dummy; DMR ignores auth but the app wants non-empty)
+  · `chat_endpoint_enabled=1` · `llm_provider_enabled=1` ·
+  `analyze_image_provider_enabled=1` (qwen3-vl selectable per task) ·
+  `request_timeout=600` · `max_tokens=4096` ·
+  `default_completion_model_id=huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M`
+- **Model choice pitfall**: `ai/qwen3:8b-q4_K_M` is a reasoning model —
+  burns tokens in `reasoning_content`, and a cold load + slow CPU generation
+  exceeded the 240s default timeout (task fails `cURL 28, 0 bytes`). The
+  4B **Instruct**-2507 model is the right default; keep timeout at 600s.
+- **Test a task end-to-end**: `POST /ocs/v2.php/taskprocessing/schedule`
+  JSON `{"type":"core:text2text","appId":"assistant","input":{"input":"…"}}`
+  → poll `GET …/task/<id>`. Scheduled tasks run via nextcloud-cron (~5 min);
+  force with `php -f /var/www/html/cron.php` (SynchronousBackgroundJob ids
+  rotate — don't `background-job:execute` them).
