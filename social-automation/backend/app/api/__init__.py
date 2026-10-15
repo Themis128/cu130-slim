@@ -28,6 +28,7 @@ from app.api import (
     publishing,
     reports,
     secrets,
+    service_feed,
     support,
     teams,
     telegram,
@@ -82,4 +83,5 @@ api_router.include_router(twitter_tiktok.router, tags=["twitter-tiktok-dm"])
 api_router.include_router(usage.router, prefix="/usage", tags=["usage"])
 api_router.include_router(digital_cards.router, prefix="/digital-cards", tags=["digital-cards"])
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
+api_router.include_router(service_feed.router, prefix="/service-feed", tags=["service-feed"])
 api_router.include_router(web_analytics.router, prefix="/analytics/web", tags=["web-analytics"])

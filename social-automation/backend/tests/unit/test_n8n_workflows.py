@@ -371,7 +371,7 @@ class TestCarouselPipeline:
     def test_topic_rotation_fallback(self, carousel):
         path, wf = carousel
         for node in wf.get("nodes", []):
-            if node["name"] == "Resolve Cloudless Config":
+            if node["name"] == "Pick Fresh Topic":
                 code = node["parameters"].get("jsCode", "")
                 assert "topics" in code, "must have topic rotation array"
                 assert "dayBucket" in code or "rotated" in code, (

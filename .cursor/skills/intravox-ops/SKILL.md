@@ -46,6 +46,46 @@ Commands: `health`, `pages-list --lang en`, `page-get <uid>`,
   restarts on wedge, ntfy `nextcloud-ops`. `status.php` alone does NOT
   detect the wedge (cheap enough to succeed between child crashes).
 
+## SocialAuto live feeds (Phase 2a — live 2026-10-15)
+
+- SocialAuto exposes read-only feeds at `GET {base}/api/v1/service-feed/`
+  (`activity`, `digest`, `status`, + discovery `GET /service-feed`).
+  Auth: `X-Service-Token: $INTRANET_FEED_TOKEN` (social-api env).
+  Response `{items:[{title,url,excerpt,date,author,image}]}` matches the
+  IntraVox custom-connection `responseMapping` 1:1.
+- Connections stored in appconfig `intravox feed_connections` — tokens are
+  **ICrypto-encrypted server-side**, so create them via
+  `POST /api/settings/feed-connections {connections:[...]}` (admin), never
+  `occ config:app:set`. Fields: `type:'custom'`, `baseUrl`,
+  `customEndpoint`, `authMethod:'apikey'`, `apiKeyHeader:'X-Service-Token'`,
+  `token` (plaintext on POST — service encrypts), `responseMapping`.
+- Saved connections: `socialauto-activity`, `socialauto-digest`,
+  `socialauto-status` → baseUrl `https://social.cloudless.gr`.
+- Feed widget config on a page: `type:'feed'`,
+  `sourceType:'connection'` (frontend value — NOT 'custom'),
+  `connectionId`, `limit`, `layout:'list'|'card'|'sidebar'`,
+  `showDate/showExcerpt/showImage`.
+- Verify a connection end-to-end:
+  `GET /api/feed/external?sourceType=custom&connectionId=<id>&limit=3`.
+- Live widgets: Operations & Infrastructure page (3 feed widgets +
+  Dashboards links), Client Work page (`socialauto-leads` connection →
+  `/api/v1/service-feed/leads` — names/sources only, never raw emails).
+- `links` widget stores its list in **`items`** (`{title, text, url,
+  icon, target}`, widget `columns`) — NOT `links`; a wrong key is
+  silently dropped, same as unknown widget types.
+
+## Guest client shares (Phase 3 enabler)
+
+- `guests` app installed; whitelist includes `intravox` — client-facing
+  limited accounts can view shared intranet pages without full accounts.
+- Flow: share the page's GroupFolder subtree (or the IntraVox public
+  share) → invite the client email via the guests app → client sees only
+  that share. Bookings for client calls: `appointments` app (2.8.6,
+  NC34-compatible) installed — configure a weekly template + public page
+  in Calendar → Appointments; writes into the calendar via CalDAV.
+- Grafana has no IntraVox iframe widget — dashboards are linked via the
+  `links` widget on Ops page + the `external` top-nav entry.
+
 ## Permissions model
 
 GroupFolder `IntraVox` (id 1). Groups: `IntraVox Admins` (full),

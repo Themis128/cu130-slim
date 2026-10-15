@@ -220,6 +220,29 @@ async def upload_media(team_id: TeamId,
     if mime and mime.startswith("image/"):
         await _score_and_store_quality(asset, content, db)
 
+    # Video metadata probe: fill duration/resolution up-front so platform
+    # validators (TikTok duration caps, IG reel specs) and the library UI
+    # don't wait on the async tag task. Full frame analysis runs in the
+    # auto-tag Celery task.
+    if mime and mime.startswith("video/"):
+        try:
+            from app.services import video_ai
+
+            probe = await video_ai.probe_video(content)
+            if probe:
+                if asset.duration_seconds is None and probe.get("duration_seconds"):
+                    asset.duration_seconds = probe["duration_seconds"]
+                if asset.width is None and probe.get("width"):
+                    asset.width = probe["width"]
+                    asset.height = probe.get("height")
+                meta = dict(asset.meta_data or {})
+                meta["video"] = probe
+                asset.meta_data = meta
+                flag_modified(asset, "meta_data")
+                await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[media/upload] video probe failed for {asset.id}: {exc}")
+
     return asset
 
 @router.get("/view")

@@ -373,6 +373,11 @@ class Settings(BaseSettings):
     SLACK_PUBLISHING_WEBHOOK_URL: str = ""
     SLACK_PUBLISHING_CHANNEL_ID: str = ""  # bot-token fallback channel; default: SLACK_CHANNEL_ID
     NEWSLETTER_SERVICE_TOKEN: str = ""  # shared secret: cloudless.gr newsletter cron → cover endpoint
+    # IntraVox intranet feed widgets → GET /api/v1/service-feed/* (read-only).
+    # INTRANET_FEED_TEAM_ID pins the exposed team; empty = team with the most
+    # active connected accounts.
+    INTRANET_FEED_TOKEN: str = ""
+    INTRANET_FEED_TEAM_ID: str = ""
 
     # MinIO (internal object storage)
     MINIO_ENDPOINT: str = "minio:9000"
