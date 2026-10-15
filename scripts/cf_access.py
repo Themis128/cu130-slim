@@ -6,6 +6,7 @@ Usage:
     python3 scripts/cf_access.py probe /api/v1/health /api/v1/auth/oauth/facebook/callback
     python3 scripts/cf_access.py bypass social.cloudless.gr/api/v1/example/webhook --name my-bypass
     python3 scripts/cf_access.py review-mode on|off|status
+    python3 scripts/cf_access.py public-mode on|off|status
 
 Reads CLOUDFLARE_ACCESS_TOKEN (Access read/write) and CLOUDFLARE_ACCOUNT_ID
 from the repo-root .env. Never prints secrets.
@@ -116,6 +117,7 @@ def cmd_bypass(domain: str, name: str) -> None:
 
 MAIN_APP_ID = "ed95d3d9-2246-4d44-b15c-5c39170b00dd"  # socialauto-app
 REVIEW_POLICY = "app-review-temp-bypass"
+PUBLIC_POLICY = "public-ga-bypass"  # permanent: the product is a public SaaS
 
 
 def _get_main_app() -> dict:
@@ -151,35 +153,54 @@ def _probe_root() -> str:
         return f"{e.code}→access" if "cloudflareaccess" in loc else f"{e.code}"
 
 
-def cmd_review_mode(action: str) -> None:
+def _set_bypass_policy(action: str, policy_name: str, label: str) -> None:
     app = _get_main_app()
     policies = app.get("policies", [])
-    has_bypass = any(p.get("name") == REVIEW_POLICY for p in policies)
+    has_bypass = any(p.get("name") == policy_name for p in policies)
     if action == "status":
-        print(f"review bypass: {'ACTIVE' if has_bypass else 'off'}")
+        print(f"{label}: {'ACTIVE' if has_bypass else 'off'}")
         print(f"root probe: {_probe_root()}")
         return
     if action == "on":
         if has_bypass:
             print("already on")
         else:
+            # Prepend with precedence 1 and bump every existing policy so
+            # the bypass short-circuits evaluation (CF requires unique
+            # precedences across an app's policies).
+            bumped = [{**p, "precedence": p.get("precedence", i + 1) + 1}
+                      for i, p in enumerate(policies)]
             app["policies"] = [
-                {"name": REVIEW_POLICY, "decision": "bypass",
+                {"name": policy_name, "decision": "bypass", "precedence": 1,
                  "include": [{"everyone": {}}]},
-                *policies,
+                *bumped,
             ]
             _put_main_app(app)
-            print("review bypass enabled")
+            print(f"{label} enabled")
     elif action == "off":
         if not has_bypass:
             print("already off")
         else:
-            app["policies"] = [p for p in policies if p.get("name") != REVIEW_POLICY]
+            app["policies"] = [p for p in policies if p.get("name") != policy_name]
             _put_main_app(app)
-            print("review bypass removed")
+            print(f"{label} removed")
     else:
-        sys.exit("review-mode takes on|off|status")
+        sys.exit("takes on|off|status")
     print(f"root probe: {_probe_root()}")
+
+
+def cmd_review_mode(action: str) -> None:
+    _set_bypass_policy(action, REVIEW_POLICY, "review bypass")
+
+
+def cmd_public_mode(action: str) -> None:
+    """Permanent public bypass — SocialAuto is a public SaaS (live Polar
+    billing, public pricing/features). The app gate's admin-email allowlist
+    gated /, /register and /login, breaking the signup funnel for anyone
+    without an Access identity. App-level JWT auth protects every endpoint;
+    this removes only the redundant dev-era edge layer. `off` restores the
+    admin-only gate."""
+    _set_bypass_policy(action, PUBLIC_POLICY, "public bypass")
 
 
 if __name__ == "__main__":
@@ -202,5 +223,7 @@ if __name__ == "__main__":
         cmd_bypass(args[0], name)
     elif cmd == "review-mode":
         cmd_review_mode(args[0] if args else "status")
+    elif cmd == "public-mode":
+        cmd_public_mode(args[0] if args else "status")
     else:
         sys.exit(__doc__)

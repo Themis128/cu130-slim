@@ -44,9 +44,9 @@ const details: FeatureDetail[] = [
     icon: Share2,
     title: 'Multi-Platform Publishing',
     description:
-      'Publish to LinkedIn, Facebook, Instagram, Twitter/X, TikTok, and Threads from a single compose box. OAuth tokens are refreshed automatically by a Celery beat task.',
+      'Publish to LinkedIn, Facebook, Instagram, Twitter/X, TikTok, Threads, Messenger, and Telegram from a single compose box. OAuth tokens are refreshed automatically by a Celery beat task.',
     bullets: [
-      'Six platforms, one composer',
+      'Eight channels, one composer',
       'Automatic token refresh every hour',
       'Per-platform media adaptation',
     ],
