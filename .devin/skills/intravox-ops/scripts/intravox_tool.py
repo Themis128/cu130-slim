@@ -181,6 +181,7 @@ def cmd_nav_add_child(a):
             r = find(it.get("children") or [])
             if r:
                 return r
+        return None
     parent = find(items) if a.parent else {"children": items}
     if parent is None:
         sys.exit(f"nav id {a.parent!r} not found")
