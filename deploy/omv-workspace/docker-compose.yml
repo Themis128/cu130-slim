@@ -30,7 +30,7 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
 
   nextcloud:
-    image: nextcloud:34-apache
+    image: nextcloud:34.0.5-apache
     container_name: nextcloud
     restart: unless-stopped
     extra_hosts:
@@ -98,7 +98,7 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
 
   nextcloud-cron:
-    image: nextcloud:34-apache
+    image: nextcloud:34.0.5-apache
     container_name: nextcloud-cron
     restart: unless-stopped
     depends_on:
@@ -129,7 +129,7 @@ services:
   # "Task Processing worker does not seem to be running" and processes
   # AI tasks (Assistant/DMR) immediately instead of on the 5-min cron tick.
   nextcloud-worker:
-    image: nextcloud:34-apache
+    image: nextcloud:34.0.5-apache
     container_name: nextcloud-worker
     restart: unless-stopped
     depends_on:
@@ -211,7 +211,7 @@ services:
     dns: [1.1.1.1, 8.8.8.8]
 
   notify-push:
-    image: nextcloud:34-apache
+    image: nextcloud:34.0.5-apache
     container_name: nextcloud-notify-push
     restart: unless-stopped
     depends_on:
