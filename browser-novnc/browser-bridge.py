@@ -1026,13 +1026,29 @@ async def upload_file(req: FileUploadRequest):
     if req.file_base64:
         tmpdir = tempfile.mkdtemp(prefix="bridge-upload-")
         os.chmod(tmpdir, 0o700)
-        # Keep only a safe basename — the caller controls file_name and could
-        # otherwise escape tmpdir via path traversal.
-        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(req.file_name or "upload.bin")) or "upload.bin"
-        file_path = os.path.join(tmpdir, safe_name)
-        with open(file_path, "wb") as fh:
+        # The caller controls file_name — never let it into a filesystem path
+        # (CodeQL py/path-injection). Preserve only an allowlisted extension
+        # as a constant so platforms can MIME-sniff by suffix.
+        ext = os.path.splitext(req.file_name or "")[1].lower()
+        if ext == ".png":
+            upload_name = "upload.png"
+        elif ext in (".jpg", ".jpeg"):
+            upload_name = "upload.jpg"
+        elif ext == ".webp":
+            upload_name = "upload.webp"
+        elif ext == ".gif":
+            upload_name = "upload.gif"
+        elif ext == ".pdf":
+            upload_name = "upload.pdf"
+        elif ext == ".mp4":
+            upload_name = "upload.mp4"
+        else:
+            upload_name = "upload.bin"
+        generated = os.path.join(tmpdir, upload_name)
+        with open(generated, "wb") as fh:
             fh.write(base64.b64decode(req.file_base64))
-        os.chmod(file_path, 0o600)
+        os.chmod(generated, 0o600)
+        file_path = generated
     if not file_path:
         raise HTTPException(422, "file_path or file_base64 is required")
     try:
