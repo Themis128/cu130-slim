@@ -325,3 +325,26 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
   → poll `GET …/task/<id>`. Scheduled tasks run via nextcloud-cron (~5 min);
   force with `php -f /var/www/html/cron.php` (SynchronousBackgroundJob ids
   rotate — don't `background-job:execute` them).
+
+### IntraVox intranet (live 2026-10-15)
+
+- **`intravox` 3.1.2** installed/enabled — Nextcloud-native intranet at
+  `https://cloud.cloudless.gr/apps/intravox/` (pages are plain folders+JSON in a
+  Team folder; NC 34 + `groupfolders` 22.0.6 required — both satisfied).
+- Auto-setup does **not** run on plain page GETs — the app 500s on
+  `/api/pages/tree` until the backing Team folder exists. Manual bootstrap:
+  `occ groupfolders:create IntraVox` (folder id 1), then
+  `occ groupfolders:group 1 <group> read write delete share` — note the valid
+  permission tokens are exactly `read write delete share` (`create`/`update`
+  fail with "Unable to parse permissions input").
+- Permission groups created manually (`occ group:add`): `IntraVox Admins`
+  (read write delete share), `IntraVox Editors` (read write delete),
+  `IntraVox Users` (read); `admin` group full. Both admin users are in
+  IntraVox Admins.
+- Demo data: bundled per-language packs (`de/en/fr/nl`) — import via
+  `POST /apps/intravox/api/demo-data/import {"language":"en","mode":"overwrite"}`
+  with the app password (OCS-APIRequest header). `overwrite` **wipes existing
+  pages** in that language root; `skip_existing` preserves them.
+- Page API works for scripting: `POST /apps/intravox/api/pages`
+  `{id,title,language,parentPath?}` → 201; `GET /api/pages/tree?language=en`.
+  The `/api/v1/pages` collection route 404s — use `/api/pages`.
