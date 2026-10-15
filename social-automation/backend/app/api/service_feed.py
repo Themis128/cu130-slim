@@ -18,7 +18,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -119,9 +119,10 @@ async def _media_image_map(
 
 
 @router.get("", response_model=dict[str, Any])
-async def feed_index(request: Request) -> dict[str, Any]:
+async def feed_index(request: Request, response: Response) -> dict[str, Any]:
     """Discovery endpoint — lists the feeds this token can read."""
     _require_feed_token(request)
+    response.headers.update(_FEED_CACHE_HEADERS)
     return {
         "feeds": [
             {"path": "/service-feed/activity", "kind": "recent publish outcomes"},
@@ -144,11 +145,13 @@ async def feed_index(request: Request) -> dict[str, Any]:
 @router.get("/activity", response_model=FeedResponse)
 async def feed_activity(
     request: Request,
+    response: Response,
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ) -> FeedResponse:
     """Recent publish outcomes (published/failed targets), newest first."""
     _require_feed_token(request)
+    response.headers.update(_FEED_CACHE_HEADERS)
     team = await _feed_team(db)
     if team is None:
         return FeedResponse(
@@ -198,11 +201,13 @@ async def feed_activity(
 @router.get("/digest", response_model=FeedResponse)
 async def feed_digest(
     request: Request,
+    response: Response,
     days: int = Query(1, ge=1, le=30),
     db: AsyncSession = Depends(get_db),
 ) -> FeedResponse:
     """Today's digest reshaped as feed items (glance, top posts, issues)."""
     _require_feed_token(request)
+    response.headers.update(_FEED_CACHE_HEADERS)
     team = await _feed_team(db)
     if team is None:
         return FeedResponse(
@@ -266,10 +271,12 @@ async def feed_digest(
 @router.get("/status", response_model=FeedResponse)
 async def feed_status(
     request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> FeedResponse:
     """Operational health items — queue depth + accounts needing attention."""
     _require_feed_token(request)
+    response.headers.update(_FEED_CACHE_HEADERS)
     team = await _feed_team(db)
     stamp = datetime.now(UTC).isoformat()
     if team is None:
@@ -340,11 +347,13 @@ async def feed_status(
 @router.get("/leads", response_model=FeedResponse)
 async def feed_leads(
     request: Request,
+    response: Response,
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ) -> FeedResponse:
     """Recent inbound leads — names and sources, never raw emails."""
     _require_feed_token(request)
+    response.headers.update(_FEED_CACHE_HEADERS)
     team = await _feed_team(db)
     stamp = datetime.now(UTC).isoformat()
     if team is None:
