@@ -37,7 +37,7 @@ triggers:
 | txt2img | `@cf/black-forest-labs/flux-1-schnell` (payload: `prompt` + `steps` only; 4 steps) |
 | img2img | `@cf/runwayml/stable-diffusion-v1-5-img2img` (8 steps; draft-only if enhance fails) |
 | API (full) | `POST /api/v1/ai/run-carousel-and-publish` |
-| API (assets only) | `POST /api/v1/ai/generate-carousel-pipeline` |
+| API (assets only) | `POST /api/v1/ai/generate-carousel-pipeline` — response `media_ids` are the composed branded slides; attach them directly to an IG/FB post as a native **image carousel** (IG ≤10, 1:1 fits; FB multi-photo). LinkedIn still gets the PDF doc post. Verified IG+FB page publish 2026-10-15. |
 | Code | `app/services/carousel_pipeline.py`, `app/services/cf_models.py`, `app/services/plain_english.py`, `app/services/quality_pipeline.py`, `app/services/spellcheck.py`, `app/services/seo.py` |
 | Media `source` column | `String(20)` — keep short (e.g. `n8n-cf-pipe`) |
 

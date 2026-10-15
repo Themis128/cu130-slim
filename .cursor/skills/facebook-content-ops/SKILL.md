@@ -51,9 +51,18 @@ Read `social-content-core` first.
   Meta removed user-profile posting from Graph (v19+) — a Graph attempt only
   yields the misleading `#200` error, so the code deliberately does NOT fall
   through. Sidecar endpoints: `/post/text`, `/post/photo`, `/post/link`.
-- **Page: Graph API** with the stored page token (`_facebook_page_token`
-  dynamic-lookup fallback). Text/link via `FacebookAPIClient`; photo albums
-  via unpublished-upload flow.
+- **Page: Graph API (the developer app)** with the stored page token
+  (`_facebook_page_token` dynamic-lookup fallback). Text/link via
+  `FacebookAPIClient`; photo albums via unpublished-upload flow. **User rule
+  2026-10-15: business posts about cloudless.gr go to the `cloudless.gr` page
+  via this developer-app path — not the sidecar.** Verified live:
+  `116436681562585_122244294302100600` / `..._122244294794100600` (5-image
+  carousel posts via Graph). The page is the ONLY FB surface with a direct-API
+  path — the personal profile remains sidecar-only, and business content never
+  rides it.
+- `POST /api/v1/content/posts/{id}/cross-post` with `target_platform: "facebook"`
+  auto-prefers the business Page (account_type=page / is_business) — the
+  intended fan-out path (UUID-in-meta_data 500 fixed in #629).
 - Groups: `account_type=group` → soft-skip (Groups API removed in v19+).
 
 ## Media rules (`_PLATFORM_MEDIA_RULES.facebook`)

@@ -71,5 +71,5 @@ Media is REQUIRED (API rejects text-only). Full index: `media-pipelines`.
 | Type | Constraint | Pipeline |
 |---|---|---|
 | Image | 4:5 or 1:1, <8MB, on-topic (semantic QA) | `cloudless-carousel-pipeline` / FLUX |
-| Carousel | ≤10 images | Brand-composed set |
+| Carousel | ≤10 images | Brand-composed set — `generate-carousel-pipeline` `media_ids` attach directly as the slide set (1:1 fits; verified live 2026-10-15) |
 | Reel | MP4 9:16 | `branded-video-pipeline` / ComfyUI LTX |

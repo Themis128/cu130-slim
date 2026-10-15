@@ -84,17 +84,30 @@ Rewards 10k+100k/30d, X 500+Premium+5M imp, IG ~10k). See `monetization-ops`.
    pipeline again right before `publish_to_platform` and **skips + alerts**
    the target when the composite score stays under 80 or gibberish tokens
    survive. Verdict cached per content hash; edit copy → auto re-check.
-3. **Lead check (DAY 13)**: the post must move the reader — where they are →
+3. **UI NLP score ≥80** (`POST /api/v1/ai/nlp-check` → `sofia_nlp_score`,
+   `app/services/plain_english.py`) — a different scorer from the publish
+   composite; the user requires ≥80 before posting. Traps that silently sink
+   scores (seen live: single-paragraph DAY posts scored 69):
+   - Hook = the FIRST LINE, ≤12 words. A wall-of-text post makes the whole
+     caption the hook → −15 `weak_hook`. Always write real line breaks.
+   - `—` or `--` anywhere → −8 `em_dash`.
+   - ≥4 sentences all in one band (short ≤5 / medium 6-19 / long ≥20) →
+     −8 `flat_rhythm`. Mix punches with mediums.
+   - No digit or named person → −12 `no_specifics`.
+   - No question/CTA signal in the last ~300 chars → −10 `missing_cta`.
+   - ≥900 chars without `P.S.` → −7 `missing_ps`.
+   - AI-tell phrases → −15 `ai_tell_phrases`.
+4. **Lead check (DAY 13)**: the post must move the reader — where they are →
    one clear shift → where they go + one question CTA. If it only informs,
    rewrite. `voice_signature.day13_prompts.check_script` is the review
    prompt; format specs live in `day13_formats`.
-4. **LanguageTool `auto_correct` is category-aware**: real-error rules
+5. **LanguageTool `auto_correct` is category-aware**: real-error rules
    (TYPOS/GRAMMAR/CASING/PUNCTUATION/…) auto-apply; style classes
    (STYLE/TYPOGRAPHY/REDUNDANCY — `LANGUAGETOOL_SKIP_CATEGORIES`) are
    *skipped* so intended voice isn't rewritten. Proper nouns, hashtags,
    `urn:li:` mention markup, domains remain protected — never "corrected".
-5. Coach attribution: `#sofiakakkavacoach` hashtag only — never her name in prose.
-6. **No duplicated posts** — never the same content/story twice, including the
+6. Coach attribution: `#sofiakakkavacoach` hashtag only — never her name in prose.
+7. **No duplicated posts** — never the same content/story twice, including the
    same piece repackaged in a different format. Different cuts per platform OK.
 
 ## Media pre-flight
