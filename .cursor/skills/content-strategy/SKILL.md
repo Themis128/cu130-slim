@@ -400,24 +400,38 @@ Leaderboards / About.
 Telegram supergroup**, `t.me/c/3761067037` (chat_id `-1003761067037`),
 as forum topics:
 
-| Topic | t.me/c/3761067037/N | Purpose |
-|---|---|---|
-| main / ask | /1, /2 | general + "ask it here" Q&A |
-| Visibility HQ | /5 | command center; pinned post explains all spaces |
-| Journey Highlights | /7 | before/after screenshots (DAY-1 "before" → DAY-40 "after") |
-| Wins | /8 | wins & progress |
+Verified forum topics (Telethon `messages.GetForumTopicsRequest`,
+2026-10-15 — the enum lives under `tl.functions.messages`, not
+`channels`, on Telethon 1.45):
 
-- **Visibility Spotlight** = the topic where the daily "drop your post
-  link or screenshot" task lands (mentioned in nearly every DAY lesson,
-  never hyperlinked — exact thread_id still unmapped; candidates outside
-  the listed IDs, e.g. /3 /4 /6 /9).
-- **Visibility Hub** = the community-chat topic used for the daily
-  "COMMUNITY ACTION" step (comment on other members' links).
+| topic_id | Title | Purpose |
+|---|---|---|
+| 1 | Visibility Hub | link drops + daily COMMUNITY ACTION (comment on members' links) |
+| 2 | Q & A Lounge | questions to Sofia/coaches |
+| 5 | Visibility HQ | command center; announcements from the team |
+| 7 | Journey Highlights | before/after, progress, member post feedback |
+| 8 | Wins | wins & progress |
+
+- **"Visibility Spotlight" does not exist as a forum topic** — the
+  lessons name a drop location that never got its own thread. In
+  practice the daily "drop your post link or screenshot" task lands in
+  **Visibility Hub (topic_id 1)**: the user's own drops (LinkedIn
+  `lnkd.in` links, IG, Threads) confirmed there 2026-10-15. Read a
+  topic via `client.iter_messages(entity, reply_to=topic_id)`; send via
+  `client.send_message(entity, ..., reply_to=topic_id)`.
+- **User-session path**: `/home/tbaltzakis/tools/telegram-mcp`
+  (`telegram_session.session`, authorized Telethon user session for the
+  user's own account) — the `telegram` MCP wraps it but its stdio
+  startup (~15s Telegram handshake) exceeds the MCP client's
+  list-tools timeout; use the session directly via the project venv
+  when the listing fails. A stale process holds
+  `/tmp/telegram-mcp-locks/session-*.lock` — kill it before spawning.
 - ⚠️ `Cloudless_newbot` is **NOT a member of this group** — the bot's
   "Visibility Era 2.0" system prompt refers to a different group, and
   `getChat`/`sendChatAction` on `-1003761067037` return `chat not
-  found`. Spotlight drops therefore need the **user's personal Telegram
-  session** (Telegram Web login in the bridge: phone + login code) or a
+  found`. Drops therefore need the **user's personal Telegram
+  session** (the Telethon session above, or Telegram Web login in the
+  bridge: phone + login code) or a
   manual post. A bot-in-group workaround would require the user adding
   `Cloudless_newbot` to Sofia's group — likely not possible (member
   lists are admin-controlled).

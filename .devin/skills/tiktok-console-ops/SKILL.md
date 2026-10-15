@@ -116,6 +116,16 @@ TikTok browser sidecar (`:9224`) also runs Playwright in Docker. New helpers:
 **MEDIA_UPLOAD inbox drafts** from Content Posting API appear in the **TikTok
 mobile app inbox**, not reliably on tiktok.com web. Web Playwright can confirm
 login/session but finishing the draft usually requires the phone app.
+Verified 2026-10-15: TikTok Studio `/tiktokstudio/content` shows **Drafts 0**
+even with two live inbox uploads — there is no web surface to confirm them;
+the only confirmation path is the mobile app (Inbox → notification → post).
+Side effect: `media_dedup` counts an inbox upload as `status=published`, so an
+identical-media retry is blocked for 30d even though nothing is live yet —
+re-shipping the same slides needs different media or a dedup-window wait.
+Sidecar (`:9224`) real routes: `GET /health`, `GET|POST /session`,
+`POST /browse {url}`, `POST /evaluate {expression}`, `GET /screenshot`,
+`GET /profile`, `GET /profile/videos` — no LinkedIn-style `/debug/*` or
+`/page-text`.
 
 `TIKTOK_DEV_EMAIL` / `TIKTOK_DEV_PASSWORD` are for the **developers.tiktok.com**
 portal (and optionally tiktok.com if the same password works). If sidecar ensure
