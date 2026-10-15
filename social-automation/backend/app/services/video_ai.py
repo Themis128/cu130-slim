@@ -334,17 +334,15 @@ async def auto_tag_video_asset(asset: MediaAsset, db) -> None:
         asset.meta_data = meta
         flag_modified(asset, "meta_data")
 
-    # Caption the poster frame; merge tags across up to 2 sampled frames
-    # so a mid-clip scene change still contributes keywords.
-    caption = None
+    # Caption the quality-picked poster frame; merge tags across up to 2
+    # sampled frames so a mid-clip scene change still contributes keywords.
+    resized, mime = media_ai._resize_for_vision(poster)
+    caption = await media_ai._caption_image(media_ai._data_uri(resized, mime))
     tags: list[str] = []
     seen: set[str] = set()
     for frame in frames[:2]:
         resized, mime = media_ai._resize_for_vision(frame)
-        b64 = media_ai._data_uri(resized, mime)
-        if caption is None:
-            caption = await media_ai._caption_image(b64)
-        for t in await media_ai._tag_image(b64):
+        for t in await media_ai._tag_image(media_ai._data_uri(resized, mime)):
             if t not in seen:
                 seen.add(t)
                 tags.append(t)
