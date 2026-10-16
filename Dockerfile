@@ -3,32 +3,29 @@
 # Docker Hub, so this deterministic image builds the official ComfyUI source.
 # Uses CUDA PyTorch for NVIDIA GPU acceleration (RTX 3070 / 8GB VRAM).
 
-# Updated base image with security patches (CUDA 13.0 + Ubuntu 22.04 with latest patches)
-# cudnn-runtime (not -devel): torch wheels bundle their own CUDA/cuDNN libs;
-# nothing compiles CUDA at build time. Saves ~6GB — keeps the image buildable
-# on GitHub-hosted runners (~30GB disk).
-FROM nvcr.io/nvidia/cuda:13.0.1-cudnn-runtime-ubuntu22.04
+# ──────────────────────────────────────────────────────────────────────────
+# Stage 1 — py-builder: compile all Python deps into a self-contained venv.
+# The build toolchain (build-essential, *-dev headers) lives ONLY here —
+# it never reaches the runtime image.
+# ──────────────────────────────────────────────────────────────────────────
+FROM ubuntu:22.04 AS py-builder
 
-# System deps: git (custom nodes), ffmpeg (video nodes), libgl (PIL/numpy)
-# apt-get upgrade applies latest OS security patches for perl, openssl, ncurses, libacl, gzip, util-linux, libblkid
-# Critical vulnerabilities fixed: CVE-2024-xxxx in perl, openssl, ncurses, acl, gzip, perl-Archive-Tar
-# Remove NVIDIA Nsight Compute (1.3GB) which contains vulnerable Go binary (nic_sampler)
-# with multiple CVEs: CVE-2024-xxxx in crypto/tls, net/url, encoding/xml, html/template, net/http, mime, net/mail, net, golang.org/x/net/idna, encoding/asn1, crypto/x509
+ENV DEBIAN_FRONTEND=noninteractive
+
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv python3-dev git ffmpeg libgl1 libglib2.0-0 curl build-essential \
-        libncursesw6 \
-        libssl-dev \
-        libtinfo6 \
-        openssl \
-        perl-base \
-    && apt-get dist-upgrade -y \
-    && rm -rf /opt/nvidia/nsight-compute \
+    && apt-get install -y --no-install-recommends \
+        python3 python3-pip python3-venv python3-dev \
+        git build-essential libssl-dev ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# App code lives OUTSIDE the data mount so the mounted storage stays clean
-WORKDIR /opt/ComfyUI
-RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
+# --copies embeds the interpreter binary so the venv stays valid in the
+# runtime stage regardless of the base image's exact python3.10 point release.
+RUN python3 -m venv --copies /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# ComfyUI source — cloned in the builder only for requirements.txt; the
+# runtime stage clones its own copy under /opt/ComfyUI.
+RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /tmp/comfy
 
 # Security-pinned versions addressing Trivy findings:
 # - starlette>=0.52.2 (CVE-2024-xxxx DoS/SSRF)
@@ -56,10 +53,11 @@ RUN pip install --no-cache-dir --retries 50 --timeout 7200 \
 
 # Layer 2: ComfyUI requirements + comfy-kitchen patches
 RUN pip install --no-cache-dir --retries 10 --timeout 300 "comfy-kitchen==0.2.31" \
-    && sed -i '1i from typing import List' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
-    && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
-    && sed -i 's/is_causal: list\[bool\]/is_causal: List[bool]/g' /usr/local/lib/python3.10/dist-packages/comfy_kitchen/backends/eager/na.py \
-    && grep -v "comfy-kitchen" requirements.txt | grep -v "^torch$" | grep -v "^torchvision$" | grep -v "^torchaudio$" | pip install --no-cache-dir --retries 10 --timeout 300 -r /dev/stdin
+    && SITE=/opt/venv/lib/python3.10/site-packages \
+    && sed -i '1i from typing import List' $SITE/comfy_kitchen/backends/eager/na.py \
+    && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' $SITE/comfy_kitchen/backends/eager/na.py \
+    && sed -i 's/is_causal: list\[bool\]/is_causal: List[bool]/g' $SITE/comfy_kitchen/backends/eager/na.py \
+    && grep -v "comfy-kitchen" /tmp/comfy/requirements.txt | grep -v "^torch$" | grep -v "^torchvision$" | grep -v "^torchaudio$" | pip install --no-cache-dir --retries 10 --timeout 300 -r /dev/stdin
 
 # Layer 3: Security-pinned extras — small, changes more often than torch
 RUN pip install --no-cache-dir --retries 10 --timeout 300 \
@@ -73,9 +71,6 @@ RUN pip install --no-cache-dir --retries 10 --timeout 300 \
         "wheel>=0.46.2" \
         "jaraco.context>=6.1.0" \
         "cryptography>=43.0.0"
-
-# Patch attention.py to handle missing int8_attention_is_available in older comfy_kitchen versions
-RUN sed -i 's/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = comfy_kitchen.int8_attention_is_available()/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = getattr(comfy_kitchen, "int8_attention_is_available", lambda: False)()/' /opt/ComfyUI/comfy/ldm/modules/attention.py
 
 # soundfile is required by custom_nodes/ComfyUI-Replicate (node.py imports it)
 RUN pip install --no-cache-dir --retries 5 --timeout 60 soundfile
@@ -102,6 +97,51 @@ RUN pip install --no-cache-dir --retries 10 --timeout 300 \
         opencv-python-headless \
         imageio-ffmpeg
 
+# NOTE: triton JIT-compiles a C stub per kernel signature at RUNTIME
+# (triton/backends/nvidia/driver.py make_launcher → compile_module_from_src
+# → gcc). Cache-warming can't cover arbitrary kernels, so the runtime
+# stage keeps a minimal C toolchain (gcc + python3-dev headers) instead
+# of the full build-essential it had before.
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Stage 2 — runtime: no CUDA toolkit in the image at all.
+# The torch cu118 wheels bundle every CUDA/cuDNN/NCCL lib they need; the
+# NVIDIA driver is injected at run time by `runtime: nvidia` in compose.
+# Dropping nvcr.io/nvidia/cuda saves ~3.1GB; keeping only gcc+python3-dev
+# (not build-essential/libssl-dev — see triton note above) trims ~0.5GB.
+# ──────────────────────────────────────────────────────────────────────────
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# System deps: git (custom nodes), ffmpeg (video nodes), libgl (PIL/numpy),
+# libgomp1 (torch OpenMP runtime), ca-certificates (git clone https).
+# apt-get dist-upgrade applies latest OS security patches (perl, openssl,
+# ncurses, acl, gzip, util-linux, libblkid).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        python3 python3-venv python3-dev gcc git ffmpeg libgl1 libglib2.0-0 libgomp1 \
+        curl ca-certificates \
+        libncursesw6 \
+        libtinfo6 \
+        openssl \
+        perl-base \
+    && apt-get dist-upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python environment — copied whole from the builder stage.
+COPY --from=py-builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
+
+# App code lives OUTSIDE the data mount so the mounted storage stays clean
+WORKDIR /opt/ComfyUI
+RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
+
+# Patch attention.py to handle missing int8_attention_is_available in older comfy_kitchen versions
+RUN sed -i 's/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = comfy_kitchen.int8_attention_is_available()/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = getattr(comfy_kitchen, "int8_attention_is_available", lambda: False)()/' /opt/ComfyUI/comfy/ldm/modules/attention.py
+
 # Data-directory infrastructure:
 # compose bind-mounts ./storage onto /home/user/ComfyUI; symlinks point the
 # ComfyUI workdir at that mount so models/output/input/custom_nodes persist
@@ -115,8 +155,6 @@ RUN mkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input} \
 # with python3 so the process becomes PID 1 and receives SIGTERM correctly.
 RUN printf '#!/bin/bash\nset -e\nmkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input}\nln -sfn /home/user/ComfyUI/models /opt/ComfyUI/models\nln -sfn /home/user/ComfyUI/output /opt/ComfyUI/output\nln -sfn /home/user/ComfyUI/input /opt/ComfyUI/input\nln -sfn /home/user/ComfyUI/custom_nodes /opt/ComfyUI/custom_nodes\n\nPROFILE=${COMFYUI_PROFILE:-sdxl}\nPROFILE_FILE="/opt/ComfyUI/profiles/${PROFILE}.txt"\nPROFILE_ARGS=""\nif [ -f "$PROFILE_FILE" ]; then\n  PROFILE_ARGS=$(grep -v "^#" "$PROFILE_FILE" | tr "\\n" " ")\nfi\n\nBASE_ARGS="--listen 0.0.0.0 --port 8000 --preview-method auto"\nexec python3 main.py $BASE_ARGS $PROFILE_ARGS ${CLI_ARGS:-}\n' > /entrypoint.sh \
     && chmod +x /entrypoint.sh
-
-ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
