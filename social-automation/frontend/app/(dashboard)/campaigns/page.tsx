@@ -214,12 +214,15 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
         include_hashtags: false,
         include_emojis: false,
       })
-      const raw: string =
-        (res as { data?: { content?: string } })?.data?.content ??
-        (res as { content?: string })?.content ??
-        ''
+      const data = (res as { data?: { content?: string; subject?: string } })?.data ?? {}
+      const raw = data.content ?? ''
+      // EMAIL_SCHEMA returns a dedicated subject; tolerate an inline
+      // "SUBJECT: ..." first line if an older/model fallback produced one.
       const m = raw.match(/^\s*SUBJECT:\s*(.+?)\n+([\s\S]*)$/i)
-      if (m) {
+      if (data.subject) {
+        setSubject(data.subject.trim())
+        setBody(raw.trim())
+      } else if (m) {
         setSubject(m[1].trim())
         setBody(m[2].trim())
       } else {

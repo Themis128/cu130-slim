@@ -92,6 +92,7 @@ class GenerateContentResponse(BaseModel):
     content: str
     hashtags: list[str]
     suggested_media: str | None = None
+    subject: str | None = None  # populated for platform="email" (EMAIL_SCHEMA)
     brand_compliance: dict | None = None
     seo_score: dict | None = None
     nlp_report: dict | None = None
@@ -1677,16 +1678,21 @@ async def generate_content(
     # Email campaigns follow the Visibility Era email formula — subject is the
     # hook, one point fully explained, one CTA. See PLATFORM_GUIDES["email"].
     email_hint = (
-        "\nEmail structure (mandatory — Visibility Era email formula): first "
-        "line of 'content' is 'SUBJECT: <subject>' — the subject IS the hook "
-        "(names a situation the reader recognizes, creates a gap, never "
-        "reveals the answer, under 60 chars, no clickbait). Blank line, then "
-        "the body: one opening line that makes the reader feel seen → ONE "
-        "point fully explained (never a list of tips) → ONE CTA as a "
-        "specific question or direction, max 2 lines. Every line earns the "
-        "next one.\n"
+        "\nEmail structure (mandatory — Visibility Era email formula): the "
+        "'subject' field IS the hook — names a situation the reader "
+        "recognizes, creates a gap, never reveals the answer, under 60 chars, "
+        "no clickbait. The 'content' body: one opening line that makes the "
+        "reader feel seen → ONE point fully explained (never a list of tips) "
+        "→ ONE CTA as a specific question or direction, max 2 lines. Every "
+        "number must come from the brief — never invent statistics. Every "
+        "line earns the next one.\n"
         if request.platform == "email" and "email_formula" in signature_keys
         else ""
+    )
+    json_contract = (
+        "subject, content, suggested_media (string or null)"
+        if request.platform == "email"
+        else "content, hashtags (array), suggested_media (string or null)"
     )
     if saved_template:
         # Replace variables in the user prompt template
@@ -1706,8 +1712,7 @@ async def generate_content(
         prompt = (
             f"{saved_template.system_prompt}\n\n{user_prompt}"
             f"{structure_hint}{email_hint}{pillar_section}{web_section}"
-            "\n\nReturn JSON with: content, hashtags (array), "
-            "suggested_media (string or null)"
+            f"\n\nReturn JSON with: {json_contract}"
         )
     else:
         prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
@@ -1730,11 +1735,11 @@ HASHTAG RULES (critical for 2026 platform algorithms):
 - Never copy-paste the same hashtag block across posts — platforms penalize this as spam.
 - Respect each platform's hashtag cap (see platform guidelines above).
 
-Return JSON with: content, hashtags (array), suggested_media (string or null)"""
+Return JSON with: {json_contract}"""
 
-    from app.services.content_guides import CONTENT_SCHEMA
+    from app.services.content_guides import CONTENT_SCHEMA, EMAIL_SCHEMA
 
-    schema = CONTENT_SCHEMA
+    schema = EMAIL_SCHEMA if request.platform == "email" else CONTENT_SCHEMA
 
     team_id_for_gen = team.id if team else None
     result = await call_inference(
@@ -1795,6 +1800,7 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
         content=quality.content,
         hashtags=quality.hashtags,
         suggested_media=result.get("suggested_media"),
+        subject=result.get("subject"),
         brand_compliance=brand_compliance,
         seo_score=quality.seo_score or None,
         nlp_report=quality.nlp_report or None,

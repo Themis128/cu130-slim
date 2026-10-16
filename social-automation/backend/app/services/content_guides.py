@@ -69,14 +69,15 @@ PLATFORM_GUIDES: dict[str, str] = {
     "email": (
         "Marketing/survey email for the Cloudless email-campaigns system — the "
         "reader opted in or is a known client, so write like a person, not a "
-        "newsletter template. OUTPUT CONTRACT: the 'content' field must start "
-        "with exactly 'SUBJECT: <subject line>' on the first line, then a blank "
-        "line, then the email body. Subject: under 60 chars, plain words, no "
+        "newsletter template. OUTPUT CONTRACT: put the subject line in the "
+        "'subject' field and the email body in 'content'. Subject: under 60 "
+        "chars, plain words, no "
         "clickbait punctuation, no emoji, no 'newsletter'/'update' filler — it "
         "names what the reader gets. Body: open with a one-line hook that names "
         "a situation the reader recognizes (use {{first_name}} for the greeting "
         "if the brief wants one), one core idea fully explained with real facts "
-        "and numbers only — never invent statistics — then ONE clear CTA with a "
+        "and numbers only — every number MUST come from the brief, inventing "
+        "statistics or client stories fails the draft — then ONE clear CTA with a "
         "real URL from the brief. Scannable: short paragraphs or a short "
         "numbered list, under ~250 words. Sign off '— Themis @ Cloudless' "
         "unless told otherwise. No hashtags, no emojis in the subject, at most "
@@ -103,4 +104,16 @@ CONTENT_SCHEMA = {
         "suggested_media": {"type": ["string", "null"]},
     },
     "required": ["content", "hashtags", "suggested_media"],
+}
+
+# Email campaigns get a dedicated schema — the subject is a first-class field
+# (small models can't be trusted to keep a "SUBJECT:" line inside `content`).
+EMAIL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "subject": {"type": "string"},
+        "content": {"type": "string"},
+        "suggested_media": {"type": ["string", "null"]},
+    },
+    "required": ["subject", "content", "suggested_media"],
 }
