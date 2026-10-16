@@ -247,12 +247,22 @@ async def handle_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
                 return
         touch(docker_name)
         host, port = svc["target"].rsplit(":", 1)
-        try:
-            up_r, up_w = await asyncio.wait_for(
-                asyncio.open_connection(host, int(port)), timeout=30)
-        except (OSError, TimeoutError):
-            log.error("upstream %s unreachable after wake", name)
-            return
+        # "running" means the container started, not that the app accepts
+        # TCP — heavyweight services (comfyui loads GBs of models over
+        # several minutes) need a longer connect window. Retry until the
+        # per-service deadline instead of dropping the request.
+        upstream_deadline = time.monotonic() + float(
+            svc.get("upstream_wait_s", 30))
+        while True:
+            try:
+                up_r, up_w = await asyncio.wait_for(
+                    asyncio.open_connection(host, int(port)), timeout=10)
+                break
+            except (OSError, TimeoutError):
+                if time.monotonic() >= upstream_deadline:
+                    log.error("upstream %s unreachable after wake", name)
+                    return
+                await asyncio.sleep(2)
         # If we peeked, replay those bytes upstream.
         if first:
             up_w.write(first)

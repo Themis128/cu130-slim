@@ -20,7 +20,7 @@
     "browser-novnc-ui":         {"container": "browser-novnc",              "target": "browser-novnc:6080", "idle_min": 20, "wait_page": true},
     "browser-novnc-ui2":        {"container": "browser-novnc",              "target": "browser-novnc:6081", "idle_min": 20},
     "browser-novnc-vnc":        {"container": "browser-novnc",              "target": "browser-novnc:5900", "idle_min": 20},
-    "comfyui":                  {"container": "social-media-comfyui-gpu",   "target": "social-media-comfyui-gpu:8000", "idle_min": 30, "wait_page": true}
+    "comfyui":                  {"container": "social-media-comfyui-gpu",   "target": "social-media-comfyui-gpu:8000", "idle_min": 30, "wait_page": true, "upstream_wait_s": 420}
   },
   "listeners": {
     "9223": "browser-novnc",
