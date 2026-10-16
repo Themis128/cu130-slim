@@ -1705,7 +1705,7 @@ async def generate_content(
                 user_prompt = user_prompt.replace(placeholder, request.length)
         prompt = (
             f"{saved_template.system_prompt}\n\n{user_prompt}"
-            f"{structure_hint}{pillar_section}{web_section}"
+            f"{structure_hint}{email_hint}{pillar_section}{web_section}"
             "\n\nReturn JSON with: content, hashtags (array), "
             "suggested_media (string or null)"
         )
