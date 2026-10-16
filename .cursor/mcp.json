@@ -8,7 +8,7 @@
         "--rm",
         "--init",
         "--health-cmd",
-        "pgrep -f cli.js >/dev/null 2>&1",
+        "node -e 'process.exit(require(\"fs\").readdirSync(\"/proc\").some(d=>/^\\d+$/.test(d)&&require(\"fs\").readFileSync(\"/proc/\"+d+\"/cmdline\",\"utf8\").includes(\"cli.js\"))?0:1)'",
         "--health-interval",
         "30s",
         "--health-timeout",
