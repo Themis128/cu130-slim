@@ -281,6 +281,20 @@ async def send_campaign(
     ).scalars().all()
     if not pending:
         raise HTTPException(status_code=400, detail="No pending recipients — add an audience first")
+
+    from app.services.email_campaigns import find_duplicate_campaign
+
+    dup, score = await find_duplicate_campaign(db, c)
+    if dup is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Duplicate content: matches sent campaign '{dup.name}' "
+                f"({score:.0%} similar, sent within the last 30 days). "
+                "Every campaign must be unique."
+            ),
+        )
+
     from app.worker.celery_app import celery_app
 
     celery_app.send_task(
