@@ -412,8 +412,8 @@ class Settings(BaseSettings):
     SLACK_CHANNEL_ID: str = "C0BT263L17U"  # #socialauto
     SLACK_DIGEST_HOUR: int = 9  # Europe/Athens via Celery timezone
     # Daily strategy email (insights engine → action playbook).
-    STRATEGY_REPORT_HOUR: int = 10  # Europe/Athens via Celery timezone
-    STRATEGY_REPORT_MINUTE: int = 30  # Europe/Athens via Celery timezone
+    STRATEGY_REPORT_HOUR: int = 9  # Europe/Athens via Celery timezone
+    STRATEGY_REPORT_MINUTE: int = 0  # Europe/Athens via Celery timezone
     # Daily monetization report (program gates → strategy → auto-scheduled
     # posts) — runs before the strategy brief so actions land on the calendar.
     MONETIZATION_REPORT_HOUR: int = 8  # Europe/Athens via Celery timezone
