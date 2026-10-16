@@ -235,7 +235,12 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
         toast(data.warnings.join(' '), { icon: '⚠️', duration: 8000 })
       }
     } catch (err) {
-      toast.error(formatErrorToast('AI draft failed.', err))
+      const status = (err as { response?: { status?: number } })?.response?.status
+      toast.error(
+        status === 524 || status === 504
+          ? 'The AI model is still warming up — try again in a minute.'
+          : formatErrorToast('AI draft failed.', err),
+      )
     } finally {
       setDrafting(false)
     }
