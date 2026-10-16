@@ -1380,4 +1380,93 @@ export const opsApi = {
     api.post('/ops/daily-digest', null, { params: { async_queue: true, ...params } }),
 }
 
+// ── Email campaigns (EspoCRM-connected marketing + survey funnel) ─────────
+
+export interface EmailCampaign {
+  id: string
+  name: string
+  kind: 'marketing' | 'survey'
+  subject: string
+  status: 'draft' | 'sending' | 'sent' | 'partial'
+  survey_url: string | null
+  sent_at: string | null
+  created_at: string
+  questions?: SurveyQuestion[]
+  stats?: Record<string, number>
+  text_body?: string
+  html_body?: string | null
+}
+
+export interface SurveyQuestion {
+  id: string
+  label: string
+  type: 'text' | 'choice' | 'rating'
+  options?: string[] | null
+  required?: boolean
+  min?: number
+  max?: number
+}
+
+export interface CampaignRecipient {
+  email: string
+  name: string | null
+  status: string
+  sent_at: string | null
+  error: string | null
+}
+
+export interface SurveyResponseRow {
+  email: string | null
+  lead_id: string | null
+  answers: Record<string, unknown>
+  espocrm_noted: boolean
+  submitted_at: string
+}
+
+export interface CrmClient {
+  id: string
+  name: string
+  email: string | null
+  account?: string | null
+  title?: string | null
+  status?: string | null
+  source?: string | null
+}
+
+export const emailCampaignsApi = {
+  list: () => api.get<EmailCampaign[]>('/email-campaigns'),
+  get: (id: string) => api.get<EmailCampaign>(`/email-campaigns/${id}`),
+  create: (data: {
+    name: string
+    kind: 'marketing' | 'survey'
+    subject: string
+    text_body: string
+    html_body?: string | null
+    from_name?: string
+    reply_to?: string | null
+    survey_url?: string | null
+    questions?: SurveyQuestion[]
+  }) => api.post<EmailCampaign>('/email-campaigns', data),
+  addAudience: (
+    id: string,
+    data: {
+      emails?: { email: string; name?: string }[]
+      include_socialauto_leads?: boolean
+      lead_sources?: string[] | null
+      lead_interests?: string[] | null
+      include_espocrm?: boolean
+    },
+  ) => api.post<{ queued: number; skipped_suppressed: number; stats: Record<string, number> }>(
+    `/email-campaigns/${id}/audience`, data),
+  send: (id: string) => api.post<{ queued: boolean; pending: number }>(`/email-campaigns/${id}/send`),
+  recipients: (id: string) => api.get<CampaignRecipient[]>(`/email-campaigns/${id}/recipients`),
+  responses: (id: string) => api.get<SurveyResponseRow[]>(`/email-campaigns/${id}/responses`),
+  suppressions: () => api.get<{ email: string; reason: string; source: string; created_at: string }[]>('/email-campaigns/suppressions/list'),
+  addSuppression: (email: string, reason?: string) =>
+    api.post('/email-campaigns/suppressions/list', { email, reason }),
+  crmSummary: () => api.get<{ configured: boolean; counts: Record<string, number> }>('/email-campaigns/crm/summary'),
+  crmClients: (limit = 100) =>
+    api.get<{ contacts: CrmClient[]; leads: CrmClient[] }>('/email-campaigns/crm/clients', { params: { limit } }),
+}
+
 export default api
