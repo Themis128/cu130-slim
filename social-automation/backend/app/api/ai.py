@@ -2334,6 +2334,32 @@ async def _build_workflow_from_intent(intent: dict, template: PromptTemplate | N
     }
 
 
+async def _recent_published_captions(
+    db: AsyncSession, team_id: uuid.UUID, platform: str, *, limit: int = 15
+) -> list[str]:
+    """Full publish-text of the team's most recent published posts on a
+    platform — used both to steer generation away from already-told
+    stories and as the comparison set for the duplicate gate."""
+    from app.services.publishing import _build_post_text
+
+    rows = (
+        await db.execute(
+            select(Post)
+            .join(PostTarget, PostTarget.post_id == Post.id)
+            .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+            .where(
+                Post.team_id == team_id,
+                Post.status == PostStatus.PUBLISHED,
+                PostTarget.status == "published",
+                SocialAccount.platform == platform,
+            )
+            .order_by(Post.published_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [_build_post_text(p, platform) for p in rows]
+
+
 @router.post("/generate-carousel", response_model=GenerateCarouselResponse)
 async def generate_carousel(
     request: GenerateCarouselRequest, team_id: TeamId,
@@ -2348,6 +2374,21 @@ async def generate_carousel(
             # Surface similar content in prompt so AI can differentiate
             request = request.model_copy(
                 update={"topic": f"{request.topic}\n\n[Note: avoid repeating these similar carousels: {similar[:2]}]"}
+            )
+        # Steer away from stories already published on this platform —
+        # the publish worker refuses near-identical captions anyway, so
+        # generating them just burns a full FLUX render batch before the
+        # duplicate guard trips (5 skipped LinkedIn posts, 2026-10-16).
+        recent = await _recent_published_captions(db, team.id, request.platform)
+        if recent:
+            avoid = "; ".join((c or "").strip().split("\n", 1)[0][:80] for c in recent[:15] if c)
+            request = request.model_copy(
+                update={
+                    "topic": (
+                        f"{request.topic}\n\n[Do NOT retell or repackage these "
+                        f"recently published stories — pick a fresh angle: {avoid}]"
+                    )
+                }
             )
 
     platform_guides = {
