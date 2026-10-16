@@ -424,10 +424,27 @@ async def crm_clients(
 
 # ── Public unsubscribe (no auth) ──────────────────────────────────────────
 
-_UNSUB_HTML = """<!doctype html><html><body style="font-family:sans-serif;max-width:560px;margin:4em auto;text-align:center">
-<h2>{title}</h2><p>{body}</p>
+_FUNNEL_HTML = """<!doctype html><html><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} · Cloudless</title></head>
+<body style="margin:0;background:#0b1220;font-family:'Work Sans',Arial,Helvetica,sans-serif;color:#dde4f0;">
+<div style="max-width:560px;margin:0 auto;padding:48px 20px;">
+<img src="/api/v1/media/view?path=2026/09/22/1e9617f5368a4916.png" alt="Cloudless" style="height:34px;display:block;margin:0 auto 28px;"/>
+<div style="background:#111a2e;border:1px solid #1e2a45;border-radius:14px;padding:32px 28px;">
+<h2 style="margin:0 0 12px;color:#dde4f0;font-size:22px;text-align:center;">{title}</h2>
+<p style="color:#8895ac;font-size:15px;line-height:1.7;margin:0 0 20px;text-align:center;">{body}</p>
 {form}
+</div>
+<p style="color:#5f6b85;font-size:12px;margin-top:24px;text-align:center;">Cloudless · cloudless.gr</p>
+</div>
 </body></html>"""
+
+_UNSUB_HTML = _FUNNEL_HTML
+
+_BTN_STYLE = (
+    "display:block;margin:0 auto;padding:.75em 2.4em;font-size:15px;font-weight:600;"
+    "color:#0b1220;background:#22d3e6;border:0;border-radius:8px;cursor:pointer"
+)
 
 
 @router.get("/unsubscribe/{token}/confirm", response_class=HTMLResponse)
@@ -447,7 +464,7 @@ async def unsubscribe_confirm(token: str, db: AsyncSession = Depends(get_db)) ->
         )
     form = (
         f'<form method="post" action="/u/{token}">'
-        '<button type="submit" style="padding:.7em 2em;font-size:1em">Unsubscribe</button></form>'
+        f'<button type="submit" style="{_BTN_STYLE}">Unsubscribe</button></form>'
     )
     return HTMLResponse(
         _UNSUB_HTML.format(
@@ -478,30 +495,31 @@ async def unsubscribe_post(token: str, db: AsyncSession = Depends(get_db)) -> HT
 
 # ── Public survey funnel (no auth — token IS the credential) ──────────────
 
-_SURVEY_HTML = """<!doctype html><html><body style="font-family:sans-serif;max-width:640px;margin:3em auto">
-<h2>{title}</h2><p>{body}</p>
-{form}
-</body></html>"""
+_SURVEY_HTML = _FUNNEL_HTML
+
+_Q_STYLE = "width:100%;box-sizing:border-box;background:#0d1526;border:1px solid #1e2a45;border-radius:8px;color:#dde4f0;padding:10px 12px;font-size:14px;"
+_LABEL_STYLE = "display:block;color:#dde4f0;font-size:14px;font-weight:600;margin-bottom:6px;text-align:left;"
+_RADIO_STYLE = "display:block;color:#b9c4d8;font-size:14px;margin:6px 0;text-align:left;"
 
 
 def _question_input(q: dict) -> str:
     qid = q["id"]
-    label = f'<label for="{qid}"><b>{q["label"]}</b></label><br>'
+    label = f'<label for="{qid}" style="{_LABEL_STYLE}">{q["label"]}</label>'
     req = " required" if q.get("required") else ""
     if q.get("type") == "choice":
         opts = "".join(
-            f'<label><input type="radio" name="{qid}" value="{o}"{req}> {o}</label><br>'
+            f'<label style="{_RADIO_STYLE}"><input type="radio" name="{qid}" value="{o}"{req} style="accent-color:#22d3e6;margin-right:8px;"> {o}</label>'
             for o in (q.get("options") or [])
         )
         return label + opts
     if q.get("type") == "rating":
         lo, hi = int(q.get("min", 1)), int(q.get("max", 5))
         opts = "".join(
-            f'<label><input type="radio" name="{qid}" value="{n}"{req}> {n}</label>'
+            f'<label style="{_RADIO_STYLE}"><input type="radio" name="{qid}" value="{n}"{req} style="accent-color:#22d3e6;margin-right:8px;"> {n}</label>'
             for n in range(lo, hi + 1)
         )
         return label + opts
-    return label + f'<textarea name="{qid}" rows="3" style="width:100%"{req}></textarea>'
+    return label + f'<textarea name="{qid}" rows="3" style="{_Q_STYLE}"{req}></textarea>'
 
 
 @router.get("/surveys/{token}", response_class=HTMLResponse)
@@ -539,10 +557,10 @@ async def survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLRes
             _SURVEY_HTML.format(title="Unavailable", body="This survey is not active.", form=""),
             status_code=404,
         )
-    fields = "".join(f"<p>{_question_input(q)}</p>" for q in questions)
+    fields = "".join(f'<div style="margin-bottom:18px;text-align:left;">{_question_input(q)}</div>' for q in questions)
     form = (
         f'<form method="post" action="/s/{token}">'
-        f'{fields}<button type="submit" style="padding:.6em 2em">Submit</button></form>'
+        f'{fields}<button type="submit" style="{_BTN_STYLE}">Submit</button></form>'
     )
     return HTMLResponse(
         _SURVEY_HTML.format(
