@@ -93,6 +93,7 @@ class GenerateContentResponse(BaseModel):
     hashtags: list[str]
     suggested_media: str | None = None
     subject: str | None = None  # populated for platform="email" (EMAIL_SCHEMA)
+    warnings: list[str] | None = None  # e.g. numbers the model invented
     brand_compliance: dict | None = None
     seo_score: dict | None = None
     nlp_report: dict | None = None
@@ -1584,6 +1585,7 @@ async def generate_content(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    original_prompt = request.prompt  # chroma may append similar content below
     # Check chroma for similar existing content before generating
     team_result = await db.execute(
         select(Team).where(Team.id == team_id)
@@ -1796,11 +1798,31 @@ Return JSON with: {json_contract}"""
         tone=request.tone,
     )
 
+    # Fabrication guard for emails — the small local models invent statistics
+    # ("72% of similar cases") despite prompt guards. Any digit-token in the
+    # output that isn't in the brief and isn't inside a URL/merge tag is
+    # flagged so the UI can warn before the draft ships.
+    warnings: list[str] = []
+    subject_text = result.get("subject") or ""
+    if request.platform == "email":
+        brief_numbers = set(re.findall(r"\d+", original_prompt))
+        scrubbed = re.sub(
+            r"https?://\S+|\{\{[^}]+\}\}", "", subject_text + "\n" + quality.content
+        )
+        invented = sorted(set(re.findall(r"\d+", scrubbed)) - brief_numbers)
+        if invented:
+            warnings.append(
+                "AI-invented numbers not in your brief: "
+                + ", ".join(invented)
+                + " — review or remove before sending"
+            )
+
     return GenerateContentResponse(
         content=quality.content,
         hashtags=quality.hashtags,
         suggested_media=result.get("suggested_media"),
-        subject=result.get("subject"),
+        subject=subject_text or None,
+        warnings=warnings or None,
         brand_compliance=brand_compliance,
         seo_score=quality.seo_score or None,
         nlp_report=quality.nlp_report or None,

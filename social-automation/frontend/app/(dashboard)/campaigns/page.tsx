@@ -214,7 +214,8 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
         include_hashtags: false,
         include_emojis: false,
       })
-      const data = (res as { data?: { content?: string; subject?: string } })?.data ?? {}
+      const data =
+        (res as { data?: { content?: string; subject?: string; warnings?: string[] } })?.data ?? {}
       const raw = data.content ?? ''
       // EMAIL_SCHEMA returns a dedicated subject; tolerate an inline
       // "SUBJECT: ..." first line if an older/model fallback produced one.
@@ -229,6 +230,9 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
         setBody(raw.trim())
       }
       toast.success('Draft ready — review before creating')
+      if (data.warnings?.length) {
+        toast(data.warnings.join(' '), { icon: '⚠️', duration: 8000 })
+      }
     } catch (err) {
       toast.error(formatErrorToast('AI draft failed.', err))
     } finally {
