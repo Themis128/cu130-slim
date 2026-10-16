@@ -153,8 +153,23 @@ async def resolve_audience(
             )
         )
 
-    for item in explicit_emails or []:
-        _add(str(item.get("email") or ""), item.get("name"))
+    if explicit_emails:
+        # Link explicit addresses to existing leads so the funnel (survey →
+        # CRM note) still fires for hand-picked recipients.
+        wanted = {(str(i.get("email") or "").strip().lower()) for i in explicit_emails}
+        wanted.discard("")
+        lead_rows = (
+            await db.execute(
+                select(Lead.id, Lead.email).where(
+                    Lead.team_id == campaign.team_id,
+                    func.lower(Lead.email).in_(wanted),
+                )
+            )
+        ).all() if wanted else []
+        lead_by_email = {e.strip().lower(): lid for lid, e in lead_rows}
+        for item in explicit_emails:
+            e = str(item.get("email") or "").strip().lower()
+            _add(e, item.get("name"), lead_by_email.get(e))
 
     if include_socialauto_leads or lead_sources or lead_interests:
         q = select(Lead).where(Lead.team_id == campaign.team_id)
