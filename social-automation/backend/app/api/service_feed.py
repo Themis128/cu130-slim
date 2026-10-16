@@ -129,6 +129,8 @@ async def feed_index(request: Request, response: Response) -> dict[str, Any]:
             {"path": "/service-feed/digest", "kind": "daily digest items"},
             {"path": "/service-feed/status", "kind": "queue + account health"},
             {"path": "/service-feed/leads", "kind": "recent inbound leads"},
+            {"path": "/service-feed/clients", "kind": "EspoCRM client catalog (no raw emails)"},
+            {"path": "/service-feed/campaigns", "kind": "email campaign + survey funnel status"},
         ],
         "mapping_hint": {
             "items": "items",
@@ -392,3 +394,109 @@ async def feed_leads(
     return FeedResponse(
         source="SocialAuto leads", generated_at=stamp, items=items
     )
+
+
+@router.get("/clients", response_model=FeedResponse)
+async def feed_clients(
+    request: Request,
+    response: Response,
+    limit: int = Query(50, ge=1, le=200),
+) -> FeedResponse:
+    """CRM client catalog for IntraVox — EspoCRM Leads/Contacts.
+
+    PII-minimized per the feed contract: names, accounts, status, source and
+    a deep link into the CRM — never raw email addresses (staff open the CRM
+    record for contact details).
+    """
+    _require_feed_token(request)
+    response.headers.update(_FEED_CACHE_HEADERS)
+    stamp = datetime.now(UTC).isoformat()
+
+    from app.services import espocrm_client
+
+    if not espocrm_client.configured():
+        return FeedResponse(
+            source="EspoCRM clients",
+            generated_at=stamp,
+            items=[FeedItem(title="CRM not configured", excerpt="ESPOCRM_* env missing", date=stamp)],
+        )
+
+    crm_ui = (getattr(get_settings(), "ESPOCRM_UI_URL", "") or "https://espocrm.cloudless.gr").rstrip("/")
+    items: list[FeedItem] = []
+    try:
+        for c in (await espocrm_client.list_contacts())[:limit]:
+            name = " ".join(p for p in (c.get("firstName"), c.get("lastName")) if p) or c.get("accountName") or "Contact"
+            items.append(FeedItem(
+                title=f"{name} — {c.get('accountName') or 'contact'}",
+                url=f"{crm_ui}/#Contact/view/{c.get('id')}",
+                excerpt=" · ".join(p for p in (c.get("title"), "CRM Contact") if p),
+                date=stamp,
+                author="EspoCRM",
+            ))
+        for crm_lead in (await espocrm_client.list_leads_for_campaign())[:limit]:
+            name = " ".join(p for p in (crm_lead.get("firstName"), crm_lead.get("lastName")) if p) or "Lead"
+            items.append(FeedItem(
+                title=f"{name} — {crm_lead.get('status') or 'lead'}",
+                url=f"{crm_ui}/#Lead/view/{crm_lead.get('id')}",
+                excerpt=" · ".join(p for p in (f"source: {crm_lead.get('source')}" if crm_lead.get("source") else "", "CRM Lead") if p),
+                date=str(crm_lead.get("createdAt") or stamp),
+                author="EspoCRM",
+            ))
+    except Exception as exc:  # noqa: BLE001 — feed must not 500 the widget
+        items.append(FeedItem(title="CRM temporarily unreachable", excerpt=type(exc).__name__, date=stamp))
+    return FeedResponse(source="EspoCRM clients", generated_at=stamp, items=items)
+
+
+@router.get("/campaigns", response_model=FeedResponse)
+async def feed_campaigns(
+    request: Request,
+    response: Response,
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+) -> FeedResponse:
+    """Email campaign + survey funnel status — counts per status, no emails."""
+    _require_feed_token(request)
+    response.headers.update(_FEED_CACHE_HEADERS)
+    team = await _feed_team(db)
+    stamp = datetime.now(UTC).isoformat()
+    if team is None:
+        return FeedResponse(source="Email campaigns", generated_at=stamp, items=[])
+
+    from app.models.email_campaign import EmailCampaign, EmailRecipient, SurveyResponse
+
+    campaigns = (
+        await db.execute(
+            select(EmailCampaign)
+            .where(EmailCampaign.team_id == team.id)
+            .order_by(EmailCampaign.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    items: list[FeedItem] = []
+    for c in campaigns:
+        counts = dict(
+            (await db.execute(
+                select(EmailRecipient.status, func.count())
+                .where(EmailRecipient.campaign_id == c.id)
+                .group_by(EmailRecipient.status)
+            )).all()
+        )
+        responses = (
+            await db.execute(
+                select(func.count())
+                .select_from(SurveyResponse)
+                .where(SurveyResponse.campaign_id == c.id)
+            )
+        ).scalar() or 0
+        stats = " · ".join(f"{k}:{v}" for k, v in sorted((str(k), v) for k, v in counts.items()))
+        if c.kind.value == "survey":
+            stats = (stats + " · " if stats else "") + f"responses:{responses}"
+        items.append(FeedItem(
+            title=f"{c.name} — {c.status.value}",
+            excerpt=stats or "no recipients yet",
+            date=c.created_at.isoformat(),
+            author=c.kind.value,
+        ))
+    if not items:
+        items.append(FeedItem(title="No campaigns yet", excerpt="create one via /api/v1/email-campaigns", date=stamp))
+    return FeedResponse(source="Email campaigns", generated_at=stamp, items=items)
