@@ -1459,6 +1459,7 @@ export const emailCampaignsApi = {
   ) => api.post<{ queued: number; skipped_suppressed: number; stats: Record<string, number> }>(
     `/email-campaigns/${id}/audience`, data),
   send: (id: string) => api.post<{ queued: boolean; pending: number }>(`/email-campaigns/${id}/send`),
+  delete: (id: string) => api.delete<{ deleted: boolean }>(`/email-campaigns/${id}`),
   recipients: (id: string) => api.get<CampaignRecipient[]>(`/email-campaigns/${id}/recipients`),
   responses: (id: string) => api.get<SurveyResponseRow[]>(`/email-campaigns/${id}/responses`),
   suppressions: () => api.get<{ email: string; reason: string; source: string; created_at: string }[]>('/email-campaigns/suppressions/list'),

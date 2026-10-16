@@ -66,6 +66,9 @@ class _DB:
     def add(self, obj):
         self.added.append(obj)
 
+    async def delete(self, obj):
+        self.deleted = getattr(self, "deleted", []) + [obj]
+
     async def commit(self):
         self.commits += 1
 
@@ -294,3 +297,28 @@ class TestDuplicateCampaignGate:
         assert result["error"] == "duplicate_campaign"
         assert result["duplicate_of"] == str(sent_prev.id)
         assert camp.status == CampaignStatus.draft  # never flipped to sending
+
+
+class TestDeleteDraftCampaign:
+    @pytest.mark.asyncio
+    async def test_deletes_draft(self):
+        c = _campaign(status=CampaignStatus.draft)
+        db = _DB([_Res([c])])
+        out = await S.delete_draft_campaign(db, c.id, c.team_id)
+        assert out is c
+        assert db.deleted == [c]
+        assert db.commits == 1
+
+    @pytest.mark.asyncio
+    async def test_refuses_sent_campaign(self):
+        c = _campaign(status=CampaignStatus.sent)
+        db = _DB([_Res([c])])
+        with pytest.raises(ValueError, match="not draft"):
+            await S.delete_draft_campaign(db, c.id, c.team_id)
+        assert not getattr(db, "deleted", [])
+        assert db.commits == 0
+
+    @pytest.mark.asyncio
+    async def test_missing_returns_none(self):
+        db = _DB([_Res([])])
+        assert await S.delete_draft_campaign(db, uuid.uuid4(), uuid.uuid4()) is None

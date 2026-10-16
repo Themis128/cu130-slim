@@ -238,7 +238,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/email-campaigns/surveys/{token}` — GET, POST
 - `/api/v1/email-campaigns/unsubscribe/{token}/confirm` — GET
 - `/api/v1/email-campaigns/unsubscribe/{token}/post` — POST
-- `/api/v1/email-campaigns/{campaign_id}` — GET
+- `/api/v1/email-campaigns/{campaign_id}` — GET, DELETE
 - `/api/v1/email-campaigns/{campaign_id}/audience` — POST
 - `/api/v1/email-campaigns/{campaign_id}/recipients` — GET
 - `/api/v1/email-campaigns/{campaign_id}/responses` — GET
