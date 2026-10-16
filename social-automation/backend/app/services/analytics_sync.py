@@ -2773,6 +2773,48 @@ async def sync_tiktok_account(
             result.errors.append(f"tiktok scrape @{username}: {exc}")
             scraped = None
         if scraped:
+            # Self-heal inbox MEDIA_UPLOAD posts: the Content Posting
+            # publish_id (v_inbox_*/p_inbox_*) is not a Display video id,
+            # so those targets skip every sync. The scraped grid holds
+            # every live video — match by publish timestamp and write the
+            # real id back to platform_specific so future syncs resolve
+            # via the official API path instead of staying skipped.
+            claimed = set(id_to_post)
+            for t in targets:
+                if _resolve_tiktok_display_video_id(t):
+                    continue
+                pub = (
+                    t.published_at
+                    or (t.post.published_at if t.post else None)
+                    or (t.post.created_at if t.post else None)
+                )
+                if not pub:
+                    continue
+                if pub.tzinfo is None:
+                    pub = pub.replace(tzinfo=UTC)
+                best_vid, best_delta = None, None
+                for vid, m in scraped["videos"].items():
+                    if vid in claimed or vid in api_video_ids:
+                        continue
+                    ts = (m.raw or {}).get("timestamp")
+                    if not ts:
+                        continue
+                    delta = abs(
+                        datetime.fromtimestamp(int(ts), UTC) - pub
+                    )
+                    if delta <= timedelta(days=14) and (
+                        best_delta is None or delta < best_delta
+                    ):
+                        best_vid, best_delta = vid, delta
+                if best_vid:
+                    if t.post is not None:
+                        existing = dict(t.post.platform_specific or {})
+                        tt = dict(existing.get("tiktok") or {})
+                        tt["publicaly_available_post_id"] = best_vid
+                        existing["tiktok"] = tt
+                        t.post.platform_specific = existing
+                    id_to_post[best_vid] = t.post_id
+                    claimed.add(best_vid)
             for vid, metrics in scraped["videos"].items():
                 if vid in api_video_ids:
                     continue  # Display API already persisted the authoritative row
