@@ -12,6 +12,8 @@ description: >-
 
 - `POST /api/v1/email-campaigns` → `/audience` → `/send` (Celery task
   `app.worker.tasks.email_campaigns.send_campaign`).
+- `DELETE /api/v1/email-campaigns/{id}` — draft-only; sent/partial campaigns
+  return 409 (they are the audit record and hold live recipient tokens).
 - Audience sources: explicit `[{email,name}]`, SocialAuto `leads` (filter by
   `lead_sources`/`lead_interests`), or `include_espocrm` (CRM Leads+Contacts).
 - Sends are **per-recipient** messages — never BCC. Each carries
@@ -67,10 +69,12 @@ Kakkava dir.
 
 - `kind:"survey"` + `questions` on create → stored in `campaign.meta_data`.
   Question: `{id,label,type:text|choice|rating,options?,required?,min?,max?}`.
-- If `survey_url` is empty, each recipient gets a tokenized hosted URL
-  `/api/v1/email-campaigns/surveys/{token}` (GET renders form, POST accepts
-  form-encoded or JSON). Set `survey_url` to a Nextcloud Forms public link
-  to use Forms as the frontend instead.
+- If `survey_url` is empty, each recipient gets a tokenized hosted URL.
+  Customer-facing links use short paths: `/s/{token}` (survey GET+POST) and
+  `/u/{token}` (unsubscribe GET confirm + POST one-click) — root routes on
+  the API (`public_router`, schema-excluded) proxied by Next.js rewrites.
+  Legacy `/api/v1/email-campaigns/surveys|unsubscribe/...` paths still work.
+  Set `survey_url` to a Nextcloud Forms public link to use Forms instead.
 - On submit: `survey_responses` row (unique per recipient → idempotent),
   local `leads.notes` + `meta_data.last_survey_*` update, EspoCRM Note when
   `meta_data.espocrm_lead_id` is present.
