@@ -80,6 +80,11 @@ docker compose restart social-worker-publishing social-worker-media social-worke
 docker compose logs -f social-api social-worker-publishing social-worker-media social-worker-default n8n --tail=100
 docker compose up -d n8n social-api social-worker-publishing social-worker-media social-worker-default celery-beat
 
+# NEVER `compose up -d <svc>` without --no-deps for a single-service image
+# swap: the dependency chain recreates n8n + social-api too → public 502s on
+# n8n.cloudless.gr during the image pull (learned 2026-10-16). Correct:
+docker compose up -d --no-deps --force-recreate social-frontend
+
 # check all 4 Celery worker nodes
 docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping
 
