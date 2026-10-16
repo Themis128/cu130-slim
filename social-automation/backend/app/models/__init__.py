@@ -5,6 +5,15 @@ from app.models.brand import Brand, BrandAsset, BrandAssetType, BrandGuidelines,
 from app.models.brand_monitoring import BrandMention, CompetitorSnapshot  # noqa: F401
 from app.models.content import ContentBrief, MediaAsset, MediaCollection, Pillar, Post, PostComment, PostTarget, StorageBackend
 from app.models.digital_card import DigitalCard
+from app.models.email_campaign import (
+    CampaignKind,
+    CampaignStatus,
+    EmailCampaign,
+    EmailRecipient,
+    EmailSuppression,
+    RecipientStatus,
+    SurveyResponse,
+)
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.models.linkedin_ads import AdCampaignSnapshot
 from app.models.queue import PublishQueue
@@ -44,6 +53,13 @@ __all__ = [
     "LeadSource",
     "LeadInterest",
     "LeadCompanySize",
+    "EmailCampaign",
+    "EmailRecipient",
+    "EmailSuppression",
+    "CampaignKind",
+    "CampaignStatus",
+    "RecipientStatus",
+    "SurveyResponse",
     "Brand",
     "BrandVoice",
     "BrandVisual",

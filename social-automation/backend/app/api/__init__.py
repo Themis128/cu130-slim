@@ -13,6 +13,7 @@ from app.api import (
     cf_db,
     content,
     digital_cards,
+    email_campaigns,
     inbox,
     instagram,
     leads,
@@ -69,6 +70,7 @@ api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(messenger.router, prefix="/messenger", tags=["messenger"])
 api_router.include_router(inbox.router, prefix="/inbox", tags=["inbox"])
 api_router.include_router(leads.router, prefix="/leads", tags=["leads"])
+api_router.include_router(email_campaigns.router, prefix="/email-campaigns", tags=["email-campaigns"])
 api_router.include_router(whatsapp.router, prefix="/whatsapp", tags=["whatsapp"])
 api_router.include_router(whatsapp_flows.router, prefix="/whatsapp", tags=["whatsapp-flows"])
 api_router.include_router(telegram.router, prefix="/telegram", tags=["telegram"])

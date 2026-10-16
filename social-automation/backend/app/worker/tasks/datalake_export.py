@@ -250,6 +250,73 @@ async def _export_leads(db: AsyncSession) -> list[dict]:
     ]
 
 
+async def _export_email_campaigns(db: AsyncSession) -> list[dict]:
+    """Campaigns with per-status recipient counts + delivery events.
+
+    PII-minimized: recipients are exported as ``email_hash`` rows only —
+    campaign content, delivery status and funnel stage, never raw addresses.
+    """
+    from app.models.email_campaign import (
+        EmailCampaign,
+        EmailRecipient,
+        SurveyResponse,
+    )
+
+    campaigns = (
+        await db.execute(select(EmailCampaign).order_by(EmailCampaign.created_at.desc()))
+    ).scalars().all()
+    out: list[dict] = []
+    for c in campaigns:
+        recs = (
+            await db.execute(
+                select(EmailRecipient).where(EmailRecipient.campaign_id == c.id)
+            )
+        ).scalars().all()
+        responses = (
+            await db.execute(
+                select(SurveyResponse, EmailRecipient.email)
+                .outerjoin(
+                    EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id
+                )
+                .where(SurveyResponse.campaign_id == c.id)
+            )
+        ).all()
+        out.append(
+            {
+                "campaign_id": str(c.id),
+                "team_id": str(c.team_id),
+                "name": c.name,
+                "kind": str(c.kind),
+                "status": str(c.status),
+                "survey_url": bool(c.survey_url),
+                "sent_at": _iso(c.sent_at),
+                "created_at": _iso(c.created_at),
+                "recipients": [
+                    {
+                        "email_hash": _email_hash(r.email),
+                        "lead_id": str(r.lead_id) if r.lead_id else None,
+                        "status": str(r.status),
+                        "sent_at": _iso(r.sent_at),
+                    }
+                    for r in recs
+                ],
+                # Funnel submissions — answers keyed by question id; respondent
+                # identified by hash/lead only, never raw email.
+                "responses": [
+                    {
+                        "email_hash": _email_hash(email) if email else None,
+                        "lead_id": str(resp.lead_id) if resp.lead_id else None,
+                        "answers": resp.answers,
+                        "espocrm_noted": resp.espocrm_noted,
+                        "submitted_at": _iso(resp.submitted_at),
+                    }
+                    for resp, email in responses
+                ],
+            }
+        )
+    return out
+
+
 async def _export_telegram_channels(db: AsyncSession) -> list[dict]:
     """Dimension table for the Telegram channel funnel — one row per chat
     the bot administers (discovered via ``my_chat_member`` webhook events),
@@ -671,6 +738,7 @@ async def _export_async() -> dict:
             "lake/socialauto-ads/demographics.json": await _export_ad_demographics(db),
             "lake/socialauto-ops/health.json": await _export_ops_health(db),
             "lake/socialauto-monetization/gates.json": await _export_monetization(db),
+            "lake/socialauto-email-campaigns/campaigns.json": await _export_email_campaigns(db),
         }
 
         tables["lake/socialauto-edge-metrics/daily.json"] = await _export_edge_metrics()
