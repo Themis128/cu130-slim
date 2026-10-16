@@ -16,9 +16,16 @@ _STOPWORDS = frozenset(
 
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
+# Navigational boilerplate, not content: identical hashtag tails,
+# link URLs, and mention URNs are appended to every post by
+# _build_post_text — letting them tokenize into the comparison
+# inflated two different stories past the duplicate threshold
+# (raw captions 0.24 → full text 0.78).
+_BOILERPLATE_RE = re.compile(r"(?i)(#\w+|https?://\S+|www\.\S+|urn:li:\S+)")
+
 
 def normalize_text(text: str) -> str:
-    return " ".join(_WORD_RE.findall((text or "").lower()))
+    return " ".join(_WORD_RE.findall(_BOILERPLATE_RE.sub(" ", text or "").lower()))
 
 
 def content_tokens(text: str) -> list[str]:
