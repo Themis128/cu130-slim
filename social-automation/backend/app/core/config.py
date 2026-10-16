@@ -488,6 +488,13 @@ class Settings(BaseSettings):
     CLOUDLESS_LEADS_WEBHOOK_URL: str = ""
     CLOUDLESS_LEADS_WEBHOOK_SECRET: str = ""
 
+    # EspoCRM (cloudless.gr CRM, self-hosted on omv k3s) — read access for
+    # campaign audiences + the client catalog. The public URL is behind
+    # Cloudflare Access; the stack uses the cluster NodePort with a dedicated
+    # `socialauto` API user (X-Api-Key).
+    ESPOCRM_BASE_URL: str = ""   # e.g. http://192.168.1.200:30700
+    ESPOCRM_API_KEY: str = ""
+
     # Website analytics ingestion from cloudless.gr.
     # Each tenant manages its own sink credentials; these defaults apply only to the
     # shared cloudless.gr domain when no per-tenant config exists.
