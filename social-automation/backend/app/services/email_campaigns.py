@@ -97,13 +97,13 @@ async def find_duplicate_campaign(
 _MERGE_TAG_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 
 
-def unsubscribe_url(token: str, *, for_post: bool = False) -> str:
-    """Public one-click unsubscribe URL (no auth)."""
+def unsubscribe_url(token: str) -> str:
+    """Public one-click unsubscribe URL (no auth).
+
+    The frontend URL is the public edge; `/u/<token>` proxies to the API.
+    GET shows the confirm page, POST unsubscribes (RFC 8058 one-click)."""
     base = (get_settings().FRONTEND_URL or "https://social.cloudless.gr").rstrip("/")
-    # The frontend URL is the public edge; unsubscribe lives on the API under
-    # the same host (social.cloudless.gr serves /api/v1/*).
-    suffix = "post" if for_post else "confirm"
-    return f"{base}/api/v1/email-campaigns/unsubscribe/{token}/{suffix}"
+    return f"{base}/u/{token}"
 
 
 def survey_url_for(campaign: EmailCampaign, recipient: EmailRecipient) -> str:
@@ -112,7 +112,7 @@ def survey_url_for(campaign: EmailCampaign, recipient: EmailRecipient) -> str:
     if campaign.survey_url:
         return campaign.survey_url
     base = (get_settings().FRONTEND_URL or "https://social.cloudless.gr").rstrip("/")
-    return f"{base}/api/v1/email-campaigns/surveys/{recipient.token}"
+    return f"{base}/s/{recipient.token}"
 
 
 def render_template(template: str, ctx: dict[str, str]) -> str:
@@ -562,3 +562,28 @@ def campaign_payload(c: EmailCampaign) -> dict[str, Any]:
         "sent_at": c.sent_at.isoformat() if c.sent_at else None,
         "created_at": c.created_at.isoformat(),
     }
+
+
+async def delete_draft_campaign(
+    db: AsyncSession, campaign_id: uuid.UUID, team_id: uuid.UUID
+) -> EmailCampaign | None:
+    """Delete a draft campaign + its queued recipients (DB cascades).
+
+    Returns the deleted campaign, ``None`` if not found, and raises
+    ``ValueError`` when the campaign is not a draft — sent/partial campaigns
+    are kept: their recipient tokens power live unsubscribe/survey links and
+    the rows are the audit record."""
+    c = (
+        await db.execute(
+            select(EmailCampaign).where(
+                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
+            )
+        )
+    ).scalar_one_or_none()
+    if c is None:
+        return None
+    if c.status != CampaignStatus.draft:
+        raise ValueError(f"campaign status is {c.status.value}, not draft")
+    await db.delete(c)
+    await db.commit()
+    return c

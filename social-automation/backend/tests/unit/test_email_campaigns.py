@@ -77,14 +77,13 @@ class TestMergeTags:
 
     def test_unsubscribe_url_shape(self):
         url = S.unsubscribe_url("abc123")
-        assert url.endswith("/api/v1/email-campaigns/unsubscribe/abc123/confirm")
-        assert S.unsubscribe_url("abc123", for_post=True).endswith("/post")
+        assert url.endswith("/u/abc123")
 
     def test_survey_url_per_recipient_token(self):
         c = _campaign(kind=CampaignKind.survey)
         r = _recipient(token="secrettoken")
         url = S.survey_url_for(c, r)
-        assert url.endswith(f"/api/v1/email-campaigns/surveys/{r.token}")
+        assert url.endswith(f"/s/{r.token}")
 
     def test_survey_url_external_override(self):
         c = _campaign(kind=CampaignKind.survey, survey_url="https://cloud.cloudless.gr/forms/x")
