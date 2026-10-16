@@ -1692,6 +1692,8 @@ services:
         tick=0
         while true; do
           tick=$$((tick+1))
+          # Heartbeat for the container healthcheck — proves the loop is ticking.
+          touch /tmp/dmr-watchdog.beat
           # Configs are in-memory per loaded model — wiped on runner restart
           # AND on model unload (keep-alive expiry). Re-apply on StartedAt
           # change and periodically (~every 6th tick = 60s).
@@ -1754,6 +1756,19 @@ services:
     mem_limit: 96m
     memswap_limit: 192m
     restart: unless-stopped
+    # Healthy = the watch loop is ticking (heartbeat < 45s old).
+    # We deliberately do NOT probe DMR here — DMR health is the watchdog's
+    # job; this check only proves the watchdog itself is alive.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test -f /tmp/dmr-watchdog.beat &&
+          [ $$(( $$(date +%s) - $$(stat -c %Y /tmp/dmr-watchdog.beat) )) -lt 45 ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     <<: *public-dns
 
   # Exposes the DMR OpenAI-compatible API on the LAN for hosts that cannot
