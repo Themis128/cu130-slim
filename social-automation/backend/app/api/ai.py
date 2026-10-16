@@ -2616,7 +2616,7 @@ async def generate_carousel_pipeline(
             }
             for s in copy.slides
         ]
-        return await run_nlp_check_and_fix(
+        cleaned = await run_nlp_check_and_fix(
             slides=slide_dicts,
             caption=copy.suggested_caption,
             provider_name="dmr",
@@ -2626,13 +2626,14 @@ async def generate_carousel_pipeline(
             force_fix=True,
             allow_fallback=True,
         )
+        return copy, *cleaned
 
     from app.services.duplicate_detector import is_duplicate as _is_dup
 
     recent_caps = await _recent_published_captions(db, team.id, request.platform)
-    cleaned_slides = cleaned_caption = nlp_report = None
+    cleaned_slides = cleaned_caption = nlp_report = copy = None
     for attempt in range(2):
-        cleaned_slides, cleaned_caption, nlp_report = await _produce_copy(
+        copy, cleaned_slides, cleaned_caption, nlp_report = await _produce_copy(
             extra_note="" if attempt == 0 else (
                 "\n\n[STRICT: your previous caption was refused as a duplicate "
                 "of a recently published post — choose a DIFFERENT story/angle.]"
