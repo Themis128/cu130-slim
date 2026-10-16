@@ -64,7 +64,13 @@ Commands: `health`, `pages-list --lang en`, `page-get <uid>`,
   GET the connections, re-POST with the exact stripped `.env` value,
   verify via `/api/feed/external`.
 - Saved connections: `socialauto-activity`, `socialauto-digest`,
-  `socialauto-status` → baseUrl `https://social.cloudless.gr`.
+  `socialauto-status`, `socialauto-leads`, `socialauto-clients`
+  (EspoCRM client catalog — names/status/CRM links, never raw emails),
+  `socialauto-campaigns` (email campaign + survey funnel status) →
+  baseUrl `https://social.cloudless.gr`.
+- `POST /api/settings/feed-connections` **replaces the whole list** —
+  always re-POST every connection when adding one (token = plaintext
+  `INTRANET_FEED_TOKEN`, server encrypts).
 - Feed widget config on a page: `type:'feed'`,
   `sourceType:'connection'` (frontend value — NOT 'custom'),
   `connectionId`, `limit`, `layout:'list'|'card'|'sidebar'`,
