@@ -11,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
 from app.api import api_router
+from app.api.email_campaigns import public_router as email_public_router
 from app.core.config import get_settings
 from app.core.limiter import limiter
 from app.core.tracing import instrument_app
@@ -66,6 +67,10 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_PREFIX)
+
+# Customer-facing funnel shortcuts — /s/<token> (survey) and /u/<token>
+# (unsubscribe). Excluded from the OpenAPI schema: aliases, not API surface.
+app.include_router(email_public_router, include_in_schema=False)
 
 UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
 try:

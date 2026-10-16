@@ -141,6 +141,33 @@ async def get_campaign(
     return p
 
 
+@router.delete("/{campaign_id}")
+async def delete_campaign(
+    campaign_id: uuid.UUID,
+    team_id: TeamId,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Delete a draft campaign + its queued recipients (DB cascades).
+
+    Only drafts are deletable: sent/partial campaigns must stay — their
+    recipient tokens power live unsubscribe and survey links, and the rows
+    are the compliance/audit record for what was sent to whom."""
+    try:
+        c = await svc.delete_draft_campaign(db, campaign_id, team_id)
+    except ValueError:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Only draft campaigns can be deleted — sent campaigns are kept "
+                "as the audit record and hold live unsubscribe/survey tokens."
+            ),
+        ) from None
+    if c is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    return {"deleted": True}
+
+
 @router.post("/{campaign_id}/audience")
 async def add_audience(
     campaign_id: uuid.UUID,
@@ -419,7 +446,7 @@ async def unsubscribe_confirm(token: str, db: AsyncSession = Depends(get_db)) ->
             _UNSUB_HTML.format(title="Already unsubscribed", body=f"{rec.email} is already on our do-not-contact list.", form="")
         )
     form = (
-        f'<form method="post" action="/api/v1/email-campaigns/unsubscribe/{token}/post">'
+        f'<form method="post" action="/u/{token}">'
         '<button type="submit" style="padding:.7em 2em;font-size:1em">Unsubscribe</button></form>'
     )
     return HTMLResponse(
@@ -514,7 +541,7 @@ async def survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLRes
         )
     fields = "".join(f"<p>{_question_input(q)}</p>" for q in questions)
     form = (
-        f'<form method="post" action="/api/v1/email-campaigns/surveys/{token}">'
+        f'<form method="post" action="/s/{token}">'
         f'{fields}<button type="submit" style="padding:.6em 2em">Submit</button></form>'
     )
     return HTMLResponse(
@@ -560,3 +587,32 @@ async def survey_submit(
             form="",
         )
     )
+
+
+# ── Short public funnel paths ─────────────────────────────────────────────
+# Mounted at app root in main.py (schema-excluded). Customer-facing email
+# links use these instead of the raw /api/v1/* paths so recipients see
+# clean URLs: https://social.cloudless.gr/s/<token>, /u/<token>.
+public_router = APIRouter()
+
+
+@public_router.get("/s/{token}", response_class=HTMLResponse)
+async def short_survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+    return await survey_form(token, db)
+
+
+@public_router.post("/s/{token}", response_class=HTMLResponse)
+async def short_survey_submit(
+    token: str, request: Request, db: AsyncSession = Depends(get_db)
+) -> HTMLResponse:
+    return await survey_submit(token, request, db)
+
+
+@public_router.get("/u/{token}", response_class=HTMLResponse)
+async def short_unsubscribe_confirm(token: str, db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+    return await unsubscribe_confirm(token, db)
+
+
+@public_router.post("/u/{token}", response_class=HTMLResponse)
+async def short_unsubscribe_post(token: str, db: AsyncSession = Depends(get_db)) -> HTMLResponse:
+    return await unsubscribe_post(token, db)

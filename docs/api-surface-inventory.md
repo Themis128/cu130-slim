@@ -229,6 +229,21 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/digital-cards/{card_id}/send` — POST
 - `/api/v1/digital-cards/{card_id}/vcard` — GET
 
+## `email-campaigns`
+
+- `/api/v1/email-campaigns` — GET, POST
+- `/api/v1/email-campaigns/crm/clients` — GET
+- `/api/v1/email-campaigns/crm/summary` — GET
+- `/api/v1/email-campaigns/suppressions/list` — GET, POST
+- `/api/v1/email-campaigns/surveys/{token}` — GET, POST
+- `/api/v1/email-campaigns/unsubscribe/{token}/confirm` — GET
+- `/api/v1/email-campaigns/unsubscribe/{token}/post` — POST
+- `/api/v1/email-campaigns/{campaign_id}` — GET, DELETE
+- `/api/v1/email-campaigns/{campaign_id}/audience` — POST
+- `/api/v1/email-campaigns/{campaign_id}/recipients` — GET
+- `/api/v1/email-campaigns/{campaign_id}/responses` — GET
+- `/api/v1/email-campaigns/{campaign_id}/send` — POST
+
 ## `inbox`
 
 - `/api/v1/inbox/inbox` — GET
@@ -420,6 +435,8 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/service-feed` — GET
 - `/api/v1/service-feed/activity` — GET
+- `/api/v1/service-feed/campaigns` — GET
+- `/api/v1/service-feed/clients` — GET
 - `/api/v1/service-feed/digest` — GET
 - `/api/v1/service-feed/leads` — GET
 - `/api/v1/service-feed/status` — GET
