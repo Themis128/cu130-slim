@@ -1493,6 +1493,50 @@ async function handleProfileActivity(req, res) {
             posted: time ? time.innerText.trim().slice(0, 40) : null,
           });
         });
+
+      // Current component DOM (2026-10): cards are [role=listitem] inside
+      // [data-testid^="ProfileRecentActivityAll"]. No data-urn attributes —
+      // URNs live in analytics/permalink hrefs, reaction/comment counts are
+      // bare numbers inside their labelled buttons, impressions render as
+      // "N impressions" in the analytics strip.
+      if (!posts.length) {
+        document.querySelectorAll('[role="listitem"]').forEach((el) => {
+          let urn = null;
+          for (const a of el.querySelectorAll("a[href]")) {
+            const m = (a.getAttribute("href") || "").match(
+              /urn:li:(?:activity|ugcPost|share|fsd_activity):\d+/,
+            );
+            if (m) { urn = m[0]; break; }
+          }
+          if (!urn || seen.has(urn)) return;
+          seen.add(urn);
+          const btnNum = (sel) => {
+            const b = el.querySelector(sel);
+            const t = b ? (b.innerText || "").trim() : "";
+            const m = t.match(/\d[\d,]*/);
+            return m ? parseInt(m[0].replace(/,/g, ""), 10) : 0;
+          };
+          const imprM = (el.innerText || "").match(
+            /(\d[\d,]*)\s+impressions?/i,
+          );
+          const timeM = (el.innerText || "").match(
+            /\b\d+\s*(?:s|m|h|d|w|mo|y)\b/i,
+          );
+          posts.push({
+            urn,
+            text: (el.innerText || "").slice(0, 300),
+            reactions: btnNum('button[aria-label*="Reaction button state"]'),
+            comments: btnNum(
+              'button[aria-label="Comment"], [aria-label="Comment"]',
+            ),
+            reposts: btnNum('button[aria-label="Repost"]'),
+            impressions: imprM
+              ? parseInt(imprM[1].replace(/,/g, ""), 10)
+              : 0,
+            posted: timeM ? timeM[0] : null,
+          });
+        });
+      }
       const txt = document.body.innerText || "";
       // LinkedIn renders both "841 followers" and "Followers\n841".
       const fm =
