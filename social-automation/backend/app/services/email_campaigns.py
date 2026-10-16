@@ -21,7 +21,7 @@ import asyncio
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select
@@ -46,6 +46,53 @@ logger = logging.getLogger(__name__)
 # Free-tier Resend headroom (100/day shared with transactional mail).
 DAILY_SEND_BUDGET = 80
 SEND_DELAY_SECONDS = 2.0
+# No-duplicate rule — a campaign may not repeat recently sent content.
+DUP_WINDOW_DAYS = 30
+DUP_THRESHOLD = 0.48  # same detector threshold as post publishing
+
+
+def _campaign_text(campaign: EmailCampaign) -> str:
+    """Canonical comparable text: subject + authored body (no per-recipient merges)."""
+    return f"{campaign.subject}\n{campaign.text_body}"
+
+
+async def find_duplicate_campaign(
+    db: AsyncSession, campaign: EmailCampaign
+) -> tuple[EmailCampaign | None, float]:
+    """Return the recently-sent campaign this one duplicates, if any.
+
+    Compares subject+body against this team's campaigns that are sending/sent
+    within DUP_WINDOW_DAYS, using the same detector as post publishing.
+    """
+    from app.services.duplicate_detector import similarity_score
+
+    since = datetime.now(UTC) - timedelta(days=DUP_WINDOW_DAYS)
+    recent = (
+        await db.execute(
+            select(EmailCampaign)
+            .where(
+                EmailCampaign.team_id == campaign.team_id,
+                EmailCampaign.id != campaign.id,
+                EmailCampaign.status.in_(
+                    [CampaignStatus.sending, CampaignStatus.sent, CampaignStatus.partial]
+                ),
+                EmailCampaign.updated_at >= since,
+            )
+            .order_by(EmailCampaign.updated_at.desc())
+            .limit(50)
+        )
+    ).scalars().all()
+
+    text = _campaign_text(campaign)
+    best: EmailCampaign | None = None
+    best_score = 0.0
+    for other in recent:
+        score = similarity_score(text, _campaign_text(other))
+        if score > best_score:
+            best, best_score = other, score
+    if best is not None and best_score >= DUP_THRESHOLD:
+        return best, best_score
+    return None, best_score
 
 _MERGE_TAG_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 
@@ -244,6 +291,21 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
         ).scalar_one_or_none()
         if campaign is None:
             return {**stats, "error": "campaign_not_found"}  # type: ignore[dict-item]
+
+        dup, score = await find_duplicate_campaign(db, campaign)
+        if dup is not None:
+            logger.warning(
+                "campaign %s refused: %.0f%% duplicate of sent campaign %s",
+                campaign.id, score * 100, dup.id,
+            )
+            return {
+                **stats,
+                "error": "duplicate_campaign",  # type: ignore[dict-item]
+                "duplicate_of": str(dup.id),  # type: ignore[dict-item]
+                "duplicate_name": dup.name,  # type: ignore[dict-item]
+                "similarity": round(score, 3),  # type: ignore[dict-item]
+            }
+
         campaign.status = CampaignStatus.sending
         await db.commit()
 

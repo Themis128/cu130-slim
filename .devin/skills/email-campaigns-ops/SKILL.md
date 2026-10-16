@@ -19,6 +19,12 @@ description: >-
   unsubscribe token URL.
 - Suppression (`email_suppressions`, per-team do-not-contact) is checked at
   queue time AND per send; `unsubscribed`/`skipped_suppressed` are terminal.
+- **No-duplicate rule** (`find_duplicate_campaign` in
+  `app/services/email_campaigns.py`): subject+body compared with the post
+  detector (`similarity_score`, threshold 0.48) against campaigns
+  sending/sent in the last 30 days. `POST /send` → 409, worker send →
+  `error: duplicate_campaign`. Re-sending the same campaign to new
+  recipients is unaffected (self is excluded).
 - Daily budget: `DAILY_SEND_BUDGET=80` in `app/services/email_campaigns.py`
   (Resend free tier ~100/day shared with transactional mail) + 2 s pacing.
 

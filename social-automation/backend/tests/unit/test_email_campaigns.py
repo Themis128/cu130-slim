@@ -216,3 +216,82 @@ class TestSuppression:
         db2 = _DB([_Res([row])])
         again = await S.add_suppression(db2, uuid.uuid4(), "a@b.com")
         assert again is row
+
+
+class TestDuplicateCampaignGate:
+    """Every sent campaign must be unique — same detector as post publishing."""
+
+    @pytest.mark.asyncio
+    async def test_matches_sent_campaign(self):
+        sent = _campaign(
+            name="Launch promo", status=CampaignStatus.sent,
+            subject="Cloudless launch offer",
+            text_body="Hi {{first_name}}, our free 30-minute audit closes Friday — book your slot now.",
+        )
+        new = _campaign(
+            subject="Cloudless launch offer",
+            text_body="Hi {{first_name}}, our free 30-minute audit closes Friday — book your slot now.",
+        )
+        db = _DB([_Res([sent])])
+        dup, score = await S.find_duplicate_campaign(db, new)
+        assert dup is sent and score >= S.DUP_THRESHOLD
+
+    @pytest.mark.asyncio
+    async def test_unique_campaign_passes(self):
+        sent = _campaign(
+            status=CampaignStatus.sent,
+            subject="Black Friday hosting deal",
+            text_body="Migrate to Cloudflare and cut server costs — details inside.",
+        )
+        new = _campaign(
+            subject="Quick onboarding survey",
+            text_body="How was your first week? Two questions, one minute.",
+        )
+        db = _DB([_Res([sent])])
+        dup, score = await S.find_duplicate_campaign(db, new)
+        assert dup is None and score < S.DUP_THRESHOLD
+
+    @pytest.mark.asyncio
+    async def test_shared_signoff_does_not_match(self):
+        # Identical footer/sign-off must not push two different emails over the line.
+        footer = "\n\n— Themis, Cloudless\nUnsubscribe link at the bottom of every email."
+        sent = _campaign(
+            status=CampaignStatus.sent, subject="Audit slots open",
+            text_body=(
+                "Your infrastructure audit slots for November are open. In thirty "
+                "minutes we map every server you run, flag what Cloudflare Workers "
+                "and Pages can absorb, and hand you a written migration plan with "
+                "real cost deltas — the same review we run on our own stack."
+            ) + footer,
+        )
+        new = _campaign(
+            subject="Survey: rate onboarding",
+            text_body=(
+                "Two questions about your first week with cloudless.gr — how did "
+                "the migration feel, and what should we document better? It takes "
+                "under a minute and feeds straight into our CRM."
+            ) + footer,
+        )
+        db = _DB([_Res([sent])])
+        dup, score = await S.find_duplicate_campaign(db, new)
+        assert dup is None, f"false positive at {score}"
+
+    @pytest.mark.asyncio
+    async def test_send_refuses_duplicate(self, monkeypatch):
+        sent_prev = _campaign(
+            name="Old", status=CampaignStatus.sent,
+            subject="Launch offer", text_body="Hi {{first_name}}, grab the deal.",
+        )
+        camp = _campaign(subject="Launch offer", text_body="Hi {{first_name}}, grab the deal.")
+        db = _DB([_Res([camp]), _Res([sent_prev])])
+
+        class _CM:
+            async def __aenter__(self): return db
+            async def __aexit__(self, *a): return False
+        monkeypatch.setattr(
+            "app.db.session.async_session_maker", lambda: _CM()
+        )
+        result = await S.send_campaign(uuid.UUID(str(camp.id)) if not isinstance(camp.id, uuid.UUID) else camp.id)
+        assert result["error"] == "duplicate_campaign"
+        assert result["duplicate_of"] == str(sent_prev.id)
+        assert camp.status == CampaignStatus.draft  # never flipped to sending
