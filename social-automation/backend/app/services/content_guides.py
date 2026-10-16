@@ -66,6 +66,23 @@ PLATFORM_GUIDES: dict[str, str] = {
         "line works better for recurring formats. Emojis welcome, sparingly. "
         "Plain everyday English — write like a person, not a broadcast ad."
     ),
+    "email": (
+        "Marketing/survey email for the Cloudless email-campaigns system — the "
+        "reader opted in or is a known client, so write like a person, not a "
+        "newsletter template. OUTPUT CONTRACT: the 'content' field must start "
+        "with exactly 'SUBJECT: <subject line>' on the first line, then a blank "
+        "line, then the email body. Subject: under 60 chars, plain words, no "
+        "clickbait punctuation, no emoji, no 'newsletter'/'update' filler — it "
+        "names what the reader gets. Body: open with a one-line hook that names "
+        "a situation the reader recognizes (use {{first_name}} for the greeting "
+        "if the brief wants one), one core idea fully explained with real facts "
+        "and numbers only — never invent statistics — then ONE clear CTA with a "
+        "real URL from the brief. Scannable: short paragraphs or a short "
+        "numbered list, under ~250 words. Sign off '— Themis @ Cloudless' "
+        "unless told otherwise. No hashtags, no emojis in the subject, at most "
+        "one in the body. The unsubscribe footer is added automatically — never "
+        "write one. Plain everyday English."
+    ),
 }
 
 HASHTAG_RULES = """\

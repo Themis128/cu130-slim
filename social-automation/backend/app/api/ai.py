@@ -1674,6 +1674,20 @@ async def generate_content(
         if "post_blueprint" in signature_keys
         else ""
     )
+    # Email campaigns follow the Visibility Era email formula — subject is the
+    # hook, one point fully explained, one CTA. See PLATFORM_GUIDES["email"].
+    email_hint = (
+        "\nEmail structure (mandatory — Visibility Era email formula): first "
+        "line of 'content' is 'SUBJECT: <subject>' — the subject IS the hook "
+        "(names a situation the reader recognizes, creates a gap, never "
+        "reveals the answer, under 60 chars, no clickbait). Blank line, then "
+        "the body: one opening line that makes the reader feel seen → ONE "
+        "point fully explained (never a list of tips) → ONE CTA as a "
+        "specific question or direction, max 2 lines. Every line earns the "
+        "next one.\n"
+        if request.platform == "email" and "email_formula" in signature_keys
+        else ""
+    )
     if saved_template:
         # Replace variables in the user prompt template
         user_prompt = saved_template.user_prompt_template
@@ -1697,7 +1711,7 @@ async def generate_content(
         )
     else:
         prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
-{brand_section}{structure_hint}{pillar_section}{web_section}
+{brand_section}{structure_hint}{email_hint}{pillar_section}{web_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
 Length: {request.length}
