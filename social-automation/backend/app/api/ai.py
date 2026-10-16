@@ -92,6 +92,8 @@ class GenerateContentResponse(BaseModel):
     content: str
     hashtags: list[str]
     suggested_media: str | None = None
+    subject: str | None = None  # populated for platform="email" (EMAIL_SCHEMA)
+    warnings: list[str] | None = None  # e.g. numbers the model invented
     brand_compliance: dict | None = None
     seo_score: dict | None = None
     nlp_report: dict | None = None
@@ -1583,6 +1585,7 @@ async def generate_content(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    original_prompt = request.prompt  # chroma may append similar content below
     # Check chroma for similar existing content before generating
     team_result = await db.execute(
         select(Team).where(Team.id == team_id)
@@ -1674,6 +1677,25 @@ async def generate_content(
         if "post_blueprint" in signature_keys
         else ""
     )
+    # Email campaigns follow the Visibility Era email formula — subject is the
+    # hook, one point fully explained, one CTA. See PLATFORM_GUIDES["email"].
+    email_hint = (
+        "\nEmail structure (mandatory — Visibility Era email formula): the "
+        "'subject' field IS the hook — names a situation the reader "
+        "recognizes, creates a gap, never reveals the answer, under 60 chars, "
+        "no clickbait. The 'content' body: one opening line that makes the "
+        "reader feel seen → ONE point fully explained (never a list of tips) "
+        "→ ONE CTA as a specific question or direction, max 2 lines. Every "
+        "number must come from the brief — never invent statistics. Every "
+        "line earns the next one.\n"
+        if request.platform == "email" and "email_formula" in signature_keys
+        else ""
+    )
+    json_contract = (
+        "subject, content, suggested_media (string or null)"
+        if request.platform == "email"
+        else "content, hashtags (array), suggested_media (string or null)"
+    )
     if saved_template:
         # Replace variables in the user prompt template
         user_prompt = saved_template.user_prompt_template
@@ -1691,13 +1713,12 @@ async def generate_content(
                 user_prompt = user_prompt.replace(placeholder, request.length)
         prompt = (
             f"{saved_template.system_prompt}\n\n{user_prompt}"
-            f"{structure_hint}{pillar_section}{web_section}"
-            "\n\nReturn JSON with: content, hashtags (array), "
-            "suggested_media (string or null)"
+            f"{structure_hint}{email_hint}{pillar_section}{web_section}"
+            f"\n\nReturn JSON with: {json_contract}"
         )
     else:
         prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
-{brand_section}{structure_hint}{pillar_section}{web_section}
+{brand_section}{structure_hint}{email_hint}{pillar_section}{web_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
 Length: {request.length}
@@ -1716,11 +1737,11 @@ HASHTAG RULES (critical for 2026 platform algorithms):
 - Never copy-paste the same hashtag block across posts — platforms penalize this as spam.
 - Respect each platform's hashtag cap (see platform guidelines above).
 
-Return JSON with: content, hashtags (array), suggested_media (string or null)"""
+Return JSON with: {json_contract}"""
 
-    from app.services.content_guides import CONTENT_SCHEMA
+    from app.services.content_guides import CONTENT_SCHEMA, EMAIL_SCHEMA
 
-    schema = CONTENT_SCHEMA
+    schema = EMAIL_SCHEMA if request.platform == "email" else CONTENT_SCHEMA
 
     team_id_for_gen = team.id if team else None
     result = await call_inference(
@@ -1777,10 +1798,31 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
         tone=request.tone,
     )
 
+    # Fabrication guard for emails — the small local models invent statistics
+    # ("72% of similar cases") despite prompt guards. Any digit-token in the
+    # output that isn't in the brief and isn't inside a URL/merge tag is
+    # flagged so the UI can warn before the draft ships.
+    warnings: list[str] = []
+    subject_text = result.get("subject") or ""
+    if request.platform == "email":
+        brief_numbers = set(re.findall(r"\d+", original_prompt))
+        scrubbed = re.sub(
+            r"https?://\S+|\{\{[^}]+\}\}", "", subject_text + "\n" + quality.content
+        )
+        invented = sorted(set(re.findall(r"\d+", scrubbed)) - brief_numbers)
+        if invented:
+            warnings.append(
+                "AI-invented numbers not in your brief: "
+                + ", ".join(invented)
+                + " — review or remove before sending"
+            )
+
     return GenerateContentResponse(
         content=quality.content,
         hashtags=quality.hashtags,
         suggested_media=result.get("suggested_media"),
+        subject=subject_text or None,
+        warnings=warnings or None,
         brand_compliance=brand_compliance,
         seo_score=quality.seo_score or None,
         nlp_report=quality.nlp_report or None,

@@ -28,6 +28,29 @@ description: >-
 - Daily budget: `DAILY_SEND_BUDGET=80` in `app/services/email_campaigns.py`
   (Resend free tier ~100/day shared with transactional mail) + 2 s pacing.
 
+## Voice — Sofia Kakkava (mandatory)
+
+Every campaign is written in the Visibility Era voice, stored in
+`brand_voices.voice_signature` and injected into `/api/v1/ai/generate-content`:
+
+- `email_formula` — subject line IS the hook (recognizable situation, gap,
+  never reveals the answer, <60 chars) → opening that makes them feel seen →
+  ONE point fully explained → ONE CTA (≤2 lines, specific question/direction).
+- `yes_followup_rules` — every follow-up has a job: RECONNECT / CLARIFY /
+  ADVANCE. Never "just checking in", no fake urgency, make "no" safe.
+- `presold_jobs` — each email does ONE of AUTHORITY / PROBLEM / OFFER /
+  CONFIDENCE; campaign rhythm Mon=authority, Wed=problem, Fri=offer,
+  Sun=confidence.
+- `offer_stack` — H.O.T. model: problem / outcome / mechanism / proof / fit.
+
+Enforced by `PLATFORM_GUIDES["email"]` (`app/services/content_guides.py`) +
+an email structure hint in `generate_content`. UI: the "Draft with AI"
+button on `/campaigns` calls generate-content with `platform="email"` and
+splits `content` on the `SUBJECT:` contract. Source PDFs:
+`Yes maxxing/` (follow-up + pre-sold vaults), `Back 2 business/` (H.O.T.
+offer), `3 week/` (hooks, blueprint, show-don't-tell) under the OneDrive
+Kakkava dir.
+
 ## EspoCRM access
 
 - `app/services/espocrm_client.py` — `X-Api-Key` auth, `searchParams` JSON

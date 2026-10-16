@@ -11,6 +11,7 @@ import {
   ShieldBan,
   ClipboardList,
   Database,
+  Wand2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
@@ -22,6 +23,7 @@ import { Switch } from '@/components/ui/Switch'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/Tabs'
 import {
+  aiApi,
   emailCampaignsApi,
   type EmailCampaign,
   type CampaignRecipient,
@@ -190,7 +192,53 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
   const [body, setBody] = useState('')
   const [surveyUrl, setSurveyUrl] = useState('')
   const [questionsJson, setQuestionsJson] = useState('')
+  const [brief, setBrief] = useState('')
   const [busy, setBusy] = useState(false)
+  const [drafting, setDrafting] = useState(false)
+
+  // Draft email copy via /api/v1/ai/generate-content with platform="email" —
+  // the Visibility Era voice signature (subject-as-hook, one point, one CTA)
+  // is injected server-side. Contract: content starts with "SUBJECT: ...".
+  const draftWithAi = async () => {
+    if (!brief.trim()) {
+      toast.error('Describe the email first — who it is for and what it should achieve')
+      return
+    }
+    setDrafting(true)
+    try {
+      const res = await aiApi.generateContent({
+        prompt: brief.trim(),
+        platform: 'email',
+        tone: 'professional',
+        length: 'medium',
+        include_hashtags: false,
+        include_emojis: false,
+      })
+      const data =
+        (res as { data?: { content?: string; subject?: string; warnings?: string[] } })?.data ?? {}
+      const raw = data.content ?? ''
+      // EMAIL_SCHEMA returns a dedicated subject; tolerate an inline
+      // "SUBJECT: ..." first line if an older/model fallback produced one.
+      const m = raw.match(/^\s*SUBJECT:\s*(.+?)\n+([\s\S]*)$/i)
+      if (data.subject) {
+        setSubject(data.subject.trim())
+        setBody(raw.trim())
+      } else if (m) {
+        setSubject(m[1].trim())
+        setBody(m[2].trim())
+      } else {
+        setBody(raw.trim())
+      }
+      toast.success('Draft ready — review before creating')
+      if (data.warnings?.length) {
+        toast(data.warnings.join(' '), { icon: '⚠️', duration: 8000 })
+      }
+    } catch (err) {
+      toast.error(formatErrorToast('AI draft failed.', err))
+    } finally {
+      setDrafting(false)
+    }
+  }
 
   const submit = async () => {
     if (!name.trim() || !subject.trim() || !body.trim()) {
@@ -251,6 +299,24 @@ function CreateCampaignForm({ onCreated }: { onCreated: () => void }) {
               <option value="survey">Survey funnel</option>
             </select>
           </div>
+        </div>
+        <div className="rounded-md border border-dashed p-3 space-y-2">
+          <Label>Draft with AI (Sofia Kakkava voice)</Label>
+          <div className="flex gap-2">
+            <Input
+              value={brief}
+              onChange={(e) => setBrief(e.target.value)}
+              placeholder='e.g. "Service catalog for small-business owners — audit CTA" or "follow-up: audit no-shows"'
+            />
+            <Button type="button" variant="secondary" onClick={draftWithAi} disabled={drafting}>
+              {drafting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Wand2 className="h-4 w-4 mr-1" />}
+              Draft
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Subject-as-hook, one point fully explained, one CTA — the Visibility Era formula.
+            Use merge tags like {'{{first_name}}'} in the brief if wanted.
+          </p>
         </div>
         <div>
           <Label>Subject</Label>
