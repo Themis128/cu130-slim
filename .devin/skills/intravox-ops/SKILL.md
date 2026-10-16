@@ -112,3 +112,18 @@ limited accounts can view shared intranet pages.
   intranet users can render).
 - Kakkava library: `IntraVox/media/Visibility Era/` (32 PDFs mirrored from
   OneDrive 2026-10-15 — canonical copy; `/mnt/c` is NOT required anymore).
+
+
+## Internal links & page schema (verified 2026-10-16)
+
+- Internal page links in `links` widgets use the SPA route
+  `/apps/intravox/pages/en/<path>` (e.g. `en/departments/it`), NOT
+  `/apps/intravox/en/...` — the latter 404s. Page files are
+  `en/<path>/<page-id>.json` in the GroupFolder (`__groupfolders/1/files/`).
+- The persisted page object is exactly `{uniqueId, title, language,
+  layout}` — there are NO `menu`/`weight`/`tags` fields in IntraVox
+  3.1.2. Unknown keys are silently dropped; don't invent metadata fields.
+- Ordering/positioning lives in `navigation.json` (`navigation.items[]`
+  tree), not in page files.
+- In-app docs: "IntraVox Developer Guide" page (`developer-guide`,
+  Documentation nav subtree) holds the condensed ops reference.
