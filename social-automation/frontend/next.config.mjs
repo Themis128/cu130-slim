@@ -47,6 +47,15 @@ const nextConfig = {
         source: '/api/v1/:path*',
         destination: `${process.env.API_INTERNAL_URL || 'http://social-api:8000'}/api/v1/:path*`,
       },
+      // Public email-funnel shortcuts: /s/<token> survey, /u/<token> unsubscribe.
+      {
+        source: '/s/:token',
+        destination: `${process.env.API_INTERNAL_URL || 'http://social-api:8000'}/s/:token`,
+      },
+      {
+        source: '/u/:token',
+        destination: `${process.env.API_INTERNAL_URL || 'http://social-api:8000'}/u/:token`,
+      },
       // noVNC HTTP proxy (HTML, JS, CSS, images). The WebSocket upgrade
       // for VNC traffic is handled by server.js (custom server) because
       // Next.js rewrites don't support WS upgrades (issue #23147).
