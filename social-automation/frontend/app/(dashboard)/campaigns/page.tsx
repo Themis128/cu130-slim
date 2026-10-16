@@ -11,6 +11,7 @@ import {
   ShieldBan,
   ClipboardList,
   Database,
+  Trash2,
   Wand2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
@@ -428,6 +429,19 @@ function CampaignCard({
     }
   }
 
+  const remove = async () => {
+    setBusy('delete')
+    try {
+      await emailCampaignsApi.delete(c.id)
+      toast.success('Draft campaign deleted')
+      onChanged()
+    } catch (err) {
+      toast.error(formatErrorToast('Couldn’t delete.', err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="cursor-pointer" onClick={onToggle}>
@@ -479,6 +493,17 @@ function CampaignCard({
                 {busy === 'send' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
                 Send now
               </Button>
+              {c.status === 'draft' && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={remove}
+                  disabled={busy === 'delete'}
+                  title="Delete draft"
+                >
+                  {busy === 'delete' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                </Button>
+              )}
             </div>
           </div>
 
