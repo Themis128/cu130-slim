@@ -119,6 +119,24 @@ class TestAudience:
         assert by_email["old@example.com"].status == RecipientStatus.skipped_suppressed
         assert all(r.token for r in recs)
 
+    @pytest.mark.asyncio
+    async def test_explicit_emails_link_existing_leads(self):
+        lead_id = uuid.uuid4()
+        db = _DB([
+            _Res([]),  # suppression list
+            _Res([(lead_id, "known@example.com")]),  # lead lookup by email
+        ])
+        recs = await S.resolve_audience(
+            db, _campaign(),
+            explicit_emails=[
+                {"email": "known@example.com", "name": "K"},
+                {"email": "stranger@example.com"},
+            ],
+        )
+        by_email = {r.email: r for r in recs}
+        assert by_email["known@example.com"].lead_id == lead_id
+        assert by_email["stranger@example.com"].lead_id is None
+
 
 class TestSurveyValidation:
     Q = [
