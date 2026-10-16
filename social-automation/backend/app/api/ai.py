@@ -2589,43 +2589,66 @@ async def generate_carousel_pipeline(
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
-    # 1) Slide copy via Cloudflare LLM (also runs NLP inside generate_carousel)
-    copy = await generate_carousel(
-        GenerateCarouselRequest(
-            topic=request.topic,
-            num_slides=request.num_slides,
-            platform=request.platform,
-            tone=request.tone,
-            include_cta=request.include_cta,
-            provider="dmr",
-            model=request.text_model,
-        ),
-        team_id=team_id,
-        current_user=current_user,
-        db=db,
-    )
+    async def _produce_copy(extra_note: str = ""):
+        # 1) Slide copy via Cloudflare LLM (also runs NLP inside generate_carousel)
+        copy = await generate_carousel(
+            GenerateCarouselRequest(
+                topic=request.topic + extra_note,
+                num_slides=request.num_slides,
+                platform=request.platform,
+                tone=request.tone,
+                include_cta=request.include_cta,
+                provider="dmr",
+                model=request.text_model,
+            ),
+            team_id=team_id,
+            current_user=current_user,
+            db=db,
+        )
 
-    # 2) Explicit NLP checker + fixer stage (always)
-    slide_dicts = [
-        {
-            "slide_type": s.slide_type,
-            "title": s.title,
-            "body": s.body,
-            "highlight": s.highlight,
-        }
-        for s in copy.slides
-    ]
-    cleaned_slides, cleaned_caption, nlp_report = await run_nlp_check_and_fix(
-        slides=slide_dicts,
-        caption=copy.suggested_caption,
-        provider_name="dmr",
-        model=request.text_model,
-        db=db,
-        team_id=team.id,
-        force_fix=True,
-        allow_fallback=True,
-    )
-    logger.info(f"[carousel-pipeline] nlp {nlp_report.to_dict()}")
+        # 2) Explicit NLP checker + fixer stage (always)
+        slide_dicts = [
+            {
+                "slide_type": s.slide_type,
+                "title": s.title,
+                "body": s.body,
+                "highlight": s.highlight,
+            }
+            for s in copy.slides
+        ]
+        return await run_nlp_check_and_fix(
+            slides=slide_dicts,
+            caption=copy.suggested_caption,
+            provider_name="dmr",
+            model=request.text_model,
+            db=db,
+            team_id=team.id,
+            force_fix=True,
+            allow_fallback=True,
+        )
+
+    from app.services.duplicate_detector import is_duplicate as _is_dup
+
+    recent_caps = await _recent_published_captions(db, team.id, request.platform)
+    cleaned_slides = cleaned_caption = nlp_report = None
+    for attempt in range(2):
+        cleaned_slides, cleaned_caption, nlp_report = await _produce_copy(
+            extra_note="" if attempt == 0 else (
+                "\n\n[STRICT: your previous caption was refused as a duplicate "
+                "of a recently published post — choose a DIFFERENT story/angle.]"
+            )
+        )
+        logger.info(f"[carousel-pipeline] nlp {nlp_report.to_dict()}")
+        if not any(_is_dup(cleaned_caption, c, threshold=0.48) for c in recent_caps):
+            break
+        logger.warning("[carousel-pipeline] generated caption duplicates a published post — retrying" if attempt == 0
+                       else "[carousel-pipeline] caption still duplicates a published post — refusing")
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail="Generated caption duplicates a recently published post — "
+            "refusing before media render. Change the topic or wait.",
+        )
 
     media_ids: list[uuid.UUID] = []
     slide_results: list[CarouselPipelineSlideResult] = []

@@ -16,6 +16,39 @@ def test_server_worry_phrases_are_duplicates():
     assert is_duplicate(a, b)
 
 
+def test_shared_hashtag_and_link_tails_do_not_inflate_similarity():
+    # Regression (2026-10-16): _build_post_text appends hashtags + the
+    # site link to every caption, and identical boilerplate tails pushed
+    # genuinely different stories over the 0.48 duplicate threshold.
+    a = (
+        "Edge computing, serverless, and AI at the edge are reshaping cloud "
+        "infrastructure. Founders can reduce latency and costs with these trends. "
+        "#cloudcomputing #serverless #ai #edgecomputing #startuplife "
+        "www.cloudless.gr"
+    )
+    b = (
+        "Edge computing isn't a magic fix. Serverless is still the third way. "
+        "AI at the edge is practical, not just hype — if you know where to use it. "
+        "#cloudcomputing #serverless #ai #edgecomputing #startuplife "
+        "www.cloudless.gr"
+    )
+    assert not is_duplicate(a, b)
+    assert similarity_score(a, b) < 0.48
+
+
+def test_identical_body_under_different_boilerplate_still_duplicates():
+    a = "Stop managing servers by hand. Automate with cloudless.gr. #devops #cloud"
+    b = "Stop managing servers by hand. Automate with cloudless.gr. #startups #webdev"
+    assert is_duplicate(a, b)
+
+
+def test_mention_urn_does_not_count_as_content():
+    a = "Big day for the team @[Sofia Kakkava](urn:li:person:ACoAABDTOOoBDAatzpCy4xvznaTHILTrteq8JCg)"
+    b = "Big day for the team"
+    # The URN tail is boilerplate — scores should reflect the shared body only.
+    assert similarity_score(a, b) >= 0.48  # containment on stripped text
+
+
 def test_resolve_slide_clears_highlight_and_collapses():
     slide, actions = resolve_slide_duplicates(
         {
