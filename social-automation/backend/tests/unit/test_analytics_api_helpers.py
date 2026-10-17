@@ -387,8 +387,9 @@ class TestTikTokFollowers:
 class TestFollowerDispatch:
     pytestmark = pytest.mark.asyncio
 
-    async def test_unknown_platform_zero(self):
-        assert await analytics._follower_count(_account("viber")) == 0
+    async def test_unknown_platform_skips(self):
+        # No follower surface → -1 (skip), never a fake verified 0.
+        assert await analytics._follower_count(_account("viber")) == -1
 
     async def test_dispatches(self, monkeypatch):
         async def fn(account):
