@@ -114,3 +114,21 @@ Get-ScheduledTask -TaskPath '\DevOptimizer\' | % { $_.Actions[0].Execute + ' ' +
 ```
 
 `0x41301` = still running; `0x800704E0` = wsl.exe couldn't reach the VM (vsock).
+
+## Docker Desktop backend death (2026-10-18)
+
+Signature: `docker version` shows client but **no server version**, every
+`docker` call hangs, `/var/run/docker.sock` exists, and
+`wsl.exe -l -v` shows `docker-desktop` distro **Stopped** while
+`docker desktop status` claims `running` — the backend VM died without
+Docker Desktop noticing.
+
+Fix (works from WSL, no shutdown needed):
+
+```powershell
+& 'C:\Program Files\Docker\Docker\resources\bin\docker.exe' desktop restart
+```
+
+~20s later the engine answers and containers come back on their restart
+policies. Postgres needs ~30s extra — worker tasks that land in the gap
+fail with `the database system is starting up`; retry them.
