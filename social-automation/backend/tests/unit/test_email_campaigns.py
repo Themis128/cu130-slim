@@ -101,6 +101,45 @@ class TestMergeTags:
         assert html is not None and "DOCTYPE" in html and "Themis" in html
         assert 'href="https://u/x"' in html  # unsubscribe link appended
 
+    def test_build_bodies_personalizes_from_crm(self):
+        c = _campaign(
+            text_body="{{first_name}} at {{crm_company}} ({{crm_industry}}) — {{crm_entity}}"
+        )
+        r = _recipient(name=None)
+        text, html = S.build_bodies(
+            c, r, "https://u/x",
+            crm={
+                "id": "abc", "firstName": "Maria", "lastName": "Galani",
+                "accountName": "Galani Psych", "industry": "Healthcare",
+                "phoneNumber": "+30 210 555", "doNotCall": False,
+                "entity": "Contact",
+            },
+        )
+        # CRM names backfill a missing recipient name
+        assert text.startswith("Maria")
+        assert "Galani Psych" in text and "Healthcare" in text and "Contact" in text
+        assert "{{" not in text  # every authored tag resolved
+        assert html is not None and "Maria" in html
+
+    def test_build_bodies_crm_unknown_tag_stays_literal(self):
+        c = _campaign(text_body="Hi {{first_name}} — {{crm_no_such_field}}")
+        text, _ = S.build_bodies(c, _recipient(name="Ana X"), "https://u/x")
+        assert "Ana" in text and "{{crm_no_such_field}}" in text
+
+    def test_crm_ctx_flattens_and_aliases(self):
+        ctx = S._crm_ctx({
+            "id": "x", "accountName": "Acme", "phoneNumber": "123",
+            "addressCity": "Athens", "assignedUserName": "Themis",
+            "doNotCall": True, "meta": {"nested": 1}, "empty": "  ",
+        })
+        assert ctx["crm_account_name"] == "Acme"
+        assert ctx["crm_company"] == "Acme"  # alias
+        assert ctx["crm_phone"] == "123" and ctx["crm_city"] == "Athens"
+        assert ctx["crm_owner"] == "Themis"
+        assert "crm_id" not in ctx and "crm_do_not_call" not in ctx
+        assert "crm_meta" not in ctx and "crm_empty" not in ctx
+        assert S._crm_ctx(None) == {}
+
 
 class TestAudience:
     @pytest.mark.asyncio
