@@ -126,10 +126,12 @@ describe('StepFirstPost', () => {
   })
 
   it('toggles platforms and saves the draft', async () => {
+    api.accountsApi.list.mockResolvedValueOnce({ data: [{ id: 'a-li', platform: 'linkedin', status: 'active' }] })
     const onContinue = vi.fn()
     render(<StepFirstPost onContinue={onContinue} />, { wrapper })
 
     const li = screen.getByText('LinkedIn')
+    await waitFor(() => expect(li).toBeEnabled())
     fireEvent.click(li)
     expect(li).toHaveClass('border-primary')
     fireEvent.click(li)
