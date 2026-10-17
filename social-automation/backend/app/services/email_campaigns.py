@@ -122,6 +122,37 @@ def render_template(template: str, ctx: dict[str, str]) -> str:
     return _MERGE_TAG_RE.sub(_sub, template)
 
 
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+
+# crm_<snake> tags that get shorter aliases for template authors.
+_CRM_ALIASES = {
+    "account_name": "company",
+    "phone_number": "phone",
+    "address_city": "city",
+    "assigned_user_name": "owner",
+}
+
+
+def _crm_ctx(record: dict[str, Any] | None) -> dict[str, str]:
+    """Flatten one CRM record into merge tags — ``accountName`` → ``crm_account_name``.
+
+    Scalar fields only; ``id``/bools/nested values are skipped. Unknown tags
+    stay literal in the output so authors can see what did not resolve."""
+    if not record:
+        return {}
+    ctx: dict[str, str] = {}
+    for key, val in record.items():
+        if key == "id" or isinstance(val, bool) or not isinstance(val, str | int | float):
+            continue
+        s = str(val).strip()
+        if s:
+            ctx["crm_" + _CAMEL_BOUNDARY_RE.sub("_", key).lower()] = s
+    for src, alias in _CRM_ALIASES.items():
+        if f"crm_{src}" in ctx:
+            ctx.setdefault(f"crm_{alias}", ctx[f"crm_{src}"])
+    return ctx
+
+
 async def _suppressed_emails(db: AsyncSession, team_id: uuid.UUID) -> set[str]:
     rows = (
         await db.execute(
@@ -230,12 +261,11 @@ async def resolve_audience(
 
     if include_espocrm and espocrm_client.configured():
         try:
-            for c in await espocrm_client.list_contacts():
-                full = " ".join(p for p in (c.get("firstName"), c.get("lastName")) if p)
-                _add(c.get("emailAddress") or "", full or c.get("accountName"))
-            for lead_row in await espocrm_client.list_leads_for_campaign():
-                full = " ".join(p for p in (lead_row.get("firstName"), lead_row.get("lastName")) if p)
-                _add(lead_row.get("emailAddress") or "", full)
+            for crm_email, prof in (await espocrm_client.campaign_profiles()).items():
+                full = " ".join(
+                    p for p in (prof.get("firstName"), prof.get("lastName")) if p
+                )
+                _add(crm_email, full or prof.get("accountName"))
         except Exception:  # noqa: BLE001 — EspoCRM down shouldn't kill the send
             logger.exception("EspoCRM audience pull failed for campaign %s", campaign.id)
 
@@ -246,22 +276,36 @@ async def resolve_audience(
 
 
 def build_bodies(
-    campaign: EmailCampaign, recipient: EmailRecipient, unsub: str
+    campaign: EmailCampaign,
+    recipient: EmailRecipient,
+    unsub: str,
+    *,
+    crm: dict[str, Any] | None = None,
 ) -> tuple[str, str | None]:
-    """Personalised text + html bodies for one recipient."""
+    """Personalised text + html bodies for one recipient.
+
+    ``crm`` is the recipient's EspoCRM record (matched by email) — its scalar
+    fields become ``{{crm_*}}`` merge tags, and CRM names backfill a missing
+    recipient name."""
     survey_link = (
         survey_url_for(campaign, recipient)
         if campaign.kind == CampaignKind.survey
         else (campaign.survey_url or "")
     )
+    name = recipient.name or ""
+    if not name and crm:
+        name = " ".join(
+            str(p) for p in (crm.get("firstName"), crm.get("lastName")) if p
+        ).strip()
     ctx = {
-        "name": recipient.name or "",
-        "first_name": (recipient.name or "").split(" ")[0] if recipient.name else "",
+        "name": name,
+        "first_name": name.split(" ")[0] if name else "",
         "email": recipient.email,
         "campaign": campaign.name,
         "survey_url": survey_link,
         "unsubscribe_url": unsub,
     }
+    ctx.update(_crm_ctx(crm))
     text = render_template(campaign.text_body, ctx)
     if survey_link and "survey_url" not in campaign.text_body:
         text += f"\n\nTake the survey: {survey_link}"
@@ -330,6 +374,17 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
             )
         ).scalars().all()
 
+        # CRM personalization — one fetch per campaign; every recipient whose
+        # email exists in EspoCRM gets {{crm_*}} tags filled from their record.
+        crm_profiles: dict[str, dict[str, Any]] = {}
+        if espocrm_client.configured():
+            try:
+                crm_profiles = await espocrm_client.campaign_profiles()
+            except Exception:  # noqa: BLE001 — CRM outage must not block mail
+                logger.exception(
+                    "EspoCRM personalization pull failed for campaign %s", campaign.id
+                )
+
         for rec in pending:
             if budget <= 0:
                 break
@@ -340,7 +395,7 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
                 stats["skipped"] += 1
                 continue
             unsub = unsubscribe_url(rec.token)
-            text, html = build_bodies(campaign, rec, unsub)
+            text, html = build_bodies(campaign, rec, unsub, crm=crm_profiles.get(rec.email))
             try:
                 await send_email(
                     subject=campaign.subject,

@@ -91,12 +91,16 @@ async def list_all(
 
 
 async def list_leads_for_campaign() -> list[dict[str, Any]]:
-    """Leads eligible for marketing mail — not Converted/Dead, has an email."""
+    """Leads eligible for marketing mail — not Converted/Dead, has an email.
+
+    The select list doubles as the personalization surface: every field here
+    is exposed to campaign templates as ``crm_<snake_case>`` merge tags."""
     return await list_all(
         "Lead",
         select=[
-            "id", "firstName", "lastName", "emailAddress", "status",
-            "source", "createdAt", "description",
+            "id", "firstName", "lastName", "emailAddress", "accountName",
+            "status", "source", "industry", "title", "phoneNumber", "website",
+            "addressCity", "assignedUserName", "createdAt", "description",
         ],
         where=[
             {"type": "isNotNull", "attribute": "emailAddress"},
@@ -111,10 +115,36 @@ async def list_contacts() -> list[dict[str, Any]]:
         "Contact",
         select=[
             "id", "firstName", "lastName", "emailAddress", "accountName",
-            "accountId", "title", "doNotCall", "createdAt",
+            "accountId", "title", "phoneNumber", "addressCity", "description",
+            "doNotCall", "createdAt",
         ],
         where=[{"type": "isNotNull", "attribute": "emailAddress"}],
     )
+
+
+async def campaign_profiles() -> dict[str, dict[str, Any]]:
+    """email → CRM record map for per-recipient campaign personalization.
+
+    Contacts win over Leads on the same address — they are the confirmed,
+    richer records — while lead fields still fill gaps the contact lacks.
+    """
+    profiles: dict[str, dict[str, Any]] = {}
+    for lead in await list_leads_for_campaign():
+        email = str(lead.get("emailAddress") or "").strip().lower()
+        if email:
+            profiles[email] = {**lead, "entity": "Lead"}
+    for contact in await list_contacts():
+        email = str(contact.get("emailAddress") or "").strip().lower()
+        if not email:
+            continue
+        merged = {**contact, "entity": "Contact"}
+        if email in profiles:
+            merged = {
+                **profiles[email],
+                **{k: v for k, v in merged.items() if v not in (None, "", [])},
+            }
+        profiles[email] = merged
+    return profiles
 
 
 async def list_accounts() -> list[dict[str, Any]]:
