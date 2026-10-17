@@ -286,3 +286,132 @@ describe('useQueries select transforms', () => {
     expect(hoisted.contentApi.getPost).not.toHaveBeenCalled()
   })
 })
+
+// [hook, vars, apiGroup, method, fallback toast when the server sends no detail]
+const ERROR_FALLBACK_CASES: Array<[string, () => { mutateAsync: (v: unknown) => Promise<unknown> }, unknown, string, string, string]> = [
+  ['useUpdatePageProfile', () => H.useUpdatePageProfile(), { id: 'a', data: {} }, 'accountsApi', 'updatePageProfile', 'Failed to update page profile'],
+  ['useUploadProfilePicture', () => H.useUploadProfilePicture(), { id: 'a', file: FILE }, 'accountsApi', 'uploadProfilePicture', 'Failed to upload profile picture'],
+  ['useUploadCoverPhoto', () => H.useUploadCoverPhoto(), { id: 'a', file: FILE }, 'accountsApi', 'uploadCoverPhoto', 'Failed to upload cover photo'],
+  ['useSetSecret', () => H.useSetSecret(), { key: 'k', value: 'v' }, 'secretsApi', 'set', 'Failed to save credential'],
+  ['useUpdateProfile', () => H.useUpdateProfile(), { id: 'a', data: {} }, 'profileApi', 'updateProfile', 'Failed to update profile'],
+  ['useUploadProfileProfilePicture', () => H.useUploadProfileProfilePicture(), { id: 'a', file: FILE }, 'profileApi', 'uploadProfilePicture', 'Failed to upload profile picture'],
+  ['useUploadProfileCoverPhoto', () => H.useUploadProfileCoverPhoto(), { id: 'a', file: FILE }, 'profileApi', 'uploadCoverPhoto', 'Failed to upload cover photo'],
+  ['useProfileLogin', () => H.useProfileLogin(), { id: 'a', data: {} }, 'profileApi', 'login', 'Login failed'],
+  ['useAssignManageTask', () => H.useAssignManageTask(), { id: 'a', businessId: 'b' }, 'accountsApi', 'assignManageTask', 'Failed to assign MANAGE task'],
+  ['useLinkedinPublish', () => H.useLinkedinPublish(), { text: 't' }, 'linkedinApi', 'publish', 'Failed to publish to LinkedIn'],
+  ['useCreateBrand', () => H.useCreateBrand(), { name: 'B' }, 'brandApi', 'create', 'Failed to create brand'],
+  ['useUpdateBrand', () => H.useUpdateBrand(), { name: 'B' }, 'brandApi', 'update', 'Failed to update brand'],
+  ['useUpdateBrandVoice', () => H.useUpdateBrandVoice(), {}, 'brandApi', 'updateVoice', 'Failed to update brand voice'],
+  ['useUpdateBrandVisual', () => H.useUpdateBrandVisual(), {}, 'brandApi', 'updateVisual', 'Failed to update brand visual'],
+  ['useCompileGuidelines', () => H.useCompileGuidelines(), undefined, 'brandApi', 'compileGuidelines', 'Failed to compile guidelines'],
+  ['useCreateBrandAsset', () => H.useCreateBrandAsset(), { name: 'logo' }, 'brandApi', 'createAsset', 'Failed to add brand asset'],
+]
+
+describe('useQueries onError fallbacks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it.each(ERROR_FALLBACK_CASES)('%s toasts its default message when the server sends no detail', async (_l, hook, vars, group, method, fallback) => {
+    const api = (hoisted as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>)[group]
+    api[method].mockRejectedValueOnce({ response: { status: 500, data: {} } })
+    const { result } = renderHook(hook, { wrapper })
+    await act(async () => {
+      await expect(result.current.mutateAsync(vars)).rejects.toBeTruthy()
+    })
+    expect(hoisted.toast.error).toHaveBeenCalledWith(fallback)
+  })
+})
+
+describe('useQueries success-toast and select edge shapes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('useUploadMedia stays quiet when silent is set', async () => {
+    const { result } = renderHook(() => H.useUploadMedia(), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync({ file: FILE, silent: true })
+    })
+    expect(hoisted.toast.success).not.toHaveBeenCalled()
+  })
+
+  it('useBulkDeleteMedia pluralises the toast', async () => {
+    const { result } = renderHook(() => H.useBulkDeleteMedia(), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync(['a'])
+    })
+    expect(hoisted.toast.success).toHaveBeenLastCalledWith('1 item deleted')
+    await act(async () => {
+      await result.current.mutateAsync(['a', 'b'])
+    })
+    expect(hoisted.toast.success).toHaveBeenLastCalledWith('2 items deleted')
+  })
+
+  it('useSyncBusinessAccounts uses the singular for one account and 0 when missing', async () => {
+    hoisted.accountsApi.syncBusinessAccounts.mockResolvedValueOnce({ data: { synced: 1 } })
+    const { result } = renderHook(() => H.useSyncBusinessAccounts(), { wrapper })
+    await act(async () => {
+      await result.current.mutateAsync('a1')
+    })
+    expect(hoisted.toast.success).toHaveBeenLastCalledWith('Synced 1 business account')
+    hoisted.accountsApi.syncBusinessAccounts.mockResolvedValueOnce({ data: null })
+    await act(async () => {
+      await result.current.mutateAsync('a1')
+    })
+    expect(hoisted.toast.success).toHaveBeenLastCalledWith('Synced 0 business accounts')
+  })
+
+  it('analytics selects tolerate an empty payload', async () => {
+    hoisted.analyticsApi.getEngagementTrends.mockResolvedValueOnce({ data: null })
+    hoisted.analyticsApi.getFollowerGrowth.mockResolvedValueOnce({ data: null })
+    const { result: trends } = renderHook(() => H.useEngagementTrends(7), { wrapper })
+    const { result: growth } = renderHook(() => H.useFollowerGrowth(7), { wrapper })
+    await waitFor(() => expect(trends.current.isSuccess && growth.current.isSuccess).toBe(true))
+    expect(trends.current.data).toEqual([])
+    expect(growth.current.data).toEqual([])
+  })
+
+  it('useEngagementTrends defaults a missing total to 0', async () => {
+    hoisted.analyticsApi.getEngagementTrends.mockResolvedValueOnce({ data: [{ date: 'd' }] })
+    const { result } = renderHook(() => H.useEngagementTrends(7), { wrapper })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data?.[0].value).toBe(0)
+  })
+})
+
+function fastRetryWrapper({ children }: { children: ReactNode }) {
+  // Hook-level `retry` predicates still apply; only the backoff is zeroed.
+  const client = new QueryClient({ defaultOptions: { queries: { retryDelay: 0 } } })
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
+}
+
+describe('useQueries retry predicates', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const RETRY_CASES: Array<[string, () => { isError: boolean }, string, string, number]> = [
+    ['useAccounts', () => H.useAccounts(), 'accountsApi', 'list', 403],
+    ['usePageProfile', () => H.usePageProfile('a1'), 'accountsApi', 'getPageProfile', 400],
+    ['useProfile', () => H.useProfile('a1'), 'profileApi', 'getProfile', 401],
+  ]
+
+  it.each(RETRY_CASES)('%s does not retry auth/client errors', async (_l, hook, group, method, status) => {
+    const api = (hoisted as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>)[group]
+    api[method].mockRejectedValue({ response: { status } })
+    const { result } = renderHook(hook, { wrapper: fastRetryWrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(api[method]).toHaveBeenCalledTimes(1)
+    api[method].mockResolvedValue({ data: {} })
+  })
+
+  it.each(RETRY_CASES)('%s retries server errors twice before failing', async (_l, hook, group, method) => {
+    const api = (hoisted as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>)[group]
+    api[method].mockRejectedValue({ response: { status: 503 } })
+    const { result } = renderHook(hook, { wrapper: fastRetryWrapper })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(api[method]).toHaveBeenCalledTimes(3)
+    api[method].mockResolvedValue({ data: {} })
+  })
+})

@@ -1,6 +1,6 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, useQueryClient } from '@tanstack/react-query'
 import { ReactNode } from 'react'
 
 const hoisted = vi.hoisted(() => ({
@@ -135,5 +135,100 @@ describe('useNotifications', () => {
     })
     const { result } = renderHook(() => useNotifications(), { wrapper })
     await waitFor(() => expect(result.current.notifications).toHaveLength(0))
+  })
+
+  it('falls back to items[] and tolerates payloads with neither key', async () => {
+    hoisted.listPosts.mockResolvedValue({ data: { items: [{ id: 'p1', status: 'failed' }] } })
+    hoisted.listAccounts.mockResolvedValue({ data: { items: [{ id: 'a1', status: 'error', platform: 'x' }] } })
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(2))
+
+    hoisted.listPosts.mockResolvedValue({ data: {} })
+    hoisted.listAccounts.mockResolvedValue({ data: {} })
+    const { result: r2 } = renderHook(
+      () => ({ n: useNotifications(), qc: useQueryClient() }),
+      { wrapper },
+    )
+    await waitFor(() => {
+      expect(r2.current.qc.getQueryState(['posts-notifications'])?.status).toBe('success')
+      expect(r2.current.qc.getQueryState(['accounts'])?.status).toBe('success')
+    })
+    expect(r2.current.n.notifications).toEqual([])
+  })
+
+  it('sorts a read notification after an unread one regardless of source order', async () => {
+    localStorage.setItem('sa_read_nids', JSON.stringify(['post-failed-first']))
+    hoisted.listPosts.mockResolvedValue({
+      data: [
+        { id: 'first', status: 'failed' },
+        { id: 'second', status: 'failed' },
+      ],
+    })
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(2))
+    expect(result.current.notifications.map((n) => n.id)).toEqual([
+      'post-failed-second',
+      'post-failed-first',
+    ])
+  })
+
+  it('uses defaults for missing text, timestamps, platforms and names', async () => {
+    hoisted.listPosts.mockResolvedValue({
+      data: { posts: [
+        // failed with no text/reason/timestamp
+        { id: 'f', status: 'failed' },
+        // published with no text and targets that carry no usable platform
+        { id: 'p', status: 'published', published_at: recentIso(), targets: [{}, { social_account: { platform: 'threads' } }] },
+        // published with no targets at all
+        { id: 'q', status: 'published', content_text: 'solo', published_at: recentIso() },
+      ] },
+    })
+    hoisted.listAccounts.mockResolvedValue({ data: { accounts: [{ id: 'a', status: 'expired', platform: 'tiktok' }] } })
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(4))
+    const byId = Object.fromEntries(result.current.notifications.map((n) => [n.id, n]))
+    expect(byId['post-failed-f'].message).toBe('')
+    expect(byId['post-failed-f'].time).toBe('recently')
+    expect(byId['post-published-p'].message).toBe('"Your post" on threads')
+    expect(byId['post-published-q'].message).toBe('"solo"')
+    expect(byId['account-expired-a'].message).toBe('tiktok needs to be reconnected')
+    expect(byId['account-expired-a'].time).toBe('')
+  })
+
+  it('shows relative time for account errors with updated_at', async () => {
+    hoisted.listAccounts.mockResolvedValue({
+      data: [{ id: 'a', status: 'error', username: 'cu', platform: 'x', updated_at: recentIso() }],
+    })
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(1))
+    expect(result.current.notifications[0].time).toMatch(/ago$/)
+    expect(result.current.notifications[0].message).toBe('cu needs to be reconnected')
+  })
+
+  it('markRead and dismiss are no-ops on already-read ids', async () => {
+    localStorage.setItem('sa_read_nids', JSON.stringify(['post-failed-p1']))
+    hoisted.listPosts.mockResolvedValue({ data: [{ id: 'p1', status: 'failed' }] })
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(1))
+    expect(result.current.unreadCount).toBe(0)
+
+    act(() => result.current.markRead('post-failed-p1'))
+    expect(setItem).not.toHaveBeenCalledWith('sa_read_nids', expect.anything())
+
+    act(() => result.current.dismiss('post-failed-p1'))
+    expect(result.current.notifications).toEqual([])
+    // dismissal is persisted; the read set is left untouched
+    expect(setItem).toHaveBeenCalledWith('sa_dismissed_nids', JSON.stringify(['post-failed-p1']))
+    expect(setItem).not.toHaveBeenCalledWith('sa_read_nids', expect.anything())
+    setItem.mockRestore()
+  })
+
+  it('ignores corrupt localStorage state', async () => {
+    localStorage.setItem('sa_read_nids', '{not json')
+    hoisted.listPosts.mockResolvedValue({ data: [{ id: 'p1', status: 'failed' }] })
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(1))
+    expect(result.current.unreadCount).toBe(1)
   })
 })
