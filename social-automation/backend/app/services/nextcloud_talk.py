@@ -45,6 +45,11 @@ def talk_enabled() -> bool:
     )
 
 
+def _host_of(url: str) -> str:
+    m = re.match(r"https?://([^/:]+)", (url or "").strip())
+    return m.group(1).lower() if m else ""
+
+
 def _base_url() -> str:
     s = get_settings()
     base = (getattr(s, "NEXTCLOUD_BASE_URL", "") or "").strip().rstrip("/")
@@ -147,7 +152,14 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None,
                     backend: str = "") -> bool:
     """Reply into a room as the installed Talk bot."""
     secret = (get_settings().NEXTCLOUD_TALK_BOT_SECRET or "").strip()
-    base = (backend or _base_url()).rstrip("/")
+    # `backend` is requester-supplied (X-Nextcloud-Talk-Backend) — only trust
+    # it when its host matches the configured instance, else fall back to
+    # config so a forged webhook can't redirect bot traffic (SSRF).
+    base = _base_url()
+    if backend:
+        cand = backend.rstrip("/")
+        host_ok = _host_of(cand) and _host_of(cand) == _host_of(base)
+        base = cand if host_ok else base
     if not secret or not base or not room:
         return False
     rnd = hashlib.sha256(os.urandom(32)).hexdigest()

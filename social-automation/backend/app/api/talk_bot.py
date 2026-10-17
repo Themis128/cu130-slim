@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Request
@@ -63,7 +64,10 @@ def _command(payload: dict) -> tuple[str, str | None, int | None]:
         msg_id = int(obj.get("id"))
     except (TypeError, ValueError):
         msg_id = None
-    return text, target.get("id"), msg_id
+    # Room token is requester-supplied and lands in the reply URL — tokens
+    # are [a-z0-9]; strip anything else.
+    room = re.sub(r"[^A-Za-z0-9_-]", "", str(target.get("id") or "")) or None
+    return text, room, msg_id
 
 
 async def _status() -> str:
@@ -161,7 +165,9 @@ async def talk_bot_webhook(request: Request) -> dict:
     try:
         reply = await _run_command(text)
     except Exception:  # noqa: BLE001
-        logger.exception("Talk bot command failed: %s", text[:80])
+        # Only the command verb lands in the log — never the raw message
+        # (log-injection safe).
+        logger.exception("Talk bot command failed: %s", text.split()[0][:32])
         reply = "That command failed — check worker logs."
     if reply and room:
         await bot_reply(room, reply, reply_to=msg_id, backend=backend)
