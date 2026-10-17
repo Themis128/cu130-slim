@@ -16,7 +16,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -231,6 +231,79 @@ def _resolve_slot_conflicts(items: list[PlaybookItem]) -> list[PlaybookItem]:
             it.time_athens = f"{hh:02d}:{mm:02d}"
         seen.add((it.platform, it.time_athens))
     return items
+
+
+# n8n workflow webhooks that can execute a playbook action, keyed by
+# (platform, format). Instagram/TikTok have no text-only pipeline —
+# their platform defaults map to the media workflow instead.
+_AUTOMATION_WEBHOOKS: dict[tuple[str, str], str] = {
+    ("linkedin", "text"): "linkedin-text-post",
+    ("linkedin", "image"): "linkedin-image-post",
+    ("linkedin", "carousel"): "cloudless-carousel",
+    ("instagram", "text"): "instagram-text-post",
+    ("instagram", "image"): "instagram-image-post",
+    ("instagram", "carousel"): "instagram-carousel-post",
+    ("facebook", "text"): "facebook-text-post",
+    ("facebook", "image"): "facebook-image-post",
+    ("threads", "text"): "threads-text-post",
+    ("twitter", "text"): "twitter-text-post",
+    ("twitter", "image"): "twitter-image-post",
+    ("tiktok", "text"): "tiktok-text-post",
+    ("tiktok", "video"): "tiktok-video-post",
+}
+_AUTOMATION_DEFAULT_FORMAT = {"instagram": "image", "tiktok": "video"}
+
+
+def automation_plan(
+    report: StrategyReport, *, target_date: date | None = None
+) -> dict[str, Any]:
+    """The brief's playbook as a machine-readable plan for automation.
+
+    Same parsed/slot-resolved items the email's agent block renders, plus a
+    resolved UTC ``schedule_at`` (target_date at the Athens time — default
+    tomorrow) and the n8n ``webhook`` that can execute each action, so
+    workflows can create scheduled posts at the measured best windows
+    instead of firing on fixed crons.
+    """
+    tz = ZoneInfo(report.timezone)
+    day = target_date or (
+        report.generated_at.astimezone(tz) + timedelta(days=1)
+    ).date()
+    items = sorted(
+        _resolve_slot_conflicts([_parse_playbook_item(a) for a in report.actions]),
+        key=lambda it: it.time_athens or "99:99",
+    )
+    actions: list[dict[str, Any]] = []
+    for it in items:
+        fmt = it.format or _AUTOMATION_DEFAULT_FORMAT.get(it.platform, "")
+        schedule_at = None
+        if it.time_athens:
+            hh, mm = int(it.time_athens[:2]), int(it.time_athens[3:])
+            local = datetime(day.year, day.month, day.day, hh, mm, tzinfo=tz)
+            schedule_at = local.astimezone(UTC).isoformat()
+        actions.append(
+            {
+                "platform": it.platform or None,
+                "format": fmt or None,
+                "time_local": it.time_athens or None,
+                "schedule_at": schedule_at,
+                "media_required": it.media_required
+                or fmt in {"image", "carousel", "video"},
+                "webhook": _AUTOMATION_WEBHOOKS.get(
+                    (it.platform, fmt or it.format or "")
+                ),
+                "rescheduled_from": it.rescheduled_from or None,
+                "instruction": it.instruction,
+            }
+        )
+    return {
+        "generated_at": report.generated_at.isoformat(),
+        "timezone": report.timezone,
+        "target_date": day.isoformat(),
+        "team_name": report.team_name,
+        "llm_used": report.llm_used,
+        "actions": actions,
+    }
 
 
 @dataclass
@@ -1200,6 +1273,7 @@ async def build_strategy_report(
     *,
     team: Team,
     insight_days: int = 30,
+    use_llm: bool = True,
 ) -> StrategyReport:
     settings = get_settings()
     tz_name = settings.APP_TIMEZONE or "Europe/Athens"
@@ -1252,7 +1326,9 @@ async def build_strategy_report(
         messaging_channels=messaging_channels,
     )
 
-    actions = await _llm_actions(db, team.id, insights, digest)
+    actions = (
+        await _llm_actions(db, team.id, insights, digest) if use_llm else None
+    )
     if actions:
         report.actions = actions
         report.llm_used = True

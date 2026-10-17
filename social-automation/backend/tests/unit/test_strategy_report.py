@@ -222,6 +222,58 @@ def test_agent_block_parses_leading_platform_prefix():
     assert item.platform == "instagram"
 
 
+def test_automation_plan_resolves_schedule_and_webhook():
+    from datetime import date
+
+    from app.services.strategy_report import automation_plan
+
+    r = _report(
+        actions=[
+            "LinkedIn, 09:00, carousel — the doc-format winner from insights",
+            "Repurpose a top LinkedIn post as a short text update on Threads at 17:00",
+            "TikTok - 12:00 - Video - Repurpose the Instagram carousel",
+        ]
+    )
+    plan = automation_plan(r, target_date=date(2026, 10, 18))
+
+    assert plan["target_date"] == "2026-10-18"
+    assert plan["timezone"] == "Europe/Athens"
+    assert [a["time_local"] for a in plan["actions"]] == ["09:00", "12:00", "17:00"]
+
+    li = plan["actions"][0]
+    assert li["platform"] == "linkedin" and li["format"] == "carousel"
+    # EEST = UTC+3 → 09:00 Athens on 2026-10-18 is 06:00 UTC
+    assert li["schedule_at"] == "2026-10-18T06:00:00+00:00"
+    assert li["webhook"] == "cloudless-carousel"
+    assert li["media_required"]
+
+    tt = plan["actions"][1]
+    assert tt["platform"] == "tiktok" and tt["format"] == "video"
+    assert tt["webhook"] == "tiktok-video-post"
+
+    th = plan["actions"][2]
+    assert th["platform"] == "threads" and th["webhook"] == "threads-text-post"
+
+
+def test_automation_plan_defaults_and_conflicts():
+    from app.services.strategy_report import automation_plan
+
+    r = _report(
+        actions=[
+            "Post on Instagram at 10:00",  # no format → platform default image
+            "Post on Instagram at 10:00",  # duplicate slot → shifted +90m
+            "Do something vague with no platform or time",
+        ]
+    )
+    plan = automation_plan(r)
+    ig = [a for a in plan["actions"] if a["platform"] == "instagram"]
+    assert ig[0]["format"] == "image" and ig[0]["webhook"] == "instagram-image-post"
+    assert ig[0]["time_local"] == "10:00" and ig[1]["time_local"] == "11:30"
+    assert ig[1]["rescheduled_from"] == "10:00"
+    vague = [a for a in plan["actions"] if a["platform"] is None]
+    assert vague[0]["schedule_at"] is None and vague[0]["webhook"] is None
+
+
 def test_empty_report_still_renders():
     r = StrategyReport(generated_at=NOW, timezone="Europe/Athens", team_name="T")
     assert "publish consistently" in r.to_text()
