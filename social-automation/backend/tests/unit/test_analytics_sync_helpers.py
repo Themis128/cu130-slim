@@ -270,6 +270,56 @@ async def test_record_follower_snapshot_rejects_zero():
 
 
 @pytest.mark.asyncio
+async def test_record_follower_snapshot_rejects_negative():
+    # -1 is the helpers' "fetch failed" sentinel — never write it.
+    assert await A._record_follower_snapshot(_DB(), _account(), "x", -1, allow_zero=True) is False
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_allow_zero_writes_verified_zero():
+    db = _DB(results=[None])  # no prev row
+    assert await A._record_follower_snapshot(db, _account(), "x", 0, allow_zero=True) is True
+    assert len(db.added) == 1 and db.added[0].followers == 0
+
+
+class _SnapshotStore(_DB):
+    """Stateful fake: answers the latest-row query from rows added so far,
+    honouring the optional ``followers > 0`` filter."""
+
+    async def execute(self, stmt):
+        self.executed.append(stmt)
+        nonzero_only = "followers >" in str(stmt)
+        rows = [r for r in self.added if not nonzero_only or r.followers > 0]
+        if not rows:
+            return _Res(None)
+        last = rows[-1]
+        return _Res((last.followers, getattr(last, "captured_at", None) or datetime.now(UTC)))
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_verified_zero_twice_dedups():
+    db, acct = _SnapshotStore(), _account()
+    assert await A._record_follower_snapshot(db, acct, "x", 0, allow_zero=True) is True
+    assert await A._record_follower_snapshot(db, acct, "x", 0, allow_zero=True) is False
+    assert [r.followers for r in db.added] == [0]
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_plausibility_ignores_stored_zero():
+    db, acct = _SnapshotStore(), _account()
+    assert await A._record_follower_snapshot(db, acct, "x", 0, allow_zero=True) is True
+    # A stored 0 must not make a later real reading look implausible.
+    assert await A._record_follower_snapshot(db, acct, "x", 250) is True
+    assert [r.followers for r in db.added] == [0, 250]
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_zero_after_nonzero_still_plausibility_checked():
+    db = _DB(results=[(952000, datetime.now(UTC))])
+    assert await A._record_follower_snapshot(db, _account(), "x", 0, allow_zero=True) is False
+
+
+@pytest.mark.asyncio
 async def test_record_follower_snapshot_implausible():
     db = _DB(results=[(952000, datetime.now(UTC))])
     assert await A._record_follower_snapshot(db, _account(), "linkedin", 15) is False
@@ -736,6 +786,28 @@ async def test_persist_follower_snapshot_swallows_errors(monkeypatch):
 
     monkeypatch.setattr(AA, "_follower_count", AsyncMock(side_effect=RuntimeError("x")))
     await A._persist_follower_snapshot(_DB(), _account(platform="twitter"))
+
+
+@pytest.mark.asyncio
+async def test_persist_follower_snapshot_skips_fetch_failure(monkeypatch):
+    import app.api.analytics as AA
+
+    monkeypatch.setattr(AA, "_follower_count", AsyncMock(return_value=-1))
+    db = _DB()
+    await A._persist_follower_snapshot(db, _account(platform="twitter"))
+    assert db.added == [] and db.executed == []
+
+
+@pytest.mark.asyncio
+async def test_persist_follower_snapshot_records_verified_zero(monkeypatch):
+    # A real 0 from the API must land as a row, or a 0-follower account
+    # never gets a snapshot and the digest flags it stale forever.
+    import app.api.analytics as AA
+
+    monkeypatch.setattr(AA, "_follower_count", AsyncMock(return_value=0))
+    db = _DB(results=[None])
+    await A._persist_follower_snapshot(db, _account(platform="twitter"))
+    assert len(db.added) == 1 and db.added[0].followers == 0
 
 
 # ── sync_linkedin_account ─────────────────────────────────────────────
@@ -2434,8 +2506,8 @@ async def test_sync_twitter_client_raises(_tw_patches):
     """httpx failure → timeline + users/me both capture the exception."""
     _Client.get = AsyncMock(side_effect=RuntimeError("net down"))
     r = await A.sync_twitter_account(_DB(results=[[]]), _tw_acc())
-    assert any("timeline discovery: net down" in e for e in r.errors)
-    assert any("users/me: net down" in e for e in r.errors)
+    assert any("timeline discovery: RuntimeError: net down" in e for e in r.errors)
+    assert any("users/me: RuntimeError: net down" in e for e in r.errors)
 
 
 @pytest.mark.asyncio
@@ -2564,9 +2636,9 @@ async def test_sync_facebook_all_excepts(_fb_patches, monkeypatch):
         A, "_meta_insights_get", AsyncMock(side_effect=RuntimeError("insights down"))
     )
     r = await A.sync_facebook_account(_DB(results=[[]]), _fb_page())
-    assert any("post discovery: disc down" in e for e in r.errors)
-    assert any("page insights: insights down" in e for e in r.errors)
-    assert any("follower attribution: attr down" in e for e in r.errors)
+    assert any("post discovery: RuntimeError: disc down" in e for e in r.errors)
+    assert any("page insights: RuntimeError: insights down" in e for e in r.errors)
+    assert any("follower attribution: RuntimeError: attr down" in e for e in r.errors)
 
 
 # ── sync_instagram_account edge branches ──────────────────────────────
@@ -2599,7 +2671,7 @@ async def test_sync_ig_discovery_bad_timestamp(_ig_patches):
 async def test_sync_ig_discovery_except(_ig_patches):
     _Client.get = AsyncMock(side_effect=RuntimeError("boom"))
     r = await A.sync_instagram_account(_DB(results=[[]]), _ig_acc())
-    assert any("media discovery: boom" in e for e in r.errors)
+    assert any("media discovery: RuntimeError: boom" in e for e in r.errors)
 
 
 @pytest.mark.asyncio
@@ -2654,7 +2726,7 @@ async def test_sync_threads_item_edges(_th_patches):
 async def test_sync_threads_discovery_except(_th_patches):
     _Client.get = AsyncMock(side_effect=RuntimeError("th down"))
     r = await A.sync_threads_account(_DB(results=[[]]), _th_acc())
-    assert any("post discovery: th down" in e for e in r.errors)
+    assert any("post discovery: RuntimeError: th down" in e for e in r.errors)
 
 
 @pytest.mark.asyncio
