@@ -284,6 +284,17 @@ def classify_x_web_error(exc: BaseException) -> str | None:
     return None
 
 
+def _is_tweety_bool_get_bug(exc: BaseException) -> bool:
+    """Upstream mahrtayyab/tweety#268 — X sometimes returns ``false`` where
+    tweety's parsers expect a dict (``data.user`` and friends), crashing with
+    ``AttributeError: 'bool' object has no attribute 'get'``. Not account or
+    session trouble; the twscrape read covers the same data."""
+    return (
+        isinstance(exc, AttributeError)
+        and "'bool' object has no attribute 'get'" in str(exc)
+    )
+
+
 # Breaker reasons that are pure capacity limits (429 / codes 88 rate limit,
 # 185 over status limit, 344 daily limit) — transient, unlike auth/lock/
 # challenge/suspension reasons which need a human.
@@ -896,6 +907,7 @@ class XWebAnalytics:
     listed: int | None = None
     tweets: dict[str, XWebTweetMetrics] = dataclasses.field(default_factory=dict)
     errors: list[str] = dataclasses.field(default_factory=list)
+    notes: list[str] = dataclasses.field(default_factory=list)
 
 
 def _int(val: Any) -> int:
@@ -1049,6 +1061,7 @@ async def fetch_x_web_analytics(
     max_lookups = max(0, int(get_settings().X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS))
     wanted = [w for w in (wanted_tweet_ids or []) if w and w.isdigit()]
     errors: list[str] = []
+    notes: list[str] = []
 
     try:
         client = await (tweety_factory or _default_tweety_client)()
@@ -1058,13 +1071,18 @@ async def fetch_x_web_analytics(
         if reason:
             await guard.trip(reason)
             return None, f"x_web tweety read tripped breaker: {reason}"
-        errors.append(f"tweety: {type(exc).__name__}: {str(exc)[:200]}")
+        if _is_tweety_bool_get_bug(exc):
+            notes.append(f"tweety upstream parse bug (#268): {str(exc)[:160]}")
+            logger.warning("x_web tweety read hit upstream bool-response bug: %s", exc)
+        else:
+            errors.append(f"tweety: {type(exc).__name__}: {str(exc)[:200]}")
 
     api: Any = None
     try:
         api = await (twscrape_factory or _default_twscrape_api)(handle)
         result = await _read_with_twscrape(api, handle, user_id, wanted, max_lookups)
         result.errors.extend(errors)
+        result.notes.extend(notes)
         return result, None
     except Exception as exc:  # noqa: BLE001
         reason = classify_x_web_error(exc)
@@ -1076,4 +1094,4 @@ async def fetch_x_web_analytics(
         workdir = getattr(api, "_x_web_workdir", None)
         if isinstance(workdir, str):
             shutil.rmtree(workdir, ignore_errors=True)
-    return None, "x_web reads failed — " + "; ".join(errors)
+    return None, "x_web reads failed — " + "; ".join(errors + notes)

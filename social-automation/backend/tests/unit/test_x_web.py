@@ -667,6 +667,45 @@ async def test_fetch_analytics_falls_back_to_twscrape(settings):
 
 
 @pytest.mark.asyncio
+async def test_fetch_analytics_tweety_bool_get_bug_is_note_not_error(settings):
+    """Upstream tweety#268: X returns ``false`` where a dict is expected and
+    tweety crashes with ``AttributeError: 'bool' object has no attribute
+    'get'``. The twscrape read still covers the data, so the crash must land
+    in ``notes`` (visible in sync notes) instead of ``errors`` (digest
+    noise), and must not trip the breaker."""
+    async def tws(handle):
+        return _FakeTwscrape()
+
+    g = _guard()
+    web, reason = await x_web.fetch_x_web_analytics(
+        username="TBaltzakis", user_id="42", guard=g,
+        tweety_factory=_factory(
+            _FakeReader(fail=AttributeError("'bool' object has no attribute 'get'"))
+        ),
+        twscrape_factory=tws,
+    )
+    assert reason is None and web is not None
+    assert web.source == "x_web_twscrape"
+    assert web.errors == []
+    assert any("tweety" in n and "#268" in n for n in web.notes)
+    assert (await g.breaker_state())[0] is False
+
+    # When both readers fail the tweety crash still reaches the reason.
+    async def _bad_tws(handle):
+        raise RuntimeError("twscrape down")
+
+    g2 = _guard()
+    web2, reason2 = await x_web.fetch_x_web_analytics(
+        username="TBaltzakis", user_id="42", guard=g2,
+        tweety_factory=_factory(
+            _FakeReader(fail=AttributeError("'bool' object has no attribute 'get'"))
+        ),
+        twscrape_factory=_bad_tws,
+    )
+    assert web2 is None and "tweety" in (reason2 or "") and "twscrape" in (reason2 or "")
+
+
+@pytest.mark.asyncio
 async def test_fetch_analytics_trip_stops_reads(settings):
     g = _guard()
     tws = AsyncMock()
