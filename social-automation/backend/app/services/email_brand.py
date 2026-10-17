@@ -41,10 +41,21 @@ _SERIF = "font-family:Georgia,'Times New Roman',serif;"
 _NUM_RE = re.compile(r"^(\d{1,2})[.)][ \t]*(?:·|-)?[ \t]*(.*)$", re.S)
 _QUOTE_RE = re.compile(r'^[>"“][ \t]*(.*)$', re.S)
 _ATTRIB_RE = re.compile(r"^[—–-][ \t]*(\S.*)$")
-_CTA_LINE_RE = re.compile(r"^CTA:[ \t]*([^|\n]*\S)[ \t]*\|[ \t]*(https?://[^\s|]+)[ \t]*$", re.I)
 _MD_LINK_RE = re.compile(r"\[([^\[\]]+)\]\((https?://[^\s()]+)\)")
 _MERGE_RE = re.compile(r"\{\{([ \t]*[\w.]+[ \t]*)\}\}")
 _PS_RE = re.compile(r"^P\.?P?\.?S\.?", re.I)
+
+
+def _parse_cta_line(para: str) -> tuple[str, str] | None:
+    """Parse ``CTA: label | https://url`` — str ops, so no regex backtracking
+    on adversarial bodies (CodeQL polynomial-regex finding)."""
+    if not para[:4].upper() == "CTA:" or "|" not in para or "\n" in para:
+        return None
+    label, _, url = para[4:].partition("|")
+    label, url = label.strip(), url.strip()
+    if label and url.startswith(("http://", "https://")) and " " not in url:
+        return label, url
+    return None
 
 
 def _esc(text: str) -> str:
@@ -150,9 +161,9 @@ def body_to_inner_html(text_body: str) -> str:
         para = paras[i]
 
         # Explicit CTA line
-        m = _CTA_LINE_RE.match(para)
-        if m:
-            blocks.append(_cta(m.group(1), m.group(2)))
+        cta = _parse_cta_line(para)
+        if cta:
+            blocks.append(_cta(*cta))
             i += 1
             continue
 
