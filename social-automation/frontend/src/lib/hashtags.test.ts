@@ -39,3 +39,10 @@ describe('normalizeTagList', () => {
     expect(normalizeTagList([])).toEqual([])
   })
 })
+
+describe('normalizeTagList — missing input', () => {
+  it('treats a null/undefined list (e.g. absent API field) as empty', () => {
+    expect(normalizeTagList(null as unknown as string[])).toEqual([])
+    expect(normalizeTagList(undefined as unknown as string[])).toEqual([])
+  })
+})
