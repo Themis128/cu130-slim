@@ -30,18 +30,20 @@ _TEXT = "#d7deeb"
 _MUTED = "#93a1ba"
 _FAINT = "#5d6b88"
 _TEAL = "#2dd4ee"
-_TEAL_DEEP = "#0e7490"
 _PINK = "#f0a6d8"
 _GHOST = "#22304a"
 
 _FONT = "font-family:'Work Sans','Segoe UI',Arial,Helvetica,sans-serif;"
 _SERIF = "font-family:Georgia,'Times New Roman',serif;"
 
-_NUM_RE = re.compile(r"^(\d{1,2})[.)]\s*(?:·|-)?\s*(.*)$", re.S)
-_QUOTE_RE = re.compile(r'^[>"“]\s*(.*)$', re.S)
-_ATTRIB_RE = re.compile(r"^[—–-]\s*(.+)$")
-_CTA_LINE_RE = re.compile(r"^CTA:\s*(.*?)\s*\|\s*(https?://\S+)\s*$", re.I | re.S)
-_MD_LINK_RE = re.compile(r"\[([^\]]+)\]\((https?://[^)\s]+)\)")
+# Patterns avoid nested/overlapping quantifiers so untrusted campaign bodies
+# can't trigger polynomial backtracking (CodeQL).
+_NUM_RE = re.compile(r"^(\d{1,2})[.)][ \t]*(?:·|-)?[ \t]*(.*)$", re.S)
+_QUOTE_RE = re.compile(r'^[>"“][ \t]*(.*)$', re.S)
+_ATTRIB_RE = re.compile(r"^[—–-][ \t]*(\S.*)$")
+_CTA_LINE_RE = re.compile(r"^CTA:[ \t]*([^|\n]*\S)[ \t]*\|[ \t]*(https?://[^\s|]+)[ \t]*$", re.I)
+_MD_LINK_RE = re.compile(r"\[([^\[\]]+)\]\((https?://[^\s()]+)\)")
+_MERGE_RE = re.compile(r"\{\{([ \t]*[\w.]+[ \t]*)\}\}")
 _PS_RE = re.compile(r"^P\.?P?\.?S\.?", re.I)
 
 
@@ -52,8 +54,7 @@ def _esc(text: str) -> str:
 def _inline(text: str) -> str:
     """Escape, then restore merge fields and markdown links."""
     out = _esc(text)
-    out = re.sub(
-        r"\{\{(\s*[\w.]+\s*)\}\}",
+    out = _MERGE_RE.sub(
         lambda m: '<b style="color:' + _TEAL + ';">{{'
         + m.group(1) + "}}</b>",
         out,
