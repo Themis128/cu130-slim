@@ -41,7 +41,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless cloud hosting';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || '38ddbd44-8811-4d0b-be62-a23fd2f50490';\nconst tone = body.tone || 'professional';\nconst imagePrompt = body.image_prompt || ('Marketing image for: ' + topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.');\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, publish, platform: 'instagram' } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless cloud hosting';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || '38ddbd44-8811-4d0b-be62-a23fd2f50490';\nconst tone = body.tone || 'professional';\nconst imagePrompt = body.image_prompt || ('Marketing image for: ' + topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.');\nconst scheduledAt = body.scheduled_at || null;\nconst publish = body.publish === false ? false : !scheduledAt;\nreturn [{ json: { topic, account_id: accountId, tone, image_prompt: imagePrompt, scheduled_at: scheduledAt, publish, platform: 'instagram' } }];"
       },
       "name": "Resolve Config",
       "type": "n8n-nodes-base.code",
@@ -195,7 +195,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ $json.asset_id ? JSON.stringify([$json.asset_id]) : '[]' }}\n}",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Caption (DMR)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ $json.asset_id ? JSON.stringify([$json.asset_id]) : '[]' }}\n,\n  \"scheduled_at\": {{ JSON.stringify($('Resolve Config').item.json.scheduled_at || null) }}\n}",
         "options": {
           "timeout": 60000
         }

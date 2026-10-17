@@ -22,7 +22,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_TWITTER_ACCOUNT_ID || 'a89d6852-eff8-479a-835f-50d806cf59dd';\nconst tone = body.tone || 'concise';\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, tone, platform: 'twitter', publish } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_TWITTER_ACCOUNT_ID || 'a89d6852-eff8-479a-835f-50d806cf59dd';\nconst tone = body.tone || 'concise';\nconst scheduledAt = body.scheduled_at || null;\nconst publish = body.publish === false ? false : !scheduledAt;\nreturn [{ json: { topic, account_id: accountId, tone, platform: 'twitter', scheduled_at: scheduledAt, publish } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
@@ -146,7 +146,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"media_ids\": {{ JSON.stringify([$('Generate Image (CF FLUX)').item.json.asset_id]) }},\n  \"content_text\": {{ JSON.stringify($('Generate Tweet (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Tweet (DMR)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }}\n}",
+        "jsonBody": "={\n  \"media_ids\": {{ JSON.stringify([$('Generate Image (CF FLUX)').item.json.asset_id]) }},\n  \"content_text\": {{ JSON.stringify($('Generate Tweet (DMR)').item.json.content || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Tweet (DMR)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }}\n,\n  \"scheduled_at\": {{ JSON.stringify($('Resolve Config').item.json.scheduled_at || null) }}\n}",
         "options": {
           "timeout": 60000
         }

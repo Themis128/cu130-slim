@@ -369,6 +369,7 @@ asserts every live route appears here — regenerate this file when adding route
 
 ## `ops`
 
+- `/api/v1/ops/automation-plan` — GET
 - `/api/v1/ops/billing-digest` — POST
 - `/api/v1/ops/billing-digest/preview` — GET
 - `/api/v1/ops/browser-orchestrator` — GET
