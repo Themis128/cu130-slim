@@ -387,7 +387,7 @@ async def _process_account(
                 sender_key = "from"
                 sender_field = "id"
                 text_field = "message"
-            elif bridge is not None:
+            else:  # bridge is always set when client is None
                 async with browser_session("instagram", bridge) as b:
                     bridge_msgs = await b.get_instagram_dm_messages(convo_id)
                 if "error" in bridge_msgs:
@@ -483,7 +483,8 @@ async def _process_account(
                 if lead_reply:
                     if client is not None:
                         await client.send_dm(recipient_id, lead_reply.text)
-                    elif bridge is not None:
+                    else:
+                        assert bridge is not None  # always set when client is None
                         await bridge.send_instagram_dm_message(recipient_id, lead_reply.text)
                     try:
                         if client is not None:
@@ -542,7 +543,7 @@ async def _process_account(
                 if client is not None:
                     await client.send_dm(recipient_id, reply_text)
                     send_ok = True
-                elif bridge is not None:
+                else:
                     async with browser_session("instagram", bridge) as b:
                         send_result = await b.send_instagram_dm_message(recipient_id, reply_text)
                     if isinstance(send_result, dict) and send_result.get("error"):
