@@ -257,3 +257,56 @@ class TestInfographicContentGeneration:
         assert len(result["sections"]) == 2
         assert result["sections"][0]["icon"] == "☁️"
         assert result["footer"] == "Visit cloudless.gr"
+
+
+class TestSpellcheckContent:
+    """LLM-produced copy must pass LanguageTool + PIL-safe preprocessing
+    before render_infographic draws it."""
+
+    def _content(self):
+        return {
+            "title": "Why Cloadless Matters",  # typo in LLM output
+            "subtitle": "A Clear Sky Vison",
+            "sections": [
+                {"icon": "☁️", "heading": "Overveiw", "body": "Cloudless means clear skies."}
+            ],
+            "footer": "Visit cloudless.gr",
+        }
+
+    def test_corrects_text_fields_leaves_icon(self, monkeypatch):
+        import asyncio
+
+        from app.services import infographic_renderer
+
+        async def fake_correct(text, **kw):
+            return (
+                text.replace("Cloadless", "Cloudless")
+                .replace("Vison", "Vision")
+                .replace("Overveiw", "Overview")
+            )
+
+        import app.services.spellcheck as sc
+
+        monkeypatch.setattr(sc, "auto_correct", fake_correct)
+
+        out = asyncio.run(infographic_renderer._spellcheck_content(self._content()))
+        assert out["title"] == "Why Cloudless Matters"
+        assert out["subtitle"] == "A Clear Sky Vision"
+        assert out["sections"][0]["heading"] == "Overview"
+        assert out["sections"][0]["icon"] == "☁️"  # emoji untouched
+        assert out["footer"] == "Visit cloudless.gr"
+
+    def test_falls_back_to_preprocess_when_corrector_fails(self, monkeypatch):
+        import asyncio
+
+        import app.services.spellcheck as sc
+        from app.services import infographic_renderer
+
+        async def boom(text, **kw):
+            raise RuntimeError("languagetool down")
+
+        monkeypatch.setattr(sc, "auto_correct", boom)
+
+        out = asyncio.run(infographic_renderer._spellcheck_content(self._content()))
+        assert out["title"] == "Why Cloadless Matters"  # unchanged but PIL-safe
+        assert len(out["sections"]) == 1

@@ -171,7 +171,39 @@ Return JSON with exactly:
         schema=schema,
         max_tokens=800,
     )
-    return result
+    return await _spellcheck_content(result)
+
+
+async def _spellcheck_content(content: dict[str, Any]) -> dict[str, Any]:
+    """LanguageTool + PIL-safe pass on every LLM-produced string field.
+
+    The LLM occasionally misspells despite the prompt's "perfectly spelled"
+    rule — carousel_pipeline gates its copy the same way before compositing.
+    Icons are left alone (emoji, not text).
+    """
+    from app.services.spellcheck import auto_correct, preprocess_for_render
+
+    async def clean(text: Any) -> Any:
+        if not isinstance(text, str) or not text.strip():
+            return text
+        try:
+            return preprocess_for_render(await auto_correct(text))
+        except Exception:  # noqa: BLE001 — correction must never block render
+            return preprocess_for_render(text)
+
+    out = dict(content)
+    for key in ("title", "subtitle", "footer"):
+        out[key] = await clean(out.get(key))
+    out["sections"] = [
+        {
+            **s,
+            "heading": await clean(s.get("heading")),
+            "body": await clean(s.get("body")),
+        }
+        for s in (out.get("sections") or [])
+        if isinstance(s, dict)
+    ]
+    return out
 
 
 def _create_gradient_background(width: int, height: int) -> Image.Image:
