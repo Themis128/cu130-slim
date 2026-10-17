@@ -120,6 +120,63 @@ describe('StepConnectAccount', () => {
   })
 })
 
+describe('StepConnectAccount — non-redirect, error and summary fallbacks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.accountsApi.list.mockResolvedValue({ data: [] })
+    delete (window as { location?: Location }).location
+    window.location = { href: '' } as Location
+  })
+
+  it('confirms in place when the connect call returns no authorization URL', async () => {
+    api.accountsApi.connect.mockResolvedValueOnce({ data: {} })
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    fireEvent.click(await screen.findByText('Instagram'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Instagram connected!'))
+    expect(window.location.href).toBe('')
+  })
+
+  it('shows a busy, disabled tile while connecting', async () => {
+    let finish!: (v: unknown) => void
+    api.accountsApi.connect.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    fireEvent.click(await screen.findByText('Threads'))
+    expect(await screen.findByText('Connecting…')).toBeInTheDocument()
+    expect(screen.getByText('Threads').closest('button')).toBeDisabled()
+    finish({ data: { authorization_url: 'https://oauth.example/threads' } })
+    await waitFor(() => expect(window.location.href).toBe('https://oauth.example/threads'))
+    expect(screen.queryByText('Connecting…')).toBeNull()
+  })
+
+  it('uses the server detail when present and the setup hint otherwise', async () => {
+    api.accountsApi.connect
+      .mockRejectedValueOnce({ response: { data: { detail: 'App not approved' } } })
+      .mockRejectedValueOnce(new Error('Network Error'))
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    fireEvent.click(await screen.findByText('Facebook'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.error.mock.calls[0][0]).toMatch(/^Couldn’t start the sign-in flow\.\nDetails: App not approved/)
+    fireEvent.click(screen.getByText('Twitter / X'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(2))
+    expect(toast.error.mock.calls[1][0]).toMatch(/^Couldn’t start the sign-in flow\. Try again, or ask an admin to finish setup\./)
+  })
+
+  it('pluralises the summary and falls back from display name to username to platform', async () => {
+    api.accountsApi.list.mockResolvedValue({
+      data: [
+        { id: 'a1', platform: 'twitter', username: 'themis', status: 'active' },
+        { id: 'a2', platform: 'threads', status: 'active' },
+      ],
+    })
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    await screen.findByText('2 accounts connected')
+    expect(screen.getByText('themis')).toBeInTheDocument()
+    expect(screen.getByText('threads')).toBeInTheDocument()
+    expect(screen.getAllByText('Connected')).toHaveLength(2)
+    expect(screen.queryByText(/won’t be able to publish/)).toBeNull()
+  })
+})
+
 describe('StepFirstPost', () => {
   beforeEach(() => {
     vi.clearAllMocks()
