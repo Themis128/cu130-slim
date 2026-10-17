@@ -266,7 +266,15 @@ def build_bodies(
     if survey_link and "survey_url" not in campaign.text_body:
         text += f"\n\nTake the survey: {survey_link}"
     text += f"\n\n---\nUnsubscribe: {unsub}"
-    html = render_template(campaign.html_body, ctx) if campaign.html_body else None
+    html = campaign.html_body
+    if not (html or "").strip():
+        from app.services.email_brand import render_branded_html
+
+        html = render_branded_html(
+            campaign.text_body, subject=campaign.subject or "",
+            from_name=campaign.from_name or "Cloudless",
+        )
+    html = render_template(html, ctx) if html else None
     if html:
         html += (
             '<hr><p style="font-size:12px;color:#666">'

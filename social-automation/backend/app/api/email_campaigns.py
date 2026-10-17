@@ -98,6 +98,14 @@ async def create_campaign(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
+    html_body = body.html_body
+    if not (html_body or "").strip():
+        from app.services.email_brand import render_branded_html
+
+        html_body = render_branded_html(
+            body.text_body, subject=body.subject.strip(),
+            from_name=body.from_name.strip() or "Cloudless",
+        )
     campaign = EmailCampaign(
         id=uuid.uuid4(),
         team_id=team_id,
@@ -105,7 +113,7 @@ async def create_campaign(
         kind=body.kind,
         subject=body.subject.strip(),
         text_body=body.text_body,
-        html_body=body.html_body,
+        html_body=html_body,
         from_name=body.from_name.strip() or "Cloudless",
         reply_to=body.reply_to,
         survey_url=body.survey_url,
