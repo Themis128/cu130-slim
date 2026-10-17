@@ -1081,10 +1081,46 @@ def _compact_insights(insights: dict[str, Any]) -> dict[str, Any]:
 _ACTION_LINE = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*(.+?)\s*$")
 
 
-def _parse_actions(text: str) -> list[str]:
-    """Pull numbered/bulleted action lines out of the model's reply."""
+def _action_entry(a: Any) -> str:
+    """Turn one structured action (str/number or dict) into its text."""
+    if isinstance(a, str | int | float):
+        return str(a).strip()
+    if isinstance(a, dict):
+        # {"action": ...} objects — or unknown schema, then the longest
+        # string field (the likeliest candidate for the instruction text).
+        return str(
+            a.get("action") or a.get("text") or a.get("instruction")
+            or max((str(v).strip() for v in a.values() if isinstance(v, str)),
+                   key=len, default="")
+        ).strip()
+    return ""
+
+
+def _finalize_actions(candidates: list[str]) -> list[str]:
+    """Shared normalize -> drop short -> drop near-duplicates -> cap.
+
+    Every parse path (numbered lines, JSON array, {"actions": [...]}) goes
+    through here so a model repeating an action can't schedule it twice.
+    """
     from app.services.duplicate_detector import is_duplicate
 
+    actions: list[str] = []
+    for raw in candidates:
+        action = str(raw or "").strip().strip('"').strip()
+        if len(action) <= 15:
+            continue
+        # The model sometimes emits the same action twice with a slightly
+        # different tail ("…again"). Drop near-duplicates.
+        if any(is_duplicate(action, seen, threshold=0.85) for seen in actions):
+            continue
+        actions.append(action)
+        if len(actions) >= _MAX_ACTIONS:
+            break
+    return actions
+
+
+def _parse_actions(text: str) -> list[str]:
+    """Pull numbered/bulleted action lines out of the model's reply."""
     # Thinking models leak "</think>" residue before the answer; providers may
     # wrap the list in a markdown fence or reply with a JSON array of strings
     # or {"action": ...} objects — handle those before line matching.
@@ -1097,37 +1133,18 @@ def _parse_actions(text: str) -> list[str]:
         try:
             parsed = json.loads(stripped)
             if isinstance(parsed, list):
-                entries = []
-                for a in parsed:
-                    if isinstance(a, str | int | float):
-                        entries.append(str(a).strip())
-                    elif isinstance(a, dict):
-                        # {"action": ...} objects — or unknown schema, then the
-                        # longest string field.
-                        entries.append(str(
-                            a.get("action") or a.get("text") or a.get("instruction")
-                            or max((str(v).strip() for v in a.values()
-                                    if isinstance(v, str)), key=len, default="")
-                        ).strip())
-                entries = [e for e in entries if len(e) > 15]
+                entries = _finalize_actions([_action_entry(a) for a in parsed])
                 if entries:
-                    return entries[: _MAX_ACTIONS]
+                    return entries
         except (ValueError, TypeError):
             pass
 
-    actions: list[str] = []
+    lines = []
     for line in stripped.splitlines():
         m = _ACTION_LINE.match(line)
         if m:
-            action = m.group(1).strip().strip('"')
-            if len(action) <= 15:
-                continue
-            # The model sometimes emits the same action twice with a slightly
-            # different tail ("…again"). Drop near-duplicates.
-            if any(is_duplicate(action, seen, threshold=0.85) for seen in actions):
-                continue
-            actions.append(action)
-    return actions[:_MAX_ACTIONS]
+            lines.append(m.group(1))
+    return _finalize_actions(lines)
 
 
 async def _llm_actions(
@@ -1189,31 +1206,13 @@ async def _llm_actions(
         # string holding the numbered list), content-gen as {"content": ...}.
         payload = (resp or {}).get("actions") if isinstance(resp, dict) else None
         if isinstance(payload, list):
-            actions = []
-            for a in payload:
-                if isinstance(a, str | int | float):
-                    entry = str(a).strip()
-                elif isinstance(a, dict):
-                    entry = str(
-                        a.get("action") or a.get("text") or a.get("instruction") or ""
-                    ).strip()
-                    if not entry:
-                        # Unknown schema — take the longest string field, the
-                        # likeliest candidate for the instruction text.
-                        entry = max(
-                            (str(v).strip() for v in a.values() if isinstance(v, str)),
-                            key=len, default="",
-                        )
-                else:
-                    entry = ""
-                if len(entry) > 15:
-                    actions.append(entry)
+            actions = _finalize_actions([_action_entry(a) for a in payload])
             if not actions:
                 logger.warning(
                     "Strategy LLM actions list had no usable entries: %.300s",
                     json.dumps(payload, default=str),
                 )
-            return actions[:_MAX_ACTIONS] or None
+            return actions or None
         text = (
             payload if isinstance(payload, str) else ""
         ) or str((resp or {}).get("content") or "")
