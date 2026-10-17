@@ -120,16 +120,75 @@ describe('StepConnectAccount', () => {
   })
 })
 
+describe('StepConnectAccount — non-redirect, error and summary fallbacks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    api.accountsApi.list.mockResolvedValue({ data: [] })
+    delete (window as { location?: Location }).location
+    window.location = { href: '' } as Location
+  })
+
+  it('confirms in place when the connect call returns no authorization URL', async () => {
+    api.accountsApi.connect.mockResolvedValueOnce({ data: {} })
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    fireEvent.click(await screen.findByText('Instagram'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Instagram connected!'))
+    expect(window.location.href).toBe('')
+  })
+
+  it('shows a busy, disabled tile while connecting', async () => {
+    let finish!: (v: unknown) => void
+    api.accountsApi.connect.mockImplementationOnce(() => new Promise((r) => { finish = r }))
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    fireEvent.click(await screen.findByText('Threads'))
+    expect(await screen.findByText('Connecting…')).toBeInTheDocument()
+    expect(screen.getByText('Threads').closest('button')).toBeDisabled()
+    finish({ data: { authorization_url: 'https://oauth.example/threads' } })
+    await waitFor(() => expect(window.location.href).toBe('https://oauth.example/threads'))
+    expect(screen.queryByText('Connecting…')).toBeNull()
+  })
+
+  it('uses the server detail when present and the setup hint otherwise', async () => {
+    api.accountsApi.connect
+      .mockRejectedValueOnce({ response: { data: { detail: 'App not approved' } } })
+      .mockRejectedValueOnce(new Error('Network Error'))
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    fireEvent.click(await screen.findByText('Facebook'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.error.mock.calls[0][0]).toMatch(/^Couldn’t start the sign-in flow\.\nDetails: App not approved/)
+    fireEvent.click(screen.getByText('Twitter / X'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(2))
+    expect(toast.error.mock.calls[1][0]).toMatch(/^Couldn’t start the sign-in flow\. Try again, or ask an admin to finish setup\./)
+  })
+
+  it('pluralises the summary and falls back from display name to username to platform', async () => {
+    api.accountsApi.list.mockResolvedValue({
+      data: [
+        { id: 'a1', platform: 'twitter', username: 'themis', status: 'active' },
+        { id: 'a2', platform: 'threads', status: 'active' },
+      ],
+    })
+    render(<StepConnectAccount onContinue={vi.fn()} />, { wrapper })
+    await screen.findByText('2 accounts connected')
+    expect(screen.getByText('themis')).toBeInTheDocument()
+    expect(screen.getByText('threads')).toBeInTheDocument()
+    expect(screen.getAllByText('Connected')).toHaveLength(2)
+    expect(screen.queryByText(/won’t be able to publish/)).toBeNull()
+  })
+})
+
 describe('StepFirstPost', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it('toggles platforms and saves the draft', async () => {
+    api.accountsApi.list.mockResolvedValueOnce({ data: [{ id: 'a-li', platform: 'linkedin', status: 'active' }] })
     const onContinue = vi.fn()
     render(<StepFirstPost onContinue={onContinue} />, { wrapper })
 
     const li = screen.getByText('LinkedIn')
+    await waitFor(() => expect(li).toBeEnabled())
     fireEvent.click(li)
     expect(li).toHaveClass('border-primary')
     fireEvent.click(li)
@@ -155,6 +214,16 @@ describe('StepFirstPost', () => {
     fireEvent.click(screen.getByText('Skip for now'))
     expect(onContinue).toHaveBeenCalled()
     expect(api.contentApi.createPost).not.toHaveBeenCalled()
+  })
+
+  it('includes the server detail when the save is rejected with one', async () => {
+    api.contentApi.createPost.mockRejectedValueOnce({ response: { data: { detail: 'Content blocked by policy' } } })
+    render(<StepFirstPost onContinue={vi.fn()} />, { wrapper })
+    fireEvent.change(screen.getByPlaceholderText('What would you like to share?'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByText('Create Post'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.error.mock.calls[0][0]).toBe('Couldn’t save your draft.\nDetails: Content blocked by policy')
+    expect(screen.queryByText('Draft post created!')).toBeNull()
   })
 
   it('toasts when the save fails', async () => {

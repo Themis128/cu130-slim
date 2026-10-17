@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 const router = vi.hoisted(() => ({ push: vi.fn() }))
@@ -121,5 +121,59 @@ describe('Header', () => {
     openMenu(screen.getByLabelText('User menu')) // menu closes on item select
     fireEvent.click(await screen.findByText('Logout'))
     expect(auth.logout).toHaveBeenCalled()
+  })
+})
+
+describe('Header — fallbacks', () => {
+  const original = { ...auth.user }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    notifs.notifications = []
+    notifs.unreadCount = 0
+  })
+
+  afterEach(() => {
+    auth.user = { ...original }
+  })
+
+  it('only Ctrl/⌘ + K opens the palette', () => {
+    render(<Header />)
+    fireEvent.keyDown(window, { key: 'k' }) // no modifier
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true }) // wrong key
+    expect(document.querySelector('[role="dialog"], [cmdk-root]')).toBeNull()
+  })
+
+  it('marks a link-less notification read without navigating', async () => {
+    notifs.notifications = [{ id: 'n9', type: 'info', title: 'FYI', message: 'm', time: 'now', read: false }]
+    render(<Header />)
+    openMenu(screen.getByLabelText('Notifications'))
+    fireEvent.click(await screen.findByText('FYI'))
+    expect(notifs.markRead).toHaveBeenCalledWith('n9')
+    expect(router.push).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the email for an unnamed user', async () => {
+    auth.user = { email: 'zoe@x.com' } as typeof auth.user
+    render(<Header />)
+    expect(screen.getByText('Z')).toBeInTheDocument() // uppercased email initial
+    openMenu(screen.getByLabelText('User menu'))
+    const items = await screen.findAllByText('zoe@x.com')
+    expect(items).toHaveLength(2) // name slot + email line
+  })
+
+  it("shows 'U' when no user is loaded yet", () => {
+    auth.user = null as unknown as typeof auth.user
+    render(<Header />)
+    expect(screen.getByText('U')).toBeInTheDocument()
+  })
+
+  it('offers dark mode while in light mode', () => {
+    theme.theme = 'light'
+    render(<Header />)
+    fireEvent.click(screen.getByLabelText('Switch to dark mode'))
+    expect(theme.toggleTheme).toHaveBeenCalledTimes(1)
+    expect(screen.queryByLabelText('Switch to light mode')).toBeNull()
+    theme.theme = 'dark'
   })
 })
