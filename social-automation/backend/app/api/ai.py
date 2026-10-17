@@ -3729,7 +3729,9 @@ async def generate_emoji_batch(
                 remove_bg=payload.remove_bg,
             )
             # Call the internal logic directly (not the HTTP endpoint)
-            result = await generate_emoji(request, single_req, current_user, db)
+            result = await generate_emoji(
+                request, single_req, team_id, current_user=current_user, db=db
+            )
             emojis.append({
                 "concept": concept,
                 "image_base64": result.image_base64,
