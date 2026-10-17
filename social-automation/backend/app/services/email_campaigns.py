@@ -142,7 +142,7 @@ def _crm_ctx(record: dict[str, Any] | None) -> dict[str, str]:
         return {}
     ctx: dict[str, str] = {}
     for key, val in record.items():
-        if key == "id" or isinstance(val, bool) or not isinstance(val, (str, int, float)):
+        if key == "id" or isinstance(val, bool) or not isinstance(val, str | int | float):
             continue
         s = str(val).strip()
         if s:

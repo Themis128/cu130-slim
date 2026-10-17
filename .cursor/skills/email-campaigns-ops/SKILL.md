@@ -19,6 +19,15 @@ description: >-
 - Sends are **per-recipient** messages — never BCC. Each carries
   `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058) and a unique
   unsubscribe token URL.
+- **CRM personalization**: `send_campaign` pulls `espocrm_client.campaign_profiles()`
+  once per send (Contact wins over Lead on the same email) and exposes every
+  scalar CRM field as a `{{crm_<snake>}}` merge tag — `accountName` →
+  `{{crm_account_name}}`, `industry` → `{{crm_industry}}`, `title`, `status`,
+  `source`, `website`, `description`, plus `{{crm_entity}}` (Lead/Contact).
+  Aliases: `{{crm_company}}` (accountName), `{{crm_phone}}`, `{{crm_city}}`,
+  `{{crm_owner}}` (assignedUserName). Works for ALL audience sources — an
+  explicit email that exists in CRM gets personalized too. Missing CRM fields
+  leave the tag literal in output; CRM outage never blocks a send.
 - **Branded HTML shell** (`app/services/email_brand.py`): campaigns created
   without `html_body` get `render_branded_html(text_body, …)` — elegant dark
   navy card, teal accents, ghost-numbered list cards, pull-quotes, pill CTA,
