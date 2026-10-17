@@ -232,3 +232,43 @@ describe('useNotifications', () => {
     expect(result.current.unreadCount).toBe(1)
   })
 })
+
+describe('useNotifications — ordering', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    hoisted.listAccounts.mockResolvedValue({ data: { accounts: [] } })
+  })
+
+  it('lists unread notifications before read ones, keeping order within each group', async () => {
+    localStorage.setItem('sa_read_nids', JSON.stringify(['post-failed-p1']))
+    hoisted.listPosts.mockResolvedValue({
+      data: { posts: [
+        { id: 'p1', status: 'failed', content_text: 'a', failed_at: recentIso() },
+        { id: 'p2', status: 'failed', content_text: 'b', failed_at: recentIso() },
+        { id: 'p3', status: 'failed', content_text: 'c', failed_at: recentIso() },
+      ] },
+    })
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(3))
+    expect(result.current.notifications.map((n) => [n.id, n.read])).toEqual([
+      ['post-failed-p2', false],
+      ['post-failed-p3', false],
+      ['post-failed-p1', true],
+    ])
+    expect(result.current.unreadCount).toBe(2)
+  })
+
+  it('keeps a read notification last when it already arrives after unread ones', async () => {
+    localStorage.setItem('sa_read_nids', JSON.stringify(['post-failed-p9']))
+    hoisted.listPosts.mockResolvedValue({
+      data: { posts: [
+        { id: 'p7', status: 'failed', content_text: 'a', failed_at: recentIso() },
+        { id: 'p9', status: 'failed', content_text: 'c', failed_at: recentIso() },
+      ] },
+    })
+    const { result } = renderHook(() => useNotifications(), { wrapper })
+    await waitFor(() => expect(result.current.notifications).toHaveLength(2))
+    expect(result.current.notifications.map((n) => n.id)).toEqual(['post-failed-p7', 'post-failed-p9'])
+  })
+})
