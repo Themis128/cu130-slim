@@ -29,6 +29,28 @@ describe('PublicNav', () => {
   })
 })
 
+describe('PublicNav mobile menu links', () => {
+  it('closes the menu when a mobile link or CTA is chosen', () => {
+    render(<PublicNav />)
+    const toggle = screen.getByLabelText('Toggle menu')
+
+    fireEvent.click(toggle)
+    const features = screen.getAllByRole('link', { name: 'Features' })
+    fireEvent.click(features[features.length - 1])
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(toggle)
+    const signIn = screen.getAllByRole('link', { name: 'Sign In' })
+    fireEvent.click(signIn[signIn.length - 1])
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(toggle)
+    const getStarted = screen.getAllByRole('link', { name: 'Get Started' })
+    fireEvent.click(getStarted[getStarted.length - 1])
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  })
+})
+
 describe('marketing sections', () => {
   it('renders the hero and CTA sections', () => {
     const { container: h } = render(<Hero />)

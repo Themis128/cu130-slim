@@ -202,6 +202,31 @@ describe('SeoPanel', () => {
     expect(screen.getByText(/Click .Analyze. to get an SEO score/)).toBeInTheDocument()
   })
 
+  it('applies the suggested meta tags', async () => {
+    const onApplyMeta = vi.fn()
+    api.aiApi.analyzeSeo.mockResolvedValue({ data: seoResult })
+    render(<SeoPanel content={LONG} onApplyMeta={onApplyMeta} />, { wrapper })
+    fireEvent.click(screen.getByText('Analyze'))
+    fireEvent.click(await screen.findByText('Apply'))
+    expect(onApplyMeta).toHaveBeenCalledWith({ title: 'T', description: 'D' })
+  })
+
+  it('hides Apply when there is no suggested meta', async () => {
+    api.aiApi.analyzeSeo.mockResolvedValue({ data: { ...seoResult, meta: { title: '', description: '' } } })
+    render(<SeoPanel content={LONG} onApplyMeta={vi.fn()} />, { wrapper })
+    fireEvent.click(screen.getByText('Analyze'))
+    await waitFor(() => expect(screen.getByText('85')).toBeInTheDocument())
+    expect(screen.queryByText('Apply')).not.toBeInTheDocument()
+  })
+
+  it.each([[65, 'text-amber-500'], [40, 'text-red-500']])('colours a %s score as %s', async (score, cls) => {
+    api.aiApi.analyzeSeo.mockResolvedValue({ data: { ...seoResult, score } })
+    render(<SeoPanel content={LONG} />, { wrapper })
+    fireEvent.click(screen.getByText('Analyze'))
+    const el = await screen.findByText(String(score))
+    expect(el.className).toContain(cls)
+  })
+
   it('is disabled with empty content', () => {
     render(<SeoPanel content="   " />, { wrapper })
     expect(screen.getByText('Analyze').closest('button')).toBeDisabled()

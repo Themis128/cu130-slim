@@ -51,6 +51,17 @@ describe('Header', () => {
     fireEvent.keyDown(window, { key: 'k', metaKey: true }) // toggle back
   })
 
+  it('opens the command palette from the mobile search button and the desktop trigger', async () => {
+    const { unmount } = render(<Header />)
+    fireEvent.click(screen.getByLabelText('Search'))
+    await waitFor(() => expect(document.querySelector('[role="dialog"], [cmdk-root]')).not.toBeNull())
+    unmount()
+    render(<Header />)
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    fireEvent.click(screen.getByText('Search pages, actions...'))
+    await waitFor(() => expect(document.querySelector('[role="dialog"], [cmdk-root]')).not.toBeNull())
+  })
+
   it('toggles the theme', () => {
     render(<Header />)
     fireEvent.click(screen.getByLabelText('Switch to light mode'))
