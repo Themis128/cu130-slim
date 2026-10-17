@@ -384,10 +384,69 @@ async def _export_web_events(db: AsyncSession) -> list[dict]:
             "utm_source": payload.get("utm_source"),
             "utm_medium": payload.get("utm_medium"),
             "utm_campaign": payload.get("utm_campaign"),
+            "utm_content": payload.get("utm_content"),
+            "utm_term": payload.get("utm_term"),
             # client_ip / user_agent intentionally dropped (PII minimization)
             "occurred_at": _iso(e.occurred_at),
         })
     return out
+
+
+async def _export_funnel(db: AsyncSession) -> dict:
+    """Post → click → lead funnel, joined on utm_content = post.id.
+
+    Publish-time UTM tagging (app.services.utm) stamps every owned-domain
+    link with utm_source=platform / utm_campaign=meta_data.source /
+    utm_content=post.id. AttributionCapture on the site persists those
+    params into web_analytics_events.payload, so this join is real data —
+    posts with no tagged-click rows simply report zeroes.
+    """
+    since = datetime.now(UTC) - timedelta(days=_WEB_EVENTS_DAYS)
+    per_post = (
+        await db.execute(
+            text(
+                "SELECT p.id::text AS post_id,"
+                " p.meta_data->>'source' AS campaign,"
+                " sa.platform,"
+                " p.published_at,"
+                " count(*) FILTER (WHERE e.event_name='page_view') AS views,"
+                " count(*) FILTER (WHERE e.event_name='contact_submit') AS leads,"
+                " count(*) FILTER (WHERE e.event_name LIKE '%\\_click') AS clicks"
+                " FROM posts p"
+                " JOIN post_targets pt ON pt.post_id=p.id AND pt.status='published'"
+                " JOIN social_accounts sa ON sa.id=pt.social_account_id"
+                " JOIN web_analytics_events e"
+                "   ON e.payload->>'utm_content' = p.id::text"
+                "   AND e.occurred_at >= :since"
+                " GROUP BY 1,2,3,4"
+                " ORDER BY leads DESC, views DESC"
+            ),
+            {"since": since},
+        )
+    ).mappings().all()
+    by_campaign = (
+        await db.execute(
+            text(
+                "SELECT e.payload->>'utm_campaign' AS campaign,"
+                " e.payload->>'utm_source' AS platform,"
+                " count(*) FILTER (WHERE e.event_name='page_view') AS views,"
+                " count(*) FILTER (WHERE e.event_name='contact_submit') AS leads,"
+                " count(*) FILTER (WHERE e.event_name LIKE '%\\_click') AS clicks"
+                " FROM web_analytics_events e"
+                " WHERE e.payload ? 'utm_source' AND e.occurred_at >= :since"
+                " GROUP BY 1,2 ORDER BY leads DESC, views DESC"
+            ),
+            {"since": since},
+        )
+    ).mappings().all()
+    return {
+        "window_days": _WEB_EVENTS_DAYS,
+        "generated_at": _iso(datetime.now(UTC)),
+        "per_post": [
+            {**r, "published_at": _iso(r["published_at"])} for r in per_post
+        ],
+        "by_campaign": [dict(r) for r in by_campaign],
+    }
 
 
 async def _export_ad_snapshots(db: AsyncSession) -> list[dict]:
@@ -888,6 +947,7 @@ async def _export_async() -> dict:
             "lake/socialauto-ads/daily.json": await _export_ad_daily(db),
             "lake/socialauto-ads/demographics.json": await _export_ad_demographics(db),
             "lake/socialauto-ops/health.json": await _export_ops_health(db),
+            "lake/socialauto-funnel/funnel.json": await _export_funnel(db),
             "lake/socialauto-monetization/gates.json": await _export_monetization(db),
             "lake/socialauto-email-campaigns/campaigns.json": await _export_email_campaigns(db),
         }

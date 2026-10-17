@@ -343,10 +343,11 @@ def test_export_web_events_utm_extraction():
         team_id=uuid.uuid4(), domain="cloudless.gr", event_name="pageview",
         session_id="s", path="/x", referrer="r", locale="en",
         payload={"utm_source": "li", "utm_medium": "social",
-                 "utm_campaign": "c", "client_ip": "1.2.3.4"},
+                 "utm_campaign": "c", "utm_content": "p1", "client_ip": "1.2.3.4"},
         occurred_at=datetime(2026, 1, 1, tzinfo=UTC))
     rows = _run(de._export_web_events(_OneExecDB(_Scalars([e]))))
     assert rows[0]["utm_source"] == "li"
+    assert rows[0]["utm_content"] == "p1"
     assert "client_ip" not in rows[0]
 
     e.payload = None
@@ -434,6 +435,7 @@ def test_export_async_full_run(monkeypatch):
                  "_export_email_campaigns"):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[{"r": 1}]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"q": 1}))
+    monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={"f": 1}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={"e": 1}))
     monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={"w": 1}))
@@ -442,8 +444,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 19  # 14 tables + edge + reports + insights + 2 CF files
-    assert out["bytes"] == 190
+    assert out["files"] == 20  # 15 tables + edge + reports + insights + 2 CF files
+    assert out["bytes"] == 200
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
@@ -464,6 +466,7 @@ def test_export_async_insights_and_put_failures(monkeypatch):
                  "_export_email_campaigns"):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={}))
