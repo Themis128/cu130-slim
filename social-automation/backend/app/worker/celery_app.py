@@ -44,6 +44,7 @@ celery_app = Celery(
         "app.worker.tasks.email_campaigns",
         "app.worker.tasks.skool_watch",
         "app.worker.tasks.monetization",
+        "app.worker.tasks.promo_scan",
     ],
 )
 
@@ -240,6 +241,20 @@ celery_app.conf.update(
             "task": "app.worker.tasks.digest.send_weekly_slack_digest",
             "schedule": crontab(hour=settings.SLACK_DIGEST_HOUR, minute=0, day_of_month=1),
             "kwargs": {"days": 30, "post_to_slack": True, "post_to_email": True},
+        },
+        # Daily free-promotion scan → email. Sweeps the digest mailbox for
+        # ad-credit/coupon/promo-offer mail (how every platform delivers
+        # credits), pulls live LinkedIn credit state, flags near/unlocked
+        # creator-program gates, and lists console-only promo surfaces to
+        # check by hand. Read-only — reports before the monetization report
+        # so the morning batch leads with what's exploitable for free.
+        "daily-promo-scan": {
+            "task": "app.worker.tasks.promo_scan.run_promo_scan",
+            "schedule": crontab(
+                hour=settings.PROMO_SCAN_HOUR,
+                minute=settings.PROMO_SCAN_MINUTE,
+            ),
+            "kwargs": {"send": True},
         },
         # Daily monetization report → email + auto-scheduled posts. Runs
         # before the strategy brief: evaluates every account against its
