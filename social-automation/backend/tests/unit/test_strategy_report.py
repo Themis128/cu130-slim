@@ -147,10 +147,39 @@ def test_parse_actions_rejects_short_junk():
     assert _parse_actions("1. ok\n2. - \nDone.") == []
 
 
+def test_parse_actions_strips_code_fence():
+    text = "```\n1. Post a LinkedIn carousel about deploys at 09:00\n```"
+    assert _parse_actions(text) == [
+        "Post a LinkedIn carousel about deploys at 09:00"
+    ]
+
+
+def test_parse_actions_json_array_fallback():
+    text = '["Post a LinkedIn carousel about deploys at 09:00", "ok"]'
+    assert _parse_actions(text) == [
+        "Post a LinkedIn carousel about deploys at 09:00"
+    ]
+
+
 def test_rule_actions_priority_order():
     actions = _rule_actions(INSIGHTS)
     assert actions[0].startswith("linkedin is your strongest")
     assert actions[-1].startswith("twitter engagement")
+
+
+def test_rule_actions_excludes_data_gap_diagnostics():
+    insights = {
+        "recommendations": [
+            {"type": "data_gap", "priority": "high", "platform": "twitter",
+             "text": "twitter data collection issue: twitter stats HTTP 401"},
+            {"type": "timing", "priority": "low", "platform": "linkedin",
+             "text": "Your linkedin audience engages most on Tue around 09:00 Athens."},
+        ]
+    }
+    actions = _rule_actions(insights)
+    assert actions == [
+        "Your linkedin audience engages most on Tue around 09:00 Athens."
+    ]
 
 
 def test_subject_mentions_date():

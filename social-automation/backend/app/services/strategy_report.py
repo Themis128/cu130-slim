@@ -1025,10 +1025,17 @@ def _brief_media_from_assets(
 
 
 def _rule_actions(insights: dict[str, Any]) -> list[str]:
-    """Fallback: the insights engine's own recommendations, priority-ordered."""
+    """Fallback: the insights engine's own recommendations, priority-ordered.
+
+    ``data_gap`` recommendations ("twitter data collection issue: HTTP 401")
+    are diagnostics, not schedulable playbook actions — they already render
+    in the brief's per-platform data-warning lines and would only produce
+    unschedulable automation-plan entries, so they're excluded here.
+    """
     rank = {"high": 0, "medium": 1, "low": 2}
     recs = sorted(
-        insights.get("recommendations") or [],
+        (r for r in (insights.get("recommendations") or [])
+         if r.get("type") != "data_gap"),
         key=lambda r: rank.get(r.get("priority", "low"), 3),
     )
     return [r["text"] for r in recs[:_MAX_ACTIONS] if r.get("text")]
@@ -1078,8 +1085,38 @@ def _parse_actions(text: str) -> list[str]:
     """Pull numbered/bulleted action lines out of the model's reply."""
     from app.services.duplicate_detector import is_duplicate
 
+    # Thinking models leak "</think>" residue before the answer; providers may
+    # wrap the list in a markdown fence or reply with a JSON array of strings
+    # or {"action": ...} objects — handle those before line matching.
+    stripped = text.strip()
+    if "</think>" in stripped:
+        stripped = stripped.split("</think>", 1)[-1].strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```\w*\n?|\n?```$", "", stripped).strip()
+    if stripped.startswith("["):
+        try:
+            parsed = json.loads(stripped)
+            if isinstance(parsed, list):
+                entries = []
+                for a in parsed:
+                    if isinstance(a, str | int | float):
+                        entries.append(str(a).strip())
+                    elif isinstance(a, dict):
+                        # {"action": ...} objects — or unknown schema, then the
+                        # longest string field.
+                        entries.append(str(
+                            a.get("action") or a.get("text") or a.get("instruction")
+                            or max((str(v).strip() for v in a.values()
+                                    if isinstance(v, str)), key=len, default="")
+                        ).strip())
+                entries = [e for e in entries if len(e) > 15]
+                if entries:
+                    return entries[: _MAX_ACTIONS]
+        except (ValueError, TypeError):
+            pass
+
     actions: list[str] = []
-    for line in text.splitlines():
+    for line in stripped.splitlines():
         m = _ACTION_LINE.match(line)
         if m:
             action = m.group(1).strip().strip('"')
@@ -1147,9 +1184,55 @@ async def _llm_actions(
 
     text = (resp or {}).get("text") or (resp or {}).get("response") or ""
     if not isinstance(text, str) or not text.strip():
-        return None
+        # Structured-output providers return a dict without text/response —
+        # the strategy reply comes back as {"actions": ...} (a list, or a
+        # string holding the numbered list), content-gen as {"content": ...}.
+        payload = (resp or {}).get("actions") if isinstance(resp, dict) else None
+        if isinstance(payload, list):
+            actions = []
+            for a in payload:
+                if isinstance(a, str | int | float):
+                    entry = str(a).strip()
+                elif isinstance(a, dict):
+                    entry = str(
+                        a.get("action") or a.get("text") or a.get("instruction") or ""
+                    ).strip()
+                    if not entry:
+                        # Unknown schema — take the longest string field, the
+                        # likeliest candidate for the instruction text.
+                        entry = max(
+                            (str(v).strip() for v in a.values() if isinstance(v, str)),
+                            key=len, default="",
+                        )
+                else:
+                    entry = ""
+                if len(entry) > 15:
+                    actions.append(entry)
+            if not actions:
+                logger.warning(
+                    "Strategy LLM actions list had no usable entries: %.300s",
+                    json.dumps(payload, default=str),
+                )
+            return actions[:_MAX_ACTIONS] or None
+        text = (
+            payload if isinstance(payload, str) else ""
+        ) or str((resp or {}).get("content") or "")
+        if not text.strip():
+            logger.warning(
+                "Strategy LLM reply had no text (keys=%s)",
+                sorted((resp or {}).keys()) if isinstance(resp, dict) else type(resp),
+            )
+            return None
     actions = _parse_actions(text)
-    return actions or None
+    if not actions:
+        # The provider call succeeded but nothing parsed — keep the raw
+        # reply so cold-start/format misses are diagnosable after the fact.
+        logger.warning(
+            "Strategy LLM reply produced no actions (provider=%s): %.300s",
+            (resp or {}).get("provider"), text,
+        )
+        return None
+    return actions
 
 
 async def _load_recent_posts_by_platform(
