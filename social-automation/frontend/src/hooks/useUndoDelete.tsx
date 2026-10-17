@@ -28,7 +28,9 @@ function UndoToast({
         <span className="text-sm font-medium">{label} deleted</span>
         <button
           onClick={onUndo}
-          className="flex items-center gap-1.5 text-sm font-semibold text-primary hover:opacity-80 transition-opacity"
+          // An exiting toast belongs to a delete that is already sent.
+          disabled={!visible}
+          className="flex items-center gap-1.5 text-sm font-semibold text-primary hover:opacity-80 transition-opacity disabled:pointer-events-none disabled:opacity-50"
         >
           <Undo2 className="h-3.5 w-3.5" />
           Undo
@@ -92,7 +94,12 @@ export function useUndoDelete<T extends { id: string }>(
 
       const undo = () => {
         const timer = timers.current.get(id)
-        if (timer) clearTimeout(timer)
+        // The undo window closes when the delete is sent: commit() takes the
+        // timer before calling the server. A late click (the toast outlives
+        // the timer while it animates out) must not bring back a row the
+        // server has already deleted.
+        if (!timer) return
+        clearTimeout(timer)
         timers.current.delete(id)
         restore(id)
         toast.dismiss(id)
