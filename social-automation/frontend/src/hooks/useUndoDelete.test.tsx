@@ -93,3 +93,27 @@ describe('useUndoDelete', () => {
     expect(onDelete).toHaveBeenCalledWith({ id: 'b' })
   })
 })
+
+describe('useUndoDelete — toast exit animation', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('renders the hidden (exiting) state when react-hot-toast marks it not visible', () => {
+    const { result } = renderHook(() => useUndoDelete(vi.fn().mockResolvedValue(undefined)))
+    act(() => result.current.deleteWithUndo({ id: 'z1' }, 'Draft'))
+    const renderFn = toast.custom.mock.calls[0][0] as (t: { visible: boolean }) => JSX.Element
+    const { container, rerender } = render(<>{renderFn({ visible: false })}</>)
+    const card = container.firstElementChild as HTMLElement
+    expect(card.className).toContain('opacity-0')
+    expect(card.className).toContain('translate-y-2')
+    expect(screen.getByText('Draft deleted')).toBeInTheDocument()
+    rerender(<>{renderFn({ visible: true })}</>)
+    expect((container.firstElementChild as HTMLElement).className).toContain('opacity-100')
+  })
+})

@@ -216,6 +216,16 @@ describe('StepFirstPost', () => {
     expect(api.contentApi.createPost).not.toHaveBeenCalled()
   })
 
+  it('includes the server detail when the save is rejected with one', async () => {
+    api.contentApi.createPost.mockRejectedValueOnce({ response: { data: { detail: 'Content blocked by policy' } } })
+    render(<StepFirstPost onContinue={vi.fn()} />, { wrapper })
+    fireEvent.change(screen.getByPlaceholderText('What would you like to share?'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByText('Create Post'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.error.mock.calls[0][0]).toBe('Couldn’t save your draft.\nDetails: Content blocked by policy')
+    expect(screen.queryByText('Draft post created!')).toBeNull()
+  })
+
   it('toasts when the save fails', async () => {
     api.contentApi.createPost.mockRejectedValueOnce(new Error('500'))
     render(<StepFirstPost onContinue={vi.fn()} />, { wrapper })
