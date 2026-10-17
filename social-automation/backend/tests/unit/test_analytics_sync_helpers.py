@@ -270,6 +270,19 @@ async def test_record_follower_snapshot_rejects_zero():
 
 
 @pytest.mark.asyncio
+async def test_record_follower_snapshot_rejects_negative():
+    # -1 is the helpers' "fetch failed" sentinel — never write it.
+    assert await A._record_follower_snapshot(_DB(), _account(), "x", -1, allow_zero=True) is False
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_allow_zero_writes_verified_zero():
+    db = _DB(results=[None])  # no prev row
+    assert await A._record_follower_snapshot(db, _account(), "x", 0, allow_zero=True) is True
+    assert len(db.added) == 1 and db.added[0].followers == 0
+
+
+@pytest.mark.asyncio
 async def test_record_follower_snapshot_implausible():
     db = _DB(results=[(952000, datetime.now(UTC))])
     assert await A._record_follower_snapshot(db, _account(), "linkedin", 15) is False
@@ -736,6 +749,28 @@ async def test_persist_follower_snapshot_swallows_errors(monkeypatch):
 
     monkeypatch.setattr(AA, "_follower_count", AsyncMock(side_effect=RuntimeError("x")))
     await A._persist_follower_snapshot(_DB(), _account(platform="twitter"))
+
+
+@pytest.mark.asyncio
+async def test_persist_follower_snapshot_skips_fetch_failure(monkeypatch):
+    import app.api.analytics as AA
+
+    monkeypatch.setattr(AA, "_follower_count", AsyncMock(return_value=-1))
+    db = _DB()
+    await A._persist_follower_snapshot(db, _account(platform="twitter"))
+    assert db.added == [] and db.executed == []
+
+
+@pytest.mark.asyncio
+async def test_persist_follower_snapshot_records_verified_zero(monkeypatch):
+    # A real 0 from the API must land as a row, or a 0-follower account
+    # never gets a snapshot and the digest flags it stale forever.
+    import app.api.analytics as AA
+
+    monkeypatch.setattr(AA, "_follower_count", AsyncMock(return_value=0))
+    db = _DB(results=[None])
+    await A._persist_follower_snapshot(db, _account(platform="twitter"))
+    assert len(db.added) == 1 and db.added[0].followers == 0
 
 
 # ── sync_linkedin_account ─────────────────────────────────────────────

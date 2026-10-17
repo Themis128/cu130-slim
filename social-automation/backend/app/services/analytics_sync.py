@@ -937,6 +937,8 @@ async def _record_follower_snapshot(
     account: SocialAccount,
     platform: str,
     followers: int,
+    *,
+    allow_zero: bool = False,
 ) -> bool:
     """Append a FollowerSnapshot only when the count changed (or heartbeat).
 
@@ -944,8 +946,12 @@ async def _record_follower_snapshot(
     ~8 rows/hour/account of identical values, bloating the series. Now the
     table is a change log: one row per real delta, plus one heartbeat row
     every 7 days so charts keep a recent anchor. Returns True if written.
+
+    ``allow_zero`` records a verified 0 (authoritative API read). Without it,
+    zero means "scrape/API failed" and is dropped — but dropping a real 0
+    leaves the series empty and the digest reports false staleness.
     """
-    if followers <= 0:
+    if followers < 0 or (followers == 0 and not allow_zero):
         return False
     prev_row = (
         await db.execute(
@@ -1595,6 +1601,13 @@ async def sync_twitter_account(
                             "tweet_count": int(pm.get("tweet_count") or 0),
                             "listed_count": int(pm.get("listed_count") or 0),
                         },
+                    )
+                    # Verified API read — a real 0 is valid data, not a
+                    # scrape failure; record it so the series isn't silent.
+                    await _record_follower_snapshot(
+                        db, account, "twitter",
+                        int(pm.get("followers_count") or 0),
+                        allow_zero=True,
                     )
             elif ur.status_code == 402:
                 # Credits depleted — persistent state, not a per-cycle error.
@@ -2993,6 +3006,13 @@ async def _persist_follower_snapshot(db: AsyncSession, account: SocialAccount) -
         from app.api.analytics import _follower_count
 
         followers = await _follower_count(account)
-        await _record_follower_snapshot(db, account, account.platform, followers)
+        # -1 = fetch failed (skip); >=0 is a real API reading — record
+        # verified zeros too, or a 0-follower account never gets a row
+        # and the digest flags it as stale forever.
+        if followers < 0:
+            return
+        await _record_follower_snapshot(
+            db, account, account.platform, followers, allow_zero=True
+        )
     except Exception:
         pass  # follower tracking is best-effort
