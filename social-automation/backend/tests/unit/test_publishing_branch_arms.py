@@ -133,20 +133,22 @@ async def test_browser_publish_without_login_credentials(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_fb_photo_upload_without_id_is_ignored(monkeypatch, tmp_path):
+async def test_fb_photo_upload_without_id_refuses_to_publish(monkeypatch, tmp_path):
     a, b = tmp_path / "a.png", tmp_path / "b.png"
     for f in (a, b):
         f.write_bytes(b"\x89PNG" + b"\x00" * 12000)
     monkeypatch.setattr(P, "_has_facebook_browser_session", lambda acc: False)
     monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(return_value="ptok"))
-    monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: SimpleNamespace(create_post=AsyncMock(return_value={"id": "txt"})))
+    create_post = AsyncMock(return_value={"id": "txt"})
+    monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: SimpleNamespace(create_post=create_post))
     monkeypatch.setattr(P.httpx, "AsyncClient", _FBHttp)
     base = f"{P.FACEBOOK_GRAPH_BASE}/{P.FACEBOOK_GRAPH_VERSION}/pg1"
     monkeypatch.setattr(_FBHttp, "posts", [])
     monkeypatch.setattr(_FBHttp, "responses", {f"{base}/photos": (200, {}), f"{base}/feed": (200, {"id": "alb"})})
     r = await P._publish_facebook("t", "hi", _account("facebook", account_id="pg1"), _post(), [str(a), str(b)], None)
-    # Every upload came back id-less → no album; text-only fallback is used.
-    assert r.success and r.platform_post_id == "txt"
+    # Owner rule: id-less uploads → fail; never a text-only post, never an album.
+    assert not r.success and "0/2" in r.error and "missing media" in r.error
+    create_post.assert_not_awaited()
     assert not any(u.endswith("/feed") for u, *_ in _FBHttp.posts)
 
 
@@ -176,21 +178,19 @@ async def test_tiktok_poll_timeout_without_uploaded_bytes():
 
 
 @pytest.mark.asyncio
-async def test_threads_skips_assets_without_public_url(monkeypatch):
+async def test_threads_refuses_when_an_asset_has_no_public_url(monkeypatch):
     from unittest.mock import patch
 
-    from tests.unit.test_publishing import _FakeAsyncClient, _FakeResponse
+    from tests.unit.test_publishing import _FakeAsyncClient
 
     monkeypatch.setattr(P, "_media_public_url", lambda sp, **kw: None if "private" in sp else f"https://cdn/{sp}")
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "45678"}),
-        _FakeResponse(200, {"status_code": "FINISHED"}),
-        _FakeResponse(200, {"id": "78901"}),
-    ])
+    fake = _FakeAsyncClient([])
     acct = SimpleNamespace(account_id="u1", username="me")
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
         r = await P._publish_threads("tok", "hello", acct, SimpleNamespace(), ["/a.png", "/b.png"], ["private/a.png", "pub/b.png"])
-    assert r.success and r.platform_post_id == "78901"
-    # Only the asset with a public URL is posted, as a single image (not a carousel).
-    assert fake.calls[0]["data"]["media_type"] == "IMAGE"
-    assert fake.calls[0]["data"]["image_url"] == "https://cdn/pub/b.png"
+        # None resolve → still refused (no text-only fallback).
+        monkeypatch.setattr(P, "_media_public_url", lambda sp, **kw: None)
+        r2 = await P._publish_threads("tok", "hello", acct, SimpleNamespace(), ["/a.png"], ["pub/a.png"])
+    assert not r.success and r.skipped and "1/2" in r.error
+    assert not r2.success and r2.skipped and "0/1" in r2.error
+    assert fake.calls == []  # no container (text or image) was ever created
