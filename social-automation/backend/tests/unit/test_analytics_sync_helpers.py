@@ -282,6 +282,43 @@ async def test_record_follower_snapshot_allow_zero_writes_verified_zero():
     assert len(db.added) == 1 and db.added[0].followers == 0
 
 
+class _SnapshotStore(_DB):
+    """Stateful fake: answers the latest-row query from rows added so far,
+    honouring the optional ``followers > 0`` filter."""
+
+    async def execute(self, stmt):
+        self.executed.append(stmt)
+        nonzero_only = "followers >" in str(stmt)
+        rows = [r for r in self.added if not nonzero_only or r.followers > 0]
+        if not rows:
+            return _Res(None)
+        last = rows[-1]
+        return _Res((last.followers, getattr(last, "captured_at", None) or datetime.now(UTC)))
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_verified_zero_twice_dedups():
+    db, acct = _SnapshotStore(), _account()
+    assert await A._record_follower_snapshot(db, acct, "x", 0, allow_zero=True) is True
+    assert await A._record_follower_snapshot(db, acct, "x", 0, allow_zero=True) is False
+    assert [r.followers for r in db.added] == [0]
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_plausibility_ignores_stored_zero():
+    db, acct = _SnapshotStore(), _account()
+    assert await A._record_follower_snapshot(db, acct, "x", 0, allow_zero=True) is True
+    # A stored 0 must not make a later real reading look implausible.
+    assert await A._record_follower_snapshot(db, acct, "x", 250) is True
+    assert [r.followers for r in db.added] == [0, 250]
+
+
+@pytest.mark.asyncio
+async def test_record_follower_snapshot_zero_after_nonzero_still_plausibility_checked():
+    db = _DB(results=[(952000, datetime.now(UTC))])
+    assert await A._record_follower_snapshot(db, _account(), "x", 0, allow_zero=True) is False
+
+
 @pytest.mark.asyncio
 async def test_record_follower_snapshot_implausible():
     db = _DB(results=[(952000, datetime.now(UTC))])

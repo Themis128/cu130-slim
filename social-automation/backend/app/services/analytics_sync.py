@@ -953,21 +953,24 @@ async def _record_follower_snapshot(
     """
     if followers < 0 or (followers == 0 and not allow_zero):
         return False
-    prev_row = (
-        await db.execute(
-            select(FollowerSnapshot.followers, FollowerSnapshot.captured_at)
-            .where(
-                FollowerSnapshot.social_account_id == account.id,
-                FollowerSnapshot.followers > 0,
-            )
-            .order_by(FollowerSnapshot.captured_at.desc())
-            .limit(1)
+    def _latest(nonzero_only: bool):
+        q = select(FollowerSnapshot.followers, FollowerSnapshot.captured_at).where(
+            FollowerSnapshot.social_account_id == account.id,
         )
-    ).first()
-    prev = prev_row[0] if prev_row else None
-    prev_at = prev_row[1] if prev_row else None
-    if not _plausible_follower_count(prev, followers):
+        if nonzero_only:
+            q = q.where(FollowerSnapshot.followers > 0)
+        return q.order_by(FollowerSnapshot.captured_at.desc()).limit(1)
+
+    # Plausibility compares against the latest NON-zero row — a stored
+    # verified 0 must not make every later real reading look like a jump.
+    nonzero_row = (await db.execute(_latest(True))).first()
+    if not _plausible_follower_count(nonzero_row[0] if nonzero_row else None, followers):
         return False
+    # Dedup/heartbeat compares against the latest row INCLUDING zeros, so a
+    # repeated verified 0 isn't re-written on every sync.
+    last_row = (await db.execute(_latest(False))).first() if allow_zero else nonzero_row
+    prev = last_row[0] if last_row else None
+    prev_at = last_row[1] if last_row else None
     if (
         prev == followers
         and prev_at is not None
