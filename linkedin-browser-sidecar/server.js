@@ -51,6 +51,11 @@ import rateLimit from "express-rate-limit";
 import { chromium } from "patchright";
 import fs from "fs";
 import path from "path";
+import {
+  createCrashTracker,
+  pageNeedsRecovery,
+  resolveRecoveryState,
+} from "./session-recovery.js";
 
 const PORT = process.env.LINKEDIN_SIDECAR_PORT || 9225;
 
@@ -59,7 +64,7 @@ const PORT = process.env.LINKEDIN_SIDECAR_PORT || 9225;
 let browser = null;
 let context = null;
 let page = null;
-let pageCrashed = false;
+const crashTracker = createCrashTracker();
 let storageState = null;
 
 /** Coerce cookie values to strings; quote JSESSIONID ajax: values LinkedIn expects. */
@@ -129,12 +134,11 @@ async function openContext() {
 }
 
 function wirePage(p) {
-  pageCrashed = false;
   // A crashed target makes every later call throw "Target crashed" —
-  // flag it so ensureBrowser recreates the context on the next request
+  // flag that page (per page, not globally) so ensureBrowser recreates the context on the next request
   // instead of hanging the wedge forever.
   p.on("crash", () => {
-    pageCrashed = true;
+    crashTracker.mark(p);
     agentLog("H-CRASH", "page.crash", "page target crashed", {
       url: (() => {
         try {
@@ -172,16 +176,24 @@ function wirePage(p) {
 
 async function ensureBrowser(fresh = false) {
   if (browser && browser.isConnected()) {
-    if (page && !page.isClosed() && !pageCrashed) return;
+    if (!pageNeedsRecovery(page, crashTracker)) return;
     // Browser process is alive but the page is wedged — recreate only the
     // context+page instead of reporting healthy-but-hung forever.
     agentLog("H-REC", "ensureBrowser", "page crashed/closed — recreating context", {});
+    // Rebuild with the freshest cookies (live context, then saved file),
+    // not the storageState loaded at startup — LinkedIn rotates cookies.
+    const { state, source } = await resolveRecoveryState({
+      context,
+      readSaved: readSavedStorageState,
+      current: storageState,
+    });
+    if (state) storageState = sanitizeStorageState(state);
+    agentLog("H-REC", "ensureBrowser", "recovery session source", { source });
     try {
       await context.close();
     } catch (_) {}
     context = null;
     page = null;
-    pageCrashed = false;
     await openContext();
     return;
   }
@@ -791,15 +803,22 @@ async function saveSession() {
   } catch (_) {}
 }
 
-async function loadSavedSession() {
+function readSavedStorageState() {
   try {
-    if (!fs.existsSync(SESSION_FILE)) return false;
+    if (!fs.existsSync(SESSION_FILE)) return null;
     const data = JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
-    if (data.storageState) {
-      storageState = sanitizeStorageState(data.storageState);
-      return true;
-    }
-  } catch (_) {}
+    return data.storageState || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function loadSavedSession() {
+  const saved = readSavedStorageState();
+  if (saved) {
+    storageState = sanitizeStorageState(saved);
+    return true;
+  }
   return false;
 }
 
@@ -3294,7 +3313,7 @@ app.get("/health", (req, res) => {
     rate_limit_until: cooling ? rl.until : null,
     proxy: !!(process.env.LINKEDIN_PROXY || process.env.PROXY_URL),
     browser_connected: !!(browser && browser.isConnected()),
-    page_ok: !!(page && !page.isClosed() && !pageCrashed),
+    page_ok: !pageNeedsRecovery(page, crashTracker),
   });
 });
 
