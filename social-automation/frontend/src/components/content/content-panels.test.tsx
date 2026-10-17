@@ -93,6 +93,56 @@ describe('NlpPanel', () => {
   })
 })
 
+describe('NlpPanel — fair band, singular issue, stale responses', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const fair = { score: 70, avg_sentence_words: 12, issue_count: 1, issues: [], recommendations: [] }
+
+  it('renders the fair band in amber with a singular issue count', async () => {
+    api.aiApi.nlpCheck.mockResolvedValue({ data: fair })
+    render(<NlpPanel content={LONG} />)
+    act(() => { vi.advanceTimersByTime(900) })
+    const label = await screen.findByText('Fair')
+    expect(label).toHaveClass('text-amber-500')
+    expect(screen.getByText('70')).toHaveClass('text-amber-500')
+    expect(document.querySelector('.bg-amber-500')).toHaveStyle({ width: '70%' })
+    expect(screen.getByText(/1 issue$/)).toBeInTheDocument()
+  })
+
+  it('ignores a response that resolves after the content changed', async () => {
+    let resolveFirst!: (v: unknown) => void
+    api.aiApi.nlpCheck
+      .mockImplementationOnce(() => new Promise((r) => { resolveFirst = r }))
+      .mockResolvedValueOnce({ data: { ...fair, score: 91, issue_count: 0 } })
+    const { rerender } = render(<NlpPanel content={LONG} />)
+    act(() => { vi.advanceTimersByTime(900) }) // first request in flight
+    rerender(<NlpPanel content={`${LONG} Edited.`} />)
+    act(() => { vi.advanceTimersByTime(900) })
+    await screen.findByText('91')
+    await act(async () => { resolveFirst({ data: { ...fair, score: 12 } }) })
+    expect(screen.queryByText('12')).toBeNull() // stale result discarded
+    expect(screen.getByText('91')).toBeInTheDocument()
+  })
+
+  it('keeps the last known score when a later check fails', async () => {
+    api.aiApi.nlpCheck.mockResolvedValueOnce({ data: fair }).mockRejectedValueOnce(new Error('503'))
+    const { rerender } = render(<NlpPanel content={LONG} />)
+    act(() => { vi.advanceTimersByTime(900) })
+    await screen.findByText('70')
+    rerender(<NlpPanel content={`${LONG} More.`} />)
+    act(() => { vi.advanceTimersByTime(900) })
+    await waitFor(() => expect(api.aiApi.nlpCheck).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('70')).toBeInTheDocument()
+  })
+})
+
 describe('SpellCheckButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
