@@ -86,3 +86,27 @@ describe('TourProvider', () => {
     fireEvent.click(screen.getByText('skip'))
   })
 })
+
+describe('useTour outside a provider', () => {
+  it('returns an inert tour whose actions are safe no-ops', () => {
+    render(<Probe />)
+    for (const label of ['start', 'next', 'prev', 'skip']) {
+      fireEvent.click(screen.getByText(label))
+    }
+    expect(screen.getByTestId('open').textContent).toBe('false')
+    expect(screen.getByTestId('step').textContent).toBe('0')
+    expect(localStorage.getItem('tour_completed')).toBeNull()
+  })
+
+  it('cancels the auto-open timer when unmounted early', () => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    const clear = vi.spyOn(globalThis, 'clearTimeout')
+    const { unmount } = render(<TourProvider><Probe /></TourProvider>)
+    unmount()
+    expect(clear).toHaveBeenCalled()
+    clear.mockRestore()
+    vi.useRealTimers()
+  })
+})
+

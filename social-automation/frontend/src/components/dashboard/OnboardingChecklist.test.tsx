@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { OnboardingChecklist } from '@/components/dashboard/OnboardingChecklist'
 
 vi.mock('@/hooks/useQueries', () => ({
@@ -42,5 +42,15 @@ describe('OnboardingChecklist', () => {
     expect(container).toBeEmptyDOMElement()
     expect(screen.queryByText('Getting Started')).not.toBeInTheDocument()
   })
-})
 
+  it('dismisses and remembers the dismissal', () => {
+    const props = { connectedAccounts: 0, hasBrand: false, postCount: 0, hasScheduledPost: false }
+    const { container, unmount } = render(<OnboardingChecklist {...props} />)
+    fireEvent.click(screen.getAllByRole('button')[0])
+    expect(container).toBeEmptyDOMElement()
+    expect(localStorage.getItem('onboarding-checklist-dismissed')).toBe('true')
+    unmount()
+    const again = render(<OnboardingChecklist {...props} />)
+    expect(again.container).toBeEmptyDOMElement()
+  })
+})

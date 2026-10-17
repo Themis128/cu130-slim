@@ -420,6 +420,20 @@ const CASES: Case[] = [
   ['auth.export', (m) => m.authApi.exportData(), 'get', '/auth/export-data'],
   ['auth.deleteAccount', (m) => m.authApi.deleteAccount('pw'), 'delete', '/auth/account'],
   ['auth.switchTeam', (m) => m.authApi.switchTeam('t1'), 'post', '/auth/switch-team'],
+
+  // --- email campaigns + CRM ---
+  ['email.list', (m) => m.emailCampaignsApi.list(), 'get', '/email-campaigns'],
+  ['email.get', (m) => m.emailCampaignsApi.get(ID), 'get', `/email-campaigns/${ID}`],
+  ['email.create', (m) => m.emailCampaignsApi.create({ name: 'N', kind: 'survey', subject: 'S', text_body: 'T' }), 'post', '/email-campaigns'],
+  ['email.addAudience', (m) => m.emailCampaignsApi.addAudience(ID, { include_espocrm: true }), 'post', `/email-campaigns/${ID}/audience`],
+  ['email.send', (m) => m.emailCampaignsApi.send(ID), 'post', `/email-campaigns/${ID}/send`],
+  ['email.delete', (m) => m.emailCampaignsApi.delete(ID), 'delete', `/email-campaigns/${ID}`],
+  ['email.recipients', (m) => m.emailCampaignsApi.recipients(ID), 'get', `/email-campaigns/${ID}/recipients`],
+  ['email.responses', (m) => m.emailCampaignsApi.responses(ID), 'get', `/email-campaigns/${ID}/responses`],
+  ['email.suppressions', (m) => m.emailCampaignsApi.suppressions(), 'get', '/email-campaigns/suppressions/list'],
+  ['email.addSuppression', (m) => m.emailCampaignsApi.addSuppression('a@b.c', 'manual'), 'post', '/email-campaigns/suppressions/list'],
+  ['email.crmSummary', (m) => m.emailCampaignsApi.crmSummary(), 'get', '/email-campaigns/crm/summary'],
+  ['email.crmClients', (m) => m.emailCampaignsApi.crmClients(), 'get', '/email-campaigns/crm/clients'],
 ]
 
 describe('API endpoint surface', () => {
@@ -500,6 +514,21 @@ describe('API argument transforms', () => {
     )
     expect(apiModule.mediaUrl(null)).toBe('')
     expect(apiModule.mediaUrl(undefined)).toBe('')
+  })
+
+  it('emailCampaigns forwards bodies and CRM limit params', async () => {
+    await apiModule.emailCampaignsApi.addSuppression('x@y.z', 'bounce')
+    expect(mockAxiosInstance.post).toHaveBeenLastCalledWith(
+      '/email-campaigns/suppressions/list', { email: 'x@y.z', reason: 'bounce' })
+    await apiModule.emailCampaignsApi.addAudience('c1', { emails: [{ email: 'a@b.c' }], lead_sources: ['web'] })
+    expect(mockAxiosInstance.post).toHaveBeenLastCalledWith(
+      '/email-campaigns/c1/audience', { emails: [{ email: 'a@b.c' }], lead_sources: ['web'] })
+    await apiModule.emailCampaignsApi.crmClients()
+    expect(mockAxiosInstance.get).toHaveBeenLastCalledWith(
+      '/email-campaigns/crm/clients', { params: { limit: 100 } })
+    await apiModule.emailCampaignsApi.crmClients(25)
+    expect(mockAxiosInstance.get).toHaveBeenLastCalledWith(
+      '/email-campaigns/crm/clients', { params: { limit: 25 } })
   })
 
   it('createPost maps targets[] to target_account_ids', async () => {
