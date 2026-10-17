@@ -507,6 +507,157 @@ _EDGE_HOSTS = [
 _NOTEBOOK_OUTPUT = Path("/notebooks/output")
 
 
+_CF_GQL = "https://api.cloudflare.com/client/v4/graphql"
+_CF_REST = "https://api.cloudflare.com/client/v4"
+
+
+async def _cf_gql(client: httpx.AsyncClient, token: str, acct: str, body: str) -> dict:
+    query = f'{{viewer{{accounts(filter:{{accountTag:"{acct}"}}){{{body}}}}}}}'
+    resp = await client.post(
+        _CF_GQL,
+        json={"query": query},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    resp.raise_for_status()
+    payload = resp.json()
+    if payload.get("errors"):
+        raise RuntimeError(
+            "; ".join(e.get("message", "?") for e in payload["errors"])
+        )
+    return payload["data"]["viewer"]["accounts"][0]
+
+
+async def _cf_rest(
+    client: httpx.AsyncClient, token: str, acct: str, path: str
+) -> list:
+    # Paths starting with "/" are account-independent (e.g. /zones).
+    url = f"{_CF_REST}{path}" if path.startswith("/") else f"{_CF_REST}/accounts/{acct}/{path}"
+    resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
+    resp.raise_for_status()
+    return resp.json().get("result") or []
+
+
+async def _export_cloudflare_usage() -> dict:
+    """Cloudflare platform usage from the free GraphQL Analytics API.
+
+    Covers Workers invocations/errors/status, zone HTTP traffic, R2 ops,
+    D1 rows, KV ops, Workers AI inferences, AI Gateway tokens and Vectorize
+    indexes (REST — no GraphQL dataset exists for it). The site's
+    materialize ETL joins this with socialauto-* gold sections so infra
+    cost/funnel signals sit next to content metrics.
+    """
+    acct = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    token = (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    if not (acct and token):
+        return {"error": "Cloudflare credentials not configured"}
+
+    now = datetime.now(UTC)
+    dt_start = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    d_start = (now - timedelta(days=7)).strftime("%Y-%m-%d")
+    d_end = now.strftime("%Y-%m-%d")
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        data = await _cf_gql(
+            client,
+            token,
+            acct,
+            f'''
+            workers: workersInvocationsAdaptive(limit:100,
+                filter:{{datetime_geq:"{dt_start}"}},
+                orderBy:[sum_requests_DESC]){{
+              sum{{ requests errors }} dimensions{{ scriptName status }} }}
+            r2: r2OperationsAdaptiveGroups(limit:200,
+                filter:{{date_geq:"{d_start}", date_leq:"{d_end}"}},
+                orderBy:[sum_requests_DESC]){{
+              sum{{ requests }} dimensions{{ bucketName actionType }} }}
+            d1: d1AnalyticsAdaptiveGroups(limit:100,
+                filter:{{date_geq:"{d_start}", date_leq:"{d_end}"}},
+                orderBy:[sum_rowsRead_DESC]){{
+              sum{{ readQueries writeQueries rowsRead rowsWritten }}
+              dimensions{{ databaseId }} }}
+            kv: kvOperationsAdaptiveGroups(limit:100,
+                filter:{{date_geq:"{d_start}", date_leq:"{d_end}"}},
+                orderBy:[sum_requests_DESC]){{
+              sum{{ requests }} dimensions{{ namespaceId actionType }} }}
+            ai: aiInferenceAdaptiveGroups(limit:100,
+                filter:{{datetime_geq:"{dt_start}"}}, orderBy:[count_DESC]){{
+              count dimensions{{ modelId }} }}
+            aigw: aiGatewayRequestsAdaptiveGroups(limit:100,
+                filter:{{datetime_geq:"{dt_start}"}}, orderBy:[count_DESC]){{
+              count sum{{ uncachedTokensIn uncachedTokensOut }}
+              dimensions{{ gateway provider }} }}
+            ''',
+        )
+        d1_names = {
+            d["uuid"]: d["name"]
+            for d in await _cf_rest(client, token, acct, "d1/database")
+        }
+        kv_names = {
+            n["id"]: n["title"]
+            for n in await _cf_rest(client, token, acct, "storage/kv/namespaces")
+        }
+        # Zone HTTP traffic needs the "Zone Analytics Read" token perm —
+        # intentionally omitted (unverifiable with the current token); the
+        # funnel signal lives in socialauto-web-events regardless.
+        vectorize = await _cf_rest(client, token, acct, "vectorize/v2/indexes")
+
+    workers: dict[str, dict] = {}
+    for row in data.get("workers") or []:
+        w = workers.setdefault(
+            row["dimensions"]["scriptName"],
+            {"requests": 0, "errors": 0, "by_status": {}},
+        )
+        w["requests"] += row["sum"]["requests"]
+        w["errors"] += row["sum"]["errors"]
+        w["by_status"][row["dimensions"]["status"]] = (
+            w["by_status"].get(row["dimensions"]["status"], 0)
+            + row["sum"]["requests"]
+        )
+
+    r2: dict[str, dict] = {}
+    for row in data.get("r2") or []:
+        b = r2.setdefault(
+            row["dimensions"]["bucketName"], {"class_a": 0, "class_b": 0}
+        )
+        cls = (
+            "class_a"
+            if row["dimensions"]["actionType"].startswith(
+                ("Put", "List", "Create", "Complete", "Abort", "Delete")
+            )
+            else "class_b"
+        )
+        b[cls] += row["sum"]["requests"]
+
+    return {
+        "window_days": 7,
+        "generated_at": now.isoformat(),
+        "workers": workers,
+        "r2_operations": r2,
+        "d1": [
+            {"database": d1_names.get(r["dimensions"]["databaseId"], r["dimensions"]["databaseId"]), **r["sum"]}
+            for r in data.get("d1") or []
+        ],
+        "kv": [
+            {"namespace": kv_names.get(r["dimensions"]["namespaceId"], r["dimensions"]["namespaceId"]),
+             "action": r["dimensions"]["actionType"], "requests": r["sum"]["requests"]}
+            for r in data.get("kv") or []
+        ],
+        "workers_ai": [
+            {"model": r["dimensions"]["modelId"], "inferences": r["count"]}
+            for r in data.get("ai") or []
+        ],
+        "ai_gateway": [
+            {"gateway": r["dimensions"]["gateway"], "provider": r["dimensions"]["provider"],
+             "requests": r["count"], **r["sum"]}
+            for r in data.get("aigw") or []
+        ],
+        "vectorize_indexes": [
+            {"name": i.get("name"), "dimensions": (i.get("config") or {}).get("dimensions")}
+            for i in vectorize
+        ],
+    }
+
+
 async def _export_edge_metrics() -> dict:
     """Last-24h Tempo aggregates per hostname: sampled traces + latency.
 
@@ -743,6 +894,15 @@ async def _export_async() -> dict:
 
         tables["lake/socialauto-edge-metrics/daily.json"] = await _export_edge_metrics()
         tables["lake/socialauto-reports/reports.json"] = await _export_reports_index()
+        try:
+            cf_usage = await _export_cloudflare_usage()
+        except Exception as exc:  # noqa: BLE001 — CF outage ≠ abort the export
+            cf_usage = {"error": str(exc)[:300]}
+        tables["lake/cloudflare-usage/latest.json"] = cf_usage
+        # Dated copy keeps a daily history (runs 4x/day overwrite same-day).
+        tables[
+            f"lake/cloudflare-usage/history/{datetime.now(UTC).date().isoformat()}.json"
+        ] = cf_usage
 
         # Insights engine output — one gold-ready file per team.
         teams = (await db.execute(select(Team))).scalars().all()

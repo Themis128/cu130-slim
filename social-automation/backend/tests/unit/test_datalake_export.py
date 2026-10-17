@@ -436,13 +436,14 @@ def test_export_async_full_run(monkeypatch):
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"q": 1}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={"e": 1}))
     monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={"w": 1}))
     monkeypatch.setattr(de, "build_team_insights", AsyncMock(return_value={"i": 1}))
     monkeypatch.setattr(de, "_put_json", AsyncMock(return_value={"size": 10}))
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 17  # 14 tables + edge + reports + insights
-    assert out["bytes"] == 170
+    assert out["files"] == 19  # 14 tables + edge + reports + insights + 2 CF files
+    assert out["bytes"] == 190
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
@@ -465,6 +466,7 @@ def test_export_async_insights_and_put_failures(monkeypatch):
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "build_team_insights",
                         AsyncMock(side_effect=RuntimeError("insights down")))
 
@@ -556,3 +558,89 @@ def test_export_telegram_channels_empty_and_malformed():
     assert rows == []
     # no telegram accounts at all
     assert _run(de._export_telegram_channels(_OneExecDB(_Scalars([])))) == []
+
+
+class _CFClient:
+    """AsyncClient stub for Cloudflare GraphQL (POST) + REST (GET) calls."""
+
+    gql: dict = {}
+    zone_rows: list = []
+    rest: dict = {}
+
+    def __init__(self, *a, **k):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def post(self, url, json=None, headers=None):
+        q = (json or {}).get("query", "")
+        if '"zones"' in q or "zones(" in q:
+            return _Resp({"data": {"viewer": {"zones": [
+                {"httpRequestsAdaptiveGroups": type(self).zone_rows}]}}})
+        return _Resp({"data": {"viewer": {"accounts": [type(self).gql]}}})
+
+    async def get(self, url, headers=None):
+        for pat, rows in type(self).rest.items():
+            if pat in url:
+                return _Resp({"result": rows})
+        return _Resp({"result": []})
+
+
+def test_cloudflare_usage_export_shape(monkeypatch):
+    s = de.settings
+    monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "acc")
+    monkeypatch.setattr(s, "CLOUDFLARE_API_TOKEN", "tok")
+
+    _CFClient.gql = {
+        "workers": [
+            {"sum": {"requests": 10, "errors": 0},
+             "dimensions": {"scriptName": "cloudless2", "status": "success"}},
+            {"sum": {"requests": 4, "errors": 4},
+             "dimensions": {"scriptName": "mail-ingest",
+                            "status": "scriptThrewException"}},
+            {"sum": {"requests": 6, "errors": 0},
+             "dimensions": {"scriptName": "mail-ingest", "status": "success"}},
+        ],
+        "r2": [
+            {"sum": {"requests": 100},
+             "dimensions": {"bucketName": "datalake-bucket", "actionType": "GetObject"}},
+            {"sum": {"requests": 20},
+             "dimensions": {"bucketName": "datalake-bucket", "actionType": "PutObject"}},
+        ],
+        "d1": [{"sum": {"readQueries": 10, "writeQueries": 2,
+                        "rowsRead": 500, "rowsWritten": 5},
+                "dimensions": {"databaseId": "d1-uuid"}}],
+        "kv": [{"sum": {"requests": 7},
+                "dimensions": {"namespaceId": "ns-uuid", "actionType": "read"}}],
+        "ai": [{"count": 42, "dimensions": {"modelId": "@cf/meta/llama-3.1-8b"}}],
+        "aigw": [],
+    }
+    _CFClient.rest = {
+        "d1/database": [{"uuid": "d1-uuid", "name": "user-auth-db"}],
+        "storage/kv/namespaces": [{"id": "ns-uuid", "title": "social-cache"}],
+        "vectorize/v2/indexes": [{"name": "social-embeddings", "config": {"dimensions": 1024}}],
+    }
+    monkeypatch.setattr(de.httpx, "AsyncClient", _CFClient)
+
+    out = _run(de._export_cloudflare_usage())
+    assert out["window_days"] == 7
+    assert out["workers"]["mail-ingest"]["requests"] == 10
+    assert out["workers"]["mail-ingest"]["errors"] == 4
+    assert out["workers"]["mail-ingest"]["by_status"]["scriptThrewException"] == 4
+    assert out["r2_operations"]["datalake-bucket"] == {"class_a": 20, "class_b": 100}
+    assert out["d1"][0]["database"] == "user-auth-db"
+    assert out["d1"][0]["rowsRead"] == 500
+    assert out["kv"][0]["namespace"] == "social-cache"
+    assert out["workers_ai"][0]["model"] == "@cf/meta/llama-3.1-8b"
+    assert out["vectorize_indexes"][0]["name"] == "social-embeddings"
+
+
+def test_cloudflare_usage_unconfigured(monkeypatch):
+    s = de.settings
+    monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "")
+    out = _run(de._export_cloudflare_usage())
+    assert "error" in out

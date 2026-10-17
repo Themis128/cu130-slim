@@ -2603,3 +2603,78 @@ async def test_twitter_upload_media_alt_text_failure_best_effort(tmp_path, monke
         alt_text="alt",
     )
     assert out == "im-1"
+
+
+@pytest.mark.asyncio
+async def test_publish_to_platform_tags_owned_links_with_utm(monkeypatch):
+    """Every cloudless.gr link in published copy must carry platform-scoped
+    UTMs so site leads join back to the post (post → click → lead funnel).
+    The structured link_url reaches the platform tagged via a read-through
+    proxy — the shared ORM object must stay untouched for other targets."""
+    monkeypatch.setattr(pub, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(pub, "auto_correct", AsyncMock(side_effect=lambda t: t))
+    monkeypatch.setattr(pub, "detect_gibberish", AsyncMock(return_value=[]))
+    monkeypatch.setattr(pub, "_find_duplicate_post", AsyncMock(return_value=None))
+    monkeypatch.setattr(pub, "_resolve_media_paths", AsyncMock(return_value=["/tmp/m.png"]))
+    monkeypatch.setattr(pub, "_resolve_media_storage_paths", AsyncMock(return_value=["m.png"]))
+    monkeypatch.setattr(pub, "_resolve_music_path", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        pub, "validate_media_for_platform", lambda *a, **k: None
+    )
+    monkeypatch.setattr(
+        pub,
+        "_build_post_text",
+        lambda post, platform: "Audit? https://cloudless.gr/contact now",
+    )
+    captured = {}
+
+    async def _fake_linkedin(token, text, account, post, media_paths, storage_paths):
+        captured["text"] = text
+        captured["link_url"] = post.link_url
+        return pub.PublishResult(success=True, platform_post_id="x")
+
+    monkeypatch.setattr(pub, "_publish_linkedin", _fake_linkedin)
+    account = SimpleNamespace(platform="linkedin", access_token_enc=b"enc")
+    post = SimpleNamespace(
+        content_text="x",
+        link_url="https://cloudless.gr/pricing",
+        meta_data={"source": "visibility-era-day15"},
+        media_ids=["m1"],
+        id=__import__("uuid").uuid4(),
+    )
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is True
+    assert "utm_source=linkedin" in captured["text"]
+    assert "utm_medium=organic_social" in captured["text"]
+    assert "utm_campaign=visibility-era-day15" in captured["text"]
+    assert f"utm_content={post.id}" in captured["text"]
+    assert "utm_source=linkedin" in captured["link_url"]
+    # shared ORM object untouched — other platform targets see the raw URL
+    assert post.link_url == "https://cloudless.gr/pricing"
+
+
+@pytest.mark.asyncio
+async def test_publish_to_platform_leaves_external_links_untagged(monkeypatch):
+    monkeypatch.setattr(pub, "decrypt_token", lambda enc: "tok")
+    monkeypatch.setattr(pub, "auto_correct", AsyncMock(side_effect=lambda t: t))
+    monkeypatch.setattr(pub, "detect_gibberish", AsyncMock(return_value=[]))
+    monkeypatch.setattr(pub, "_find_duplicate_post", AsyncMock(return_value=None))
+    monkeypatch.setattr(pub, "_resolve_media_paths", AsyncMock(return_value=["/tmp/m.png"]))
+    monkeypatch.setattr(pub, "_resolve_media_storage_paths", AsyncMock(return_value=["m.png"]))
+    monkeypatch.setattr(pub, "_resolve_music_path", AsyncMock(return_value=None))
+    monkeypatch.setattr(pub, "validate_media_for_platform", lambda *a, **k: None)
+    raw = "See https://linkedin.com/company/x and https://cloudless.gr/contact"
+    monkeypatch.setattr(pub, "_build_post_text", lambda post, platform: raw)
+    captured = {}
+
+    async def _fake(token, text, account, post, media_paths, storage_paths):
+        captured["text"] = text
+        return pub.PublishResult(success=True)
+
+    monkeypatch.setattr(pub, "_publish_linkedin", _fake)
+    account = SimpleNamespace(platform="linkedin", access_token_enc=b"enc")
+    post = SimpleNamespace(link_url=None, meta_data={}, media_ids=[])
+    result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
+    assert result.success is True
+    assert "linkedin.com/company/x?utm" not in captured["text"]
+    assert "cloudless.gr/contact?utm_source=linkedin" in captured["text"]
