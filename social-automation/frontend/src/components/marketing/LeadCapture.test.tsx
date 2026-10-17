@@ -33,6 +33,33 @@ describe('LeadCaptureDone', () => {
   })
 })
 
+describe('LeadCaptureDone — inferred delivery', () => {
+  afterEach(() => cleanup())
+
+  it('infers a direct download when the backend omits playbook_delivery but sends a URL', () => {
+    render(<LeadCaptureDone result={{ playbook_url: PDF }} />)
+    expect(screen.getByText("Thanks — you're on the list.")).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /download the playbook/i })).toHaveAttribute('href', PDF)
+    expect(screen.queryByText(/check your inbox/i)).not.toBeInTheDocument()
+  })
+})
+
+describe('LeadCapture — null JSON body', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+  })
+
+  it('lands on the generic done state when the success body is JSON null', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => null }))
+    render(<LeadCapture />)
+    fireEvent.change(screen.getByPlaceholderText('you@company.com'), { target: { value: 'a@b.co' } })
+    fireEvent.click(screen.getByRole('button', { name: /get the playbook/i }))
+    await waitFor(() => expect(screen.getByText(/we'll be in touch/i)).toBeInTheDocument())
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
+  })
+})
+
 describe('LeadCapture', () => {
   afterEach(() => {
     cleanup()

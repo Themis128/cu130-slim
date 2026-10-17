@@ -308,6 +308,20 @@ it('should render notifications dropdown trigger', () => {
   })
 
   describe('Sidebar', () => {
+    it('falls back to the email for a user without a name', () => {
+      const saved = mockAuthValue.user
+      mockAuthValue.user = { id: '2', name: '', email: 'zed@x.com', avatar_url: 'https://cdn.example/a.png' } as never
+      try {
+        render(<Sidebar />, { wrapper })
+        expect(screen.getByTestId('avatar-fallback')).toHaveTextContent('Z')
+        expect(screen.getByTestId('avatar-image')).toHaveAttribute('alt', 'zed@x.com')
+        expect(screen.getByTestId('avatar-image')).toHaveAttribute('src', 'https://cdn.example/a.png')
+        expect(screen.getAllByText('zed@x.com')).toHaveLength(2) // name slot + email line
+      } finally {
+        mockAuthValue.user = saved
+      }
+    })
+
     it('should render sidebar with navigation items', () => {
       render(<Sidebar />, { wrapper })
       
