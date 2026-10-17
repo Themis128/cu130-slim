@@ -185,3 +185,30 @@ fallback only (it dies when LinkedIn rate-limits the server IP):
   `ad_campaign_snapshots` but builds the body via the shared
   `collect_metrics()` + `build_report_text()` — Slack/email text is
   identical to the code fallback path.
+
+## Billing/credit truth ladder (verified 2026-10-17)
+
+When reports disagree on credit remaining, trust in this order:
+
+1. **Marketing API account-wide spend** (`account_spend_eur`, all-time sum
+   of `costLocal` across every campaign incl. paused/completed/draft —
+   `pullAccountSpendEur` enumerates `ACTIVE,PAUSED,DRAFT,COMPLETED,CANCELED`)
+   — authoritative for whether the Visa is at risk. API `null` = unknown,
+   never read as €0.
+2. **Rolling digest `creditSpendEur`** — cloudless.gr ad-analytics uses the
+   all-time figure for the credit line; windowed `lifetimeSpendEur` is for
+   burn-rate pacing only. If a digest shows a big "left" number while the
+   API total exceeds credit, the API wins (already happened: digest €37.24
+   left vs real −€6.28).
+3. **CM billing page** (Credits and coupons tab) — the only place the
+   activation date/ledger lives; the API never exposes it. Needed to know
+   whether pre-coupon spend drew the credit. Sidecar route:
+   `POST :9225/debug/navigate` with
+   `campaignmanager/accounts/{acct}/...` URLs.
+
+Known failure: CM can render LinkedIn's generic "Oops, something went
+wrong" SPA error under the sidecar session even while `/session` reports
+`logged_in: true` on /feed/. Ember pages are heavy — check
+`/health` (`browser_connected`, `page_ok`); recovery is in place (#688),
+but if the SPA still fails the session needs manual re-auth via noVNC —
+there is no API path for the credit ledger.
