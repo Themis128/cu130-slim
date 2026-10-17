@@ -135,6 +135,13 @@ async def test_resolve_account_linkedin_corporate_vs_personal():
         db, uuid.uuid4(), "linkedin", "Founder story about shipping fast"
     )
     assert founder is personal
+    # Brand copy that only says "Cloudless" — no corporate keywords — must
+    # still route to the Company Page (brand posts → business accounts).
+    brand = await X._resolve_account(
+        db, uuid.uuid4(), "linkedin",
+        "At Cloudless, we build websites, cloud systems, and AI tools",
+    )
+    assert brand is org
 
 
 @pytest.mark.asyncio

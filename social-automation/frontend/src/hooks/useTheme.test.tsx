@@ -147,3 +147,55 @@ describe('useTheme', () => {
     await waitFor(() => expect(result.current.resolvedTheme).toBe('dark'))
   })
 })
+
+describe('useTheme — live OS changes and toggling', () => {
+  function captureMedia(initial: boolean) {
+    const handlers: Array<(e: MediaQueryListEvent) => void> = []
+    window.matchMedia = vi.fn().mockImplementation((query) => ({
+      matches: initial,
+      media: query,
+      addEventListener: (_: string, h: (e: MediaQueryListEvent) => void) => handlers.push(h),
+      removeEventListener: vi.fn(),
+    }))
+    return (matches: boolean) => act(() => handlers.at(-1)!({ matches } as MediaQueryListEvent))
+  }
+
+  it('follows OS scheme changes in both directions while on system', async () => {
+    localStorage.setItem('theme', 'system')
+    const fire = captureMedia(true)
+    const { result } = renderHook(() => useTheme(), { wrapper })
+    await waitFor(() => expect(result.current.resolvedTheme).toBe('dark'))
+    fire(false)
+    expect(result.current.resolvedTheme).toBe('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+    fire(true)
+    expect(result.current.resolvedTheme).toBe('dark')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
+
+  it('ignores OS scheme changes when an explicit theme is chosen', async () => {
+    localStorage.setItem('theme', 'light')
+    const fire = captureMedia(false)
+    const { result } = renderHook(() => useTheme(), { wrapper })
+    await waitFor(() => expect(result.current.theme).toBe('light'))
+    fire(true)
+    expect(result.current.resolvedTheme).toBe('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+  })
+
+  it('toggles from light to dark and persists it', async () => {
+    localStorage.setItem('theme', 'light')
+    const { result } = renderHook(() => useTheme(), { wrapper })
+    await waitFor(() => expect(result.current.resolvedTheme).toBe('light'))
+    act(() => result.current.toggleTheme())
+    expect(result.current.theme).toBe('dark')
+    expect(localStorage.getItem('theme')).toBe('dark')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+  })
+
+  it('throws outside ThemeProvider', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(() => renderHook(() => useTheme())).toThrow('useTheme must be used within a ThemeProvider')
+    err.mockRestore()
+  })
+})
