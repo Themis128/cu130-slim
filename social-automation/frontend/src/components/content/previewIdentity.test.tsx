@@ -103,3 +103,35 @@ describe('ObjectUrlImage', () => {
     expect(screen.getByAltText('preview')).toHaveAttribute('src', 'blob:http://localhost/f1')
   })
 })
+
+describe('previewIdentity — fallbacks', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('falls back to the first facebook account when none is a Page or business', () => {
+    const a = acc({ id: 'p1', platform: 'facebook', account_type: 'personal' })
+    const b = acc({ id: 'p2', platform: 'facebook' })
+    expect(preferredAccount([a, b], 'facebook')?.id).toBe('p1')
+  })
+
+  it('renders nothing when the object URL is not a safe image scheme', () => {
+    const revoke = vi.fn()
+    vi.stubGlobal('URL', Object.assign(URL, {
+      createObjectURL: vi.fn(() => 'javascript:alert(1)'),
+      revokeObjectURL: revoke,
+    }))
+    const { container, unmount } = render(<ObjectUrlImage file={new File(['x'], 'f.png')} alt="preview" />)
+    expect(container).toBeEmptyDOMElement()
+    expect(screen.queryByAltText('preview')).toBeNull()
+    unmount()
+    expect(revoke).toHaveBeenCalledWith('javascript:alert(1)') // still released
+  })
+
+  it("shows '?' for an identity whose name is only whitespace", () => {
+    const { container } = render(
+      <AccountAvatar identity={{ name: '   ', handle: 'h', avatarUrl: null, headline: null, isOrg: false, accountId: 'x' } as never} />
+    )
+    expect(container.textContent).toBe('?')
+  })
+})

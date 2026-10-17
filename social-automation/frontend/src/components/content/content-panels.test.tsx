@@ -232,3 +232,72 @@ describe('SeoPanel', () => {
     expect(screen.getByText('Analyze').closest('button')).toBeDisabled()
   })
 })
+
+describe('SpellCheckButton — offset bookkeeping and empty flags', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('fixing a later match leaves earlier offsets untouched', async () => {
+    api.aiApi.spellcheck.mockResolvedValue({
+      data: {
+        matches: [
+          { message: 'Spelling', offset: 0, length: 3, replacements: ['The'], rule_id: 'r1', context: '' },
+          { message: 'Grammar', offset: 8, length: 2, replacements: ['is'], rule_id: 'r2', context: '' },
+        ],
+      },
+    })
+    const onApply = vi.fn()
+    const { rerender } = render(<SpellCheckButton text="Teh cat iz here" onApply={onApply} />)
+    fireEvent.click(screen.getByRole('button', { name: /Spell Check/ }))
+    await screen.findByText('2 issues')
+    fireEvent.click(screen.getByText('is'))
+    expect(onApply).toHaveBeenLastCalledWith('Teh cat is here')
+    rerender(<SpellCheckButton text="Teh cat is here" onApply={onApply} />)
+    await screen.findByText('1 issue')
+    expect(screen.getByText('Teh')).toBeInTheDocument() // still points at offset 0
+    fireEvent.click(screen.getByText('The'))
+    expect(onApply).toHaveBeenLastCalledWith('The cat is here')
+  })
+
+  it('shows a dash for a zero-length (insertion) match', async () => {
+    api.aiApi.spellcheck.mockResolvedValue({
+      data: { matches: [{ message: 'Missing comma', offset: 3, length: 0, replacements: [','], rule_id: 'c', context: '' }] },
+    })
+    render(<SpellCheckButton text="Yes I do" onApply={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /Spell Check/ }))
+    await screen.findByText('Missing comma')
+    expect(screen.getByText('—')).toBeInTheDocument()
+  })
+})
+
+describe('SeoPanel — pending state and partial meta', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('shows the analyzing state and disables the button while pending', async () => {
+    let finish!: (v: unknown) => void
+    api.aiApi.analyzeSeo.mockImplementation(() => new Promise((r) => { finish = r }))
+    render(<SeoPanel content={LONG} />, { wrapper })
+    fireEvent.click(screen.getByText('Analyze'))
+    expect(await screen.findByText('Analyzing content…')).toBeInTheDocument()
+    expect(screen.getByText('Analyze').closest('button')).toBeDisabled()
+    expect(screen.queryByText(/Click .Analyze. to get an SEO score/)).toBeNull()
+    await act(async () => {
+      finish({ data: { platform: 'x', score: 50, keywords: [], meta: { title: '', description: '' }, open_graph: {}, character_count: 1, hashtag_count: 0, link_count: 0 } })
+    })
+    expect(screen.queryByText('Analyzing content…')).toBeNull()
+  })
+
+  it('offers Apply when only a meta description was suggested', async () => {
+    const onApplyMeta = vi.fn()
+    api.aiApi.analyzeSeo.mockResolvedValue({
+      data: { platform: 'x', score: 90, keywords: [], meta: { title: '', description: 'Only D' }, open_graph: {}, character_count: 1, hashtag_count: 0, link_count: 0 },
+    })
+    render(<SeoPanel content={LONG} onApplyMeta={onApplyMeta} />, { wrapper })
+    fireEvent.click(screen.getByText('Analyze'))
+    fireEvent.click(await screen.findByText('Apply'))
+    expect(onApplyMeta).toHaveBeenCalledWith({ title: '', description: 'Only D' })
+  })
+})

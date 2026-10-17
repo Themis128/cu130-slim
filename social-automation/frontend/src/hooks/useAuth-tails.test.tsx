@@ -147,6 +147,31 @@ describe('useAuth tails', () => {
     expect(toast.error).toHaveBeenCalledWith('Failed to change password')
   })
 
+  it('falls back to generic toasts when the server sends no detail', async () => {
+    api.authApi.login.mockRejectedValue(new Error('Network Error'))
+    api.authApi.register.mockRejectedValue({ response: { data: {} } })
+    api.authApi.updateProfile.mockRejectedValue({ response: {} })
+    const out: unknown[] = []
+    function RProbe() {
+      const auth = useAuth()
+      return (
+        <>
+          <button onClick={async () => { out.push(await auth.login({ email: 'e', password: 'p' })) }}>in</button>
+          <button onClick={async () => { out.push(await auth.register({ email: 'e', password: 'p', name: 'N' })) }}>reg</button>
+          <button onClick={async () => { out.push(await auth.updateProfile({})) }}>upd</button>
+        </>
+      )
+    }
+    wrap(<RProbe />)
+    await waitFor(() => expect(api.authApi.me).toHaveBeenCalled())
+    await act(async () => { fireEvent.click(screen.getByText('in')) })
+    await act(async () => { fireEvent.click(screen.getByText('reg')) })
+    await act(async () => { fireEvent.click(screen.getByText('upd')) })
+    expect(out).toEqual(['error', false, false])
+    expect(toast.error.mock.calls.map((c) => c[0])).toEqual(['Invalid credentials', 'Registration failed', 'Failed to update profile'])
+    expect(api.authApi.login).toHaveBeenCalledTimes(1) // register failed before auto-login
+  })
+
   it('useAuth throws outside the provider', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<Probe />)).toThrow('useAuth must be used within an AuthProvider')
