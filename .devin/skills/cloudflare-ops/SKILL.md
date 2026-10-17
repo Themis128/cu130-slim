@@ -388,3 +388,21 @@ Both read `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` /
 If `check` reports no domain: run `enable`, then confirm `check` prints
 a `r2.dev` URL. Private/custom-domain setups supersede this — only
 relevant when publish errors show unreachable media URLs.
+
+## Workers observability + usage audit (2026-10-18)
+
+- `scripts/cf_usage.py` — one-command GraphQL usage sweep (Workers, R2, D1,
+  KV, Workers AI, AI Gateway) + `--worker <name> --status` error deep-dive.
+- Per-script observability (logs + traces at 5% sampling) is enabled via
+  `PATCH /accounts/{acct}/workers/scripts/{name}/settings` with a
+  multipart `settings` field — enabled on all workers except
+  `cloudless-web-production`, whose PATCH is blocked by stale provisioned
+  Durable Object classes (`CodingAgent`/`CounterAgent`/`EchoAgent`) missing
+  from its `exports` — add tombstone exports or re-deploy to unlock.
+- `CLOUDFLARE_API_TOKEN` lacks Zone Logs + AI Gateway scopes (403 on
+  `/zones/*/logpush/jobs` and `/ai-gateway/gateways`). The MCP
+  `cloudflare-api` session has Logs read but Logpush POST returns
+  `1004 logpush is not enabled for this account` — self-service rollout
+  hasn't reached the account. When enabled: `scripts/cf_logpush_job.py`
+  creates the `http_requests` → `datalake-bucket/cloudflare-http-logs/`
+  zone job (25 GB/mo to R2 included free).
