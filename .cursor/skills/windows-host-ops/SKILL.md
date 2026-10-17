@@ -82,6 +82,30 @@ Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
   native-messaging (`cmd.exe` from McAfee WebAdvisor etc.), Devin/Windsurf's own
   `wsl.exe`, Lenovo Vantage. Disable the extension if a flash traces to it.
 
+## GPU-P breakage after driver install (2026-10-17)
+
+Signature: Windows `nvidia-smi.exe` healthy but WSL `nvidia-smi` reports
+`Failed to initialize NVML: GPU access blocked by the operating system`,
+containers see `torch.cuda.is_available() == False`, and dmesg shows
+`dxgk: dxgvmb_send_create_process: create_process failed -75`.
+
+Cause: an NVIDIA driver install/hot-swap **while the utility VM is running**
+leaves the VM's dxg channel bound to the pre-install driver instance. There
+is no in-VM fix — the GPU-P channel is per-VM and only rebinds on VM start.
+
+Fix: bounce WSL from the Windows side. Registered task
+`\DevOptimizer\WSL-GPU-Rebind` runs `D:\DevOptimizer\scripts\wsl-gpu-rebind.ps1`
+(conhost --headless): `wsl --shutdown` → 15s → prewarm `Ubuntu-26.04` →
+runs `scripts/wsl-gpu-verify.sh` in-VM (waits for Docker, checks
+`nvidia-smi`, probes `torch.cuda` inside `social-media-comfyui-gpu`, and
+force-recreates the container if it still lacks the dxg mapping — a
+container *created* while GPU-P was down keeps its stale mapping).
+
+Trigger from Windows: `Start-ScheduledTask '\DevOptimizer\WSL-GPU-Rebind'`.
+WARNING: kills every WSL session (including Devin/IDE sessions in WSL) and
+all containers — Docker restart policies bring the stack back
+(verified: 35/36 containers auto-recover on a bounce).
+
 ## Verifying task changes
 
 ```powershell
