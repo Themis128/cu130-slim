@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from 'vitest'
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { render, screen, act, fireEvent } from '@testing-library/react'
 import { TourOverlay } from './TourOverlay'
 import { TOUR_STEPS } from '@/hooks/useTour'
@@ -108,5 +108,74 @@ describe('TourOverlay', () => {
       await screen.findByRole('dialog')
       unmount()
     }
+  })
+
+  describe('target lookup and repositioning', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    function spotlight() {
+      return document.body.querySelector<HTMLElement>('.pointer-events-none.rounded-lg')
+    }
+
+    it('keeps retrying until the target renders, then shows the tooltip', () => {
+      vi.useFakeTimers()
+      render(<TourOverlay />)
+      // No target yet → no rect → neither spotlight nor tooltip.
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+      expect(spotlight()).toBeNull()
+      act(() => { vi.advanceTimersByTime(360) }) // three misses
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+
+      addTarget('nav')
+      act(() => { vi.advanceTimersByTime(120) })
+      expect(screen.getByRole('dialog')).toHaveAttribute('aria-label', 'Tour step 1: Navigate the app')
+      // placement "right": tooltip sits right of the padded rect (100-6 + 50+12 + 14)
+      expect(screen.getByRole('dialog').style.left).toBe('170px')
+    })
+
+    it('cancels a pending retry when the step changes and when unmounting', () => {
+      vi.useFakeTimers()
+      const qs = vi.spyOn(document, 'querySelector')
+      const { rerender, unmount } = render(<TourOverlay />)
+      tour.currentStep = 1 // re-runs the effect while step 0's retry is pending
+      rerender(<TourOverlay />)
+      qs.mockClear()
+      act(() => { vi.advanceTimersByTime(120) })
+      const looked = qs.mock.calls.map((c) => c[0])
+      expect(looked).toContain('[data-tour="create-post"]')
+      expect(looked).not.toContain('[data-tour="nav"]') // stale retry was cleared
+
+      unmount()
+      qs.mockClear()
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(qs.mock.calls.filter((c) => String(c[0]).startsWith('[data-tour'))).toHaveLength(0)
+      qs.mockRestore()
+    })
+
+    it('recomputes on resize and keeps the last rect if the target disappears', async () => {
+      const el = addTarget('nav')
+      render(<TourOverlay />)
+      await screen.findByRole('dialog')
+      expect(spotlight()!.style.top).toBe('94px')
+
+      el.getBoundingClientRect = () =>
+        ({ top: 300, left: 100, width: 50, height: 30, right: 150, bottom: 330, x: 100, y: 300, toJSON: () => ({}) }) as DOMRect
+      act(() => { window.dispatchEvent(new Event('resize')) })
+      expect(spotlight()!.style.top).toBe('294px')
+
+      el.remove()
+      act(() => { window.dispatchEvent(new Event('scroll')) })
+      expect(spotlight()!.style.top).toBe('294px') // no target → rect unchanged
+    })
+
+    it('Next on a step without navigateTo only advances', async () => {
+      addTarget('nav')
+      render(<TourOverlay />)
+      fireEvent.click(await screen.findByRole('button', { name: /^Next$/ }))
+      expect(tour.next).toHaveBeenCalledTimes(1)
+      expect(router.push).not.toHaveBeenCalled()
+    })
   })
 })
