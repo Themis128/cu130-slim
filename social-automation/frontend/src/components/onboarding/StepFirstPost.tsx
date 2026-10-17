@@ -9,6 +9,8 @@ import { cn } from '@/lib/utils'
 import { contentApi } from '@/services/api'
 import toast from 'react-hot-toast'
 import { formatErrorToast } from '@/lib/humanizeError'
+import { useAccounts } from '@/hooks/useQueries'
+import type { SocialAccount } from '@/types'
 
 const PLATFORMS = [
   { id: 'linkedin', label: 'LinkedIn' },
@@ -27,6 +29,13 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
   const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [created, setCreated] = useState(false)
+  const { data: accounts } = useAccounts()
+  // Only active accounts can be targeted. A platform with none can't be picked,
+  // so the picker never offers a choice the draft can't keep.
+  const activeAccounts = ((accounts as SocialAccount[] | undefined) ?? []).filter(
+    a => a.status === 'active'
+  )
+  const isConnected = (platform: string) => activeAccounts.some(a => a.platform === platform)
 
   const togglePlatform = (id: string) => {
     setSelectedPlatforms(prev =>
@@ -39,12 +48,17 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
       toast.error('Write a sentence or two to get started.')
       return
     }
+    // Every active account on a picked platform becomes a target of the draft.
+    const targetIds = activeAccounts
+      .filter(a => selectedPlatforms.includes(a.platform))
+      .map(a => a.id)
     setCreating(true)
     try {
       await contentApi.createPost({
         content_text: content,
         // Save as draft — do not publish
         metadata: { source: 'onboarding' },
+        ...(targetIds.length ? { target_account_ids: targetIds } : {}),
       })
       setCreated(true)
       toast.success('Draft saved.')
@@ -101,25 +115,36 @@ export function StepFirstPost({ onContinue }: StepFirstPostProps) {
           <label className="text-sm font-medium">Platforms (optional)</label>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {PLATFORMS.map(p => {
-              const selected = selectedPlatforms.includes(p.id)
+              const connected = isConnected(p.id)
+              const selected = connected && selectedPlatforms.includes(p.id)
               return (
                 <button
                   key={p.id}
                   type="button"
+                  disabled={!connected}
+                  aria-pressed={selected}
+                  title={connected ? undefined : `Connect your ${p.label} account to target it`}
                   onClick={() => togglePlatform(p.id)}
                   className={cn(
                     'flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors',
                     selected
                       ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-input hover:bg-accent'
+                      : 'border-input hover:bg-accent',
+                    !connected && 'cursor-not-allowed opacity-50 hover:bg-transparent'
                   )}
                 >
                   {selected && <CheckCircle2 className="h-3.5 w-3.5" />}
                   {p.label}
+                  {!connected && <span className="sr-only"> (not connected)</span>}
                 </button>
               )
             })}
           </div>
+          {PLATFORMS.some(p => !isConnected(p.id)) && (
+            <p className="text-xs text-muted-foreground">
+              Greyed-out platforms aren’t connected yet. Connect one to target it.
+            </p>
+          )}
         </div>
 
         {/* Actions */}
