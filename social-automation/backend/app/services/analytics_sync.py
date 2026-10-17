@@ -1389,6 +1389,8 @@ async def _persist_x_web_analytics(
         await _record_follower_snapshot(db, account, "twitter", int(web.followers))
     for err in web.errors[:3]:
         result.errors.append(f"twitter x_web: {err}"[:300])
+    for note in (getattr(web, "notes", None) or [])[:3]:
+        result.notes = f"{result.notes or ''} twitter x_web: {note}".strip()[:300]
 
 
 async def sync_twitter_account(
