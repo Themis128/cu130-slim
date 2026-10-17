@@ -64,7 +64,17 @@ class TestParseActions:
         assert SR._parse_actions('["a"]') == []  # list but nothing long enough
 
     def test_caps_at_max_actions(self):
-        many = json.dumps([f"Action number {i} for LinkedIn at 10:{i:02d}" for i in range(20)])
+        # Distinct actions: near-duplicates are now collapsed before the cap.
+        many = json.dumps([
+            "Publish a LinkedIn carousel on cloud migration costs at 09:00",
+            "Share an Instagram reel showing a website speed test at 12:30",
+            "Reply to every open LinkedIn comment before lunch today",
+            "Repurpose last week's best post into a TikTok video clip",
+            "Email the newsletter list a free audit offer this afternoon",
+            "Post a Threads poll asking which Cloudflare feature they use",
+            "Update the Facebook page cover with the new hosting banner",
+            "Pin the customer testimonial to the top of the X profile",
+        ])
         assert len(SR._parse_actions(many)) == SR._MAX_ACTIONS
 
 
