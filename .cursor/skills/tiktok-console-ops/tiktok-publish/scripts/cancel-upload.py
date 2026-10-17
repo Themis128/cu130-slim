@@ -6,7 +6,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_lib"))
 from skill_http import repo_root, usage  # noqa: E402
 
 publish_id = sys.argv[1] if len(sys.argv) > 1 else \
