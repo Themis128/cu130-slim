@@ -299,6 +299,9 @@ _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
     # required: owner rule 2026-10-05 — "all posts must be with the correct
     #           media, never post without media" → empty media = skip on EVERY
     #           platform, not just the ones whose APIs reject text-only.
+    # single_kind: the publish path carries ONE kind per post — a single
+    #           video alone, a PDF document set alone, or stills only. Mixed
+    #           sets would have items silently dropped (video/PDF precedence).
     # dim_axis: "width" → min/max_dim bound the width only (Meta docs cap the
     #           width; height is bounded by the aspect ratio); "both" → each side.
     "instagram": {
@@ -309,21 +312,21 @@ _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
         "ratio_min": 4 / 5, "ratio_max": 1.91, "max_count": 10,
     },
     "tiktok": {
-        "required": True, "allow_pdf": False,
+        "required": True, "allow_pdf": False, "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
         "min_dim": 360, "max_dim": 4096, "dim_axis": "both",
         "max_bytes": 1 * _GB, "max_video_bytes": 4 * _GB,
         "ratio_min": None, "ratio_max": None, "max_count": 35,
     },
     "linkedin": {
-        "required": True, "allow_pdf": True, "max_pdf_bytes": 100 * _MB,
+        "required": True, "allow_pdf": True, "max_pdf_bytes": 100 * _MB, "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
         "min_dim": 200, "max_dim": 6024, "dim_axis": "both",
         "max_bytes": 100 * _MB, "max_video_bytes": 500 * _MB,
         "ratio_min": None, "ratio_max": None, "max_count": 20,
     },
     "facebook": {
-        "required": True, "allow_pdf": False,
+        "required": True, "allow_pdf": False, "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
         "min_dim": 200, "max_dim": 4096, "dim_axis": "both",
         "max_bytes": 10 * _MB, "max_video_bytes": 2 * _GB,
@@ -355,7 +358,7 @@ _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
     # AT Protocol lexicon caps: 4 images ≤2MB each, single mp4 ≤300MB.
     # Videos: embed.video accepts video/mp4 only.
     "bluesky": {
-        "required": True, "allow_pdf": False,
+        "required": True, "allow_pdf": False, "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".webp", ".gif") + (".mp4",),
         "min_dim": 200, "max_dim": 4096, "dim_axis": "both",
         "max_bytes": 2 * _MB, "max_video_bytes": 300 * _MB,
@@ -416,6 +419,22 @@ def validate_media_for_platform(
             f"{plat} accepts at most {rules['max_count']} media "
             f"items per post — got {len(media_paths)}. Reduce the media count."
         )
+
+    if rules.get("single_kind"):
+        videos = [p for p in media_paths if p.lower().endswith(VIDEO_EXTS_ALL)]
+        pdfs = [p for p in media_paths if p.lower().endswith(".pdf")]
+        if videos and len(media_paths) > 1:
+            return _skipped_media_result(
+                f"{plat} posts carry one video and nothing else — got "
+                f"{len(media_paths)} media items including {len(videos)} video(s). "
+                "Publishing would drop media; split it into separate posts."
+            )
+        if pdfs and len(pdfs) != len(media_paths):
+            return _skipped_media_result(
+                f"{plat} document posts cannot also carry images — got "
+                f"{len(pdfs)} PDF(s) and {len(media_paths) - len(pdfs)} other item(s). "
+                "Publishing would drop media; split it into separate posts."
+            )
 
     for path in media_paths:
         lower = path.lower()
@@ -1860,6 +1879,35 @@ async def _publish_facebook(
                 platform_url=f"https://www.facebook.com/{fb_post_id}",
             )
 
+        if media_paths[0].lower().endswith(VIDEO_EXTS_ALL):
+            # Page video post — /photos cannot carry video. The single_kind
+            # pre-flight guarantees the video is the post's only media item.
+            # Graph fetches it from a public URL (POST /{page_id}/videos
+            # with file_url), so a missing URL is a config gap: skip, since
+            # a retry cannot help.
+            video_url = _media_public_url(storage_paths[0]) if storage_paths else None
+            if not video_url:
+                return PublishResult(
+                    success=False,
+                    skipped=True,
+                    error=(
+                        "Facebook video has no public URL (MEDIA_PUBLIC_BASE_URL unset?) — "
+                        "not publishing without its media; retrying cannot help."
+                    ),
+                )
+            video = await fb_client.create_video_post(video_url=video_url, description=text)
+            video_id = str(video.get("id") or "")
+            if not video_id:
+                return PublishResult(
+                    success=False,
+                    error="Facebook API returned no video id — cannot confirm publish",
+                )
+            return PublishResult(
+                success=True,
+                platform_post_id=video_id,
+                platform_url=f"https://www.facebook.com/{page_id}/videos/{video_id}",
+            )
+
         graph_base = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
         async with httpx.AsyncClient(timeout=90.0) as client:
             # Upload each photo as unpublished, then publish as album/multi-photo
@@ -1879,26 +1927,31 @@ async def _publish_facebook(
                 elif _err_has(r.text, _FB_GROUP_MARKERS):
                     return _facebook_group_skip_result(r.text)
 
-            if photo_ids:
-                # Multi-photo post via /feed with attached_media
-                attached = [{"media_fbid": pid} for pid in photo_ids]
-                import json as _json
-                r = await client.post(
-                    f"{graph_base}/{page_id}/feed",
-                    data={
-                        "message": text,
-                        "access_token": page_token,
-                        "attached_media": _json.dumps(attached),
-                    },
+            expected = len(media_paths[:10])
+            if len(photo_ids) < expected:
+                # Owner rule: never publish text-only or with a partial album.
+                return PublishResult(
+                    success=False,
+                    error=(
+                        f"Facebook photo upload incomplete ({len(photo_ids)}/{expected} "
+                        "uploaded with an id) — not publishing with missing media"
+                    ),
                 )
-                if r.status_code >= 400 and _err_has(r.text, _FB_GROUP_MARKERS):
-                    return _facebook_group_skip_result(r.text)
-                r.raise_for_status()
-                fb_post_id = r.json().get("id", "")
-            else:
-                # Photo uploads all failed — fall through to text post
-                result = await fb_client.create_post(message=text, link=post.link_url)
-                fb_post_id = result.get("id", "")
+            # Multi-photo post via /feed with attached_media
+            attached = [{"media_fbid": pid} for pid in photo_ids]
+            import json as _json
+            r = await client.post(
+                f"{graph_base}/{page_id}/feed",
+                data={
+                    "message": text,
+                    "access_token": page_token,
+                    "attached_media": _json.dumps(attached),
+                },
+            )
+            if r.status_code >= 400 and _err_has(r.text, _FB_GROUP_MARKERS):
+                return _facebook_group_skip_result(r.text)
+            r.raise_for_status()
+            fb_post_id = r.json().get("id", "")
 
         if not fb_post_id:
             return PublishResult(
@@ -2415,6 +2468,18 @@ async def _publish_instagram_via_graph(
             error="Instagram requires at least one image. Set an image on the post.",
         )
 
+    expected_urls = len((storage_paths or [])[:10])
+    if len(image_urls) < expected_urls:
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                f"Instagram: only {len(image_urls)}/{expected_urls} media items have a "
+                "public URL — not publishing with missing media. Check "
+                "MEDIA_PUBLIC_BASE_URL / storage for the missing asset(s)."
+            ),
+        )
+
     is_business_login = (account.meta_data or {}).get("login_type") == "business_login"
     client = InstagramAPIClient(
         access_token=access_token,
@@ -2863,6 +2928,16 @@ async def _publish_tiktok(
             error="No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Cloudflare tunnel not running)",
         )
 
+    if not is_video and len(public_urls) < len(media_paths):
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                f"TikTok: only {len(public_urls)}/{len(media_paths)} photos have a public "
+                "URL — not publishing with missing media"
+            ),
+        )
+
     # 1) Initialize the post
     upload_url: str | None = None
     planned_chunk_size: int | None = None
@@ -3134,6 +3209,18 @@ async def _publish_threads(
             if url:
                 media_urls.append((url, kind))
 
+    expected = min(max(len(media_paths), len(storage_paths or [])), 20)
+    if len(media_urls) < expected:
+        # Owner rule: never publish text-only or with a partial carousel.
+        return PublishResult(
+            success=False,
+            skipped=True,
+            error=(
+                f"Threads: only {len(media_urls)}/{expected} media items have a public "
+                "URL — not publishing with missing media. Check MEDIA_PUBLIC_BASE_URL."
+            ),
+        )
+
     try:
         if not media_urls:
             # Text-only post
@@ -3342,14 +3429,14 @@ async def _publish_telegram(
         for sp in (storage_paths or [])
         if (u := _media_public_url(sp))
     ]
-    if media_paths and not urls:
+    if media_paths and len(urls) < len(media_paths):
         return PublishResult(
             success=False,
             skipped=True,
             error=(
-                "Telegram: media could not be exposed via a public URL "
-                "(MEDIA_PUBLIC_BASE_URL unset) — deterministic config gap, "
-                "retrying cannot help."
+                f"Telegram: media could not be exposed via a public URL "
+                f"({len(urls)}/{len(media_paths)} resolved; MEDIA_PUBLIC_BASE_URL unset?) "
+                "— deterministic config gap, retrying cannot help."
             ),
         )
 
