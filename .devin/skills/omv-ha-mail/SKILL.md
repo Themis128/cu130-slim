@@ -152,6 +152,20 @@ optional file attachment path.
 - Inbound routing: `cloudless.gr/infrastructure/omv-ha/mail-ingest/`
 - Architecture doc: `cloudless.gr/docs/MAIL-SERVER-SETUP.md`
 
+## omv (k3s Pi) system mail → cloudless mailbox
+
+The omv host's own postfix (apticron/anacron/apt-listchanges mail) forwards to
+`tbaltzakis@cloudless.gr` via omv-ha. Routing lives in three places — all must agree
+or a regen reverts it:
+
+- `/etc/aliases` (`root:` line, then `newaliases`)
+- `/etc/postfix/recipient_canonical` (OMV notification rewrite, then `postmap`)
+- `/etc/openmediavault/config.xml` `<primaryemail>` — durable source OMV regenerates maps from
+
+Manage it with the `omv-mail-alias` workflow in `cloudless.gr` (runs on the omv
+self-hosted runner): `gh workflow run omv-mail-alias.yml -f apply=true` — run once
+with no inputs to dump current state without changing anything.
+
 ## Limitations
 
 - No SSH key is set up from this machine to omv-ha by default. Scripts
