@@ -59,6 +59,7 @@ from app.services.telegram_api import TelegramAPIClient, TelegramAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
+from app.services.utm import tag_owned_links, tracked_url
 
 logger = logging.getLogger(__name__)
 
@@ -656,6 +657,26 @@ async def publish_to_platform(
             ),
         )
 
+    # UTM attribution: rewrite owned-domain links in the assembled copy and
+    # the structured link_url with platform-scoped tags so site leads join
+    # back to this post (AttributionCapture -> web_analytics_events -> CRM).
+    campaign = (getattr(post, "meta_data", None) or {}).get("source") or "organic-social"
+    content_key = str(getattr(post, "id", None) or "post")
+    text = tag_owned_links(
+        text, platform=account.platform, campaign=campaign, content=content_key
+    )
+    raw_link = getattr(post, "link_url", None)
+    if raw_link:
+        tagged_link = tracked_url(
+            raw_link,
+            source=account.platform,
+            medium="organic_social",
+            campaign=campaign,
+            content=content_key,
+        )
+        if tagged_link != raw_link:
+            post = _TaggedLinkPost(post, tagged_link)
+
     media_paths = await _resolve_media_paths(post, db)
     storage_paths = await _resolve_media_storage_paths(post, db)
 
@@ -898,6 +919,24 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
         return video_path  # fall back to original
     logger.info("[publishing] Mixed music into video → %s", out_path)
     return out_path
+
+
+class _TaggedLinkPost:
+    """Read-through proxy overriding ``link_url`` with its UTM-tagged form.
+
+    The ORM ``Post`` is shared across every target of a publish run — mutating
+    it would leak the first platform's tags into the rest (and could flush the
+    tagged URL back to the DB). This proxy only shadows ``link_url``.
+    """
+
+    __slots__ = ("_post", "link_url")
+
+    def __init__(self, post: Post, link_url: str) -> None:
+        object.__setattr__(self, "_post", post)
+        object.__setattr__(self, "link_url", link_url)
+
+    def __getattr__(self, name: str):
+        return getattr(object.__getattribute__(self, "_post"), name)
 
 
 def _build_post_text(post: Post, platform: str) -> str:

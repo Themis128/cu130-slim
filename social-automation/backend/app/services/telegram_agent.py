@@ -26,7 +26,6 @@ import base64
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,19 +50,19 @@ UTM = {
     "utm_medium": "channel_post",
     "utm_campaign": "cloudless-channel-agent",
 }
-_OWNED_HOST_SUFFIX = "cloudless.gr"
 
 
 def tracked_url(url: str, *, content: str) -> str:
-    """Tag an owned-domain link with UTM attribution; pass through the rest."""
-    parts = urlsplit(url)
-    if not parts.hostname or not parts.hostname.endswith(_OWNED_HOST_SUFFIX):
-        return url
-    q = dict(parse_qsl(parts.query))
-    for k, v in UTM.items():
-        q.setdefault(k, v)
-    q.setdefault("utm_content", content)
-    return urlunsplit(parts._replace(query=urlencode(q)))
+    """Tag an owned-domain link with the channel's UTM convention."""
+    from app.services.utm import tracked_url as _tracked
+
+    return _tracked(
+        url,
+        source=UTM["utm_source"],
+        medium=UTM["utm_medium"],
+        campaign=UTM["utm_campaign"],
+        content=content,
+    )
 
 
 # ── content plan (ported from n8n-workflows/cloudless-telegram-channel.json) ──
