@@ -97,7 +97,9 @@ class TestMergeTags:
         r = _recipient(name="Themis Baltzakis", token="tk")
         text, html = S.build_bodies(c, r, "https://u/x")
         assert "Themis" in text and "Take the survey:" in text and "Unsubscribe:" in text
-        assert html is None
+        # text-only campaigns now send the branded HTML shell (not raw text)
+        assert html is not None and "DOCTYPE" in html and "Themis" in html
+        assert 'href="https://u/x"' in html  # unsubscribe link appended
 
 
 class TestAudience:
@@ -322,3 +324,50 @@ class TestDeleteDraftCampaign:
     async def test_missing_returns_none(self):
         db = _DB([_Res([])])
         assert await S.delete_draft_campaign(db, uuid.uuid4(), uuid.uuid4()) is None
+
+
+class TestBrandedRenderer:
+    def test_text_to_elegant_html(self):
+        from app.services.email_brand import render_branded_html
+
+        txt = (
+            "Hi {{first_name}},\n\n"
+            "A plain paragraph.\n\n"
+            "1. First thing. Detail here.\n"
+            "2. Second thing. More detail.\n\n"
+            "> Wise words\n— Carl Rogers\n\n"
+            "P.S. If the timing is wrong, that is fine."
+        )
+        h = render_branded_html(
+            txt, subject="Subj", from_name="Cloudless",
+            preheader="preview", hero_url="https://example.com/h.png",
+        )
+        assert "{{first_name}}" in h  # merge fields survive for send-time render
+        assert 'src="https://example.com/h.png"' in h
+        assert "display:none" in h  # preheader hidden text
+        assert "01" in h and "02" in h  # numbered ghost cards
+        assert "Carl Rogers" in h  # quote attribution kept
+        assert "First thing." in h and "Detail here" in h
+        assert "<!DOCTYPE html>" in h and 'lang="en"' in h
+
+    def test_cta_line_and_markdown_link_become_buttons(self):
+        from app.services.email_brand import render_branded_html
+
+        h1 = render_branded_html("Body.\n\nCTA: Book a review | https://x.test/go")
+        assert 'border-radius:999px' in h1 and 'href="https://x.test/go"' in h1
+        assert "Book a review" in h1
+
+        h2 = render_branded_html("Body.\n\n[See plans](https://x.test/plans)")
+        assert 'border-radius:999px' in h2 and 'href="https://x.test/plans"' in h2
+
+    def test_html_escaping(self):
+        from app.services.email_brand import render_branded_html
+
+        h = render_branded_html('<script>alert("x")</script>')
+        assert "<script>" not in h and "&lt;script&gt;" in h
+
+    def test_send_path_wraps_text_only_campaign(self):
+        # campaigns without html_body get branded HTML at send, not raw text
+        c = _campaign(text_body="Hello {{first_name}}")
+        _text, html = S.build_bodies(c, _recipient(), "https://u/x")
+        assert html is not None and "cloudless<span" in html

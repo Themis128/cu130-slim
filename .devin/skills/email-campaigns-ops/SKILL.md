@@ -19,6 +19,15 @@ description: >-
 - Sends are **per-recipient** messages — never BCC. Each carries
   `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058) and a unique
   unsubscribe token URL.
+- **Branded HTML shell** (`app/services/email_brand.py`): campaigns created
+  without `html_body` get `render_branded_html(text_body, …)` — elegant dark
+  navy card, teal accents, ghost-numbered list cards, pull-quotes, pill CTA,
+  hidden preheader. Runs at create AND as send-time fallback; merge fields
+  `{{…}}` survive for per-recipient render. Body markup contract:
+  `1.`/`2.` lists → cards, `>` lines → quotes (first teal, later pink),
+  `CTA: label | https://…` or a standalone `[label](url)` → pill button,
+  `P.S.` → subdued postscript. To get a CTA button, put the link in the
+  text — prose questions stay prose.
 - Suppression (`email_suppressions`, per-team do-not-contact) is checked at
   queue time AND per send; `unsubscribed`/`skipped_suppressed` are terminal.
 - **No-duplicate rule** (`find_duplicate_campaign` in
