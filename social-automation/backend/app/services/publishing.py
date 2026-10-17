@@ -1879,6 +1879,35 @@ async def _publish_facebook(
                 platform_url=f"https://www.facebook.com/{fb_post_id}",
             )
 
+        if media_paths[0].lower().endswith(VIDEO_EXTS_ALL):
+            # Page video post — /photos cannot carry video. The single_kind
+            # pre-flight guarantees the video is the post's only media item.
+            # Graph fetches it from a public URL (POST /{page_id}/videos
+            # with file_url), so a missing URL is a config gap: skip, since
+            # a retry cannot help.
+            video_url = _media_public_url(storage_paths[0]) if storage_paths else None
+            if not video_url:
+                return PublishResult(
+                    success=False,
+                    skipped=True,
+                    error=(
+                        "Facebook video has no public URL (MEDIA_PUBLIC_BASE_URL unset?) — "
+                        "not publishing without its media; retrying cannot help."
+                    ),
+                )
+            video = await fb_client.create_video_post(video_url=video_url, description=text)
+            video_id = str(video.get("id") or "")
+            if not video_id:
+                return PublishResult(
+                    success=False,
+                    error="Facebook API returned no video id — cannot confirm publish",
+                )
+            return PublishResult(
+                success=True,
+                platform_post_id=video_id,
+                platform_url=f"https://www.facebook.com/{page_id}/videos/{video_id}",
+            )
+
         graph_base = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
         async with httpx.AsyncClient(timeout=90.0) as client:
             # Upload each photo as unpublished, then publish as album/multi-photo

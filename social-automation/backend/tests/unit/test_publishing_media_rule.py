@@ -150,3 +150,71 @@ async def test_telegram_partial_album_refuses(monkeypatch, tmp_path):
     assert not r.success and r.skipped and "1/2 resolved" in r.error
     group.assert_not_awaited()
     photo.assert_not_awaited()
+
+
+# ── Facebook Page video: POST /{page_id}/videos with file_url ───────────────
+
+
+def _fb_video_setup(monkeypatch, tmp_path, *, video_result=None, url="https://pub/v.mp4"):
+    clip = tmp_path / "clip.mp4"
+    clip.write_bytes(b"\x00" * 4096)
+    monkeypatch.setattr(P, "_has_facebook_browser_session", lambda acc: False)
+    monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(return_value="ptok"))
+    seen_urls = []
+    monkeypatch.setattr(P, "_media_public_url", lambda sp, **kw: seen_urls.append(sp) or url)
+    client = SimpleNamespace(
+        create_video_post=AsyncMock(return_value=video_result if video_result is not None else {"id": "vid9"}),
+        create_post=AsyncMock(),
+    )
+    built = []
+    monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: built.append(kw) or client)
+    monkeypatch.setattr(P.httpx, "AsyncClient", _FBHttp)
+    monkeypatch.setattr(_FBHttp, "posts", [])
+    return str(clip), client, built, seen_urls
+
+
+@pytest.mark.asyncio
+async def test_fb_single_video_uses_videos_endpoint(monkeypatch, tmp_path):
+    clip, client, built, seen = _fb_video_setup(monkeypatch, tmp_path)
+    acc = _account("facebook", account_id="1234567890")
+    r = await P._publish_facebook("t", "watch this", acc, _post(), [clip], ["up/clip.mp4"])
+    assert r.success and r.platform_post_id == "vid9"
+    assert r.platform_url == "https://www.facebook.com/1234567890/videos/vid9"
+    client.create_video_post.assert_awaited_once_with(video_url="https://pub/v.mp4", description="watch this")
+    assert seen == ["up/clip.mp4"]
+    assert built == [{"access_token": "ptok", "page_id": "1234567890"}]
+    assert _FBHttp.posts == []  # never sent to /photos or /feed
+    client.create_post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("storage", [None, ["up/clip.mp4"]])
+async def test_fb_video_without_public_url_is_skipped_not_retried(monkeypatch, tmp_path, storage):
+    clip, client, _, _ = _fb_video_setup(monkeypatch, tmp_path, url=None)
+    r = await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), _post(), [clip], storage)
+    assert not r.success and r.skipped and "no public URL" in r.error
+    client.create_video_post.assert_not_awaited()
+    client.create_post.assert_not_awaited()
+    assert _FBHttp.posts == []
+
+
+@pytest.mark.asyncio
+async def test_fb_video_without_returned_id_is_not_success(monkeypatch, tmp_path):
+    clip, _, _, _ = _fb_video_setup(monkeypatch, tmp_path, video_result={})
+    r = await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), _post(), [clip], ["up/clip.mp4"])
+    assert not r.success and not r.skipped and "no video id" in r.error
+
+
+@pytest.mark.asyncio
+async def test_fb_video_graph_error_propagates_for_retry(monkeypatch, tmp_path):
+    clip, client, _, _ = _fb_video_setup(monkeypatch, tmp_path)
+    client.create_video_post.side_effect = RuntimeError("Graph 500 transient")
+    with pytest.raises(RuntimeError, match="transient"):
+        await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), _post(), [clip], ["up/clip.mp4"])
+
+
+def test_fb_video_preflight_accepts_single_video():
+    # The video path is reachable: the central rule lets a lone video through
+    # the single-kind check (only a mixed set is refused).
+    r = P.validate_media_for_platform("facebook", ["/m/clip.mp4"])
+    assert r is None or "nothing else" not in (r.error or "")
