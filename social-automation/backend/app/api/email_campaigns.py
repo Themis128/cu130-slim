@@ -8,6 +8,7 @@ a browser GET.
 from __future__ import annotations
 
 import uuid
+from html import escape as _esc
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -468,16 +469,16 @@ async def unsubscribe_confirm(token: str, db: AsyncSession = Depends(get_db)) ->
         )
     if rec.status == RecipientStatus.unsubscribed:
         return HTMLResponse(
-            _UNSUB_HTML.format(title="Already unsubscribed", body=f"{rec.email} is already on our do-not-contact list.", form="")
+            _UNSUB_HTML.format(title="Already unsubscribed", body=f"{_esc(rec.email)} is already on our do-not-contact list.", form="")
         )
     form = (
-        f'<form method="post" action="/u/{token}">'
+        f'<form method="post" action="/u/{_esc(token)}">'
         f'<button type="submit" style="{_BTN_STYLE}">Unsubscribe</button></form>'
     )
     return HTMLResponse(
         _UNSUB_HTML.format(
             title="Unsubscribe",
-            body=f"Stop marketing emails to <b>{rec.email}</b>?",
+            body=f"Stop marketing emails to <b>{_esc(rec.email)}</b>?",
             form=form,
         )
     )
@@ -495,7 +496,7 @@ async def unsubscribe_post(token: str, db: AsyncSession = Depends(get_db)) -> HT
     return HTMLResponse(
         _UNSUB_HTML.format(
             title="Unsubscribed",
-            body=f"<b>{rec.email}</b> has been removed from marketing emails.",
+            body=f"<b>{_esc(rec.email)}</b> has been removed from marketing emails.",
             form="",
         )
     )
@@ -511,13 +512,17 @@ _RADIO_STYLE = "display:block;color:#b9c4d8;font-size:14px;margin:6px 0;text-ali
 
 
 def _question_input(q: dict) -> str:
-    qid = q["id"]
-    label = f'<label for="{qid}" style="{_LABEL_STYLE}">{q["label"]}</label>'
+    # Question ids/labels/options come from the campaign definition and are
+    # rendered on an unauthenticated page — escape for both text and
+    # attribute contexts.
+    qid = _esc(str(q["id"]))
+    label = f'<label for="{qid}" style="{_LABEL_STYLE}">{_esc(str(q["label"]))}</label>'
     req = " required" if q.get("required") else ""
     if q.get("type") == "choice":
         opts = "".join(
-            f'<label style="{_RADIO_STYLE}"><input type="radio" name="{qid}" value="{o}"{req} style="accent-color:#22d3e6;margin-right:8px;"> {o}</label>'
-            for o in (q.get("options") or [])
+            f'<label style="{_RADIO_STYLE}"><input type="radio" name="{qid}" value="{eo}"{req} '
+            f'style="accent-color:#22d3e6;margin-right:8px;"> {eo}</label>'
+            for eo in (_esc(str(o)) for o in (q.get("options") or []))
         )
         return label + opts
     if q.get("type") == "rating":
@@ -567,13 +572,13 @@ async def survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLRes
         )
     fields = "".join(f'<div style="margin-bottom:18px;text-align:left;">{_question_input(q)}</div>' for q in questions)
     form = (
-        f'<form method="post" action="/s/{token}">'
+        f'<form method="post" action="/s/{_esc(token)}">'
         f'{fields}<button type="submit" style="{_BTN_STYLE}">Submit</button></form>'
     )
     return HTMLResponse(
         _SURVEY_HTML.format(
-            title=campaign.name if campaign else "Survey",
-            body=campaign.subject if campaign else "",
+            title=_esc(campaign.name) if campaign else "Survey",
+            body=_esc(campaign.subject or "") if campaign else "",
             form=form,
         )
     )
@@ -601,7 +606,7 @@ async def survey_submit(
         return HTMLResponse(
             _SURVEY_HTML.format(
                 title="Not accepted",
-                body="; ".join(errors) or "This survey link is invalid.",
+                body=_esc("; ".join(errors)) or "This survey link is invalid.",
                 form="",
             ),
             status_code=status,
