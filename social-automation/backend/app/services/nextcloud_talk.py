@@ -151,6 +151,7 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None,
     if not secret or not base or not room:
         return False
     rnd = hashlib.sha256(os.urandom(32)).hexdigest()
+    # Outbound signature = HMAC(random + message string) per spreed docs.
     sig = hmac.new(
         secret.encode(), rnd.encode() + message.encode(), hashlib.sha256
     ).hexdigest()
@@ -167,10 +168,24 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None,
                 json=payload,
                 headers={
                     "OCS-APIRequest": "true",
+                    "Accept": "application/json",
                     "X-Nextcloud-Talk-Bot-Random": rnd,
                     "X-Nextcloud-Talk-Bot-Signature": sig,
                 },
             )
+            if resp.status_code == 400 and reply_to:
+                # replyTo invalid (system message, deleted, etc.) — send without it
+                payload.pop("replyTo", None)
+                resp = await client.post(
+                    f"{base}{_OCS}/bot/{room}/message",
+                    json=payload,
+                    headers={
+                        "OCS-APIRequest": "true",
+                        "Accept": "application/json",
+                        "X-Nextcloud-Talk-Bot-Random": rnd,
+                        "X-Nextcloud-Talk-Bot-Signature": sig,
+                    },
+                )
             if resp.status_code not in (200, 201):
                 logger.warning(
                     "Talk bot reply failed: HTTP %s %s",
