@@ -213,10 +213,10 @@ Return only the post text, no preamble."""
     text = str(text).strip()
     if text.startswith("{"):
         # Small DMR models sometimes wrap prose in a JSON envelope anyway.
+        # A string starting with "{" can only decode to a JSON object.
         try:
             env = json.loads(text)
-            if isinstance(env, dict):
-                text = str(env.get("response") or env.get("text") or env.get("post") or "").strip()
+            text = str(env.get("response") or env.get("text") or env.get("post") or "").strip()
         except (TypeError, json.JSONDecodeError):
             pass
     if not text:
