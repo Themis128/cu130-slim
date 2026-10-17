@@ -80,7 +80,10 @@ async def _resolve_account(
     if len(accounts) == 1:
         return accounts[0]
     low = instruction.lower()
-    corporate = any(k in low for k in ("company page", "corporate", "brand", "audit"))
+    corporate = any(
+        k in low
+        for k in ("company page", "corporate", "brand", "audit", "cloudless")
+    )
     if platform == "linkedin":
         # org page for corporate pushes, personal profile for founder voice
         org = [a for a in accounts if a.account_type in ("organization", "page")]

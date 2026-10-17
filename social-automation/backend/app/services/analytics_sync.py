@@ -937,6 +937,8 @@ async def _record_follower_snapshot(
     account: SocialAccount,
     platform: str,
     followers: int,
+    *,
+    allow_zero: bool = False,
 ) -> bool:
     """Append a FollowerSnapshot only when the count changed (or heartbeat).
 
@@ -944,24 +946,31 @@ async def _record_follower_snapshot(
     ~8 rows/hour/account of identical values, bloating the series. Now the
     table is a change log: one row per real delta, plus one heartbeat row
     every 7 days so charts keep a recent anchor. Returns True if written.
+
+    ``allow_zero`` records a verified 0 (authoritative API read). Without it,
+    zero means "scrape/API failed" and is dropped — but dropping a real 0
+    leaves the series empty and the digest reports false staleness.
     """
-    if followers <= 0:
+    if followers < 0 or (followers == 0 and not allow_zero):
         return False
-    prev_row = (
-        await db.execute(
-            select(FollowerSnapshot.followers, FollowerSnapshot.captured_at)
-            .where(
-                FollowerSnapshot.social_account_id == account.id,
-                FollowerSnapshot.followers > 0,
-            )
-            .order_by(FollowerSnapshot.captured_at.desc())
-            .limit(1)
+    def _latest(nonzero_only: bool):
+        q = select(FollowerSnapshot.followers, FollowerSnapshot.captured_at).where(
+            FollowerSnapshot.social_account_id == account.id,
         )
-    ).first()
-    prev = prev_row[0] if prev_row else None
-    prev_at = prev_row[1] if prev_row else None
-    if not _plausible_follower_count(prev, followers):
+        if nonzero_only:
+            q = q.where(FollowerSnapshot.followers > 0)
+        return q.order_by(FollowerSnapshot.captured_at.desc()).limit(1)
+
+    # Plausibility compares against the latest NON-zero row — a stored
+    # verified 0 must not make every later real reading look like a jump.
+    nonzero_row = (await db.execute(_latest(True))).first()
+    if not _plausible_follower_count(nonzero_row[0] if nonzero_row else None, followers):
         return False
+    # Dedup/heartbeat compares against the latest row INCLUDING zeros, so a
+    # repeated verified 0 isn't re-written on every sync.
+    last_row = (await db.execute(_latest(False))).first() if allow_zero else nonzero_row
+    prev = last_row[0] if last_row else None
+    prev_at = last_row[1] if last_row else None
     if (
         prev == followers
         and prev_at is not None
@@ -1095,7 +1104,9 @@ async def sync_linkedin_account(
                     for urn in urn_to_post_id
                     if urn not in stats_map
                 })
-                result.errors.append(f"linkedin member scrape: {exc}")
+                result.errors.append(
+                    f"linkedin member scrape: {type(exc).__name__}: {exc}"
+                )
             all_urns = list(urn_to_post_id.keys())
             for urn in all_urns:
                 stats_map.setdefault(
@@ -1530,7 +1541,7 @@ async def sync_twitter_account(
                     f"twitter timeline discovery HTTP {resp.status_code}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"twitter timeline discovery: {exc}")
+            result.errors.append(f"twitter timeline discovery: {type(exc).__name__}: {exc}")
 
         # Browser-scrape fallback — the free X API tier has no timeline read
         # credits, so discovery of native tweets goes through the shared
@@ -1571,7 +1582,7 @@ async def sync_twitter_account(
                 if followers:
                     await _record_follower_snapshot(db, account, "twitter", int(followers))
             except Exception as exc:  # noqa: BLE001 — scrape is best-effort
-                result.errors.append(f"twitter timeline scrape: {exc}")
+                result.errors.append(f"twitter timeline scrape: {type(exc).__name__}: {exc}")
 
         # Account-level metrics — followers/following/tweet_count via
         # users/me public_metrics (free tier). A 401 means the stored
@@ -1594,6 +1605,13 @@ async def sync_twitter_account(
                             "listed_count": int(pm.get("listed_count") or 0),
                         },
                     )
+                    # Verified API read — a real 0 is valid data, not a
+                    # scrape failure; record it so the series isn't silent.
+                    await _record_follower_snapshot(
+                        db, account, "twitter",
+                        int(pm.get("followers_count") or 0),
+                        allow_zero=True,
+                    )
             elif ur.status_code == 402:
                 # Credits depleted — persistent state, not a per-cycle error.
                 official_quota = True
@@ -1603,7 +1621,7 @@ async def sync_twitter_account(
                     f"twitter users/me HTTP {ur.status_code}: {ur.text[:150]}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"twitter users/me: {exc}")
+            result.errors.append(f"twitter users/me: {type(exc).__name__}: {exc}")
 
     # Free X web fallback (tweety → twscrape) when the official API is out of
     # credits. Guarded: breaker + at most one poll per 6h across workers.
@@ -1772,7 +1790,7 @@ async def sync_facebook_account(
                 )
             await db.commit()
         except Exception as exc:  # noqa: BLE001 — scrape is best-effort
-            result.errors.append(f"facebook profile dashboard scrape: {exc}")
+            result.errors.append(f"facebook profile dashboard scrape: {type(exc).__name__}: {exc}")
         return result
 
     page_token = meta.get("page_token") or token
@@ -1857,7 +1875,7 @@ async def sync_facebook_account(
                     f"facebook {discovery_edge} HTTP {resp.status_code}: {_meta_error_message(resp)}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"facebook post discovery: {exc}")
+            result.errors.append(f"facebook post discovery: {type(exc).__name__}: {exc}")
 
         # Page-level insights — Pages only (meta.page_token present).
         # v26-valid metrics: Meta removed page_impressions, page_fans,
@@ -1891,7 +1909,7 @@ async def sync_facebook_account(
                         f"{_meta_error_message(resp)}"
                     )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"facebook page insights: {exc}")
+                result.errors.append(f"facebook page insights: {type(exc).__name__}: {exc}")
 
             # Paid-vs-organic follower attribution — values are dicts
             # {"paid": n, "non_paid": m}, not ints, so it needs its own
@@ -1934,7 +1952,7 @@ async def sync_facebook_account(
                             "follower_attribution", {"by_day": by_day},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"facebook follower attribution: {exc}")
+                result.errors.append(f"facebook follower attribution: {type(exc).__name__}: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -2113,7 +2131,7 @@ async def sync_instagram_account(
                     f"instagram media discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"instagram media discovery: {exc}")
+            result.errors.append(f"instagram media discovery: {type(exc).__name__}: {exc}")
 
         # Account-level insights + audience demographics — requires an
         # insights scope on the token (skip quietly when not granted).
@@ -2146,7 +2164,7 @@ async def sync_instagram_account(
                         f"{_meta_error_message(resp)}"
                     )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram account insights: {exc}")
+                result.errors.append(f"instagram account insights: {type(exc).__name__}: {exc}")
 
             # Audience demographics (country/age/gender) — campaign targeting data.
             try:
@@ -2176,7 +2194,7 @@ async def sync_instagram_account(
                             {"breakdown": "country", "by_country": by_country},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram demographics: {exc}")
+                result.errors.append(f"instagram demographics: {type(exc).__name__}: {exc}")
 
             # Non-follower reach share — `views` split by follower type is
             # the discovery metric that predicts follower growth.
@@ -2205,7 +2223,7 @@ async def sync_instagram_account(
                             {"breakdown": "follow_type", "by_follow_type": by_ft},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram follow_type split: {exc}")
+                result.errors.append(f"instagram follow_type split: {type(exc).__name__}: {exc}")
 
             # Online-follower activity heatmap — `online_followers` returns
             # per-hour audience counts; the peak hours are the posting window.
@@ -2235,7 +2253,7 @@ async def sync_instagram_account(
                             {"by_hour": heatmap, "peak_hours": [h for h, _ in peak]},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram online_followers: {exc}")
+                result.errors.append(f"instagram online_followers: {type(exc).__name__}: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -2419,7 +2437,7 @@ async def sync_threads_account(
                     f"threads discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"threads post discovery: {exc}")
+            result.errors.append(f"threads post discovery: {type(exc).__name__}: {exc}")
 
         # Account-level insights (aggregated views, likes, replies, reposts, quotes)
         try:
@@ -2444,7 +2462,7 @@ async def sync_threads_account(
                 )
                 db.add(event)
         except Exception as exc:
-            result.errors.append(f"threads account insights: {exc}")
+            result.errors.append(f"threads account insights: {type(exc).__name__}: {exc}")
 
         # Profile data (followers_count, following_count, media_count)
         try:
@@ -2474,7 +2492,7 @@ async def sync_threads_account(
                 )
                 db.add(event)
         except Exception as exc:
-            result.errors.append(f"threads profile sync: {exc}")
+            result.errors.append(f"threads profile sync: {type(exc).__name__}: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -2784,7 +2802,7 @@ async def sync_tiktok_account(
                     )
                     api_profile_synced = True
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"tiktok user.info @{account.username}: {exc}")
+            result.errors.append(f"tiktok user.info @{account.username}: {type(exc).__name__}: {exc}")
 
     # yt-dlp scrape of the profile grid — the only source covering
     # MEDIA_UPLOAD inbox posts and videos published straight from the phone.
@@ -2796,7 +2814,7 @@ async def sync_tiktok_account(
                 _scrape_tiktok_profile, username, cookies
             )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"tiktok scrape @{username}: {exc}")
+            result.errors.append(f"tiktok scrape @{username}: {type(exc).__name__}: {exc}")
             scraped = None
         if scraped:
             # Self-heal inbox MEDIA_UPLOAD posts: the Content Posting
@@ -2914,14 +2932,14 @@ async def sync_telegram_channel_metrics(
         try:
             count = await client.get_chat_member_count(chat_id)
         except TelegramAPIError as exc:
-            result.errors.append(f"telegram:{account.username}: {exc}")
+            result.errors.append(f"telegram:{account.username}: {type(exc).__name__}: {exc}")
             return result
         if await _record_follower_snapshot(db, account, "telegram", count):
             result.synced += 1
         else:
             result.skipped += 1
     except Exception as exc:  # noqa: BLE001 — metrics must never break the sync
-        result.errors.append(f"telegram:{account.username}: {exc}")
+        result.errors.append(f"telegram:{account.username}: {type(exc).__name__}: {exc}")
     return result
 
 
@@ -2972,7 +2990,7 @@ async def sync_team_analytics(
             # follower growth over time without re-fetching from each API.
             await _persist_follower_snapshot(db, account)
         except Exception as exc:  # noqa: BLE001
-            combined.errors.append(f"{platform}:{account.username}: {exc}")
+            combined.errors.append(f"{platform}:{account.username}: {type(exc).__name__}: {exc}")
     await db.commit()
     return combined
 
@@ -2991,6 +3009,13 @@ async def _persist_follower_snapshot(db: AsyncSession, account: SocialAccount) -
         from app.api.analytics import _follower_count
 
         followers = await _follower_count(account)
-        await _record_follower_snapshot(db, account, account.platform, followers)
+        # -1 = fetch failed (skip); >=0 is a real API reading — record
+        # verified zeros too, or a 0-follower account never gets a row
+        # and the digest flags it as stale forever.
+        if followers < 0:
+            return
+        await _record_follower_snapshot(
+            db, account, account.platform, followers, allow_zero=True
+        )
     except Exception:
         pass  # follower tracking is best-effort
