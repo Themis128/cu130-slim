@@ -66,4 +66,42 @@ describe('LeadCapture', () => {
     fireEvent.click(screen.getByRole('button', { name: /get the playbook/i }))
     await waitFor(() => expect(screen.getByText(/something went wrong/i)).toBeInTheDocument())
   })
+
+  it('posts the honeypot website field alongside the email', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) })
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(<LeadCapture />)
+    const honeypot = container.querySelector('input[aria-hidden="true"]') as HTMLInputElement
+    fireEvent.change(honeypot, { target: { value: 'spam.example' } })
+    fireEvent.change(screen.getByPlaceholderText('you@company.com'), { target: { value: 'a@b.co' } })
+    fireEvent.click(screen.getByRole('button', { name: /get the playbook/i }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ email: 'a@b.co', website: 'spam.example' })
+    // empty JSON body still lands on the generic done state
+    await waitFor(() => expect(screen.getByText(/we'll be in touch/i)).toBeInTheDocument())
+  })
+
+  it('treats a non-JSON success body as an empty result', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => { throw new SyntaxError('bad') } }))
+    render(<LeadCapture />)
+    fireEvent.change(screen.getByPlaceholderText('you@company.com'), { target: { value: 'a@b.co' } })
+    fireEvent.click(screen.getByRole('button', { name: /get the playbook/i }))
+    await waitFor(() => expect(screen.getByText(/we'll be in touch/i)).toBeInTheDocument())
+  })
+
+  it('shows an error when the network call throws', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')))
+    render(<LeadCapture />)
+    fireEvent.change(screen.getByPlaceholderText('you@company.com'), { target: { value: 'a@b.co' } })
+    fireEvent.click(screen.getByRole('button', { name: /get the playbook/i }))
+    await waitFor(() => expect(screen.getByText(/something went wrong/i)).toBeInTheDocument())
+  })
+
+  it('does not submit without an email', () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { container } = render(<LeadCapture />)
+    fireEvent.submit(container.querySelector('form')!)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
 })
