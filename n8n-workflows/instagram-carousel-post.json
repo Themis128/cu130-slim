@@ -22,7 +22,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || '38ddbd44-8811-4d0b-be62-a23fd2f50490';\nconst numSlides = Math.max(2, Math.min(10, Number(body.num_slides || 5)));\nconst tone = body.tone || 'conversational';\nconst publish = body.publish === false ? false : true;\nreturn [{ json: { topic, account_id: accountId, num_slides: numSlides, tone, platform: 'instagram', publish } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_INSTAGRAM_ACCOUNT_ID || '38ddbd44-8811-4d0b-be62-a23fd2f50490';\nconst numSlides = Math.max(2, Math.min(10, Number(body.num_slides || 5)));\nconst tone = body.tone || 'conversational';\nconst scheduledAt = body.scheduled_at || null;\nconst publish = body.publish === false ? false : !scheduledAt;\nreturn [{ json: { topic, account_id: accountId, num_slides: numSlides, tone, platform: 'instagram', publish, scheduled_at: scheduledAt } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
@@ -146,7 +146,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.suggested_caption || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.media_ids || []) }}\n}",
+        "jsonBody": "={\n  \"content_text\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.suggested_caption || '') }},\n  \"hashtags\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.hashtags || []) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Config').item.json.account_id]) }},\n  \"media_ids\": {{ JSON.stringify($('Generate Carousel (DMR→CF)').item.json.media_ids || []) }}\n,\n  \"scheduled_at\": {{ JSON.stringify($('Resolve Config').item.json.scheduled_at || null) }}\n}",
         "options": {
           "timeout": 60000
         }

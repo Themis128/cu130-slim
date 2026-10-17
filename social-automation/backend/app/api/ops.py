@@ -2,11 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,7 +18,7 @@ from app.db.session import get_db
 from app.models.content import MediaAsset, Post
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
-from app.models.user import User
+from app.models.user import Team, User
 from app.services import stack_ops
 from app.services.paddle_digest import send_paddle_digest_to_slack
 from app.services.slack_digest import run_daily_digest_for_all_teams
@@ -149,6 +149,43 @@ async def trigger_daily_digest(
     if errors:
         msg += f"; issues: {errors[0]}"
     return DailyDigestResponse(reports=reports, message=msg)
+
+
+@router.get("/automation-plan")
+async def get_automation_plan(
+    team_id: TeamId,
+    insight_days: int = Query(30, ge=7, le=90),
+    use_llm: bool = Query(
+        True,
+        description="LLM-authored playbook actions; false = deterministic "
+        "rule-based fallback from the insights engine",
+    ),
+    target_date: str | None = Query(
+        None,
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+        description="YYYY-MM-DD in the report timezone; default tomorrow",
+    ),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Data-driven automation plan — the strategy brief's playbook as JSON.
+
+    Each action carries `platform`, `format`, `schedule_at` (resolved UTC
+    ISO from the Athens best window) and the n8n `webhook` that can execute
+    it — so automation workflows create scheduled posts at measured optimal
+    windows instead of publishing on fixed crons.
+    """
+    from app.services.strategy_report import automation_plan, build_strategy_report
+
+    _ = current_user
+    team = await db.scalar(select(Team).where(Team.id == team_id))
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    day = date.fromisoformat(target_date) if target_date else None
+    report = await build_strategy_report(
+        db, team=team, insight_days=insight_days, use_llm=use_llm
+    )
+    return automation_plan(report, target_date=day)
 
 
 class PaddleDigestResponse(BaseModel):

@@ -188,6 +188,22 @@ docker exec -i social-api python3 /app/scripts/ops_api.py POST \
 
 Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
 
+## Data-driven automation (automation-plan)
+
+- `GET /api/v1/ops/automation-plan` returns the strategy brief's playbook as
+  JSON: per-action `platform`, `format`, `time_local` (Athens), resolved
+  `schedule_at` (UTC ISO), `media_required`, and the n8n `webhook` that can
+  execute it. `use_llm=false` forces the deterministic rule fallback.
+- Orchestrator `socialauto-automation-plan` (cron `0 7 * * *` Athens, webhook
+  `socialauto-automation-plan`) fetches the plan and dispatches each action
+  to its platform webhook with `{topic: instruction, scheduled_at,
+  publish: false}` — posts land as SCHEDULED at the measured best window
+  instead of firing immediately.
+- All `*-post` workflows accept `scheduled_at` in the webhook body; when
+  present `publish` flips to false automatically and `create-post` stores it
+  on the post. Never dispatch with a `schedule_at` in the past — the
+  Explode Actions node drops those.
+
 ## Workflow JSON authoring pitfalls (verified 2026-10-04)
 
 1. **`webhookId` is required on Webhook nodes.** The n8n UI assigns it on canvas
