@@ -12,7 +12,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "_lib"))
 from skill_http import repo_root, request, social_api, usage  # noqa: E402
 
 seconds = "3"
