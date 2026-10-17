@@ -244,8 +244,12 @@ async def _generate_media(
     if png is None:
         try:  # deterministic brand banner — never leaves a post media-less
             from app.services.brand_assets import generate_og_image
+            from app.services.spellcheck import auto_correct, preprocess_for_render
 
-            png = generate_og_image("cloudless.gr", tagline=action.instruction[:80])
+            # action.instruction is LLM text going straight onto the image —
+            # gate it through LanguageTool + PIL-safe preprocessing first.
+            tagline = preprocess_for_render(await auto_correct(action.instruction))
+            png = generate_og_image("cloudless.gr", tagline=tagline[:80])
         except Exception as exc:  # noqa: BLE001
             logger.warning("brand banner gen failed: %s", str(exc)[:120])
             return None
