@@ -814,13 +814,13 @@ async def test_fb_photo_album_flow(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_fb_photo_all_fail_text_fallback(monkeypatch, tmp_path):
+async def test_fb_photo_all_fail_refuses_text_fallback(monkeypatch, tmp_path):
     img = tmp_path / "p.png"
 
     img.write_bytes(b"\x89PNG" + b"\x00" * 12000)
     monkeypatch.setattr(P, "_has_facebook_browser_session", lambda a: False)
     monkeypatch.setattr(P, "_facebook_page_token", AsyncMock(return_value="ptok"))
-    fb = SimpleNamespace(create_post=AsyncMock(return_value={"id": "txt9"}))
+    fb = SimpleNamespace(create_post=AsyncMock(return_value={"id": "txt9"}))  # must not be used
     monkeypatch.setattr(P, "FacebookAPIClient", lambda **kw: fb)
     monkeypatch.setattr(P.httpx, "AsyncClient", _FBHttp)
     _FBHttp.posts = []
@@ -829,7 +829,9 @@ async def test_fb_photo_all_fail_text_fallback(monkeypatch, tmp_path):
     }
     acc = _account("facebook", account_id="pg1")
     r = await P._publish_facebook("t", "hi", acc, _post(), [str(img)], None)
-    assert r.success and r.platform_post_id == "txt9"
+    # Owner rule: failed photo uploads never degrade to a text-only post.
+    assert not r.success and "0/1" in r.error
+    fb.create_post.assert_not_awaited()
 
 
 @pytest.mark.asyncio
