@@ -1391,6 +1391,20 @@ async def sync_twitter_account(
     since = datetime.now(UTC) - timedelta(days=days)
     captured_at = datetime.now(UTC)
 
+    # X user-context tokens live ~2h; the hourly refresh task can lag. If the
+    # stored token is already past expiry, rotate upfront so both the per-tweet
+    # metrics calls and timeline discovery below don't 401 on a stale token.
+    expires_at = getattr(account, "token_expires_at", None)
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at <= captured_at:
+            from app.services.publishing import _refresh_oauth2_token
+
+            fresh = await _refresh_oauth2_token(account, db)
+            if fresh:
+                token = fresh
+
     targets_q = (
         select(PostTarget)
         .join(Post, Post.id == PostTarget.post_id)
@@ -1423,12 +1437,24 @@ async def sync_twitter_account(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         covered: set[str] = set()
+        token_refreshed = False
         for t in targets:
             tweet_id = (t.platform_post_id or "").split("/")[-1]
             if not tweet_id:
                 continue
             covered.add(tweet_id)
             metrics = await _fetch_twitter_metrics(client, token, tweet_id)
+            if metrics.notes == "twitter stats HTTP 401" and not token_refreshed:
+                # Stored user-context token expired between hourly refreshes
+                # (X access tokens live ~2h). Rotate once and retry — the
+                # helper persists the single-use refresh token.
+                token_refreshed = True
+                from app.services.publishing import _refresh_oauth2_token
+
+                fresh = await _refresh_oauth2_token(account, db)
+                if fresh:
+                    token = fresh
+                    metrics = await _fetch_twitter_metrics(client, token, tweet_id)
             if metrics.notes == "quota_exhausted":
                 official_quota = True
                 # Free tier is out of read credits — every remaining call will

@@ -999,6 +999,41 @@ async def test_sync_twitter_usersme_error(_tw_patches):
     assert any("timeline discovery HTTP 403" in e for e in r.errors)
 
 
+@pytest.mark.asyncio
+async def test_sync_twitter_refreshes_expired_token(_tw_patches, monkeypatch):
+    import app.services.publishing as pub
+
+    refresh = AsyncMock(return_value="fresh-tok")
+    monkeypatch.setattr(pub, "_refresh_oauth2_token", refresh)
+    fetch = AsyncMock(return_value=A.MetricBundle(likes=1))
+    monkeypatch.setattr(A, "_fetch_twitter_metrics", fetch)
+    db = _DB(results=[[_target("1")]])
+    acc = _tw_acc(token_expires_at=datetime.now(UTC) - timedelta(hours=1))
+    await A.sync_twitter_account(db, acc)
+    refresh.assert_awaited_once()
+    assert fetch.await_args_list[0].args[1] == "fresh-tok"
+
+
+@pytest.mark.asyncio
+async def test_sync_twitter_401_retry_refresh(_tw_patches, monkeypatch):
+    import app.services.publishing as pub
+
+    refresh = AsyncMock(return_value="fresh-tok")
+    monkeypatch.setattr(pub, "_refresh_oauth2_token", refresh)
+    fetch = AsyncMock(
+        side_effect=[
+            A.MetricBundle(notes="twitter stats HTTP 401"),
+            A.MetricBundle(likes=3),
+        ]
+    )
+    monkeypatch.setattr(A, "_fetch_twitter_metrics", fetch)
+    db = _DB(results=[[_target("1")]])
+    r = await A.sync_twitter_account(db, _tw_acc())
+    refresh.assert_awaited_once()
+    assert fetch.await_args_list[1].args[1] == "fresh-tok"
+    assert r.synced == 1
+
+
 # ── sync_facebook_account (personal-profile path) ─────────────────────
 
 
