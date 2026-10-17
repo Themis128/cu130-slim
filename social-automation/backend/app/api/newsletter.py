@@ -74,8 +74,16 @@ async def newsletter_cover(body: NewsletterCoverRequest, request: Request) -> Re
         date.fromisoformat(issue_date)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=f"invalid issue_date: {exc}") from exc
+    # Title is printed on produced media — run it through LanguageTool +
+    # PIL-safe preprocessing like every other rendered copy path.
+    from app.services.spellcheck import auto_correct, preprocess_for_render
+
+    try:
+        title = preprocess_for_render(await auto_correct(body.title)) or body.title
+    except Exception:  # noqa: BLE001 — correction must never block the cover
+        title = body.title
     png = render_newsletter_cover(
-        body.title,
+        title,
         issue_number=body.issue_number,
         issue_date=issue_date,
         category=body.category,
