@@ -51,6 +51,11 @@ import rateLimit from "express-rate-limit";
 import { chromium } from "patchright";
 import fs from "fs";
 import path from "path";
+import {
+  createCrashTracker,
+  pageNeedsRecovery,
+  resolveRecoveryState,
+} from "./session-recovery.js";
 
 const PORT = process.env.LINKEDIN_SIDECAR_PORT || 9225;
 
@@ -59,6 +64,7 @@ const PORT = process.env.LINKEDIN_SIDECAR_PORT || 9225;
 let browser = null;
 let context = null;
 let page = null;
+const crashTracker = createCrashTracker();
 let storageState = null;
 
 /** Coerce cookie values to strings; quote JSESSIONID ajax: values LinkedIn expects. */
@@ -92,8 +98,105 @@ function sanitizeStorageState(state) {
   };
 }
 
+async function openContext() {
+  const ctxOptions = {
+    viewport: { width: 1920, height: 1080 },
+    userAgent:
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    locale: "en-US",
+    timezoneId: "Europe/Athens",
+    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
+    permissions: ["notifications"],
+  };
+
+  if (storageState) {
+    // Always sanitize before Playwright — cookie values must be strings.
+    ctxOptions.storageState = sanitizeStorageState(storageState);
+  }
+
+  context = await browser.newContext(ctxOptions);
+  await context.addInitScript(
+    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
+  );
+  // NOTE: no context.route() interception here — CDP Fetch interception
+  // leaks to LinkedIn's bot detection (pages boot to an empty skeleton).
+  page = await context.newPage();
+  wirePage(page);
+  // LinkedIn opens some surfaces (article/newsletter editor links) via
+  // target=_blank. Track popups so `page` always points at the newest tab.
+  context.on("page", (p) => {
+    agentLog("H-POP", "context.page", "popup became active page", {
+      url: p.url(),
+    });
+    page = p;
+    wirePage(p);
+  });
+}
+
+function wirePage(p) {
+  // A crashed target makes every later call throw "Target crashed" —
+  // flag that page (per page, not globally) so ensureBrowser recreates the context on the next request
+  // instead of hanging the wedge forever.
+  p.on("crash", () => {
+    crashTracker.mark(p);
+    agentLog("H-CRASH", "page.crash", "page target crashed", {
+      url: (() => {
+        try {
+          return p.url();
+        } catch (_) {
+          return "?";
+        }
+      })(),
+    });
+  });
+  if (process.env.LINKEDIN_DEBUG_CONSOLE === "1") {
+    p.on("pageerror", (e) =>
+      console.log("[pageerror]", String(e && e.message).slice(0, 300)),
+    );
+    p.on("console", (m) => {
+      if (m.type() === "error" || m.type() === "warning") {
+        console.log("[console." + m.type() + "]", m.text().slice(0, 300));
+      }
+    });
+    p.on("requestfailed", (r) =>
+      console.log(
+        "[reqfail]",
+        r.url().slice(0, 140),
+        r.failure() && r.failure().errorText,
+      ),
+    );
+    p.on("response", (r) => {
+      const s = r.status();
+      if (s >= 400 && s !== 404) {
+        console.log("[resp" + s + "]", r.url().slice(0, 160));
+      }
+    });
+  }
+}
+
 async function ensureBrowser(fresh = false) {
-  if (browser && browser.isConnected()) return;
+  if (browser && browser.isConnected()) {
+    if (!pageNeedsRecovery(page, crashTracker)) return;
+    // Browser process is alive but the page is wedged — recreate only the
+    // context+page instead of reporting healthy-but-hung forever.
+    agentLog("H-REC", "ensureBrowser", "page crashed/closed — recreating context", {});
+    // Rebuild with the freshest cookies (live context, then saved file),
+    // not the storageState loaded at startup — LinkedIn rotates cookies.
+    const { state, source } = await resolveRecoveryState({
+      context,
+      readSaved: readSavedStorageState,
+      current: storageState,
+    });
+    if (state) storageState = sanitizeStorageState(state);
+    agentLog("H-REC", "ensureBrowser", "recovery session source", { source });
+    try {
+      await context.close();
+    } catch (_) {}
+    context = null;
+    page = null;
+    await openContext();
+    return;
+  }
 
   // Try to load a saved session if we don't have one in memory.
   // `fresh` skips this — handleLogin needs a cookie-free context or the
@@ -128,59 +231,7 @@ async function ensureBrowser(fresh = false) {
   }
   browser = await chromium.launch(launchOpts);
 
-  const ctxOptions = {
-    viewport: { width: 1920, height: 1080 },
-    userAgent:
-      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    locale: "en-US",
-    timezoneId: "Europe/Athens",
-    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
-    permissions: ["notifications"],
-  };
-
-  if (storageState) {
-    // Always sanitize before Playwright — cookie values must be strings.
-    ctxOptions.storageState = sanitizeStorageState(storageState);
-  }
-
-  context = await browser.newContext(ctxOptions);
-  await context.addInitScript(
-    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})",
-  );
-  // NOTE: no context.route() interception here — CDP Fetch interception
-  // leaks to LinkedIn's bot detection (pages boot to an empty skeleton).
-  page = await context.newPage();
-  // LinkedIn opens some surfaces (article/newsletter editor links) via
-  // target=_blank. Track popups so `page` always points at the newest tab.
-  context.on("page", (p) => {
-    agentLog("H-POP", "context.page", "popup became active page", {
-      url: p.url(),
-    });
-    page = p;
-  });
-  if (process.env.LINKEDIN_DEBUG_CONSOLE === "1") {
-    page.on("pageerror", (e) =>
-      console.log("[pageerror]", String(e && e.message).slice(0, 300)),
-    );
-    page.on("console", (m) => {
-      if (m.type() === "error" || m.type() === "warning") {
-        console.log("[console." + m.type() + "]", m.text().slice(0, 300));
-      }
-    });
-    page.on("requestfailed", (r) =>
-      console.log(
-        "[reqfail]",
-        r.url().slice(0, 140),
-        r.failure() && r.failure().errorText,
-      ),
-    );
-    page.on("response", (r) => {
-      const s = r.status();
-      if (s >= 400 && s !== 404) {
-        console.log("[resp" + s + "]", r.url().slice(0, 160));
-      }
-    });
-  }
+  await openContext();
 }
 
 async function closeBrowser() {
@@ -752,15 +803,22 @@ async function saveSession() {
   } catch (_) {}
 }
 
-async function loadSavedSession() {
+function readSavedStorageState() {
   try {
-    if (!fs.existsSync(SESSION_FILE)) return false;
+    if (!fs.existsSync(SESSION_FILE)) return null;
     const data = JSON.parse(fs.readFileSync(SESSION_FILE, "utf-8"));
-    if (data.storageState) {
-      storageState = sanitizeStorageState(data.storageState);
-      return true;
-    }
-  } catch (_) {}
+    return data.storageState || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function loadSavedSession() {
+  const saved = readSavedStorageState();
+  if (saved) {
+    storageState = sanitizeStorageState(saved);
+    return true;
+  }
   return false;
 }
 
@@ -3254,6 +3312,8 @@ app.get("/health", (req, res) => {
     rate_limited: cooling,
     rate_limit_until: cooling ? rl.until : null,
     proxy: !!(process.env.LINKEDIN_PROXY || process.env.PROXY_URL),
+    browser_connected: !!(browser && browser.isConnected()),
+    page_ok: !pageNeedsRecovery(page, crashTracker),
   });
 });
 
@@ -3377,6 +3437,7 @@ async function handleNewsletterPublish(body) {
         try {
           if (p.url().includes("/article/new") && (await p.$(EDITOR_SEL))) {
             page = p;
+            wirePage(p);
             return true;
           }
         } catch (_) {
