@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --production --no-cache && npx patchright install chromium
 
-COPY server.js ./
+COPY server.js session-recovery.js ./
 
 EXPOSE 9225
 
