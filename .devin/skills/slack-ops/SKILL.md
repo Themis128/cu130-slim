@@ -32,15 +32,28 @@ docker exec social-api python3 /app/scripts/slack_tool.py <cmd>
 - `channels` — `conversations.list` (needs `channels:read`)
 - `history <channel_id>` — `conversations.history` (needs `channels:history`)
 
-## Live state (verified 2026-10, important)
+Related: `scripts/ops_api.py` — admin login + TOTP (pulled from the user's
+DB row) + call any `/api/v1` endpoint. Use it to replay the daily digest
+(`POST /api/v1/ops/daily-digest?days=1&post_to_slack=true`) or verify a
+fix without waiting for the 09:00 cron.
+
+## Live state (verified 2026-10-17, important)
 
 - **ALL configured webhook URLs return `404 no_service`** — alerts, billing,
-  leads, publishing, support, and the default hook are all dead; digests
-  have been silently no-opping. Regenerate incoming webhooks in the
-  Cloudless Slack app and update `.env`.
-- **`SLACK_BOT_TOKEN` is EMPTY in the container** — the bot-token fallback
-  in `_post_slack_text` can never fire. Set a `xoxb-` token to restore the
-  fallback AND enable file uploads.
+  leads, publishing, support, and the default hook are all dead. Every
+  Slack post currently rides the token fallback — a **single point of
+  failure**. Regenerate incoming webhooks in the Cloudless Slack app and
+  update `.env` (runbook below).
+- **`SLACK_BOT_TOKEN` is now set and works** — it holds an `xoxe` **user**
+  token (`bot=baltzakis.themis`, U09AF5VU7LY) synced by
+  `slack_token_sync.py`; posts arrive authored by the user, not an app.
+  Still aim for a real `xoxb-` bot token (manifest in `scripts/`).
+- **Stale-env pitfall**: `chat.postMessage` → `channel_not_found` after an
+  `.env` Slack-var change means a container is still running the OLD env —
+  compose injects env only at create time. Recreate **every** token
+  consumer (social-api + 4 workers + beat) — `slack_token_sync.py` already
+  does this. Seen 2026-10-15/16 when the daily digest silently failed two
+  mornings running.
 
 ## File uploads — `upload_file_to_slack()`
 

@@ -54,8 +54,11 @@ re-mint via `scripts/init-n8n-api-key.py` (n8n 2.x: session login →
 `POST /rest/api-keys`; the 1.x `/api/v1/user/api-keys` endpoint is gone).
 The MCP server still falls back to Postgres (`social-postgres` → `n8n` DB)
 for execution *detail* reads and rehydrates n8n 2.x's deduplicated
-`execution_data` format — the public API returns stripped `resultData` for
-finished executions regardless of scope.
+`execution_data` format. The public API DOES return full `runData` for
+recent executions with `GET /api/v1/executions/{id}?includeData=true`
+(header `X-N8N-API-KEY`) — verified 2026-10-17; use that first, Postgres
+only for older/stripped rows (the raw `execution_data` column is a
+dedup-indexed array, not plain JSON — resolving it by hand is a trap).
 
 **Retry caveat**: `n8n_retry_execution` resumes a failed run with its
 original node outputs — SocialAuto login-node data can be stale/missing, so
@@ -80,6 +83,14 @@ webhook (`n8n_trigger_webhook`) over retry.
 | Prod webhook | `POST http://localhost:5678/webhook/socialauto-daily-digest` |
 | Schedule | daily **09:00 Europe/Athens** |
 | Calls | social-api login → `POST /api/v1/ops/daily-digest` → Slack |
+
+| Failure signature | Digest shows `success` but nothing reached Slack — read the
+  `Summarize Result` node output (via `?includeData=true`): `posted_to_slack`,
+  `slack_error`, `teams_reported`. `slack_error: "Slack API error: channel_not_found"`
+  = dead-webhook fallback hit a stale `SLACK_CHANNEL_ID` in a container running
+  old env (recreate ALL token consumers — see slack-ops). `slack_error:
+  "skipped empty team"` + `teams_reported: 7` = CI/E2E teams legitimately skip;
+  the real team's report is elsewhere in `reports[]` (seen 2026-10-15/16). |
 
 | Workflow id | `linkedin-newsletter-weekly` |
 | Name | LinkedIn Newsletter — The Cloudless Build Log |
@@ -168,6 +179,11 @@ From repo root:
 
 # Manual webhook publish
 .devin/skills/n8n-cloudless/scripts/trigger-webhook.py --publish true --slides 7
+
+# Authenticated API call inside social-api (admin login + TOTP from DB,
+# no hand-rolled auth): trigger/inspect any /api/v1 endpoint
+docker exec -i social-api python3 /app/scripts/ops_api.py POST \
+    "/api/v1/ops/daily-digest?days=1&post_to_slack=false&post_to_email=false"
 ```
 
 Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
@@ -196,24 +212,6 @@ Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
    `n8n_get_execution` (per-node errors via Postgres fallback — the API key
    403s on /executions). The last executed node in `lastNodeExecuted` is
    the failing one.
-7. **`contentType:'json'` is dead config on httpRequest ≥4.2** — the body
-   ships EMPTY silently; remote APIs just 400. The only working contract
-   is `sendBody:true` + `specifyBody:'json'` + `jsonBody` (proven in
-   `facebook-text-post.json` etc.). `contentType:'form-urlencoded'` +
-   `bodyParameters` is the valid keypair equivalent (login node).
-8. **`httpBasicAuth` credentials can silently ship bad auth in prod**
-   (2026-10-15: node received NC guest-page HTML while identical
-   in-container requests with the same creds succeeded; the credential
-   store/wiring is opaque to debugging). Some workflows do work with them
-   (`nextcloud-drop-to-draft`), but the reliable pattern is an explicit
-   `Authorization` header computed in a Code node from `$env` —
-   `Basic base64($env.NEXTCLOUD_USERNAME + ':' + $env.NEXTCLOUD_APP_PASSWORD)`
-   — same `$env` mechanism as `SOCIAL_ADMIN_*` on login nodes.
-   `NEXTCLOUD_USERNAME`/`NEXTCLOUD_APP_PASSWORD` are in the n8n service
-   env (docker-compose) specifically for this.
-9. **Audit before deploy**: `python3
-   .cursor/skills/n8n-cloudless/scripts/audit-http-nodes.py n8n-workflows/`
-   catches both patterns (exit 1 on findings).
 
 ## Do not
 
