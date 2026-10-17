@@ -142,4 +142,79 @@ describe('AdvisorProvider rule engine', () => {
     // editor-only rules no longer fire on dashboard
     expect(get().suggestion?.id).not.toBe('no-platforms')
   })
+
+  describe('fallback arms', () => {
+    const tidy = { selectedPlatforms: ['linkedin'], hasMedia: true, aiUsed: true }
+
+    it('stays silent for twitter drafts outside the 240–280 window', () => {
+      mockPathname = '/content/new'
+      const get = mount()
+      setCtxAndTick(get, { ...tidy, selectedPlatforms: ['twitter'], content: `${'a'.repeat(300)} #t` })
+      expect(get().suggestion).toBeNull()
+      setCtxAndTick(get, { content: undefined }) // twitter selected, no content yet
+      expect(get().suggestion).toBeNull()
+    })
+
+    it('does not nag about AI when it was already used on a long draft', () => {
+      mockPathname = '/content/new'
+      const get = mount()
+      setCtxAndTick(get, { ...tidy, content: `${'a'.repeat(80)} #t` })
+      expect(get().suggestion).toBeNull()
+    })
+
+    it('treats a missing editor context as empty', () => {
+      mockPathname = '/content/new'
+      const get = mount()
+      setCtxAndTick(get, {}) // no content, no platforms
+      expect(get().suggestion).toBeNull()
+    })
+
+    it('defaults missing dashboard counts to zero', () => {
+      const get = mount()
+      setCtxAndTick(get, { connectedAccountsCount: 2 }) // publishedCount undefined → 0
+      expect(get().suggestion).toBeNull()
+      setCtxAndTick(get, { publishedCount: 4 }) // scheduledCount undefined → 0
+      expect(get().suggestion?.id).toBe('no-schedule')
+    })
+
+    it('handles a null pathname without suggesting anything', () => {
+      mockPathname = null as unknown as string
+      const get = mount()
+      setCtxAndTick(get, { connectedAccountsCount: 0, content: 'x'.repeat(100) })
+      expect(get().suggestion).toBeNull()
+    })
+
+    it('ignores corrupt dismissed state in sessionStorage', () => {
+      sessionStorage.setItem('advisor_dismissed', '{not json')
+      const get = mount()
+      setCtxAndTick(get, { connectedAccountsCount: 0 })
+      expect(get().suggestion?.id).toBe('no-accounts')
+    })
+
+    it('dismiss without a suggestion is a no-op', () => {
+      const get = mount()
+      setCtxAndTick(get, { connectedAccountsCount: 1 })
+      expect(get().suggestion).toBeNull()
+      act(() => get().dismiss())
+      expect(sessionStorage.getItem('advisor_dismissed')).toBeNull()
+    })
+
+    it('survives sessionStorage refusing writes', () => {
+      const get = mount()
+      setCtxAndTick(get, { connectedAccountsCount: 0 })
+      const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota') })
+      act(() => get().dismiss())
+      expect(get().suggestion).toBeNull()
+      set.mockRestore()
+    })
+  })
+})
+
+describe('useAdvisor', () => {
+  it('throws outside AdvisorProvider', () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    function Bare() { useAdvisor(); return null }
+    expect(() => render(<Bare />)).toThrow('useAdvisor must be inside AdvisorProvider')
+    err.mockRestore()
+  })
 })

@@ -379,7 +379,8 @@ async def _follower_count(account: SocialAccount) -> int:
     }
     fn = dispatch.get(account.platform)
     if fn is None:
-        return 0
+        # No follower surface for this platform — -1 (skip), not a fake 0.
+        return -1
     return await fn(account)
 
 

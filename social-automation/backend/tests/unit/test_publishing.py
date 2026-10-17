@@ -155,7 +155,7 @@ async def test_publish_threads_access_denied(account, post, monkeypatch):
     fake = _FakeAsyncClient(_FakeResponse(403, {"error": {"message": "Access denied"}}))
 
     with patch("app.services.threads_api.httpx.AsyncClient", new=lambda timeout=60.0: fake):
-        result = await pub._publish_threads("tok-123", "Hello!", account, post, ["/tmp/img.png"])
+        result = await pub._publish_threads("tok-123", "Hello!", account, post, ["/tmp/img.png"], ["fake/img.png"])
 
     assert result.success is False
     assert "Threads API access denied" in result.error
