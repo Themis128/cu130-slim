@@ -179,6 +179,15 @@ describe('API Service', () => {
       expect(result.headers.Authorization).toBeUndefined()
     })
 
+    it('should read the access token from localStorage when memory is empty', () => {
+      apiModule.clearTokens()
+      localStorageMock.getItem.mockImplementation((k: string) =>
+        k === 'access_token' ? 'stored-access' : null,
+      )
+      const result = mockRequestInterceptor({ headers: {} })
+      expect(result.headers.Authorization).toBe('Bearer stored-access')
+    })
+
     it('should reject on request error', () => {
       const error = new Error('Request failed')
       const result = mockRequestInterceptor(Promise.reject(error))
@@ -218,10 +227,61 @@ describe('API Service', () => {
       })
     })
 
-    it('should queue requests while refreshing', async () => {
-      // This test is complex to mock properly due to the interceptor retry logic
-      // The important thing is that the refresh mechanism works, which is tested in other tests
-      expect(true).toBe(true)
+    it('should queue requests while refreshing and replay them with the new token', async () => {
+      let finishRefresh!: (v: unknown) => void
+      mockedAxios.post.mockReturnValueOnce(new Promise((r) => { finishRefresh = r }))
+      mockAxiosInstance.mockImplementation((cfg: any) => Promise.resolve({ data: cfg.url }))
+      apiModule.setTokens('old-access', 'old-refresh')
+
+      const first = { headers: {} as Record<string, string>, url: '/a' }
+      const second = { headers: {} as Record<string, string>, url: '/b' }
+      const p1 = mockResponseInterceptor({ response: { status: 401 }, config: first })
+      const p2 = mockResponseInterceptor({ response: { status: 401 }, config: second })
+
+      // Only one refresh is in flight; the second 401 waits in the queue.
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1)
+      finishRefresh({ data: { access_token: 'fresh', refresh_token: 'fresh-r' } })
+
+      await expect(p1).resolves.toEqual({ data: '/a' })
+      await expect(p2).resolves.toEqual({ data: '/b' })
+      expect(first.headers.Authorization).toBe('Bearer fresh')
+      expect(second.headers.Authorization).toBe('Bearer fresh')
+      expect(localStorageMock.setItem).toHaveBeenCalledWith('refresh_token', 'fresh-r')
+    })
+
+    it('should reject queued requests when the refresh fails', async () => {
+      let failRefresh!: (e: Error) => void
+      mockedAxios.post.mockReturnValueOnce(new Promise((_, rej) => { failRefresh = rej }))
+      apiModule.setTokens('old-access', 'old-refresh')
+
+      const p1 = mockResponseInterceptor({ response: { status: 401 }, config: { headers: {} } })
+      const p2 = mockResponseInterceptor({ response: { status: 401 }, config: { headers: {} } })
+      failRefresh(new Error('refresh expired'))
+
+      await expect(p1).rejects.toThrow('refresh expired')
+      await expect(p2).rejects.toThrow('refresh expired')
+      expect(mockAxiosInstance).not.toHaveBeenCalled()
+      expect(window.location.href).toBe('/login')
+    })
+
+    it('should reject without refreshing when there is no refresh token', async () => {
+      apiModule.clearTokens()
+      const error = { response: { status: 401 }, config: { headers: {} } }
+      await expect(mockResponseInterceptor(error)).rejects.toBe(error)
+      expect(mockedAxios.post).not.toHaveBeenCalled()
+      expect(window.location.href).toBe('') // no hard redirect on bad credentials
+    })
+
+    it('should fall back to the refresh token in localStorage', async () => {
+      apiModule.clearTokens()
+      localStorageMock.getItem.mockImplementation((k: string) =>
+        k === 'refresh_token' ? 'stored-refresh' : null,
+      )
+      mockAxiosInstance.mockResolvedValue({ data: 'ok' })
+      await mockResponseInterceptor({ response: { status: 401 }, config: { headers: {} } })
+      expect(mockedAxios.post).toHaveBeenCalledWith('/api/v1/auth/refresh', {
+        refresh_token: 'stored-refresh',
+      })
     })
 
     it('should attempt logout on refresh failure', async () => {
@@ -305,6 +365,14 @@ describe('API Service', () => {
         })
       )
       expect(result.data).toEqual({ access_token: 'token' })
+    })
+
+    it('should send the OTP code when provided', async () => {
+      mockAxiosInstance.post.mockResolvedValue({ data: {} })
+      await apiModule.authApi.login({ email: 'a@b.c', password: 'pw', otp: '123456' })
+      const body = mockAxiosInstance.post.mock.calls[0][1] as URLSearchParams
+      expect(body.get('username')).toBe('a@b.c')
+      expect(body.get('otp')).toBe('123456')
     })
 
     it('should refresh token', async () => {
@@ -481,6 +549,35 @@ describe('API Service', () => {
         })
       )
       expect(result.data).toEqual({ id: '1' })
+    })
+
+    it('should omit empty optional fields on upload and list filters', async () => {
+      const file = new File(['c'], 'x.jpg', { type: 'image/jpeg' })
+      mockAxiosInstance.post.mockResolvedValue({ data: {} })
+      mockAxiosInstance.get.mockResolvedValue({ data: {} })
+
+      await apiModule.contentApi.uploadMedia(file)
+      const fd1 = mockAxiosInstance.post.mock.calls[0][1] as FormData
+      expect(fd1.has('alt_text')).toBe(false)
+      expect(fd1.has('tags')).toBe(false)
+
+      await apiModule.mediaApi.upload(file, 'alt', 'a,b')
+      const fd2 = mockAxiosInstance.post.mock.calls[1][1] as FormData
+      expect(fd2.get('alt_text')).toBe('alt')
+      expect(fd2.get('tags')).toBe('a,b')
+
+      await apiModule.mediaApi.list({ page: 2, type: 'image', sort: 'newest', search: 'cat', collection_id: 'c1' })
+      expect(mockAxiosInstance.get).toHaveBeenLastCalledWith('/media/assets', {
+        params: { page: 2, type: 'image', sort: 'newest', search: 'cat', collection_id: 'c1' },
+      })
+
+      await apiModule.contentApi.listPosts({ status: 'draft', platform: 'x' })
+      expect(mockAxiosInstance.get).toHaveBeenLastCalledWith('/content/posts', {
+        params: { status: 'draft', platform: 'x' },
+      })
+
+      await apiModule.contentApi.rejectPost('p1', 'needs work')
+      expect(mockAxiosInstance.post).toHaveBeenLastCalledWith('/content/posts/p1/reject', { body: 'needs work' })
     })
 
     it('should delete media', async () => {

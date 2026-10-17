@@ -57,10 +57,12 @@ jobs:
           cd social-automation/frontend
           npm run typecheck
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
           cd social-automation/frontend
-          npm run test
+          # Enforces the thresholds in vitest.config.ts (lines/functions/
+          # branches/statements) so unit coverage can't silently regress.
+          npm run test:coverage
 
       - name: Build
         run: |

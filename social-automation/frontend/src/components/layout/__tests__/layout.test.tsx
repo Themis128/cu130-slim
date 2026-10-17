@@ -340,6 +340,17 @@ it('should render notifications dropdown trigger', () => {
       expect(collapseButton).toBeInTheDocument()
     })
 
+    it('collapses to icons and expands back from the user-section button', () => {
+      const { container } = render(<Sidebar />, { wrapper })
+      fireEvent.click(screen.getByRole('button', { name: /collapse sidebar/i }))
+      expect((container.firstChild as HTMLElement).className).toContain('w-16')
+      expect(screen.getByRole('button', { name: /expand sidebar/i })).toBeInTheDocument()
+      // collapsed user section renders a single menu button that re-expands
+      const menuButtons = screen.getAllByTestId('menu-icon').map((i) => i.closest('button')!)
+      fireEvent.click(menuButtons[menuButtons.length - 1])
+      expect(screen.getByRole('button', { name: /collapse sidebar/i })).toBeInTheDocument()
+    })
+
     it('should render navigation links', () => {
       render(<Sidebar />, { wrapper })
       
