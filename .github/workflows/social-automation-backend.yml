@@ -96,11 +96,18 @@ jobs:
           cd social-automation/backend
           # Unit suite only — integration tests live under tests/integration/
           # and are gated by Full Stack Integration Tests.
-          # Coverage gate: line coverage of app/ must stay >= 99%
-          # (measured ~99.8% after the 2026-10 coverage push).
-          pytest tests/unit -v --tb=short --cov=app --cov-report=xml \
-            --cov-report=term-missing:skip-covered --cov-fail-under=99 \
+          # Coverage gates (2026-10 coverage push): lines >= 99.8% and
+          # branches >= 95.8% of app/, checked separately because
+          # --cov-fail-under only sees the blended line+branch number once
+          # --cov-branch is on. Measured: lines ~99.9%, branches ~96.1%.
+          # Remaining branch gaps are mostly Python 3.11 coverage artifacts
+          # (false `if` exiting an `async with`) and unreachable defensive arms.
+          pytest tests/unit -v --tb=short --cov=app --cov-branch \
+            --cov-report=xml --cov-report=json:coverage.json \
+            --cov-report=term-missing:skip-covered \
             -m "not integration"
+          python scripts/check_coverage_gates.py coverage.json \
+            --lines 99.8 --branches 95.8
         env:
           CI: "true"
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/social_test
