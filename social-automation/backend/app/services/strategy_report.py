@@ -1085,19 +1085,33 @@ def _parse_actions(text: str) -> list[str]:
     """Pull numbered/bulleted action lines out of the model's reply."""
     from app.services.duplicate_detector import is_duplicate
 
-    # Some providers wrap the list in a markdown fence or reply with a JSON
-    # array instead of numbered lines — handle those before line matching.
+    # Thinking models leak "</think>" residue before the answer; providers may
+    # wrap the list in a markdown fence or reply with a JSON array of strings
+    # or {"action": ...} objects — handle those before line matching.
     stripped = text.strip()
+    if "</think>" in stripped:
+        stripped = stripped.split("</think>", 1)[-1].strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```\w*\n?|\n?```$", "", stripped).strip()
     if stripped.startswith("["):
         try:
             parsed = json.loads(stripped)
             if isinstance(parsed, list):
-                return [
-                    str(a).strip() for a in parsed
-                    if isinstance(a, str | int | float) and len(str(a).strip()) > 15
-                ][: _MAX_ACTIONS]
+                entries = []
+                for a in parsed:
+                    if isinstance(a, str | int | float):
+                        entries.append(str(a).strip())
+                    elif isinstance(a, dict):
+                        # {"action": ...} objects — or unknown schema, then the
+                        # longest string field.
+                        entries.append(str(
+                            a.get("action") or a.get("text") or a.get("instruction")
+                            or max((str(v).strip() for v in a.values()
+                                    if isinstance(v, str)), key=len, default="")
+                        ).strip())
+                entries = [e for e in entries if len(e) > 15]
+                if entries:
+                    return entries[: _MAX_ACTIONS]
         except (ValueError, TypeError):
             pass
 
@@ -1170,24 +1184,39 @@ async def _llm_actions(
 
     text = (resp or {}).get("text") or (resp or {}).get("response") or ""
     if not isinstance(text, str) or not text.strip():
-        # Some providers return a structured dict without a text/response key —
-        # the strategy route comes back as {"actions": [...]}, content-gen as
-        # {"content": ..., ...}. Recover both before giving up.
-        if isinstance(resp, dict) and isinstance(resp.get("actions"), list):
+        # Structured-output providers return a dict without text/response —
+        # the strategy reply comes back as {"actions": ...} (a list, or a
+        # string holding the numbered list), content-gen as {"content": ...}.
+        payload = (resp or {}).get("actions") if isinstance(resp, dict) else None
+        if isinstance(payload, list):
             actions = []
-            for a in resp["actions"]:
+            for a in payload:
                 if isinstance(a, str | int | float):
                     entry = str(a).strip()
                 elif isinstance(a, dict):
                     entry = str(
                         a.get("action") or a.get("text") or a.get("instruction") or ""
                     ).strip()
+                    if not entry:
+                        # Unknown schema — take the longest string field, the
+                        # likeliest candidate for the instruction text.
+                        entry = max(
+                            (str(v).strip() for v in a.values() if isinstance(v, str)),
+                            key=len, default="",
+                        )
                 else:
                     entry = ""
                 if len(entry) > 15:
                     actions.append(entry)
+            if not actions:
+                logger.warning(
+                    "Strategy LLM actions list had no usable entries: %.300s",
+                    json.dumps(payload, default=str),
+                )
             return actions[:_MAX_ACTIONS] or None
-        text = str((resp or {}).get("content") or "")
+        text = (
+            payload if isinstance(payload, str) else ""
+        ) or str((resp or {}).get("content") or "")
         if not text.strip():
             logger.warning(
                 "Strategy LLM reply had no text (keys=%s)",
