@@ -2434,8 +2434,8 @@ async def test_sync_twitter_client_raises(_tw_patches):
     """httpx failure → timeline + users/me both capture the exception."""
     _Client.get = AsyncMock(side_effect=RuntimeError("net down"))
     r = await A.sync_twitter_account(_DB(results=[[]]), _tw_acc())
-    assert any("timeline discovery: net down" in e for e in r.errors)
-    assert any("users/me: net down" in e for e in r.errors)
+    assert any("timeline discovery: RuntimeError: net down" in e for e in r.errors)
+    assert any("users/me: RuntimeError: net down" in e for e in r.errors)
 
 
 @pytest.mark.asyncio
@@ -2564,9 +2564,9 @@ async def test_sync_facebook_all_excepts(_fb_patches, monkeypatch):
         A, "_meta_insights_get", AsyncMock(side_effect=RuntimeError("insights down"))
     )
     r = await A.sync_facebook_account(_DB(results=[[]]), _fb_page())
-    assert any("post discovery: disc down" in e for e in r.errors)
-    assert any("page insights: insights down" in e for e in r.errors)
-    assert any("follower attribution: attr down" in e for e in r.errors)
+    assert any("post discovery: RuntimeError: disc down" in e for e in r.errors)
+    assert any("page insights: RuntimeError: insights down" in e for e in r.errors)
+    assert any("follower attribution: RuntimeError: attr down" in e for e in r.errors)
 
 
 # ── sync_instagram_account edge branches ──────────────────────────────
@@ -2599,7 +2599,7 @@ async def test_sync_ig_discovery_bad_timestamp(_ig_patches):
 async def test_sync_ig_discovery_except(_ig_patches):
     _Client.get = AsyncMock(side_effect=RuntimeError("boom"))
     r = await A.sync_instagram_account(_DB(results=[[]]), _ig_acc())
-    assert any("media discovery: boom" in e for e in r.errors)
+    assert any("media discovery: RuntimeError: boom" in e for e in r.errors)
 
 
 @pytest.mark.asyncio
@@ -2654,7 +2654,7 @@ async def test_sync_threads_item_edges(_th_patches):
 async def test_sync_threads_discovery_except(_th_patches):
     _Client.get = AsyncMock(side_effect=RuntimeError("th down"))
     r = await A.sync_threads_account(_DB(results=[[]]), _th_acc())
-    assert any("post discovery: th down" in e for e in r.errors)
+    assert any("post discovery: RuntimeError: th down" in e for e in r.errors)
 
 
 @pytest.mark.asyncio

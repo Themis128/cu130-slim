@@ -1095,7 +1095,9 @@ async def sync_linkedin_account(
                     for urn in urn_to_post_id
                     if urn not in stats_map
                 })
-                result.errors.append(f"linkedin member scrape: {exc}")
+                result.errors.append(
+                    f"linkedin member scrape: {type(exc).__name__}: {exc}"
+                )
             all_urns = list(urn_to_post_id.keys())
             for urn in all_urns:
                 stats_map.setdefault(
@@ -1530,7 +1532,7 @@ async def sync_twitter_account(
                     f"twitter timeline discovery HTTP {resp.status_code}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"twitter timeline discovery: {exc}")
+            result.errors.append(f"twitter timeline discovery: {type(exc).__name__}: {exc}")
 
         # Browser-scrape fallback — the free X API tier has no timeline read
         # credits, so discovery of native tweets goes through the shared
@@ -1571,7 +1573,7 @@ async def sync_twitter_account(
                 if followers:
                     await _record_follower_snapshot(db, account, "twitter", int(followers))
             except Exception as exc:  # noqa: BLE001 — scrape is best-effort
-                result.errors.append(f"twitter timeline scrape: {exc}")
+                result.errors.append(f"twitter timeline scrape: {type(exc).__name__}: {exc}")
 
         # Account-level metrics — followers/following/tweet_count via
         # users/me public_metrics (free tier). A 401 means the stored
@@ -1603,7 +1605,7 @@ async def sync_twitter_account(
                     f"twitter users/me HTTP {ur.status_code}: {ur.text[:150]}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"twitter users/me: {exc}")
+            result.errors.append(f"twitter users/me: {type(exc).__name__}: {exc}")
 
     # Free X web fallback (tweety → twscrape) when the official API is out of
     # credits. Guarded: breaker + at most one poll per 6h across workers.
@@ -1772,7 +1774,7 @@ async def sync_facebook_account(
                 )
             await db.commit()
         except Exception as exc:  # noqa: BLE001 — scrape is best-effort
-            result.errors.append(f"facebook profile dashboard scrape: {exc}")
+            result.errors.append(f"facebook profile dashboard scrape: {type(exc).__name__}: {exc}")
         return result
 
     page_token = meta.get("page_token") or token
@@ -1857,7 +1859,7 @@ async def sync_facebook_account(
                     f"facebook {discovery_edge} HTTP {resp.status_code}: {_meta_error_message(resp)}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"facebook post discovery: {exc}")
+            result.errors.append(f"facebook post discovery: {type(exc).__name__}: {exc}")
 
         # Page-level insights — Pages only (meta.page_token present).
         # v26-valid metrics: Meta removed page_impressions, page_fans,
@@ -1891,7 +1893,7 @@ async def sync_facebook_account(
                         f"{_meta_error_message(resp)}"
                     )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"facebook page insights: {exc}")
+                result.errors.append(f"facebook page insights: {type(exc).__name__}: {exc}")
 
             # Paid-vs-organic follower attribution — values are dicts
             # {"paid": n, "non_paid": m}, not ints, so it needs its own
@@ -1934,7 +1936,7 @@ async def sync_facebook_account(
                             "follower_attribution", {"by_day": by_day},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"facebook follower attribution: {exc}")
+                result.errors.append(f"facebook follower attribution: {type(exc).__name__}: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -2113,7 +2115,7 @@ async def sync_instagram_account(
                     f"instagram media discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"instagram media discovery: {exc}")
+            result.errors.append(f"instagram media discovery: {type(exc).__name__}: {exc}")
 
         # Account-level insights + audience demographics — requires an
         # insights scope on the token (skip quietly when not granted).
@@ -2146,7 +2148,7 @@ async def sync_instagram_account(
                         f"{_meta_error_message(resp)}"
                     )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram account insights: {exc}")
+                result.errors.append(f"instagram account insights: {type(exc).__name__}: {exc}")
 
             # Audience demographics (country/age/gender) — campaign targeting data.
             try:
@@ -2176,7 +2178,7 @@ async def sync_instagram_account(
                             {"breakdown": "country", "by_country": by_country},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram demographics: {exc}")
+                result.errors.append(f"instagram demographics: {type(exc).__name__}: {exc}")
 
             # Non-follower reach share — `views` split by follower type is
             # the discovery metric that predicts follower growth.
@@ -2205,7 +2207,7 @@ async def sync_instagram_account(
                             {"breakdown": "follow_type", "by_follow_type": by_ft},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram follow_type split: {exc}")
+                result.errors.append(f"instagram follow_type split: {type(exc).__name__}: {exc}")
 
             # Online-follower activity heatmap — `online_followers` returns
             # per-hour audience counts; the peak hours are the posting window.
@@ -2235,7 +2237,7 @@ async def sync_instagram_account(
                             {"by_hour": heatmap, "peak_hours": [h for h, _ in peak]},
                         )
             except Exception as exc:  # noqa: BLE001
-                result.errors.append(f"instagram online_followers: {exc}")
+                result.errors.append(f"instagram online_followers: {type(exc).__name__}: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -2419,7 +2421,7 @@ async def sync_threads_account(
                     f"threads discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
                 )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"threads post discovery: {exc}")
+            result.errors.append(f"threads post discovery: {type(exc).__name__}: {exc}")
 
         # Account-level insights (aggregated views, likes, replies, reposts, quotes)
         try:
@@ -2444,7 +2446,7 @@ async def sync_threads_account(
                 )
                 db.add(event)
         except Exception as exc:
-            result.errors.append(f"threads account insights: {exc}")
+            result.errors.append(f"threads account insights: {type(exc).__name__}: {exc}")
 
         # Profile data (followers_count, following_count, media_count)
         try:
@@ -2474,7 +2476,7 @@ async def sync_threads_account(
                 )
                 db.add(event)
         except Exception as exc:
-            result.errors.append(f"threads profile sync: {exc}")
+            result.errors.append(f"threads profile sync: {type(exc).__name__}: {exc}")
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -2784,7 +2786,7 @@ async def sync_tiktok_account(
                     )
                     api_profile_synced = True
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"tiktok user.info @{account.username}: {exc}")
+            result.errors.append(f"tiktok user.info @{account.username}: {type(exc).__name__}: {exc}")
 
     # yt-dlp scrape of the profile grid — the only source covering
     # MEDIA_UPLOAD inbox posts and videos published straight from the phone.
@@ -2796,7 +2798,7 @@ async def sync_tiktok_account(
                 _scrape_tiktok_profile, username, cookies
             )
         except Exception as exc:  # noqa: BLE001
-            result.errors.append(f"tiktok scrape @{username}: {exc}")
+            result.errors.append(f"tiktok scrape @{username}: {type(exc).__name__}: {exc}")
             scraped = None
         if scraped:
             # Self-heal inbox MEDIA_UPLOAD posts: the Content Posting
@@ -2914,14 +2916,14 @@ async def sync_telegram_channel_metrics(
         try:
             count = await client.get_chat_member_count(chat_id)
         except TelegramAPIError as exc:
-            result.errors.append(f"telegram:{account.username}: {exc}")
+            result.errors.append(f"telegram:{account.username}: {type(exc).__name__}: {exc}")
             return result
         if await _record_follower_snapshot(db, account, "telegram", count):
             result.synced += 1
         else:
             result.skipped += 1
     except Exception as exc:  # noqa: BLE001 — metrics must never break the sync
-        result.errors.append(f"telegram:{account.username}: {exc}")
+        result.errors.append(f"telegram:{account.username}: {type(exc).__name__}: {exc}")
     return result
 
 
@@ -2972,7 +2974,7 @@ async def sync_team_analytics(
             # follower growth over time without re-fetching from each API.
             await _persist_follower_snapshot(db, account)
         except Exception as exc:  # noqa: BLE001
-            combined.errors.append(f"{platform}:{account.username}: {exc}")
+            combined.errors.append(f"{platform}:{account.username}: {type(exc).__name__}: {exc}")
     await db.commit()
     return combined
 
