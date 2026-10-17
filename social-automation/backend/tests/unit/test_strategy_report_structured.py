@@ -1,0 +1,103 @@
+"""Structured-reply handling in the strategy report (#676).
+
+Providers return the strategist reply as think-residue text, JSON arrays of
+strings/objects, or a structured {"actions": ...}/{"content": ...} payload.
+These tests pin each shape to the actions the automation plan receives.
+"""
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock
+
+import pytest
+
+import app.services.inference as INF
+import app.services.strategy_report as SR
+from app.services.slack_digest import DigestReport
+
+A1 = "Post a LinkedIn carousel at 09:00 Athens about audit wins."
+A2 = "Share an Instagram image at 12:30 Athens with a client quote."
+
+
+def _digest():
+    return DigestReport(
+        generated_at=datetime(2026, 10, 17, 18, 0, tzinfo=UTC), timezone="Europe/Athens",
+        team_name="T", days=1, overview={}, impressions_24h=10, engagement_24h=3,
+    )
+
+
+async def _run(monkeypatch, resp):
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value=resp))
+    return await SR._llm_actions(object(), "tid", {}, _digest())
+
+
+class TestParseActions:
+    def test_think_residue_dropped(self):
+        text = "<think>plan: maybe 1. Ignore this draft line here</think>\n1. " + A1
+        assert SR._parse_actions(text) == [A1]
+
+    def test_json_array_mixed_entries(self):
+        text = json.dumps([
+            A1,
+            12345678901234567890,                       # numeric → str, long enough
+            {"action": A2},
+            {"text": "Reply to every LinkedIn comment within the hour."},
+            {"note": "short", "detail": "Repurpose the top LinkedIn post as a TikTok video."},
+            {"x": 1},                                    # no string field → dropped
+            ["nested"],                                  # unsupported → ignored
+            "too short",
+        ])
+        assert SR._parse_actions(text) == [
+            A1,
+            "12345678901234567890",
+            A2,
+            "Reply to every LinkedIn comment within the hour.",
+            "Repurpose the top LinkedIn post as a TikTok video.",
+        ]
+
+    def test_invalid_json_falls_back_to_lines(self):
+        text = "[not json\n1. " + A1
+        assert SR._parse_actions(text) == [A1]
+
+    def test_json_object_not_list_falls_back(self):
+        assert SR._parse_actions('["a"]') == []  # list but nothing long enough
+
+    def test_caps_at_max_actions(self):
+        many = json.dumps([f"Action number {i} for LinkedIn at 10:{i:02d}" for i in range(20)])
+        assert len(SR._parse_actions(many)) == SR._MAX_ACTIONS
+
+
+class TestStructuredPayload:
+    @pytest.mark.asyncio
+    async def test_actions_list_of_mixed_shapes(self, monkeypatch):
+        out = await _run(monkeypatch, {"actions": [
+            A1,
+            {"instruction": A2},
+            {"foo": "Longest string field wins for unknown schema objects."},
+            {"action": ""},           # empty → longest string ("" → dropped)
+            None,                     # unsupported type → dropped
+            "short",
+        ]})
+        assert out == [A1, A2, "Longest string field wins for unknown schema objects."]
+
+    @pytest.mark.asyncio
+    async def test_actions_list_without_usable_entries(self, monkeypatch):
+        assert await _run(monkeypatch, {"actions": ["no", {"k": 1}]}) is None
+
+    @pytest.mark.asyncio
+    async def test_actions_string_holds_numbered_list(self, monkeypatch):
+        out = await _run(monkeypatch, {"actions": f"1. {A1}\n2. {A2}"})
+        assert out == [A1, A2]
+
+    @pytest.mark.asyncio
+    async def test_content_key_fallback(self, monkeypatch):
+        assert await _run(monkeypatch, {"content": f"- {A2}"}) == [A2]
+
+    @pytest.mark.asyncio
+    async def test_no_text_anywhere(self, monkeypatch):
+        assert await _run(monkeypatch, {"provider": "dmr", "usage": {}}) is None
+
+    @pytest.mark.asyncio
+    async def test_non_dict_reply(self, monkeypatch):
+        assert await _run(monkeypatch, None) is None
