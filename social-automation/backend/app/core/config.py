@@ -470,6 +470,20 @@ class Settings(BaseSettings):
     LINKEDIN_ADS_CREDIT_EUR: float = 0.0  # promo credit on the ad account (0 = hide)
     LINKEDIN_ADS_EMAIL_TO: str = ""  # falls back to DIGEST_EMAIL_TO
 
+    # Daily free-promotion scan (Europe/Athens via Celery timezone).
+    # Sweeps the digest mailbox for ad-credit/coupon/promo mail, pulls live
+    # LinkedIn credit state, flags near/unlocked creator-program gates, and
+    # lists console-only promo surfaces. Read-only — never claims or spends.
+    PROMO_SCAN_HOUR: int = 8
+    PROMO_SCAN_MINUTE: int = 0
+    PROMO_SCAN_LOOKBACK_DAYS: int = 2  # covers the weekend gap on Mondays
+    PROMO_SCAN_EMAIL_TO: str = ""  # falls back to DIGEST_EMAIL_TO
+    # Mailbox identity falls back to the SMTP_* account (dovecot SASL).
+    PROMO_SCAN_IMAP_HOST: str = ""  # falls back to SMTP_HOST
+    PROMO_SCAN_IMAP_PORT: int = 993
+    PROMO_SCAN_MAILBOX: str = ""  # falls back to SMTP_USER
+    PROMO_SCAN_IMAP_PASS: str = ""  # falls back to SMTP_PASSWORD
+
     # n8n: optional Slack Incoming Webhook URL for workflow failures.
     # If empty, n8n workflows should fall back to SLACK_ALERTS_WEBHOOK_URL.
     N8N_ERROR_SLACK_WEBHOOK_URL: str = ""
