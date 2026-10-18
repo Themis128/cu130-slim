@@ -72,18 +72,10 @@ def _client() -> httpx.AsyncClient:
 # ── Tables ────────────────────────────────────────────────────────────
 
 
-async def _table_columns(client: httpx.AsyncClient, table_id: int) -> dict[str, dict]:
+async def _table_columns(client: httpx.AsyncClient, table_id: int) -> dict[str, int]:
     r = await client.get(f"{_base_url()}/index.php/apps/tables/api/1/tables/{table_id}/columns")
     r.raise_for_status()
-    return {c["title"]: c for c in r.json()}
-
-
-def _selection_option_id(column: dict, label: str) -> int | None:
-    """Tables selection cells store the option id, not the label."""
-    for opt in column.get("selectionOptions") or []:
-        if str(opt.get("label", "")).lower() == label.lower():
-            return int(opt["id"])
-    return None
+    return {c["title"]: c["id"] for c in r.json()}
 
 
 async def _table_rows(client: httpx.AsyncClient, table_id: int) -> list[dict]:
@@ -157,21 +149,15 @@ async def sync_follower_metrics(db: AsyncSession) -> dict:
             if key in existing:
                 skipped += 1
                 continue
-            platform_opt = _selection_option_id(cols["Platform"], platform)
-            if platform_opt is None:
-                logger.warning("nextcloud sync: no Platform option for %r — skipping", platform)
-                continue
-            # Tables v1 row data is an object keyed by column id —
-            # {columnId,value} lists 500 with "column id 0" (API quirk).
             payload = {
-                "data": {
-                    str(cols["Date"]["id"]): day,
-                    str(cols["Platform"]["id"]): platform_opt,
-                    str(cols["Metric"]["id"]): "followers",
-                    str(cols["Value"]["id"]): followers,
-                    str(cols["Delta"]["id"]): followers - (prev_followers or followers),
-                    str(cols["Notes"]["id"]): account,
-                }
+                "data": [
+                    {"columnId": cols["Date"], "value": day},
+                    {"columnId": cols["Platform"], "value": platform},
+                    {"columnId": cols["Metric"], "value": "followers"},
+                    {"columnId": cols["Value"], "value": followers},
+                    {"columnId": cols["Delta"], "value": followers - (prev_followers or followers)},
+                    {"columnId": cols["Notes"], "value": account},
+                ]
             }
             r = await client.post(
                 f"{_base_url()}/index.php/apps/tables/api/1/tables/{table_id}/rows",
@@ -182,29 +168,11 @@ async def sync_follower_metrics(db: AsyncSession) -> dict:
     return {"inserted": inserted, "existing": skipped}
 
 
-def _row_key(cols: dict[str, dict], row: dict) -> str:
-    data = row.get("data", [])
-    if isinstance(data, dict):
-        vals = {int(k): v for k, v in data.items()}
-    else:
-        vals = {cell["columnId"]: cell.get("value") for cell in data}
-    # Selection cells store the option id — resolve it back to the label.
-    platform_col = cols.get("Platform", {})
-    raw_platform = vals.get(platform_col.get("id"), "")
-    platform = raw_platform
-    for opt in platform_col.get("selectionOptions") or []:
-        if str(opt.get("id")) == str(raw_platform) or str(opt.get("label", "")).lower() == str(
-            raw_platform
-        ).lower():
-            platform = opt.get("label", raw_platform)
-            break
+def _row_key(cols: dict[str, int], row: dict) -> str:
+    vals = {cell["columnId"]: cell.get("value") for cell in row.get("data", [])}
     return "|".join(
-        [
-            str(vals.get(cols["Date"]["id"], ""))[:10],
-            str(platform),
-            str(vals.get(cols["Notes"]["id"], "")),
-            str(vals.get(cols["Metric"]["id"], "")),
-        ]
+        str(vals.get(cols[name], ""))[:10] if name == "Date" else str(vals.get(cols[name], ""))
+        for name in ("Date", "Platform", "Notes", "Metric")
     )
 
 
