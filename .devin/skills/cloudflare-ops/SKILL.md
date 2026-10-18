@@ -399,10 +399,20 @@ relevant when publish errors show unreachable media URLs.
   `cloudless-web-production`, whose PATCH is blocked by stale provisioned
   Durable Object classes (`CodingAgent`/`CounterAgent`/`EchoAgent`) missing
   from its `exports` — add tombstone exports or re-deploy to unlock.
-- `CLOUDFLARE_API_TOKEN` lacks Zone Logs + AI Gateway scopes (403 on
-  `/zones/*/logpush/jobs` and `/ai-gateway/gateways`). The MCP
-  `cloudflare-api` session has Logs read but Logpush POST returns
-  `1004 logpush is not enabled for this account` — self-service rollout
-  hasn't reached the account. When enabled: `scripts/cf_logpush_job.py`
-  creates the `http_requests` → `datalake-bucket/cloudflare-http-logs/`
-  zone job (25 GB/mo to R2 included free).
+- `CLOUDFLARE_API_TOKEN` (`Socialauto1`) was extended 2026-10-18 via
+  `PUT /user/tokens/{id}` using `CLOUDFLARE_ACCESS_TOKEN` (user-scope
+  `API Tokens Write`): zone policy += `Logs Write`, account policy +=
+  `AI Gateway Write` + `AI Gateway Run` — verified: GET
+  `/zones/*/logpush/jobs` → 200, `/accounts/*/ai-gateway/gateways` → 200.
+  Self-served WITHOUT the global key — `cloudless-access` can edit any
+  user token's policies.
+- AI Gateway `default` now has `cache_ttl: 3600` (was 0) +
+  `collect_logs: true` — route Workers AI calls through
+  `gateway.ai.cloudflare.com/v1/{acct}/default/workers-ai/` to dedupe
+  repeated prompts against the free-neuron budget. `authentication: true`
+  means callers need a `cf-aig-authorization` token.
+- Logpush POST still returns `1004 logpush is not enabled for this
+  account` (self-service rollout hasn't reached the account — flag check,
+  not a perms issue). When enabled: `scripts/cf_logpush_job.py` creates
+  the `http_requests` → `datalake-bucket/cloudflare-http-logs/` zone job
+  (25 GB/mo to R2 included free).
