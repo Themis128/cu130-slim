@@ -28,7 +28,8 @@ sits behind Cloudflare Access — the backend reaches the NodePort
 | Stage | Where it lives | State |
 |-------|---------------|-------|
 | Capture | `cloudless.gr/contact` → `espocrm.ts` Contact+Note (score, NLP, UTM) + hot→Opportunity; `playbook-lead` → SocialAuto `/api/v1/leads/public` → `createLead` (email dedup + UTM in description); Messenger → Lead (`psid.*@messenger.local` — real leads, never quarantine) | live |
-| Clean | `services/crm_hygiene.py` — weekly Monday 07:30 sweep: dedupe by normalized email (newest wins, loser → `Dead` + audit note), quarantine `ci-test+*`/`*@example.*` probes, stale-New SLA list | live |
+| Clean | `services/crm_hygiene.py` — weekly Monday 07:30 sweep: dedupe by normalized email (newest wins, loser → `Dead` + audit note), quarantine `ci-test+*`/`*@example.*` probes **and `*@cloudless.gr` self/internal addresses**, stale-New SLA list | live |
+| Route-fix | same sweep auto-assigns unowned live leads — `CRM_HYGIENE_ASSIGNEE_ID` when set, else the `socialauto` API user (automation owns it, visible in UI) | live |
 | Score | `scoreLead` (cloudless.gr `lead-scoring.ts`) on contact-form leads — fit+intent, `hot` band auto-opens Opportunity `qualifiedtobuy` | live on contact path |
 | Segment | Lead `source` enum + campaign slug / `utm_*` lines in description; campaign audiences via `espocrm_client.list_leads_for_campaign()` (excludes Dead/Converted, needs email) | live |
 | Route | `Lead.create` webhook → Slack `#leads`; stale-New >7d SLA list in the weekly report | live |
