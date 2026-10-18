@@ -1,16 +1,41 @@
-FROM mirror.gcr.io/library/python:3.11-slim
+# syntax=docker/dockerfile:1
+
+# ── Builder: compile/install deps with a toolchain that never ships ──
+FROM mirror.gcr.io/library/python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Install system dependencies and apply OS security patches.
-# Update package lists and apply all available security updates
-RUN apt-get update && apt-get update --fix-missing && \
-    apt-get install -y --no-install-recommends \
+# Build-time only: gcc/headers compile wheels that lack prebuilt binaries.
+# None of these land in the runtime image (the venv is copied out whole).
+RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libpq-dev \
-    libncursesw6 \
     libssl-dev \
-    libtinfo6 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Security fixes (see comment block below on the runtime stage).
+RUN pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1"
+
+# Install Python dependencies into the venv. Upgraded versions fix starlette,
+# python-multipart, python-jose, cryptography, jaraco.context vulnerabilities;
+# the trailing upgrade re-pins them in case a dep dragged an older release.
+COPY pyproject.toml .
+RUN pip install --no-cache-dir -e . && \
+    pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
+
+# ── Runtime base shared by the API and every worker ──
+# No compilers, no browser engines — browser automation lives in the
+# dedicated sidecar containers, not in this codebase.
+FROM mirror.gcr.io/library/python:3.11-slim AS base
+
+WORKDIR /app
+
+# Runtime system deps + OS security patches.
+RUN apt-get update && apt-get update --fix-missing && \
+    apt-get install -y --no-install-recommends \
     openssl \
     poppler-utils \
     ffmpeg \
@@ -18,36 +43,26 @@ RUN apt-get update && apt-get update --fix-missing && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip, wheel, setuptools, msgpack, and other security-critical packages to patched versions.
-# Security fixes:
-# - wheel 0.46.2 (CVE-2024-xxxx RCE via wheel)
-# - setuptools 78.1.1 (CVE-2024-xxxx Path Traversal in PackageIndex)
-# - msgpack 1.2.1 (CVE-2024-xxxx Out-of-bounds read / crash on Unpacker reuse)
-# - jaraco.context 6.1.0 (CVE-2024-xxxx Path traversal via tar archives)
+# Application venv from the builder (all deps, no toolchain).
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade the interpreter's own packaging tools too — Trivy scans the base
+# interpreter, not just the venv:
+# - wheel 0.46.2 (RCE via wheel)
+# - setuptools 78.1.1 (Path Traversal in PackageIndex)
+# - msgpack 1.2.1 (Out-of-bounds read / crash on Unpacker reuse)
+# - jaraco.context 6.1.0 (Path traversal via tar archives)
 # - cryptography 43.0.0 (fixes Minerva attack CVE-2024-2364)
 # - pip 25.0 (various security fixes)
-RUN pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
+RUN /usr/local/bin/pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
 
-# Copy dependency files
-COPY pyproject.toml .
-
-# Install Python dependencies (upgraded versions fix starlette, python-multipart,
-# python-jose, cryptography, jaraco.context vulnerabilities)
-RUN pip install --no-cache-dir -e . && \
-    pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
-
-# Playwright browsers for browser-automated profile updates (LinkedIn/Facebook).
-# System-wide path so the non-root `app` user can execute them at runtime;
-# --with-deps adds the required OS libraries (must run before switching to app).
-ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN playwright install --with-deps chromium && \
-    chmod -R a+rX /opt/ms-playwright
+# Remove bundled SBOM files that can confuse Trivy with stale package versions.
+RUN find /opt/venv/lib/python*/site-packages /usr/local/lib/python*/site-packages \
+    -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete 2>/dev/null || true
 
 # Copy application code
 COPY . .
-
-# Remove bundled SBOM files that can confuse Trivy with stale package versions.
-RUN find /usr/local/lib/python*/site-packages -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete
 
 # Run as non-root user
 RUN addgroup --gid 1001 app \
@@ -55,5 +70,10 @@ RUN addgroup --gid 1001 app \
     && chown -R app:app /app
 USER app
 
-# Run migrations and start
+# ── Targets ──
+FROM base AS api
 CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
+
+FROM base AS worker
+# Worker only — beat scheduler runs in the dedicated celery-beat service
+CMD ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel=info", "--concurrency=4"]

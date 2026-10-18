@@ -588,6 +588,23 @@ class Settings(BaseSettings):
     EMAIL_DRIP_MINUTE: int = 20  # before the 09:00 digest
     EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS: int = 30
     EMAIL_DRIP_RENEWAL_PERIOD_DAYS: int = 365
+    LEAD_RESEARCH_ENABLED: bool = True
+    LEAD_RESEARCH_HOUR: int = 8     # Europe/Athens via Celery timezone
+    LEAD_RESEARCH_MINUTE: int = 40  # after the 08:20 drip, before the 09:00 digest
+    # CRM hygiene — EspoCRM user id to own unassigned leads; empty = the
+    # API user itself (automation claims ownership).
+    CRM_HYGIENE_ASSIGNEE_ID: str = ""
+
+    # CRM lifecycle — hot leads (score >= 65, real email) auto-convert to
+    # Contact+Opportunity via Espo's own convert action. Same rule the
+    # cloudless.gr contact path already applies.
+    CRM_CONVERT_ENABLED: bool = True
+
+    # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
+    # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the
+    # "Reply received" note marker.
+    CRM_ENGAGEMENT_ENABLED: bool = True
+    CRM_ENGAGEMENT_LOOKBACK_DAYS: int = 7
 
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production

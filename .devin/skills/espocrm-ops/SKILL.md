@@ -29,10 +29,11 @@ sits behind Cloudflare Access — the backend reaches the NodePort
 |-------|---------------|-------|
 | Capture | `cloudless.gr/contact` → `espocrm.ts` Contact+Note (score, NLP, UTM) + hot→Opportunity; `playbook-lead` → SocialAuto `/api/v1/leads/public` → `createLead` (email dedup + UTM in description); Messenger → Lead (`psid.*@messenger.local` — real leads, never quarantine) | live |
 | Clean | `services/crm_hygiene.py` — weekly Monday 07:30 sweep: dedupe by normalized email (newest wins, loser → `Dead` + audit note), quarantine `ci-test+*`/`*@example.*` probes, stale-New SLA list | live |
-| Score | `scoreLead` (cloudless.gr `lead-scoring.ts`) on contact-form leads — fit+intent, `hot` band auto-opens Opportunity `qualifiedtobuy` | live on contact path |
-| Segment | Lead `source` enum + campaign slug / `utm_*` lines in description; campaign audiences via `espocrm_client.list_leads_for_campaign()` (excludes Dead/Converted, needs email) | live |
+| Score | `scoreLead` (cloudless.gr `lead-scoring.ts`) on contact-form leads — fit+intent, `hot` band auto-opens Opportunity `qualifiedtobuy`; **all other ingress** scored by `services/crm_lifecycle.score_lead` — daily `crm-lifecycle-sweep` (08:50) mirrors the same model (hot≥65/warm≥35) against EspoCRM fields, writes `Lead score:` note as dedupe marker, re-scores on newer reply | live — all ingress |
+| Segment | Lead `source` enum + campaign slug / `utm_*` lines in description; campaign audiences via `espocrm_client.list_leads_for_campaign()` (excludes Dead/Converted, needs email); `TargetList` readable since ACL grant 2026-10-18 | live |
 | Route | `Lead.create` webhook → Slack `#leads`; stale-New >7d SLA list in the weekly report | live |
-| Lifecycle | `enrollLeadInAutomation` (ActiveCampaign) on contact-form submit; survey/campaign loops via `email-campaigns-ops` | live |
+| Lifecycle | `enrollLeadInAutomation` (ActiveCampaign) on contact-form submit; **hot-lead convert** — lifecycle sweep runs Espo's `Lead/action/convert` (records: Contact+Opportunity, +Account when `accountName`) for `hot` real-email assigned leads, `CRM_CONVERT_ENABLED` gates it; synthetic/test/self never convert | live |
+| Engagement | `services/crm_engagement.py` — 30-min `crm-engagement-sweep` polls the dovecot mailbox (IMAP, `SMTP_*`/`PROMO_SCAN_IMAP_*` identity), matches senders to live Lead/Contact emails, attaches `Reply received: <subject> · msg <id>` (msg-id dedupe), bumps replied `New`/`Assigned` leads → `In Process`, Slack-alerts only on hits | live |
 | Closed loop | weekly Slack report (totals by status/source, quarantined, deduped, stale) from `crm_hygiene`; `lead_counts()` entity totals | live |
 
 ## Rules
@@ -63,6 +64,8 @@ espocrm_client.lead_counts() / campaign_profiles() / list_all(entity)
   espo_patch/add_lead_note` (X-Api-Key, NodePort)
 - `app/worker/tasks/crm_hygiene.py` — Celery `run_crm_hygiene`, weekly beat
   `crm-hygiene` (Mon 07:30 Athens, default queue)
+- `app/worker/tasks/crm_lifecycle.py` — daily 08:50 `crm-lifecycle-sweep`
+- `app/worker/tasks/crm_engagement.py` — every-30-min `crm-engagement-sweep`
 - Backend route `app/api/leads.py` — `/api/v1/leads/public` ingest
   (Cloudflare Access service token) + manual leads
 - `src/lib/espocrm.ts` (cloudless.gr) — Contact/Deal/Note upserts,

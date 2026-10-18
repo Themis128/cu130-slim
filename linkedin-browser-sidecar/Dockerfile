@@ -1,9 +1,17 @@
-FROM mcr.microsoft.com/playwright:v1.62.1-noble
+FROM node:22-slim
 
 WORKDIR /app
 
+# Keep the production compose env contract — browsers under /ms-playwright.
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 COPY package.json ./
-RUN npm install --production --no-cache && npx patchright install chromium
+# patchright pulls its own patched Chromium (--with-deps adds the OS libs);
+# xvfb-run provides the virtual display for headed mode.
+RUN apt-get update && apt-get install -y --no-install-recommends xvfb xauth && \
+    rm -rf /var/lib/apt/lists/* && \
+    npm install --production --no-cache && \
+    npx patchright install --with-deps chromium
 
 COPY server.js session-recovery.js ./
 
