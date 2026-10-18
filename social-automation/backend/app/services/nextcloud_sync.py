@@ -114,30 +114,34 @@ async def sync_follower_metrics(db: AsyncSession) -> dict:
         return {"skipped": "NEXTCLOUD_TABLE_ID unset"}
 
     # Latest + previous snapshot per account → value + delta.
-    latest = (
-        select(
-            FollowerSnapshot.social_account_id,
-            FollowerSnapshot.platform,
-            FollowerSnapshot.followers,
-            FollowerSnapshot.captured_at,
+    team_id = _team_filter()
+    latest_q = select(
+        FollowerSnapshot.social_account_id,
+        FollowerSnapshot.platform,
+        FollowerSnapshot.followers,
+        FollowerSnapshot.captured_at,
+    )
+    prev_q = select(
+        FollowerSnapshot.social_account_id,
+        FollowerSnapshot.followers,
+        func.row_number()
+        .over(
+            partition_by=FollowerSnapshot.social_account_id,
+            order_by=desc(FollowerSnapshot.captured_at),
         )
-        .distinct(FollowerSnapshot.social_account_id)
+        .label("rn"),
+    )
+    if team_id is not None:
+        # Filter inside the CTEs — a top-level where on FollowerSnapshot
+        # would add an uncorrelated cross join.
+        latest_q = latest_q.where(FollowerSnapshot.team_id == team_id)
+        prev_q = prev_q.where(FollowerSnapshot.team_id == team_id)
+    latest = (
+        latest_q.distinct(FollowerSnapshot.social_account_id)
         .order_by(FollowerSnapshot.social_account_id, desc(FollowerSnapshot.captured_at))
         .cte("latest")
     )
-    prev_sub = (
-        select(
-            FollowerSnapshot.social_account_id,
-            FollowerSnapshot.followers,
-            func.row_number()
-            .over(
-                partition_by=FollowerSnapshot.social_account_id,
-                order_by=desc(FollowerSnapshot.captured_at),
-            )
-            .label("rn"),
-        )
-        .cte("prev")
-    )
+    prev_sub = prev_q.cte("prev")
     query = (
         select(
             latest.c.platform,
@@ -154,9 +158,6 @@ async def sync_follower_metrics(db: AsyncSession) -> dict:
             isouter=True,
         )
     )
-    team_id = _team_filter()
-    if team_id is not None:
-        query = query.where(FollowerSnapshot.team_id == team_id)
     rows_q = await db.execute(query)
     metrics = rows_q.all()
     if not metrics:
