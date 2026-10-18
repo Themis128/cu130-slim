@@ -158,7 +158,6 @@ async def talk_bot_webhook(request: Request) -> dict:
     body = await request.body()
     random = request.headers.get("x-nextcloud-talk-random", "")
     signature = request.headers.get("x-nextcloud-talk-signature", "")
-    backend = request.headers.get("x-nextcloud-talk-backend", "")
     if not verify_bot_request(random, body, signature):
         return {"ok": False}
     try:
@@ -174,5 +173,5 @@ async def talk_bot_webhook(request: Request) -> dict:
         logger.exception("Talk bot command failed")
         reply = "That command failed — check worker logs."
     if reply and room:
-        await bot_reply(room, reply, reply_to=msg_id, backend=backend)
+        await bot_reply(room, reply, reply_to=msg_id)
     return {"ok": True}

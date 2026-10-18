@@ -290,7 +290,7 @@ async def test_webhook_help_command_replies():
     req = _signed_request("help")
     replies = []
 
-    async def _reply(room, msg, *, reply_to=None, backend=""):
+    async def _reply(room, msg, *, reply_to=None):
         replies.append((room, msg))
         return True
 
