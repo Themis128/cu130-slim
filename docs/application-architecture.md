@@ -14,9 +14,9 @@ Messenger integration.
 │                                                                         │
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
 │   │  Frontend    │  │  Backend API │  │  MCP Server  │  │  n8n       │ │
-│   │  (Next.js)   │  │  (FastAPI)   │  │  (27 tools)  │  │  Workflows │ │
-│   │  51 pages    │  │  410 routes  │  │              │  │            │ │
-│   │  62 comp.    │  │  24 modules  │  │  AI agents   │  │  No-code   │ │
+│   │  (Next.js)   │  │  (FastAPI)   │  │  (35 tools)  │  │  Workflows │ │
+│   │  64 pages    │  │  560 routes  │  │              │  │            │ │
+│   │  78 comp.    │  │  43 modules  │  │  AI agents   │  │  No-code   │ │
 │   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘ │
 │          │                 │                  │                │       │
 │          └────────┬────────┴──────────────────┴────────────────┘       │
@@ -54,7 +54,7 @@ Messenger integration.
 
 ## Frontend Architecture
 
-### Route Groups (61 pages)
+### Route Groups (64 pages — 62 in groups + root landing + public brand share)
 
 ```
 app/
@@ -81,12 +81,15 @@ app/
 │   ├── data-deletion/                 # GDPR/Meta data deletion instructions
 │   └── card/[token]/                  # Public digital card view
 │
-├── (dashboard)/                       # Main app (43 pages)
+├── (dashboard)/                       # Main app (46 pages)
 │   ├── dashboard/                     # Overview + KPIs
 │   ├── accounts/                      # Connected accounts
 │   ├── analytics/                     # Performance metrics
 │   ├── inbox/                         # Unified inbox (Messenger/IG/WhatsApp)
 │   ├── calendar/                      # Content calendar
+│   ├── campaigns/                     # Email campaigns (EspoCRM audiences)
+│   ├── ops/                           # Ops console (queue, loops, health)
+│   ├── reports/                       # Generated report history/viewer
 │   ├── card/                          # Digital card builder
 │   ├── content/                       # Content management
 │   │   ├── new/                       # Multi-platform composer
@@ -139,6 +142,9 @@ app/
 | Accounts | `/accounts` | accounts, connect/disconnect | Platform list, connect/disconnect, profile editor, business sync, setup guides |
 | Analytics | `/analytics` | overview, platform, trends, export | KPI cards, engagement chart, follower growth, top posts, CSV export, sync |
 | Calendar | `/calendar` | scheduled posts, pillars | Month/week views, drag reschedule, platform filters, pillar colors |
+| Campaigns | `/campaigns` | email-campaigns API | EspoCRM audience sends, suppression list, per-recipient unsubscribe + survey tokens, "Draft with AI" (Visibility Era voice) |
+| Ops | `/ops` | ops API | Ops console — publish queue state, loop health, digests |
+| Reports | `/reports` | reports API | Notebook-generated report history/viewer (strategy brief, ops health, monetization) |
 | New Post | `/content/new` | create post, upload, AI generate | Multi-platform composer, char limits, previews, media, AI caption, SEO |
 | New Article | `/content/article/new` | create post, upload | LinkedIn article, cover image, title/body/tags, AI expand |
 | Carousel | `/content/carousel/new` | create post, AI carousel | Topic-driven AI slides, theme, AI background, reorder, export PNG |
@@ -253,31 +259,38 @@ src/services/api.ts
 
 ## Backend Architecture
 
-### API Modules (545 endpoints across 42 route files)
+### API Modules (572 decorated endpoints across 43 route files — 560 in the OpenAPI schema; the remaining 12 are `email_public_router` public unsubscribe/track surfaces mounted with `include_in_schema=False`)
 
 ```
 app/api/
 ├── auth.py          (23) — login (+otp/lockout), register (+discount), refresh (jti rotation), 2FA, profile, password
 ├── accounts.py      (16) — connect, disconnect, sync, business accounts
 ├── billing.py       (13) — config, plans, subscription, checkout, portal, cancel, sync, webhooks, discount get/set/clear
-├── content.py       (24) — posts CRUD, schedule, publish, review, comments
-├── media.py         (20) — upload, list, delete, generate, view
+├── content.py       (25) — posts CRUD, schedule, publish, review, comments
+├── media.py         (22) — upload, list, delete, generate, view
 ├── media_enhance.py (13) — resize, upscale, remove-bg, smart-crop, alt text
-├── ai.py            (40) — generate content, hashtags, carousel, image, SEO
+├── ai.py            (43) — generate content, hashtags, carousel, image, SEO
 ├── ai_providers.py  (8)  — provider catalog, config, test, usage
-├── analytics.py     (15) — overview, platform, trends, export, sync
+├── analytics.py     (20) — overview, platform, trends, export, sync
 ├── web_analytics.py (6)  — site/web analytics events
-├── brand.py         (28) — brand, voice, visual, guidelines, assets, health
+├── brand.py         (29) — brand, voice, visual, guidelines, assets, health
+├── bluesky.py       (2)  — AT Protocol account connect/status
 ├── digital_cards.py (10) — digital card CRUD, public share view
+├── email_campaigns.py (16) — campaign create/audience/send + public
+│                             unsubscribe/track router (out-of-schema)
+├── viber.py         (13) — Viber bot webhook, send, broadcast
 ├── publishing.py    (8)  — queue, schedule, publish now, recurring
 ├── meta_growth.py   (2)  — free Meta readiness and media-backed organic campaigns
 ├── messenger.py     (34) — Page + personal, setup, send, auto-reply, webhook, E2EE, bot builder
 ├── messenger_api.py (14) — Graph API client for Page Messenger
 ├── inbox.py         (1)  — unified inbox across platforms
-├── leads.py         (2)  — lead capture, webhook, CRM sync
+├── leads.py         (3)  — lead capture, webhook, CRM sync
 ├── support.py       (1)  — support contact endpoint
 ├── profile.py       (29) — profile read/update across platforms
-├── linkedin.py      (18) — LinkedIn AI post, improve, hashtags, publish
+├── linkedin.py      (19) — LinkedIn AI post, improve, hashtags, publish
+├── reports.py       (4)  — report manifest list/detail for /reports page
+├── service_feed.py  (7)  — service feed aggregation for ops surfaces
+├── talk_bot.py      (1)  — Nextcloud Talk bot webhook
 ├── instagram.py     (9)  — Instagram private API, session, profile
 ├── threads.py       (16) — Threads post, reply, profile
 ├── twitter_tiktok.py (8) — Twitter/X and TikTok posting
@@ -315,7 +328,7 @@ to the business-accounts rule.
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store
 ├── cf_db.py         (6)  — D1/KV/Vectorize health, sync, tables
-├── ops.py           (9)  — health, system info, browser orchestrator,
+├── ops.py           (13) — health, system info, browser orchestrator,
 │                           POST /session-heal (on-demand healer run),
 │                           POST /daily-digest (n8n-triggered digest)
 ├── audit.py         (1)  — audit logs
@@ -323,7 +336,7 @@ to the business-accounts rule.
 └── usage.py         (2)  — quota usage, history
 ```
 
-### Data Models (16 model files)
+### Data Models (19 model files)
 
 ```
 app/models/
@@ -340,6 +353,9 @@ app/models/
 ├── billing.py       — BillingEvent (webhook idempotency)
 ├── digital_card.py  — DigitalCard (public share cards)
 ├── lead.py          — Lead (CRM captures)
+├── email_campaign.py — EmailCampaign, EmailCampaignRecipient (EspoCRM sends)
+├── linkedin_ads.py  — LinkedIn ad campaign snapshots
+├── whatsapp_message.py — WhatsAppMessage (unified-inbox persistence)
 ├── workflow.py      — PromptTemplate, GeneratedWorkflow, ContentPromptTemplate
 ├── ai_provider.py   — AIProvider
 ├── ai_usage.py      — AIUsageLog
@@ -347,7 +363,7 @@ app/models/
 └── email_log.py     — EmailLog
 ```
 
-### Service Layer (103 services)
+### Service Layer (133 services)
 
 ```
 app/services/
@@ -529,7 +545,7 @@ app/services/
 │   └── publishing.py         — Publishing service
 ```
 
-### MCP Server (27 tools)
+### MCP Server (35 tools)
 
 ```
 app/mcp/server.py
@@ -566,16 +582,17 @@ app/mcp/server.py
     ├── messenger_personal_get_auto_reply   — Get personal auto-reply
     └── messenger_personal_set_auto_reply   — Set personal auto-reply
 
-└── ── Bot Builder (9) ──────────────────────────────────────
-    ├── messenger_bot_create                — Create bot (personality, language, hours)
-    ├── messenger_bot_get                   — Get bot config
-    ├── messenger_bot_update                — Update bot config
-    ├── messenger_bot_activate              — Activate bot
-    ├── messenger_bot_deactivate            — Deactivate bot
-    ├── messenger_bot_pause_thread          — Pause bot for a thread
-    ├── messenger_bot_resume_thread         — Resume bot for a thread
-    ├── messenger_bot_personalities         — List personality presets
-    └── messenger_bot_index_brand           — Index brand knowledge for RAG
+└── ── Telegram (8) ─────────────────────────────────────────
+    ├── telegram_list_channels            — List channels/groups the bot is in
+    ├── telegram_chat_info                — Get chat metadata
+    ├── telegram_chat_admins              — List chat administrators
+    ├── telegram_member_count             — Member count for a chat
+    ├── telegram_set_chat_description     — Set channel/group description
+    ├── telegram_create_invite_link       — Create named invite link
+    ├── telegram_send_message             — Send message to a chat
+    └── telegram_pin_message              — Pin a message
+
+(Bot Builder lives in the REST API + `/messenger` UI, not in MCP tools.)
 ```
 
 ### Celery Tasks (44 task modules, 43 beat schedules)
@@ -861,7 +878,7 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  │ :8083       │  │ frontend    │  │ worker-     │  │ worker-    │ │
 │  │             │  │ :8082       │  │ publishing  │  │ media      │ │
 │  │ FastAPI     │  │ Next.js     │  │             │  │            │ │
-│  │ 410 routes  │  │ 51 pages    │  │ Celery      │  │ Celery     │ │
+│  │ 560 routes  │  │ 64 pages    │  │ Celery      │  │ Celery     │ │
 │  │ MCP server  │  │             │  │ publishing  │  │ media      │ │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
 │         │                │                │                │        │

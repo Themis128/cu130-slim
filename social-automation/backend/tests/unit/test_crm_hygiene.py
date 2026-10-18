@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
+import app.core.config as app_config
 from app.services import crm_hygiene
 
 
@@ -144,3 +149,160 @@ async def test_no_assignee_resolved_skips_assignment(monkeypatch):
     stats = await crm_hygiene.run_crm_hygiene(alert=False)
     assert stats["assigned"] == 0
     assert fake.patched == []
+
+
+@pytest.mark.asyncio
+async def test_configured_assignee_id_wins_over_api_user(monkeypatch):
+    fake = _FakeEspo([_lead("new", "new@x.gr")], user={"id": "u-api"})
+    _wire(monkeypatch, fake)
+    monkeypatch.setattr(
+        app_config,
+        "get_settings",
+        lambda: SimpleNamespace(CRM_HYGIENE_ASSIGNEE_ID="u-configured"),
+    )
+    stats = await crm_hygiene.run_crm_hygiene(alert=False)
+    assert stats["assigned"] == 1
+    assert fake.patched == [("/Lead/new", {"assignedUserId": "u-configured"})]
+
+
+@pytest.mark.asyncio
+async def test_assignee_resolution_failure_skips_assignment(monkeypatch):
+    class _Fail(_FakeEspo):
+        async def espo_get(self, path, params=None):
+            raise RuntimeError("espo 500")
+
+    fake = _Fail([_lead("new", "new@x.gr")])
+    _wire(monkeypatch, fake)
+    monkeypatch.setattr(
+        app_config,
+        "get_settings",
+        lambda: SimpleNamespace(CRM_HYGIENE_ASSIGNEE_ID=""),
+    )
+    stats = await crm_hygiene.run_crm_hygiene(alert=False)
+    assert stats["assigned"] == 0
+
+
+def test_age_days_edges():
+    now = datetime(2026, 10, 19, 10, 0, 0, tzinfo=UTC)
+    assert crm_hygiene._age_days({}, now) is None
+    assert crm_hygiene._age_days({"createdAt": "not-a-date"}, now) is None
+    # naive timestamps are treated as UTC
+    assert crm_hygiene._age_days({"createdAt": "2026-10-12T10:00:00"}, now) == pytest.approx(7.0)
+
+
+@pytest.mark.asyncio
+async def test_dead_mark_failure_counts_error(monkeypatch):
+    class _Fail(_FakeEspo):
+        async def espo_patch(self, path, payload):
+            raise RuntimeError("espo down")
+
+    fake = _Fail([_lead("a", "ci-test+x@example.invalid")])
+    _wire(monkeypatch, fake)
+    stats = await crm_hygiene.run_crm_hygiene(alert=False)
+    assert stats["quarantined"] == 0 and stats["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_assign_failure_counts_error(monkeypatch):
+    class _Fail(_FakeEspo):
+        async def espo_patch(self, path, payload):
+            if "assignedUserId" in payload:
+                raise RuntimeError("espo down")
+            return {}
+
+    fake = _Fail([_lead("new", "new@x.gr")], user={"id": "u-api"})
+    _wire(monkeypatch, fake)
+    stats = await crm_hygiene.run_crm_hygiene(alert=False)
+    assert stats["assigned"] == 0 and stats["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_internal_mark_failure_and_dedupe_failure_count_errors(monkeypatch):
+    class _Fail(_FakeEspo):
+        async def espo_patch(self, path, payload):
+            raise RuntimeError("espo down")
+
+    fake = _Fail(
+        [
+            _lead("self", "me@cloudless.gr"),
+            _lead("d1", "dup@x.gr", created="2026-09-01T10:00:00Z"),
+            _lead("d2", "dup@x.gr", created="2026-10-10T10:00:00Z"),
+        ]
+    )
+    _wire(monkeypatch, fake)
+    stats = await crm_hygiene.run_crm_hygiene(alert=False)
+    assert stats["errors"] == 2  # internal-lead mark + duplicate mark both failed
+    assert stats["quarantined"] == 0 and stats["deduped"] == 0
+
+
+@pytest.mark.asyncio
+async def test_non_new_status_skipped_in_sla_loop_and_alert_sends(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t))
+    )
+    fake = _FakeEspo(
+        [
+            _lead("a", "a@x.gr", status="Assigned", created="2026-01-01T00:00:00Z"),
+            _lead("n", "n@x.gr", created="2026-01-01T00:00:00Z"),
+        ]
+    )
+    _wire(monkeypatch, fake)
+    stats = await crm_hygiene.run_crm_hygiene(alert=True)
+    assert [s["id"] for s in stats["stale_new"]] == ["n"]  # Assigned is not New
+    assert sent and "1 New leads past" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_disabled_when_espo_unconfigured(monkeypatch):
+    fake = _FakeEspo([])
+    _wire(monkeypatch, fake)
+    monkeypatch.setattr(crm_hygiene.espocrm_client, "configured", lambda: False)
+    assert await crm_hygiene.run_crm_hygiene() == {"enabled": False}
+
+
+@pytest.mark.asyncio
+async def test_slack_report_includes_stale_sla_lines(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    sent: list[str] = []
+    monkeypatch.setattr(
+        SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t))
+    )
+    await crm_hygiene._slack_report(
+        {
+            "total": 2,
+            "quarantined": 1,
+            "deduped": 1,
+            "assigned": 0,
+            "errors": 0,
+            "by_status": {"New": 1, "Dead": 1},
+            "by_source": {"Web Site": 2},
+            "stale_new": [{"id": "s", "email": "s@x.gr", "source": "Web Site", "age_days": 12.3}],
+        }
+    )
+    assert "quarantined 1" in sent[0] and "New=1" in sent[0]
+    assert ":warning:" in sent[0] and "s@x.gr" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_slack_report_failure_swallowed(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    monkeypatch.setattr(
+        SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down"))
+    )
+    await crm_hygiene._slack_report(
+        {
+            "total": 0,
+            "quarantined": 0,
+            "deduped": 0,
+            "assigned": 0,
+            "errors": 0,
+            "by_status": {},
+            "by_source": {},
+            "stale_new": [],
+        }
+    )

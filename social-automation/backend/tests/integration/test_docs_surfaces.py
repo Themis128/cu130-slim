@@ -197,6 +197,10 @@ class TestLiveProbes:
 SWEEP_SKIP = re.compile(
     r"oauth/.*/(authorize|callback)$|instagram2?/authorize|instagram2/callback|"
     r"export-data|reports/export|generate-image|webhook|data-deletion|"
+    # automation-plan runs the full strategy report with LLM-authored actions
+    # (use_llm=True default) — a real DMR inference that can exceed the probe
+    # timeout on cold model load. Existence verified via the schema.
+    r"ops/automation-plan|"
     # Browser-automation surfaces: real browser sessions into TikTok that can
     # legitimately exceed the probe timeout on cold start — same class as oauth
     # callbacks. Existence is still verified via the OpenAPI schema.
