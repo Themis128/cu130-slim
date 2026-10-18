@@ -591,6 +591,9 @@ class Settings(BaseSettings):
     LEAD_RESEARCH_ENABLED: bool = True
     LEAD_RESEARCH_HOUR: int = 8     # Europe/Athens via Celery timezone
     LEAD_RESEARCH_MINUTE: int = 40  # after the 08:20 drip, before the 09:00 digest
+    # CRM hygiene — EspoCRM user id to own unassigned leads; empty = the
+    # API user itself (automation claims ownership).
+    CRM_HYGIENE_ASSIGNEE_ID: str = ""
 
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production

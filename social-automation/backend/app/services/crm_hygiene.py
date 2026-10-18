@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 
 STALE_DAYS = 7
 _TEST_MARKERS = ("ci-test+", "@example.invalid", "@example.com", "test@test")
+# The company's own sending domain can never be a client — @cloudless.gr
+# "leads" are self-tests or notification residue. (messenger.local is NOT
+# internal — those are real Messenger-sourced leads.)
+_INTERNAL_MARKERS = ("@cloudless.gr",)
 
 
 def crm_hygiene_enabled() -> bool:
@@ -42,6 +46,27 @@ def _is_test_lead(lead: dict[str, Any]) -> bool:
     email = _norm_email(lead)
     name = str(lead.get("name") or "").lower()
     return any(m in email for m in _TEST_MARKERS) or "ci functional test" in name
+
+
+def _is_internal_lead(lead: dict[str, Any]) -> bool:
+    email = _norm_email(lead)
+    return any(email.endswith(m) for m in _INTERNAL_MARKERS)
+
+
+async def _resolve_assignee() -> str | None:
+    """Owner for unassigned leads: ``CRM_HYGIENE_ASSIGNEE_ID`` when set,
+    else the API user itself (automation claims ownership — visible in UI)."""
+    from app.core.config import get_settings
+
+    configured_id = (get_settings().CRM_HYGIENE_ASSIGNEE_ID or "").strip()
+    if configured_id:
+        return configured_id
+    try:
+        me = await espocrm_client.espo_get("/App/user")
+        return ((me or {}).get("user") or {}).get("id") or None
+    except Exception:  # noqa: BLE001
+        logger.warning("crm hygiene: could not resolve assignee")
+        return None
 
 
 def _age_days(lead: dict[str, Any], now: datetime) -> float | None:
@@ -79,13 +104,15 @@ async def run_crm_hygiene(*, alert: bool = True) -> dict[str, Any]:
 
     leads = await espocrm_client.list_all(
         "Lead",
-        select=["id", "name", "emailAddress", "status", "source", "createdAt"],
+        select=["id", "name", "emailAddress", "status", "source", "createdAt", "assignedUserId"],
     )
     now = datetime.now(UTC)
+    assignee = await _resolve_assignee()
     stats: dict[str, Any] = {
         "total": len(leads),
         "quarantined": 0,
         "deduped": 0,
+        "assigned": 0,
         "errors": 0,
         "by_status": {},
         "by_source": {},
@@ -106,6 +133,23 @@ async def run_crm_hygiene(*, alert: bool = True) -> dict[str, Any]:
             else:
                 stats["errors"] += 1
             continue
+        if _is_internal_lead(lead):
+            if await _mark_dead(lead, "internal/self address — quarantined"):
+                stats["quarantined"] += 1
+            else:
+                stats["errors"] += 1
+            continue
+        # Route: every live lead gets an owner — unassigned leads have nobody
+        # to escalate when the stale SLA fires.
+        if assignee and not lead.get("assignedUserId"):
+            try:
+                await espocrm_client.espo_patch(
+                    f"/Lead/{lead['id']}", {"assignedUserId": assignee}
+                )
+                stats["assigned"] += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("crm hygiene: assign failed for %s: %s", lead.get("id"), exc)
+                stats["errors"] += 1
         email = _norm_email(lead)
         if email:
             active.setdefault(email, []).append(lead)
@@ -155,7 +199,8 @@ async def _slack_report(stats: dict[str, Any]) -> None:
         lines = [
             "*CRM hygiene — weekly sweep*",
             f"Leads: {stats['total']} · quarantined {stats['quarantined']}"
-            f" · deduped {stats['deduped']} · errors {stats['errors']}",
+            f" · deduped {stats['deduped']} · assigned {stats['assigned']}"
+            f" · errors {stats['errors']}",
             "By status: "
             + ", ".join(f"{k}={v}" for k, v in sorted(stats["by_status"].items())),
             "By source: "
