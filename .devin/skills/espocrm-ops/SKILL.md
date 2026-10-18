@@ -64,6 +64,8 @@ espocrm_client.lead_counts() / campaign_profiles() / list_all(entity)
   espo_patch/add_lead_note` (X-Api-Key, NodePort)
 - `app/worker/tasks/crm_hygiene.py` — Celery `run_crm_hygiene`, weekly beat
   `crm-hygiene` (Mon 07:30 Athens, default queue)
+- `app/worker/tasks/crm_lifecycle.py` — daily 08:50 `crm-lifecycle-sweep`
+- `app/worker/tasks/crm_engagement.py` — every-30-min `crm-engagement-sweep`
 - Backend route `app/api/leads.py` — `/api/v1/leads/public` ingest
   (Cloudflare Access service token) + manual leads
 - `src/lib/espocrm.ts` (cloudless.gr) — Contact/Deal/Note upserts,

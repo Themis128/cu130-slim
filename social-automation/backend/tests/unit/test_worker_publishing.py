@@ -1477,8 +1477,38 @@ async def test_pq_quality_gate_cached_across_targets(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pq_quality_gate_skips_when_no_text(monkeypatch):
-    """Media-only posts (no content_text) bypass the text gate entirely —
-    their media rules live elsewhere."""
+    """Explicit media-only posts (no content_text, platform_specific.media_only)
+    bypass the text gate entirely — their media rules live elsewhere."""
+    item = _qitem()
+    post = _post(id=item.post_id, content_text="", platform_specific={"media_only": True})
+    acct = _acct(id=item.social_account_id)
+    target = _target()
+    db = _FakeDB(
+        [
+            _res(scalars_all=[item]),
+            _res(one=post),
+            _res(one=acct),
+            _res(one=target),
+            _res(scalars_all=[]),
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    gate = AsyncMock()
+    monkeypatch.setattr(W, "apply_publish_gate", gate)
+    pub = AsyncMock(return_value=W.PublishResult(success=True, platform_post_id="p"))
+    monkeypatch.setattr(W, "publish_to_platform", pub)
+
+    await W._process_publish_queue_async()
+
+    gate.assert_not_awaited()
+    pub.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pq_empty_caption_without_media_only_flag_is_skipped(monkeypatch):
+    """Unflagged empty-caption posts are blocked before the gate — post
+    f6255dd9 shipped with zero copy because the gate returns early on
+    empty text. The target is skipped, publish never fires."""
     item = _qitem()
     post = _post(id=item.post_id, content_text="")
     acct = _acct(id=item.social_account_id)
@@ -1501,7 +1531,9 @@ async def test_pq_quality_gate_skips_when_no_text(monkeypatch):
     await W._process_publish_queue_async()
 
     gate.assert_not_awaited()
-    pub.assert_awaited_once()
+    pub.assert_not_awaited()
+    assert target.status == "skipped"
+    assert "Empty content_text" in (target.error_message or "")
 
 
 @pytest.mark.asyncio
