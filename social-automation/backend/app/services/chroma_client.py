@@ -19,8 +19,10 @@ _CHROMA_TIMEOUT = 10.0
 # Chroma v2 API base path (Chroma 1.x uses tenant/database structure)
 _CHROMA_API_BASE = "/api/v2/tenants/default_tenant/databases/default_database"
 
-# team_<uuid-with-underscores>_content — blocks path traversal / SSRF via collection name
-_COLLECTION_RE = re.compile(r"^team_[0-9a-f_]+_content$")
+# team_<uuid-with-underscores>_(content|brain) — blocks path traversal / SSRF
+# via collection name. `_content` = published-post similarity; `_brain` =
+# operational memory written by services.company_brain.
+_COLLECTION_RE = re.compile(r"^team_[0-9a-f_]+_(content|brain)$")
 
 
 def _validate_collection_name(col: str) -> str:

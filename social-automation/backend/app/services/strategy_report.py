@@ -1153,12 +1153,30 @@ async def _llm_actions(
     insights: dict[str, Any],
     digest: DigestReport,
 ) -> list[str] | None:
+    from app.services.company_brain import recall
     from app.services.inference import call_inference
+
+    # Company-brain recall — pull the most relevant past-day journals so the
+    # strategist sees what actually happened recently, not just the metrics.
+    learnings = await recall(
+        team_id,
+        "daily journal publish outcomes follower growth failures",
+        n_results=4,
+    )
+    learnings_block = ""
+    if learnings:
+        learnings_block = (
+            "\nRecent outcomes from the company journal (use them — avoid "
+            "repeating what failed, build on what grew):\n"
+            + "\n".join(f"- {doc[:400]}" for doc in learnings)
+            + "\n"
+        )
 
     prompt = (
         "You are the social media strategist for Cloudless (cloudless.gr — "
         "managed cloud hosting, Cloudflare, fast websites; LinkedIn is the "
         "primary channel, Instagram/Facebook/Threads secondary).\n\n"
+        f"{learnings_block}"
         "Here is today's data (last-24h digest + 30-day insights):\n"
         f"```json\n{json.dumps(_compact_insights(insights), default=str)}\n```\n"
         f"Last 24h: impressions {digest.impressions_24h}, "
