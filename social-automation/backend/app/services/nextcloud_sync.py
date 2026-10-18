@@ -267,6 +267,23 @@ def _card_description(post: Post) -> str:
     return "\n".join(lines)
 
 
+def _card_duedate(post: Post) -> str | None:
+    """Deck 'due today/tomorrow/upcoming' dashboard widgets key off duedate —
+    feed it from scheduled_at so the pipeline board drives them."""
+    return post.scheduled_at.isoformat() if post.scheduled_at else None
+
+
+def _duedate_differs(card_due: str | None, want: str | None) -> bool:
+    if want is None:
+        return False
+    if not card_due:
+        return True
+    try:
+        return datetime.fromisoformat(card_due) != datetime.fromisoformat(want)
+    except ValueError:
+        return card_due != want
+
+
 async def _board_stacks(client: httpx.AsyncClient, board_id: int) -> list[dict]:
     r = await client.get(f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks")
     r.raise_for_status()
@@ -304,7 +321,7 @@ async def _update_card(
             "type": "plain",
             "order": card.get("order", 999),
             "description": _card_description(post),
-            "duedate": card.get("duedate"),
+            "duedate": _card_duedate(post) or card.get("duedate"),
             "owner": _owner_uid(card),
         },
     )
@@ -320,8 +337,9 @@ async def _create_card(
         "order": 999,
         "description": _card_description(post),
     }
-    if source and source.get("duedate"):
-        body["duedate"] = source["duedate"]
+    duedate = _card_duedate(post) or (source or {}).get("duedate")
+    if duedate:
+        body["duedate"] = duedate
     r = await client.post(
         f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks/{stack_id}/cards",
         json=body,
@@ -423,9 +441,11 @@ async def sync_deck_pipeline(db: AsyncSession) -> dict:
                 continue
             card, stack = card_by_post[marker]
             if stack["id"] == target["id"]:
-                if card.get("title") != _card_title(post) or card.get(
-                    "description"
-                ) != _card_description(post):
+                if (
+                    card.get("title") != _card_title(post)
+                    or card.get("description") != _card_description(post)
+                    or _duedate_differs(card.get("duedate"), _card_duedate(post))
+                ):
                     await _update_card(client, board_id, stack["id"], card, post)
                 continue
             await _move_card(client, board_id, stack["id"], card["id"], target["id"])
