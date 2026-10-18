@@ -25,7 +25,9 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # ensurepip bundles Ubuntu's ancient pip 22.0.2 into the venv — Trivy flags it
 # (CVE-2023-5752, CVE-2025-8869, CVE-2026-13346, ...). Upgrade before anything else.
-RUN pip install --no-cache-dir --upgrade pip
+# urllib3 2.6.2-2.7.0 carries chunked-deflate/chunk-size DoS CVEs
+# (97687/97688/97689) — requests resolves 2.7.0 transitively, pin the floor.
+RUN pip install --no-cache-dir --upgrade pip "urllib3>=2.8.0"
 
 # ComfyUI source — cloned in the builder only for requirements.txt; the
 # runtime stage clones its own copy under /opt/ComfyUI.
