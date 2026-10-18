@@ -41,12 +41,13 @@ Each loop must answer: **Trigger** (when it fires) · **Code** (where it lives) 
 | Loop | Trigger | Code | Health signal | State |
 |---|---|---|---|---|
 | Capture (contact/playbook/Messenger) | ingress webhooks | API routes + EspoCRM client | Lead rows | ✅ live |
-| Score | contact-form path | `lead-scoring` (cloudless.gr) | score on lead | ⚠️ **partial — non-contact ingress unscored** |
+| Score (all ingress) | `50 8 * * *` | `services/crm_lifecycle.py` | `Lead score:` notes on all live leads | ✅ live (3/3 scored) |
 | Hygiene: dedupe/quarantine/route | `30 7 * * mon` | `services/crm_hygiene.py` | Dead+note, assignedUserId set | ✅ live (auto-assign + self-domain quarantine added) |
 | Lead research sweep | `40 8 * * *` | `services/lead_research.py` | dedup'd research notes | ✅ live |
 | Daily email drip (first-approach + renewal) | `20 8 * * *` | `worker/tasks/email_drip.py` | sent notes on leads | ✅ live |
 | AC (ActiveCampaign) enroll | drip send | enroll client | contact in list | ✅ live |
-| Lifecycle convert → Contact/Account/Opp | — | — | — | ❌ **missing — no convert step exists** |
+| Lifecycle convert → Contact/Account/Opp | hot≥65 in `crm-lifecycle` | `services/crm_lifecycle.py` | Espo convert → Contact+Opp links | ✅ live (gated) |
+| Engagement write-back | `*/30` IMAP | `services/crm_engagement.py` | `Reply received` notes + In Process | ✅ live |
 
 ## 4. Revenue & Monetization
 
@@ -103,15 +104,15 @@ Each loop must answer: **Trigger** (when it fires) · **Code** (where it lives) 
 | Tailscale ACLs | tailnet policy repo | tailscale-ops workflow | policy applied | ✅ live |
 | CF Access / Zero Trust | always-on | CF config | protected paths gated | ✅ live |
 | Media dedup (phash) | pre-publish | `media_dedup` | no duplicate media ships | ✅ live |
-| Publish guard: media-required | pre-publish | publishing pre-flight | no media-less posts | ⚠️ media gate live; **empty-`content_text` publish slipped through** (`f6255dd9`) |
+| Publish guard: media + caption | pre-publish | `worker/tasks/publishing.py` | no media-less or caption-less posts | ✅ live (empty-text now skipped unless `media_only`) |
 
 ---
 
-## Open gaps (priority order)
+## Open gaps
 
-1. **Lead→Contact/Account/Opportunity conversion missing** — nothing ever converts a hot lead; renewal loop starved. Proposed: score-gated auto-convert, skipping synthetic/test records.
-2. **Lead scoring coverage** — only contact-form path scores; playbook/Messenger/manual enter unscored.
-3. **Empty-text publish guard** — post `f6255dd9` published with `content_text` = 0 (media-only). Publish gate needs a non-empty-caption rule or explicit media-only flag.
-4. **EspoCRM ACL gaps** — `socialauto` API user can't read `/User` or `/TargetList` (segmentation + human-assignee options blocked).
-5. **Engagement write-back** — opens/replies don't return to the CRM record.
-6. **NC Collectives not wired** — this index lives in-repo; Collectives page sync would need a new client path in `nextcloud_sync`.
+1. ~~Lead→Contact/Opportunity conversion~~ — **closed 2026-10-18**: `crm-lifecycle-sweep` converts hot (≥65) real-email leads via `Lead/action/convert` (Contact+Opportunity, +Account when company known). `CRM_CONVERT_ENABLED` gates it.
+2. ~~Scoring coverage~~ — **closed**: `score_lead` in `crm_lifecycle.py` mirrors the cloudless.gr model against EspoCRM fields; all 3 live leads scored.
+3. ~~Empty-caption publish~~ — **closed**: publish queue skips `content_text` ≤ empty unless `platform_specific.media_only=true`.
+4. ~~EspoCRM ACL~~ — **closed**: role `6a6a556580c6efa5c` now grants `User`/`TargetList` read-all; verified live.
+5. ~~Engagement write-back~~ — **closed**: `crm-engagement-sweep` (30-min IMAP poll) writes `Reply received` notes + bumps leads to In Process.
+6. ~~Collectives not wired~~ — **closed**: collective "Cloudless Ops" (id 1) hosts this index; sync via `nc_webdav_write_file` on `.Collectives/Cloudless Ops/Readme.md`.
