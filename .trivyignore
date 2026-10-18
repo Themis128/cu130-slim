@@ -30,3 +30,14 @@ CVE-2025-2149
 # Re-evaluate when tweepy supports oauthlib 4.x.
 CVE-2026-49264
 CVE-2026-49265
+
+# urllib3 2.7.0 vendored INSIDE pip 26.2.1 (pip/_vendor/urllib3) in
+# env-manager-backend. No pip release vendors urllib3 2.8.0 yet, so the
+# copy cannot be upgraded; patching pip's vendored tree in-place risks
+# breaking pip itself. Exposure is install-time-only: pip uses it solely
+# for PyPI HTTPS fetches (trusted source), never streaming chunked-deflate
+# responses through the affected stream()/read_chunked() path.
+# Re-evaluate when pip vendors urllib3 >=2.8.0.
+CVE-2026-97687
+CVE-2026-97688
+CVE-2026-97689
