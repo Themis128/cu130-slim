@@ -2,6 +2,8 @@
 
 Every department owns closed loops, not features. A loop is live only when **input → action → output → health signal** is verifiable in production data. This page is the contract of record: what each loop must guarantee, where it runs, how we know it's healthy, and its current verified state.
 
+Mirrored to Nextcloud Collectives → collective **"Cloudless Ops"** (id 1), landing page `Readme.md` (page id 1316125). Edit this file, then update the page via the `nextcloud` MCP (`nc_webdav_write_file` on `.Collectives/Cloudless Ops/Readme.md` with the file's current etag).
+
 Status verified 2026-10-18: 29/29 containers Up, 43 beat entries scheduled, every row below checked against live state (not prose).
 
 ## Contract format
