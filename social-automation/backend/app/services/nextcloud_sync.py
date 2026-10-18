@@ -285,6 +285,14 @@ async def _move_card(
     r.raise_for_status()
 
 
+def _owner_uid(card: dict) -> str:
+    """Deck update expects owner as a uid string; GET returns an object."""
+    owner = card.get("owner")
+    if isinstance(owner, dict):
+        return str(owner.get("uid") or owner.get("primaryKey") or "")
+    return str(owner or settings.NEXTCLOUD_USERNAME)
+
+
 async def _update_card(
     client: httpx.AsyncClient, board_id: int, stack_id: int, card: dict, post: Post
 ) -> None:
@@ -297,7 +305,7 @@ async def _update_card(
             "order": card.get("order", 999),
             "description": _card_description(post),
             "duedate": card.get("duedate"),
-            "owner": card.get("owner"),
+            "owner": _owner_uid(card),
         },
     )
     r.raise_for_status()
