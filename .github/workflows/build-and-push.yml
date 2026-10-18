@@ -95,7 +95,8 @@ jobs:
           docker push "${PACKAGE}:${SVC}-latest"
           docker push "${PACKAGE}:${SVC}-${SHA_TAG}"
           echo "Pushed ${PACKAGE}:${SVC}-latest and ${PACKAGE}:${SVC}-${SHA_TAG}"
-          # Worker matrix builds Dockerfile.worker; also publish shared social-worker-* tags
+          # Worker matrix builds the `worker` stage of the shared backend
+          # Dockerfile; also publish shared social-worker-* tags
           # so media/default/messenger/celery-beat compose refs keep working.
           if [ "$SVC" = "social-worker-publishing" ]; then
             docker tag "$BUILT" "${PACKAGE}:social-worker-latest"
