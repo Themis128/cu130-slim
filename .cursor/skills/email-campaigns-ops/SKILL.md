@@ -31,7 +31,14 @@ description: >-
 - **Branded HTML shell** (`app/services/email_brand.py`): campaigns created
   without `html_body` get `render_branded_html(text_body, …)` — elegant dark
   navy card, teal accents, ghost-numbered list cards, pull-quotes, pill CTA,
-  hidden preheader. Runs at create AND as send-time fallback; merge fields
+  hidden preheader. `hero_url` on create → `<img>` hero at the top of the
+  card (600 px), stored in `meta_data.hero_url` so the send-time fallback
+  render carries it too. **Quote cards**: generate via
+  `carousel_pipeline.compose_ad_creative(width=1200, height=627,
+  headline=<quote>, subline=<attribution>, cta="cloudless.gr")` +
+  `_cf_generate_background` → `save_uploaded_media` → R2 `public_url` →
+  `hero_url`. Real runs 2026-10-18: Gates (first-approach) + Buffett
+  (renewal) cards on `pub-…r2.dev`. Runs at create AND as send-time fallback; merge fields
   `{{…}}` survive for per-recipient render. Body markup contract:
   `1.`/`2.` lists → cards, `>` lines → quotes (first teal, later pink),
   `CTA: label | https://…` or a standalone `[label](url)` → pill button,
