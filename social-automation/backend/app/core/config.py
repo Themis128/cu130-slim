@@ -578,6 +578,17 @@ class Settings(BaseSettings):
     PLAYBOOK_EMAIL_ENABLED: bool = True
     PLAYBOOK_URL: str = "https://cloudless.gr/playbooks/cloud-migration-playbook.pdf"
 
+    # Autonomous email drip engine — daily sweep that clones the marked
+    # template campaigns (draft EmailCampaigns with meta_data.drip_template =
+    # "first_approach" | "renewal") and mails only recipients who never got
+    # that drip/cycle. Per-recipient dedupe lives in email_recipients; the
+    # campaign-level similarity gate is bypassed for drip clones.
+    EMAIL_DRIP_ENABLED: bool = True
+    EMAIL_DRIP_HOUR: int = 8     # Europe/Athens via Celery timezone
+    EMAIL_DRIP_MINUTE: int = 20  # before the 09:00 digest
+    EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS: int = 30
+    EMAIL_DRIP_RENEWAL_PERIOD_DAYS: int = 365
+
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production
     PADDLE_API_KEY: str = ""

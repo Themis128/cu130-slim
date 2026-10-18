@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.worker.tasks.nextcloud_sync",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
+        "app.worker.tasks.email_drip",
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
@@ -248,6 +249,17 @@ celery_app.conf.update(
         "crm-hygiene": {
             "task": "app.worker.tasks.crm_hygiene.run_crm_hygiene",
             "schedule": crontab(hour=7, minute=30, day_of_week="mon"),
+        },
+        # Daily autonomous email drip — clones the drip-template campaigns
+        # (meta_data.drip_template) and mails only recipients never mailed
+        # for that drip/cycle: first-approach to new EspoCRM leads, renewal
+        # to contacts/opportunities entering their annual window.
+        "email-drip-sweep": {
+            "task": "app.worker.tasks.email_drip.run_email_drip_sweep",
+            "schedule": crontab(
+                hour=settings.EMAIL_DRIP_HOUR,
+                minute=settings.EMAIL_DRIP_MINUTE,
+            ),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",

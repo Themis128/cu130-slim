@@ -64,6 +64,12 @@ async def find_duplicate_campaign(
     Compares subject+body against this team's campaigns that are sending/sent
     within DUP_WINDOW_DAYS, using the same detector as post publishing.
     """
+    # Drip clones intentionally resend identical copy to *new* recipients —
+    # uniqueness for them is per-recipient, enforced by the drip sweep against
+    # email_recipients (same address + same drip_key/cycle never mails twice).
+    if (campaign.meta_data or {}).get("drip_key"):
+        return None, 0.0
+
     from app.services.duplicate_detector import similarity_score
 
     since = datetime.now(UTC) - timedelta(days=DUP_WINDOW_DAYS)

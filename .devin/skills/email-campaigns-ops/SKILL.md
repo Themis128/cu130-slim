@@ -44,6 +44,24 @@ description: >-
   `CTA: label | https://…` or a standalone `[label](url)` → pill button,
   `P.S.` → subdued postscript. To get a CTA button, put the link in the
   text — prose questions stay prose.
+- **Autonomous drip engine** (`app/services/email_drip.py`, task
+  `app.worker.tasks.email_drip.run_email_drip_sweep`, beat daily 08:20
+  Athens `EMAIL_DRIP_*`): **templates** are draft campaigns marked
+  `meta_data.drip_template = "first_approach" | "renewal"` — each sweep
+  clones the template (`meta_data.drip_key` + `drip_cycle`), mails only
+  recipients never mailed for that drip/cycle (per-recipient dedupe via
+  `email_recipients`; the campaign-level similarity gate bypasses drip
+  clones), writes a CRM note per mailed entity, and Slack-reports waves
+  that mail or error. first_approach sweeps `list_leads_for_campaign`
+  (every new EspoCRM lead gets one first-approach, once, ever); renewal
+  fires on Closed-Won opportunity closeDate anniversaries + contact
+  createdAt anniversaries inside `EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS`
+  (re-arms each calendar year). `_mailable()` excludes invalid, synthetic
+  (`messenger.local` etc.), CI probes, the owner mailbox
+  (`DIGEST_EMAIL_TO`), and the whole `SMTP_FROM` domain at candidate
+  stage. `dry_run=True` kwarg reports `would_mail` without sending —
+  always dry-run first when changing drip logic. Live-verified
+  2026-10-18: 2 real leads mailed, second sweep `already_sent=2`.
 - Suppression (`email_suppressions`, per-team do-not-contact) is checked at
   queue time AND per send; `unsubscribed`/`skipped_suppressed` are terminal.
 - **No-duplicate rule** (`find_duplicate_campaign` in
