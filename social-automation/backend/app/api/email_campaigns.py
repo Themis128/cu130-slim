@@ -59,6 +59,10 @@ class CampaignCreate(BaseModel):
     # survey campaign, SocialAuto hosts the form at a per-recipient token URL.
     survey_url: str | None = Field(None, max_length=500)
     questions: list[SurveyQuestion] = Field(default_factory=list)
+    # Branded hero image at the top of the email shell — public URL (R2 /
+    # media library). Stored in meta_data so the send-time fallback render
+    # carries it too.
+    hero_url: str | None = Field(None, max_length=1000)
 
 
 class AudienceSpec(BaseModel):
@@ -106,6 +110,7 @@ async def create_campaign(
         html_body = render_branded_html(
             body.text_body, subject=body.subject.strip(),
             from_name=body.from_name.strip() or "Cloudless",
+            hero_url=body.hero_url,
         )
     campaign = EmailCampaign(
         id=uuid.uuid4(),
@@ -120,6 +125,7 @@ async def create_campaign(
         survey_url=body.survey_url,
         meta_data={
             "questions": [q.model_dump() for q in body.questions],
+            **({"hero_url": body.hero_url} if body.hero_url else {}),
         },
     )
     db.add(campaign)

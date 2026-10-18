@@ -18,6 +18,8 @@ from urllib.parse import urljoin, urlparse
 import httpx
 from bs4 import BeautifulSoup
 
+from app.core.log_sanitize import sanitize_log_text
+
 logger = logging.getLogger(__name__)
 
 _MAX_BYTES = 512 * 1024  # enough for the <head> of any sane page
@@ -181,7 +183,11 @@ async def _rendered_preview(url: str) -> dict | None:
             return preview
         return None
     except Exception as exc:  # noqa: BLE001 — fallback must never break the caller
-        logger.info("link preview render fallback failed for %s: %s", url, exc)
+        logger.info(
+            "link preview render fallback failed for %s: %s",
+            sanitize_log_text(url, 300),
+            exc,
+        )
         return None
 
 
