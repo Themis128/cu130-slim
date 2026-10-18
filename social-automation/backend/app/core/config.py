@@ -409,6 +409,9 @@ class Settings(BaseSettings):
     NEXTCLOUD_SYNC_ENABLED: bool = False
     NEXTCLOUD_TABLE_ID: int = 0          # Tables table id (SocialAuto Metrics)
     NEXTCLOUD_DECK_BOARD_ID: int = 0     # Deck board id (Content Pipeline)
+    # When set, only this team's rows sync to the shared NC surfaces —
+    # keeps other teams' metrics/posts off a board all readers share.
+    NEXTCLOUD_SYNC_TEAM_ID: str = ""
 
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""
