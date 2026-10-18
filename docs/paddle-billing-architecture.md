@@ -80,7 +80,7 @@ flowchart LR
 | Layer | File | Purpose |
 |---|---|---|
 | API client | `social-automation/backend/app/services/paddle_api.py` | Thin async wrapper: customers, checkout transactions, portal sessions, cancel, subscription fetch, webhook signature verification |
-| Router | `social-automation/backend/app/api/billing.py` | 7 endpoints (below); OWNER-gated mutations |
+| Router | `social-automation/backend/app/api/billing.py` | 13 endpoints — the 8 provider-agnostic surface documented below + `GET/PUT/DELETE /discount`, `POST /polar-webhook`, `POST /dodo-webhook`; OWNER-gated mutations |
 | Event log | `social-automation/backend/app/models/billing.py` | `billing_events` table — idempotency + audit trail |
 | Team fields | `social-automation/backend/app/models/user.py` | `paddle_customer_id`, `paddle_subscription_id`, `subscription_status`, `subscription_period_end` on `teams` |
 | Config | `social-automation/backend/app/core/config.py` | `PADDLE_*` settings, `paddle_api_base`, `paddle_price_tiers` mapping |

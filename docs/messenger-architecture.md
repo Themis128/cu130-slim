@@ -13,7 +13,7 @@ processing, and unified MCP tool access across both channels.
 │                                                                          │
 │   ┌──────────────┐         ┌──────────────┐         ┌──────────────┐     │
 │   │  Frontend    │         │  SocialAuto  │         │  MCP Server  │     │
-│   │  (Next.js)   │         │  REST API    │         │  (27 tools)  │     │
+│   │  (Next.js)   │         │  REST API    │         │  (35 tools)  │     │
 │   │              │         │  (FastAPI)   │         │              │     │
 │   │ /messenger   │────────▶│              │◀────────│  15 Messenger│     │
 │   │              │         │              │         │  tools       │     │
@@ -357,7 +357,7 @@ Bot Builder UI with a Resume button.
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    SocialAuto MCP Server                            │
 │                    (app/mcp/server.py)                              │
-│                    stdio transport, 27 tools                        │
+│                    stdio transport, 35 tools                        │
 │                                                                     │
 │  ┌─────────────────────── Core (12) ──────────────────────────┐    │
 │  │  list_accounts, get_account, create_post, list_posts,      │    │
@@ -1024,6 +1024,15 @@ A comprehensive health check was performed across the entire SocialAuto app:
 | Social accounts | 9 accounts (Facebook, Instagram, LinkedIn, Threads, TikTok, Twitter, WhatsApp) | All active with bot configs |
 | Cloudflare DB | D1, KV, Vectorize | All healthy |
 | Code quality | Ruff, imports, stubs | All checks passed, no broken imports |
+
+> **Point-in-time figures** — the audit numbers above are historical. As of
+> 2026-10-19 the stack has grown to: 572 decorated endpoints across 43 route
+> files (560 in OpenAPI), 64 frontend pages, 38 compose services +
+> `social-api-green` slot (28 typically Up — idle-sleeping sidecars `Exited`
+> by design via stack-ops wake-proxy), 43 database tables, 44 task modules /
+> 43 beat schedules, and 35 MCP tools (12 core + 9 Page + 6 personal +
+> 8 Telegram — the bot-builder tools listed below live in the REST API,
+> not MCP).
 
 ### Issues found and fixed
 

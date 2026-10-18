@@ -44,7 +44,7 @@ WhatsApp Cloud API, Facebook Messenger, QR code, or direct link.
 | File | Purpose |
 |------|---------|
 | `app/models/digital_card.py` | SQLAlchemy model — `DigitalCard` with vCard 4.0 fields, share tokens, analytics |
-| `app/api/digital_cards.py` | FastAPI router — 9 endpoints (CRUD, public, send, vCard, tracking) |
+| `app/api/digital_cards.py` | FastAPI router — 10 endpoints (CRUD, public, send, vCard, tracking, from-brand) |
 | `alembic/versions/u3e6f7a8b9c0_add_digital_cards.py` | Migration — creates `digital_cards` table |
 
 ### Frontend
