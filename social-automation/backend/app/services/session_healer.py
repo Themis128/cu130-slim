@@ -677,6 +677,20 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
             await _clear_dead_marker(platform)
             return
 
+        # A different platform's session is mid-flight on the shared bridge
+        # (start/navigate/extract can hold it for minutes) — report contended
+        # instead of forcing /session/start and serializing into timeouts.
+        other = str(status.get("platform") or "")
+        busy_state = str(status.get("status") or "")
+        if (
+            other
+            and other != platform
+            and busy_state not in ("active", "done", "idle", "")
+        ):
+            slot["status"] = "contended"
+            slot["detail"] = f"bridge busy with {other} ({busy_state})"
+            return
+
         code, started = await _bridge_call(
             "/session/start", platform, {"platform": platform}, timeout=60.0
         )
@@ -732,7 +746,9 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
         )
     except Exception as exc:
         slot["status"] = "error"
-        slot["error"] = str(exc)[:200]
+        # ReadTimeout et al. stringify to "" — record the type so the digest
+        # shows a diagnosable error instead of an empty string.
+        slot["error"] = str(exc)[:200] or type(exc).__name__
         logger.warning("Bridge heal failed for %s: %s", platform, exc, exc_info=True)
 
 
