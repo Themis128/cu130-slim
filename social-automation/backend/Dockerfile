@@ -55,7 +55,7 @@ ENV PATH="/opt/venv/bin:$PATH"
 # - jaraco.context 6.1.0 (Path traversal via tar archives)
 # - cryptography 43.0.0 (fixes Minerva attack CVE-2024-2364)
 # - pip 25.0 (various security fixes)
-RUN pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
+RUN /usr/local/bin/pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
 
 # Remove bundled SBOM files that can confuse Trivy with stale package versions.
 RUN find /opt/venv/lib/python*/site-packages /usr/local/lib/python*/site-packages \
