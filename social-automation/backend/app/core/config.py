@@ -595,6 +595,17 @@ class Settings(BaseSettings):
     # API user itself (automation claims ownership).
     CRM_HYGIENE_ASSIGNEE_ID: str = ""
 
+    # CRM lifecycle — hot leads (score >= 65, real email) auto-convert to
+    # Contact+Opportunity via Espo's own convert action. Same rule the
+    # cloudless.gr contact path already applies.
+    CRM_CONVERT_ENABLED: bool = True
+
+    # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
+    # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the
+    # "Reply received" note marker.
+    CRM_ENGAGEMENT_ENABLED: bool = True
+    CRM_ENGAGEMENT_LOOKBACK_DAYS: int = 7
+
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production
     PADDLE_API_KEY: str = ""

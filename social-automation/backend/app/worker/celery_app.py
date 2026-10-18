@@ -18,6 +18,8 @@ celery_app = Celery(
         "app.worker.tasks.nextcloud_sync",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
+        "app.worker.tasks.crm_lifecycle",
+        "app.worker.tasks.crm_engagement",
         "app.worker.tasks.email_drip",
         "app.worker.tasks.lead_research",
         "app.worker.tasks.token_refresh",
@@ -271,6 +273,22 @@ celery_app.conf.update(
                 hour=settings.LEAD_RESEARCH_HOUR,
                 minute=settings.LEAD_RESEARCH_MINUTE,
             ),
+        },
+        # CRM lifecycle — score every unscored live lead (covers playbook/
+        # Messenger/manual ingress the cloudless.gr contact-path scorer
+        # misses) and auto-convert hot real-email leads via Espo's own
+        # /Lead/action/convert. Runs just after the research sweep so a new
+        # lead gets diligence → score → convert in the same morning.
+        "crm-lifecycle-sweep": {
+            "task": "app.worker.tasks.crm_lifecycle.run_crm_lifecycle_sweep",
+            "schedule": crontab(hour=8, minute=50),  # 08:50 after lead research
+        },
+        # CRM engagement — poll the dovecot mailbox every 30 min; a reply
+        # from a CRM email attaches a "Reply received" note and bumps the
+        # lead to In Process. Closes the loop that drip-send notes open.
+        "crm-engagement-sweep": {
+            "task": "app.worker.tasks.crm_engagement.run_crm_engagement_sweep",
+            "schedule": crontab(minute="*/30"),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
