@@ -1,4 +1,5 @@
 """Coverage for app/services/lead_research.py — the Sales dept diligence loop."""
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -375,8 +376,6 @@ def test_task_disabled_by_settings_gate(monkeypatch):
 
 
 def test_task_returns_service_stats(monkeypatch):
-    import asyncio
-
     from app.worker.tasks import lead_research as task
 
     async def _fake(*, dry_run: bool = False):
@@ -392,8 +391,6 @@ def test_task_returns_service_stats(monkeypatch):
 
 
 def test_task_failure_returns_none(monkeypatch):
-    import asyncio
-
     from app.worker.tasks import lead_research as task
 
     async def _boom(*, dry_run: bool = False):
