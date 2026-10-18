@@ -588,6 +588,9 @@ class Settings(BaseSettings):
     EMAIL_DRIP_MINUTE: int = 20  # before the 09:00 digest
     EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS: int = 30
     EMAIL_DRIP_RENEWAL_PERIOD_DAYS: int = 365
+    LEAD_RESEARCH_ENABLED: bool = True
+    LEAD_RESEARCH_HOUR: int = 8     # Europe/Athens via Celery timezone
+    LEAD_RESEARCH_MINUTE: int = 40  # after the 08:20 drip, before the 09:00 digest
 
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production

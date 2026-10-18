@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.email_drip",
+        "app.worker.tasks.lead_research",
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
@@ -259,6 +260,16 @@ celery_app.conf.update(
             "schedule": crontab(
                 hour=settings.EMAIL_DRIP_HOUR,
                 minute=settings.EMAIL_DRIP_MINUTE,
+            ),
+        },
+        # Daily lead diligence — attaches a research note (website summary +
+        # Wikipedia + CRM context) to each un-researched EspoCRM lead so the
+        # Sales dept's next touch is informed. The note is the dedupe marker.
+        "lead-research-sweep": {
+            "task": "app.worker.tasks.lead_research.run_lead_research_sweep",
+            "schedule": crontab(
+                hour=settings.LEAD_RESEARCH_HOUR,
+                minute=settings.LEAD_RESEARCH_MINUTE,
             ),
         },
         "check-scheduled-posts": {
