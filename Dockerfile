@@ -23,6 +23,10 @@ RUN apt-get update \
 RUN python3 -m venv --copies /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
+# ensurepip bundles Ubuntu's ancient pip 22.0.2 into the venv — Trivy flags it
+# (CVE-2023-5752, CVE-2025-8869, CVE-2026-13346, ...). Upgrade before anything else.
+RUN pip install --no-cache-dir --upgrade pip
+
 # ComfyUI source — cloned in the builder only for requirements.txt; the
 # runtime stage clones its own copy under /opt/ComfyUI.
 RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /tmp/comfy
