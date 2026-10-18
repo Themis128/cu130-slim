@@ -152,8 +152,11 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None) -> 
     """
     secret = (get_settings().NEXTCLOUD_TALK_BOT_SECRET or "").strip()
     base = _base_url()
-    allowed = {room_token("digest"), room_token("alerts")} - {""}
-    if not secret or not base or room not in allowed:
+    # Resolve against configured rooms and substitute the *config* value —
+    # the requester's string never reaches the URL (CodeQL partial-SSRF).
+    configured = {room_token("digest"), room_token("alerts")} - {""}
+    room = next((c for c in configured if c == room), "")
+    if not secret or not base or not room:
         return False
     rnd = hashlib.sha256(os.urandom(32)).hexdigest()
     # Outbound signature = HMAC(random + message string) per spreed docs.
