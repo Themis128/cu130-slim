@@ -544,6 +544,51 @@ async def test_heal_bridge_platform_states(monkeypatch):
     assert stats["twitter"]["status"] == "needs_manual_login"
 
 
+@pytest.mark.asyncio
+async def test_bridge_platform_contended_when_other_busy(monkeypatch):
+    """Another platform mid-extraction → report contended, never /session/start."""
+    calls = []
+
+    async def fake_call(path, platform, body=None, timeout=60.0):
+        calls.append(path)
+        return 200, {"platform": "facebook", "status": "extracting"}
+
+    monkeypatch.setattr(H, "_bridge_call", fake_call)
+    stats = {}
+    await H._heal_bridge_platform("threads", stats)
+    assert stats["threads"]["status"] == "contended"
+    assert "facebook" in stats["threads"]["detail"]
+    assert calls == ["/session/status"]  # no start — we don't steal the bridge
+
+    # Attached platform sitting idle/done → takeover is legitimate.
+    async def idle_call(path, platform, body=None, timeout=60.0):
+        if path == "/session/status":
+            return 200, {"platform": "facebook", "status": "done"}
+        return 200, {}
+
+    monkeypatch.setattr(H, "_bridge_call", idle_call)
+    monkeypatch.setattr(H, "_bridge_poll_done", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_bridge_extract", AsyncMock(return_value=True))
+    monkeypatch.setattr(H, "_alert_recovered", AsyncMock())
+    monkeypatch.setattr(H, "_clear_dead_marker", AsyncMock())
+    stats = {}
+    await H._heal_bridge_platform("threads", stats)
+    assert stats["threads"]["status"] == "healthy"
+
+
+@pytest.mark.asyncio
+async def test_bridge_platform_error_records_exception_type(monkeypatch):
+    """Empty str(exc) (ReadTimeout etc.) must not produce an empty error."""
+    async def timeout_call(path, platform, body=None, timeout=60.0):
+        raise TimeoutError  # str() is "" — same shape as httpx.ReadTimeout
+
+    monkeypatch.setattr(H, "_bridge_call", timeout_call)
+    stats = {}
+    await H._heal_bridge_platform("tiktok", stats)
+    assert stats["tiktok"]["status"] == "error"
+    assert stats["tiktok"]["error"] == "TimeoutError"
+
+
 # ── orchestrator ──────────────────────────────────────────────────────
 
 
