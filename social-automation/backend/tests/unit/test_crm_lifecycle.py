@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from app.services import crm_lifecycle
@@ -192,3 +194,118 @@ async def test_dry_run_writes_nothing(monkeypatch):
     assert stats["dry_run"] is True
     assert fake.notes == []
     assert not any(p[0] == "/Lead/action/convert" for p in fake.posted)
+
+
+def test_nurture_drip_notes_add_five():
+    base = crm_lifecycle.score_lead(_lead(email="x@gmail.com"), [])
+    one = crm_lifecycle.score_lead(
+        _lead(email="x@gmail.com"), [_note("Email drip sent: first approach")]
+    )
+    two = crm_lifecycle.score_lead(
+        _lead(email="x@gmail.com"),
+        [_note("Email drip sent: first approach"), _note("Email drip sent: renewal")],
+    )
+    assert one[0] == base[0]  # a single touch is not engagement
+    assert two[0] - base[0] == 5
+    assert any("nurture sequence" in r for r in two[2])
+
+
+@pytest.mark.asyncio
+async def test_convert_uses_prefilled_attributes(monkeypatch):
+    attrs = {
+        "Contact": {"firstName": "Pre", "lastName": "Filled", "emailAddress": "p@acme.gr"},
+        "Opportunity": {"name": "Prefilled opp", "stage": "Qualification"},
+    }
+    posted: list[tuple[str, dict]] = []
+
+    async def fake_post(path, payload):
+        posted.append((path, payload))
+        return attrs if path == "/Lead/action/getConvertAttributes" else {}
+
+    monkeypatch.setattr(crm_lifecycle.espo, "espo_post", fake_post)
+    await crm_lifecycle._convert(_lead(account="Acme SA"))
+    records = next(p for p in posted if p[0] == "/Lead/action/convert")[1]["records"]
+    assert records["Contact"] == attrs["Contact"]
+    assert records["Opportunity"] == attrs["Opportunity"]
+    assert records["Account"] == {"name": "Acme SA", "website": ""}
+
+
+@pytest.mark.asyncio
+async def test_sweep_lead_failure_counts_error(monkeypatch):
+    fake = _FakeEspo([_lead(id_="l1")])
+    _wire(monkeypatch, fake)
+
+    async def _la(entity, **kw):
+        if entity == "Note":
+            raise RuntimeError("espo down")
+        return fake.leads
+
+    monkeypatch.setattr(crm_lifecycle.espo, "list_all", _la)
+    stats = await crm_lifecycle.run_crm_lifecycle_sweep()
+    assert stats["errors"] == 1 and stats["scored"] == 0
+
+
+@pytest.mark.asyncio
+async def test_slack_report_lists_hot_first(monkeypatch):
+    sent: list[str] = []
+    import app.services.slack_notifications as SN
+
+    monkeypatch.setattr(
+        SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t))
+    )
+    await crm_lifecycle._slack_report(
+        {
+            "scored": 2,
+            "rescored": 0,
+            "converted": 1,
+            "errors": 0,
+            "dry_run": False,
+            "details": [
+                {"name": "Cold", "score": 10, "band": "cold", "converted": False},
+                {"name": "Hot", "score": 80, "band": "hot", "converted": True},
+            ],
+        }
+    )
+    assert "Hot" in sent[0] and "→ converted" in sent[0]
+    assert "Cold" not in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_slack_report_send_failure_swallowed(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    monkeypatch.setattr(
+        SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down"))
+    )
+    await crm_lifecycle._slack_report(
+        {"scored": 0, "rescored": 0, "converted": 0, "errors": 0, "dry_run": False, "details": []}
+    )
+
+
+# ── celery task wrapper ──────────────────────────────────────────────────────
+
+
+def test_task_returns_service_stats(monkeypatch):
+    import asyncio
+
+    from app.worker.tasks import crm_lifecycle as task
+
+    async def _fake(*, dry_run: bool = False):
+        return {"scored": 3, "dry_run": dry_run}
+
+    monkeypatch.setattr(task.crm_lifecycle, "run_crm_lifecycle_sweep", _fake)
+    monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
+    assert task.run_crm_lifecycle_sweep(dry_run=True) == {"scored": 3, "dry_run": True}
+
+
+def test_task_failure_returns_none(monkeypatch):
+    import asyncio
+
+    from app.worker.tasks import crm_lifecycle as task
+
+    async def _boom(*, dry_run: bool = False):
+        raise RuntimeError("espo gone")
+
+    monkeypatch.setattr(task.crm_lifecycle, "run_crm_lifecycle_sweep", _boom)
+    monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
+    assert task.run_crm_lifecycle_sweep() is None

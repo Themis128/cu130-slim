@@ -1,7 +1,36 @@
 """Coverage for app/services/lead_research.py — the Sales dept diligence loop."""
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
 import app.services.lead_research as R
+
+
+class _Resp:
+    def __init__(self, status=200, headers=None, text="", json_data=None):
+        self.status_code = status
+        self.headers = headers or {}
+        self.text = text
+        self._json = json_data
+
+    def json(self):
+        return self._json or {}
+
+
+class _FakeHTTP:
+    """AsyncClient stand-in serving canned responses keyed by URL."""
+
+    def __init__(self, routes):
+        self.routes = routes
+        self.calls: list[str] = []
+
+    async def get(self, url, **kw):
+        self.calls.append(url)
+        resp = self.routes.get(url.split("?")[0].rstrip("/"))
+        if isinstance(resp, Exception):
+            raise resp
+        return resp or _Resp(status=404)
 
 
 def _lead(**kw):
@@ -174,3 +203,206 @@ async def _noop():
 async def test_sweep_skipped_when_unconfigured(monkeypatch):
     monkeypatch.setattr(R.espo, "configured", lambda: False)
     assert (await R.run_lead_research())["status"] == "skipped"
+
+
+# ── real fetch paths (httpx boundary faked only) ────────────────────────────
+
+_HTML = (
+    '<html><head><title>Acme Corp</title>'
+    '<meta name="description" content="Cloud software for shipping teams"></head></html>'
+)
+
+
+@pytest.mark.asyncio
+async def test_site_summary_extracts_title_and_meta():
+    client = _FakeHTTP(
+        {"https://93.184.216.34": _Resp(headers={"content-type": "text/html"}, text=_HTML)}
+    )
+    out = await R._fetch_site_summary("93.184.216.34", client)
+    assert out == "Acme Corp — Cloud software for shipping teams"
+    assert client.calls == ["https://93.184.216.34"]
+
+
+@pytest.mark.asyncio
+async def test_site_summary_alt_meta_attribute_order():
+    html = '<meta content="Ship faster with us today" name="description"><title>Tiny</title>'
+    client = _FakeHTTP(
+        {"https://93.184.216.34": _Resp(headers={"content-type": "text/html"}, text=html)}
+    )
+    out = await R._fetch_site_summary("93.184.216.34", client)
+    assert out == "Tiny — Ship faster with us today"
+
+
+@pytest.mark.asyncio
+async def test_site_summary_rejects_bad_status_and_non_html():
+    client = _FakeHTTP(
+        {"https://93.184.216.34": _Resp(status=404, headers={"content-type": "text/html"})}
+    )
+    assert await R._fetch_site_summary("93.184.216.34", client) is None
+    client = _FakeHTTP(
+        {"https://93.184.216.34": _Resp(headers={"content-type": "application/pdf"}, text="x")}
+    )
+    assert await R._fetch_site_summary("93.184.216.34", client) is None
+
+
+@pytest.mark.asyncio
+async def test_site_summary_private_url_and_fetch_error():
+    assert await R._fetch_site_summary("http://10.0.0.9", _FakeHTTP({})) is None
+    client = _FakeHTTP({"https://93.184.216.34": TimeoutError("slow")})
+    assert await R._fetch_site_summary("93.184.216.34", client) is None
+
+
+def test_public_url_dns_failure_returns_none(monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("no dns")
+
+    monkeypatch.setattr(R.socket, "getaddrinfo", _boom)
+    assert R._public_url("unresolvable.invalid") is None
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_summary_first_hit():
+    data = {"pages": [{"title": "Acme", "excerpt": "<b>Acme</b> is a software firm."}]}
+    client = _FakeHTTP(
+        {"https://en.wikipedia.org/w/rest.php/v1/search/page": _Resp(json_data=data)}
+    )
+    assert await R._wikipedia_summary("Acme", client) == "Acme: Acme is a software firm."
+
+
+@pytest.mark.asyncio
+async def test_wikipedia_summary_empty_and_failures():
+    url = "https://en.wikipedia.org/w/rest.php/v1/search/page"
+    client = _FakeHTTP({url: _Resp(status=500)})
+    assert await R._wikipedia_summary("Acme", client) is None
+    client = _FakeHTTP({url: _Resp(json_data={"pages": []})})
+    assert await R._wikipedia_summary("Acme", client) is None
+    client = _FakeHTTP({url: TimeoutError()})
+    assert await R._wikipedia_summary("Acme", client) is None
+
+
+# ── sweep error / report paths ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_sweep_note_write_failure_counts_error(monkeypatch):
+    async def fake_list_all(entity, **kw):
+        return [_lead()] if entity == "Lead" else []
+
+    async def fake_add(lid, note, *, entity):
+        return False
+
+    import app.services.slack_notifications as SN
+
+    monkeypatch.setattr(R.espo, "configured", lambda: True)
+    monkeypatch.setattr(R.espo, "list_all", fake_list_all)
+    monkeypatch.setattr(R.espo, "add_lead_note", fake_add)
+    monkeypatch.setattr(R, "_fetch_site_summary", lambda *a: _noop())
+    monkeypatch.setattr(R, "_wikipedia_summary", lambda *a: _noop())
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: _fake_client())
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock())
+
+    stats = await R.run_lead_research()
+    assert stats["errors"] == 1 and stats["researched"] == 0
+
+
+@pytest.mark.asyncio
+async def test_sweep_lead_exception_counts_error(monkeypatch):
+    async def fake_list_all(entity, **kw):
+        if entity == "Note":
+            raise RuntimeError("espo down")
+        return [_lead()]
+
+    import app.services.slack_notifications as SN
+
+    monkeypatch.setattr(R.espo, "configured", lambda: True)
+    monkeypatch.setattr(R.espo, "list_all", fake_list_all)
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: _fake_client())
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock())
+
+    stats = await R.run_lead_research()
+    assert stats["errors"] == 1 and stats["researched"] == 0
+
+
+@pytest.mark.asyncio
+async def test_sweep_skips_lead_with_no_research_signal(monkeypatch):
+    lead = _lead(title=None, industry=None, source=None)
+
+    async def fake_list_all(entity, **kw):
+        return [lead] if entity == "Lead" else []
+
+    monkeypatch.setattr(R.espo, "configured", lambda: True)
+    monkeypatch.setattr(R.espo, "list_all", fake_list_all)
+    monkeypatch.setattr(R, "_fetch_site_summary", lambda *a: _noop())
+    monkeypatch.setattr(R, "_wikipedia_summary", lambda *a: _noop())
+    monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: _fake_client())
+
+    stats = await R.run_lead_research()
+    assert stats["skipped"] == 1 and stats["researched"] == 0
+
+
+@pytest.mark.asyncio
+async def test_slack_report_failure_swallowed(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    monkeypatch.setattr(
+        SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down"))
+    )
+    await R._slack_report(
+        {
+            "researched": 1,
+            "skipped": 0,
+            "errors": 0,
+            "candidates": 1,
+            "notes": [{"name": "n", "note": "Lead research — x"}],
+        }
+    )
+
+
+# ── celery task wrapper ──────────────────────────────────────────────────────
+
+
+def test_task_disabled_by_settings_gate(monkeypatch):
+    from app.worker.tasks import lead_research as task
+
+    monkeypatch.setattr(
+        "app.core.config.get_settings",
+        lambda: SimpleNamespace(LEAD_RESEARCH_ENABLED=False),
+    )
+    called = []
+    monkeypatch.setattr(task, "run_async", lambda coro: called.append(coro))
+    assert task.run_lead_research_sweep() is None
+    assert called == []
+
+
+def test_task_returns_service_stats(monkeypatch):
+    import asyncio
+
+    from app.worker.tasks import lead_research as task
+
+    async def _fake(*, dry_run: bool = False):
+        return {"researched": 2, "dry_run": dry_run}
+
+    monkeypatch.setattr(
+        "app.core.config.get_settings",
+        lambda: SimpleNamespace(LEAD_RESEARCH_ENABLED=True),
+    )
+    monkeypatch.setattr(task.lead_research, "run_lead_research", _fake)
+    monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
+    assert task.run_lead_research_sweep(dry_run=True) == {"researched": 2, "dry_run": True}
+
+
+def test_task_failure_returns_none(monkeypatch):
+    import asyncio
+
+    from app.worker.tasks import lead_research as task
+
+    async def _boom(*, dry_run: bool = False):
+        raise RuntimeError("imap gone")
+
+    monkeypatch.setattr(
+        "app.core.config.get_settings",
+        lambda: SimpleNamespace(LEAD_RESEARCH_ENABLED=True),
+    )
+    monkeypatch.setattr(task.lead_research, "run_lead_research", _boom)
+    monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
+    assert task.run_lead_research_sweep() is None

@@ -136,6 +136,11 @@ def test_decode_rfc2047_and_plain():
     assert E._decode("=?utf-8?b?aGVsbG8=?=") == "hello"
 
 
+def test_decode_undecodable_returns_raw():
+    # decode_header expects str — a bytes input hits the exception fallback
+    assert E._decode(b"raw") == b"raw"
+
+
 def test_from_address_normalizes():
     assert E._from_address("Jane Doe <JANE@Acme.GR>") == "jane@acme.gr"
     assert E._from_address("plain@test.io") == "plain@test.io"
