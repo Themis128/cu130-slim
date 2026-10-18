@@ -455,10 +455,11 @@ async def sync_deck_pipeline(db: AsyncSession) -> dict:
                                 card["id"],
                             )
                             continue
-                        await client.delete(
+                        r = await client.delete(
                             f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}"
                             f"/stacks/{stack['id']}/cards/{card['id']}"
-                        ).raise_for_status()
+                        )
+                        r.raise_for_status()
                         recreated += 1
     return {
         "created": created,

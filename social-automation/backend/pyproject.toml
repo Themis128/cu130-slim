@@ -150,7 +150,8 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # - papermill: no type stubs; installed only on worker images
 # - passlib: types-passlib stub package not installed
-module = ["papermill", "passlib.*"]
+# - celery: ships no py.typed marker; types-celery stubs not installed
+module = ["papermill", "passlib.*", "celery", "celery.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
