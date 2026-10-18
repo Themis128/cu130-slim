@@ -104,7 +104,7 @@ def _fetch_candidates(lookback_days: int) -> tuple[list[dict[str, Any]], list[st
 async def _crm_emails() -> dict[str, dict[str, Any]]:
     """email → live CRM record (Lead wins; Contacts also tracked)."""
     profiles: dict[str, dict[str, Any]] = {}
-    for entity in ("Contact", "Lead"):
+    for entity in ("Lead", "Contact"):
         for rec in await espo.list_all(entity, select=_SELECT):
             email = str(rec.get("emailAddress") or "").strip().lower()
             if not email or rec.get("status") in ("Dead", "Converted"):
