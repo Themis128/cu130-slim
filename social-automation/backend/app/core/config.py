@@ -404,6 +404,11 @@ class Settings(BaseSettings):
     # Shared secret for the Talk webhook bot (occ talk:bot:install) —
     # verifies inbound commands and signs outbound bot replies.
     NEXTCLOUD_TALK_BOT_SECRET: str = ""
+    # Nextcloud data-sync — pushes follower metrics into Tables and the
+    # post pipeline into Deck so the workspace stays live (idempotent).
+    NEXTCLOUD_SYNC_ENABLED: bool = False
+    NEXTCLOUD_TABLE_ID: int = 0          # Tables table id (SocialAuto Metrics)
+    NEXTCLOUD_DECK_BOARD_ID: int = 0     # Deck board id (Content Pipeline)
 
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""

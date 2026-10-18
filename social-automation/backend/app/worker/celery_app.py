@@ -219,6 +219,13 @@ celery_app.conf.update(
             "task": "app.worker.tasks.datalake_export.export_datalake",
             "schedule": crontab(minute=10, hour="*/6"),  # every 6h at :10
         },
+        # Push real follower metrics → Nextcloud Tables and mirror the
+        # post pipeline → Deck board (idempotent, deduped by post:<uuid>
+        # markers + date/platform/metric row keys).
+        "sync-nextcloud-surfaces": {
+            "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_surfaces",
+            "schedule": crontab(minute=25, hour="*/3"),  # every 3h at :25
+        },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
             "schedule": 60.0,
