@@ -367,6 +367,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/newsletter/cover` — POST
 - `/api/v1/newsletter/linkedin/issue` — POST
 
+## `nextcloud`
+
+- `/api/v1/nextcloud/talk-bot` — POST
+
 ## `ops`
 
 - `/api/v1/ops/automation-plan` — GET

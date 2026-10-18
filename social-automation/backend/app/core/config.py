@@ -395,6 +395,15 @@ class Settings(BaseSettings):
     NEXTCLOUD_USERNAME: str = ""
     NEXTCLOUD_APP_PASSWORD: str = ""
     NEXTCLOUD_EXPORT_ROOT: str = "SocialAuto"
+    # Nextcloud Talk notification transport — dual-posts every Slack
+    # notification into Talk rooms (Slack migration target).
+    NEXTCLOUD_TALK_NOTIFY: bool = False
+    NEXTCLOUD_TALK_ROOM: str = ""          # "SocialAuto Ops" room token
+    NEXTCLOUD_TALK_ROOM_ALERTS: str = ""   # "SocialAuto Approvals" room token
+    NEXTCLOUD_BASE_URL: str = ""           # https://cloud.cloudless.gr
+    # Shared secret for the Talk webhook bot (occ talk:bot:install) —
+    # verifies inbound commands and signs outbound bot replies.
+    NEXTCLOUD_TALK_BOT_SECRET: str = ""
 
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""

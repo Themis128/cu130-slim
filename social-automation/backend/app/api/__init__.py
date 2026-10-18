@@ -31,6 +31,7 @@ from app.api import (
     secrets,
     service_feed,
     support,
+    talk_bot,
     teams,
     telegram,
     threads,
@@ -65,6 +66,7 @@ api_router.include_router(ai_providers.router, prefix="/ai-providers", tags=["ai
 api_router.include_router(brand.router, prefix="/brand", tags=["brand"])
 api_router.include_router(ops.router, prefix="/ops", tags=["ops"])
 api_router.include_router(support.router, prefix="/support", tags=["support"])
+api_router.include_router(talk_bot.router, prefix="/nextcloud", tags=["talk-bot"])
 api_router.include_router(cf_db.router, prefix="/cf-db", tags=["cf-db"])
 api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(messenger.router, prefix="/messenger", tags=["messenger"])

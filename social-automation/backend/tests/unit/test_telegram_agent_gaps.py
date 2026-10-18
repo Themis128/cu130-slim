@@ -220,9 +220,19 @@ async def test_run_channel_agent_no_token():
 # ── run_channel_agent branches ────────────────────────────────────────────
 
 
+def _monday(monkeypatch):
+    """Pin run_channel_agent's clock to a non-Sunday (poll day returns
+    before the publish path)."""
+    monkeypatch.setattr(
+        TA, "datetime",
+        SimpleNamespace(now=lambda tz: datetime(2026, 10, 12, 11, tzinfo=UTC)),
+    )
+
+
 @pytest.mark.asyncio
 async def test_long_copy_sends_followup_message(monkeypatch):
     acc = _account(meta={"telegram_channel": _managed()})
+    _monday(monkeypatch)
     monkeypatch.setattr(
         TA, "plan_post",
         lambda now, stats=None: {
@@ -242,6 +252,7 @@ async def test_long_copy_sends_followup_message(monkeypatch):
 @pytest.mark.asyncio
 async def test_pin_failure_is_tolerated(monkeypatch):
     acc = _account(meta={"telegram_channel": _managed()})
+    _monday(monkeypatch)
     monkeypatch.setattr(
         TA, "plan_post",
         lambda now, stats=None: {

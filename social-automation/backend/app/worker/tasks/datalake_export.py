@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -56,6 +57,11 @@ celery_app.set_current()
 settings = get_settings()
 
 _WEB_EVENTS_DAYS = 90
+
+# Datalake keys mirrored to Nextcloud — summary artifacts only.
+_NC_MIRROR_RE = re.compile(
+    r"^lake/(socialauto-(funnel|ops|reports|monetization|insights)/|cloudflare-usage/)"
+)
 
 
 _worker_db = task_session
@@ -984,10 +990,34 @@ async def _export_async() -> dict:
             written[key] = f"ERROR: {exc}"
 
     errors = {k: v for k, v in written.items() if isinstance(v, str)}
+
+    # Mirror summary artifacts to Nextcloud (SocialAuto/lake/…) — small
+    # rollups only; raw/PII tables (posts, leads, events, ads) stay R2-only.
+    nc_result: dict[str, Any] = {"enabled": False}
+    try:
+        from app.services import nextcloud_export
+
+        if nextcloud_export.nextcloud_export_enabled():
+            mirrored: dict[str, Any] = {}
+            for key, rows in tables.items():
+                if not _NC_MIRROR_RE.match(key):
+                    continue
+                try:
+                    remote = await nextcloud_export.upload_bytes(
+                        key, json.dumps(rows, default=str).encode(), "application/json"
+                    )
+                    mirrored[key] = remote
+                except Exception as exc:  # noqa: BLE001 — mirror is best-effort
+                    mirrored[key] = f"ERROR: {str(exc)[:200]}"
+            nc_result = {"enabled": True, "mirrored": mirrored}
+    except Exception as exc:  # noqa: BLE001 — never break the export
+        nc_result = {"enabled": False, "error": str(exc)[:200]}
+
     return {
         "ok": not errors,
         "bucket": bucket,
         "files": len(written),
         "bytes": sum(v for v in written.values() if isinstance(v, int)),
         "errors": errors,
+        "nextcloud": nc_result,
     }

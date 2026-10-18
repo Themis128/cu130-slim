@@ -115,6 +115,22 @@ async def _post_slack_text(
     return False, last_err or "unknown error", None
 
 
+async def _fanout_talk(
+    text: str, purpose: str, blocks: list[dict] | None = None
+) -> None:
+    """Mirror the notification into Nextcloud Talk when enabled —
+    the Slack migration transport (ops room for everything, approvals
+    room for alerts). Best-effort, never raises."""
+    try:
+        from app.services import nextcloud_talk
+
+        await nextcloud_talk.post_to_talk(
+            text, purpose=purpose, extra=nextcloud_talk.blocks_to_text(blocks)
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("Talk fanout failed (non-fatal)", exc_info=True)
+
+
 async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> None:
     """Post an operational alert to #socialauto-alerts (best-effort, non-fatal).
 
@@ -134,6 +150,7 @@ async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> No
     )
     if not ok:
         logger.warning("Slack alerts disabled or failed: %s", err)
+    await _fanout_talk(text, "alerts", blocks)
 
 
 # ---------------------------------------------------------------------------
@@ -211,13 +228,15 @@ async def post_digest_text_to_slack(text: str) -> tuple[bool, str | None, str | 
     # Keep a hard fallback so a blank SLACK_CHANNEL_ID doesn't silently break
     # token-based posting in dev.
     channel_id = (settings.SLACK_CHANNEL_ID or "").strip() or "C0C1F1K3DDF"
-    return await _post_slack_text(
+    result = await _post_slack_text(
         text=text,
         webhook_url=settings.SLACK_WEBHOOK_URL,
         token=_get_slack_token(),
         channel_id=channel_id,
         purpose="digest",
     )
+    await _fanout_talk(text, "digest")
+    return result
 
 
 async def post_publishing_to_slack(text: str) -> None:
@@ -243,6 +262,7 @@ async def post_publishing_to_slack(text: str) -> None:
     )
     if not ok:
         logger.warning("Slack publishing notification failed: %s", err)
+    await _fanout_talk(text, "publishing")
 
 
 async def post_telegram_to_slack(text: str) -> tuple[bool, str | None]:
@@ -265,6 +285,7 @@ async def post_telegram_to_slack(text: str) -> tuple[bool, str | None]:
         channel_id=channel_id,
         purpose="telegram",
     )
+    await _fanout_talk(text, "telegram")
     return ok, err
 
 
@@ -287,6 +308,7 @@ async def post_billing_digest_to_slack(text: str) -> tuple[bool, str | None]:
     )
     if not ok:
         logger.warning("Slack billing digest failed: %s", err)
+    await _fanout_talk(text, "billing-digest")
     return ok, err
 
 
@@ -311,6 +333,7 @@ async def post_support_report_to_slack(text: str) -> tuple[bool, str | None]:
     )
     if not ok:
         logger.warning("Slack support report failed: %s", err)
+    await _fanout_talk(text, "support")
     return ok, err
 
 
