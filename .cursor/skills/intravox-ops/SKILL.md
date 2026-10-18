@@ -75,8 +75,20 @@ Commands: `health`, `pages-list --lang en`, `page-get <uid>`,
   Dashboards links), Client Work page (`socialauto-leads` connection →
   `/api/v1/service-feed/leads` — names/sources only, never raw emails).
 - `links` widget stores its list in **`items`** (`{title, text, url,
-  icon, target}`, widget `columns`) — NOT `links`; a wrong key is
-  silently dropped, same as unknown widget types.
+  icon, target}`, widget `columns`) at **top level of the widget JSON** —
+  `{"type":"links","items":[...],"columns":2}`, NOT inside `config` and
+  NOT `links`; a wrong key is silently dropped (widget persists with
+  `items: []`), same as unknown widget types.
+
+## Autopilot section (live 2026-10-18)
+
+- Top-level nav `Autopilot` → index page `en/autopilot` (loop contract +
+  efficiency rules) with 8 department children under `en/autopilot/`:
+  dept-executive, dept-marketing, dept-sales, dept-revenue,
+  dept-operations, dept-analytics, dept-comms, dept-security. Each page
+  maps that function's real autonomous loops (task names + cadence),
+  data surfaces, and human-escalation triggers. Extend the department
+  pages in place rather than creating new top-level org pages.
 
 ## Guest client shares (Phase 3 enabler)
 
