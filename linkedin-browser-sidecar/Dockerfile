@@ -1,9 +1,14 @@
-FROM mcr.microsoft.com/playwright:v1.62.1-noble
+FROM node:22-slim
 
 WORKDIR /app
 
 COPY package.json ./
-RUN npm install --production --no-cache && npx patchright install chromium
+# patchright pulls its own patched Chromium (--with-deps adds the OS libs);
+# xvfb-run provides the virtual display for headed mode.
+RUN npm install --production --no-cache && \
+    npx patchright install --with-deps chromium && \
+    apt-get install -y --no-install-recommends xvfb && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY server.js session-recovery.js ./
 
