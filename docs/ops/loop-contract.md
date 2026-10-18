@@ -4,7 +4,7 @@ Every department owns closed loops, not features. A loop is live only when **inp
 
 Mirrored to Nextcloud Collectives → collective **"Cloudless Ops"** (id 1), landing page `Readme.md` (page id 1316125). Edit this file, then update the page via the `nextcloud` MCP (`nc_webdav_write_file` on `.Collectives/Cloudless Ops/Readme.md` with the file's current etag).
 
-Status verified 2026-10-18: 29/29 containers Up, 43 beat entries scheduled, every row below checked against live state (not prose).
+Status verified 2026-10-19: 28 containers Up (sleeping sidecars idle via stack-ops wake-proxy — `Exited` is asleep-not-broken), 43 beat entries scheduled across 44 task modules, every row below checked against live state (not prose).
 
 ## Contract format
 
@@ -67,7 +67,7 @@ Each loop must answer: **Trigger** (when it fires) · **Code** (where it lives) 
 | IG session check | `30 */6 * * *` | `tasks/instagram_session_check.py` | session alerts only when needed | ✅ live |
 | LinkedIn session check/refresh | `45 */12` + weekly | `tasks/linkedin_session_*.py` | session state | ✅ live |
 | Wedge/DMR watchdog | `90s`+`300s`+`30m` | `tasks/dmr_health.py`, `dodo_live_check.py` | DMR real inference verified | ✅ live |
-| Container health (29/29 Up) | Docker | compose stack | `docker ps` | ✅ 29/29 today |
+| Container health (28 Up) | Docker | compose stack (38 services + green slot) | `docker ps` | ✅ 28 up 2026-10-19 (idle-sleeping sidecars Exited by design) |
 | Token refresh | `15,45 * * * *` | `tasks/token_refresh.py` | token expiry > horizon | ✅ live |
 | TikTok inbox reconcile | `20 */6 * * *` | `tasks/tiktok_inbox_reconcile.py` | stuck inbox drained | ✅ live |
 | Tailnet policy-as-code | GH workflow | `.github/workflows/tailscale-ops.yml` | audit reports | ✅ live |

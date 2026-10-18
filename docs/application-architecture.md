@@ -429,6 +429,28 @@ app/services/
 │   ├── infographic_renderer.py — Procedural infographic renderer
 │   └── content_renderer.py   — Content rendering
 │
+├── ── CRM & Leads ───────────────────────────────────────────
+│   ├── espocrm_client.py     — EspoCRM REST client (X-Api-Key → internal
+│   │                           NodePort 192.168.1.200:30700; public host is
+│   │                           behind CF Access): leads/contacts/accounts/
+│   │                           targetlists reads, notes, convert action;
+│   │                           socialauto role has User + TargetList read
+│   │                           (see also leads.py / lead_capture.py under
+│   │                            Analytics & Reports below)
+│   ├── crm_hygiene.py        — Weekly dedupe/quarantine (losers → Dead +
+│   │                           audit note; never deletes)
+│   ├── crm_lifecycle.py      — Deterministic lead scoring (hot ≥65 / warm
+│   │                           ≥35, mirrors cloudless.gr lead-scoring.ts)
+│   │                           + score-gated Lead→Contact/Account/
+│   │                           Opportunity convert
+│   ├── crm_engagement.py     — Dovecot IMAP reply poll → CRM note +
+│   │                           status bump + Slack
+│   ├── lead_research.py      — Lead enrichment research sweep
+│   ├── email_drip.py         — First-approach + renewal drip via omv SMTP
+│   ├── promo_scan.py         — Promo/newsletter IMAP scan (proves the
+│   │                           dovecot credential chain crm_engagement reuses)
+│   └── company_brain.py      — Daily company_brain journal to NC surfaces
+│
 ├── ── Quality ───────────────────────────────────────────────
 │   ├── media_quality.py      — Media text quality pipeline (concurrent
 │   │                           per-field spellcheck + NLP + SEO +
@@ -556,7 +578,7 @@ app/mcp/server.py
     └── messenger_bot_index_brand           — Index brand knowledge for RAG
 ```
 
-### Celery Tasks (32 task modules, 33 beat schedules)
+### Celery Tasks (44 task modules, 43 beat schedules)
 
 ```
 app/worker/tasks/
@@ -605,7 +627,39 @@ app/worker/tasks/
 ├── whatsapp_verify.py      — check_whatsapp_verification
 ├── tiktok_inbox_reconcile.py — reconcile_tiktok_inbox
 ├── nextcloud.py            — export_media_to_nextcloud (WebDAV PUT → omv)
+├── nextcloud_sync.py       — sync_nextcloud_surfaces: posts→Deck board +
+│                             follower_snapshots→Tables (3h)
+├── company_brain.py        — write_company_brain_journal: daily ops journal →
+│                             Notes/Collectives surfaces (23:45)
 ├── lead_emails.py          — send_playbook_email (lead-magnet drip)
+├── crm_hygiene.py          — run_crm_hygiene: weekly dedupe/quarantine —
+│                             duplicate losers marked Dead + audit note on the
+│                             keeper (never deletes; psid.*@messenger.local and
+│                             test/self mailboxes never quarantined)
+├── crm_lifecycle.py        — run_crm_lifecycle_sweep: score every lead
+│                             ingress path (contact form, playbook, Messenger,
+│                             manual) with the deterministic cloudless.gr
+│                             model (hot ≥65, warm ≥35; `Lead score:` note =
+│                             dedupe, newer reply re-scores); hot real-email
+│                             leads → EspoCRM POST /Lead/action/convert
+│                             (Contact+Account+Opportunity, CRM_CONVERT_ENABLED)
+├── crm_engagement.py       — run_crm_engagement_sweep: 30-min IMAP reply poll
+│                             on the self-hosted Dovecot mailbox (promo_scan
+│                             credential chain); sender→Lead/Contact match →
+│                             `Reply received` note (msg-id dedupe) +
+│                             New/Assigned→In Process + Slack alert on hits
+├── email_drip.py           — run_email_drip_sweep: daily first-approach +
+│                             renewal drip via omv SMTP (08:20, before digest)
+├── email_campaigns.py      — email campaign send orchestration (EspoCRM
+│                             audiences, per-recipient unsubscribe)
+├── lead_research.py        — run_lead_research_sweep: daily enrichment of
+│                             unscored/unresearched leads (08:40)
+├── promo_scan.py           — run_promo_scan: daily 08:00 promo/newsletter
+│                             IMAP scan → research/send queue
+├── monetization.py         — monetization readiness tasks
+├── telegram_agent.py       — run_channel_agent_daily: managed-channel
+│                             autopilot (pillar posts Mon/Wed/Fri, Sunday
+│                             poll, DM lead funnel)
 ├── skool_watch.py          — watch_skool_vec: Sofia Kakkava Skool community
 │                             scrape via browser bridge → new DAY lessons
 │                             auto-draft LinkedIn posts + Slack alert
@@ -617,6 +671,8 @@ app/worker/tasks/
 │                               per-conversation fetch is skipped when the inbox-embedded latest
 │                               message shows nothing new — idle polls drop to ~3 Graph calls)
 ├── threads_messenger.py    — poll_threads_messenger (browser bridge, orchestrator)
+├── linkedin_messenger.py   — poll_linkedin_messenger (browser sidecar, 6h —
+│                             LinkedIn rate-limits DM polling hard)
 ├── twitter_messenger.py   — poll_twitter_messenger (browser bridge, orchestrator)
 └── tiktok_messenger.py     — poll_tiktok_messenger (browser bridge, orchestrator)
 
@@ -698,6 +754,28 @@ Beat Schedule:
 │ requeue-capacity-stuck-x │ publishing.requeue_capacity_    │ 30min    │
 │                          │  stuck_x_targets                │          │
 │ skool-vec-watch          │ skool_watch.watch_skool_vec     │ 3h       │
+│ sync-nextcloud-surfaces  │ nextcloud_sync.sync_nextcloud_  │ 3h :25   │
+│                          │  surfaces (posts→Deck,          │          │
+│                          │  followers→Tables)              │          │
+│ company-brain-journal    │ company_brain.write_company_    │ daily    │
+│                          │  brain_journal                  │ 23:45    │
+│ daily-promo-scan         │ promo_scan.run_promo_scan       │ daily    │
+│                          │  (send=true)                    │ 08:00    │
+│ email-drip-sweep         │ email_drip.run_email_drip_sweep │ daily    │
+│                          │  (first-approach + renewal)     │ 08:20    │
+│ daily-monetization-report│ notebook_reports.               │ daily    │
+│                          │  run_notebook_report            │ 08:30    │
+│                          │  (monetization_daily notebook)  │          │
+│ lead-research-sweep      │ lead_research.run_lead_         │ daily    │
+│                          │  research_sweep                 │ 08:40    │
+│ crm-lifecycle-sweep      │ crm_lifecycle.run_crm_          │ daily    │
+│                          │  lifecycle_sweep (score all     │ 08:50    │
+│                          │   ingress; hot→convert)         │          │
+│ crm-engagement-sweep     │ crm_engagement.run_crm_         │ 30min    │
+│                          │  engagement_sweep (IMAP reply   │          │
+│                          │   → note + status + Slack)      │          │
+│ crm-hygiene              │ crm_hygiene.run_crm_hygiene     │ Mon      │
+│                          │  (dedupe/quarantine, Dead mark) │ 07:30    │
 └──────────────────────────┴────────────────────────────────┴──────────┘
 
 > The **daily Slack digest is NOT a beat entry** — the n8n workflow
@@ -762,7 +840,7 @@ Beat Schedule:
 
 See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck against official documentation.
 
-## Docker Compose Stack (36 services + 1 blue/green slot)
+## Docker Compose Stack (38 services + 1 blue/green slot)
 
 > **Base-image registry:** all `FROM` lines and CI service images pull via
 > `mirror.gcr.io/library/*` (Google's free Docker Hub mirror), not
@@ -792,7 +870,7 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  │ worker-     │  │             │  │ postgres    │               │
 │  │ default     │  │ Scheduler   │  │ :5433       │               │
 │  │             │  │             │  │             │               │
-│  │ Celery      │  │31 schedules │  │ PostgreSQL  │               │
+│  │ Celery      │  │43 schedules │  │ PostgreSQL  │               │
 │  │ default     │  │             │  │ 16-alpine   │               │
 │  └─────────────┘  └─────────────┘  └─────────────┘               │
 └─────────────────────────────────────────────────────────────────────┘
