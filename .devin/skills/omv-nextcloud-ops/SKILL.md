@@ -284,6 +284,24 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
   `NEXTCLOUD_EXPORT_ENABLED=true`. Never raises into the request path.
 - Manual export of an existing asset:
   `docker exec social-worker-media celery -A app.worker.celery_app call app.worker.tasks.nextcloud.export_media_to_nextcloud --args='["<asset_uuid>"]'`
+- `app/services/nextcloud_sync.py` + beat task `sync-nextcloud-surfaces`
+  (every 3h at :25) — data-driven ops surfaces fed from real Postgres rows:
+  - **Tables** `NEXTCLOUD_TABLE_ID` ("SocialAuto Metrics", id 2): one row per
+    account/day — Date `datetime:date`, Platform `selection` (option **id**,
+    not label), Metric `text:line`, Value `number`, Delta `number`,
+    Notes `text:line`. Row `data` must be an object keyed by column id —
+    the `{columnId,value}` list form 500s with "column id 0". Same-day
+    value changes PUT-update the existing row.
+  - **Deck** `NEXTCLOUD_DECK_BOARD_ID` ("SocialAuto Content Pipeline",
+    id 2): cards carry a `post:<uuid>` marker line in the description;
+    status→stack map draft→Drafting, review→In Review, approved/publishing/
+    scheduled→Scheduled, published→Published, failed→Needs Attention.
+    Moves go through `PUT …/reorder` (body `stackId` = destination) and are
+    re-verified — buggy Deck builds recreate instead, carrying labels,
+    assignees, duedate, and only deleting the source after the copy exists.
+    Cards whose post falls out of scope get `PUT …/archive`, not delete.
+  - `NEXTCLOUD_SYNC_TEAM_ID` scopes the export to one team; empty = all
+    teams (fine for the single-team admin install).
 
 ### Drop-folder → draft workflow (n8n `nextcloud-drop-to-draft`)
 

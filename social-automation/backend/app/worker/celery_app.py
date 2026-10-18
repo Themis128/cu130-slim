@@ -16,6 +16,8 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
+        "app.worker.tasks.company_brain",
+        "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
@@ -191,6 +193,8 @@ celery_app.conf.update(
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
+        "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
+        "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
         "app.worker.tasks.email_campaigns.send_campaign": {"queue": "default"},
@@ -226,6 +230,24 @@ celery_app.conf.update(
         "sync-nextcloud-surfaces": {
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_surfaces",
             "schedule": crontab(minute=25, hour="*/3"),  # every 3h at :25
+        },
+        # Nightly company-brain journal — real publish/follower outcomes →
+        # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.
+        # Runs after the day's work settles so the morning strategy brief
+        # can recall what actually happened (services.company_brain.recall).
+        "company-brain-journal": {
+            "task": "app.worker.tasks.company_brain.write_company_brain_journal",
+            "schedule": crontab(
+                hour=settings.COMPANY_BRAIN_HOUR,
+                minute=settings.COMPANY_BRAIN_MINUTE,
+            ),
+        },
+        # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine
+        # CI/test probes, surface stale New leads past the follow-up SLA.
+        # Runs before the week's campaigns so audiences stay clean.
+        "crm-hygiene": {
+            "task": "app.worker.tasks.crm_hygiene.run_crm_hygiene",
+            "schedule": crontab(hour=7, minute=30, day_of_week="mon"),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",

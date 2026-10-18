@@ -43,3 +43,12 @@ Platform API ops skills — `meta-graph-ops`, `linkedin-graph-ops`,
 - Never print or commit `.env` secrets (`N8N_API_KEY`, admin passwords, Cloudflare tokens).
 - Prefer skill scripts under `.cursor/skills/*/scripts/` for deploy/trigger/status.
 - Restart `social-worker` after publishing/worker code changes.
+
+## Data-driven mandate
+
+- **All skills are data-driven** — every decision (what/when/where to post,
+  account/media/voice choice, platform health) must cite a live query:
+  `posts`/`follower_snapshots`/`social_accounts`/`publish_queue`, the latest
+  strategy brief, `company_brain.recall()` journals, Nextcloud Tables/Deck,
+  Metabase MCP, or `scripts/*_tool.py` CLIs. Static heuristics are hints, not
+  decisions. Canonical decision→surface map: `social-content-core` SKILL.md.

@@ -174,6 +174,26 @@ async def espo_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     return data if isinstance(data, dict) else {"data": data}
 
 
+async def espo_patch(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """PATCH ``{base}/api/v1{path}`` — field updates (status, dedupe marks)."""
+    base, key = _cfg()
+    if not base or not key:
+        raise RuntimeError("EspoCRM not configured (ESPOCRM_BASE_URL/ESPOCRM_API_KEY)")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.patch(
+            f"{base}/api/v1{path}",
+            headers={"X-Api-Key": key, "Content-Type": "application/json"},
+            json=payload,
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"EspoCRM PATCH {path} → {resp.status_code}: {resp.text[:200]}")
+    try:
+        data = resp.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {"data": data}
+
+
 async def add_lead_note(espocrm_lead_id: str, note: str, *, entity: str = "Lead") -> bool:
     """Attach a Note to a CRM Lead/Contact — the survey-response activity
     record. Returns False instead of raising so a CRM outage never blocks a

@@ -2,7 +2,7 @@
 
 The sync (services/nextcloud_sync.py) is fire-and-forget from the worker —
 these tests pin the wire contract (object-keyed row data, selection option
-ids, post:<uuid> card markers, move fallback) so API drift is caught here.
+ids, post:<uuid> card markers, move fallback, stale-card archive).
 """
 import json
 import uuid
@@ -49,6 +49,7 @@ def nc_settings(monkeypatch):
     monkeypatch.setattr(nc.settings, "NEXTCLOUD_APP_PASSWORD", "app-pass")
     monkeypatch.setattr(nc.settings, "NEXTCLOUD_TABLE_ID", 2)
     monkeypatch.setattr(nc.settings, "NEXTCLOUD_DECK_BOARD_ID", 2)
+    monkeypatch.setattr(nc.settings, "NEXTCLOUD_SYNC_TEAM_ID", "")
     return nc.settings
 
 
@@ -117,7 +118,8 @@ async def test_sync_disabled_short_circuits(nc_settings, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_follower_metrics_object_keyed_rows(nc_settings, monkeypatch):
-    """Row data must be {"<colId>": value} and selection cells the option id."""
+    """Row data must be {"<colId>": value}, selection cells the option id,
+    and a first-ever snapshot (prev=0) keeps a real delta."""
     captured: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -134,11 +136,12 @@ async def test_follower_metrics_object_keyed_rows(nc_settings, monkeypatch):
     rows = [
         ("linkedin", 853, datetime(2026, 10, 18, tzinfo=UTC), 852, "acct-user", "LinkedIn"),
         ("tiktok", 4, datetime(2026, 10, 18, tzinfo=UTC), None, "cloudless.gr", None),
+        # prev=0 must NOT collapse the delta to zero
+        ("facebook", 12, datetime(2026, 10, 18, tzinfo=UTC), 0, "fb-page", None),
     ]
-    db = _FakeDB([_Rows(rows)])
-    out = await nc.sync_follower_metrics(db)  # type: ignore[arg-type]
+    out = await nc.sync_follower_metrics(_FakeDB([_Rows(rows)]))  # type: ignore[arg-type]
 
-    assert out == {"inserted": 1, "existing": 0}  # tiktok has no Platform option → skipped
+    assert out == {"inserted": 2, "existing": 0, "updated": 0}  # tiktok: no Platform option
     assert captured[0]["data"] == {
         "5": "2026-10-18",
         "15": 1,
@@ -147,10 +150,44 @@ async def test_follower_metrics_object_keyed_rows(nc_settings, monkeypatch):
         "8": 1,
         "9": "acct-user",
     }
+    assert captured[1]["data"]["8"] == 12  # real growth from zero
 
 
 @pytest.mark.asyncio
-async def test_follower_metrics_dedupes_existing(nc_settings, monkeypatch):
+async def test_follower_metrics_dedupes_and_updates(nc_settings, monkeypatch):
+    """Same-day rows update Value/Delta when the latest snapshot moves."""
+    existing_row = {
+        "id": 1,
+        "data": [
+            {"columnId": 5, "value": "2026-10-18"},
+            {"columnId": 15, "value": 1},
+            {"columnId": 6, "value": "followers"},
+            {"columnId": 7, "value": 850},
+            {"columnId": 8, "value": 0},
+            {"columnId": 9, "value": "acct-user"},
+        ],
+    }
+    calls: list[tuple[str, str, dict]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/columns"):
+            return httpx.Response(200, json=COLUMNS)
+        if request.method == "GET":
+            return httpx.Response(200, json=[existing_row])
+        body = json.loads(request.content)
+        calls.append((request.method, request.url.path, body))
+        return httpx.Response(200, json={"id": 1})
+
+    _mock_client(monkeypatch, handler)
+    rows = [("linkedin", 853, datetime(2026, 10, 18, tzinfo=UTC), 850, "acct-user", None)]
+    out = await nc.sync_follower_metrics(_FakeDB([_Rows(rows)]))  # type: ignore[arg-type]
+    assert out == {"inserted": 0, "existing": 0, "updated": 1}
+    assert calls[0][0] == "PUT" and calls[0][1].endswith("/rows/1")
+    assert calls[0][2]["data"]["7"] == 853
+
+
+@pytest.mark.asyncio
+async def test_follower_metrics_skips_unchanged(nc_settings, monkeypatch):
     existing_row = {
         "id": 1,
         "data": [
@@ -175,7 +212,7 @@ async def test_follower_metrics_dedupes_existing(nc_settings, monkeypatch):
     _mock_client(monkeypatch, handler)
     rows = [("linkedin", 853, datetime(2026, 10, 18, tzinfo=UTC), 852, "acct-user", None)]
     out = await nc.sync_follower_metrics(_FakeDB([_Rows(rows)]))  # type: ignore[arg-type]
-    assert out == {"inserted": 0, "existing": 1}
+    assert out == {"inserted": 0, "existing": 1, "updated": 0}
     assert posts == []
 
 
@@ -202,13 +239,14 @@ async def test_deck_creates_cards_with_post_marker(nc_settings, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_deck_moves_card_on_status_change(nc_settings, monkeypatch):
+async def test_deck_moves_card_on_status_change_and_refreshes(nc_settings, monkeypatch):
     post_id = uuid.uuid4()
     stacks = json.loads(json.dumps(STACKS))
     stacks[1]["cards"] = [  # Drafting holds a card whose post is now scheduled
         {"id": 50, "title": "[draft] x", "description": f"post:{post_id}", "order": 1}
     ]
     moves: list[dict] = []
+    updates: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/stacks") and request.method == "GET":
@@ -216,11 +254,13 @@ async def test_deck_moves_card_on_status_change(nc_settings, monkeypatch):
         if request.url.path.endswith("/reorder"):
             body = json.loads(request.content)
             moves.append(body)
-            # apply the move so the verification pass sees it
             card = stacks[1]["cards"].pop(0)
             card["stackId"] = body["stackId"]
             stacks[3]["cards"].append(card)
             return httpx.Response(200, json=card)
+        if request.method == "PUT" and "/cards/" in request.url.path:
+            updates.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": 50})
         return httpx.Response(404, json={"url": str(request.url)})
 
     _mock_client(monkeypatch, handler)
@@ -228,4 +268,33 @@ async def test_deck_moves_card_on_status_change(nc_settings, monkeypatch):
     out = await nc.sync_deck_pipeline(_FakeDB([_Scalars([post])]))  # type: ignore[arg-type]
 
     assert moves and moves[0]["stackId"] == 8  # Scheduled stack id
+    assert updates and updates[0]["title"] == "[scheduled] x"
     assert out["moved"] == 1
+
+
+@pytest.mark.asyncio
+async def test_deck_archives_cards_for_untracked_posts(nc_settings, monkeypatch):
+    """Cards whose post vanished (deleted/archived/aged out) get archived."""
+    stale_id = uuid.uuid4()
+    stacks = json.loads(json.dumps(STACKS))
+    stacks[4]["cards"] = [  # Published stack holds a card for a gone post
+        {"id": 77, "title": "[published] old", "description": f"post:{stale_id}", "order": 1}
+    ]
+    archives: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("/stacks") and request.method == "GET":
+            return httpx.Response(200, json=stacks)
+        if request.url.path.endswith("/archive"):
+            archives.append(request.url.path)
+            return httpx.Response(200, json={"id": 77, "archived": True})
+        if request.url.path.endswith("/cards") and request.method == "POST":
+            return httpx.Response(200, json={"id": 88})
+        return httpx.Response(404, json={"url": str(request.url)})
+
+    _mock_client(monkeypatch, handler)
+    post = _post("draft", "fresh draft")
+    out = await nc.sync_deck_pipeline(_FakeDB([_Scalars([post])]))  # type: ignore[arg-type]
+
+    assert out["archived"] == 1
+    assert "/cards/77/archive" in archives[0]

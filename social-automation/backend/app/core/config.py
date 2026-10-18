@@ -409,6 +409,17 @@ class Settings(BaseSettings):
     NEXTCLOUD_SYNC_ENABLED: bool = False
     NEXTCLOUD_TABLE_ID: int = 0          # Tables table id (SocialAuto Metrics)
     NEXTCLOUD_DECK_BOARD_ID: int = 0     # Deck board id (Content Pipeline)
+    # When set, only this team's rows sync to the shared NC surfaces —
+    # keeps other teams' metrics/posts off a board all readers share.
+    NEXTCLOUD_SYNC_TEAM_ID: str = ""
+
+    # Company brain — nightly journal of real outcomes into Chroma
+    # team_<id>_brain (semantic recall for agents) + a Nextcloud Notes
+    # entry per day (owner-visible governance). Fail-silent when Chroma
+    # or Nextcloud are unreachable.
+    COMPANY_BRAIN_ENABLED: bool = True
+    COMPANY_BRAIN_HOUR: int = 23     # Europe/Athens via Celery timezone
+    COMPANY_BRAIN_MINUTE: int = 45   # Europe/Athens via Celery timezone
 
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""

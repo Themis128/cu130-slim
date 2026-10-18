@@ -127,3 +127,102 @@ def test_protocol_relative_and_root_relative_image():
     html = '<html><head><meta property="og:image" content="/img.png"></head></html>'
     result = run(lambda _req: httpx.Response(200, html=html), "https://public.example/x")
     assert result["image"] == "https://public.example/img.png"
+
+
+# ── Stealth render fallback (cloak-fallback pattern via the bridge) ────
+
+
+def test_is_challenge_detects_interstitials():
+    assert lp._is_challenge(b"<title>Just a moment...</title>") is True
+    assert lp._is_challenge(b"<script>var cf_chl_opt={};</script>") is True
+    assert lp._is_challenge(b"<html><head><title>Blog post</title></head></html>") is False
+
+
+class _FakeBridge:
+    """Stands in for the bridge container: returns rendered DOM."""
+
+    def __init__(self, *_a, **_k):
+        self.last_url = None
+
+    async def navigate(self, url):
+        self.last_url = url
+
+    async def evaluate(self, _expr):
+        import json
+
+        html = (
+            "<html><head>"
+            '<meta property="og:title" content="Rendered Title">'
+            '<meta property="og:description" content="Rendered desc">'
+            "</head><body>app</body></html>"
+        )
+        return {"result": json.dumps({"html": html, "url": "https://public.example/x"})}
+
+
+class _FakeSession:
+    """Stands in for the Redis-locked browser session context."""
+
+    def __init__(self, bridge):
+        self._bridge = bridge
+
+    async def __aenter__(self):
+        return self._bridge
+
+    async def __aexit__(self, *_a):
+        return None
+
+
+@pytest.fixture()
+def fake_render(monkeypatch):
+    import app.services.browser_bridge as bb
+    import app.services.browser_orchestrator as bo
+
+    bridge = _FakeBridge()
+    monkeypatch.setattr(bb, "BrowserBridgeClient", lambda *_a, **_k: bridge)
+    monkeypatch.setattr(bo, "browser_session", lambda *_a, **_k: _FakeSession(bridge))
+    monkeypatch.setenv("BROWSER_BRIDGE_URL", "http://bridge:9223")
+    return bridge
+
+
+def test_blocked_status_uses_render_fallback(fake_render, monkeypatch):
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()  # pick up BROWSER_BRIDGE_URL env
+    try:
+        result = run(
+            lambda _req: httpx.Response(403, html="<title>Just a moment...</title>"),
+            "https://public.example/x",
+        )
+    finally:
+        get_settings.cache_clear()
+    assert result["title"] == "Rendered Title"
+    assert fake_render.last_url == "https://public.example/x"
+
+
+def test_rendered_preview_parses_og_tags(fake_render, monkeypatch):
+    import asyncio
+
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        out = asyncio.run(lp._rendered_preview("https://public.example/x"))
+    finally:
+        get_settings.cache_clear()
+    assert out["title"] == "Rendered Title"
+    assert out["description"] == "Rendered desc"
+
+
+def test_empty_preview_triggers_render(fake_render, monkeypatch):
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        # 200 but a bare JS shell — no title/description → render path.
+        result = run(
+            lambda _req: httpx.Response(200, html="<html><body><div id=app></div></body></html>"),
+            "https://public.example/x",
+        )
+    finally:
+        get_settings.cache_clear()
+    assert result["title"] == "Rendered Title"
