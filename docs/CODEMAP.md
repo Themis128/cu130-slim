@@ -1,6 +1,6 @@
 # SocialAuto (social.cloudless.gr) — Codemap
 
-Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. Last verified: 2026-09-25 (notebook reporting, growth initiatives, ad-campaign analytics added).
+Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. The operational loop inventory (8 departments, every closed loop with trigger/code/health-signal) lives in [`ops/loop-contract.md`](ops/loop-contract.md), mirrored to Nextcloud Collectives → "Cloudless Ops" landing page. Last verified: 2026-10-19 (CRM lifecycle/engagement loops, Nextcloud sync, publish empty-caption guard, 44 task modules / 43 beat entries).
 
 ## What it is
 
@@ -280,11 +280,27 @@ target posts check once; edited copy re-checks). Fails open on infra errors.
 Spellcheck is category-aware (`auto_correct_detailed`): error rules apply,
 STYLE/TYPOGRAPHY/REDUNDANCY/`AI_HB_*` skipped (`LANGUAGETOOL_SKIP_CATEGORIES`).
 Media text fields (`apply_media_quality`) correct concurrently + flag gibberish
-on caption/alt_text.
+on caption/alt_text. Empty-caption posts are skipped before the gate unless
+`platform_specific.media_only == true` (an explicit media-only flag — see
+scheduling-architecture.md).
+
+## CRM lifecycle (added 2026-10-18)
+
+`services/espocrm_client.py` talks to EspoCRM over the internal NodePort
+(`ESPOCRM_BASE_URL`, `X-Api-Key`); the `socialauto` role reads `User` +
+`TargetList`. Loops: `crm_hygiene` (Mon 07:30 — dedupe, losers → Dead +
+audit note, never deletes; `psid.*@messenger.local`/test/self excluded),
+`email_drip` (daily 08:20 — first-approach + renewal via omv SMTP),
+`lead_research` (daily 08:40), `crm_lifecycle` (daily 08:50 — deterministic
+score for every ingress path, hot ≥65 → `POST /Lead/action/convert` with
+`records: {Contact, Account, Opportunity}` under `CRM_CONVERT_ENABLED`;
+`Lead score:` note dedupes, newer reply re-scores), `crm_engagement`
+(every 30min — Dovecot IMAP reply poll → `Reply received` note, msg-id
+dedupe, New/Assigned → In Process, Slack on hits).
 
 ## Beat schedule highlights
 
-publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · NC surfaces sync 3h :25 · session heal hourly :20 · promo scan 08:00 · email drip 08:20 · monetization report 08:30 · lead research 08:40 · CRM lifecycle 08:50 · CRM engagement 30min · CRM hygiene Mon 07:30 · company-brain journal 23:45 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily · Telegram agent daily 11:00
 
 ## cloudless.gr datalake export (`datalake_export.export_datalake`)
 

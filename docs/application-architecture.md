@@ -840,7 +840,7 @@ Beat Schedule:
 
 See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck against official documentation.
 
-## Docker Compose Stack (36 services + 1 blue/green slot)
+## Docker Compose Stack (38 services + 1 blue/green slot)
 
 > **Base-image registry:** all `FROM` lines and CI service images pull via
 > `mirror.gcr.io/library/*` (Google's free Docker Hub mirror), not
