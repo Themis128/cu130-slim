@@ -24,12 +24,12 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import uuid
 
 from fastapi import APIRouter, Request
 from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.db.session import async_session_maker
 from app.models.queue import PublishQueue, QueueStatus
 from app.models.social_account import SocialAccount
@@ -64,10 +64,16 @@ def _command(payload: dict) -> tuple[str, str | None, int | None]:
         msg_id = int(obj.get("id"))
     except (TypeError, ValueError):
         msg_id = None
-    # Room token is requester-supplied and lands in the reply URL — tokens
-    # are [a-z0-9]; strip anything else.
-    room = re.sub(r"[^A-Za-z0-9_-]", "", str(target.get("id") or "")) or None
-    return text, room, msg_id
+    # Room token is requester-supplied and lands in the reply URL — only
+    # reply into the two configured rooms (whitelist = SSRF-safe constant).
+    s = get_settings()
+    allowed = {
+        (getattr(s, "NEXTCLOUD_TALK_ROOM", "") or "").strip(),
+        (getattr(s, "NEXTCLOUD_TALK_ROOM_ALERTS", "") or "").strip(),
+    }
+    allowed.discard("")
+    room = str(target.get("id") or "").strip()
+    return text, (room if room in allowed else None), msg_id
 
 
 async def _status() -> str:
@@ -165,9 +171,7 @@ async def talk_bot_webhook(request: Request) -> dict:
     try:
         reply = await _run_command(text)
     except Exception:  # noqa: BLE001
-        # Only the command verb lands in the log — never the raw message
-        # (log-injection safe).
-        logger.exception("Talk bot command failed: %s", text.split()[0][:32])
+        logger.exception("Talk bot command failed")
         reply = "That command failed — check worker logs."
     if reply and room:
         await bot_reply(room, reply, reply_to=msg_id, backend=backend)

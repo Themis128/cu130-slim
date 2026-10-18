@@ -296,6 +296,12 @@ async def test_webhook_help_command_replies():
 
     with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
         BOT, "bot_reply", _reply
+    ), patch.object(
+        BOT,
+        "get_settings",
+        return_value=_settings(
+            NEXTCLOUD_TALK_ROOM="room-ops", NEXTCLOUD_TALK_ROOM_ALERTS="room-approvals"
+        ),
     ):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
@@ -314,6 +320,28 @@ async def test_webhook_ignores_non_commands():
 
     with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
         BOT, "bot_reply", _reply
+    ), patch.object(BOT, "get_settings", return_value=_settings()):
+        out = await BOT.talk_bot_webhook(req)
+    assert out == {"ok": True}
+    assert replies == []
+
+
+@pytest.mark.asyncio
+async def test_webhook_ignores_foreign_room():
+    """A message from a room the bot isn't configured for gets no reply."""
+    req = _signed_request("help", room="some-other-room")
+    replies = []
+
+    async def _reply(room, msg, **kw):
+        replies.append(msg)
+        return True
+
+    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
+        BOT, "bot_reply", _reply
+    ), patch.object(
+        BOT,
+        "get_settings",
+        return_value=_settings(NEXTCLOUD_TALK_ROOM="room-ops"),
     ):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
