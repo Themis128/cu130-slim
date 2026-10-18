@@ -97,6 +97,37 @@ Progress toward each program's gate is measured, not guessed:
 evaluates every account against its thresholds (Stars 500/30d, Creator
 Rewards 10k+100k/30d, X 500+Premium+5M imp, IG ~10k). See `monetization-ops`.
 
+## Trend-driven media → funnel → CRM loop (standing rule)
+
+Every post AND its media must satisfy all three — user instruction
+2026-10-18: "all the media posted must be data-driven by the latest trends
+with monetization purpose and to lead the followers to my funnels in order
+to be on my crm loops":
+
+1. **Trend-grounded**: the topic and the media prompt cite a live trend
+   signal picked up *before* drafting — Nextcloud News feeds (Cloudflare
+   Blog, DEV.to cloud, HubSpot Marketing, Social Media Examiner, The New
+   Stack, Nextcloud — query via News API or the `nextcloud` MCP), the
+   latest strategy brief momentum data, or real follower/engagement
+   deltas. Name the trend in your reasoning; "evergreen filler" needs an
+   explicit justification. Media prompts inherit the trend angle — a
+   carousel about a Cloudflare release looks different from a generic
+   cloud-cost slide.
+2. **Monetization-purposed**: the piece exists to move a funnel metric.
+   Before drafting, run `monetization_tool.py report` (or read the latest
+   report) and prefer the gate closest to threshold — today that is FB
+   Stars personal-funnel growth vs Polar brand conversions.
+3. **CRM-loop landing**: every CTA link is UTM-tagged so the follower
+   lands on a capture surface that writes into EspoCRM:
+   `?utm_source=<platform>&utm_medium=social&utm_campaign=<post-slug>&utm_content=<post-or-account-ref>`
+   (paid ads use `utm_medium=paid` — see `linkedin-ads-ops`). Capture
+   surfaces already wired: `cloudless.gr/contact` (contact form →
+   EspoCRM Lead `lead_source=contact_form` + attribution summary →
+   `enrollLeadInAutomation` CRM loop) and
+   `social.cloudless.gr/pricing` (Polar checkout). Never ship a bare
+   link — untagged traffic is unattributable followers leaking out of
+   the loop.
+
 ## Quality gate — mandatory before publishing
 
 1. Generate via `POST /api/v1/ai/generate-content` (or `/improve-content`) —
