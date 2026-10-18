@@ -18,6 +18,29 @@ triggers:
 
 # Social Content Core
 
+## Data-driven mandate — every decision cites live data
+
+Standing rule: **all skills are data-driven.** Before deciding *what* to post,
+*when*, *where*, *which account/media/voice*, or declaring a platform healthy,
+query a live surface below and use what it returns. Static heuristics, memory,
+and "usually works" are starting points only — never the decision. If a query
+fails, say so and surface the gap; do not silently fall back to assumptions.
+
+| Decision | Live surface (query first) |
+|----------|---------------------------|
+| What performed / what failed | `posts` table — status, `published_at`, `failure_reason`, `scheduled_at`; `publish_queue` |
+| Follower truth & deltas | `follower_snapshots` (+ the series guard in `socialauto-analytics`); Nextcloud Tables "SocialAuto Metrics" (synced 3h) |
+| Best window / platform pulse | Latest strategy brief JSON (09:00 Athens) — computed from real engagement, see `strategy-brief-triage` |
+| Past-day outcomes & lessons | `company_brain.recall()` — nightly journals of real results (Chroma + "Company Brain" Nextcloud Notes) |
+| Ad-hoc analytics / SQL | Metabase MCP over Postgres, or `social-postgres` psql |
+| Account/token/session health | `/api/v1/accounts`, `scripts/*_tool.py` per-platform CLIs — never assume a token works |
+| Monetization progress | `monetization_tool.py report` — measured thresholds, see `monetization-ops` |
+| Claim in a post is real | Real numbers from this stack only (digest values, p95s, counts) — invented metrics are forbidden |
+
+Feedback loop: after acting, the outcome lands back in `posts` /
+`follower_snapshots` → next journal + strategy brief → next decision. Keep it
+closed: check the result of what you shipped, not just that it shipped.
+
 ## Account map (verified from Postgres `social_accounts`)
 
 | Platform | Account ID | Handle | Role |
