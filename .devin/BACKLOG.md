@@ -14,9 +14,12 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   (`C0BT263L17U`). Dead webhook 404 remains cosmetic (env var unused path).
 - [ ] **Regenerate Slack incoming webhooks** — ALL webhook URLs 404
   (`no_service`, Slack app likely reinstalled). Bot-token fallback verified
-  working 2026-10-19 (postMessage ok → #socialauto), so notifications still
-  land — but webhooks need re-creation in the Slack app console (user action)
-  and `.env` refresh. Via `slack-ops` / `slack_tool.py webhooks`.
+  on **all five channels** 2026-10-20 (`chat.postMessage` ok):
+  C0BT263L17U (general+publishing), C0C7N9SB59S (alerts), C0BCLPM1NN4
+  (billing+support), C0C7JEEG2E6 (leads), C0C8DU44CAV (telegram) — so every
+  notification path still lands. Webhooks still need re-creation in the
+  Slack app console (user action) + `.env` refresh.
+  Via `slack-ops` / `slack_tool.py webhooks`.
 - [ ] **Watch Postgres restarts** — one mid-publish restart ~15:14 EEST 2026-10-19
 
   left an orphaned `processing` queue lock (manually reset). Queue verified
