@@ -641,6 +641,32 @@ async def _process_publish_queue_async() -> None:
                         await db.commit()
                         continue
 
+                # Content-presence guard: a post must carry real copy. The
+                # quality gate returns early on empty text, which let
+                # media-only posts publish with no caption (post f6255dd9).
+                # Empty content_text is only allowed when the post is
+                # explicitly flagged platform_specific.media_only == true.
+                if not (post.content_text or "").strip() and not (
+                    (post.platform_specific or {}).get("media_only")
+                ):
+                    item.status = QueueStatus.COMPLETED
+                    if target:
+                        target.status = "skipped"
+                        target.error_message = (
+                            "Empty content_text — posts need real copy; set "
+                            "platform_specific.media_only=true to ship media "
+                            "without a caption"
+                        )
+                    await db.flush()
+                    await _rollup_post_status(post, db)
+                    await db.commit()
+                    await post_alert_to_slack(
+                        ":warning: *Publish blocked: empty caption* — "
+                        f"{account.platform} target of post `{post.id}` has no "
+                        "content_text. Add copy or flag the post media_only."
+                    )
+                    continue
+
                 # Go-live quality gate: content must reach the minimum
                 # composite SEO/NLP score (PUBLISH_MIN_SEO_SCORE) after
                 # spellcheck + NLP fix + auto-improvement, with zero

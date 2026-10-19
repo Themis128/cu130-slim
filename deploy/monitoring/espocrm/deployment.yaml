@@ -1,0 +1,93 @@
+# EspoCRM Prometheus exporter for the omv monitoring stack.
+# EspoCRM (PHP + MariaDB) has no /metrics surface, so this runs a small Python
+# collector (exporter.py, mounted from the ConfigMap below) that queries the
+# espocrm MariaDB schema for entity/job vitals and exposes /metrics on :8080.
+# The DB password is reused from the existing "espocrm-secrets" secret
+# (key: mariadb-password) — nothing new is created out-of-band.
+# Deploy: ./apply.sh   (builds the exporter.py ConfigMap from source)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: espocrm-exporter
+  namespace: espocrm
+  labels:
+    app: espocrm-exporter
+    component: metrics
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: espocrm-exporter
+  template:
+    metadata:
+      labels:
+        app: espocrm-exporter
+        component: metrics
+    spec:
+      containers:
+        - name: exporter
+          image: python:3.12-slim
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              pip install --quiet --no-cache-dir prometheus_client pymysql
+              && exec python /src/exporter.py
+          env:
+            - name: MYSQL_HOST
+              value: espocrm-mariadb
+            - name: MYSQL_PORT
+              value: "3306"
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: espocrm-exporter-db
+                  key: mysql-user
+            - name: MYSQL_DATABASE
+              value: espocrm
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: espocrm-exporter-db
+                  key: mysql-password
+            - name: METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: espocrm-exporter-db
+                  key: metrics-token
+            - name: LISTEN_PORT
+              value: "8080"
+          ports:
+            - name: metrics
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 15
+          resources:
+            requests:
+              cpu: 20m
+              memory: 96Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+          volumeMounts:
+            - name: src
+              mountPath: /src
+              readOnly: true
+      volumes:
+        - name: src
+          configMap:
+            name: espocrm-exporter

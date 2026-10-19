@@ -26,8 +26,8 @@ Creating a post with `scheduled_at` sets `PostStatus.SCHEDULED` and one
 |---|---|---|---|
 | `check_scheduled_posts` | every 60s | default | Finds `scheduled` posts with `scheduled_at <= now`; creates a `publish_queue` row per target; post → `publishing`. Posts with no targets → `failed` immediately. |
 | `process_publish_queue` | every 30s | publishing | Claims due `PENDING` rows and publishes. |
-| `refresh_expiring_tokens` | hourly at :15 | publishing | Refreshes OAuth tokens expiring within 4h (`token_refresh.py`). |
-| `cleanup-publish-queue` | periodic | — | Purges terminal queue rows older than 3 days. |
+| `refresh_expiring_tokens` | twice hourly at :15/:45 | publishing | Refreshes OAuth tokens expiring within 4h (`token_refresh.py`). |
+| `cleanup-publish-queue` | Sunday 03:00 | — | Purges terminal queue rows older than 3 days. |
 
 ## Queue mechanics (`app/worker/tasks/publishing.py`)
 
@@ -64,8 +64,13 @@ default 2) — then requires `overall >= threshold` **and** zero residual
 - **Fail** → queue row `COMPLETED`, target `skipped` with
   `error_message="Quality gate: seo_score N/100 below minimum 80 …"`,
   Slack alert. Not retried — the fix is editing the copy.
-- **Fail-open** — a pipeline/infra error never blocks a publish;
-  media-only posts (no `content_text`) bypass the gate entirely.
+- **Fail-open** — a pipeline/infra error never blocks a publish.
+- **Empty-caption guard** — before the gate runs, a queue item whose post
+  has no `content_text` is `skipped` outright. The only exception is an
+  explicit media-only post: `platform_specific.media_only == true`
+  (set on the post). Previously empty text returned early and let a
+  caption-less post publish unchallenged — post `f6255dd9` shipped that
+  way and was retroactively flagged `media_only` after investigation.
 
 The spellcheck inside the pipeline is **category-aware**
 (`auto_correct_detailed`): real-error rules (TYPOS/GRAMMAR/CASING/

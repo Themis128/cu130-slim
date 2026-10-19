@@ -409,6 +409,17 @@ class Settings(BaseSettings):
     NEXTCLOUD_SYNC_ENABLED: bool = False
     NEXTCLOUD_TABLE_ID: int = 0          # Tables table id (SocialAuto Metrics)
     NEXTCLOUD_DECK_BOARD_ID: int = 0     # Deck board id (Content Pipeline)
+    # When set, only this team's rows sync to the shared NC surfaces —
+    # keeps other teams' metrics/posts off a board all readers share.
+    NEXTCLOUD_SYNC_TEAM_ID: str = ""
+
+    # Company brain — nightly journal of real outcomes into Chroma
+    # team_<id>_brain (semantic recall for agents) + a Nextcloud Notes
+    # entry per day (owner-visible governance). Fail-silent when Chroma
+    # or Nextcloud are unreachable.
+    COMPANY_BRAIN_ENABLED: bool = True
+    COMPANY_BRAIN_HOUR: int = 23     # Europe/Athens via Celery timezone
+    COMPANY_BRAIN_MINUTE: int = 45   # Europe/Athens via Celery timezone
 
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""
@@ -566,6 +577,36 @@ class Settings(BaseSettings):
     # f"{FRONTEND_URL}/playbooks/cloud-migration-playbook.pdf".
     PLAYBOOK_EMAIL_ENABLED: bool = True
     PLAYBOOK_URL: str = "https://cloudless.gr/playbooks/cloud-migration-playbook.pdf"
+
+    # Autonomous email drip engine — daily sweep that clones the marked
+    # template campaigns (draft EmailCampaigns with meta_data.drip_template =
+    # "first_approach" | "renewal") and mails only recipients who never got
+    # that drip/cycle. Per-recipient dedupe lives in email_recipients; the
+    # campaign-level similarity gate is bypassed for drip clones.
+    EMAIL_DRIP_ENABLED: bool = True
+    EMAIL_DRIP_HOUR: int = 8     # Europe/Athens via Celery timezone
+    EMAIL_DRIP_MINUTE: int = 20  # before the 09:00 digest
+    EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS: int = 30
+    EMAIL_DRIP_RENEWAL_PERIOD_DAYS: int = 365
+    EMAIL_DRIP_AIE_ENABLED: bool = True   # Oxford AIE 4-step course sequence
+    EMAIL_DRIP_AIE_GAP_DAYS: int = 7      # days between course steps
+    LEAD_RESEARCH_ENABLED: bool = True
+    LEAD_RESEARCH_HOUR: int = 8     # Europe/Athens via Celery timezone
+    LEAD_RESEARCH_MINUTE: int = 40  # after the 08:20 drip, before the 09:00 digest
+    # CRM hygiene — EspoCRM user id to own unassigned leads; empty = the
+    # API user itself (automation claims ownership).
+    CRM_HYGIENE_ASSIGNEE_ID: str = ""
+
+    # CRM lifecycle — hot leads (score >= 65, real email) auto-convert to
+    # Contact+Opportunity via Espo's own convert action. Same rule the
+    # cloudless.gr contact path already applies.
+    CRM_CONVERT_ENABLED: bool = True
+
+    # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
+    # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the
+    # "Reply received" note marker.
+    CRM_ENGAGEMENT_ENABLED: bool = True
+    CRM_ENGAGEMENT_LOOKBACK_DAYS: int = 7
 
     # Paddle Billing (monetization). sandbox until PADDLE_ENVIRONMENT=production.
     PADDLE_ENVIRONMENT: str = "sandbox"  # sandbox | production

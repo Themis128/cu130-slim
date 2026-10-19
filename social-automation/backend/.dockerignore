@@ -39,3 +39,11 @@ docker-compose*.yml
 *.log
 *.md
 docs/
+
+# Local tool artifacts (never ship)
+.venv-test/
+.mypy_cache/
+.ruff_cache/
+.ruff_cache.*/
+.trivyignore
+social_automation_api.egg-info/

@@ -14,9 +14,9 @@ Messenger integration.
 │                                                                         │
 │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌────────────┐ │
 │   │  Frontend    │  │  Backend API │  │  MCP Server  │  │  n8n       │ │
-│   │  (Next.js)   │  │  (FastAPI)   │  │  (27 tools)  │  │  Workflows │ │
-│   │  51 pages    │  │  410 routes  │  │              │  │            │ │
-│   │  62 comp.    │  │  24 modules  │  │  AI agents   │  │  No-code   │ │
+│   │  (Next.js)   │  │  (FastAPI)   │  │  (35 tools)  │  │  Workflows │ │
+│   │  64 pages    │  │  560 routes  │  │              │  │            │ │
+│   │  78 comp.    │  │  43 modules  │  │  AI agents   │  │  No-code   │ │
 │   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘ │
 │          │                 │                  │                │       │
 │          └────────┬────────┴──────────────────┴────────────────┘       │
@@ -54,7 +54,7 @@ Messenger integration.
 
 ## Frontend Architecture
 
-### Route Groups (61 pages)
+### Route Groups (64 pages — 62 in groups + root landing + public brand share)
 
 ```
 app/
@@ -81,12 +81,15 @@ app/
 │   ├── data-deletion/                 # GDPR/Meta data deletion instructions
 │   └── card/[token]/                  # Public digital card view
 │
-├── (dashboard)/                       # Main app (43 pages)
+├── (dashboard)/                       # Main app (46 pages)
 │   ├── dashboard/                     # Overview + KPIs
 │   ├── accounts/                      # Connected accounts
 │   ├── analytics/                     # Performance metrics
 │   ├── inbox/                         # Unified inbox (Messenger/IG/WhatsApp)
 │   ├── calendar/                      # Content calendar
+│   ├── campaigns/                     # Email campaigns (EspoCRM audiences)
+│   ├── ops/                           # Ops console (queue, loops, health)
+│   ├── reports/                       # Generated report history/viewer
 │   ├── card/                          # Digital card builder
 │   ├── content/                       # Content management
 │   │   ├── new/                       # Multi-platform composer
@@ -139,6 +142,9 @@ app/
 | Accounts | `/accounts` | accounts, connect/disconnect | Platform list, connect/disconnect, profile editor, business sync, setup guides |
 | Analytics | `/analytics` | overview, platform, trends, export | KPI cards, engagement chart, follower growth, top posts, CSV export, sync |
 | Calendar | `/calendar` | scheduled posts, pillars | Month/week views, drag reschedule, platform filters, pillar colors |
+| Campaigns | `/campaigns` | email-campaigns API | EspoCRM audience sends, suppression list, per-recipient unsubscribe + survey tokens, "Draft with AI" (Visibility Era voice) |
+| Ops | `/ops` | ops API | Ops console — publish queue state, loop health, digests |
+| Reports | `/reports` | reports API | Notebook-generated report history/viewer (strategy brief, ops health, monetization) |
 | New Post | `/content/new` | create post, upload, AI generate | Multi-platform composer, char limits, previews, media, AI caption, SEO |
 | New Article | `/content/article/new` | create post, upload | LinkedIn article, cover image, title/body/tags, AI expand |
 | Carousel | `/content/carousel/new` | create post, AI carousel | Topic-driven AI slides, theme, AI background, reorder, export PNG |
@@ -253,31 +259,38 @@ src/services/api.ts
 
 ## Backend Architecture
 
-### API Modules (545 endpoints across 42 route files)
+### API Modules (572 decorated endpoints across 43 route files — 560 in the OpenAPI schema; the remaining 12 are `email_public_router` public unsubscribe/track surfaces mounted with `include_in_schema=False`)
 
 ```
 app/api/
 ├── auth.py          (23) — login (+otp/lockout), register (+discount), refresh (jti rotation), 2FA, profile, password
 ├── accounts.py      (16) — connect, disconnect, sync, business accounts
 ├── billing.py       (13) — config, plans, subscription, checkout, portal, cancel, sync, webhooks, discount get/set/clear
-├── content.py       (24) — posts CRUD, schedule, publish, review, comments
-├── media.py         (20) — upload, list, delete, generate, view
+├── content.py       (25) — posts CRUD, schedule, publish, review, comments
+├── media.py         (22) — upload, list, delete, generate, view
 ├── media_enhance.py (13) — resize, upscale, remove-bg, smart-crop, alt text
-├── ai.py            (40) — generate content, hashtags, carousel, image, SEO
+├── ai.py            (43) — generate content, hashtags, carousel, image, SEO
 ├── ai_providers.py  (8)  — provider catalog, config, test, usage
-├── analytics.py     (15) — overview, platform, trends, export, sync
+├── analytics.py     (20) — overview, platform, trends, export, sync
 ├── web_analytics.py (6)  — site/web analytics events
-├── brand.py         (28) — brand, voice, visual, guidelines, assets, health
+├── brand.py         (29) — brand, voice, visual, guidelines, assets, health
+├── bluesky.py       (2)  — AT Protocol account connect/status
 ├── digital_cards.py (10) — digital card CRUD, public share view
+├── email_campaigns.py (16) — campaign create/audience/send + public
+│                             unsubscribe/track router (out-of-schema)
+├── viber.py         (13) — Viber bot webhook, send, broadcast
 ├── publishing.py    (8)  — queue, schedule, publish now, recurring
 ├── meta_growth.py   (2)  — free Meta readiness and media-backed organic campaigns
 ├── messenger.py     (34) — Page + personal, setup, send, auto-reply, webhook, E2EE, bot builder
 ├── messenger_api.py (14) — Graph API client for Page Messenger
 ├── inbox.py         (1)  — unified inbox across platforms
-├── leads.py         (2)  — lead capture, webhook, CRM sync
+├── leads.py         (3)  — lead capture, webhook, CRM sync
 ├── support.py       (1)  — support contact endpoint
 ├── profile.py       (29) — profile read/update across platforms
-├── linkedin.py      (18) — LinkedIn AI post, improve, hashtags, publish
+├── linkedin.py      (19) — LinkedIn AI post, improve, hashtags, publish
+├── reports.py       (4)  — report manifest list/detail for /reports page
+├── service_feed.py  (7)  — service feed aggregation for ops surfaces
+├── talk_bot.py      (1)  — Nextcloud Talk bot webhook
 ├── instagram.py     (9)  — Instagram private API, session, profile
 ├── threads.py       (16) — Threads post, reply, profile
 ├── twitter_tiktok.py (8) — Twitter/X and TikTok posting
@@ -315,7 +328,7 @@ to the business-accounts rule.
 ├── teams.py         (10) — teams, members, invite, roles, switch
 ├── secrets.py       (5)  — Cloudflare-first secret store
 ├── cf_db.py         (6)  — D1/KV/Vectorize health, sync, tables
-├── ops.py           (9)  — health, system info, browser orchestrator,
+├── ops.py           (13) — health, system info, browser orchestrator,
 │                           POST /session-heal (on-demand healer run),
 │                           POST /daily-digest (n8n-triggered digest)
 ├── audit.py         (1)  — audit logs
@@ -323,7 +336,7 @@ to the business-accounts rule.
 └── usage.py         (2)  — quota usage, history
 ```
 
-### Data Models (16 model files)
+### Data Models (19 model files)
 
 ```
 app/models/
@@ -340,6 +353,9 @@ app/models/
 ├── billing.py       — BillingEvent (webhook idempotency)
 ├── digital_card.py  — DigitalCard (public share cards)
 ├── lead.py          — Lead (CRM captures)
+├── email_campaign.py — EmailCampaign, EmailCampaignRecipient (EspoCRM sends)
+├── linkedin_ads.py  — LinkedIn ad campaign snapshots
+├── whatsapp_message.py — WhatsAppMessage (unified-inbox persistence)
 ├── workflow.py      — PromptTemplate, GeneratedWorkflow, ContentPromptTemplate
 ├── ai_provider.py   — AIProvider
 ├── ai_usage.py      — AIUsageLog
@@ -347,7 +363,7 @@ app/models/
 └── email_log.py     — EmailLog
 ```
 
-### Service Layer (103 services)
+### Service Layer (133 services)
 
 ```
 app/services/
@@ -429,6 +445,28 @@ app/services/
 │   ├── infographic_renderer.py — Procedural infographic renderer
 │   └── content_renderer.py   — Content rendering
 │
+├── ── CRM & Leads ───────────────────────────────────────────
+│   ├── espocrm_client.py     — EspoCRM REST client (X-Api-Key → internal
+│   │                           NodePort 192.168.1.200:30700; public host is
+│   │                           behind CF Access): leads/contacts/accounts/
+│   │                           targetlists reads, notes, convert action;
+│   │                           socialauto role has User + TargetList read
+│   │                           (see also leads.py / lead_capture.py under
+│   │                            Analytics & Reports below)
+│   ├── crm_hygiene.py        — Weekly dedupe/quarantine (losers → Dead +
+│   │                           audit note; never deletes)
+│   ├── crm_lifecycle.py      — Deterministic lead scoring (hot ≥65 / warm
+│   │                           ≥35, mirrors cloudless.gr lead-scoring.ts)
+│   │                           + score-gated Lead→Contact/Account/
+│   │                           Opportunity convert
+│   ├── crm_engagement.py     — Dovecot IMAP reply poll → CRM note +
+│   │                           status bump + Slack
+│   ├── lead_research.py      — Lead enrichment research sweep
+│   ├── email_drip.py         — First-approach + renewal drip via omv SMTP
+│   ├── promo_scan.py         — Promo/newsletter IMAP scan (proves the
+│   │                           dovecot credential chain crm_engagement reuses)
+│   └── company_brain.py      — Daily company_brain journal to NC surfaces
+│
 ├── ── Quality ───────────────────────────────────────────────
 │   ├── media_quality.py      — Media text quality pipeline (concurrent
 │   │                           per-field spellcheck + NLP + SEO +
@@ -507,7 +545,7 @@ app/services/
 │   └── publishing.py         — Publishing service
 ```
 
-### MCP Server (27 tools)
+### MCP Server (35 tools)
 
 ```
 app/mcp/server.py
@@ -544,19 +582,20 @@ app/mcp/server.py
     ├── messenger_personal_get_auto_reply   — Get personal auto-reply
     └── messenger_personal_set_auto_reply   — Set personal auto-reply
 
-└── ── Bot Builder (9) ──────────────────────────────────────
-    ├── messenger_bot_create                — Create bot (personality, language, hours)
-    ├── messenger_bot_get                   — Get bot config
-    ├── messenger_bot_update                — Update bot config
-    ├── messenger_bot_activate              — Activate bot
-    ├── messenger_bot_deactivate            — Deactivate bot
-    ├── messenger_bot_pause_thread          — Pause bot for a thread
-    ├── messenger_bot_resume_thread         — Resume bot for a thread
-    ├── messenger_bot_personalities         — List personality presets
-    └── messenger_bot_index_brand           — Index brand knowledge for RAG
+└── ── Telegram (8) ─────────────────────────────────────────
+    ├── telegram_list_channels            — List channels/groups the bot is in
+    ├── telegram_chat_info                — Get chat metadata
+    ├── telegram_chat_admins              — List chat administrators
+    ├── telegram_member_count             — Member count for a chat
+    ├── telegram_set_chat_description     — Set channel/group description
+    ├── telegram_create_invite_link       — Create named invite link
+    ├── telegram_send_message             — Send message to a chat
+    └── telegram_pin_message              — Pin a message
+
+(Bot Builder lives in the REST API + `/messenger` UI, not in MCP tools.)
 ```
 
-### Celery Tasks (32 task modules, 33 beat schedules)
+### Celery Tasks (44 task modules, 43 beat schedules)
 
 ```
 app/worker/tasks/
@@ -605,7 +644,39 @@ app/worker/tasks/
 ├── whatsapp_verify.py      — check_whatsapp_verification
 ├── tiktok_inbox_reconcile.py — reconcile_tiktok_inbox
 ├── nextcloud.py            — export_media_to_nextcloud (WebDAV PUT → omv)
+├── nextcloud_sync.py       — sync_nextcloud_surfaces: posts→Deck board +
+│                             follower_snapshots→Tables (3h)
+├── company_brain.py        — write_company_brain_journal: daily ops journal →
+│                             Notes/Collectives surfaces (23:45)
 ├── lead_emails.py          — send_playbook_email (lead-magnet drip)
+├── crm_hygiene.py          — run_crm_hygiene: weekly dedupe/quarantine —
+│                             duplicate losers marked Dead + audit note on the
+│                             keeper (never deletes; psid.*@messenger.local and
+│                             test/self mailboxes never quarantined)
+├── crm_lifecycle.py        — run_crm_lifecycle_sweep: score every lead
+│                             ingress path (contact form, playbook, Messenger,
+│                             manual) with the deterministic cloudless.gr
+│                             model (hot ≥65, warm ≥35; `Lead score:` note =
+│                             dedupe, newer reply re-scores); hot real-email
+│                             leads → EspoCRM POST /Lead/action/convert
+│                             (Contact+Account+Opportunity, CRM_CONVERT_ENABLED)
+├── crm_engagement.py       — run_crm_engagement_sweep: 30-min IMAP reply poll
+│                             on the self-hosted Dovecot mailbox (promo_scan
+│                             credential chain); sender→Lead/Contact match →
+│                             `Reply received` note (msg-id dedupe) +
+│                             New/Assigned→In Process + Slack alert on hits
+├── email_drip.py           — run_email_drip_sweep: daily first-approach +
+│                             renewal drip via omv SMTP (08:20, before digest)
+├── email_campaigns.py      — email campaign send orchestration (EspoCRM
+│                             audiences, per-recipient unsubscribe)
+├── lead_research.py        — run_lead_research_sweep: daily enrichment of
+│                             unscored/unresearched leads (08:40)
+├── promo_scan.py           — run_promo_scan: daily 08:00 promo/newsletter
+│                             IMAP scan → research/send queue
+├── monetization.py         — monetization readiness tasks
+├── telegram_agent.py       — run_channel_agent_daily: managed-channel
+│                             autopilot (pillar posts Mon/Wed/Fri, Sunday
+│                             poll, DM lead funnel)
 ├── skool_watch.py          — watch_skool_vec: Sofia Kakkava Skool community
 │                             scrape via browser bridge → new DAY lessons
 │                             auto-draft LinkedIn posts + Slack alert
@@ -617,6 +688,8 @@ app/worker/tasks/
 │                               per-conversation fetch is skipped when the inbox-embedded latest
 │                               message shows nothing new — idle polls drop to ~3 Graph calls)
 ├── threads_messenger.py    — poll_threads_messenger (browser bridge, orchestrator)
+├── linkedin_messenger.py   — poll_linkedin_messenger (browser sidecar, 6h —
+│                             LinkedIn rate-limits DM polling hard)
 ├── twitter_messenger.py   — poll_twitter_messenger (browser bridge, orchestrator)
 └── tiktok_messenger.py     — poll_tiktok_messenger (browser bridge, orchestrator)
 
@@ -698,6 +771,28 @@ Beat Schedule:
 │ requeue-capacity-stuck-x │ publishing.requeue_capacity_    │ 30min    │
 │                          │  stuck_x_targets                │          │
 │ skool-vec-watch          │ skool_watch.watch_skool_vec     │ 3h       │
+│ sync-nextcloud-surfaces  │ nextcloud_sync.sync_nextcloud_  │ 3h :25   │
+│                          │  surfaces (posts→Deck,          │          │
+│                          │  followers→Tables)              │          │
+│ company-brain-journal    │ company_brain.write_company_    │ daily    │
+│                          │  brain_journal                  │ 23:45    │
+│ daily-promo-scan         │ promo_scan.run_promo_scan       │ daily    │
+│                          │  (send=true)                    │ 08:00    │
+│ email-drip-sweep         │ email_drip.run_email_drip_sweep │ daily    │
+│                          │  (first-approach + renewal)     │ 08:20    │
+│ daily-monetization-report│ notebook_reports.               │ daily    │
+│                          │  run_notebook_report            │ 08:30    │
+│                          │  (monetization_daily notebook)  │          │
+│ lead-research-sweep      │ lead_research.run_lead_         │ daily    │
+│                          │  research_sweep                 │ 08:40    │
+│ crm-lifecycle-sweep      │ crm_lifecycle.run_crm_          │ daily    │
+│                          │  lifecycle_sweep (score all     │ 08:50    │
+│                          │   ingress; hot→convert)         │          │
+│ crm-engagement-sweep     │ crm_engagement.run_crm_         │ 30min    │
+│                          │  engagement_sweep (IMAP reply   │          │
+│                          │   → note + status + Slack)      │          │
+│ crm-hygiene              │ crm_hygiene.run_crm_hygiene     │ Mon      │
+│                          │  (dedupe/quarantine, Dead mark) │ 07:30    │
 └──────────────────────────┴────────────────────────────────┴──────────┘
 
 > The **daily Slack digest is NOT a beat entry** — the n8n workflow
@@ -762,7 +857,7 @@ Beat Schedule:
 
 See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck against official documentation.
 
-## Docker Compose Stack (36 services + 1 blue/green slot)
+## Docker Compose Stack (38 services + 1 blue/green slot)
 
 > **Base-image registry:** all `FROM` lines and CI service images pull via
 > `mirror.gcr.io/library/*` (Google's free Docker Hub mirror), not
@@ -783,7 +878,7 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  │ :8083       │  │ frontend    │  │ worker-     │  │ worker-    │ │
 │  │             │  │ :8082       │  │ publishing  │  │ media      │ │
 │  │ FastAPI     │  │ Next.js     │  │             │  │            │ │
-│  │ 410 routes  │  │ 51 pages    │  │ Celery      │  │ Celery     │ │
+│  │ 560 routes  │  │ 64 pages    │  │ Celery      │  │ Celery     │ │
 │  │ MCP server  │  │             │  │ publishing  │  │ media      │ │
 │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  └─────┬──────┘ │
 │         │                │                │                │        │
@@ -792,7 +887,7 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  │ worker-     │  │             │  │ postgres    │               │
 │  │ default     │  │ Scheduler   │  │ :5433       │               │
 │  │             │  │             │  │             │               │
-│  │ Celery      │  │31 schedules │  │ PostgreSQL  │               │
+│  │ Celery      │  │43 schedules │  │ PostgreSQL  │               │
 │  │ default     │  │             │  │ 16-alpine   │               │
 │  └─────────────┘  └─────────────┘  └─────────────┘               │
 └─────────────────────────────────────────────────────────────────────┘
@@ -856,6 +951,22 @@ on a different span than `url.full`, hence structural `&&` spanset
 queries) to `lake/socialauto-edge-metrics/daily.json` — this is what
 surfaced the broken Nextcloud SFTP external-storage mount (9% 5xx on
 `cloud.cloudless.gr`).
+
+**Prometheus metrics plane (kube-prom on omv k3s, `monitoring` ns):**
+`social-api` serves `/metrics` (`app/services/metrics.py`) — HTTP counters/
+latency per route plus business gauges rebuilt per scrape: users, teams,
+accounts, posts, per-platform queue depth (`socialauto_publish_queue_platform`),
+per-platform publish outcomes (`socialauto_posts_published_7d` /
+`socialauto_publish_failures_7d` — counted from `post_targets` outcome rows,
+not queue rows: a skipped target is queue-`completed` but never published),
+`followers_latest` and `token_expires_in_seconds` per connected account.
+The scrape reaches the workstation via a headless Service/Endpoints →
+`192.168.1.23:9390` (`deploy/monitoring/socialauto/`). EspoCRM (PHP, no
+/metrics) gets a direct-MariaDB exporter in its own namespace
+(`deploy/monitoring/espocrm/`): read-only `metrics_reader` user, Bearer-token
+gated `/metrics`, fresh registry per scrape so failures only export
+`espocrm_up 0`. Grafana dashboards are ConfigMaps labelled
+`grafana_dashboard=1`, applied by each area's `apply.sh`.
 
 ### Browser Sidecars
 

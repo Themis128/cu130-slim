@@ -52,9 +52,11 @@ jobs:
           - name: social-api
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
+            target: api
           - name: social-worker-publishing
             context: social-automation/backend
-            dockerfile: social-automation/backend/Dockerfile.worker
+            dockerfile: social-automation/backend/Dockerfile
+            target: worker
           - name: social-frontend
             context: social-automation/frontend
             dockerfile: social-automation/frontend/Dockerfile
@@ -115,7 +117,7 @@ jobs:
             type=raw,value=${{ matrix.service.name }}-{{sha}}
             type=ref,event=branch,prefix=${{ matrix.service.name }}-
             type=ref,event=pr,prefix=${{ matrix.service.name }}-
-            # Dockerfile.worker is shared: the publishing build also backs the
+            # The worker stage is shared: the publishing build also backs the
             # social-worker-* tags used by social-worker-default/media/messenger
             # and celery-beat (mirrors build-and-push.yml).
             type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
@@ -128,6 +130,7 @@ jobs:
         with:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
+          target: ${{ matrix.service.target || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false

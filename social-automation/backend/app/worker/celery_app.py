@@ -16,6 +16,12 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
+        "app.worker.tasks.company_brain",
+        "app.worker.tasks.crm_hygiene",
+        "app.worker.tasks.crm_lifecycle",
+        "app.worker.tasks.crm_engagement",
+        "app.worker.tasks.email_drip",
+        "app.worker.tasks.lead_research",
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
@@ -191,6 +197,8 @@ celery_app.conf.update(
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
+        "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
+        "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
         "app.worker.tasks.email_campaigns.send_campaign": {"queue": "default"},
@@ -226,6 +234,61 @@ celery_app.conf.update(
         "sync-nextcloud-surfaces": {
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_surfaces",
             "schedule": crontab(minute=25, hour="*/3"),  # every 3h at :25
+        },
+        # Nightly company-brain journal — real publish/follower outcomes →
+        # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.
+        # Runs after the day's work settles so the morning strategy brief
+        # can recall what actually happened (services.company_brain.recall).
+        "company-brain-journal": {
+            "task": "app.worker.tasks.company_brain.write_company_brain_journal",
+            "schedule": crontab(
+                hour=settings.COMPANY_BRAIN_HOUR,
+                minute=settings.COMPANY_BRAIN_MINUTE,
+            ),
+        },
+        # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine
+        # CI/test probes, surface stale New leads past the follow-up SLA.
+        # Runs before the week's campaigns so audiences stay clean.
+        "crm-hygiene": {
+            "task": "app.worker.tasks.crm_hygiene.run_crm_hygiene",
+            "schedule": crontab(hour=7, minute=30, day_of_week="mon"),
+        },
+        # Daily autonomous email drip — clones the drip-template campaigns
+        # (meta_data.drip_template) and mails only recipients never mailed
+        # for that drip/cycle: first-approach to new EspoCRM leads, renewal
+        # to contacts/opportunities entering their annual window.
+        "email-drip-sweep": {
+            "task": "app.worker.tasks.email_drip.run_email_drip_sweep",
+            "schedule": crontab(
+                hour=settings.EMAIL_DRIP_HOUR,
+                minute=settings.EMAIL_DRIP_MINUTE,
+            ),
+        },
+        # Daily lead diligence — attaches a research note (website summary +
+        # Wikipedia + CRM context) to each un-researched EspoCRM lead so the
+        # Sales dept's next touch is informed. The note is the dedupe marker.
+        "lead-research-sweep": {
+            "task": "app.worker.tasks.lead_research.run_lead_research_sweep",
+            "schedule": crontab(
+                hour=settings.LEAD_RESEARCH_HOUR,
+                minute=settings.LEAD_RESEARCH_MINUTE,
+            ),
+        },
+        # CRM lifecycle — score every unscored live lead (covers playbook/
+        # Messenger/manual ingress the cloudless.gr contact-path scorer
+        # misses) and auto-convert hot real-email leads via Espo's own
+        # /Lead/action/convert. Runs just after the research sweep so a new
+        # lead gets diligence → score → convert in the same morning.
+        "crm-lifecycle-sweep": {
+            "task": "app.worker.tasks.crm_lifecycle.run_crm_lifecycle_sweep",
+            "schedule": crontab(hour=8, minute=50),  # 08:50 after lead research
+        },
+        # CRM engagement — poll the dovecot mailbox every 30 min; a reply
+        # from a CRM email attaches a "Reply received" note and bumps the
+        # lead to In Process. Closes the loop that drip-send notes open.
+        "crm-engagement-sweep": {
+            "task": "app.worker.tasks.crm_engagement.run_crm_engagement_sweep",
+            "schedule": crontab(minute="*/30"),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",

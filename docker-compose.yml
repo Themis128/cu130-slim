@@ -75,6 +75,7 @@ x-worker-env: &worker-env
   - SLACK_ALERTS_WEBHOOK_URL=${SLACK_ALERTS_WEBHOOK_URL:-}
   - SLACK_ALERTS_CHANNEL_ID=${SLACK_ALERTS_CHANNEL_ID:-}
   - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
+  - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
   - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
   - SLACK_BILLING_CHANNEL_ID=${SLACK_BILLING_CHANNEL_ID:-}
   - SLACK_BILLING_DIGEST_HOUR=${SLACK_BILLING_DIGEST_HOUR:-}
@@ -702,6 +703,7 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      target: api
     container_name: social-api
     networks:
       - backend
@@ -785,6 +787,7 @@ services:
       - SLACK_ALERTS_WEBHOOK_URL=${SLACK_ALERTS_WEBHOOK_URL:-}
       - SLACK_ALERTS_CHANNEL_ID=${SLACK_ALERTS_CHANNEL_ID:-}
       - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
+      - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
       - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
       - SLACK_BILLING_CHANNEL_ID=${SLACK_BILLING_CHANNEL_ID:-}
       - SLACK_BILLING_DIGEST_HOUR=${SLACK_BILLING_DIGEST_HOUR:-}
@@ -923,11 +926,13 @@ services:
       # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
       # slack_tool, monetization_tool, viber_tool) — read-only.
       - ./social-automation/backend/scripts:/app/scripts:ro
+      # Deploy seeds (content_prompt_templates etc.) — idempotent, applied on boot.
+      - ./deploy/seeds:/app/deploy/seeds:ro
       - ./social-automation/uploads:/app/uploads
       # Read-only access to notebook reports output for /api/v1/reports.
       - ./notebooks:/notebooks:ro
       - tunnel_url:/run/tunnel
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    command: sh -c "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     extra_hosts:
       - host.docker.internal:host-gateway
     depends_on:
@@ -1027,7 +1032,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-publishing
     networks:
       - backend
@@ -1063,7 +1069,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-media
     networks:
       - backend
@@ -1101,7 +1108,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-default
     networks:
       - backend
@@ -1136,7 +1144,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-messenger
     networks:
       - backend
@@ -1172,7 +1181,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: celery-beat
     networks:
       - backend

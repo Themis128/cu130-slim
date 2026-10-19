@@ -77,11 +77,8 @@ dependencies = [
     "twscrape==0.20.1",
     # TikTok profile updates via private mobile API (signing server)
     "tiktok-private-api>=0.4.3",
-    # Browser automation for Facebook/LinkedIn personal profile updates
-    "playwright>=1.46.0",
-    # Undetected Playwright drop-in (CDP Runtime.enable leak fix) — preferred
-    # driver for all browser automation; falls back to playwright if absent
-    "patchright>=1.62.1",
+    # NOTE: no playwright/patchright here — all browser automation runs in the
+    # dedicated sidecar containers; the backend talks to them over HTTP.
     # Instagram private API (username/password posting fallback while Graph API restricted)
     "instagrapi>=2.1.0,<3.0.0",
     # PDF libraries — carousel PDF generation, page extraction, and rendering
@@ -150,7 +147,8 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # - papermill: no type stubs; installed only on worker images
 # - passlib: types-passlib stub package not installed
-module = ["papermill", "passlib.*"]
+# - celery: ships no py.typed marker; types-celery stubs not installed
+module = ["papermill", "passlib.*", "celery", "celery.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
