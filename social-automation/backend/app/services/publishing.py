@@ -2594,21 +2594,19 @@ async def _publish_instagram_via_graph(
             ambiguous=publish_attempted,
         )
 
-    # media_publish returns the numeric pk, which is not a permalink — the
-    # /p/ slot needs the shortcode (pk → IG base64 codec).
-    code = ""
+    # media_publish returns a Graph media id, not the shortcode a /p/ URL
+    # needs — fetch the authoritative permalink rather than fabricate one.
+    permalink = None
     if media_id:
         try:
-            from instagrapi.utils import InstagramIdCodec
-
-            code = InstagramIdCodec.encode(int(str(media_id).split("_")[0]))
-        except (ValueError, TypeError):
-            code = ""
+            permalink = await client.get_media_permalink(media_id)
+        except Exception:  # permalink is best-effort; the publish already landed
+            logger.debug("Instagram permalink lookup failed for %s", media_id)
 
     return PublishResult(
         success=True,
         platform_post_id=media_id,
-        platform_url=f"https://www.instagram.com/p/{code}/" if code else None,
+        platform_url=permalink,
     )
 
 

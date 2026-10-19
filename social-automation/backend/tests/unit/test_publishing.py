@@ -1566,20 +1566,45 @@ async def test_publish_instagram_graph_timeout_ambiguous(account, post, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_publish_instagram_graph_url_uses_shortcode(account, post, monkeypatch):
-    """platform_url must carry the IG shortcode, not the raw media pk."""
+async def test_publish_instagram_graph_url_uses_permalink(account, post, monkeypatch):
+    """platform_url must come from Graph's permalink field — the media id
+    is a Graph identifier, never something we fabricate a /p/ link from."""
 
-    class _IGNumeric(_IGClient):
+    class _IGWithPermalink(_IGClient):
         async def publish_container(self, creation_id):
             return "18112569254028827"
 
-    monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGNumeric())
+        async def get_media_permalink(self, media_id):
+            assert media_id == "18112569254028827"
+            return "https://www.instagram.com/p/RealCode123/"
+
+    monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGWithPermalink())
     monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
     account.meta_data = {"account_type": "business"}
     post.platform_specific = {}
     r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
     assert r.success is True
-    assert r.platform_url == "https://www.instagram.com/p/BAWUkoWyYb/"
+    assert r.platform_url == "https://www.instagram.com/p/RealCode123/"
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_url_none_when_permalink_absent(account, post, monkeypatch):
+    """When Graph supplies no permalink, platform_url is None — never a
+    fabricated /p/<id> link pointing at an unrelated post."""
+
+    class _IGNoPermalink(_IGClient):
+        async def publish_container(self, creation_id):
+            return "18112569254028827"
+
+        async def get_media_permalink(self, media_id):
+            return None
+
+    monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGNoPermalink())
+    monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    account.meta_data = {"account_type": "business"}
+    post.platform_specific = {}
+    r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
+    assert r.success is True and r.platform_url is None
 
 
 class _Res2:
