@@ -10,15 +10,18 @@ description: >-
 
 Oxford "AI Ethics, Regulation & Compliance" exec-programme brochure
 (`OneDrive/Kakkava Sofia/Oxford/AIE_Brochure_May2026.pdf`) is adopted as a
-content framework via 4 live `content_prompt_templates` rows (team
-`10024d25-…`, pass `template_id` to `/api/v1/ai/generate-content`):
+content framework via 4 `content_prompt_templates` rows (team
+`10024d25-…`, pass `template_id` to `/api/v1/ai/generate-content`). Canonical
+source is version-controlled: `deploy/seeds/content_prompt_templates.json`,
+applied by `scripts/seed_content_templates.py` on every deploy — see the
+`deploy-seeds` skill:
 
-| Template | Pillar | Arc |
-|---|---|---|
-| `Oxford AIE — AI failure modes` | Proof | predictable failure patterns → "anticipate, don't react" |
-| `Oxford AIE — EU AI Act` | Proof | risk classes → obligations → first practical step |
-| `Oxford AIE — Global regulation divergence` | Perspective | EU vs NIST vs rest — design for strictest |
-| `Oxford AIE — Auditing AI systems` | Proof | scoping, fairness/robustness metrics, conformity → audit CTA |
+| Template | template_id | Pillar | Arc |
+|---|---|---|---|
+| `Oxford AIE — AI failure modes` | `5405168b-0d73-4373-a1ed-81285641cd8b` | Proof | predictable failure patterns → "anticipate, don't react" |
+| `Oxford AIE — EU AI Act` | `474a19ee-5a85-4fb9-a9a9-788a89cb6b6f` | Proof | risk classes → obligations → first practical step |
+| `Oxford AIE — Global regulation divergence` | `a3e8f620-7759-4874-9438-91aa996fbb80` | Perspective | EU vs NIST vs rest — design for strictest |
+| `Oxford AIE — Auditing AI systems` | `f1d00394-5b6c-438a-a5ca-2824387423bf` | Proof | scoping, fairness/robustness metrics, conformity → audit CTA |
 
 Shared system prompt: "operational capability, not awareness" + mandatory
 UTM'd audit CTA (`utm_campaign=ai-governance` → `/contact`). Not yet adopted
