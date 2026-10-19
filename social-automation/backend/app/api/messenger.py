@@ -713,7 +713,10 @@ async def receive_webhook(
         change.get("value") or {}
         for entry in (body.get("entry") or [])
         for change in (entry.get("changes") or [])
-        if change.get("field") == "leadgen" and (change.get("value") or {}).get("leadgen_id")
+        if change.get("field") == "leadgen"
+        # Meta object ids are numeric — reject anything else before it
+        # ever reaches a Graph URL.
+        and str((change.get("value") or {}).get("leadgen_id") or "").isdigit()
     ]
     if leadgen_changes:
         background_tasks.add_task(_ingest_meta_leadgen, leadgen_changes)

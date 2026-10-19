@@ -1513,7 +1513,7 @@ class TestCoverageTails2:
 # ---------------------------------------------------------------------------
 
 def _leadgen_body(**value_over):
-    value = {"leadgen_id": "lg-1", "page_id": "pg-1", "form_id": "f9", **value_over}
+    value = {"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9", **value_over}
     return json.dumps(
         {"object": "page", "entry": [{"id": "pg-1", "changes": [{"field": "leadgen", "value": value}]}]}
     ).encode()
@@ -1535,7 +1535,7 @@ class TestLeadgenWebhook:
         await bt.tasks[0]()
         messenger._ingest_meta_leadgen.assert_awaited_once()
         assert messenger._ingest_meta_leadgen.await_args.args[0] == [
-            {"leadgen_id": "lg-1", "page_id": "pg-1", "form_id": "f9"}
+            {"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9"}
         ]
 
     async def test_non_leadgen_changes_ignored(self, monkeypatch):
@@ -1592,7 +1592,7 @@ def _page_account(token="EApagetoken"):
 
 def _graph_lead(**over):
     base = {
-        "id": "lg-1", "form_id": "f9", "ad_id": "ad-3",
+        "id": "8800112233", "form_id": "f9", "ad_id": "ad-3",
         "campaign_name": "Checklist Q4", "platform": "fb",
         "field_data": [
             {"name": "email", "values": ["Ada@Example.COM"]},
@@ -1628,9 +1628,9 @@ class TestIngestMetaLeadgen:
         resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
         http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
         await messenger._ingest_meta_leadgen(
-            [{"leadgen_id": "lg-1", "page_id": "pg-1", "form_id": "f9"}]
+            [{"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9"}]
         )
-        assert any("/lg-1" in u for u in http.urls)
+        assert any("/8800112233" in u for u in http.urls)
         payload = fake.upsert_lead.await_args.args[0]
         assert payload["emailAddress"] == "ada@example.com"
         assert payload["firstName"] == "Ada" and payload["lastName"] == "Lovelace"
@@ -1644,21 +1644,21 @@ class TestIngestMetaLeadgen:
     async def test_no_page_token_skips(self, monkeypatch):
         resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
         http, fake = _wire_ingest(monkeypatch, None, resp)
-        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-1", "page_id": "pg-1"}])
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "8800112233", "page_id": "pg-1"}])
         assert http.urls == [] and fake.upsert_lead.await_count == 0
 
     async def test_graph_error_and_no_email_skip(self, monkeypatch):
         resp = SimpleNamespace(status_code=403, json=lambda: {})
         http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
-        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-1", "page_id": "pg-1"}])
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "8800112233", "page_id": "pg-1"}])
         assert fake.upsert_lead.await_count == 0
 
         resp2 = SimpleNamespace(
             status_code=200,
-            json=lambda: {"id": "lg-2", "field_data": [{"name": "phone", "values": ["1"]}]},
+            json=lambda: {"id": "8800112244", "field_data": [{"name": "phone", "values": ["1"]}]},
         )
         http, fake = _wire_ingest(monkeypatch, _page_account(), resp2)
-        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-2", "page_id": "pg-1"}])
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "8800112244", "page_id": "pg-1"}])
         assert fake.upsert_lead.await_count == 0
 
     async def test_explicit_names_ig_platform_and_organic(self, monkeypatch):
@@ -1672,7 +1672,7 @@ class TestIngestMetaLeadgen:
             ],
         ))
         http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
-        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-3", "page_id": "pg-1"}])
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "8800112255", "page_id": "pg-1"}])
         payload = fake.upsert_lead.await_args.args[0]
         assert payload["firstName"] == "Grace" and payload["lastName"] == "Hopper"
         assert payload["utmSource"] == "instagram" and payload["utmMedium"] == "social"
@@ -1684,6 +1684,6 @@ class TestIngestMetaLeadgen:
         fake.upsert_lead = AsyncMock(side_effect=[RuntimeError("crm down"), "lead-2"])
         monkeypatch.setattr("app.services.espocrm_client.upsert_lead", fake.upsert_lead)
         await messenger._ingest_meta_leadgen(
-            [{"leadgen_id": "lg-1", "page_id": "pg-1"}, {"leadgen_id": "lg-2", "page_id": "pg-1"}]
+            [{"leadgen_id": "8800112233", "page_id": "pg-1"}, {"leadgen_id": "8800112244", "page_id": "pg-1"}]
         )
         assert fake.upsert_lead.await_count == 2
