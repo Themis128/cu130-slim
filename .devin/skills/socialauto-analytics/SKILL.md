@@ -158,3 +158,18 @@ date alone (early legit low counts matter for growth math).
 - member series stops entirely → sidecar logged out / `rate_limit_until` —
   check `GET http://localhost:9225/health`; persisted `li_session.json` may
   self-heal after cooldown, else manual noVNC re-login
+
+## Prometheus metrics surface (per-platform series, PR #736 — 2026-10-19)
+
+`app/services/metrics.py` now emits per-platform gauges on top of the base
+business vitals — all real Postgres queries:
+
+- `socialauto_publish_queue_platform{platform,status}`
+- `socialauto_posts_published_7d{platform}`
+- `socialauto_publish_failures_7d{platform}`
+- `socialauto_followers_latest{account,platform}`
+- `socialauto_token_expires_in_seconds{account,platform}` — watch <72h
+
+Schema trap: `post_targets` has no `platform`/`error` column — join
+`social_accounts`, use `error_message`. Dashboards/deploy details live in
+the `monitoring-ops` skill (`deploy/monitoring/socialauto/`).

@@ -131,3 +131,13 @@ for the sync entirely.
 - Skipped repos: `slack-sdk`/`bolt-python` — the httpx client already covers
   the needed surface; bolt would only matter for a Socket-Mode bot, and
   interactivity is handled by cloudless.gr endpoints.
+
+## Known-broken: publish-completion notify (seen 2026-10-19)
+
+Publish-completion notifications fail end-to-end: `Slack publishing webhook
+dead (404) — falling back to bot token` then `Slack API error:
+channel_not_found`. The daily-digest channel `C0BT263L17U` still works, so
+this is the *publish-notify* path's channel config — the bot isn't a member
+of (or the env points at a renamed/deleted) channel. Fix: resolve the actual
+channel id via `slack_tool.py` channel list, update the env, or invite the
+bot. Tracked in `.devin/BACKLOG.md` until fixed.
