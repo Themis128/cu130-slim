@@ -167,6 +167,12 @@ class PostTarget(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending, published, failed
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=True,
+    )
 
     post: Mapped["Post"] = relationship("Post", back_populates="targets")
     social_account: Mapped["SocialAccount"] = relationship("SocialAccount", back_populates="post_targets")
