@@ -1,5 +1,15 @@
 # Agent working notes for cu130-slim / SocialAuto
 
+## Persistent backlog (read first, update last)
+
+`.devin/BACKLOG.md` is the living to-do list across sessions. Every session MUST:
+
+1. **Read it at session start** — pick up leftovers relevant to the task.
+2. **Update it at session end** — check off what landed, add anything left
+   unfinished or newly discovered (with IDs/URLs/paths so it's actionable),
+   and commit the update. User instruction 2026-10-19: "create a to do list,
+   add this to memory, always update it with leftovers."
+
 ## Cursor Cloud specific instructions
 
 Cloud Agents run the app on the host, not via Docker Compose. `.cursor/install.sh` creates the backend virtualenv (including dev extras) and installs frontend dependencies. `.cursor/start.sh` starts PostgreSQL and Redis, creates database `social_automation` owned by `social_user`, and runs `alembic upgrade head`.
@@ -593,6 +603,7 @@ Current chain (oldest → newest, 39 revisions):
 11. [Meta lead capture](11-meta-lead-capture.md)
 12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send, AI auto-reply, channel agent, DM lead funnel
 17. [X free web fallback](17-x-web-fallback.md) — `X_WEB_*` cookie-auth tweety/twscrape fallback for X API 402 credits-depleted (off by default)
+21. [Sales-funnel audit](docs/superpowers/guides/21-funnel-audit.md) — live stage counts, weakest-transition detection, auction warning (fix conversion before buying traffic)
 
 ## Current plans
 
