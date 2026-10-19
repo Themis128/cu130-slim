@@ -17,6 +17,7 @@ async def score_brand_compliance(
     brand: dict,
     voice: dict | None = None,
     platform: str | None = None,
+    provider_name: str = "dmr",
 ) -> dict:
     """Score content against brand guidelines.
 
@@ -25,6 +26,9 @@ async def score_brand_compliance(
         brand: Brand dict with name, positioning_statement, mission, values, etc.
         voice: BrandVoice dict with tone_dimensions, banned_phrases, preferred_phrases, etc.
         platform: Optional platform name (linkedin, twitter, etc.) for context.
+        provider_name: Inference provider for the AI tone-match call — pass the
+            caller's provider so e.g. cloudflare requests don't queue behind
+            the local DMR model.
 
     Returns:
         Dict with:
@@ -59,7 +63,7 @@ async def score_brand_compliance(
             preferred_found.append(phrase)
 
     # 3. AI tone/voice match scoring
-    tone_match = await _ai_tone_match(content, brand, voice, platform)
+    tone_match = await _ai_tone_match(content, brand, voice, platform, provider_name=provider_name)
 
     # 4. Calculate overall score
     score = _calculate_score(banned_found, preferred_found, tone_match, banned_phrases, preferred_phrases)
@@ -107,7 +111,9 @@ def _calculate_score(
     return max(1, min(5, score))
 
 
-async def _ai_tone_match(content: str, brand: dict, voice: dict, platform: str | None) -> dict:
+async def _ai_tone_match(
+    content: str, brand: dict, voice: dict, platform: str | None, provider_name: str = "dmr"
+) -> dict:
     """Use AI to score how well the content matches the brand voice."""
     brand_name = brand.get("name", "the brand")
     positioning = brand.get("positioning_statement", "")
@@ -143,7 +149,7 @@ Return ONLY the JSON object."""
     try:
         result = await call_inference(
             prompt=prompt,
-            provider_name="dmr",
+            provider_name=provider_name,
             schema={
                 "type": "object",
                 "properties": {

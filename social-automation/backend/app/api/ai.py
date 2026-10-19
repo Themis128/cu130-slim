@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import json
 import logging
@@ -1758,12 +1759,16 @@ Return JSON with: {json_contract}"""
         context=f"{request.platform} post",
     )
 
-    # Index generated content in chroma for future dedup
+    # Index generated content in chroma for future dedup — fire-and-forget:
+    # the embed call is ~18s on the local DMR model and doesn't affect the
+    # response. The task keeps running on this worker's loop after return.
     if team and content:
-        await chroma_client.add_content(
-            str(team.id),
-            str(uuid.uuid4()),
-            f"{request.platform}:{content}",
+        asyncio.create_task(
+            chroma_client.add_content(
+                str(team.id),
+                str(uuid.uuid4()),
+                f"{request.platform}:{content}",
+            )
         )
 
     # Score brand compliance if brand exists
@@ -1776,6 +1781,7 @@ Return JSON with: {json_contract}"""
                 brand=brand_dict,
                 voice=voice_dict,
                 platform=request.platform,
+                provider_name=request.provider or "dmr",
             )
         except Exception:
             pass  # non-fatal — compliance scoring is best-effort
