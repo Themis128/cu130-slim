@@ -588,6 +588,8 @@ class Settings(BaseSettings):
     EMAIL_DRIP_MINUTE: int = 20  # before the 09:00 digest
     EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS: int = 30
     EMAIL_DRIP_RENEWAL_PERIOD_DAYS: int = 365
+    EMAIL_DRIP_AIE_ENABLED: bool = True   # Oxford AIE 4-step course sequence
+    EMAIL_DRIP_AIE_GAP_DAYS: int = 7      # days between course steps
     LEAD_RESEARCH_ENABLED: bool = True
     LEAD_RESEARCH_HOUR: int = 8     # Europe/Athens via Celery timezone
     LEAD_RESEARCH_MINUTE: int = 40  # after the 08:20 drip, before the 09:00 digest
