@@ -22,6 +22,9 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   Temporary failure in name resolution` (500). When DMR is back, re-run the
   Oxford AIE template smoke test (EU AI Act template, id
   `474a19ee-5a85-4fb9-a9a9-788a89cb6b6f`).
+- [ ] **Influencer/partner surface — unbuilt** (Prakoso et al. 2024 rec. 3):
+  no watchlist/outreach tracking exists. If adopted, needs a real surface
+  (Nextcloud table or CRM list) — not a mock.
 - [ ] **`warp-proxy` unreachable** — instagrapi SOCKS path down (seen 2026-10-19);
   private-API IG verification blocked. Check the warp container.
 - [ ] **X/Twitter + TikTok token expiry** — Grafana token panel showed X ~1h and
