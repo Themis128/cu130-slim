@@ -824,6 +824,7 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
         _FakeResponse(200, {"id": "17841460000000001"}),   # create container
         _FakeResponse(200, {"status_code": "FINISHED"}),   # status poll
         _FakeResponse(200, {"id": "17841460000000002"}),   # publish
+        _FakeResponse(200, {"permalink": "https://www.instagram.com/p/Cfb123/"}),  # permalink lookup
     ])
 
     with patch("app.services.instagram_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
@@ -834,8 +835,9 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
 
     assert result.success is True
     assert result.platform_post_id == "17841460000000002"
-    # 4 calls: dedup media list + container + status + publish
-    assert len(fake.calls) == 4
+    assert result.platform_url == "https://www.instagram.com/p/Cfb123/"
+    # 5 calls: dedup media list + container + status + publish + permalink
+    assert len(fake.calls) == 5
 
 
 @pytest.mark.asyncio
