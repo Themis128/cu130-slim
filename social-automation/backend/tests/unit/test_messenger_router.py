@@ -533,7 +533,7 @@ class TestReceiveWebhook:
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "sec")
         req = _request(b"{}", {"X-Hub-Signature-256": "sha256=bad"})
         with pytest.raises(HTTPException) as e:
-            await messenger.receive_webhook(req, FakeDB())
+            await messenger.receive_webhook(req, BackgroundTasks(), FakeDB())
         assert e.value.status_code == 403
 
     async def test_valid_signature_passes(self, monkeypatch):
@@ -562,7 +562,7 @@ class TestReceiveWebhook:
         monkeypatch.setattr(messenger, "_process_inline", lambda *a, **k: _async(None))
         monkeypatch.setenv("MESSENGER_SIDECAR_URL", "")
         monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "")
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert seen == ["LEAD_AUDIT"] and out["auto_replies_sent"] == 1
 
     async def test_inline_dispatch_when_no_sidecar(self, monkeypatch):
@@ -580,7 +580,7 @@ class TestReceiveWebhook:
             calls.append((page_id, psid, text))
 
         monkeypatch.setattr(messenger, "_process_inline", proc)
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert calls == [("pg-1", "u1", "hi")] and out["auto_replies_sent"] == 1
 
     async def test_sidecar_dispatch_success(self, monkeypatch):
@@ -605,7 +605,7 @@ class TestReceiveWebhook:
                 return SimpleNamespace(status_code=200)
 
         monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert posts == [("http://sc:9/process", "u1")] and out["auto_replies_sent"] == 1
 
     async def test_sidecar_failure_falls_back_inline(self, monkeypatch):
@@ -634,7 +634,7 @@ class TestReceiveWebhook:
             calls.append(psid)
 
         monkeypatch.setattr(messenger, "_process_inline", proc)
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert calls == ["u1"] and out["auto_replies_sent"] == 1
 
 
