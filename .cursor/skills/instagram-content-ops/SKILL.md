@@ -73,3 +73,11 @@ Media is REQUIRED (API rejects text-only). Full index: `media-pipelines`.
 | Image | 4:5 or 1:1, <8MB, on-topic (semantic QA) | `cloudless-carousel-pipeline` / FLUX |
 | Carousel | ≤10 images | Brand-composed set — `generate-carousel-pipeline` `media_ids` attach directly as the slide set (1:1 fits; verified live 2026-10-15) |
 | Reel | MP4 9:16 | `branded-video-pipeline` / ComfyUI LTX |
+
+## Post-publish permalink (fixed PR #737, 2026-10-19)
+
+The Graph publish path previously stored `platform_url` as
+`instagram.com/p/<raw-media-pk>` — a dead link. It now converts pk→shortcode
+via `instagrapi.utils.InstagramIdCodec` (e.g. `18112569254028827` →
+`BAWUkoWyYb`). Historical rows/Deck cards may still hold broken `/p/<pk>`
+URLs — recompute from `platform_post_id` when needed.

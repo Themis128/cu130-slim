@@ -126,6 +126,7 @@ docker restart social-metrics
 
 - `cloudless-carousel-pipeline` — CF carousel + LinkedIn org
 - `n8n-cloudless` — automate via n8n webhook/schedule (includes daily Slack digest → `#socialauto`)
+- `monitoring-ops` — Prometheus metrics, Grafana dashboards, k3s EspoCRM exporter
 
 ## Slack daily digest (#socialauto)
 

@@ -333,6 +333,25 @@ class InstagramAPIClient:
             data = resp.json() or {}
             return str(data.get("status_code") or "UNKNOWN")
 
+    async def get_media_permalink(self, media_id: str) -> str | None:
+        """Authoritative permalink for a published media object.
+
+        ``media_publish`` returns a Graph media id — not the shortcode a
+        ``/p/<code>`` URL needs — so never fabricate the link; ask Graph for
+        the real ``permalink`` field. Returns ``None`` when Graph has none
+        (best-effort: the publish itself already succeeded).
+        """
+        media_id = _validate_id(media_id, "media_id")
+        url = f"{self.base_url}/{media_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                url,
+                params=self._params({"fields": "permalink"}),
+            )
+            if resp.status_code >= 400:
+                return None
+            return (resp.json() or {}).get("permalink") or None
+
     async def list_recent_media(self, *, limit: int = 15) -> list[dict[str, Any]]:
         """Fetch the account's most recent media objects.
 
