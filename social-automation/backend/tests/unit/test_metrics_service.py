@@ -135,12 +135,18 @@ class _DB:
             return _Res(scalar=2)
         if n == 12:  # queue by platform
             return _Res(rows=[("linkedin", "completed", 96), ("linkedin", "failed", 1)])
-        if n == 13:  # published/failed last 7d
-            return _Res(rows=[("linkedin", "completed", 12), ("tiktok", "failed", 2)])
+        if n == 13:  # published/failed last 7d (post_targets outcomes)
+            # 'skipped' must NOT be counted as published — regression for
+            # the old publish_queue 'completed' counting.
+            return _Res(rows=[
+                ("linkedin", "published", 12),
+                ("tiktok", "failed", 2),
+                ("linkedin", "skipped", 5),
+            ])
         if n == 14:  # followers latest
-            return _Res(rows=[("linkedin", "cloudless_gr", 250)])
+            return _Res(rows=[("linkedin", "cloudless_gr", "acc-1", 250)])
         if n == 15:  # token expiry
-            return _Res(rows=[("facebook", "cloudless.gr", 86400.0)])
+            return _Res(rows=[("facebook", "cloudless.gr", "acc-2", 86400.0)])
         raise AssertionError(f"unexpected query {n}")
 
 
@@ -173,9 +179,11 @@ async def test_refresh_business_metrics(monkeypatch):
     assert M.PUBLISHED_7D.labels(platform="linkedin")._value.get() == 12
     assert M.FAILURES_7D.labels(platform="tiktok")._value.get() == 2
     assert M.FOLLOWERS.labels(
-        platform="linkedin", account="cloudless_gr")._value.get() == 250
+        platform="linkedin", account="cloudless_gr", account_id="acc-1"
+    )._value.get() == 250
     assert M.TOKEN_EXPIRY.labels(
-        platform="facebook", account="cloudless.gr")._value.get() == 86400.0
+        platform="facebook", account="cloudless.gr", account_id="acc-2"
+    )._value.get() == 86400.0
 
 
 @pytest.mark.asyncio
