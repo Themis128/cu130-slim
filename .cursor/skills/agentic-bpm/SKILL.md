@@ -25,6 +25,29 @@ Companion skill: `agent-workforce` (liveness — "did the worker clock in").
 This skill is the **governance layer** — "is each worker bounded, guarded,
 and recoverable".
 
+## The manifesto layer — Calvanese et al. 2026 (arXiv:2603.18916)
+
+The APM Research Manifesto (Dagstuhl AUTOBIZ + PMAI'25) names four agent
+capabilities — framing, explainability, conversational actionability,
+self-modification. What we adopted on top of the governance contract:
+
+- **Frames at three levels** — agent / process / organization. Worker
+  `guardrails` are the local normative frame; `GLOBAL_FRAME` in
+  `workforce_audit.py` is the org-level frame projected onto every worker
+  (no-spend, media-required, bot disclosure, real-data-only,
+  quarantine-beats-delete). New org rules go there — rendered by
+  `--governance`.
+- **Explainability** — every `escalations` tuple carries a `why` (the
+  explanans): the worker must state *why* a parked item needs a human, and
+  the Slack attention post now includes it. An escalation without a
+  rationale is an unexplained failure — don't add one.
+- **Conversational actionability** — the `--slack` attention lane is the
+  intervention channel; humans act, workers never unblock themselves.
+- **Self-modification — deliberately NOT adopted.** The manifesto lists it
+  as the long-term vision, but uncontrolled self-modification contradicts
+  our bounded-autonomy rule (and the BPM paper's "prevent undesired
+  adaptation"). Workers improve via PRs, not self-rewrite.
+
 ## The six recommendations → where SocialAuto implements them
 
 | Paper recommendation | SocialAuto implementation |
@@ -73,7 +96,8 @@ docker exec social-api python scripts/workforce_audit.py --slack
    ready to ship.
 3. Give it observable output (a domain-table artifact within 2× cadence) —
    if it leaves no artifact, add one to the code first.
-4. Give it an escalation lane (a `SELECT count(*) …` for parked items).
+4. Give it an escalation lane — `(label, sql, why)`: the count query plus
+   the *reason a human must see it* (the manifesto's explanans).
 5. Run the audit — `ungoverned` blocks a clean run.
 
 ## Honest gaps (do not paper over)
