@@ -981,7 +981,15 @@ export const aiApi = {
     target_audience?: string
     brand_voice?: string
     template_id?: string
-  }) => api.post('/ai/generate-content', data),
+    provider?: string
+  }) =>
+    api.post('/ai/generate-content', {
+      // Interactive callers default to Workers AI — the local DMR chain
+      // (generate → rewrite → compliance → quality loop) exceeds the API
+      // gateway's 300s proxy timeout on CPU-bound hardware.
+      provider: 'cloudflare',
+      ...data,
+    }),
   improveContent: (data: {
     content: string
     platform: string
