@@ -35,8 +35,12 @@ Per worker it verifies three live signals:
 
 Statuses: `ok` · `idle` (no runs since restart — normal for daily/weekly
 beats) · `dark` (periodic worker produced nothing in 2× cadence, or a
-demand-driven worker has pending work but no recent output) · `escalation`.
-Exit code 1 when any worker is dark/escalation — safe for cron + digests.
+demand-driven worker has pending work but no recent output) · `escalation` ·
+`ungoverned` (missing goal/guardrails/fallback in its `Worker` contract — see
+`agentic-bpm` skill).
+Exit code 1 when any worker is dark/escalation/ungoverned — safe for cron +
+digests. `--governance` prints each worker's declared contract, `--slack`
+pushes the attention list to Slack.
 
 **Demand-driven rule:** publisher/scheduler/messenger workers only look
 "dark" when `pending_sql` shows waiting work AND no recent output — an idle
@@ -74,8 +78,13 @@ A beat task earns "worker" status only when it has all four:
 4. **Escalation lane** — the failure mode that parks to a human
    (`post_alert_to_slack`, `error_message`, or an audit escalation query).
 
+5. **Governance contract** (Agentic BPM, `agentic-bpm` skill) — `goal`,
+   `guardrails`, `autonomy` tier, `fallback` in the `Worker(...)` entry;
+   missing fields → `ungoverned`.
+
 Then add a `Worker(...)` entry to `WORKFORCE` in the script — evidence +
-escalation SQL, `demand_driven=True` if it only works when items wait.
+escalation SQL, `demand_driven=True` if it only works when items wait, plus
+the governance fields above.
 
 ## First-run findings (2026-10-19)
 
