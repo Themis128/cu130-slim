@@ -203,6 +203,9 @@ async def test_send_flow(client, monkeypatch):
     assert out["messages"][0]["id"] == "m1"
     inter = calls[0]["json"]["interactive"]
     params = inter["action"]["parameters"]
+    # Meta-required parameters for interactive.type=flow
+    assert params["flow_message_version"] == "3"
+    assert params["flow_cta"] == "Open"
     assert params["flow_action"] == "navigate"
     assert params["flow_action_payload"]["screen"] == "S1"
     assert params["flow_action_payload"]["k"] == 1
