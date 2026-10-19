@@ -6,6 +6,25 @@ description: >-
 
 # Content Strategy
 
+## Adopted source frameworks — Oxford AIE (added 2026-10-19)
+
+Oxford "AI Ethics, Regulation & Compliance" exec-programme brochure
+(`OneDrive/Kakkava Sofia/Oxford/AIE_Brochure_May2026.pdf`) is adopted as a
+content framework via 4 live `content_prompt_templates` rows (team
+`10024d25-…`, pass `template_id` to `/api/v1/ai/generate-content`):
+
+| Template | Pillar | Arc |
+|---|---|---|
+| `Oxford AIE — AI failure modes` | Proof | predictable failure patterns → "anticipate, don't react" |
+| `Oxford AIE — EU AI Act` | Proof | risk classes → obligations → first practical step |
+| `Oxford AIE — Global regulation divergence` | Perspective | EU vs NIST vs rest — design for strictest |
+| `Oxford AIE — Auditing AI systems` | Proof | scoping, fairness/robustness metrics, conformity → audit CTA |
+
+Shared system prompt: "operational capability, not awareness" + mandatory
+UTM'd audit CTA (`utm_campaign=ai-governance` → `/contact`). Not yet adopted
+(backlogged): 4-week email course sequence, AI-audit service page, EU AI Act
+readiness-checklist magnet.
+
 Consolidated skill — each section below was a standalone skill. Member scripts/templates live under `<source-skill>/` inside this directory.
 
 | Section | Source |

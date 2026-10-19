@@ -18,6 +18,10 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 - [ ] **DMR cold-start + no CLI fallback** — DMR API offline on 2026-10-19;
   `docker CLI not found` inside `social-worker-publishing`. NLP fell back
   gracefully, but DMR-dependent generation stalls during cold starts.
+  Still live 19:50 EEST: `generate-content` → `httpx.ConnectError:
+  Temporary failure in name resolution` (500). When DMR is back, re-run the
+  Oxford AIE template smoke test (EU AI Act template, id
+  `474a19ee-5a85-4fb9-a9a9-788a89cb6b6f`).
 - [ ] **`warp-proxy` unreachable** — instagrapi SOCKS path down (seen 2026-10-19);
   private-API IG verification blocked. Check the warp container.
 - [ ] **X/Twitter + TikTok token expiry** — Grafana token panel showed X ~1h and
@@ -42,6 +46,13 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 ## Growth / funnel
 
+- [ ] **Oxford AIE adoption — bigger pieces** (templates landed 2026-10-19):
+  (a) 4-week "AI Act in 4 weeks" email course — needs a *sequence* engine
+  (current drip engine sends one template/wave, not offset series);
+  (b) AI-governance/audit service framing on `cloudless.gr/pricing|/contact`
+  — user decision; (c) "EU AI Act readiness checklist" lead magnet on
+  `/links` (second magnet beside the 12-Automation checklist).
+  Source: `Kakkava Sofia/Oxford/AIE_Brochure_May2026.pdf`.
 - [ ] **Bio links → `/links`** — most profiles still point at the homepage;
   switching IG/FB bios to `cloudless.gr/links` closes Meta playbook #2
   (profile → lead capture). Was offered to user, not yet approved.
