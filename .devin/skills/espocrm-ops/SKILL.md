@@ -102,3 +102,30 @@ espocrm_client.lead_counts() / campaign_profiles() / list_all(entity)
   (Cloudflare Access service token) + manual leads
 - `src/lib/espocrm.ts` (cloudless.gr) — Contact/Deal/Note upserts,
   `createLead` with email dedup + UTM description
+
+
+
+### Funnel segment: LinkedIn newsletter (live 2026-10-19)
+
+- Campaign `LinkedIn newsletter` + TargetList `LinkedIn newsletter` hold the
+  subscribers of "The Cloudless Build Log" (`newsletters/the-cloudless-build-log-7511859883881914368/`,
+  169 subs, personal profile — newsletters are bound to the author).
+- Each Lead: `source=Newsletter` (enum added to Lead.source — options REPLACE
+  on write, always send the full union), `utmSource=linkedin`,
+  `utmMedium=newsletter`, `utmCampaign=linkedin_newsletter`, `campaignId` linked,
+  description carries profile URL + headline + connection degree + inbox action.
+- Dedup key = `linkedin.com/in/` URL token inside `description` (no email for
+  these leads — name matching is unsafe).
+- **Scrape procedure** (sidecar can't hydrate the newsletter page — use the
+  bridge on :9223, `X-Platform: linkedin`, force the session): navigate the
+  newsletter URL → JS-click the "N subscribers" `<button>` → modal
+  `reader-subscribers-modal` opens at `/subscribers/` → scroll
+  `.artdeco-modal__content` until
+  `.reader-subscriber-list-item__actor-profile-link` count == subscriber total
+  (~10/scroll) → per `li.reader-subscriber-list__actor-list-item` extract
+  `a[href]`, `p.t-bold` (name), `.distance-badge` (degree), second `p`
+  (headline), action `button` (Message/Connect/Follow).
+- **Communication reality**: `Message` action ≈ reachable via sidecar DM
+  (146/169 on first sync); `Connect` needs an invite first; `Follow` is
+  non-connection. Mass-DM through the sidecar is rate-limit risky — use
+  small batches with the deferred-reply workflow pattern, never a tight loop.
