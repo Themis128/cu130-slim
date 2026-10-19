@@ -437,3 +437,31 @@ async def publish_to_platform(account, post):
 - **auto_connector**: https://github.com/ivasik-k7/auto_connector — Adaptive throttling with
   Retry-After handling
 - **Cloudflare WARP**: Free SOCKS5 proxy, already integrated as `warp-proxy` container
+
+## Stale publish-queue locks after Postgres restart (seen 2026-10-19)
+
+A Postgres restart/recreate mid-publish orphans `publish_queue` rows in
+`status='processing'` — the worker that held the lock died, no task owns the
+row, and SKIP LOCKED sweepers pass over it forever (queue appears idle:
+`processing=N` but no task running).
+
+Diagnose before resetting — verify no external publish already landed:
+
+```python
+# check the target — if platform_post_id/platform_url exists, DO NOT requeue
+SELECT t.status, t.platform_post_id, t.platform_url, t.error_message
+FROM post_targets t WHERE t.post_id = '<post_id>';
+# queue lock age
+SELECT status, attempts, locked_at FROM publish_queue WHERE post_id = '<post_id>';
+```
+
+If the target is still `pending`/no platform id → safe reset:
+
+```sql
+UPDATE publish_queue SET status='pending', locked_at=NULL, locked_by=NULL
+WHERE post_id='<post_id>' AND status='processing' AND locked_at < now() - interval '10 minutes';
+```
+
+A worker picks it up on the next `process_publish_queue` beat (~30s).
+Never blind-reset while a task may still be mid-flight — the idempotency
+check is the `platform_post_id`, not the queue row.
