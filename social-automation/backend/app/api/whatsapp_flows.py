@@ -105,6 +105,7 @@ class FlowSendRequest(BaseModel):
     body_text: str = Field(default="Please fill out this form", description="Body text")
     header_text: str | None = Field(None, description="Optional header text")
     footer_text: str | None = Field(None, description="Optional footer text")
+    flow_cta: str = Field(default="Open", description="CTA button label (≤30 chars, no emoji)")
     flow_action: str = Field(
         default="navigate",
         description="'navigate' (open a screen) or 'data_exchange' (endpoint-powered)",
@@ -341,6 +342,7 @@ async def send_flow(
             body_text=body.body_text,
             header_text=body.header_text,
             footer_text=body.footer_text,
+            flow_cta=body.flow_cta,
             flow_action=body.flow_action,
             screen=body.screen,
             flow_action_payload=body.flow_action_payload,

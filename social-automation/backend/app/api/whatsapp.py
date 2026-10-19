@@ -1183,11 +1183,85 @@ async def _process_inline(
             message_id=sent_id,
         )
 
+        # Promote a WhatsApp Flow when the intent calls for it (config-gated,
+        # one flow per sender per N days — tracked in Redis so we never spam).
+        try:
+            await _maybe_promote_flow(account, sender_phone, bot_result.get("intent", ""))
+        except Exception as flow_exc:
+            logger.debug(
+                "WhatsApp flow promotion skipped (non-fatal): %s",
+                _sanitize_log_text(type(flow_exc).__name__),
+            )
+
     except Exception as e:
         logger.error(
             "WhatsApp auto-reply failed: %s",
             _sanitize_log_text(type(e).__name__),
         )
+
+
+async def _maybe_promote_flow(account: SocialAccount, sender_phone: str, intent: str) -> None:
+    """Send a published WhatsApp Flow CTA after the AI reply, per intent map.
+
+    Config lives in ``social_accounts.meta_data.whatsapp_auto_reply.flow_promotion``::
+
+        {
+          "enabled": true,
+          "intents": {"greeting": "<flow_id>", "business": "<flow_id>"},
+          "resend_after_days": 7,
+          "header_text": "...", "body_text": "...", "footer_text": "...",
+          "cta": "Tell us what you need"
+        }
+
+    A Redis marker (``wa:flow_sent:{account}:{phone}:{flow_id}``) rate-limits
+    re-sends so a chatty sender sees the CTA at most once per window.
+    """
+    meta = account.meta_data or {}
+    promo = (meta.get("whatsapp_auto_reply") or {}).get("flow_promotion") or {}
+    if not promo.get("enabled"):
+        return
+    flow_id = (promo.get("intents") or {}).get(intent)
+    if not flow_id:
+        return
+
+    marker = f"wa:flow_sent:{account.id}:{sender_phone}:{flow_id}"
+    try:
+        from app.services.whatsapp_chatbot import _get_redis
+
+        r = await _get_redis()
+        if await r.get(marker):
+            return
+    except Exception:
+        # No dedup store → fail closed rather than risk re-sending every message
+        return
+
+    access_token = meta.get("access_token", "")
+    if isinstance(access_token, str) and not access_token.startswith("EA"):
+        access_token = decrypt_token(access_token)
+    from app.services.whatsapp_flows import WhatsAppFlowsClient
+
+    fclient = WhatsAppFlowsClient(
+        access_token=access_token,
+        waba_id=meta.get("waba_id", ""),
+        phone_number_id=meta.get("phone_number_id", ""),
+    )
+    await fclient.send_flow(
+        to=sender_phone,
+        flow_id=str(flow_id),
+        flow_token=f"promo:{uuid.uuid4().hex[:12]}",
+        body_text=promo.get("body_text", ""),
+        header_text=promo.get("header_text"),
+        footer_text=promo.get("footer_text"),
+        flow_cta=promo.get("cta", "Open"),
+        messaging_type="RESPONSE",
+    )
+    await r.setex(marker, int(promo.get("resend_after_days", 7)) * 86400, "1")
+    logger.info(
+        "WhatsApp flow %s promoted to %s (intent=%s)",
+        _sanitize_log_text(str(flow_id)),
+        _sanitize_log_text(sender_phone),
+        _sanitize_log_text(intent),
+    )
 
 
 # ------------------------------------------------------------------
