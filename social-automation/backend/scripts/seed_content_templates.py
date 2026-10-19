@@ -34,6 +34,7 @@ from app.db.session import async_session_maker
 from app.models.content import Pillar
 from app.models.workflow import ContentPromptTemplate
 
+
 def _default_seed_file() -> Path:
     # In the container the compose volume mounts deploy/seeds at
     # /app/deploy/seeds; locally the repo root holds deploy/.
