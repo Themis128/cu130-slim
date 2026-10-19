@@ -926,11 +926,13 @@ services:
       # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
       # slack_tool, monetization_tool, viber_tool) — read-only.
       - ./social-automation/backend/scripts:/app/scripts:ro
+      # Deploy seeds (content_prompt_templates etc.) — idempotent, applied on boot.
+      - ./deploy/seeds:/app/deploy/seeds:ro
       - ./social-automation/uploads:/app/uploads
       # Read-only access to notebook reports output for /api/v1/reports.
       - ./notebooks:/notebooks:ro
       - tunnel_url:/run/tunnel
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    command: sh -c "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN: content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     extra_hosts:
       - host.docker.internal:host-gateway
     depends_on:
