@@ -42,6 +42,31 @@ SOCIAL_ACCOUNTS = Gauge(
 )
 POSTS = Gauge("socialauto_posts", "Posts by status", ["status"])
 QUEUE = Gauge("socialauto_publish_queue", "Publish queue items by status", ["status"])
+QUEUE_PLATFORM = Gauge(
+    "socialauto_publish_queue_platform",
+    "Publish queue items by platform and status",
+    ["platform", "status"],
+)
+PUBLISHED_7D = Gauge(
+    "socialauto_posts_published_7d",
+    "Publish targets completed in the last 7 days, by platform",
+    ["platform"],
+)
+FAILURES_7D = Gauge(
+    "socialauto_publish_failures_7d",
+    "Publish targets failed in the last 7 days, by platform",
+    ["platform"],
+)
+FOLLOWERS = Gauge(
+    "socialauto_followers_latest",
+    "Latest follower snapshot per connected account",
+    ["platform", "account"],
+)
+TOKEN_EXPIRY = Gauge(
+    "socialauto_token_expires_in_seconds",
+    "Seconds until the stored OAuth token expires (negative = already expired)",
+    ["platform", "account"],
+)
 MEDIA = Gauge("socialauto_media_assets", "Media assets in library")
 BILLING_EVENTS = Gauge("socialauto_billing_events", "Billing webhook events", ["type"])
 BILLING_ERRORS = Gauge(
@@ -214,6 +239,68 @@ async def refresh_business_metrics() -> None:
                     )
                 ).scalar_one()
             )
+
+            QUEUE_PLATFORM.clear()
+            for platform, status, n in (
+                await db.execute(
+                    text(
+                        "SELECT sa.platform, pq.status::text, count(*) "
+                        "FROM publish_queue pq "
+                        "JOIN social_accounts sa ON sa.id = pq.social_account_id "
+                        "GROUP BY sa.platform, pq.status"
+                    )
+                )
+            ).all():
+                QUEUE_PLATFORM.labels(platform=platform, status=status).set(n)
+
+            PUBLISHED_7D.clear()
+            FAILURES_7D.clear()
+            for platform, status, n in (
+                await db.execute(
+                    text(
+                        "SELECT sa.platform, pq.status::text, count(*) "
+                        "FROM publish_queue pq "
+                        "JOIN social_accounts sa ON sa.id = pq.social_account_id "
+                        "WHERE pq.status IN ('completed', 'failed') "
+                        "AND coalesce(pq.locked_at, pq.created_at) "
+                        "    > now() - interval '7 days' "
+                        "GROUP BY sa.platform, pq.status"
+                    )
+                )
+            ).all():
+                if status == "completed":
+                    PUBLISHED_7D.labels(platform=platform).set(n)
+                elif status == "failed":
+                    FAILURES_7D.labels(platform=platform).set(n)
+
+            FOLLOWERS.clear()
+            for platform, account, followers in (
+                await db.execute(
+                    text(
+                        "SELECT DISTINCT ON (fs.social_account_id) "
+                        "fs.platform, "
+                        "coalesce(sa.username, sa.account_id, fs.social_account_id::text), "
+                        "fs.followers "
+                        "FROM follower_snapshots fs "
+                        "JOIN social_accounts sa ON sa.id = fs.social_account_id "
+                        "ORDER BY fs.social_account_id, fs.captured_at DESC"
+                    )
+                )
+            ).all():
+                FOLLOWERS.labels(platform=platform, account=account).set(followers)
+
+            TOKEN_EXPIRY.clear()
+            for platform, account, ttl in (
+                await db.execute(
+                    text(
+                        "SELECT platform, "
+                        "coalesce(username, account_id, id::text), "
+                        "EXTRACT(EPOCH FROM token_expires_at - now()) "
+                        "FROM social_accounts WHERE token_expires_at IS NOT NULL"
+                    )
+                )
+            ).all():
+                TOKEN_EXPIRY.labels(platform=platform, account=account).set(float(ttl))
 
             REFRESH_TS.set(time.time())
     except Exception as exc:  # noqa: BLE001
