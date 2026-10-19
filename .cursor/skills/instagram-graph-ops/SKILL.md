@@ -64,3 +64,25 @@ docker exec social-api python3 /app/scripts/instagram_tool.py discover <username
   instagram-private-api sidecar already cover, with more ToS risk.
 - `tdlib`-style official infra: none exists for IG — the official surface is
   the Graph API we already use.
+
+## Permalink: media pk ≠ shortcode (fixed PR #737, 2026-10-19)
+
+Graph returns a numeric media **pk** (e.g. `18112569254028827`) — putting it
+in `instagram.com/p/<pk>` produces a dead link. Convert with instagrapi's
+canonical codec:
+
+```python
+from instagrapi.utils import InstagramIdCodec
+code = InstagramIdCodec.encode(18112569254028827)   # -> 'BAWUkoWyYb'
+url = f'https://www.instagram.com/p/{code}/'
+```
+
+`publishing.py` Graph path now stores the shortcode permalink; the
+instagrapi/sidecar paths already used `code` correctly. Deck cards /
+datalake rows from before the fix may carry broken `/p/<pk>` URLs.
+
+Verification constraints seen live: `/{ig-user-id}/media` reads are
+permission-gated (`(#10)` at this app tier), public `instagram.com/p/*` is
+login-walled to anonymous fetches, and the instagrapi path needs
+`warp-proxy` up — when all three are unavailable, Postgres +
+`platform_post_id` is the source of truth for "did it post".

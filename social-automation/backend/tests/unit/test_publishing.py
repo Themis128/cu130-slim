@@ -824,6 +824,7 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
         _FakeResponse(200, {"id": "17841460000000001"}),   # create container
         _FakeResponse(200, {"status_code": "FINISHED"}),   # status poll
         _FakeResponse(200, {"id": "17841460000000002"}),   # publish
+        _FakeResponse(200, {"permalink": "https://www.instagram.com/p/Cfb123/"}),  # permalink lookup
     ])
 
     with patch("app.services.instagram_api.httpx.AsyncClient", new=lambda timeout=30.0: fake):
@@ -834,8 +835,9 @@ async def test_publish_instagram_sidecar_no_session_falls_back_to_graph(ig_accou
 
     assert result.success is True
     assert result.platform_post_id == "17841460000000002"
-    # 4 calls: dedup media list + container + status + publish
-    assert len(fake.calls) == 4
+    assert result.platform_url == "https://www.instagram.com/p/Cfb123/"
+    # 5 calls: dedup media list + container + status + publish + permalink
+    assert len(fake.calls) == 5
 
 
 @pytest.mark.asyncio
@@ -1563,6 +1565,48 @@ async def test_publish_instagram_graph_timeout_ambiguous(account, post, monkeypa
     post.platform_specific = {}
     r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
     assert r.success is False and r.ambiguous is True
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_url_uses_permalink(account, post, monkeypatch):
+    """platform_url must come from Graph's permalink field — the media id
+    is a Graph identifier, never something we fabricate a /p/ link from."""
+
+    class _IGWithPermalink(_IGClient):
+        async def publish_container(self, creation_id):
+            return "18112569254028827"
+
+        async def get_media_permalink(self, media_id):
+            assert media_id == "18112569254028827"
+            return "https://www.instagram.com/p/RealCode123/"
+
+    monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGWithPermalink())
+    monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    account.meta_data = {"account_type": "business"}
+    post.platform_specific = {}
+    r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
+    assert r.success is True
+    assert r.platform_url == "https://www.instagram.com/p/RealCode123/"
+
+
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_url_none_when_permalink_absent(account, post, monkeypatch):
+    """When Graph supplies no permalink, platform_url is None — never a
+    fabricated /p/<id> link pointing at an unrelated post."""
+
+    class _IGNoPermalink(_IGClient):
+        async def publish_container(self, creation_id):
+            return "18112569254028827"
+
+        async def get_media_permalink(self, media_id):
+            return None
+
+    monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGNoPermalink())
+    monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    account.meta_data = {"account_type": "business"}
+    post.platform_specific = {}
+    r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
+    assert r.success is True and r.platform_url is None
 
 
 class _Res2:
