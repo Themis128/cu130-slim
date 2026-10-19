@@ -25,6 +25,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 19. [Nextcloud client portals + Talk](19-nextcloud-client-portals.md) — per-client portal folders on cloud.cloudless.gr, share-link rules, public Talk consult room, CGNAT limits, retention.
 20. [Meta organic growth](20-meta-organic-growth.md) — free, media-backed cross-publishing to connected Facebook, Instagram, and Threads accounts.
 21. [Sales-funnel audit](21-funnel-audit.md) — live stage counts, weakest-transition detection, and the auction warning (fix conversion before buying traffic).
+22. [Lead-gen readiness audit](22-leadgen-audit.md) — capture surfaces, DM lead lanes, UTM discipline, and 30d lead volume checked live.
 
 ## Product plans
 
