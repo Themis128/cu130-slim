@@ -69,11 +69,25 @@ class Worker:
     evidence: list[tuple[str, str]] = field(default_factory=list)
     # SQL returning count of pending items for demand-driven workers
     pending_sql: str | None = None
-    # (label, sql-returning-an-int) — parked items needing a human
-    escalations: list[tuple[str, str]] = field(default_factory=list)
+    # (label, sql, rationale) — parked items needing a human; the rationale
+    # is the manifesto's explanans: the worker states WHY the item needs a
+    # principal, not just that it exists
+    escalations: list[tuple[str, str, str]] = field(default_factory=list)
     # scheduled=False for composite/on-demand entries that no beat dispatches
     # — a quiet period must never darken them (they report 'unverified')
     scheduled: bool = True
+
+
+# APM manifesto (Calvanese et al., arXiv:2603.18916): frames exist on agent,
+# process, and organization levels — and org-level normative frames project
+# onto every agent. These rules bind all workers regardless of contract.
+GLOBAL_FRAME = (
+    "never spend money — promotional credits only",
+    "never publish without media; never republish duplicates",
+    "bots disclose they are bots; deterministic handlers before the LLM",
+    "real data only — no fabricated metrics in any output",
+    "quarantine beats delete — no bulk data removal",
+)
 
 
 DAY = 86400
@@ -96,8 +110,16 @@ WORKFORCE = [
         # not publisher work yet (process_publish_queue cannot claim them)
         pending_sql="SELECT count(*) FROM publish_queue WHERE status='pending' AND scheduled_at <= now()",
         escalations=[
-            ("stale processing locks", "SELECT count(*) FROM publish_queue WHERE status='processing' AND locked_at < now() - interval '2 hours'"),
-            ("failed targets 24h", "SELECT count(*) FROM post_targets WHERE status='failed' AND updated_at > now() - interval '24 hours'"),
+            (
+                "stale processing locks",
+                "SELECT count(*) FROM publish_queue WHERE status='processing' AND locked_at < now() - interval '2 hours'",
+                "claimed but never finished — the claimer crashed; requeue or inspect the worker",
+            ),
+            (
+                "failed targets 24h",
+                "SELECT count(*) FROM post_targets WHERE status='failed' AND updated_at > now() - interval '24 hours'",
+                "retries exhausted — platform error needs a human decision",
+            ),
         ],
     ),
     Worker(
@@ -159,6 +181,7 @@ WORKFORCE = [
                 "       'tiktok','threads')"
                 "  AND (s.last IS NULL"
                 "       OR s.last < now() - interval '1 hour')) t",
+                "per-account sync is failing — check the platform's follower endpoint (see follower-analytics-guard)",
             )
         ],
     ),
@@ -173,7 +196,13 @@ WORKFORCE = [
             "never touch non-expired tokens",
         ),
         fallback="expired token → session-healer escalation",
-        escalations=[("accounts past token expiry", "SELECT count(*) FROM social_accounts WHERE token_expires_at < now()")],
+        escalations=[
+            (
+                "accounts past token expiry",
+                "SELECT count(*) FROM social_accounts WHERE token_expires_at < now()",
+                "refresh failed or impossible — reconnect the account in the UI",
+            )
+        ],
     ),
     Worker(
         "session-healer",
@@ -186,7 +215,13 @@ WORKFORCE = [
             "credential login only as last resort",
         ),
         fallback="account stays non-active → Slack alert for human login",
-        escalations=[("accounts not active", "SELECT count(*) FROM social_accounts WHERE status <> 'active'")],
+        escalations=[
+            (
+                "accounts not active",
+                "SELECT count(*) FROM social_accounts WHERE status <> 'active'",
+                "session healing exhausted its ladder — human re-login needed",
+            )
+        ],
     ),
     Worker(
         "tiktok-reconcile",
@@ -205,6 +240,7 @@ WORKFORCE = [
                 "ON sa.id = pt.social_account_id WHERE sa.platform='tiktok' "
                 "AND pt.status='published' AND pt.error_message LIKE "
                 "'Draft delivered to TikTok app inbox%'",
+                "draft parked in the TikTok app inbox >24h — open the app and finish publishing, or discard",
             )
         ],
     ),
@@ -409,9 +445,9 @@ async def audit() -> dict:
                 entry["evidence"].append({"label": label, "at": str(ts), "fresh": fresh})
                 if not fresh:
                     entry["status"] = "dark"
-            for label, sql in w.escalations:
+            for label, sql, why in w.escalations:
                 n = (await db.execute(text(sql))).scalar() or 0
-                entry["escalations"].append({"label": label, "count": n})
+                entry["escalations"].append({"label": label, "count": n, "why": why})
                 if n:
                     entry["status"] = "dark" if entry["status"] == "dark" else "escalation"
             # PRESENCE: nobody consuming the worker's queue = offline. When
@@ -438,7 +474,10 @@ async def audit() -> dict:
 
 
 def render_governance(report: dict) -> str:
-    lines = ["", "Governance contract (goal · autonomy · fallback)", "-" * 78]
+    lines = ["", "Global frame (binds every worker)", "-" * 78]
+    for rule in GLOBAL_FRAME:
+        lines.append(f"  ! {rule}")
+    lines += ["", "Governance contract (goal · autonomy · fallback)", "-" * 78]
     for w in report["workers"]:
         g = w["governance"]
         mark = " " if g["complete"] else "!"
@@ -486,7 +525,7 @@ async def push_slack(report: dict) -> None:
         "*Agent workforce needs a human*",
         *[
             f"• `{w['name']}` — {w['status']}"
-            + ("".join(f" | {e['label']}={e['count']}" for e in w["escalations"] if e["count"]) if w["status"] == "escalation" else "")
+            + ("".join(f" | {e['label']}={e['count']} — {e['why']}" for e in w["escalations"] if e["count"]) if w["status"] == "escalation" else "")
             for w in bad
         ],
     ]
