@@ -1565,6 +1565,23 @@ async def test_publish_instagram_graph_timeout_ambiguous(account, post, monkeypa
     assert r.success is False and r.ambiguous is True
 
 
+@pytest.mark.asyncio
+async def test_publish_instagram_graph_url_uses_shortcode(account, post, monkeypatch):
+    """platform_url must carry the IG shortcode, not the raw media pk."""
+
+    class _IGNumeric(_IGClient):
+        async def publish_container(self, creation_id):
+            return "18112569254028827"
+
+    monkeypatch.setattr(pub, "InstagramAPIClient", lambda **_: _IGNumeric())
+    monkeypatch.setattr(pub, "_instagram_public_urls", AsyncMock(return_value=["https://cdn/a.jpg"]))
+    account.meta_data = {"account_type": "business"}
+    post.platform_specific = {}
+    r = await pub._publish_instagram_via_graph("tok", "cap", account, post, ["/tmp/a.jpg"], ["sp/a.jpg"], None)
+    assert r.success is True
+    assert r.platform_url == "https://www.instagram.com/p/BAWUkoWyYb/"
+
+
 class _Res2:
     def __init__(self, v):
         self._v = v
