@@ -217,6 +217,136 @@ async def add_lead_note(espocrm_lead_id: str, note: str, *, entity: str = "Lead"
         return False
 
 
+async def target_list_id(name: str) -> str | None:
+    """Resolve a TargetList display name → id (None when missing)."""
+    if not name or not configured():
+        return None
+    try:
+        data = await espo_get(
+            "/TargetList",
+            params={
+                "searchParams": json.dumps(
+                    {
+                        "maxSize": 1,
+                        "select": ["id"],
+                        "where": [{"type": "equals", "attribute": "name", "value": name}],
+                    }
+                )
+            },
+        )
+        rows = data.get("list") or []
+        return rows[0].get("id") if rows else None
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM TargetList lookup failed for %r", name)
+        return None
+
+
+async def link_lead_to_target_list(lead_id: str, list_name: str) -> bool:
+    """Enrol a Lead in a named TargetList — union semantics, never removes
+    existing memberships. ``targetListsIds`` is set-replacing and is not
+    returned by ``select``, so current memberships come from the relation
+    endpoint. Returns False (never raises) on any failure."""
+    if not lead_id or not configured():
+        return False
+    try:
+        list_id = await target_list_id(list_name)
+        if not list_id:
+            return False
+        rel = await espo_get(f"/Lead/{lead_id}/targetLists", params={"select": "id"})
+        current = [m["id"] for m in (rel.get("list") or []) if m.get("id")]
+        if list_id in current:
+            return True
+        await espo_patch(f"/Lead/{lead_id}", {"targetListsIds": [*current, list_id]})
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM TargetList link failed for lead %s → %r", lead_id, list_name)
+        return False
+
+
+async def upsert_lead(payload: dict[str, Any]) -> str | None:
+    """Email-dedup Lead create/update. Returns the Lead id or None.
+
+    Mirrors the cloudless.gr ``createLead`` contract:
+    - new email → POST (``status`` starts ``New``, lists applied via
+      ``targetListsIds``)
+    - existing email → PATCH that never resets ``status``, never writes
+      empty first/last names, merges ``description`` lines (old content
+      survives), and unions ``targetListsIds`` with current memberships
+      read from ``/Lead/{id}/targetLists`` (the ids attr is set-replacing
+      and not ``select``-able — a failed relation read means "don't
+      touch", never wipe).
+    """
+    email = str(payload.get("emailAddress") or "").strip().lower()
+    if not email or not configured():
+        return None
+    try:
+        found = await espo_get(
+            "/Lead",
+            params={
+                "searchParams": json.dumps(
+                    {
+                        "maxSize": 1,
+                        "select": ["id", "status", "firstName", "lastName", "description"],
+                        "where": [
+                            {"type": "equals", "attribute": "emailAddress", "value": email}
+                        ],
+                    }
+                )
+            },
+        )
+        rows = found.get("list") or []
+        new_lists = list(payload.get("targetListsIds") or [])
+
+        if not rows:
+            body = {k: v for k, v in payload.items() if v not in (None, "", [])}
+            body["emailAddress"] = email
+            body.setdefault("status", "New")
+            created = await espo_post("/Lead", body)
+            return created.get("id")
+
+        existing = rows[0]
+        lead_id = existing.get("id")
+        if not lead_id:
+            return None
+        update: dict[str, Any] = {"emailAddress": email}
+        for key in ("firstName", "lastName"):
+            val = payload.get(key) or existing.get(key)
+            if val:
+                update[key] = val
+        for key in (
+            "source",
+            "utmSource",
+            "utmMedium",
+            "utmCampaign",
+            "utmContent",
+            "utmTerm",
+            "leadMagnet",
+            "phoneNumber",
+            "campaignName",
+        ):
+            val = payload.get(key)
+            if val:
+                update[key] = val
+        old_desc = str(existing.get("description") or "")
+        new_desc = str(payload.get("description") or "")
+        if new_desc and new_desc not in old_desc:
+            update["description"] = (old_desc + "\n" + new_desc).strip() if old_desc else new_desc
+        if new_lists:
+            try:
+                rel = await espo_get(
+                    f"/Lead/{lead_id}/targetLists", params={"select": "id"}
+                )
+                current = [m["id"] for m in (rel.get("list") or []) if m.get("id")]
+                update["targetListsIds"] = sorted(set(current) | set(new_lists))
+            except Exception:  # noqa: BLE001 — never wipe memberships on read failure
+                logger.exception("EspoCRM targetLists read failed for %s", lead_id)
+        await espo_patch(f"/Lead/{lead_id}", update)
+        return lead_id
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM upsert_lead failed for %s", email)
+        return None
+
+
 async def lead_counts() -> dict[str, int]:
     """Counts by entity for the CRM access surface."""
     out: dict[str, int] = {}

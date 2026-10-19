@@ -15,7 +15,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from app.api import messenger
 from app.core.security import encrypt_token
@@ -533,7 +533,7 @@ class TestReceiveWebhook:
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "sec")
         req = _request(b"{}", {"X-Hub-Signature-256": "sha256=bad"})
         with pytest.raises(HTTPException) as e:
-            await messenger.receive_webhook(req, FakeDB())
+            await messenger.receive_webhook(req, BackgroundTasks(), FakeDB())
         assert e.value.status_code == 403
 
     async def test_valid_signature_passes(self, monkeypatch):
@@ -542,7 +542,7 @@ class TestReceiveWebhook:
         sig = hmac.new(b"sec", body, hashlib.sha256).hexdigest()
         monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [])
         out = await messenger.receive_webhook(
-            _request(body, {"X-Hub-Signature-256": f"sha256={sig}"}), FakeDB(),
+            _request(body, {"X-Hub-Signature-256": f"sha256={sig}"}), BackgroundTasks(), FakeDB(),
         )
         assert out["status"] == "ok" and out["events_received"] == 0
 
@@ -562,7 +562,7 @@ class TestReceiveWebhook:
         monkeypatch.setattr(messenger, "_process_inline", lambda *a, **k: _async(None))
         monkeypatch.setenv("MESSENGER_SIDECAR_URL", "")
         monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "")
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert seen == ["LEAD_AUDIT"] and out["auto_replies_sent"] == 1
 
     async def test_inline_dispatch_when_no_sidecar(self, monkeypatch):
@@ -580,7 +580,7 @@ class TestReceiveWebhook:
             calls.append((page_id, psid, text))
 
         monkeypatch.setattr(messenger, "_process_inline", proc)
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert calls == [("pg-1", "u1", "hi")] and out["auto_replies_sent"] == 1
 
     async def test_sidecar_dispatch_success(self, monkeypatch):
@@ -605,7 +605,7 @@ class TestReceiveWebhook:
                 return SimpleNamespace(status_code=200)
 
         monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: FakeHTTP())
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert posts == [("http://sc:9/process", "u1")] and out["auto_replies_sent"] == 1
 
     async def test_sidecar_failure_falls_back_inline(self, monkeypatch):
@@ -634,7 +634,7 @@ class TestReceiveWebhook:
             calls.append(psid)
 
         monkeypatch.setattr(messenger, "_process_inline", proc)
-        out = await messenger.receive_webhook(_request(b"{}"), FakeDB())
+        out = await messenger.receive_webhook(_request(b"{}"), BackgroundTasks(), FakeDB())
         assert calls == ["u1"] and out["auto_replies_sent"] == 1
 
 
@@ -1506,3 +1506,184 @@ class TestCoverageTails2:
         with pytest.raises(HTTPException) as e:
             await messenger.send_personal_message(a.id, req, _admin(), db)
         assert e.value.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Webhook: Meta leadgen ingestion → EspoCRM
+# ---------------------------------------------------------------------------
+
+def _leadgen_body(**value_over):
+    value = {"leadgen_id": "lg-1", "page_id": "pg-1", "form_id": "f9", **value_over}
+    return json.dumps(
+        {"object": "page", "entry": [{"id": "pg-1", "changes": [{"field": "leadgen", "value": value}]}]}
+    ).encode()
+
+
+class TestLeadgenWebhook:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_leadgen_change_scheduled_and_counted(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [])
+        monkeypatch.setattr(messenger, "_ingest_meta_leadgen", AsyncMock())
+        bt = BackgroundTasks()
+        out = await messenger.receive_webhook(_request(_leadgen_body()), bt, FakeDB())
+        assert out["leadgen_received"] == 1 and out["events_received"] == 0
+        assert len(bt.tasks) == 1
+        # the scheduled task receives the raw change values
+        await bt.tasks[0]()
+        messenger._ingest_meta_leadgen.assert_awaited_once()
+        assert messenger._ingest_meta_leadgen.await_args.args[0] == [
+            {"leadgen_id": "lg-1", "page_id": "pg-1", "form_id": "f9"}
+        ]
+
+    async def test_non_leadgen_changes_ignored(self, monkeypatch):
+        monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
+        monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
+        monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [])
+        body = json.dumps(
+            {"object": "page", "entry": [{"changes": [{"field": "feed", "value": {"x": 1}},
+                                                       {"field": "leadgen", "value": {}}]}]}
+        ).encode()
+        bt = BackgroundTasks()
+        out = await messenger.receive_webhook(_request(body), bt, FakeDB())
+        assert out["leadgen_received"] == 0 and bt.tasks == []
+
+
+class _FakeSessionMaker:
+    def __init__(self, account):
+        self._account = account
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def scalar(self, _q):
+        return self._account
+
+
+class _FakeHTTP:
+    """Drives the Graph lead fetch inside _ingest_meta_leadgen."""
+
+    def __init__(self, response):
+        self._resp = response
+        self.urls: list[str] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *a):
+        return False
+
+    async def get(self, url, params=None):
+        self.urls.append(url)
+        return self._resp
+
+
+def _page_account(token="EApagetoken"):
+    return SimpleNamespace(
+        platform="facebook", account_type="page", account_id="pg-1",
+        meta_data={"page_token": token},
+    )
+
+
+def _graph_lead(**over):
+    base = {
+        "id": "lg-1", "form_id": "f9", "ad_id": "ad-3",
+        "campaign_name": "Checklist Q4", "platform": "fb",
+        "field_data": [
+            {"name": "email", "values": ["Ada@Example.COM"]},
+            {"name": "full_name", "values": ["Ada Lovelace"]},
+            {"name": "phone_number", "values": ["+30 691"]},
+            {"name": "company", "values": ["Acme"]},
+        ],
+    }
+    base.update(over)
+    return base
+
+
+def _wire_ingest(monkeypatch, account, http_resp, espo=None):
+    monkeypatch.setattr(
+        "app.db.session.async_session_maker", lambda: _FakeSessionMaker(account)
+    )
+    http = _FakeHTTP(http_resp)
+    import httpx as _httpx
+    monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: http)
+    fake = espo or SimpleNamespace(
+        target_list_id=AsyncMock(return_value="tl-9"),
+        upsert_lead=AsyncMock(return_value="lead-1"),
+    )
+    monkeypatch.setattr("app.services.espocrm_client.target_list_id", fake.target_list_id)
+    monkeypatch.setattr("app.services.espocrm_client.upsert_lead", fake.upsert_lead)
+    return http, fake
+
+
+class TestIngestMetaLeadgen:
+    pytestmark = pytest.mark.asyncio
+
+    async def test_full_flow_writes_meta_lead_ad(self, monkeypatch):
+        resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
+        http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
+        await messenger._ingest_meta_leadgen(
+            [{"leadgen_id": "lg-1", "page_id": "pg-1", "form_id": "f9"}]
+        )
+        assert any("/lg-1" in u for u in http.urls)
+        payload = fake.upsert_lead.await_args.args[0]
+        assert payload["emailAddress"] == "ada@example.com"
+        assert payload["firstName"] == "Ada" and payload["lastName"] == "Lovelace"
+        assert payload["phoneNumber"] == "+30 691"
+        assert payload["source"] == "Meta Lead Ad"
+        assert payload["utmSource"] == "facebook" and payload["utmMedium"] == "paid"
+        assert payload["utmCampaign"] == "Checklist Q4"
+        assert payload["targetListsIds"] == ["tl-9"]
+        assert "company: Acme" in payload["description"]
+
+    async def test_no_page_token_skips(self, monkeypatch):
+        resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
+        http, fake = _wire_ingest(monkeypatch, None, resp)
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-1", "page_id": "pg-1"}])
+        assert http.urls == [] and fake.upsert_lead.await_count == 0
+
+    async def test_graph_error_and_no_email_skip(self, monkeypatch):
+        resp = SimpleNamespace(status_code=403, json=lambda: {})
+        http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-1", "page_id": "pg-1"}])
+        assert fake.upsert_lead.await_count == 0
+
+        resp2 = SimpleNamespace(
+            status_code=200,
+            json=lambda: {"id": "lg-2", "field_data": [{"name": "phone", "values": ["1"]}]},
+        )
+        http, fake = _wire_ingest(monkeypatch, _page_account(), resp2)
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-2", "page_id": "pg-1"}])
+        assert fake.upsert_lead.await_count == 0
+
+    async def test_explicit_names_ig_platform_and_organic(self, monkeypatch):
+        resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead(
+            platform="ig", is_organic=True,
+            field_data=[
+                {"name": "email", "values": ["g@h.gr"]},
+                {"name": "first_name", "values": ["Grace"]},
+                {"name": "last_name", "values": ["Hopper"]},
+                {"name": "full_name", "values": ["Dr Grace Hopper"]},
+            ],
+        ))
+        http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
+        await messenger._ingest_meta_leadgen([{"leadgen_id": "lg-3", "page_id": "pg-1"}])
+        payload = fake.upsert_lead.await_args.args[0]
+        assert payload["firstName"] == "Grace" and payload["lastName"] == "Hopper"
+        assert payload["utmSource"] == "instagram" and payload["utmMedium"] == "social"
+        assert "Organic lead" in payload["description"]
+
+    async def test_one_bad_change_does_not_stall_batch(self, monkeypatch):
+        resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
+        http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
+        fake.upsert_lead = AsyncMock(side_effect=[RuntimeError("crm down"), "lead-2"])
+        monkeypatch.setattr("app.services.espocrm_client.upsert_lead", fake.upsert_lead)
+        await messenger._ingest_meta_leadgen(
+            [{"leadgen_id": "lg-1", "page_id": "pg-1"}, {"leadgen_id": "lg-2", "page_id": "pg-1"}]
+        )
+        assert fake.upsert_lead.await_count == 2
