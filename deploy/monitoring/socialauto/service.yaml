@@ -1,0 +1,38 @@
+# Headless Service + static Endpoints pointing at the social-metrics nginx
+# container on the Docker host (the compose service proxies ONLY /metrics from
+# the loopback-bound social-api — see docker-compose.yml "social-metrics").
+# The Endpoints IP is the workstation LAN address Prometheus reaches; update it
+# here if the host moves.
+apiVersion: v1
+kind: Service
+metadata:
+  name: socialauto-metrics
+  namespace: monitoring
+  labels:
+    app: socialauto
+    component: metrics
+    release: kube-prom
+spec:
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: 9390
+      protocol: TCP
+      targetPort: 9390
+---
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: socialauto-metrics
+  namespace: monitoring
+  labels:
+    app: socialauto
+    component: metrics
+subsets:
+  - addresses:
+      - hostname: office-1
+        ip: 192.168.1.23
+    ports:
+      - name: metrics
+        port: 9390
+        protocol: TCP
