@@ -217,6 +217,52 @@ async def add_lead_note(espocrm_lead_id: str, note: str, *, entity: str = "Lead"
         return False
 
 
+async def target_list_id(name: str) -> str | None:
+    """Resolve a TargetList display name → id (None when missing)."""
+    if not name or not configured():
+        return None
+    try:
+        data = await espo_get(
+            "/TargetList",
+            params={
+                "searchParams": json.dumps(
+                    {
+                        "maxSize": 1,
+                        "select": ["id"],
+                        "where": [{"type": "equals", "attribute": "name", "value": name}],
+                    }
+                )
+            },
+        )
+        rows = data.get("list") or []
+        return rows[0].get("id") if rows else None
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM TargetList lookup failed for %r", name)
+        return None
+
+
+async def link_lead_to_target_list(lead_id: str, list_name: str) -> bool:
+    """Enrol a Lead in a named TargetList — union semantics, never removes
+    existing memberships. ``targetListsIds`` is set-replacing and is not
+    returned by ``select``, so current memberships come from the relation
+    endpoint. Returns False (never raises) on any failure."""
+    if not lead_id or not configured():
+        return False
+    try:
+        list_id = await target_list_id(list_name)
+        if not list_id:
+            return False
+        rel = await espo_get(f"/Lead/{lead_id}/targetLists", params={"select": "id"})
+        current = [m["id"] for m in (rel.get("list") or []) if m.get("id")]
+        if list_id in current:
+            return True
+        await espo_patch(f"/Lead/{lead_id}", {"targetListsIds": [*current, list_id]})
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM TargetList link failed for lead %s → %r", lead_id, list_name)
+        return False
+
+
 async def lead_counts() -> dict[str, int]:
     """Counts by entity for the CRM access surface."""
     out: dict[str, int] = {}

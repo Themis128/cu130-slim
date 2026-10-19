@@ -32,6 +32,7 @@ from app.services import espocrm_client as espo
 logger = logging.getLogger(__name__)
 
 REPLY_MARKER = "Reply received"
+REPLIES_TARGET_LIST = "Social engagement (replies)"
 _STATUSES_ACTIVE = {"New", "Assigned"}
 _SELECT = ["id", "name", "emailAddress", "status"]
 
@@ -126,6 +127,24 @@ async def _already_noted(rec: dict[str, Any], marker: str) -> bool:
     return any(marker in (n.get("post") or "") for n in notes)
 
 
+async def _link_replies_list(lead_id: str, list_id: str) -> bool:
+    """Union the replies TargetList into a Lead's memberships.
+
+    ``targetListsIds`` is set-replacing and is not returned by ``select``, so
+    current memberships must come from the relation endpoint. A failed read
+    means "don't touch" — never write ``[]`` and wipe existing lists."""
+    try:
+        rel = await espo.espo_get(f"/Lead/{lead_id}/targetLists", params={"select": "id"})
+    except Exception:  # noqa: BLE001
+        logger.exception("crm engagement: targetLists read failed for lead %s", lead_id)
+        return False
+    current = [m["id"] for m in (rel.get("list") or []) if m.get("id")]
+    if list_id in current:
+        return True
+    await espo.espo_patch(f"/Lead/{lead_id}", {"targetListsIds": [*current, list_id]})
+    return True
+
+
 async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
     """Match inbound replies to CRM records; write engagement notes."""
     settings = get_settings()
@@ -140,11 +159,15 @@ async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
         "matched": 0,
         "noted": 0,
         "status_bumped": 0,
+        "list_enrolled": 0,
         "errors": len(errors),
         "dry_run": dry_run,
         "details": [],
     }
     own_domain = settings.SMTP_FROM.rsplit("@", 1)[-1].strip().lower()
+    replies_list_id = await espo.target_list_id(REPLIES_TARGET_LIST)
+    if replies_list_id is None:
+        logger.warning("crm engagement: TargetList %r not found", REPLIES_TARGET_LIST)
 
     for cand in candidates:
         sender = cand["from"]
@@ -162,10 +185,13 @@ async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
             if not dry_run:
                 await espo.add_lead_note(rec["id"], marker, entity=rec["entity"])
                 stats["noted"] += 1
-                if rec["entity"] == "Lead" and rec.get("status") in _STATUSES_ACTIVE:
-                    await espo.espo_patch(f"/Lead/{rec['id']}", {"status": "In Process"})
-                    stats["status_bumped"] += 1
-                    entry["status"] = "In Process"
+                if rec["entity"] == "Lead":
+                    if replies_list_id and await _link_replies_list(rec["id"], replies_list_id):
+                        stats["list_enrolled"] += 1
+                    if rec.get("status") in _STATUSES_ACTIVE:
+                        await espo.espo_patch(f"/Lead/{rec['id']}", {"status": "In Process"})
+                        stats["status_bumped"] += 1
+                        entry["status"] = "In Process"
             stats["details"].append(entry)
         except Exception:  # noqa: BLE001 — one bad record must not stall the sweep
             logger.exception("crm engagement: record %s failed", rec["id"])

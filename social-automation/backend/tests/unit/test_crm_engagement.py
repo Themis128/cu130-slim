@@ -87,12 +87,15 @@ def _lead(id_: str = "l1", email: str = "c@acme.gr", status: str = "New"):
 
 
 class _FakeEspo:
-    def __init__(self, records=None, notes=None):
+    def __init__(self, records=None, notes=None, target_list_id="tl1", lead_lists=None):
         self.records = records or {"Contact": [], "Lead": []}
         self.notes = notes or []
+        self._target_list_id = target_list_id
+        self.lead_lists = lead_lists or {}  # lead_id → [list ids]
         self.note_calls: list[tuple[str, str, str]] = []
         self.patch_calls: list[tuple[str, dict]] = []
         self.fail_notes = False
+        self.fail_rel_read = False
 
     async def list_all(self, entity, **kw):
         if entity == "Note":
@@ -109,12 +112,23 @@ class _FakeEspo:
         self.patch_calls.append((path, payload))
         return {}
 
+    async def target_list_id(self, name):
+        return self._target_list_id
+
+    async def espo_get(self, path, params=None, **kw):
+        if self.fail_rel_read:
+            raise RuntimeError("espo read down")
+        lead_id = path.split("/")[2]
+        return {"list": [{"id": i} for i in self.lead_lists.get(lead_id, [])]}
+
 
 def _wire(monkeypatch, fake: _FakeEspo, slack: AsyncMock | None = None):
     slack = slack or AsyncMock()
     monkeypatch.setattr(E.espo, "list_all", fake.list_all)
     monkeypatch.setattr(E.espo, "add_lead_note", fake.add_lead_note)
     monkeypatch.setattr(E.espo, "espo_patch", fake.espo_patch)
+    monkeypatch.setattr(E.espo, "espo_get", fake.espo_get)
+    monkeypatch.setattr(E.espo, "target_list_id", fake.target_list_id)
     monkeypatch.setattr(SN, "post_digest_text_to_slack", slack)
     monkeypatch.setattr(E, "get_settings", lambda: _settings())
     return slack
