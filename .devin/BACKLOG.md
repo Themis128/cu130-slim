@@ -6,27 +6,30 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 ## Ops — infra health
 
-- [ ] **LanguageTool `stack-ops:8010` is down (503)** — gibberish/auto-correct checks
-  fail open (advisory, publishing unaffected). Restart the service; verify
-  `curl http://stack-ops:8010/v2/check` responds. Seen 2026-10-19.
-- [ ] **Slack publish notify broken** — webhook 404 → bot-token fallback →
-  `channel_not_found`. Stale channel config; fix via `slack-ops` skill /
-  `scripts/slack_tool.py`. Seen 2026-10-19.
-- [ ] **Watch Postgres restarts** — one mid-publish restart ~15:14 EEST 2026-10-19
-  left an orphaned `processing` queue lock (manually reset). If it recurs,
-  investigate the recreate trigger + add stale-lock sweeper.
-- [ ] **DMR cold-start + no CLI fallback** — DMR API offline on 2026-10-19;
-  `docker CLI not found` inside `social-worker-publishing`. NLP fell back
-  gracefully, but DMR-dependent generation stalls during cold starts.
-  Still live 19:50 EEST: `generate-content` → `httpx.ConnectError:
-  Temporary failure in name resolution` (500). When DMR is back, re-run the
-  Oxford AIE template smoke test (EU AI Act template, id
-  `474a19ee-5a85-4fb9-a9a9-788a89cb6b6f`).
-- [ ] **`warp-proxy` unreachable** — instagrapi SOCKS path down (seen 2026-10-19);
-  private-API IG verification blocked. Check the warp container.
-- [ ] **X/Twitter + TikTok token expiry** — Grafana token panel showed X ~1h and
-  TikTok ~1.5h to expiry on 2026-10-19. Confirm the refresh sweep renewed them;
-  if not, `session-ops`.
+- [ ] **Regenerate Slack incoming webhooks** — ALL webhook URLs 404
+  (`no_service`, Slack app likely reinstalled). Bot-token fallback verified
+  working 2026-10-19 (postMessage ok → #socialauto), so notifications still
+  land — but webhooks need re-creation in the Slack app console (user action)
+  and `.env` refresh. Via `slack-ops` / `slack_tool.py webhooks`.
+- [ ] **`/api/v1/ai/generate-content` exceeds ~280s** — pipeline is 4-6
+  sequential DMR calls (generate → plain-English rewrite → quality loop ×2);
+  DMR answers trivial prompts in ~25s (both `ai/llama3.2` and
+  `Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`) but the full pipeline times out the
+  client and once killed a uvicorn worker. DMR itself is ONLINE
+  (`check_dmr_health` ok, keep-warm cycling). Real fix options: stream/chunk
+  the pipeline, raise client+gateway timeouts, or route UI generation to the
+  cloudflare provider path. Re-test the Oxford AIE template
+  (`474a19ee-5a85-4fb9-a9a9-788a89cb6b6f`) once addressed.
+- [ ] **Influencer/partner surface — unbuilt** (Prakoso et al. 2024 rec. 3):
+  no watchlist/outreach tracking exists. If adopted, needs a real surface
+  (Nextcloud table or CRM list) — not a mock.
+- [ ] **TikTok publish blocked: `url_ownership_unverified`** — failed
+  post_target 2026-10-19: PULL_FROM_URL requires verified domain
+  (`social.cloudless.gr` or equivalent). Fix via `tiktok-console-ops`:
+  domain verify in TikTok for Developers (DNS TXT via Cloudflare).
+- [ ] **Facebook Page `Cloudless.gr` status=revoked** — healer confirmed
+  2026-10-19 (`accounts_synced: 3`, this page stays revoked). Needs user
+  OAuth re-connect in the UI; not a session-heal case.
 
 ## Open PRs / merges to verify
 
@@ -43,6 +46,12 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   (1) warm-up DM drip 5–8/day to 146 message-able, (2) invite-first to the
   Connect/Follow slice, (3) manual assist. Also undecided: first message = free
   30-min audit vs lighter opener.
+  **Verified 2026-10-19:** this IS the funnel's `lead→nurtured` break — EspoCRM
+  has 179 leads (171 New / 8 Dead); only 3 have an email and all 3 are
+  self/test entries (owner's own contact-form submissions), correctly skipped
+  by the drip. The newsletter leads carry LinkedIn profile URLs in
+  `description` — LinkedIn DM via the sidecar is the only reachable nurture
+  channel. Email nurture cannot move this cohort.
 
 ## Growth / funnel
 
@@ -64,6 +73,18 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 ## Done recently (reference)
 
+- [x] **Backlog infra triage 2026-10-19 (via platform/slack/n8n MCPs):**
+  LanguageTool back up (200 `/v2/languages`, container restarted);
+  `warp-proxy` + `facebook/tiktok/messenger` browser sidecars were stopped →
+  started, all health 200, SOCKS5 open (instagrapi path restored);
+  Slack bot-token publish path verified (`ok:true` → #socialauto);
+  `publish_queue` clean — no orphaned `processing` locks (288 completed /
+  1 failed); `refresh_expiring_tokens` beat verified, X token manually
+  refreshed → new expiry 20:17 UTC; session-heal sweep clean
+  (`unhealthy: []`, contended = busy not dead); analytics sync errors →
+  `errors: []` once sidecars up (follower_snapshots is a change-log —
+  writes only on delta or 7-day heartbeat, so "staleness" is flat counts).
+  DMR online — see generate-content latency item.
 - [x] Ops report 2026-10-19 triaged: LinkedIn "failure" = historical noise;
   Facebook post rewritten (Sofia NLP 100, was 75) + requeued → **published**
   <https://www.facebook.com/116436681562585_122244667814100600>
