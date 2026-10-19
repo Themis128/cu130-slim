@@ -22,31 +22,29 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   left an orphaned `processing` queue lock (manually reset). Queue verified
   clean 2026-10-19 (0 processing rows; 288 completed / 1 failed). If it
   recurs, investigate the recreate trigger + add stale-lock sweeper.
-- [ ] **`/api/v1/ai/generate-content` exceeds ~280s** — pipeline is 4-6
-  sequential DMR calls (generate → plain-English rewrite → quality loop ×2);
-  DMR answers trivial prompts in ~25s (both `ai/llama3.2` and
-  `Qwen3-4B-Instruct-2507-GGUF:Q4_K_M`) but the full pipeline outlives client
-  timeouts (verified 2026-10-19, dmr + cloudflare providers) and once killed
-  a uvicorn worker. DMR itself is ONLINE (`check_dmr_health` ok). Fix
-  options: stream/chunk the pipeline, raise client+gateway timeouts, or
-  route UI generation to the cloudflare provider path. Re-test the Oxford
-  AIE template (`474a19ee-5a85-4fb9-a9a9-788a89cb6b6f`) once addressed.
+- [x] **`/api/v1/ai/generate-content` exceeds ~280s** — FIXED 2026-10-20
+  (PR #754). Root cause: `score_brand_compliance._ai_tone_match` hardcoded
+  `provider_name="dmr"` (~72s local call behind the DMR slot) regardless of
+  the requested provider, and `chroma add_content` was awaited inline (~18s).
+  Provider now passes through; chroma index write is a background task; the
+  frontend `generateContent` wrapper defaults to `provider='cloudflare'`
+  (matching `generateImage`). Live-verified: CF path 95.5s (was >300s
+  timeout). DMR path remains the free/local fallback for n8n/celery callers
+  on the docker network (no gateway timeout there).
 - [ ] **Influencer/partner surface — unbuilt** (Prakoso et al. 2024 rec. 3):
   no watchlist/outreach tracking exists. If adopted, needs a real surface
   (Nextcloud table or CRM list) — not a mock.
-- [ ] **TikTok publish blocked: `url_ownership_unverified`** — failed
-  post_target 2026-10-19: PULL_FROM_URL requires verified domain
-  (`social.cloudless.gr` or equivalent). Fix via `tiktok-console-ops`:
-  domain verify in TikTok for Developers (DNS TXT via Cloudflare).
+- [x] **TikTok `url_ownership_unverified` — RESOLVED** (verified 2026-10-20
+  via post_targets): the only occurrences are 2026-09-16/17, predating the
+  `cloudless.gr` domain verification (done 2026-10-02, tiktok-console-ops).
+  No recurrence since. Remaining TikTok publish blockers are different
+  classes: `unaudited_client_can_only_post_to_private_accounts` (Direct Post
+  audit under review), `spam_risk_too_many_pending_share` (inbox drafts must
+  be finished in the app), and `MEDIA_PUBLIC_BASE_URL` unset when the tunnel
+  is down — none are code fixes.
 - [ ] **Facebook Page `Cloudless.gr` status=revoked** — healer confirmed
   2026-10-19 (`accounts_synced: 3`, this page stays revoked). Needs user
   OAuth re-connect in the UI; not a session-heal case.
-  left an orphaned `processing` queue lock (manually reset). If it recurs,
-  investigate the recreate trigger + add stale-lock sweeper.
-  DMR answers trivial prompts in ~25s but the full pipeline outlives client
-  timeouts (verified 2026-10-19, both dmr and cloudflare providers). Fix
-  route UI generation to the cloudflare provider path. DMR itself is online
-  (watchdog `/api/ps` probes still flaky — monitor).
 
 - [x] **`warp-proxy`** — recreated; `warp=on` verified 2026-10-19.
 - [x] **X/Twitter + TikTok token expiry** — TikTok self-healed (23.6h); X was
@@ -54,15 +52,17 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 ## Open PRs / merges to verify
 
-- [ ] **PR #737** — IG Graph permalink pk→shortcode fix + swept payloads
-  (skills sync, WA flow code, compose env). OPEN, BEHIND master, auto-merge
-  armed. Note: overlaps PR #741 — whichever merges first, the other's diff
-  shrinks; identical hunks merge clean.
-- [ ] **PR #741** — WhatsApp lead-gen Flow promotion + `send_flow` param fix.
-  Auto-merge armed (CI pending).
-- [ ] **PR #742** — AIE email-course drip sequence. Auto-merge armed.
-- [ ] **cloudless.gr PR #2228** — `/links` live social proof (EspoCRM count +
-  AppFlowy testimonial). OPEN, CI pending.
+- [x] **PR #737** — IG Graph permalink pk→shortcode fix + swept payloads.
+  MERGED 2026-10-19.
+- [x] **PR #741** — WhatsApp lead-gen Flow promotion + `send_flow` param fix.
+  MERGED.
+- [x] **PR #742** — AIE email-course drip sequence. MERGED; workers
+  (`social-worker-default`, `celery-beat`) restarted to load the drip steps.
+- [x] **cloudless.gr PR #2228** — `/links` live social proof. MERGED
+  2026-10-20 (subscriber count via `Contact/leadSource=Email`,
+  `unstable_cache` for the dynamic route, conditional attribution).
+- [ ] **PR #754** — generate-content provider pass-through + cloudflare
+  default for interactive callers. Auto-merge armed.
 - [x] **PR #739** — skills sync merged `2026-10-19T12:48Z`.
 - [x] **PR #740** — Oxford AIE docs merged (`5c1d2ff6`).
 
@@ -110,9 +110,8 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   — user decision (positioning, pricing).
 - [ ] **"EU AI Act readiness checklist" lead magnet** on `/links` — needs PDF
   + second `ChecklistSignup` card (monthly-checklist-update skill).
-- [ ] **Post-merge worker restart** — after #742 lands: checkout master, pull,
-  `docker compose restart social-worker-default celery-beat` so the new drip
-  steps load (bind-mounted code).
+- [x] **Post-merge worker restart** — done 2026-10-19:
+  `social-worker-default` + `celery-beat` restarted; #742 drip steps loaded.
 
 ## Done recently (reference)
 
