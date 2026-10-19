@@ -17,10 +17,11 @@ import hmac
 import json
 import logging
 import os
+import re
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -683,7 +684,6 @@ async def verify_webhook(
 @router.post("/webhook", response_model=dict)
 async def receive_webhook(
     request: Request,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
     """Receive and process Messenger webhook events.
@@ -707,8 +707,9 @@ async def receive_webhook(
     events = parse_webhook_event(body)
 
     # Lead-ads forms arrive as entry[].changes[] (field="leadgen"), not as
-    # messaging events. Meta must be acked <5s — ingest runs after the
-    # response via BackgroundTasks.
+    # messaging events. Ingest inline — two fast LAN calls fit Meta's ack
+    # window, and a 500 on transient failure makes Meta retry the lead
+    # instead of dropping it silently.
     leadgen_changes = [
         change.get("value") or {}
         for entry in (body.get("entry") or [])
@@ -718,8 +719,10 @@ async def receive_webhook(
         # ever reaches a Graph URL.
         and str((change.get("value") or {}).get("leadgen_id") or "").isdigit()
     ]
-    if leadgen_changes:
-        background_tasks.add_task(_ingest_meta_leadgen, leadgen_changes)
+    leadgen_failed = 0
+    for change_value in leadgen_changes:
+        if not await _ingest_meta_leadgen(change_value):
+            leadgen_failed += 1
 
     processed = 0
     sidecar_url = settings.MESSENGER_SIDECAR_URL or os.getenv("MESSENGER_SIDECAR_URL", "")
@@ -773,6 +776,11 @@ async def receive_webhook(
                 await _process_inline(db, page_id, sender_psid, message_text, message_type, postback_payload)
                 processed += 1
 
+    if leadgen_failed:
+        raise HTTPException(
+            status_code=500,
+            detail=f"{leadgen_failed}/{len(leadgen_changes)} leadgen changes failed — Meta will retry",
+        )
     return {
         "status": "ok",
         "events_received": len(events),
@@ -782,7 +790,7 @@ async def receive_webhook(
 
 
 _META_LEADGEN_FIELDS = (
-    "id,created_time,form_id,ad_id,ad_name,adgroup_id,"
+    "id,created_time,form_id,ad_id,ad_name,adset_id,adset_name,"
     "campaign_id,campaign_name,platform,is_organic,field_data"
 )
 _META_LEAD_TARGET_LIST = "Meta lead ads"
@@ -808,13 +816,14 @@ def _meta_field_first(field_data: list[dict], *names: str) -> str | None:
     return None
 
 
-async def _ingest_meta_leadgen(changes: list[dict]) -> None:
-    """Fetch each lead's answers via Graph and upsert into EspoCRM.
+async def _ingest_meta_leadgen(value: dict) -> bool:
+    """Fetch one lead's answers via Graph and upsert into EspoCRM.
 
-    Runs post-response (BackgroundTasks) — the Cloudless Meta app's page
-    subscription delivers ``leadgen`` changes to this webhook. The lead PII
-    is NOT in the webhook payload; it is fetched per ``leadgen_id`` with
-    the Page access token (requires ``leads_retrieval`` on the app).
+    The Cloudless Meta app's page subscription delivers ``leadgen``
+    changes to this webhook. The lead PII is NOT in the webhook payload;
+    it is fetched per ``leadgen_id`` with the stored Page access token
+    (requires ``leads_retrieval`` on the app). Returns False on any
+    failure so the webhook can 500 — Meta retries the delivery.
     """
     import httpx
 
@@ -822,96 +831,96 @@ async def _ingest_meta_leadgen(changes: list[dict]) -> None:
     from app.services import espocrm_client as espo
     from app.services.meta_graph import FACEBOOK_GRAPH_BASE, FACEBOOK_GRAPH_VERSION
 
-    for value in changes:
-        try:
-            leadgen_id = str(value.get("leadgen_id") or "")
-            page_id = str(value.get("page_id") or "")
-            if not leadgen_id:
-                continue
-            async with async_session_maker() as db:
-                account = await db.scalar(
-                    select(SocialAccount).where(
-                        SocialAccount.platform == "facebook",
-                        SocialAccount.account_type == "page",
-                        SocialAccount.account_id == page_id,
-                    )
+    leadgen_id = str(value.get("leadgen_id") or "")
+    try:
+        page_id = str(value.get("page_id") or "")
+        async with async_session_maker() as db:
+            account = await db.scalar(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "facebook",
+                    SocialAccount.account_type == "page",
+                    SocialAccount.account_id == page_id,
                 )
-                meta = (account.meta_data if account else {}) or {}
-                token = meta.get("page_token") or ""
-                if token and not token.startswith("EA"):
-                    try:
-                        token = decrypt_token(token)
-                    except Exception:  # noqa: BLE001 — may be plaintext
-                        pass
-            if not token:
-                logger.warning("meta leadgen %s: no page token for page %s", leadgen_id, page_id)
-                continue
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.get(
-                    f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}/{leadgen_id}",
-                    params={"fields": _META_LEADGEN_FIELDS, "access_token": token},
-                )
-            if resp.status_code >= 400:
-                logger.warning(
-                    "meta leadgen %s: graph fetch %s", leadgen_id, resp.status_code
-                )
-                continue
-            lead = resp.json()
-            field_data = lead.get("field_data") or []
-            email = (_meta_field_first(field_data, "email", "email_address") or "").lower()
-            if not email:
-                continue
-            first_name = _meta_field_first(field_data, "first_name")
-            last_name = _meta_field_first(field_data, "last_name")
-            if not first_name:
-                full = (_meta_field_first(field_data, "full_name", "name") or "").split()
-                first_name = full[0] if full else None
-                last_name = last_name or (" ".join(full[1:]) or None)
-            extras = [
-                f"{f['name']}: {f['values'][0]}"
-                for f in field_data
-                if f.get("name")
-                and str(f["name"]).lower() not in _META_KNOWN_FIELDS
-                and (f.get("values") or [None])[0]
-            ]
-            platform = "instagram" if lead.get("platform") == "ig" else "facebook"
-            campaign_ref = (
-                lead.get("campaign_name")
-                or lead.get("campaign_id")
-                or value.get("campaign_id")
-                or "meta-lead-ads"
             )
-            form_ref = lead.get("form_id") or value.get("form_id")
-            ad_ref = lead.get("ad_name") or lead.get("ad_id") or value.get("ad_id")
-            desc_lines = [
-                f"Source: Meta Lead Ad ({platform})",
-                f"Form: {form_ref}" if form_ref else "",
-                f"Ad: {ad_ref}" if ad_ref else "",
-                f"Campaign: {campaign_ref}",
-                "Organic lead (no ad spend)" if lead.get("is_organic") else "",
-                *extras,
-            ]
-            list_id = await espo.target_list_id(_META_LEAD_TARGET_LIST)
-            await espo.upsert_lead(
-                {
-                    "emailAddress": email,
-                    "firstName": first_name,
-                    "lastName": last_name,
-                    "phoneNumber": _meta_field_first(field_data, "phone_number", "phone"),
-                    "source": "Meta Lead Ad",
-                    "description": "\n".join(line for line in desc_lines if line),
-                    "utmSource": platform,
-                    "utmMedium": "social" if lead.get("is_organic") else "paid",
-                    "utmCampaign": str(campaign_ref),
-                    "utmContent": lead.get("ad_id") or value.get("ad_id"),
-                    "targetListsIds": [list_id] if list_id else [],
-                }
+            meta = (account.meta_data if account else {}) or {}
+            token = meta.get("page_token") or ""
+            if token and not token.startswith("EA"):
+                try:
+                    token = decrypt_token(token)
+                except Exception:  # noqa: BLE001 — may be plaintext
+                    pass
+        if not token:
+            logger.warning("meta leadgen %s: no page token for page %s", leadgen_id, page_id)
+            return False
+        async with httpx.AsyncClient(timeout=8) as client:
+            resp = await client.get(
+                f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}/{leadgen_id}",
+                params={"fields": _META_LEADGEN_FIELDS, "access_token": token},
             )
-        except Exception:  # noqa: BLE001 — one bad change must not stall the batch
-            logger.exception(
-                "meta leadgen ingest failed for %s",
-                _sanitize_log_text(str(value.get("leadgen_id", "?"))),
-            )
+        if resp.status_code >= 400:
+            logger.warning("meta leadgen %s: graph fetch %s", leadgen_id, resp.status_code)
+            return False
+        lead = resp.json()
+        field_data = lead.get("field_data") or []
+        email = (_meta_field_first(field_data, "email", "email_address") or "").lower()
+        if not email:
+            return True  # permanent — retrying changes nothing
+        first_name = _meta_field_first(field_data, "first_name")
+        last_name = _meta_field_first(field_data, "last_name")
+        if not first_name:
+            full = (_meta_field_first(field_data, "full_name", "name") or "").split()
+            first_name = full[0] if full else None
+            last_name = last_name or (" ".join(full[1:]) or None)
+        extras = [
+            f"{f['name']}: {f['values'][0]}"
+            for f in field_data
+            if f.get("name")
+            and str(f["name"]).lower() not in _META_KNOWN_FIELDS
+            and (f.get("values") or [None])[0]
+        ]
+        platform = "instagram" if lead.get("platform") == "ig" else "facebook"
+        campaign_ref = (
+            lead.get("campaign_name")
+            or lead.get("campaign_id")
+            or value.get("campaign_id")
+            or "meta-lead-ads"
+        )
+        form_ref = lead.get("form_id") or value.get("form_id")
+        ad_ref = lead.get("ad_name") or lead.get("ad_id") or value.get("ad_id")
+        phone = _meta_field_first(field_data, "phone_number", "phone")
+        if phone:
+            phone = re.sub(r"[^\d+()\-\s]", "", phone).strip() or None
+        desc_lines = [
+            f"Source: Meta Lead Ad ({platform})",
+            f"Form: {form_ref}" if form_ref else "",
+            f"Ad: {ad_ref}" if ad_ref else "",
+            f"Campaign: {campaign_ref}",
+            "Organic lead (no ad spend)" if lead.get("is_organic") else "",
+            *extras,
+        ]
+        list_id = await espo.target_list_id(_META_LEAD_TARGET_LIST)
+        lead_id = await espo.upsert_lead(
+            {
+                "emailAddress": email,
+                "firstName": first_name,
+                "lastName": last_name,
+                "phoneNumber": phone,
+                "source": "Meta Lead Ad",
+                "description": "\n".join(line for line in desc_lines if line),
+                "utmSource": platform,
+                "utmMedium": "social" if lead.get("is_organic") else "paid",
+                "utmCampaign": str(campaign_ref),
+                "utmContent": lead.get("ad_id") or value.get("ad_id"),
+                "targetListsIds": [list_id] if list_id else [],
+            }
+        )
+        return lead_id is not None
+    except Exception:  # noqa: BLE001
+        logger.exception(
+            "meta leadgen ingest failed for %s",
+            _sanitize_log_text(str(leadgen_id or "?")),
+        )
+        return False
 
 
 async def _process_inline(
