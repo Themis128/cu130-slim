@@ -952,6 +952,22 @@ queries) to `lake/socialauto-edge-metrics/daily.json` — this is what
 surfaced the broken Nextcloud SFTP external-storage mount (9% 5xx on
 `cloud.cloudless.gr`).
 
+**Prometheus metrics plane (kube-prom on omv k3s, `monitoring` ns):**
+`social-api` serves `/metrics` (`app/services/metrics.py`) — HTTP counters/
+latency per route plus business gauges rebuilt per scrape: users, teams,
+accounts, posts, per-platform queue depth (`socialauto_publish_queue_platform`),
+per-platform publish outcomes (`socialauto_posts_published_7d` /
+`socialauto_publish_failures_7d` — counted from `post_targets` outcome rows,
+not queue rows: a skipped target is queue-`completed` but never published),
+`followers_latest` and `token_expires_in_seconds` per connected account.
+The scrape reaches the workstation via a headless Service/Endpoints →
+`192.168.1.23:9390` (`deploy/monitoring/socialauto/`). EspoCRM (PHP, no
+/metrics) gets a direct-MariaDB exporter in its own namespace
+(`deploy/monitoring/espocrm/`): read-only `metrics_reader` user, Bearer-token
+gated `/metrics`, fresh registry per scrape so failures only export
+`espocrm_up 0`. Grafana dashboards are ConfigMaps labelled
+`grafana_dashboard=1`, applied by each area's `apply.sh`.
+
 ### Browser Sidecars
 
 ```
