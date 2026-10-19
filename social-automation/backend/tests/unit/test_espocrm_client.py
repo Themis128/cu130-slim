@@ -243,3 +243,88 @@ class TestLeadCounts:
 
         monkeypatch.setattr(E, "espo_get", fake_get)
         assert await E.lead_counts() == {"lead": 5, "contact": 2, "account": 1, "opportunity": -1}
+
+
+class TestTargetLists:
+    @pytest.mark.asyncio
+    async def test_target_list_id_resolves_and_missing(self, cfg, monkeypatch):
+        async def fake_get(path, params=None):
+            assert path == "/TargetList"
+            where = json.loads(params["searchParams"])["where"][0]
+            return {"list": [{"id": "tl-9"}]} if where["value"] == "Known" else {"list": []}
+
+        monkeypatch.setattr(E, "espo_get", fake_get)
+        assert await E.target_list_id("Known") == "tl-9"
+        assert await E.target_list_id("Nope") is None
+
+    @pytest.mark.asyncio
+    async def test_target_list_id_swallows_errors(self, cfg, monkeypatch):
+        async def boom(path, params=None):
+            raise RuntimeError("down")
+
+        monkeypatch.setattr(E, "espo_get", boom)
+        assert await E.target_list_id("X") is None
+
+    @pytest.mark.asyncio
+    async def test_link_unions_existing_memberships(self, cfg, monkeypatch):
+        calls = []
+
+        async def fake_get(path, params=None):
+            if path == "/TargetList":
+                return {"list": [{"id": "tl-9"}]}
+            if path == "/Lead/L1/targetLists":
+                return {"list": [{"id": "tl-old"}, {"bad": 1}]}
+            raise AssertionError(path)
+
+        async def fake_patch(path, payload):
+            calls.append((path, payload))
+            return {}
+
+        monkeypatch.setattr(E, "espo_get", fake_get)
+        monkeypatch.setattr(E, "espo_patch", fake_patch)
+        assert await E.link_lead_to_target_list("L1", "Known") is True
+        assert calls == [("/Lead/L1", {"targetListsIds": ["tl-old", "tl-9"]})]
+
+    @pytest.mark.asyncio
+    async def test_link_already_member_no_patch(self, cfg, monkeypatch):
+        async def fake_get(path, params=None):
+            if path == "/TargetList":
+                return {"list": [{"id": "tl-9"}]}
+            return {"list": [{"id": "tl-9"}, {"id": "tl-old"}]}
+
+        patched = []
+
+        async def fake_patch(path, payload):
+            patched.append(payload)
+            return {}
+
+        monkeypatch.setattr(E, "espo_get", fake_get)
+        monkeypatch.setattr(E, "espo_patch", fake_patch)
+        assert await E.link_lead_to_target_list("L1", "Known") is True
+        assert patched == []
+
+    @pytest.mark.asyncio
+    async def test_link_missing_list_or_read_failure_returns_false(self, cfg, monkeypatch):
+        patched = []
+
+        async def fake_patch(path, payload):
+            patched.append(payload)
+            return {}
+
+        monkeypatch.setattr(E, "espo_patch", fake_patch)
+
+        async def no_list(path, params=None):
+            return {"list": []}
+
+        monkeypatch.setattr(E, "espo_get", no_list)
+        assert await E.link_lead_to_target_list("L1", "Gone") is False
+        assert patched == []
+
+        async def rel_down(path, params=None):
+            if path == "/TargetList":
+                return {"list": [{"id": "tl-9"}]}
+            raise RuntimeError("read down")
+
+        monkeypatch.setattr(E, "espo_get", rel_down)
+        assert await E.link_lead_to_target_list("L1", "Known") is False
+        assert patched == []

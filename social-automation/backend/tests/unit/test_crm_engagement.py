@@ -293,8 +293,12 @@ async def test_sweep_notes_and_bumps_active_lead(monkeypatch):
     assert stats["matched"] == 1
     assert stats["noted"] == 1
     assert stats["status_bumped"] == 1
+    assert stats["list_enrolled"] == 1
     assert fake.note_calls[0][0] == "l1" and "Reply received" in fake.note_calls[0][2]
-    assert fake.patch_calls == [("/Lead/l1", {"status": "In Process"})]
+    assert fake.patch_calls == [
+        ("/Lead/l1", {"targetListsIds": ["tl1"]}),
+        ("/Lead/l1", {"status": "In Process"}),
+    ]
     assert stats["details"][0]["status"] == "In Process"
     slack.assert_awaited_once()
 
@@ -319,8 +323,58 @@ async def test_sweep_contact_match_no_status_bump(monkeypatch):
     _wire(monkeypatch, fake)
     stats = await E.run_crm_engagement_sweep()
     assert stats["noted"] == 1 and stats["status_bumped"] == 0
+    assert stats["list_enrolled"] == 0  # Contacts don't join the replies list
     assert fake.patch_calls == []
     assert stats["details"][0]["entity"] == "Contact"
+
+
+@pytest.mark.asyncio
+async def test_sweep_unions_existing_list_memberships(monkeypatch):
+    _wire_imap(monkeypatch, {b"1": _hdr()})
+    fake = _FakeEspo(
+        records={"Contact": [], "Lead": [_lead()]},
+        lead_lists={"l1": ["other-list"]},
+    )
+    _wire(monkeypatch, fake)
+    stats = await E.run_crm_engagement_sweep()
+    assert stats["list_enrolled"] == 1
+    assert fake.patch_calls[0] == ("/Lead/l1", {"targetListsIds": ["other-list", "tl1"]})
+
+
+@pytest.mark.asyncio
+async def test_sweep_already_member_skips_list_patch(monkeypatch):
+    _wire_imap(monkeypatch, {b"1": _hdr()})
+    fake = _FakeEspo(
+        records={"Contact": [], "Lead": [_lead()]},
+        lead_lists={"l1": ["tl1"]},
+    )
+    _wire(monkeypatch, fake)
+    stats = await E.run_crm_engagement_sweep()
+    assert stats["list_enrolled"] == 1
+    # only the status patch — no list rewrite
+    assert fake.patch_calls == [("/Lead/l1", {"status": "In Process"})]
+
+
+@pytest.mark.asyncio
+async def test_sweep_list_read_failure_never_wipes(monkeypatch):
+    _wire_imap(monkeypatch, {b"1": _hdr()})
+    fake = _FakeEspo(records={"Contact": [], "Lead": [_lead()]})
+    fake.fail_rel_read = True
+    _wire(monkeypatch, fake)
+    stats = await E.run_crm_engagement_sweep()
+    assert stats["noted"] == 1 and stats["list_enrolled"] == 0
+    # status bump still happens; no targetListsIds write could wipe memberships
+    assert fake.patch_calls == [("/Lead/l1", {"status": "In Process"})]
+
+
+@pytest.mark.asyncio
+async def test_sweep_missing_target_list_skips_enrolment(monkeypatch):
+    _wire_imap(monkeypatch, {b"1": _hdr()})
+    fake = _FakeEspo(records={"Contact": [], "Lead": [_lead()]}, target_list_id=None)
+    _wire(monkeypatch, fake)
+    stats = await E.run_crm_engagement_sweep()
+    assert stats["noted"] == 1 and stats["list_enrolled"] == 0
+    assert fake.patch_calls == [("/Lead/l1", {"status": "In Process"})]
 
 
 @pytest.mark.asyncio
