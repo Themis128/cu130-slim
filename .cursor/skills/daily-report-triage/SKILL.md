@@ -90,3 +90,23 @@ Things that ARE failures needing action:
 Rank by severity: money > publish > analytics > informational. State
 what was verified live vs assumed. One line per report, verdict
 table, then the action list.
+
+## Signatures added 2026-10-19 (ops-health report triage)
+
+- **`failed` count ≠ real failures** — a `post_targets.status='failed'` row
+  alongside a `published` row for the same platform is historical/duplicate
+  noise. Truth source: `posts.metadata->'publish_summary'`
+  (`total/published/failed`) + the completed target's `platform_post_id`.
+- **Quality-gate skips are content fixes, not platform outages** — target
+  error strings like `Quality gate: seo_score 75/100 below minimum 80` or
+  `Facebook post has no media` mean rewrite the copy (Sofia NLP ≥80) and/or
+  attach media, verify the asset wasn't already used on that account
+  (media dedup), then requeue that ONE target — `skipped` target rows are
+  overwritten on retry, safe to requeue.
+- **Stale `processing` lock after Postgres restart** — queue shows
+  `processing=1` with no running task → orphaned lock; verify no
+  `platform_post_id` first, then reset to `pending` (procedure in
+  `publish-ops` → "Stale publish-queue locks").
+- **Advisory-check failures don't block** — LanguageTool 503
+  (`stack-ops:8010`), DMR cold-start, Slack notify `channel_not_found` are
+  noise for publish success but belong on `.devin/BACKLOG.md` as ops items.
