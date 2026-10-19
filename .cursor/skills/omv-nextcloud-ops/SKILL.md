@@ -17,9 +17,9 @@ Consolidated skill — each section below was a standalone skill. Member scripts
 
 ### Node and stack
 
-- **omv node**: `192.168.1.200`, aarch64, 8 GB RAM, OpenMediaVault + k3s.
-  SSH: `ssh -i ~/.ssh/id_rsa_win tbaltzakis@192.168.1.200` (key auth,
-  `id_rsa_win`); sudo is passwordless (`sudo -n`). Do **not** confuse with
+- **omv node**: `192.168.1.200` LAN / **`github-omv` `100.74.191.58` Tailscale (PRIMARY)**, aarch64, 8 GB RAM, OpenMediaVault + k3s.
+  SSH: `ssh -i ~/.ssh/id_rsa_win tbaltzakis@100.74.191.58` via tailnet
+  (LAN IP is the fallback); sudo is passwordless (`sudo -n`). Do **not** confuse with
   omv-ha (`192.168.1.130`, 1 GB Pi — mail only, never move workloads there).
 - **Live compose project** (OMV plugin-managed):
   `/srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/compose-files/workspace/`
@@ -62,7 +62,7 @@ Consolidated skill — each section below was a standalone skill. Member scripts
 ### Health-check commands
 
 ```bash
-ssh -i ~/.ssh/id_rsa_win tbaltzakis@192.168.1.200 \
+ssh -i ~/.ssh/id_rsa_win tbaltzakis@100.74.191.58 \
   "docker ps --format '{{.Names}} {{.Status}}' | grep nextcloud"
 ## occ inside the container:
 docker exec -u www-data nextcloud php occ status
