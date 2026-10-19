@@ -8,6 +8,7 @@ Agent skills live under `.devin/skills/`. Each skill may include `scripts/` tool
 | `n8n-cloudless` | n8n deploy, webhook, API key | `deploy-workflow.py`, `trigger-webhook.py`, `refresh-api-key.py` |
 | `social-stack-ops` | Compose health / restarts | `stack-status.py` |
 | `linkedin-ads-ops` | LinkedIn Campaign Manager ads, promo credit, sponsored posts | `scripts/linkedin_cm.py` |
+| `monitoring-ops` | Prometheus metrics, Grafana dashboards, k3s EspoCRM exporter | `deploy/monitoring/*/apply.sh` |
 
 Rules (auto context): `.cursor/rules/cloudless-social-stack.mdc` (+ file-scoped rules).
 

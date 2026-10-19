@@ -101,6 +101,8 @@ espocrm_client.lead_counts() / campaign_profiles() / list_all(entity)
 - Backend route `app/api/leads.py` — `/api/v1/leads/public` ingest
   (Cloudflare Access service token) + manual leads
 - `src/lib/espocrm.ts` (cloudless.gr) — Contact/Deal/Note upserts,
+- `deploy/monitoring/espocrm/exporter.py` — Prometheus exporter querying
+  espocrm-mariadb directly (`espocrm_*` series; see `monitoring-ops`)
   `createLead` with email dedup + UTM description
 
 
