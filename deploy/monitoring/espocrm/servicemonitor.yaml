@@ -20,6 +20,13 @@ spec:
       interval: 60s
       scrapeTimeout: 30s
       honorLabels: true
+      # /metrics is Bearer-token gated (exporter env METRICS_TOKEN); the token
+      # lives in this namespace via espocrm-exporter-metrics-token (apply.sh).
+      authorization:
+        type: Bearer
+        credentials:
+          name: espocrm-exporter-metrics-token
+          key: token
       relabelings:
         - targetLabel: job
           replacement: espocrm

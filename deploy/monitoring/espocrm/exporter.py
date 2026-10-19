@@ -176,6 +176,12 @@ def collect(reg: CollectorRegistry) -> None:
 
 
 def metrics_app(environ, start_response):
+    # /healthz is unauthenticated on purpose — kubelet probes cannot send
+    # auth headers; it only proves the process serves, no CRM data.
+    if environ.get("PATH_INFO") == "/healthz":
+        start_response("200 OK", [("Content-Type", "text/plain")])
+        return [b"ok"]
+
     if environ.get("PATH_INFO") != "/metrics":
         start_response("404 Not Found", [("Content-Type", "text/plain")])
         return [b"not found"]
