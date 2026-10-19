@@ -133,6 +133,14 @@ class _DB:
             return _Res(rows=[("dmr", 20, 0.5, 10)])
         if n == 11:  # ai errors
             return _Res(scalar=2)
+        if n == 12:  # queue by platform
+            return _Res(rows=[("linkedin", "completed", 96), ("linkedin", "failed", 1)])
+        if n == 13:  # published/failed last 7d
+            return _Res(rows=[("linkedin", "completed", 12), ("tiktok", "failed", 2)])
+        if n == 14:  # followers latest
+            return _Res(rows=[("linkedin", "cloudless_gr", 250)])
+        if n == 15:  # token expiry
+            return _Res(rows=[("facebook", "cloudless.gr", 86400.0)])
         raise AssertionError(f"unexpected query {n}")
 
 
@@ -152,7 +160,7 @@ async def test_refresh_business_metrics(monkeypatch):
     db = _DB()
     monkeypatch.setattr(M, "async_session_maker", lambda: _CM(db))
     await M.refresh_business_metrics()
-    assert db.calls == 11
+    assert db.calls == 15
     assert M.USERS.labels(state="total")._value.get() == 10
     assert M.USERS.labels(state="two_factor_enabled")._value.get() == 4
     assert M.TEAMS.labels(plan_tier="pro")._value.get() == 2
@@ -160,6 +168,14 @@ async def test_refresh_business_metrics(monkeypatch):
     assert M.MEDIA._value.get() == 42
     assert M.AI_CALLS.labels(provider="dmr")._value.get() == 20
     assert M.AI_ERRORS._value.get() == 2
+    assert M.QUEUE_PLATFORM.labels(
+        platform="linkedin", status="completed")._value.get() == 96
+    assert M.PUBLISHED_7D.labels(platform="linkedin")._value.get() == 12
+    assert M.FAILURES_7D.labels(platform="tiktok")._value.get() == 2
+    assert M.FOLLOWERS.labels(
+        platform="linkedin", account="cloudless_gr")._value.get() == 250
+    assert M.TOKEN_EXPIRY.labels(
+        platform="facebook", account="cloudless.gr")._value.get() == 86400.0
 
 
 @pytest.mark.asyncio
