@@ -81,6 +81,19 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   will activate automatically once registered.
 - [ ] **LinkedIn org profile write** — `rw_organization_admin` scope missing;
   re-auth needed to set company-page website/about.
+- [ ] **Instagram private-API (aiograpi sidecar) login rate-limited** —
+  `POST /auth/login` returns `429 ClientThrottledError` on
+  `caa.login.async.send_login_request` even via `warp-proxy` SOCKS5
+  (verified 2026-10-20); earlier same-day attempts failed at transport
+  (DNSError/Timeout). Web `sessionid` import still dead for mobile calls
+  (`login_required`) — confirmed again. Retry credential login after a
+  24–48h rate-limit window; do not burn attempts before then.
+  **Unblocked meanwhile:** bridge web session for `@cloudless.gr` restored
+  (saved-profile card → live feed, verified via in-session
+  `web_form_data`), fresh 6/6 cookies persisted, `web-session` store now
+  holds the correct `ds_user_id 36910035385` (the previously stored
+  `32323137563` was a stale/foreign ID). Web-API publish path
+  (`rupload_igphoto`) works; only instagrapi/sidecar calls stay down.
 - [ ] **Instagram bio → `/links`** — website/name edits are mobile-app-only
   (hard platform limit; do not force API/sidecar paths).
 - [ ] **TikTok bio/website** — writes captcha-blocked.
@@ -118,6 +131,15 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 ## Done recently (reference)
 
+- [x] **Instagram web session restored 2026-10-20** (alert: "session expired
+  for @cloudless.gr"): stored sessionid was genuinely dead (302 +
+  `require_login`); bridge saved-profile card login → feed live as
+  `cloudless.gr` (verified via in-session `web_form_data` fetch);
+  `/session/extract` persisted 6/6 fresh cookies; `web-session` record
+  updated (sessionid/csrf/ds_user_id encrypted, `login_type=web_session`);
+  healer sweep `unhealthy: []`. Validator probe `/users/{id}/info` shows
+  HTTP 429 = endpoint throttling, not expiry. Private-API sidecar remains
+  blocked — see open item above.
 - [x] **Backlog infra triage 2026-10-19 (via platform/slack/n8n MCPs):**
   LanguageTool back up (200 `/v2/languages`, container restarted);
   `warp-proxy` + `facebook/tiktok/messenger` browser sidecars were stopped →
