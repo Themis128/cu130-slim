@@ -358,6 +358,7 @@ class WhatsAppFlowsClient:
         body_text: str = "",
         header_text: str | None = None,
         footer_text: str | None = None,
+        flow_cta: str = "Open",
         flow_action: str = "navigate",
         screen: str = "FIRST_ENTRY_SCREEN",
         flow_action_payload: dict | None = None,
@@ -390,7 +391,9 @@ class WhatsAppFlowsClient:
             raise ValueError("flow_action must be 'navigate' or 'data_exchange'")
 
         action_payload: dict[str, Any] = {
+            "flow_message_version": "3",
             "flow_id": fid,
+            "flow_cta": flow_cta,
             "flow_token": flow_token,
             "flow_action": flow_action,
         }
