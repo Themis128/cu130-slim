@@ -118,6 +118,11 @@ espocrm_client.lead_counts() / campaign_profiles() / list_all(entity)
   description carries profile URL + headline + connection degree + inbox action.
 - Dedup key = `linkedin.com/in/` URL token inside `description` (no email for
   these leads — name matching is unsafe).
+- **Not email-campaign eligible** — `list_leads_for_campaign` requires an
+  email, so TargetList membership alone does NOT put these leads in
+  `/api/v1/email-campaigns` audiences or the drip sweep. Outreach path is
+  LinkedIn DM/invite via the sidecar (below), not email — do not add this
+  list to an email campaign audience expecting delivery.
 - **Scrape procedure** (sidecar can't hydrate the newsletter page — use the
   bridge on :9223, `X-Platform: linkedin`, force the session): navigate the
   newsletter URL → JS-click the "N subscribers" `<button>` → modal
