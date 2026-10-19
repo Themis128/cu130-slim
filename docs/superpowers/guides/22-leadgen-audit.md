@@ -26,9 +26,10 @@ lead-capture lane, or UTM discipline is broken.
 - **Profile funnel links** — where a bio/website is cached in `meta_data`
   (TikTok), verifies it points at `cloudless.gr`. "bio not cached" is an
   honest unknown, not a failure.
-- **CTA discipline** — share of published posts (30d, carrying a link) that
-  carry `utm_source=`. Under 80% is a gap — untagged CTAs break the
-  funnel→CRM loop.
+- **Attribution loop** — posts carrying a `cloudless.gr` link are
+  UTM-tagged automatically at publish (`app/services/utm.py`); the audit
+  measures the outcome: `web_analytics_events` with a `utm_source`
+  payload. Tagged inventory with zero attributed events in 30d = gap.
 - **Lead volume (30d)** — EspoCRM `Lead` count by `source` — Meta's "lead
   volume" metric measured in the CRM, not platform dashboards.
 
@@ -36,8 +37,8 @@ lead-capture lane, or UTM discipline is broken.
 
 - Surface down → fix site/tunnel first; every CTA dead-ends while it's down.
 - `MISSING` DM lane → enable auto-reply for that account (channel skill).
-- UTM gap → the generation path isn't applying the canonical
-  `utm_source=<platform>&utm_medium=social&utm_campaign=<slug>` pattern.
+- Attribution silent → tagged links exist but no site events land:
+  check the site/tunnel, or whether posts carry a real CTA link.
 - All green → the capture machinery works; move to `funnel-ops` (weakest
   stage) and `trendwatch-ops` (topics).
 

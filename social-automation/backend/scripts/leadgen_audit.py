@@ -6,7 +6,8 @@ Adoption of Meta's "10 strategies for social media lead generation"
 actionable, machine-checkable items mapped onto SocialAuto surfaces:
 
   strategy 2  profile → lead capture   → per-account DM/bot lane enabled?
-  strategy 3  strong CTAs              → % of linked posts carrying UTM tags
+  strategy 3  strong CTAs              → tagged inventory + real attributed
+                                          site events (utm.py tags at send)
   strategy 7  landing-page readiness   → live HTTP probes on capture surfaces
   strategy 1  lead magnet exists       → cloudless.gr/links checklist live?
   measurement lead volume/CPL          → 30d EspoCRM leads by source
@@ -82,32 +83,48 @@ async def _accounts() -> list[dict]:
         return [{"platform": p, "username": u, "meta": m or {}} for p, u, m in rows]
 
 
-async def _cta_discipline() -> dict:
-    """Share of published posts (30d) whose copy/link carries utm_source=.
-    Denominator = posts that carry any link or CTA — a media-only post with
-    no link has no CTA to tag."""
+async def _attribution() -> dict:
+    """The post→site→CRM loop, measured where it actually happens.
+
+    Stored post text is NOT tagged — app/services/utm.py tag_owned_links()
+    rewrites owned-domain URLs at publish time, so the delivered copy carries
+    utm_source=platform while the DB row keeps the original. The auditable
+    facts are therefore:
+      tagged_inventory  — published posts carrying a cloudless.gr link (the
+                          publish path tags all of them at send)
+      attributed_events — web_analytics_events with a utm_source payload —
+                          real post→site arrivals (AttributionCapture).
+    A gap means tagged inventory exists but nothing attributed in 30d.
+    """
     async with async_session_maker() as db:
-        with_link = (
+        inventory = (
             await db.execute(
                 text(
                     "SELECT count(*) FROM posts WHERE status = 'published' "
                     "AND published_at > now() - interval '30 days' "
-                    "AND (link_url IS NOT NULL OR content_text ~* 'https?://')"
+                    "AND (content_text ILIKE '%cloudless.gr%' "
+                    "     OR link_url ILIKE '%cloudless.gr%')"
                 )
             )
         ).scalar() or 0
-        tagged = (
+        events = (
+            await db.execute(text("SELECT count(*) FROM web_analytics_events WHERE occurred_at > now() - interval '30 days' AND payload ? 'utm_source'"))
+        ).scalar() or 0
+        by_source = (
             await db.execute(
                 text(
-                    "SELECT count(*) FROM posts WHERE status = 'published' "
-                    "AND published_at > now() - interval '30 days' "
-                    "AND (link_url ILIKE '%utm_source=%' "
-                    "     OR content_text ILIKE '%utm_source=%')"
+                    "SELECT payload->>'utm_source' AS src, count(*) "
+                    "FROM web_analytics_events "
+                    "WHERE occurred_at > now() - interval '30 days' "
+                    "AND payload ? 'utm_source' GROUP BY 1 ORDER BY 2 DESC"
                 )
             )
-        ).scalar() or 0
-        total = (await db.execute(text("SELECT count(*) FROM posts WHERE status = 'published' AND published_at > now() - interval '30 days'"))).scalar() or 0
-    return {"posts_30d": total, "with_link": with_link, "utm_tagged": tagged, "pct": round(100 * tagged / with_link, 1) if with_link else None}
+        ).all()
+    return {
+        "tagged_inventory_30d": inventory,
+        "attributed_events_30d": events,
+        "by_source": {s or "(none)": n for s, n in by_source},
+    }
 
 
 async def _probe_surfaces() -> dict:
@@ -166,7 +183,7 @@ def _check_accounts(accounts: list[dict]) -> list[dict]:
 
 
 async def audit() -> dict:
-    accounts, surfaces, cta, leads = await asyncio.gather(_accounts(), _probe_surfaces(), _cta_discipline(), _leads_30d())
+    accounts, surfaces, cta, leads = await asyncio.gather(_accounts(), _probe_surfaces(), _attribution(), _leads_30d())
     rows = _check_accounts(accounts)
     gaps = []
     for label, s in surfaces.items():
@@ -175,16 +192,15 @@ async def audit() -> dict:
     for r in rows:
         if not r["dm_lane"]:
             gaps.append(f"no DM lead lane: {r['platform']}/{r['username']}")
-    cta_pct = cta.get("pct")
-    if cta["with_link"] and (cta_pct is not None and cta_pct < 80):
-        gaps.append(
-            f"UTM discipline broken: {cta['utm_tagged']}/{cta['with_link']} linked posts tagged ({cta_pct}%) — funnel CTAs aren't landing in the CRM loop"
-        )
+    # tagged inventory exists but nothing attributed in 30d → the
+    # post→site→CRM loop is silent (dead link, dead site, or zero clicks)
+    if cta["tagged_inventory_30d"] and not cta["attributed_events_30d"]:
+        gaps.append(f"attribution loop silent: {cta['tagged_inventory_30d']} UTM-tagged posts but zero attributed site events in 30d")
     return {
         "generated_at": datetime.now(UTC).isoformat(),
         "capture_surfaces": surfaces,
         "accounts": rows,
-        "cta_discipline": cta,
+        "attribution": cta,
         "leads_30d": leads,
         "gaps": gaps,
     }
@@ -200,9 +216,12 @@ def render(r: dict) -> str:
         mark = "ok" if a["dm_lane"] else "MISSING"
         link = "funnel-linked" if a["profile_funnel_linked"] else "no funnel link" if a["profile_funnel_linked"] is False else "bio not cached"
         lines.append(f"  [{mark:>7}] {a['platform']}/{a['username']} — {link}")
-    c = r["cta_discipline"]
-    pct = "n/a (no linked posts)" if c["pct"] is None else f"{c['pct']}%"
-    lines += ["", f"CTA discipline (30d): {c['utm_tagged']}/{c['with_link']} linked posts UTM-tagged ({pct}) — {c['posts_30d']} published total"]
+    c = r["attribution"]
+    src = ", ".join(f"{k}={v}" for k, v in c["by_source"].items()) or "—"
+    lines += [
+        "",
+        f"attribution (30d): {c['tagged_inventory_30d']} posts carry auto-tagged links → {c['attributed_events_30d']} attributed site events ({src})",
+    ]
     leads = r["leads_30d"]
     if "error" in leads:
         lines.append(f"leads 30d: {leads['error']}")

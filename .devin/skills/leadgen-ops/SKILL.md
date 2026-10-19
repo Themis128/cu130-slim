@@ -23,7 +23,7 @@ actually wired — not that we're merely posting.
 |---|---|---|
 | 1. Lead magnets | `cloudless.gr/links` 12-Automation Checklist | live — probed |
 | 2. Profile→capture | bio/website fields per account | partial — only TikTok bio is cached; others show "bio not cached" (verify via platform or social-profile-update) |
-| 3. Strong CTAs | canonical UTM pattern + NLP gate | audited — % of linked posts tagged |
+| 3. Strong CTAs | `utm.py` auto-tags owned links at publish | audited — tagged inventory vs real attributed events |
 | 4. Retarget warm audiences | Meta Ads Manager | **paid — out of scope (no-spend rule)** |
 | 5. Social proof | content voice (testimonials/counts) | content guidance — social-content-core |
 | 6. Video lead content | branded-video-pipeline skill | available |
@@ -49,14 +49,19 @@ Checks (all live, no heuristics):
 - **Profile funnel links** — where the platform caches a bio/website in
   `meta_data` (TikTok today), verifies it points at `cloudless.gr`. Absent
   cache → "bio not cached", honest unknown — not a failure.
-- **CTA discipline** — `%` of published posts (30d, carrying a link) that
-  carry `utm_source=`. <80% → gap (the funnel→CRM-loop rule).
+- **Attribution loop** — published posts carrying a `cloudless.gr` link all
+  get UTM-tagged **at publish time** by `app/services/utm.py`
+  (`tag_owned_links`/`tracked_url` — stored text stays untagged, the
+  delivered copy is tagged). The audit measures the outcome:
+  `web_analytics_events` with a `utm_source` payload — tagged inventory
+  with zero attributed events in 30d → gap (loop silent).
 - **Lead volume 30d** — EspoCRM `Lead` count by `source` — Meta's "lead
   volume" metric, measured in the CRM not platform dashboards.
 
-**Exit 1** when a surface is down, a DM lane is missing, or UTM discipline
-is broken. Run it before any traffic push — per the funnel-ops auction rule,
-traffic into a broken capture path just raises cost-per-lead.
+**Exit 1** when a surface is down, a DM lane is missing, or tagged posts
+exist but nothing attributed in 30d. Run it before any traffic push — per
+the funnel-ops auction rule, traffic into a broken capture path just
+raises cost-per-lead.
 
 ## Reading the output
 
@@ -65,8 +70,8 @@ traffic into a broken capture path just raises cost-per-lead.
 - Surface down → fix the site/tunnel first; every post CTA dead-ends.
 - DM lane missing → enable `*_auto_reply` for that account (session-ops /
   channel skill).
-- UTM <80% → check the generation path — posts must ship CTAs tagged
-  `utm_source=<platform>&utm_medium=social&utm_campaign=<slug>`.
+- Attribution silent (tagged posts, zero events) → links dead-end: check
+  the site, the tunnel, or whether posts actually carry a CTA link.
 
 ## Relationship to funnel-ops
 
