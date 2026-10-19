@@ -53,6 +53,13 @@ logger = logging.getLogger(__name__)
 DRIP_FIRST_APPROACH = "first_approach"
 DRIP_RENEWAL = "renewal"
 
+# Oxford AIE-adapted 4-week course — each step is a drip_template campaign
+# ("aie_course_1"…"aie_course_4"). Step 1 unlocks EMAIL_DRIP_AIE_GAP_DAYS
+# after first_approach; each later step unlocks the same gap after the
+# previous one. Per-email dedup still applies per step, so a lead that
+# joins late simply walks the ladder behind.
+DRIP_AIE_STEPS = ("aie_course_1", "aie_course_2", "aie_course_3", "aie_course_4")
+
 # Same test-probe markers as crm_hygiene — a CI lead must never get mail even
 # if it slips past quarantine between sweeps.
 _TEST_MARKERS = ("ci-test+", "@example.invalid", "@example.com", "test@test")
@@ -118,6 +125,31 @@ async def _already_dripped(db, team_id: uuid.UUID, key: str, cycle: str | None) 
     if cycle is not None:
         q = q.where(EmailCampaign.meta_data["drip_cycle"].astext == cycle)
     return {str(e).strip().lower() for (e,) in (await db.execute(q)).all()}
+
+
+async def _dripped_with_dates(db, team_id: uuid.UUID, key: str) -> dict[str, datetime]:
+    """email → latest sent_at (or queue time) for a drip key — used by
+    sequence steps that unlock N days after the previous step mailed."""
+    q = (
+        select(EmailRecipient.email, EmailRecipient.sent_at, EmailRecipient.created_at)
+        .join(EmailCampaign, EmailRecipient.campaign_id == EmailCampaign.id)
+        .where(
+            EmailRecipient.team_id == team_id,
+            EmailRecipient.status.in_([RecipientStatus.pending, RecipientStatus.sent]),
+            EmailCampaign.meta_data["drip_key"].astext == key,
+        )
+    )
+    out: dict[str, datetime] = {}
+    for email, sent_at, created_at in (await db.execute(q)).all():
+        when = sent_at or created_at
+        if when is None:
+            continue
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=UTC)
+        key_email = str(email).strip().lower()
+        if key_email not in out or when > out[key_email]:
+            out[key_email] = when
+    return out
 
 
 async def _template(db, team_id: uuid.UUID, key: str) -> EmailCampaign | None:
@@ -312,6 +344,64 @@ async def _renewal_candidates(now: datetime) -> list[dict[str, Any]]:
     return out
 
 
+async def _aie_course_candidates(
+    db,
+    team_id: uuid.UUID,
+    step: str,
+    gap: timedelta,
+    now: datetime,
+    lead_map: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Emails due for one AIE course step.
+
+    ``aie_course_1`` unlocks ``gap`` after ``first_approach`` mailed; steps
+    2-4 unlock ``gap`` after the previous step mailed. Anyone not yet mailed
+    this step (``_already_dripped`` inside ``_run_drip`` re-verifies) and
+    still mailable joins the wave.
+    """
+    idx = DRIP_AIE_STEPS.index(step)
+    prev_key = DRIP_FIRST_APPROACH if idx == 0 else DRIP_AIE_STEPS[idx - 1]
+    mailed_prev = await _dripped_with_dates(db, team_id, prev_key)
+    out: list[dict[str, Any]] = []
+    for email, when in mailed_prev.items():
+        if when > now - gap:
+            continue  # previous step still cooling down
+        lead = lead_map.get(email) or {}
+        name = lead.get("_name")
+        if not _mailable(email, name):
+            continue
+        out.append(
+            {
+                "email": email,
+                "name": name,
+                "crm_entity": "Lead" if lead.get("id") else None,
+                "crm_id": lead.get("id"),
+                "cycle": None,
+            }
+        )
+    return out
+
+
+async def _aie_lead_map() -> dict[str, dict[str, Any]]:
+    """email → {id, _name} for CRM leads — recipient naming + note targets."""
+    out: dict[str, dict[str, Any]] = {}
+    try:
+        for lead in await espocrm_client.list_leads_for_campaign():
+            email = _norm_email(lead)
+            if not email:
+                continue
+            out[email] = {
+                "id": lead.get("id"),
+                "_name": " ".join(
+                    p for p in (lead.get("firstName"), lead.get("lastName")) if p
+                )
+                or lead.get("accountName"),
+            }
+    except Exception:  # noqa: BLE001 — CRM outage degrades notes, not the sweep
+        logger.exception("email drip: AIE lead map pull failed")
+    return out
+
+
 async def _run_drip(
     db,
     team_id: uuid.UUID,
@@ -399,15 +489,31 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
     from app.db.session import async_session_maker
 
     now = datetime.now(UTC)
+    settings = get_settings()
+    aie_gap = timedelta(days=settings.EMAIL_DRIP_AIE_GAP_DAYS)
+    aie_leads = (
+        await _aie_lead_map() if settings.EMAIL_DRIP_AIE_ENABLED else {}
+    )
     report: dict[str, Any] = {"dry_run": dry_run, "teams": [], "mailed": 0}
     async with async_session_maker() as db:
         teams = (await db.execute(select(Team))).scalars().all()
         for team in teams:
             team_stats: dict[str, Any] = {"team_id": str(team.id)}
-            for key, candidates in [
+            runs: list[tuple[str, list[dict[str, Any]]]] = [
                 (DRIP_FIRST_APPROACH, await _first_approach_candidates()),
                 (DRIP_RENEWAL, await _renewal_candidates(now)),
-            ]:
+            ]
+            if settings.EMAIL_DRIP_AIE_ENABLED:
+                for step in DRIP_AIE_STEPS:
+                    runs.append(
+                        (
+                            step,
+                            await _aie_course_candidates(
+                                db, team.id, step, aie_gap, now, aie_leads
+                            ),
+                        )
+                    )
+            for key, candidates in runs:
                 try:
                     s = await _run_drip(
                         db, team.id, key, candidates, dry_run=dry_run, now=now
@@ -432,7 +538,7 @@ async def _slack_report(report: dict[str, Any]) -> None:
 
         lines = ["*Email drip sweep*"]
         for t in report["teams"]:
-            for key in (DRIP_FIRST_APPROACH, DRIP_RENEWAL):
+            for key in (DRIP_FIRST_APPROACH, DRIP_RENEWAL, *DRIP_AIE_STEPS):
                 s = t.get(key) or {}
                 if not s:
                     continue

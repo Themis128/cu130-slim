@@ -1,6 +1,6 @@
 """Coverage for app/services/email_drip.py — the autonomous drip loops."""
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -323,3 +323,55 @@ async def test_run_drip_all_suppressed_discards_clone(monkeypatch):
     )
     assert stats["mailed"] == 0 and stats["suppressed_only"] == 1
     assert db.deleted  # the unsent clone is removed — audit stays clean
+
+
+# --- AIE course sequence ----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_aie_course_candidates_respect_step_gap(monkeypatch):
+    s = SimpleNamespace(
+        DIGEST_EMAIL_TO="owner@cloudless.gr",
+        SMTP_FROM="noreply@cloudless.gr",
+    )
+    monkeypatch.setattr(D, "get_settings", lambda: s)
+    # step 1 → previous key is first_approach: one mailed 8d ago (due),
+    # one 2d ago (still cooling), one with no timestamp (skipped)
+    db = _DB(results=[
+        [
+            ("old@corp.io", NOW - timedelta(days=8), NOW - timedelta(days=8)),
+            ("new@corp.io", NOW - timedelta(days=2), NOW - timedelta(days=2)),
+            ("notime@corp.io", None, None),
+        ],
+    ])
+    leads = {
+        "old@corp.io": {"id": "l-old", "_name": "Old Timer"},
+        "new@corp.io": {"id": "l-new", "_name": "New Bee"},
+    }
+    out = await D._aie_course_candidates(
+        db, uuid.uuid4(), "aie_course_1", timedelta(days=7), NOW, leads
+    )
+    assert [c["email"] for c in out] == ["old@corp.io"]
+    assert out[0]["crm_id"] == "l-old" and out[0]["crm_entity"] == "Lead"
+
+
+@pytest.mark.asyncio
+async def test_aie_course_step2_uses_previous_step_key(monkeypatch):
+    s = SimpleNamespace(
+        DIGEST_EMAIL_TO="owner@cloudless.gr",
+        SMTP_FROM="noreply@cloudless.gr",
+    )
+    monkeypatch.setattr(D, "get_settings", lambda: s)
+    calls = []
+
+    async def spy_dates(db, team_id, key):
+        calls.append(key)
+        return {"grad@corp.io": NOW - timedelta(days=9)}
+
+    monkeypatch.setattr(D, "_dripped_with_dates", spy_dates)
+    out = await D._aie_course_candidates(
+        _DB(), uuid.uuid4(), "aie_course_2", timedelta(days=7), NOW, {}
+    )
+    assert calls == ["aie_course_1"]  # gated on step 1, not first_approach
+    assert [c["email"] for c in out] == ["grad@corp.io"]
+    assert out[0]["crm_id"] is None  # unknown CRM record → note skipped
