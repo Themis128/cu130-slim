@@ -8,6 +8,7 @@ the DMR management surface, and emoji helpers — previously ~40%.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import importlib
 import io
@@ -877,6 +878,7 @@ async def test_generate_content_happy(monkeypatch):
     assert "avoid repeating" in sent  # chroma context injected
     assert "Structure (mandatory" in sent  # post_blueprint hint
     assert "brandctx" in sent  # brand context
+    await asyncio.sleep(0)  # chroma index runs as a background task
     add.assert_awaited_once()  # indexed for dedup
 
 
