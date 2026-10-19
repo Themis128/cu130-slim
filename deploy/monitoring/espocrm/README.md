@@ -24,7 +24,20 @@ cd deploy/monitoring/espocrm
 ./apply.sh
 ```
 
-Credentials: the exporter reuses `espocrm-secrets/mariadb-password` — nothing
-to provision. After rollout, Prometheus target `espocrm` appears under
+Credentials: `apply.sh` provisions a dedicated **read-only** MariaDB user
+(`metrics_reader`, SELECT on `espocrm.*` only) using the
+`espocrm-secrets/mariadb-root-password` key when present, and stores the
+credentials in the `espocrm-exporter-db` secret — the exporter never holds
+the app's write-capable password unless root credentials are unavailable
+(fallback prints a warning).
+
+Access control: `/metrics` requires `Authorization: Bearer <token>`
+(`metrics-token` in `espocrm-exporter-db`); the ServiceMonitor reads the same
+token from `espocrm-exporter-metrics-token` in the `monitoring` namespace.
+Only `/healthz` (kubelet probes) is unauthenticated. Each request builds a
+fresh registry, so a failed scrape yields just `espocrm_up 0` — never stale
+lead/campaign numbers.
+
+After rollout, Prometheus target `espocrm` appears under
 Status → Targets and the "EspoCRM — Vitals" dashboard auto-loads in Grafana
 (ConfigMap label `grafana_dashboard=1`, sidecar pick-up ~30s).

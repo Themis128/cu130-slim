@@ -41,14 +41,22 @@ spec:
             - name: MYSQL_PORT
               value: "3306"
             - name: MYSQL_USER
-              value: espocrm
+              valueFrom:
+                secretKeyRef:
+                  name: espocrm-exporter-db
+                  key: mysql-user
             - name: MYSQL_DATABASE
               value: espocrm
             - name: MYSQL_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: espocrm-secrets
-                  key: mariadb-password
+                  name: espocrm-exporter-db
+                  key: mysql-password
+            - name: METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: espocrm-exporter-db
+                  key: metrics-token
             - name: LISTEN_PORT
               value: "8080"
           ports:
@@ -56,14 +64,14 @@ spec:
               containerPort: 8080
           readinessProbe:
             httpGet:
-              path: /metrics
+              path: /healthz
               port: metrics
             initialDelaySeconds: 15
             periodSeconds: 15
             timeoutSeconds: 10
           livenessProbe:
             httpGet:
-              path: /metrics
+              path: /healthz
               port: metrics
             initialDelaySeconds: 60
             periodSeconds: 60

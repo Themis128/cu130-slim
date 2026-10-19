@@ -49,23 +49,25 @@ QUEUE_PLATFORM = Gauge(
 )
 PUBLISHED_7D = Gauge(
     "socialauto_posts_published_7d",
-    "Publish targets completed in the last 7 days, by platform",
+    "Publish targets actually published in the last 7 days, by platform "
+    "(post_targets.status='published', windowed on published_at)",
     ["platform"],
 )
 FAILURES_7D = Gauge(
     "socialauto_publish_failures_7d",
-    "Publish targets failed in the last 7 days, by platform",
+    "Publish targets that failed in the last 7 days, by platform "
+    "(post_targets.status='failed', windowed on updated_at)",
     ["platform"],
 )
 FOLLOWERS = Gauge(
     "socialauto_followers_latest",
     "Latest follower snapshot per connected account",
-    ["platform", "account"],
+    ["platform", "account", "account_id"],
 )
 TOKEN_EXPIRY = Gauge(
     "socialauto_token_expires_in_seconds",
     "Seconds until the stored OAuth token expires (negative = already expired)",
-    ["platform", "account"],
+    ["platform", "account", "account_id"],
 )
 MEDIA = Gauge("socialauto_media_assets", "Media assets in library")
 BILLING_EVENTS = Gauge("socialauto_billing_events", "Billing webhook events", ["type"])
@@ -253,33 +255,43 @@ async def refresh_business_metrics() -> None:
             ).all():
                 QUEUE_PLATFORM.labels(platform=platform, status=status).set(n)
 
+            # Outcome counts come from post_targets, not publish_queue —
+            # queue 'completed' means "processing ended" and includes skipped
+            # targets. Window on real outcome timestamps: published_at for
+            # successes, updated_at for failures (queue rows have no terminal
+            # timestamp; locked_at is the claim time, not the outcome time).
             PUBLISHED_7D.clear()
             FAILURES_7D.clear()
             for platform, status, n in (
                 await db.execute(
                     text(
-                        "SELECT sa.platform, pq.status::text, count(*) "
-                        "FROM publish_queue pq "
-                        "JOIN social_accounts sa ON sa.id = pq.social_account_id "
-                        "WHERE pq.status IN ('completed', 'failed') "
-                        "AND coalesce(pq.locked_at, pq.created_at) "
-                        "    > now() - interval '7 days' "
-                        "GROUP BY sa.platform, pq.status"
+                        "SELECT sa.platform, pt.status, count(*) "
+                        "FROM post_targets pt "
+                        "JOIN social_accounts sa ON sa.id = pt.social_account_id "
+                        "WHERE (pt.status = 'published' "
+                        "       AND pt.published_at > now() - interval '7 days') "
+                        "   OR (pt.status = 'failed' "
+                        "       AND pt.updated_at > now() - interval '7 days') "
+                        "GROUP BY sa.platform, pt.status"
                     )
                 )
             ).all():
-                if status == "completed":
+                if status == "published":
                     PUBLISHED_7D.labels(platform=platform).set(n)
                 elif status == "failed":
                     FAILURES_7D.labels(platform=platform).set(n)
 
+            # account_id carries the internal social_accounts.id so the same
+            # username connected by two teams stays two series instead of the
+            # later row overwriting the earlier one.
             FOLLOWERS.clear()
-            for platform, account, followers in (
+            for platform, account, account_id, followers in (
                 await db.execute(
                     text(
                         "SELECT DISTINCT ON (fs.social_account_id) "
                         "fs.platform, "
                         "coalesce(sa.username, sa.account_id, fs.social_account_id::text), "
+                        "fs.social_account_id::text, "
                         "fs.followers "
                         "FROM follower_snapshots fs "
                         "JOIN social_accounts sa ON sa.id = fs.social_account_id "
@@ -287,20 +299,25 @@ async def refresh_business_metrics() -> None:
                     )
                 )
             ).all():
-                FOLLOWERS.labels(platform=platform, account=account).set(followers)
+                FOLLOWERS.labels(
+                    platform=platform, account=account, account_id=account_id
+                ).set(followers)
 
             TOKEN_EXPIRY.clear()
-            for platform, account, ttl in (
+            for platform, account, account_id, ttl in (
                 await db.execute(
                     text(
                         "SELECT platform, "
                         "coalesce(username, account_id, id::text), "
+                        "id::text, "
                         "EXTRACT(EPOCH FROM token_expires_at - now()) "
                         "FROM social_accounts WHERE token_expires_at IS NOT NULL"
                     )
                 )
             ).all():
-                TOKEN_EXPIRY.labels(platform=platform, account=account).set(float(ttl))
+                TOKEN_EXPIRY.labels(
+                    platform=platform, account=account, account_id=account_id
+                ).set(float(ttl))
 
             REFRESH_TS.set(time.time())
     except Exception as exc:  # noqa: BLE001
