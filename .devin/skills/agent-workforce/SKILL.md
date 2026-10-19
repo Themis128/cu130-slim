@@ -26,18 +26,24 @@ docker exec -w /app social-api python scripts/workforce_audit.py --json   # mach
 
 Per worker it verifies three live signals:
 
-1. **Presence** — the Celery node exists and the task has run since worker
-   start (`inspect().stats().total`).
+1. **Presence** — a live consumer exists on the worker's queue
+   (`inspect().active_queues()`; `stats().total` only counts runs since
+   worker start — presence, never recency).
 2. **Output** — latest domain-table evidence within 2× cadence
-   (e.g. `follower_snapshots.captured_at` for analytics-sync).
+   (per-account for analytics-sync — the *stalest* active account is the
+   signal, so one fresh account can't hide stale ones).
 3. **Escalation** — parked items the worker can't self-resolve (stale
    processing locks, expired tokens, non-active accounts).
 
 Statuses: `ok` · `idle` (no runs since restart — normal for daily/weekly
-beats) · `dark` (periodic worker produced nothing in 2× cadence, or a
-demand-driven worker has pending work but no recent output) · `escalation` ·
-`ungoverned` (missing goal/guardrails/fallback in its `Worker` contract — see
-`agentic-bpm` skill).
+beats) · `dark` (periodic worker produced nothing in 2× cadence, a
+demand-driven worker has pending work but no recent output, **or no live
+consumer exists on its queue** — an empty `inspect()` darkens everyone, a
+clean report while containers are down is a false pass) · `escalation` ·
+`unverified` (present but no artifact to verify against cadence — presence
+alone can't prove a beat is still firing, since `stats().total` is
+since-worker-start) · `ungoverned` (missing goal/guardrails/fallback in its
+`Worker` contract — see `agentic-bpm` skill).
 Exit code 1 when any worker is dark/escalation/ungoverned — safe for cron +
 digests. `--governance` prints each worker's declared contract, `--slack`
 pushes the attention list to Slack.
@@ -57,7 +63,7 @@ queue is healthy, not absent. Don't flag a worker for having no work to do.
 | session-healer | heal_sessions | hourly :20 | accounts ≠ active = escalation |
 | messenger-poll | poll_personal_messenger | 2m | (demand-driven) |
 | crm-engagement | run_crm_engagement_sweep | 30m | (reply notes in EspoCRM) |
-| email-drip | run_email_drip_sweep | daily | email_logs |
+| email-drip | run_email_drip_sweep | daily | email_recipients status=sent |
 | lead-research / crm-lifecycle | sweeps | daily | EspoCRM notes/convert |
 | crm-hygiene | run_crm_hygiene | Mon 07:30 | lead dedupe/quarantine |
 | datalake-export | export_datalake | 6h | R2 lake/ |
