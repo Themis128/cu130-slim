@@ -604,6 +604,7 @@ Current chain (oldest → newest, 39 revisions):
 12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send, AI auto-reply, channel agent, DM lead funnel
 17. [X free web fallback](17-x-web-fallback.md) — `X_WEB_*` cookie-auth tweety/twscrape fallback for X API 402 credits-depleted (off by default)
 21. [Sales-funnel audit](docs/superpowers/guides/21-funnel-audit.md) — live stage counts, weakest-transition detection, auction warning (fix conversion before buying traffic)
+22. [Lead-gen readiness audit](docs/superpowers/guides/22-leadgen-audit.md) — capture surfaces, DM lead lanes, UTM discipline, 30d lead volume (Meta lead-gen model)
 
 ## Current plans
 
