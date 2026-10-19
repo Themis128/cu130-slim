@@ -62,19 +62,6 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 - [ ] **Meta `leads_retrieval` App Review** — paid lead-ad delivery gated;
   blocked on Meta business verification. Webhook code is armed on both paths.
-<<<<<<< HEAD
-- [ ] **LinkedIn newsletter outreach — awaiting user decision** — 168 subscribers
-  enrolled in EspoCRM (`LinkedIn newsletter` campaign/list). Options put to user:
-  (1) warm-up DM drip 5–8/day to 146 message-able, (2) invite-first to the
-  Connect/Follow slice, (3) manual assist. Also undecided: first message = free
-  30-min audit vs lighter opener.
-  **Verified 2026-10-19:** this IS the funnel's `lead→nurtured` break — EspoCRM
-  has 179 leads (171 New / 8 Dead); only 3 have an email and all 3 are
-  self/test entries (owner's own contact-form submissions), correctly skipped
-  by the drip. The newsletter leads carry LinkedIn profile URLs in
-  `description` — LinkedIn DM via the sidecar is the only reachable nurture
-  channel. Email nurture cannot move this cohort.
-=======
 - [ ] **WhatsApp phone registration** — `+30 697 777 7838` is
   `code_verification_status: NOT_VERIFIED` → Cloud API sends 133010
   "Account not registered". **SMS code needed**: request_code currently
@@ -89,11 +76,16 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 - [ ] **LinkedIn newsletter outreach — awaiting user decision** — 168
   subscribers in EspoCRM. Options: (1) warm-up DM drip 5–8/day, (2)
   invite-first, (3) manual assist. Undecided: audit CTA vs lighter opener.
+  **Verified 2026-10-19:** this IS the funnel's `lead→nurtured` break —
+  EspoCRM has 179 leads (171 New / 8 Dead); only 3 have an email and all 3
+  are self/test entries (owner's own contact-form submissions), correctly
+  skipped by the drip. The newsletter leads carry LinkedIn profile URLs in
+  `description` — LinkedIn DM via the sidecar is the only reachable nurture
+  channel. Email nurture cannot move this cohort.
 - [ ] **EspoCRM: `LinkedIn newsletter` TargetList missing** — the 168 leads
   exist (source=Newsletter) but the list vanished; `Social engagement
   (replies)` shows entryCount 168 — investigate whether members were
   mis-attributed or the list was deleted/recreated.
->>>>>>> origin/master
 
 ## Growth / funnel
 
