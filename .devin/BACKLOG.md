@@ -6,61 +6,76 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 ## Ops — infra health
 
-- [ ] **LanguageTool `stack-ops:8010` is down (503)** — gibberish/auto-correct checks
-  fail open (advisory, publishing unaffected). Restart the service; verify
-  `curl http://stack-ops:8010/v2/check` responds. Seen 2026-10-19.
-- [ ] **Slack publish notify broken** — webhook 404 → bot-token fallback →
-  `channel_not_found`. Stale channel config; fix via `slack-ops` skill /
-  `scripts/slack_tool.py`. Seen 2026-10-19.
+- [x] **LanguageTool `stack-ops:8010`** — container was being deleted repeatedly;
+  recreated via `docker compose up -d languagetool` → 200, real grammar matches.
+  **Watch**: if it vanishes again, find what's removing it (external prune?).
+- [x] **Slack publish notify** — `SLACK_PUBLISHING_CHANNEL_ID` mapped to api +
+  workers (docker-compose). Live delivery verified in `#socialauto`
+  (`C0BT263L17U`). Dead webhook 404 remains cosmetic (env var unused path).
 - [ ] **Watch Postgres restarts** — one mid-publish restart ~15:14 EEST 2026-10-19
   left an orphaned `processing` queue lock (manually reset). If it recurs,
   investigate the recreate trigger + add stale-lock sweeper.
-- [ ] **DMR cold-start + no CLI fallback** — DMR API offline on 2026-10-19;
-  `docker CLI not found` inside `social-worker-publishing`. NLP fell back
-  gracefully, but DMR-dependent generation stalls during cold starts.
-  Still live 19:50 EEST: `generate-content` → `httpx.ConnectError:
-  Temporary failure in name resolution` (500). When DMR is back, re-run the
-  Oxford AIE template smoke test (EU AI Act template, id
-  `474a19ee-5a85-4fb9-a9a9-788a89cb6b6f`).
-- [ ] **`warp-proxy` unreachable** — instagrapi SOCKS path down (seen 2026-10-19);
-  private-API IG verification blocked. Check the warp container.
-- [ ] **X/Twitter + TikTok token expiry** — Grafana token panel showed X ~1h and
-  TikTok ~1.5h to expiry on 2026-10-19. Confirm the refresh sweep renewed them;
-  if not, `session-ops`.
+- [ ] **DMR cold-start + no CLI fallback** — recovered 2026-10-19; Oxford smoke
+  test passed (200, SEO 91). Watchdog `/api/ps` probes still flaky — monitor.
+- [x] **`warp-proxy`** — recreated; `warp=on` verified 2026-10-19.
+- [x] **X/Twitter + TikTok token expiry** — TikTok self-healed (23.6h); X was
+  refreshed by the token sweep 2026-10-19.
 
 ## Open PRs / merges to verify
 
-- [ ] **PR #737** — IG Graph permalink pk→shortcode fix (`fix/ig-graph-permalink-shortcode`).
-  Verify authoritative merge state; once merged the Deck cards + datalake
-  `platform_url`s are correct going forward.
+- [ ] **PR #737** — IG Graph permalink pk→shortcode fix + swept payloads
+  (skills sync, WA flow code, compose env). OPEN, BEHIND master, auto-merge
+  armed. Note: overlaps PR #741 — whichever merges first, the other's diff
+  shrinks; identical hunks merge clean.
+- [ ] **PR #741** — WhatsApp lead-gen Flow promotion + `send_flow` param fix.
+  Auto-merge armed (CI pending).
+- [ ] **PR #742** — AIE email-course drip sequence. Auto-merge armed.
+- [ ] **cloudless.gr PR #2228** — `/links` live social proof (EspoCRM count +
+  AppFlowy testimonial). OPEN, CI pending.
+- [x] **PR #739** — skills sync merged `2026-10-19T12:48Z`.
+- [x] **PR #740** — Oxford AIE docs merged (`5c1d2ff6`).
 
 ## Blocked on humans / consoles
 
 - [ ] **Meta `leads_retrieval` App Review** — paid lead-ad delivery gated;
   blocked on Meta business verification. Webhook code is armed on both paths.
-- [ ] **LinkedIn newsletter outreach — awaiting user decision** — 168 subscribers
-  enrolled in EspoCRM (`LinkedIn newsletter` campaign/list). Options put to user:
-  (1) warm-up DM drip 5–8/day to 146 message-able, (2) invite-first to the
-  Connect/Follow slice, (3) manual assist. Also undecided: first message = free
-  30-min audit vs lighter opener.
+- [ ] **WhatsApp phone registration** — `+30 697 777 7838` is
+  `code_verification_status: NOT_VERIFIED` → Cloud API sends 133010
+  "Account not registered". **SMS code needed**: request_code currently
+  rate-limited (136024/2388091); when the user can receive the SMS, run
+  verify-code + register (whatsapp-ops scripts). Flow promotion is armed and
+  will activate automatically once registered.
+- [ ] **LinkedIn org profile write** — `rw_organization_admin` scope missing;
+  re-auth needed to set company-page website/about.
+- [ ] **Instagram bio → `/links`** — website/name edits are mobile-app-only
+  (hard platform limit; do not force API/sidecar paths).
+- [ ] **TikTok bio/website** — writes captcha-blocked.
+- [ ] **LinkedIn newsletter outreach — awaiting user decision** — 168
+  subscribers in EspoCRM. Options: (1) warm-up DM drip 5–8/day, (2)
+  invite-first, (3) manual assist. Undecided: audit CTA vs lighter opener.
+- [ ] **EspoCRM: `LinkedIn newsletter` TargetList missing** — the 168 leads
+  exist (source=Newsletter) but the list vanished; `Social engagement
+  (replies)` shows entryCount 168 — investigate whether members were
+  mis-attributed or the list was deleted/recreated.
 
 ## Growth / funnel
 
-- [ ] **Oxford AIE adoption — bigger pieces** (templates landed 2026-10-19):
-  (a) 4-week "AI Act in 4 weeks" email course — needs a *sequence* engine
-  (current drip engine sends one template/wave, not offset series);
-  (b) AI-governance/audit service framing on `cloudless.gr/pricing|/contact`
-  — user decision; (c) "EU AI Act readiness checklist" lead magnet on
-  `/links` (second magnet beside the 12-Automation checklist).
-  Source: `Kakkava Sofia/Oxford/AIE_Brochure_May2026.pdf`.
-- [ ] **Bio links → `/links`** — most profiles still point at the homepage;
-  switching IG/FB bios to `cloudless.gr/links` closes Meta playbook #2
-  (profile → lead capture). Was offered to user, not yet approved.
-- [ ] **Social proof on `/links`** — add checklist download count + one
-  testimonial (Meta playbook #5).
-- [ ] **Promote the WhatsApp `cloudless_lead_gen` Flow** — live and published on
-  the WABA, responses land as SocialAuto leads → `WhatsApp leads` list, but
-  nothing advertises it. Send it in WA replies/onboarding.
+- [x] **Bio links → `/links`** — FB Page website + Threads bio updated
+  2026-10-19 (IG/TikTok/LinkedIn blocked — see above).
+- [x] **Social proof on `/links`** — live-count + featured-testimonial block,
+  cloudless.gr PR #2228.
+- [x] **WhatsApp Flow promotion** — `_maybe_promote_flow` armed: greeting +
+  business intents → `cloudless_lead_gen` (1971236133545424), 7-day resend
+  cap. Activates once number registers (see blocked).
+- [x] **Oxford AIE email course** — sequence engine + 4 seeded drip_template
+  campaigns (`aie_course_1..4`), 7-day steps, PR #742.
+- [ ] **AI-governance audit service page** on `cloudless.gr/pricing|/contact`
+  — user decision (positioning, pricing).
+- [ ] **"EU AI Act readiness checklist" lead magnet** on `/links` — needs PDF
+  + second `ChecklistSignup` card (monthly-checklist-update skill).
+- [ ] **Post-merge worker restart** — after #742 lands: checkout master, pull,
+  `docker compose restart social-worker-default celery-beat` so the new drip
+  steps load (bind-mounted code).
 
 ## Done recently (reference)
 
@@ -73,3 +88,5 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 - [x] OMV apticron: `openmediavault-omvextrasorg` 8.0.4 + `openmediavault`
   8.5.12-1 applied over Tailscale.
 - [x] LinkedIn newsletter funnel: 168 subscribers → EspoCRM leads, PR #735 merged.
+- [x] Oxford AIE brochure → 4 `ContentPromptTemplate`s live + verified via
+  `/generate-content` (SEO 91).
