@@ -127,6 +127,13 @@ to be on my crm loops":
    `social.cloudless.gr/pricing` (Polar checkout). Never ship a bare
    link — untagged traffic is unattributable followers leaking out of
    the loop.
+   **Campaign-level slug** (Prakoso et al. 2024 — "integrate social with
+   other marketing channels"): when one campaign runs on multiple
+   channels (social + email + ads), every channel shares the SAME
+   `utm_campaign` — `utm_source`/`utm_medium` distinguish the channel,
+   `utm_content` distinguishes the asset. A per-post slug fragments a
+   campaign into unattributable pieces; a shared slug lets
+   `web_analytics_events` / the datalake join the whole campaign.
 
 ## Quality gate — mandatory before publishing
 

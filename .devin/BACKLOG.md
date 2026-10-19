@@ -18,6 +18,7 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   land — but webhooks need re-creation in the Slack app console (user action)
   and `.env` refresh. Via `slack-ops` / `slack_tool.py webhooks`.
 - [ ] **Watch Postgres restarts** — one mid-publish restart ~15:14 EEST 2026-10-19
+
   left an orphaned `processing` queue lock (manually reset). Queue verified
   clean 2026-10-19 (0 processing rows; 288 completed / 1 failed). If it
   recurs, investigate the recreate trigger + add stale-lock sweeper.
@@ -40,6 +41,13 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 - [ ] **Facebook Page `Cloudless.gr` status=revoked** — healer confirmed
   2026-10-19 (`accounts_synced: 3`, this page stays revoked). Needs user
   OAuth re-connect in the UI; not a session-heal case.
+  left an orphaned `processing` queue lock (manually reset). If it recurs,
+  investigate the recreate trigger + add stale-lock sweeper.
+  DMR answers trivial prompts in ~25s but the full pipeline outlives client
+  timeouts (verified 2026-10-19, both dmr and cloudflare providers). Fix
+  route UI generation to the cloudflare provider path. DMR itself is online
+  (watchdog `/api/ps` probes still flaky — monitor).
+
 - [x] **`warp-proxy`** — recreated; `warp=on` verified 2026-10-19.
 - [x] **X/Twitter + TikTok token expiry** — TikTok self-healed (23.6h); X was
   refreshed by the token sweep 2026-10-19 (manual refresh verified → 20:17 UTC).
