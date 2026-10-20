@@ -69,8 +69,17 @@ docker exec -u www-data nextcloud php occ status
 docker exec -u www-data nextcloud php occ background:job list --limit 5 \
   | python3 -c "import sys,json; [print(j['last_run']) for j in map(json.loads,sys.stdin)]"
 ## cron really running = fresh last_run timestamps (minutes, not hours)
-## backups:
+## backups — two tiers (verified 2026-10-20):
+# 1) daily same-disk snapshot via /usr/local/sbin/nas-backup (cron.daily):
 ls -la /srv/dev-disk-by-uuid-fa6231ab-*/Backups/daily-snapshot/workspace
+#    covers nextcloud-db.sql.gz + nextcloud-data + compose-files + RECOVERY_SECRETS.txt
+#    fresh check: nextcloud-db.sql.gz mtime should be <26h
+# 2) weekly OFF-DISK copy via /usr/local/sbin/nextcloud-backup.sh (cron.d Sun 04:30,
+#    added 2026-10-20 — protects against the 916G data disk dying, which tier 1 can't):
+#    maintenance:mode on -> pg_dumpall -> rsync nextcloud-data + config/themes ->
+#    /srv/dev-disk-by-uuid-a9a5a108-*/NAS-Backup/nextcloud/<stamp> (keep 4)
+sudo ls -lt /srv/dev-disk-by-uuid-a9a5a108-*/NAS-Backup/nextcloud/
+tail -5 /var/log/nextcloud-backup.log
 ## external:
 curl -sI https://cloud.cloudless.gr/status.php        # expect 200
 curl -sI https://cloud.cloudless.gr/remote.php/dav    # expect 401 challenge
@@ -163,23 +172,6 @@ STUN binding requests) and prints an honest pass/fail summary.
   LIMIT 30000)` looped to zero (deleted ~364k rows). Find the storage id
   via `oc_storages` (`local::/omv-storage/` = 5); filecache paths are
   storage-relative, no `files/` prefix.
-- **Split-horizon DNS for mail** (fixed 2026-10-15): services run
-  `dns: [1.1.1.1, 8.8.8.8]` so `mail.cloudless.gr` resolves to the PUBLIC
-  IP, not omv-ha (192.168.1.130). The `nextcloud` app container carries
-  `extra_hosts: mail.cloudless.gr:192.168.1.130` but `nextcloud-cron`
-  didn't → Mail app cron sync connected out-and-back to a wrong TLS
-  endpoint and aborted before auth (`imap-login: no auth attempts` on
-  dovecot, ~970 errors/day in nextcloud.log). Any container that talks to
-  LAN services by public hostname needs the same `extra_hosts` override.
-- **`nextcloud-worker` service** (added 2026-10-15): runs
-  `occ taskprocessing:worker` as `www-data` — dedicated AI-task worker.
-  Clears the admin check "Task Processing worker does not seem to be
-  running" (check reads appconfig `core.ai.taskprocessing_worker_last_iteration`,
-  heartbeats every few sec). Without it AI tasks (Assistant/DMR) only run
-  on the 5-min cron tick.
-- **aio-talk `changed-users` warning is informational** (2026-10-15):
-  latest aio-talk tag still ships signaling `2.1.1~docker` — the spreed
-  app's expected feature isn't released upstream yet. No fix available.
 - Recreated containers = ~40 s Nextcloud blip; fine for ops work.
 
 ## nextcloud-integration
@@ -301,6 +293,24 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
   `NEXTCLOUD_EXPORT_ENABLED=true`. Never raises into the request path.
 - Manual export of an existing asset:
   `docker exec social-worker-media celery -A app.worker.celery_app call app.worker.tasks.nextcloud.export_media_to_nextcloud --args='["<asset_uuid>"]'`
+- `app/services/nextcloud_sync.py` + beat task `sync-nextcloud-surfaces`
+  (every 3h at :25) — data-driven ops surfaces fed from real Postgres rows:
+  - **Tables** `NEXTCLOUD_TABLE_ID` ("SocialAuto Metrics", id 2): one row per
+    account/day — Date `datetime:date`, Platform `selection` (option **id**,
+    not label), Metric `text:line`, Value `number`, Delta `number`,
+    Notes `text:line`. Row `data` must be an object keyed by column id —
+    the `{columnId,value}` list form 500s with "column id 0". Same-day
+    value changes PUT-update the existing row.
+  - **Deck** `NEXTCLOUD_DECK_BOARD_ID` ("SocialAuto Content Pipeline",
+    id 2): cards carry a `post:<uuid>` marker line in the description;
+    status→stack map draft→Drafting, review→In Review, approved/publishing/
+    scheduled→Scheduled, published→Published, failed→Needs Attention.
+    Moves go through `PUT …/reorder` (body `stackId` = destination) and are
+    re-verified — buggy Deck builds recreate instead, carrying labels,
+    assignees, duedate, and only deleting the source after the copy exists.
+    Cards whose post falls out of scope get `PUT …/archive`, not delete.
+  - `NEXTCLOUD_SYNC_TEAM_ID` scopes the export to one team; empty = all
+    teams (fine for the single-team admin install).
 
 ### Drop-folder → draft workflow (n8n `nextcloud-drop-to-draft`)
 
@@ -377,55 +387,3 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
 - Page API works for scripting: `POST /apps/intravox/api/pages`
   `{id,title,language,parentPath?}` → 201; `GET /api/pages/tree?language=en`.
   The `/api/v1/pages` collection route 404s — use `/api/pages`.
-
-### IntraVox integration + app expansion (live 2026-10-15, PR #636)
-
-- **SocialAuto digest → IntraVox**: n8n `socialauto-daily-slack-digest` now
-  creates `en/news/updates/socialauto-digest-YYYY-MM-DD` pages (heading+text
-  widgets, real `reports[].markdown`). Two pitfalls burned in:
-  - n8n `httpRequest` 4.2 **ignores `contentType:'json'`** — needs
-    `specifyBody:'json'` + `jsonBody`, else body ships empty (IntraVox 400s
-    "Missing required fields").
-  - `httpBasicAuth` credentials on nodes **never reach the wire** in
-    production runs (guest 404/login page). Working pattern: compute
-    `Basic base64(user:appPw)` in a Code node from `$env.NEXTCLOUD_USERNAME` /
-    `$env.NEXTCLOUD_APP_PASSWORD` (passed into the n8n service via compose)
-    and send an explicit `Authorization` header.
-- **IntraVox API quirks**: widget `type` strings are hyphenated
-  (`file-story`, `news`) — unknown types are **silently stripped** on PUT.
-  News-widget `sourcePath` is relative to the language root (`news`, not
-  `en/news`). Verify via `GET /api/news?sourcePath=news`.
-- **Homepage news widget** surfaces `en/news` items (incl. digests).
-- **Kakkava library**: 32 PDFs mirrored from
-  `/mnt/c/.../OneDrive/Kakkava Sofia/` to
-  `IntraVox/media/Visibility Era/` (WebDAV PUT); `file-story` widget on the
-  Visibility Era & Social page reads it.
-- **Uptime**: Prometheus `Probe` CRs `selfhosted-intravox` +
-  `tunnel-cloud` (blackbox-exporter, label `release: kube-prom`) — verified
-  `probe_success=1`. Kuma push monitors exist but need UI auth (no admin
-  creds stored) — the Probe path needs none.
-- **New apps (NC 34)**: `approval` 3.3.2 (IntraVox publication gate wired:
-  tags Pending/Approved/Rejected ids 1/2/3, rule 1 — Editors request,
-  Admins approve, `unapprove_when_modified=1`), `files_automatedtagging`,
-  `guests` (whitelist incl. `intravox`), `external` (top-nav links:
-  Intranet/SocialAuto/n8n/Grafana/EspoCRM), `impersonate`, `news` (3 feeds
-  in "Content Research"), `metavox`.
-  **Incompatible with NC 34**: `files_downloadactivity`,
-  `ransomware_protection` — don't retry.
-- **Approval tables** (pgsql `nextcloud` db on nextcloud-db):
-  `oc_approval_rules` (tag ids), `oc_approval_rule_requesters|_approvers`
-  (`entity_type` 0=user 1=group 2=circle).
-
-### Bottleneck: Apache segfault storm (2026-10-15)
-
-- During `spreed` app update + a 32-PDF upload/preview scan, **every Apache
-  child segfaulted (signal 11)** — all PHP routes 502'd through the tunnel
-  while `/status.php` + intravox `/api/health` (lightweight) still 200'd.
-  `docker ps` kept reporting **healthy** — the Docker healthcheck doesn't
-  catch a wedged Apache (localhost curl returned 000).
-- Symptom signature: guest-page 404/502 HTML for API calls that authed fine
-  minutes earlier; access log stops mid-request; `AH00052: child pid X
-  exit signal Segmentation fault` repeating.
-- Recovery: `docker restart nextcloud` (children don't self-recover once
-  the parent exhausts). Root trigger = concurrent app-archive extraction +
-  preview generation on ARM/8GB — keep heavy uploads batched and off-peak.

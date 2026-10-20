@@ -1,6 +1,6 @@
 {
   "id": "socialauto-daily-slack-digest",
-  "name": "SocialAuto Daily Digest \u2192 #socialauto",
+  "name": "SocialAuto Daily Digest → #socialauto",
   "active": true,
   "nodes": [
     {
@@ -120,7 +120,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\n// pick the team's report that actually has data \u2014 DB has multiple empty 'CI Test' teams\nconst first = reports.find(x => ((x.overview && (x.overview.connected_accounts || x.overview.total_posts)) > 0)) || reports[0] || {};\nconst md = (first.markdown || '').trim();\nconst date = new Date().toISOString().slice(0, 10);\nconst body = md.replace(/\\*([^*\\n]+)\\*/g, '**$1**');\nconst basic = Buffer.from(($env.NEXTCLOUD_USERNAME || '') + ':' + ($env.NEXTCLOUD_APP_PASSWORD || '')).toString('base64');\nreturn [{\n  json: {\n    pageId: `socialauto-digest-${date}`,\n    title: `SocialAuto Digest \u2014 ${date}`,\n    markdown: body,\n    basic: `Basic ${basic}`,\n  }\n}];"
+        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\n// pick the team's report that actually has data — DB has multiple empty 'CI Test' teams\nconst first = reports.find(x => ((x.overview && (x.overview.connected_accounts || x.overview.total_posts)) > 0)) || reports[0] || {};\nconst md = (first.markdown || '').trim();\nconst date = new Date().toISOString().slice(0, 10);\nconst body = md.replace(/\\*([^*\\n]+)\\*/g, '**$1**');\nconst basic = Buffer.from(($env.NEXTCLOUD_USERNAME || '') + ':' + ($env.NEXTCLOUD_APP_PASSWORD || '')).toString('base64');\nreturn [{\n  json: {\n    pageId: `socialauto-digest-${date}`,\n    title: `SocialAuto Digest — ${date}`,\n    markdown: body,\n    basic: `Basic ${basic}`,\n  }\n}];"
       },
       "id": "format-intravox-digest",
       "name": "Format IntraVox Digest",
@@ -519,7 +519,8 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 1500
+    "executionTimeout": 1500,
+    "errorWorkflow": "notify-failures"
   },
   "meta": {
     "templateCredsSetupCompleted": true

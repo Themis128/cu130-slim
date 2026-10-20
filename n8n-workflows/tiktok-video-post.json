@@ -822,7 +822,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "executionTimeout": 1500
+    "executionTimeout": 1500,
+    "errorWorkflow": "notify-failures"
   },
   "staticData": null,
   "pinData": {},

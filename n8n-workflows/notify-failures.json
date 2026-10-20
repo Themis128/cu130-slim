@@ -1,0 +1,62 @@
+{
+  "id": "notify-failures",
+  "name": "Notify failures",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "err-trigger",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/chat.postMessage",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SLACK_BOT_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={\"channel\": \"{{$env.SLACK_ALERTS_CHANNEL_ID}}\", \"text\": \"*n8n workflow failed*\\n• workflow: {{$json.workflow.name}}\\n• execution: {{$json.execution.id}} ({{$json.execution.mode}})\\n• node: {{$json.execution.lastNodeExecuted}}\\n• error: {{$json.execution.error.message}}\\n• {{$json.execution.url}}\"}",
+        "options": {}
+      },
+      "id": "slack-notify",
+      "name": "Slack alert",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Slack alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens"
+  },
+  "active": true,
+  "tags": [{"name": "ops"}, {"name": "alerts"}]
+}
