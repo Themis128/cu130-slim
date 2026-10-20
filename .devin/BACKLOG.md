@@ -13,18 +13,15 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   workers (docker-compose). Live delivery verified in `#socialauto`
   (`C0BT263L17U`). Dead webhook 404 remains cosmetic (env var unused path).
 - [ ] **Regenerate Slack incoming webhooks** — ALL webhook URLs 404
-  (`no_service`, Slack app likely reinstalled). Bot-token fallback verified
-  on **all five channels** 2026-10-20 (`chat.postMessage` ok):
-  C0C1F1K3DDF (socialauto), C0C1D46212N (alerts), C0C3A9WEX5E (polar-support/billing), C0C1B8PMTUN (publishing), C0C3XKEHPM1 (leads)
-  — every
-  wired notification path still lands. Caveat (Devin Review #755): the
-  documented n8n error-notification recipe posts to the dead incoming
-  webhooks directly — verified live n8n DB 2026-10-20: zero workflows wire
-  errorTrigger/errorWorkflow, so nothing is currently dropped; recipe doc
-  rewritten to use `chat.postMessage` + `SLACK_BOT_TOKEN` instead
-  (docs/ops/n8n-failure-notifications.md). Webhooks still need re-creation
-  in the Slack app console (user action) + `.env` refresh.
-  Via `slack-ops` / `slack_tool.py webhooks`.
+  (`no_service`, old workspace). 2026-10-20: all 7 `SLACK_*_WEBHOOK_URL`
+  **blanked in `.env`** so every path goes straight to bot token (was
+  wasting an HTTP call + warning per post). Remapped all stale channel IDs
+  (old→new workspace) — `SLACK_CHANNEL_ID`→C0C1F1K3DDF, `ALERTS`→C0C1D46212N,
+  `PUBLISHING`→C0C1B8PMTUN, `LEADS`→C0C3XKEHPM1, `SUPPORT/BILLING`→C0C3A9WEX5E
+  (PR #773). `notify-failures` error workflow verified end-to-end → real
+  alert in #socialauto-alerts. Only leftover: re-create webhooks in the
+  Slack app console (user action) if webhook delivery is ever wanted again
+  — nothing is functionally blocked.
 - [x] **Postgres restarts — investigated 2026-10-20** — recurrence was a
   graceful whole-stack restart ~18:36 UTC (host/WSL-level event, exit=0,
   no OOM), NOT a crash loop. Queue clean (0 processing rows). No sweeper
@@ -40,11 +37,11 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   (matching `generateImage`). Live-verified: CF path 95.5s (was >300s
   timeout). DMR path remains the free/local fallback for n8n/celery callers
   on the docker network (no gateway timeout there).
-- [ ] **Influencer/partner lane — surface created 2026-10-20** (Prakoso et
-  al. 2024 rec. 3): EspoCRM TargetList `Partners & influencers`
-  (`6ad70b7459be03ec5`) exists; crosschannel_audit now checks it live.
-  Still needed: curated candidate entries + outreach tracking (CRM lead
-  source or Nextcloud watchlist) — no members yet.
+- [x] **Influencer/partner lane — seeded 2026-10-21** (Prakoso et
+  al. 2024 rec. 3): 6 real Greek/EU cloud/devrel candidates created as
+  EspoCRM Leads (source=Partner) + linked to `Partners & influencers`
+  (`6ad70b7459be03ec5`) with pending-review notes. **Next: user reviews
+  the shortlist before any outreach** — no auto-contact on this lane.
 - [x] **TikTok `url_ownership_unverified` — RESOLVED** (verified 2026-10-20
   via post_targets): the only occurrences are 2026-09-16/17, predating the
   `cloudless.gr` domain verification (done 2026-10-02, tiktok-console-ops).
@@ -53,9 +50,12 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   audit under review), `spam_risk_too_many_pending_share` (inbox drafts must
   be finished in the app), and `MEDIA_PUBLIC_BASE_URL` unset when the tunnel
   is down — none are code fixes.
-- [ ] **Facebook Page `Cloudless.gr` status=revoked** — healer confirmed
-  2026-10-19 (`accounts_synced: 3`, this page stays revoked). Needs user
-  OAuth re-connect in the UI; not a session-heal case.
+- [x] **Facebook Page `Cloudless.gr` status=revoked — triaged 2026-10-21:**
+  TWO pages exist in the account — `Cloudless.gr` (revoked, the deleted
+  duplicate per facebook-content-ops) and `cloudless.gr` (the canonical
+  active page, publishing fine). The revoked row is the dead duplicate —
+  no action needed; the active page is healthy. If the revoked row's
+  alerts are noisy, archive the SocialAuto account row in the UI.
 
 - [x] **`warp-proxy`** — recreated; `warp=on` verified 2026-10-19.
 - [x] **X/Twitter + TikTok token expiry** — TikTok self-healed (23.6h); X was
@@ -78,6 +78,17 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   fix), #762 (cross-channel + predictive skills) all merged 2026-10-20.
 - [x] **PR #739** — skills sync merged `2026-10-19T12:48Z`.
 - [x] **PR #740** — Oxford AIE docs merged (`5c1d2ff6`).
+- [x] **PR #773** — Slack channel-ID remap + notify-failures body fix.
+  MERGED; end-to-end verified with a forced failure → real #alerts post.
+- [x] **PR #774** — n8n 2.43.4, durable scheduler, external task runners,
+  metrics proxy, retention, PG16→17 cutover, IntraVox digest fix,
+  Prometheus n8n target. MERGED.
+- [x] **PR #775** — LinkedIn newsletter nurture lanes (sidecar
+  profile-DM + invite, client, CLI). MERGED 2026-10-21.
+- [ ] **cloudless.gr PR #2232** — EU AI Act checklist lead magnet.
+  Auto-merge armed; the one red check (Playwright live-D1, chatbot specs)
+  is a pre-existing main failure (CF secrets empty in CI env), not
+  required by branch protection.
 
 ## Blocked on humans / consoles
 
@@ -89,8 +100,13 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   rate-limited (136024/2388091); when the user can receive the SMS, run
   verify-code + register (whatsapp-ops scripts). Flow promotion is armed and
   will activate automatically once registered.
-- [ ] **LinkedIn org profile write** — `rw_organization_admin` scope missing;
-  re-auth needed to set company-page website/about.
+- [x] **LinkedIn org profile write — VERIFIED STALE 2026-10-21:** the
+  cloudless-gr Company Page (`urn:li:organization:108614163`) is already
+  fully populated — website `cloudless.gr`, CTA "Visit website"→cloudless.gr,
+  complete description, 10 specialties, phone. Confirmed via the sidecar's
+  internal voyager lane: `canUpdateOrganizationProfile: true` — future
+  writes can go through the browser sidecar (no `rw_organization_admin`
+  re-auth needed).
 - [ ] **Instagram private-API (aiograpi sidecar) login rate-limited** —
   `POST /auth/login` returns `429 ClientThrottledError` on
   `caa.login.async.send_login_request` even via `warp-proxy` SOCKS5
@@ -107,15 +123,20 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 - [ ] **Instagram bio → `/links`** — website/name edits are mobile-app-only
   (hard platform limit; do not force API/sidecar paths).
 - [ ] **TikTok bio/website** — writes captcha-blocked.
-- [ ] **LinkedIn newsletter outreach — awaiting user decision** — 168
-  subscribers in EspoCRM. Options: (1) warm-up DM drip 5–8/day, (2)
-  invite-first, (3) manual assist. Undecided: audit CTA vs lighter opener.
+- [x] **LinkedIn newsletter outreach — BUILT + verified 2026-10-21**
+  (PR #775): `scripts/newsletter_nurture.py` drives the cohort through two
+  sidecar lanes — `message` (146 first-degree, Voyager createMessage) and
+  `connect` (10 non-1st-degree, verifyQuotaAndCreateV2 invite); 12
+  follow-only skipped. Dry-run default, `--approve` to send, 20/day cap,
+  45–120s pacing, `New`→`In Process` + CRM note per touch. **Verified
+  live:** real DM confirmed in Voyager conversation GraphQL; real invite
+  confirmed "Pending" on the recipient profile. **Next: user approval for
+  paced batches** (`run --approve --limit 5` suggested; soft non-sales copy
+  already templated).
   **Verified 2026-10-19:** this IS the funnel's `lead→nurtured` break —
-  EspoCRM has 179 leads (171 New / 8 Dead); only 3 have an email and all 3
-  are self/test entries (owner's own contact-form submissions), correctly
-  skipped by the drip. The newsletter leads carry LinkedIn profile URLs in
-  `description` — LinkedIn DM via the sidecar is the only reachable nurture
-  channel. Email nurture cannot move this cohort.
+  the leads carry LinkedIn profile URLs in `description`; LinkedIn via the
+  sidecar is the only reachable nurture channel (only 3 emails on file,
+  all self/test).
 - [x] **EspoCRM: `LinkedIn newsletter` TargetList restored 2026-10-20** —
   the 168 newsletter leads were mis-attributed to `Social engagement
   (replies)` (entryCount exactly 168, all members source=Newsletter, no
@@ -136,8 +157,12 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   campaigns (`aie_course_1..4`), 7-day steps, PR #742.
 - [ ] **AI-governance audit service page** on `cloudless.gr/pricing|/contact`
   — user decision (positioning, pricing).
-- [ ] **"EU AI Act readiness checklist" lead magnet** on `/links` — needs PDF
-  + second `ChecklistSignup` card (monthly-checklist-update skill).
+- [x] **"EU AI Act readiness checklist" lead magnet — DONE 2026-10-21**
+  (cloudless.gr PR #2232): `scripts/generate_eu_ai_act_checklist.py` →
+  `public/eu-ai-act-checklist.pdf` (Reg. (EU) 2024/1689, verified dates),
+  `ChecklistSignup` parameterized by magnet slug + copy, second signup
+  card live on `/links`. `/api/subscribe` already tags any magnet slug
+  into EspoCRM.
 - [x] **Post-merge worker restart** — done 2026-10-19:
   `social-worker-default` + `celery-beat` restarted; #742 drip steps loaded.
 
