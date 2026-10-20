@@ -120,6 +120,22 @@ async def test_ai_tone_match_ok_and_fallback(monkeypatch):
     assert out == {"score": 3, "issues": [], "suggestions": []}
 
 @pytest.mark.asyncio
+async def test_tone_match_threads_db_and_team_for_stored_provider_keys(monkeypatch):
+    """Providers whose API key lives only in the team's AIProvider row need
+    db+team_id to reach call_inference — without them _get_provider_config
+    raises and scoring silently returns the neutral 3."""
+    infer = AsyncMock(return_value={"response": {"score": 4, "issues": [], "suggestions": []}})
+    monkeypatch.setattr(bc, "call_inference", infer)
+    db, team_id = object(), uuid.uuid4()
+    await bc.score_brand_compliance(
+        "on-brand content", {"name": "B"}, provider_name="openai", db=db, team_id=team_id
+    )
+    kwargs = infer.await_args.kwargs
+    assert kwargs["provider_name"] == "openai"
+    assert kwargs["db"] is db
+    assert kwargs["team_id"] == team_id
+
+@pytest.mark.asyncio
 async def test_load_brand_context():
     # no team_id
     assert await bc.load_brand_context(_DB([]), None) == (None, None, "")

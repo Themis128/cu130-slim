@@ -429,6 +429,24 @@ app/services/
 │   ├── linkedin_ai.py        — LinkedIn AI post generation
 │   └── brand_agent.py        — Brand AI agent
 │
+│   generate-content pipeline (POST /api/v1/ai/generate-content):
+│     chroma query_similar → inference → plain-English → brand
+│     compliance → quality pipeline → response.
+│     The caller's ``provider`` is threaded through EVERY stage
+│     (generation, rewrite, tone-match, quality loop) so e.g.
+│     ``provider: cloudflare`` never queues behind the local DMR
+│     slot; the interactive frontend defaults to ``cloudflare``
+│     (api.ts generateContent — the DMR chain exceeds the nginx
+│     gateway's 300s proxy_read_timeout on CPU-bound hardware),
+│     while n8n/celery callers hit social-api directly and keep
+│     ``dmr``. Compliance/quality calls pass db+team_id so
+│     team-stored provider keys resolve. Chroma indexing of the
+│     final (post-quality) draft runs as a bounded background
+│     task (_MAX_PENDING_INDEX_TASKS=2 — drops instead of
+│     queuing ahead of later query_similar reads on the shared
+│     DMR slot). Cloudflare failures still fall back through
+│     Groq/HF per inference.py allow_fallback semantics.
+│
 ├── ── Media ─────────────────────────────────────────────────
 │   ├── media_storage.py      — Storage abstraction (R2→MinIO→disk); enqueues the
 │   │                           nextcloud export task when NEXTCLOUD_* is configured
