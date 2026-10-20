@@ -69,6 +69,9 @@ REFRESH_WINDOW_S = 2 * 3600  # refresh when <2h remain of the 12h lifetime
 N8N_API_URL = os.environ.get("N8N_API_URL", "http://localhost:5678")
 N8N_BUSY_POLL_S = int(os.environ.get("N8N_BUSY_POLL_S", "30"))
 N8N_BUSY_WAIT_S = int(os.environ.get("N8N_BUSY_WAIT_S", "600"))
+# graceful-shutdown window for compose stop — n8n refuses new triggers on
+# SIGTERM and drains in-flight executions for up to this long before SIGKILL
+N8N_STOP_GRACE_S = int(os.environ.get("N8N_STOP_GRACE_S", "120"))
 
 
 def _slack_token_files() -> list[tuple[float, Path]]:
@@ -138,10 +141,8 @@ def _env_lookup(name: str) -> str | None:
 def _n8n_running_executions() -> int | None:
     """Count of currently-running n8n executions, or None on probe failure.
 
-    A probe failure means "safe to recreate": in EXECUTIONS_MODE=regular the
-    REST API and the execution engine share the n8n process, so an
-    unreachable API implies no live executions to protect (auth failures are
-    a config issue a recreate does not make worse).
+    None means "unknown", not "idle" — a rejected request (lost scope, bad
+    key) or an unreachable API can happen while executions still run.
     """
     key = _env_lookup("N8N_API_KEY")
     if not key:
@@ -155,25 +156,51 @@ def _n8n_running_executions() -> int | None:
             data = json.load(resp)
     except Exception as exc:  # noqa: BLE001
         print(
-            f"n8n executions probe failed ({type(exc).__name__}) — treating as idle",
+            f"n8n executions probe failed ({type(exc).__name__}) — state unknown",
             file=sys.stderr,
         )
         return None
     return len(data.get("data") or [])
 
 
+def _n8n_container_running() -> bool | None:
+    """docker inspect truth for the n8n container; None when unreadable."""
+    try:
+        r = subprocess.run(
+            ["docker", "inspect", "n8n", "--format", "{{.State.Running}}"],
+            check=False,
+            timeout=15,
+            capture_output=True,
+        )
+    except Exception:  # noqa: BLE001
+        return None
+    if r.returncode != 0:
+        return None
+    return r.stdout.decode(errors="replace").strip().lower() == "true"
+
+
 def _n8n_busy() -> bool:
-    """Wait briefly for in-flight n8n executions to drain; True when still busy."""
-    waited = 0
+    """Wait for in-flight n8n executions to drain; True when still busy or unknown.
+
+    A probe failure only means "safe to recreate" when docker reports the n8n
+    container stopped — no process, nothing to kill. A running (or unreadable)
+    container with a failed probe is treated as busy and stays pending.
+    """
+    poll = max(1, N8N_BUSY_POLL_S)  # POLL_S=0 must not spin forever
+    deadline = time.monotonic() + N8N_BUSY_WAIT_S
     while True:
         running = _n8n_running_executions()
-        if not running:  # 0 running, or probe failed → safe to recreate
-            return False
-        if waited >= N8N_BUSY_WAIT_S:
+        if running is None:
+            # API failed or key missing — only a stopped container is safe
+            if _n8n_container_running() is False:
+                return False
             return True
-        print(f"n8n: {running} execution(s) running — waiting {N8N_BUSY_POLL_S}s for drain")
-        time.sleep(N8N_BUSY_POLL_S)
-        waited += N8N_BUSY_POLL_S
+        if running == 0:
+            return False
+        if time.monotonic() >= deadline:
+            return True
+        print(f"n8n: {running} execution(s) running — waiting {poll}s for drain")
+        time.sleep(poll)
 
 
 def _recreate_services(targets: list[str]) -> tuple[int, list[str]]:
@@ -186,9 +213,26 @@ def _recreate_services(targets: list[str]) -> tuple[int, list[str]]:
     pending: list[str] = []
     for svc in targets:
         if svc == "n8n" and _n8n_busy():
-            print("n8n executions still running — deferring its recreation to the next run")
+            print("n8n executions still running or state unknown — deferring its recreation to the next run")
             pending.append(svc)
             continue
+        if svc == "n8n":
+            # Drain-check is a snapshot: a schedule/webhook can start between
+            # the probe and the recreate. A graceful stop closes the gap —
+            # SIGTERM makes n8n refuse new triggers and finish in-flight
+            # executions for up to N8N_STOP_GRACE_S before SIGKILL.
+            stop = subprocess.run(
+                ["docker", "compose", "stop", "-t", str(N8N_STOP_GRACE_S), "n8n"],
+                cwd=COMPOSE_DIR,
+                check=False,
+                timeout=N8N_STOP_GRACE_S + 30,
+                capture_output=True,
+            )
+            if stop.returncode != 0:
+                tail = stop.stderr.decode(errors="replace").strip()[-200:]
+                print(f"compose stop n8n failed rc={stop.returncode}: {tail}", file=sys.stderr)
+                pending.append(svc)
+                continue
         r = subprocess.run(
             [
                 "docker",

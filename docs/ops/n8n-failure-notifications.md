@@ -68,8 +68,12 @@ is in that list** (added 2026-10-20), so post-rotation the container picks
 up the fresh token automatically. Recreating n8n is deferred while its
 executions run (`EXECUTIONS_MODE=regular` shares the container — a forced
 recreate mid-run would kill them); the sync polls
-`GET /api/v1/executions?status=running` and leaves n8n in its per-service
-pending marker for the next 2h cron pass when still busy. If the sync is
+`GET /api/v1/executions?status=running`, waits up to `N8N_BUSY_WAIT_S`
+(600s) for a drain, then issues a graceful `compose stop -t
+N8N_STOP_GRACE_S` (120s — SIGTERM refuses new triggers and drains
+in-flight runs) before recreating. A failed API probe only proceeds when
+`docker inspect` reports the container stopped; otherwise n8n stays in
+its per-service pending marker for the next 2h cron pass. If the sync is
 ever replaced, failure alerts silently stop at the next token expiry.
 
 > Status 2026-10-20: wired live. `notify-failures` (Error Trigger → Slack
