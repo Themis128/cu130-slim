@@ -27,15 +27,15 @@ into the n8n container and posts to every configured channel
    - Authentication: Generic Credential Type → Header Auth, or set the header directly:
      - `Authorization`: `=Bearer {{$env.SLACK_BOT_TOKEN}}`
      - `Content-Type`: `application/json`
-   - Body Content Type: `JSON`
-   - JSON Body:
+   - Body Content Type: `JSON` → **Specify Body: Using Fields Below** (keypair)
+   - Body parameters:
+     - `channel`: `={{$env.SLACK_ALERTS_CHANNEL_ID}}`
+     - `text`: `=*n8n workflow failed*\n• workflow: {{$json.workflow.name}}\n• execution: {{$json.execution.id}}\n• error: {{$json.execution.error.message}}\n• {{$json.execution.url}}`
 
-```json
-{
-  "channel": "{{$env.SLACK_ALERTS_CHANNEL_ID}}",
-  "text": "*n8n workflow failed*\n• workflow: {{$json.workflow.name}}\n• execution: {{$json.execution.id}}\n• error: {{$json.error.message}}"
-}
-```
+   Do **not** send the JSON as one raw `body` expression — Slack's API then
+   reads it as an unknown argument and answers `{"ok":false,"error":
+   "invalid_arg_name"}` while n8n still records the node as successful
+   (verified live 2026-10-20: execution "succeeded", no message delivered).
 
 ### Incoming-webhook fallback (only after webhooks are regenerated)
 
@@ -76,12 +76,20 @@ in-flight runs) before recreating. A failed API probe only proceeds when
 its per-service pending marker for the next 2h cron pass. If the sync is
 ever replaced, failure alerts silently stop at the next token expiry.
 
-> Status 2026-10-20: wired live. `notify-failures` (Error Trigger → Slack
-> `chat.postMessage`, `n8n-workflows/notify-failures.json`) is deployed and
-> published; all 21 active workflows have `settings.errorWorkflow =
-> "notify-failures"` — set in the repo JSONs (source of truth) and applied
-> live via `PUT /api/v1/workflows/{id}` (no restart needed — the setting is
-> read at execution time). `SLACK_BOT_TOKEN` and `SLACK_ALERTS_CHANNEL_ID`
+> Status 2026-10-20: wired live **and verified end-to-end** — a forced
+> Stop-and-Error webhook run produced a real `#socialauto-alerts` message
+> ("n8n workflow failed … execution: 1931"). `notify-failures` (Error
+> Trigger → Slack `chat.postMessage`, `n8n-workflows/notify-failures.json`)
+> is deployed and published; all 21 active workflows have
+> `settings.errorWorkflow = "notify-failures"` — set in the repo JSONs
+> (source of truth) and applied live via `PUT /api/v1/workflows/{id}` (no
+> restart needed — the setting is read at execution time). Same-day fixes:
+> the Slack `channel`/`text` must be keypair body params (raw JSON string →
+> `invalid_arg_name`), and `SLACK_ALERTS_CHANNEL_ID` was remapped from the
+> stale pre-migration ID `C0C7N9SB59S` to the live channel `C0C1D46212N`
+> (along with every other `SLACK_*_CHANNEL_ID` in `.env` — all pre-migration
+> IDs silently failed `channel_not_found`). `SLACK_BOT_TOKEN` and
+> `SLACK_ALERTS_CHANNEL_ID`
 > are present in the n8n container env. End-to-end delivery is verified by
 > the next real workflow failure — force one on a scheduled run if a live
 > confirmation is wanted sooner.
