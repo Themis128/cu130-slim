@@ -347,7 +347,7 @@ async def schedule_report_actions(
             try:
                 comp = await score_brand_compliance(
                     content=content, brand=brand_dict, voice=voice_dict,
-                    platform=platform,
+                    platform=platform, db=db, team_id=team.id,
                 )
                 if (comp.get("score") or 0) < _MIN_COMPLIANCE:
                     status = PostStatus.DRAFT

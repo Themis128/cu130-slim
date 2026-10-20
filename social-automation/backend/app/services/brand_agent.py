@@ -158,6 +158,8 @@ async def run_autopilot(
             # Check compliance
             compliance = await score_brand_compliance(
                 content=content,
+                db=db,
+                team_id=team_id,
                 brand={
                     "name": brand.name,
                     "positioning_statement": brand.positioning_statement,

@@ -649,6 +649,8 @@ async def score_compliance(
             brand=brand_dict,
             voice=voice_dict,
             platform=data.platform,
+            db=db,
+            team_id=team_id,
         )
         return result
     except Exception as e:
