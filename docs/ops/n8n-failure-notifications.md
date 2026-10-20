@@ -53,16 +53,24 @@ creating the two-node flow above:
    `Notify failures`).
 2. For **each monitored workflow**: Settings → **Error Workflow** → select
    `Notify failures`. Repeat per workflow — there is no global default.
-3. **Verify**: force one monitored execution to fail (e.g. point a node at
-   a bad URL and run it), confirm the alert lands in `#socialauto-alerts`.
+3. **Verify with a production execution**: a manual "Test workflow" run in
+   the editor does **not** reliably invoke the Error Workflow — n8n only
+   guarantees the error path on real executions. Force a failure on a
+   scheduled or webhook-triggered run (e.g. point a node at a bad URL and
+   let the cron/webhook fire it) and confirm the alert lands in
+   `#socialauto-alerts`.
 
 ### Token lifetime caveat
 
 `SLACK_BOT_TOKEN` is a rotating user token (12h). `slack_token_sync.py`
 refreshes it and recreates every consumer in its `SERVICES` list — **n8n
 is in that list** (added 2026-10-20), so post-rotation the container picks
-up the fresh token automatically. If the sync is ever replaced, failure
-alerts silently stop at the next token expiry.
+up the fresh token automatically. Recreating n8n is deferred while its
+executions run (`EXECUTIONS_MODE=regular` shares the container — a forced
+recreate mid-run would kill them); the sync polls
+`GET /api/v1/executions?status=running` and leaves n8n in its per-service
+pending marker for the next 2h cron pass when still busy. If the sync is
+ever replaced, failure alerts silently stop at the next token expiry.
 
 > Status 2026-10-20: no active workflow wires an Error Trigger yet (verified —
 > zero `errorTrigger`/`errorWorkflow`/webhook refs in the live n8n DB). Add the

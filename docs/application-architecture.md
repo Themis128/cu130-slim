@@ -543,7 +543,10 @@ app/services/
 │   │                           2h cron): it rotates the mcp-remote xoxe user
 │   │                           token, mirrors it into .env, and recreates the
 │   │                           token consumers (social-api + 4 workers +
-│   │                           celery-beat) with a pending-marker retry.
+│   │                           celery-beat + n8n — n8n only once its running
+│   │                           executions drain, since EXECUTIONS_MODE=regular
+│   │                           shares the container; deferred services wait in
+│   │                           a per-service pending marker for the next run).
 │   │                           post_publishing_to_slack shares the fallback
 │   │                           (webhook → bot token + SLACK_PUBLISHING_CHANNEL_ID).
 │   ├── analytics_sync.py     — Analytics synchronization. LinkedIn member

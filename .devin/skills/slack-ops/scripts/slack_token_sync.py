@@ -48,7 +48,10 @@ CRON_LINE = (
 # every long-lived service that consumes SLACK_BOT_TOKEN via compose env
 # (x-worker-env anchor feeds the four workers; digests run on worker-default;
 # n8n reads the token for error-alert chat.postMessage calls — recreating it
-# is safe: workflows/credentials persist in the n8n DB volume)
+# is safe for workflow state, which persists in the n8n DB volume, but NOT
+# for in-flight executions: EXECUTIONS_MODE=regular runs them inside the
+# n8n process, so a forced recreate mid-run would kill them. _n8n_busy
+# defers its recreation while executions are running)
 SERVICES = [
     "social-api",
     "social-worker-publishing",
@@ -60,6 +63,12 @@ SERVICES = [
 ]
 TOKEN_ENDPOINT = "https://slack.com/api/oauth.v2.user.access"
 REFRESH_WINDOW_S = 2 * 3600  # refresh when <2h remain of the 12h lifetime
+# n8n public API — checked before recreating the container so a token
+# rollover never aborts a running workflow. Host cron reaches the mapped
+# port; the compose-internal http://n8n:5678 would not resolve here.
+N8N_API_URL = os.environ.get("N8N_API_URL", "http://localhost:5678")
+N8N_BUSY_POLL_S = int(os.environ.get("N8N_BUSY_POLL_S", "30"))
+N8N_BUSY_WAIT_S = int(os.environ.get("N8N_BUSY_WAIT_S", "600"))
 
 
 def _slack_token_files() -> list[tuple[float, Path]]:
@@ -114,10 +123,72 @@ def _write_env_token(token: str) -> bool:
     return changed
 
 
-def _recreate_services() -> int:
-    """Recreate every SLACK_BOT_TOKEN consumer. Returns the worst compose rc."""
-    worst = 0
-    for svc in SERVICES:
+def _env_lookup(name: str) -> str | None:
+    """Read one key from the compose .env (no parsing of quotes/comments)."""
+    prefix = name + "="
+    try:
+        for line in ENV_FILE.read_text().splitlines():
+            if line.startswith(prefix):
+                return line[len(prefix):].strip()
+    except OSError:
+        pass
+    return None
+
+
+def _n8n_running_executions() -> int | None:
+    """Count of currently-running n8n executions, or None on probe failure.
+
+    A probe failure means "safe to recreate": in EXECUTIONS_MODE=regular the
+    REST API and the execution engine share the n8n process, so an
+    unreachable API implies no live executions to protect (auth failures are
+    a config issue a recreate does not make worse).
+    """
+    key = _env_lookup("N8N_API_KEY")
+    if not key:
+        return None
+    req = urllib.request.Request(
+        f"{N8N_API_URL}/api/v1/executions?status=running&limit=1",
+        headers={"X-N8N-API-KEY": key},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.load(resp)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"n8n executions probe failed ({type(exc).__name__}) — treating as idle",
+            file=sys.stderr,
+        )
+        return None
+    return len(data.get("data") or [])
+
+
+def _n8n_busy() -> bool:
+    """Wait briefly for in-flight n8n executions to drain; True when still busy."""
+    waited = 0
+    while True:
+        running = _n8n_running_executions()
+        if not running:  # 0 running, or probe failed → safe to recreate
+            return False
+        if waited >= N8N_BUSY_WAIT_S:
+            return True
+        print(f"n8n: {running} execution(s) running — waiting {N8N_BUSY_POLL_S}s for drain")
+        time.sleep(N8N_BUSY_POLL_S)
+        waited += N8N_BUSY_POLL_S
+
+
+def _recreate_services(targets: list[str]) -> tuple[int, list[str]]:
+    """Recreate the given SLACK_BOT_TOKEN consumers.
+
+    Returns (worst compose rc, services still pending). n8n stays pending
+    while its executions run — a forced recreate would kill them.
+    """
+    worst: int = 0
+    pending: list[str] = []
+    for svc in targets:
+        if svc == "n8n" and _n8n_busy():
+            print("n8n executions still running — deferring its recreation to the next run")
+            pending.append(svc)
+            continue
         r = subprocess.run(
             [
                 "docker",
@@ -137,9 +208,23 @@ def _recreate_services() -> int:
         )
         if r.returncode != 0:
             worst = worst or r.returncode
+            pending.append(svc)
             tail = r.stderr.decode(errors="replace").strip()[-200:]
             print(f"compose up {svc} failed rc={r.returncode}: {tail}", file=sys.stderr)
-    return worst
+    return worst, pending
+
+
+def _pending_services() -> list[str]:
+    """Services still awaiting recreation from an earlier run.
+
+    Marker holds a JSON list written by this script; a bare marker from
+    older runs (or an unreadable file) fails safe to the full consumer set.
+    """
+    try:
+        data = json.loads(PENDING_MARKER.read_text())
+        return [s for s in data if s in SERVICES]
+    except Exception:
+        return list(SERVICES) if PENDING_MARKER.exists() else []
 
 
 def _install_cron() -> int:
@@ -179,22 +264,25 @@ def main() -> int:
 
     changed = _write_env_token(tok["access_token"])
     print(f"env {'updated' if changed else 'unchanged'}")
-    pending = PENDING_MARKER.exists()
-    if changed or pending:
+    targets = list(SERVICES) if changed else _pending_services()
+    if targets:
         print(
             f"recreating consumers ({'token change' if changed else 'pending retry'})"
         )
-        rc = _recreate_services()
-        if rc == 0:
-            PENDING_MARKER.unlink(missing_ok=True)
-            print("recreated:", ", ".join(SERVICES))
-        else:
-            PENDING_MARKER.touch()
+        rc, remaining = _recreate_services(targets)
+        done = [s for s in targets if s not in remaining]
+        if remaining:
+            PENDING_MARKER.write_text(json.dumps(remaining))
             print(
-                f"recreation failed rc={rc} — marker {PENDING_MARKER} set; "
+                f"recreated: {', '.join(done) or 'none'}; still pending: "
+                f"{', '.join(remaining)} — marker {PENDING_MARKER} set; "
                 "next run retries even if the token is unchanged",
                 file=sys.stderr,
             )
+        else:
+            PENDING_MARKER.unlink(missing_ok=True)
+            print("recreated:", ", ".join(targets))
+        if rc:
             return rc
     return 0
 
