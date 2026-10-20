@@ -46,7 +46,9 @@ CRON_LINE = (
     " >> /var/tmp/slack_token_sync.log 2>&1"
 )
 # every long-lived service that consumes SLACK_BOT_TOKEN via compose env
-# (x-worker-env anchor feeds the four workers; digests run on worker-default)
+# (x-worker-env anchor feeds the four workers; digests run on worker-default;
+# n8n reads the token for error-alert chat.postMessage calls — recreating it
+# is safe: workflows/credentials persist in the n8n DB volume)
 SERVICES = [
     "social-api",
     "social-worker-publishing",
@@ -54,6 +56,7 @@ SERVICES = [
     "social-worker-default",
     "social-worker-messenger",
     "celery-beat",
+    "n8n",
 ]
 TOKEN_ENDPOINT = "https://slack.com/api/oauth.v2.user.access"
 REFRESH_WINDOW_S = 2 * 3600  # refresh when <2h remain of the 12h lifetime
