@@ -15,8 +15,8 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 - [ ] **Regenerate Slack incoming webhooks** — ALL webhook URLs 404
   (`no_service`, Slack app likely reinstalled). Bot-token fallback verified
   on **all five channels** 2026-10-20 (`chat.postMessage` ok):
-  C0BT263L17U (general+publishing), C0C7N9SB59S (alerts), C0BCLPM1NN4
-  (billing+support), C0C7JEEG2E6 (leads), C0C8DU44CAV (telegram) — every
+  C0C1F1K3DDF (socialauto), C0C1D46212N (alerts), C0C3A9WEX5E (polar-support/billing), C0C1B8PMTUN (publishing), C0C3XKEHPM1 (leads)
+  — every
   wired notification path still lands. Caveat (Devin Review #755): the
   documented n8n error-notification recipe posts to the dead incoming
   webhooks directly — verified live n8n DB 2026-10-20: zero workflows wire
