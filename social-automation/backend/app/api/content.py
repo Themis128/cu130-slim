@@ -459,6 +459,8 @@ async def publish_now(post_id: uuid.UUID, team_id: TeamId, current_user: User = 
                 content=post.content_text or "",
                 brand=brand_dict,
                 voice=voice_dict,
+                db=db,
+                team_id=team_id,
             )
             if compliance.get("score", 5) < 3:
                 import structlog
