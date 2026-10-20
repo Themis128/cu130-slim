@@ -2991,8 +2991,23 @@ async def sync_team_analytics(
             # Persist a follower snapshot for this account so we can chart
             # follower growth over time without re-fetching from each API.
             await _persist_follower_snapshot(db, account)
+            # Per-attempt marker: fires for EVERY account/platform regardless
+            # of dedup or which account-level insight paths ran (LinkedIn
+            # member syncs write none). The ops-health freshness report reads
+            # this; post-metric errors ride along in meta_data so a profile
+            # event can't mask failing post insights.
+            _persist_account_event(
+                db, account, datetime.now(UTC), "account_sync",
+                {"synced": r.synced, "skipped": r.skipped,
+                 "error_count": len(r.errors), "errors": r.errors[:5]},
+            )
         except Exception as exc:  # noqa: BLE001
             combined.errors.append(f"{platform}:{account.username}: {type(exc).__name__}: {exc}")
+            _persist_account_event(
+                db, account, datetime.now(UTC), "account_sync",
+                {"synced": 0, "skipped": 0, "error_count": 1,
+                 "errors": [f"{type(exc).__name__}: {exc}"]},
+            )
     await db.commit()
     return combined
 
