@@ -49,7 +49,7 @@ Text-3399-1-10-20250630.pdf`.
 | conversion | UTM-tagged CTA → site → CRM | `web_analytics_events` payload `utm_source` + EspoCRM `Lead.createdAt` |
 | customer feedback | comments + shares volume | `post_analytics_snapshots.comments/.shares` |
 | interactivity | response-inviting copy | `posts.content_text` scan — `?`, polls, "comment below", votes |
-| consistency | publish cadence | `post_targets.published_at` per platform, 28d |
+| consistency | publish cadence | `post_targets.published_at` per platform, 28d; messaging channels via `analytics_events` `channel_post`/`bot_reply` |
 | paid-ads eval | daily Campaign Manager scrape | `ad_campaign_snapshots` recency (<48h = fresh) |
 | skilled team | the agent fleet | `agent-workforce` / `scripts/workforce_audit.py` |
 | all-platforms paid | promo-credit-only rule | LinkedIn ads live; TikTok/Meta ads intentionally absent (no-spend rule) |
@@ -72,10 +72,10 @@ docker exec social-api python scripts/engagement_audit.py --json   # digests
 
 ```
 facebook 1.25% ER | instagram 19.7% | linkedin ~100%* | threads 1.33%
-tiktok 0.18% | twitter 4.26%
+tiktok 0.18% | twitter 4.26% | telegram 9 channel sends/28d
 conversion: 4 UTM events, 179 leads (30d) | interactivity 49.4%
 paid-eval: fresh (17.7h)
-gaps: tiktok ER 0.18%, telegram + whatsapp silent 28d
+gaps: tiktok ER 0.18%, whatsapp silent 28d
 ```
 
 Honest readings:
@@ -84,12 +84,14 @@ Honest readings:
   engagement ≈ impressions means the source sync stores cumulative or
   mis-scoped metrics (same class of corruption as follower-analytics-guard).
   Trust the direction (comments=1995 is real volume), not the ratio.
-- **Telegram silence is likely real failure** — the
-  `cloudless-telegram-channel` n8n workflow is active (Mon/Wed/Fri) yet
-  zero publishes in 28d; check its executions.
-- **WhatsApp silence is by design** — messaging channel, reply/event-driven,
-  not a feed. Excluded from cadence expectations mentally; the audit lists
-  it for completeness.
+- **Messaging channels are NOT silent** — telegram/whatsapp/viber publish
+  via send endpoints logged as `analytics_events` `channel_post`/`bot_reply`,
+  never `post_targets` (feed path `skips` them by design). The audit checks
+  both surfaces before flagging silence — telegram shows 9 sends/28d
+  (workflow healthy).
+- **WhatsApp silence is real** — the WABA has known payment/registration
+  blocks (see backlog); zero sends in 28d is accurate, not a feed-path
+  artifact.
 - **TikTok 0.18%** matches the known publish blockers (unaudited client,
   spam_risk drafts, MEDIA_PUBLIC_BASE_URL) — the platform barely reaches
   audiences right now.
