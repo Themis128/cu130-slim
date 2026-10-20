@@ -162,9 +162,37 @@ async def _attribution_30d() -> int:
         ).scalar() or 0
 
 
+async def _influencer_surface() -> str:
+    """Live check on the partner/influencer lane — the paper's
+    collaboration lever. Surface = the EspoCRM `Partners & influencers`
+    TargetList; real status = does it exist and does anyone use it."""
+    try:
+        from app.services import espocrm_client as espo
+    except ImportError:
+        return "unreachable — espocrm_client unavailable in this env"
+    if not espo.configured():
+        return "unchecked — ESPOCRM_* not configured"
+    try:
+        lists = await espo.list_all(
+            "TargetList",
+            select=["name", "entryCount"],
+            where=[{"type": "equals", "attribute": "name",
+                    "value": "Partners & influencers"}],
+        )
+    except Exception as exc:
+        return f"unchecked — EspoCRM query failed: {exc}"
+    if not lists:
+        return "unbuilt — no `Partners & influencers` TargetList in EspoCRM"
+    entries = lists[0].get("entryCount") or 0
+    if entries:
+        return f"live — TargetList holds {entries} partner/influencer leads"
+    return "surface exists (TargetList, 0 members) — needs curated entries; no outreach tracking yet"
+
+
 async def audit() -> dict:
-    inv, posts, attributed = await asyncio.gather(
-        _slug_inventory(), _post_cta_coverage(), _attribution_30d()
+    inv, posts, attributed, influencer = await asyncio.gather(
+        _slug_inventory(), _post_cta_coverage(), _attribution_30d(),
+        _influencer_surface(),
     )
 
     # The paper's integration test: does any slug span >1 channel?
@@ -204,7 +232,7 @@ async def audit() -> dict:
             "posts_30d": posts["posts_30d"],
         },
         "attribution_events_30d": attributed,
-        "influencer_surface": "unbuilt — paper's collaboration lever has no tracking surface (backlogged)",
+        "influencer_surface": influencer,
         "gaps": gaps,
     }
 

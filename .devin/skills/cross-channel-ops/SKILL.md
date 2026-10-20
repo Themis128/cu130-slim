@@ -48,7 +48,7 @@ Its hardest named challenge: **measuring ROI** — attribution, not vanity.
 | channel integration | ONE `utm_campaign` slug per campaign, shared across social+email+ads | `web_analytics_events` payload + `email_campaigns` cta_url |
 | ROI/attribution | UTM-tagged CTA → site event → EspoCRM lead | `web_analytics_events` 30d count |
 | content quality | NLP score ≥80 + quality pipeline | `social-content-core` rules |
-| influencer/partner | none — unbuilt capability | honest "unbuilt" status (backlogged) |
+| influencer/partner | EspoCRM TargetList `Partners & influencers` | audit checks the list live; 0 members — curated entries still needed |
 | responsiveness | adaptive rate limiting, session healing | `adaptive-rate-limiting`, `session-ops` |
 
 **The slug rule** (already standing, PR #752): one campaign = one

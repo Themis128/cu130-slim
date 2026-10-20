@@ -40,9 +40,11 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   (matching `generateImage`). Live-verified: CF path 95.5s (was >300s
   timeout). DMR path remains the free/local fallback for n8n/celery callers
   on the docker network (no gateway timeout there).
-- [ ] **Influencer/partner surface — unbuilt** (Prakoso et al. 2024 rec. 3):
-  no watchlist/outreach tracking exists. If adopted, needs a real surface
-  (Nextcloud table or CRM list) — not a mock.
+- [ ] **Influencer/partner lane — surface created 2026-10-20** (Prakoso et
+  al. 2024 rec. 3): EspoCRM TargetList `Partners & influencers`
+  (`6ad70b7459be03ec5`) exists; crosschannel_audit now checks it live.
+  Still needed: curated candidate entries + outreach tracking (CRM lead
+  source or Nextcloud watchlist) — no members yet.
 - [x] **TikTok `url_ownership_unverified` — RESOLVED** (verified 2026-10-20
   via post_targets): the only occurrences are 2026-09-16/17, predating the
   `cloudless.gr` domain verification (done 2026-10-02, tiktok-console-ops).
