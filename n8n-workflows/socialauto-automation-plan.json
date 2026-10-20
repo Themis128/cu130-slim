@@ -373,7 +373,8 @@
   "settings": {
     "executionOrder": "v1",
     "timezone": "Europe/Athens",
-    "executionTimeout": 1500
+    "executionTimeout": 1500,
+    "errorWorkflow": "notify-failures"
   },
   "id": "socialauto-automation-plan"
 }

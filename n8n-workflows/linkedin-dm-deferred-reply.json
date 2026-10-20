@@ -15,7 +15,10 @@
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "webhookId": "linkedin-dm-deferred-reply",
-      "position": [-860, 300]
+      "position": [
+        -860,
+        300
+      ]
     },
     {
       "parameters": {
@@ -25,7 +28,10 @@
       "name": "Compute Wait Time",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-640, 300]
+      "position": [
+        -640,
+        300
+      ]
     },
     {
       "parameters": {
@@ -37,7 +43,10 @@
       "type": "n8n-nodes-base.wait",
       "typeVersion": 1.1,
       "webhookId": "linkedin-dm-deferred-reply",
-      "position": [-420, 300]
+      "position": [
+        -420,
+        300
+      ]
     },
     {
       "parameters": {
@@ -47,7 +56,10 @@
       "name": "Generate TOTP",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [-200, 300]
+      "position": [
+        -200,
+        300
+      ]
     },
     {
       "parameters": {
@@ -57,29 +69,52 @@
         "contentType": "form-urlencoded",
         "bodyParameters": {
           "parameters": [
-            { "name": "username", "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}" },
-            { "name": "password", "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}" },
-            { "name": "otp", "value": "={{ $('Generate TOTP').item.json.otp }}" }
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            },
+            {
+              "name": "otp",
+              "value": "={{ $('Generate TOTP').item.json.otp }}"
+            }
           ]
         },
-        "options": { "timeout": 30000 }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "login-social-api",
       "name": "Login Social API",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [20, 300]
+      "position": [
+        20,
+        300
+      ]
     },
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 2 },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
           "conditions": [
             {
               "id": "login-ok",
               "leftValue": "={{ $json.access_token }}",
               "rightValue": "",
-              "operator": { "type": "string", "operation": "notEmpty", "name": "filter.operator.string.notEmpty" }
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.string.notEmpty"
+              }
             }
           ],
           "combinator": "and"
@@ -90,7 +125,10 @@
       "name": "Login OK?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
-      "position": [240, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
@@ -99,19 +137,27 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
           ]
         },
         "retryOnFail": true,
         "maxTries": 3,
         "waitBetweenTries": 300000,
-        "options": { "timeout": 120000 }
+        "options": {
+          "timeout": 120000
+        }
       },
       "id": "list-conversations",
       "name": "List Conversations",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [460, 220]
+      "position": [
+        460,
+        220
+      ]
     },
     {
       "parameters": {
@@ -121,7 +167,10 @@
       "name": "Pick Candidates",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [680, 220]
+      "position": [
+        680,
+        220
+      ]
     },
     {
       "parameters": {
@@ -130,17 +179,25 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
           ]
         },
-        "options": { "timeout": 120000 },
+        "options": {
+          "timeout": 120000
+        },
         "onError": "continueErrorOutput"
       },
       "id": "read-thread",
       "name": "Read Thread",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [900, 220]
+      "position": [
+        900,
+        220
+      ]
     },
     {
       "parameters": {
@@ -150,7 +207,10 @@
       "name": "Match Pitch Thread",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1120, 220]
+      "position": [
+        1120,
+        220
+      ]
     },
     {
       "parameters": {
@@ -159,7 +219,10 @@
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
-            { "name": "Authorization", "value": "=Bearer {{ $('Login Social API').item.json.access_token }}" }
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
           ]
         },
         "sendBody": true,
@@ -168,19 +231,29 @@
         "retryOnFail": true,
         "maxTries": 3,
         "waitBetweenTries": 300000,
-        "options": { "timeout": 120000 }
+        "options": {
+          "timeout": 120000
+        }
       },
       "id": "send-reply",
       "name": "Send Reply",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 220]
+      "position": [
+        1340,
+        220
+      ]
     },
     {
       "parameters": {
         "assignments": {
           "assignments": [
-            { "id": "fail-reason", "name": "error", "value": "Login failed — no access_token", "type": "string" }
+            {
+              "id": "fail-reason",
+              "name": "error",
+              "value": "Login failed — no access_token",
+              "type": "string"
+            }
           ]
         },
         "options": {}
@@ -189,27 +262,136 @@
       "name": "Login Failed",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3.4,
-      "position": [460, 380]
+      "position": [
+        460,
+        380
+      ]
     }
   ],
   "connections": {
-    "Deferred Reply Webhook": { "main": [[{ "node": "Compute Wait Time", "type": "main", "index": 0 }]] },
-    "Compute Wait Time": { "main": [[{ "node": "Wait Until Window", "type": "main", "index": 0 }]] },
-    "Wait Until Window": { "main": [[{ "node": "Generate TOTP", "type": "main", "index": 0 }]] },
-    "Generate TOTP": { "main": [[{ "node": "Login Social API", "type": "main", "index": 0 }]] },
-    "Login Social API": { "main": [[{ "node": "Login OK?", "type": "main", "index": 0 }]] },
-    "Login OK?": {
+    "Deferred Reply Webhook": {
       "main": [
-        [{ "node": "List Conversations", "type": "main", "index": 0 }],
-        [{ "node": "Login Failed", "type": "main", "index": 0 }]
+        [
+          {
+            "node": "Compute Wait Time",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "List Conversations": { "main": [[{ "node": "Pick Candidates", "type": "main", "index": 0 }]] },
-    "Pick Candidates": { "main": [[{ "node": "Read Thread", "type": "main", "index": 0 }]] },
-    "Read Thread": { "main": [[{ "node": "Match Pitch Thread", "type": "main", "index": 0 }], []] },
-    "Match Pitch Thread": { "main": [[{ "node": "Send Reply", "type": "main", "index": 0 }]] }
+    "Compute Wait Time": {
+      "main": [
+        [
+          {
+            "node": "Wait Until Window",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait Until Window": {
+      "main": [
+        [
+          {
+            "node": "Generate TOTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TOTP": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "List Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Conversations": {
+      "main": [
+        [
+          {
+            "node": "Pick Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Candidates": {
+      "main": [
+        [
+          {
+            "node": "Read Thread",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Thread": {
+      "main": [
+        [
+          {
+            "node": "Match Pitch Thread",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Match Pitch Thread": {
+      "main": [
+        [
+          {
+            "node": "Send Reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
   },
-  "settings": { "executionOrder": "v1" },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "notify-failures"
+  },
   "staticData": null,
   "tags": [],
   "pinData": {}

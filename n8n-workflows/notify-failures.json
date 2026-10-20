@@ -57,5 +57,6 @@
     "executionOrder": "v1",
     "timezone": "Europe/Athens"
   },
-  "active": true
+  "active": true,
+  "tags": [{"name": "ops"}, {"name": "alerts"}]
 }

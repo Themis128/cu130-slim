@@ -557,7 +557,8 @@
     "executionTimeout": 1500,
     "saveManualExecutions": true,
     "saveDataErrorExecution": "all",
-    "saveDataSuccessExecution": "all"
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "notify-failures"
   },
   "staticData": null,
   "tags": [
