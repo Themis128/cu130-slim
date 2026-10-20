@@ -111,8 +111,18 @@ and rotate a refresh_token, so `scripts/slack_token_sync.py` refreshes via
 `oauth.v2.user.access`, writes rotated tokens back to the mcp-remote file
 (keeps the MCP server in sync, mode 0600), updates `.env`, and recreates
 **every long-lived SLACK_BOT_TOKEN consumer** — social-api, the four Celery
-workers and celery-beat (compose injects the token at startup; recreating
-only social-api leaves worker digests on the expired token). If any compose
+workers, celery-beat and **n8n** (compose injects the token at startup;
+recreating only social-api leaves worker digests and the n8n failure-alert
+workflow on the expired token). n8n is special-cased:
+`EXECUTIONS_MODE=regular` runs workflows inside the n8n container, so before
+recreating it the sync polls `GET /api/v1/executions?status=running`, waits
+up to `N8N_BUSY_WAIT_S` (default 600s) for a drain, then does a graceful
+`compose stop -t N8N_STOP_GRACE_S` (default 120s — SIGTERM refuses new
+triggers and drains in-flight runs) before the recreate. A failed API probe
+is only safe to recreate when `docker inspect` reports the container
+stopped; otherwise n8n stays in the per-service pending marker
+(`/var/tmp/slack_token_sync.pending`, JSON list) for the next 2h cron pass.
+If any compose
 recreation fails the script exits nonzero and drops
 `/var/tmp/slack_token_sync.pending`; the next run retries the recreation
 even when the token is unchanged. Install the 2h cron idempotently with
