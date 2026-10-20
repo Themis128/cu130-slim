@@ -65,6 +65,15 @@ def _slug_from_url(url: str | None) -> str | None:
         return None
 
 
+def _slug_from_body(html: str | None) -> str | None:
+    """First utm_campaign found anywhere in the rendered HTML — matches
+    href querystrings including `&amp;`-encoded params."""
+    if not html:
+        return None
+    m = _UTM_RE.search(html.replace("&amp;", "&"))
+    return m.group(1) if m else None
+
+
 async def _slug_inventory() -> dict:
     """Campaign slugs observed per channel — the integration unit."""
     social, email, other = {}, {}, {}
@@ -90,11 +99,13 @@ async def _slug_inventory() -> dict:
             bucket.setdefault(camp or "(none)", 0)
             bucket[camp or "(none)"] += n
 
-        # Email-side slugs from campaign CTA urls
+        # Email-side slugs — a campaign is tagged when EITHER the structured
+        # meta_data.cta_url OR any link inside html_body carries utm_campaign
+        # (older campaigns tag links in-body without a cta_url meta).
         erows = (
             await db.execute(
                 text(
-                    "SELECT name, meta_data->>'cta_url' AS cta"
+                    "SELECT name, meta_data->>'cta_url' AS cta, html_body"
                     "  FROM email_campaigns"
                     " WHERE status IN ('sent','sending','draft')"
                     " ORDER BY created_at DESC LIMIT 200"
@@ -102,8 +113,8 @@ async def _slug_inventory() -> dict:
             )
         ).all()
         email_ctas = []
-        for name, cta in erows:
-            slug = _slug_from_url(cta)
+        for name, cta, html in erows:
+            slug = _slug_from_url(cta) or _slug_from_body(html)
             email_ctas.append({"name": name, "slug": slug, "tagged": bool(slug)})
             if slug:
                 email[slug] = email.get(slug, 0) + 1
