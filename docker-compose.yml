@@ -763,7 +763,7 @@ services:
       - POSTGRES_USER=${SOCIAL_POSTGRES_USER}
       - POSTGRES_PASSWORD=${SOCIAL_POSTGRES_PASSWORD}
     volumes:
-      - social_postgres_data:/var/lib/postgresql/data
+      - social_postgres_data_v17:/var/lib/postgresql/data
     ports:
       - 127.0.0.1:5433:5432
     healthcheck:
@@ -2020,6 +2020,10 @@ volumes:
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
+  # Pre-created via docker volume create during the PG16→17 migration;
+  # external keeps `compose down -v` from ever deleting the live data.
+  social_postgres_data_v17:
+    external: true
   redis_data: null
   tunnel_url: null
   browser_cookies: null
