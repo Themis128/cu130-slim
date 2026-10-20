@@ -69,8 +69,17 @@ docker exec -u www-data nextcloud php occ status
 docker exec -u www-data nextcloud php occ background:job list --limit 5 \
   | python3 -c "import sys,json; [print(j['last_run']) for j in map(json.loads,sys.stdin)]"
 ## cron really running = fresh last_run timestamps (minutes, not hours)
-## backups:
+## backups — two tiers (verified 2026-10-20):
+# 1) daily same-disk snapshot via /usr/local/sbin/nas-backup (cron.daily):
 ls -la /srv/dev-disk-by-uuid-fa6231ab-*/Backups/daily-snapshot/workspace
+#    covers nextcloud-db.sql.gz + nextcloud-data + compose-files + RECOVERY_SECRETS.txt
+#    fresh check: nextcloud-db.sql.gz mtime should be <26h
+# 2) weekly OFF-DISK copy via /usr/local/sbin/nextcloud-backup.sh (cron.d Sun 04:30,
+#    added 2026-10-20 — protects against the 916G data disk dying, which tier 1 can't):
+#    maintenance:mode on -> pg_dumpall -> rsync nextcloud-data + config/themes ->
+#    /srv/dev-disk-by-uuid-a9a5a108-*/NAS-Backup/nextcloud/<stamp> (keep 4)
+sudo ls -lt /srv/dev-disk-by-uuid-a9a5a108-*/NAS-Backup/nextcloud/
+tail -5 /var/log/nextcloud-backup.log
 ## external:
 curl -sI https://cloud.cloudless.gr/status.php        # expect 200
 curl -sI https://cloud.cloudless.gr/remote.php/dav    # expect 401 challenge
