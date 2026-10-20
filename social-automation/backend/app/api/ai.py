@@ -1580,6 +1580,26 @@ async def generate_image_flux(
     )
 
 
+_PENDING_INDEX_TASKS: set[asyncio.Task] = set()
+_MAX_PENDING_INDEX_TASKS = 2
+
+
+def _schedule_chroma_index(coro) -> None:
+    """Run a chroma index write in the background, capped so pending writes
+    can't pile up on the shared DMR embedding slot ahead of the next
+    request's awaited query_similar. Indexing is best-effort: when the cap
+    is reached the write is dropped rather than queued."""
+    pending = {t for t in _PENDING_INDEX_TASKS if not t.done()}
+    _PENDING_INDEX_TASKS.clear()
+    _PENDING_INDEX_TASKS.update(pending)
+    if len(_PENDING_INDEX_TASKS) >= _MAX_PENDING_INDEX_TASKS:
+        coro.close()
+        return
+    task = asyncio.create_task(coro)
+    _PENDING_INDEX_TASKS.add(task)
+    task.add_done_callback(_PENDING_INDEX_TASKS.discard)
+
+
 @router.post("/generate-content", response_model=GenerateContentResponse)
 async def generate_content(
     request: GenerateContentRequest, team_id: TeamId,
@@ -1759,18 +1779,6 @@ Return JSON with: {json_contract}"""
         context=f"{request.platform} post",
     )
 
-    # Index generated content in chroma for future dedup — fire-and-forget:
-    # the embed call is ~18s on the local DMR model and doesn't affect the
-    # response. The task keeps running on this worker's loop after return.
-    if team and content:
-        asyncio.create_task(
-            chroma_client.add_content(
-                str(team.id),
-                str(uuid.uuid4()),
-                f"{request.platform}:{content}",
-            )
-        )
-
     # Score brand compliance if brand exists
     brand_compliance = None
     if team and brand_context_str and content:
@@ -1782,6 +1790,8 @@ Return JSON with: {json_contract}"""
                 voice=voice_dict,
                 platform=request.platform,
                 provider_name=request.provider or "dmr",
+                db=db,
+                team_id=team.id,
             )
         except Exception:
             pass  # non-fatal — compliance scoring is best-effort
@@ -1803,6 +1813,21 @@ Return JSON with: {json_contract}"""
         topic=request.prompt,
         tone=request.tone,
     )
+
+    # Index the final (post-quality-pipeline) content in chroma for future
+    # dedup — fire-and-forget: the embed call is ~18s on the local DMR model
+    # and doesn't affect the response. Bounded: pending index writes cap at
+    # _MAX_PENDING_INDEX_TASKS so they can't queue unboundedly ahead of the
+    # next request's awaited query_similar on the shared DMR slot; indexing
+    # is best-effort and drops rather than stalls later drafts.
+    if team and quality.content:
+        _schedule_chroma_index(
+            chroma_client.add_content(
+                str(team.id),
+                str(uuid.uuid4()),
+                f"{request.platform}:{quality.content}",
+            )
+        )
 
     # Fabrication guard for emails — the small local models invent statistics
     # ("72% of similar cases") despite prompt guards. Any digit-token in the
