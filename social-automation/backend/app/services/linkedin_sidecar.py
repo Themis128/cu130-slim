@@ -361,6 +361,48 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
+    async def send_profile_message(
+        self,
+        text: str,
+        *,
+        profile_url: str | None = None,
+        vanity: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Open the composer on a member profile and send (1st-degree only)."""
+        payload = {
+            "profile_url": profile_url,
+            "vanity": vanity,
+            "text": text,
+            "dry_run": dry_run,
+        }
+        async with self._client as c:
+            r = await c.post("/messages/profile/send", json=payload, timeout=120.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
+    async def send_connect(
+        self,
+        *,
+        profile_url: str | None = None,
+        vanity: str | None = None,
+        note: str | None = None,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Send a connection invite with an optional <=300-char note."""
+        payload = {
+            "profile_url": profile_url,
+            "vanity": vanity,
+            "note": note,
+            "dry_run": dry_run,
+        }
+        async with self._client as c:
+            r = await c.post("/connect", json=payload, timeout=120.0)
+            if r.status_code >= 400:
+                raise LinkedInSidecarError(r.status_code, r.text)
+            return r.json()
+
     # ── Newsletter / long-form articles ────────────────────────────────────
 
     async def publish_newsletter_issue(
