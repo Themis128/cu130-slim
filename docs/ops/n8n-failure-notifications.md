@@ -44,6 +44,26 @@ If dedicated webhooks are re-created in the Slack app console
 `{"text": "..."}` POST to the webhook URL also works — but the bot-token path
 above is preferred and is the one that is verified live.
 
+### Wiring — the handler alone alerts on nothing
+
+An Error Trigger workflow only fires for workflows that name it. After
+creating the two-node flow above:
+
+1. **Save and activate/publish** the error-handler workflow (e.g.
+   `Notify failures`).
+2. For **each monitored workflow**: Settings → **Error Workflow** → select
+   `Notify failures`. Repeat per workflow — there is no global default.
+3. **Verify**: force one monitored execution to fail (e.g. point a node at
+   a bad URL and run it), confirm the alert lands in `#socialauto-alerts`.
+
+### Token lifetime caveat
+
+`SLACK_BOT_TOKEN` is a rotating user token (12h). `slack_token_sync.py`
+refreshes it and recreates every consumer in its `SERVICES` list — **n8n
+is in that list** (added 2026-10-20), so post-rotation the container picks
+up the fresh token automatically. If the sync is ever replaced, failure
+alerts silently stop at the next token expiry.
+
 > Status 2026-10-20: no active workflow wires an Error Trigger yet (verified —
 > zero `errorTrigger`/`errorWorkflow`/webhook refs in the live n8n DB). Add the
 > flow above when the first workflow needs failure alerting.
