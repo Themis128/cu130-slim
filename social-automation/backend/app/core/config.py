@@ -434,7 +434,7 @@ class Settings(BaseSettings):
     SLACK_REFRESH_TOKEN: str = ""
     # Default is the current live channel id in the Cloudless workspace.
     # Override in /app/.env (mounted from host) for your own Slack workspace.
-    SLACK_CHANNEL_ID: str = "C0BT263L17U"  # #socialauto
+    SLACK_CHANNEL_ID: str = "C0C1F1K3DDF"  # #socialauto
     SLACK_DIGEST_HOUR: int = 9  # Europe/Athens via Celery timezone
     # Daily strategy email (insights engine → action playbook).
     STRATEGY_REPORT_HOUR: int = 9  # Europe/Athens via Celery timezone

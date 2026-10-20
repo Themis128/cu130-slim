@@ -9,13 +9,13 @@ All webhook URLs in `.env` returned 404 `no_service` on 2026-10-19 (Slack app
 reinstalled) — a workflow posting to one fails silently. The verified-working
 path is `chat.postMessage` with `SLACK_BOT_TOKEN`, which is already injected
 into the n8n container and posts to every configured channel
-(`SLACK_ALERTS_CHANNEL_ID` = `#socialauto-alerts` = `C0C7N9SB59S`).
+(`SLACK_ALERTS_CHANNEL_ID` = `#socialauto-alerts` = `C0C1D46212N`).
 
 ### Environment variables
 
 - `SLACK_BOT_TOKEN` — present in the n8n container env (verified 2026-10-20)
-- `SLACK_ALERTS_CHANNEL_ID` — target channel (`C0C7N9SB59S`), injected into
-  the n8n container via docker-compose (defaults to `C0C7N9SB59S`); requires
+- `SLACK_ALERTS_CHANNEL_ID` — target channel (`C0C1D46212N`), injected into
+  the n8n container via docker-compose (defaults to `C0C1D46212N`); requires
   `docker compose up -d n8n` to land in the live env
 
 ### Example n8n flow
