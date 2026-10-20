@@ -3355,7 +3355,10 @@ app.post("/post/link", handlePostLink);
 
 app.get("/messages", handleListMessages);
 app.get("/messages/:thread_id", handleReadThread);
+// Literal route before the :thread_id param — otherwise "profile" binds it.
+app.post("/messages/profile/send", handleSendProfileMessage);
 app.post("/messages/:thread_id/send", handleSendMessage);
+app.post("/connect", handleConnect);
 
 // Posting — company page
 app.post("/company/:vanity/post/text", handleCompanyPostText);
@@ -4118,6 +4121,337 @@ async function handleReadThread(req, res) {
     res
       .status(status)
       .json({ error: err.message, code: err.code || "THREAD_ERROR" });
+  }
+}
+
+// ── Voyager helpers for the nurture lanes ──────────────────────────────────
+// This browser gets LinkedIn's LITE render (no hydrated SPA), so DOM-driven
+// DM/invite flows are unreliable. The internal voyager API works — resolve
+// the member's fsd_profile URN + relationship via identity/dash/profiles,
+// then POST the documented internal send endpoints.
+
+function _vanityOf(profile_url, vanity) {
+  if (vanity) return vanity;
+  const m = (profile_url || "").match(/\/in\/([^/?#]+)/);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+async function _csrfToken() {
+  const cookies = await context.cookies("https://www.linkedin.com");
+  return (cookies.find((c) => c.name === "JSESSIONID")?.value || "").replace(
+    /"/g,
+    "",
+  );
+}
+
+const VOYAGER_HEADERS = (csrf) => ({
+  "csrf-token": csrf,
+  "x-restli-protocol-version": "2.0.0",
+  "x-li-lang": "en_US",
+  accept: "application/vnd.linkedin.normalized+json+2.1",
+});
+
+async function _resolveMember(vanity, csrf) {
+  return page.evaluate(
+    async ({ vanity, headers }) => {
+      const resp = await fetch(
+        `https://www.linkedin.com/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=${encodeURIComponent(vanity)}&decorationId=com.linkedin.voyager.dash.deco.identity.profile.WebTopCardCore-16`,
+        { headers, credentials: "include" },
+      );
+      const t = await resp.text();
+      const urn =
+        t.match(/urn:li:fsd_profile:[A-Za-z0-9_-]+/)?.[0] || null;
+      const dist =
+        t.match(/"(?:memberDistance|distance)":"?([A-Z_0-9]+)"?/i)?.[1] ||
+        null;
+      return { status: resp.status, urn, distance: dist };
+    },
+    { vanity, headers: VOYAGER_HEADERS(csrf) },
+  );
+}
+
+async function _linkedinPage() {
+  await ensureBrowser();
+  // fetch() needs a same-origin document — park on /feed/ if the current
+  // page is a blank/error shell.
+  const url = page.url();
+  if (!url.startsWith("https://www.linkedin.com/")) {
+    await navigate("https://www.linkedin.com/feed/", 30000);
+  }
+}
+
+// Newsletter nurture: DM a member profile. 1st-degree only in practice —
+// non-connections get a message-request at best. Uses the internal
+// voyagerMessagingDashMessengerMessages createMessage endpoint with
+// hostRecipientUrns[] (auto-creates the conversation). `dry_run: true`
+// resolves the recipient but never POSTs. `visit: false` skips the
+// profile navigation (the view itself is a soft nurture touch).
+async function handleSendProfileMessage(req, res) {
+  const { profile_url, vanity, text, dry_run, visit } = req.body || {};
+  const slug = _vanityOf(profile_url, vanity);
+  const url = profile_url || (slug ? `https://www.linkedin.com/in/${slug}/` : null);
+  if (!url)
+    return res
+      .status(400)
+      .json({ error: "profile_url or vanity is required" });
+  if (!text) return res.status(400).json({ error: "text is required" });
+  try {
+    await _linkedinPage();
+    const csrf = await _csrfToken();
+    if (!csrf) {
+      return res
+        .status(401)
+        .json({ error: "No JSESSIONID — session expired", code: "NO_CSRF" });
+    }
+    if (visit !== false) {
+      try {
+        await navigate(url, 30000);
+        await page.waitForTimeout(2000);
+      } catch (_) {
+        // Vanity slugs like /in/12345678/ sometimes abort the nav — the
+        // identity API can still resolve them, so a failed visit is
+        // non-fatal.
+      }
+    }
+
+    const member = await _resolveMember(slug, csrf);
+    if (!member.urn) {
+      return res.status(404).json({
+        error: `Could not resolve profile ${slug} (identity API ${member.status})`,
+        code: "NO_RECIPIENT",
+      });
+    }
+    const recipientUrn = member.urn;
+
+    if (dry_run) {
+      return res.json({
+        status: "ok",
+        dry_run: true,
+        sent: false,
+        profile_url: url,
+        recipient: recipientUrn,
+        distance: member.distance,
+        text,
+      });
+    }
+
+    const apiResult = await page.evaluate(
+      async ({ recipientUrn, text, csrf }) => {
+        const headers = {
+          "csrf-token": csrf,
+          "x-restli-protocol-version": "2.0.0",
+          "x-li-lang": "en_US",
+          "content-type": "application/json",
+          accept: "application/vnd.linkedin.normalized+json+2.1",
+        };
+        // Sender mailbox URN — the ACoA… id is shared between fs_miniProfile
+        // and fsd_profile URN types.
+        let mailboxUrn = null;
+        const me = await fetch("https://www.linkedin.com/voyager/api/me", {
+          headers,
+          credentials: "include",
+        });
+        if (me.ok) {
+          const meJson = await me.json().catch(() => ({}));
+          const ref =
+            meJson?.data?.["*miniProfile"] ||
+            meJson?.miniProfile?.entityUrn ||
+            "";
+          const id = ref.match(/[A-Za-z0-9_-]+$/);
+          if (id) mailboxUrn = `urn:li:fsd_profile:${id[0]}`;
+        }
+        if (!mailboxUrn) {
+          return { status: 0, body: "could not resolve sender mailbox URN" };
+        }
+        // createMessage with hostRecipientUrns[] — the shape LinkedIn's own
+        // frontend POSTs for a brand-new 1:1 conversation (auto-creates the
+        // msg_conversation; works for existing threads too). Payload +
+        // headers mirror mautrix/linkedin NewChat: trackingId is REQUIRED
+        // and content-type is text/plain;charset=UTF-8.
+        const pageInstance =
+          "urn:li:page:d_flagship3_messaging;" +
+          btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))))
+            .replace(/=+$/, "") + "==";
+        const resp = await fetch(
+          "https://www.linkedin.com/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage",
+          {
+            method: "POST",
+            headers: {
+              ...headers,
+              "content-type": "text/plain;charset=UTF-8",
+              referer: "https://www.linkedin.com/messaging/",
+              "x-li-page-instance": pageInstance,
+              "x-li-track": JSON.stringify({
+                clientVersion: "1.13.3654",
+                mpVersion: "1.13.3654",
+                osName: "web",
+                timezoneOffset: -180,
+                timezone: "Europe/Athens",
+                deviceFormFactor: "DESKTOP",
+                mpName: "voyager-web",
+                displayDensity: 1,
+                displayWidth: 1920,
+                displayHeight: 1080,
+              }),
+            },
+            credentials: "include",
+            body: JSON.stringify({
+              message: {
+                body: { attributes: [], text },
+                originToken: crypto.randomUUID(),
+                renderContentUnions: [],
+              },
+              mailboxUrn,
+              trackingId: Array.from(
+                crypto.getRandomValues(new Uint8Array(16)),
+                (b) => String.fromCharCode(b),
+              ).join(""),
+              dedupeByClientGeneratedToken: false,
+              hostRecipientUrns: [recipientUrn],
+            }),
+          },
+        );
+        const body = await resp.text();
+        return { status: resp.status, body: body.slice(0, 1500) };
+      },
+      { recipientUrn, text, csrf },
+    );
+
+    if (apiResult.status >= 400) {
+      return res.status(apiResult.status === 404 ? 404 : 502).json({
+        error: `LinkedIn messaging API ${apiResult.status}: ${apiResult.body.slice(0, 300)}`,
+        code: "API_ERROR",
+      });
+    }
+    res.json({
+      status: "ok",
+      sent: true,
+      profile_url: url,
+      recipient: recipientUrn,
+      api_status: apiResult.status,
+    });
+  } catch (err) {
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res
+      .status(status)
+      .json({ error: err.message, code: err.code || "SEND_ERROR" });
+  }
+}
+
+// Newsletter nurture: send a connection invite with an optional ≤300-char
+// note via POST voyagerRelationshipsDashMemberRelationships
+// ?action=verifyQuotaAndCreateV2 — the endpoint LinkedIn's own frontend
+// calls (same shape as the maintained linkedin-api libs). `dry_run: true`
+// resolves the member but never POSTs.
+async function handleConnect(req, res) {
+  const { profile_url, vanity, note, dry_run, visit } = req.body || {};
+  const slug = _vanityOf(profile_url, vanity);
+  const url =
+    profile_url || (slug ? `https://www.linkedin.com/in/${slug}/` : null);
+  if (!url)
+    return res
+      .status(400)
+      .json({ error: "profile_url or vanity is required" });
+  if (note && note.length > 300)
+    return res.status(400).json({ error: "note exceeds 300 characters" });
+  try {
+    await _linkedinPage();
+    const csrf = await _csrfToken();
+    if (!csrf) {
+      return res
+        .status(401)
+        .json({ error: "No JSESSIONID — session expired", code: "NO_CSRF" });
+    }
+    if (visit !== false) {
+      try {
+        await navigate(url, 30000);
+        await page.waitForTimeout(2000);
+      } catch (_) {
+        // Vanity slugs like /in/12345678/ sometimes abort the nav — the
+        // identity API can still resolve them, so a failed visit is
+        // non-fatal.
+      }
+    }
+
+    const member = await _resolveMember(slug, csrf);
+    if (!member.urn) {
+      return res.status(404).json({
+        error: `Could not resolve profile ${slug} (identity API ${member.status})`,
+        code: "NO_RECIPIENT",
+      });
+    }
+    if (member.distance === "DISTANCE_1") {
+      return res.json({
+        status: "ok",
+        already_connected: true,
+        profile_url: url,
+        recipient: member.urn,
+      });
+    }
+
+    if (dry_run) {
+      return res.json({
+        status: "ok",
+        dry_run: true,
+        invited: false,
+        profile_url: url,
+        recipient: member.urn,
+        distance: member.distance,
+        note_filled: Boolean(note),
+      });
+    }
+
+    const apiResult = await page.evaluate(
+      async ({ urn, note, headers }) => {
+        const resp = await fetch(
+          "https://www.linkedin.com/voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2",
+          {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              invitee: { inviteeUnion: { memberProfile: urn } },
+              customMessage: note || "",
+            }),
+          },
+        );
+        const body = await resp.text();
+        return {
+          status: resp.status,
+          body: body.slice(0, 800),
+          cantResend: body.includes("CANT_RESEND_YET"),
+        };
+      },
+      { urn: member.urn, note: note || "", headers: VOYAGER_HEADERS(csrf) },
+    );
+
+    if (apiResult.cantResend) {
+      return res.status(409).json({
+        error: "Invitation already pending (CANT_RESEND_YET)",
+        code: "PENDING",
+      });
+    }
+    if (apiResult.status >= 400) {
+      return res.status(apiResult.status === 429 ? 429 : 502).json({
+        error: `LinkedIn invite API ${apiResult.status}: ${apiResult.body.slice(0, 300)}`,
+        code: apiResult.status === 429 ? "RATE_LIMITED" : "API_ERROR",
+      });
+    }
+    res.json({
+      status: "ok",
+      invited: true,
+      note: Boolean(note),
+      profile_url: url,
+      recipient: member.urn,
+      api_status: apiResult.status,
+    });
+  } catch (err) {
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res
+      .status(status)
+      .json({ error: err.message, code: err.code || "CONNECT_ERROR" });
   }
 }
 
