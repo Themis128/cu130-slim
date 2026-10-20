@@ -1566,7 +1566,7 @@ services:
     # headed (xvfb) Chromium needs real headroom on LinkedIn's Ember app.
     mem_limit: 6144m
     memswap_limit: 8192m
-    restart: unless-stopped
+    restart: no
     <<: *public-dns
 
   # ── LinkedIn MCP Server (read/search/messaging) ───────────────────────────
@@ -1612,7 +1612,7 @@ services:
       start_period: 60s
     mem_limit: 512m
     memswap_limit: 1024m
-    restart: unless-stopped
+    restart: no
     <<: *public-dns
 
   # ── Airbyte MCP Server (data connectors: FB Marketing, etc.) ──────────────
@@ -1718,7 +1718,7 @@ services:
       start_period: 30s
     mem_limit: 1536m
     memswap_limit: 3072m
-    restart: unless-stopped
+    restart: no
     <<: *public-dns
 
   # ── Messenger webhook sidecar ───────────────────────────────────────────
@@ -1869,7 +1869,7 @@ services:
       - host.docker.internal:host-gateway
     mem_limit: 96m
     memswap_limit: 192m
-    restart: unless-stopped
+    restart: no
     # Healthy = the watch loop is ticking (heartbeat < 45s old).
     # We deliberately do NOT probe DMR here — DMR health is the watchdog's
     # job; this check only proves the watchdog itself is alive.
@@ -1919,7 +1919,7 @@ services:
       start_period: 10s
     mem_limit: 64m
     memswap_limit: 128m
-    restart: unless-stopped
+    restart: no
     <<: *public-dns
 
   # Jupyter scratchpad for ad-hoc analytics against social-postgres.
@@ -2013,7 +2013,7 @@ services:
       start_period: 10s
     mem_limit: 192m
     memswap_limit: 384m
-    restart: always
+    restart: no
     <<: *public-dns
 
 

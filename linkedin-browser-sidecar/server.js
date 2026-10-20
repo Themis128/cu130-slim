@@ -4146,13 +4146,19 @@ async function handleSendProfileMessage(req, res) {
     // 1st-degree profiles render the Message action as an <a> pointing at
     // /messaging/compose/?...&interop=msgOverlay — grab the compose URL
     // directly (it carries the recipient URN) instead of button hunting.
-    const composeHref = await page
-      .evaluate(
-        () =>
-          document
-            .querySelector('main a[href*="messaging/compose"]')
-            ?.getAttribute("href") || null,
-      )
+    // The action row hydrates lazily — scroll to nudge it, then wait for the
+    // compose anchor rather than a fixed sleep.
+    await page
+      .evaluate(() => window.scrollTo(0, document.body.scrollHeight / 3))
+      .catch(() => {});
+    const composeLink = page
+      .locator('main a[href*="messaging/compose"]')
+      .first();
+    try {
+      await composeLink.waitFor({ state: "attached", timeout: 15000 });
+    } catch (_) {}
+    const composeHref = await composeLink
+      .getAttribute("href")
       .catch(() => null);
     if (!composeHref) {
       return res.status(404).json({
@@ -4165,13 +4171,14 @@ async function handleSendProfileMessage(req, res) {
       ? composeHref
       : `https://www.linkedin.com${composeHref}`;
     await navigate(composeUrl, 30000);
-    await page.waitForTimeout(3500);
-
     const editor = page
       .locator(
         'div.msg-form__contenteditable[contenteditable="true"], div[contenteditable="true"][role="textbox"]',
       )
       .last();
+    try {
+      await editor.waitFor({ state: "visible", timeout: 15000 });
+    } catch (_) {}
     if ((await editor.count()) === 0) {
       return res
         .status(404)
