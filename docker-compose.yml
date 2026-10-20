@@ -1556,7 +1556,8 @@ services:
     depends_on:
       - warp-proxy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9225/health || exit 1"]
+      # node:22-slim ships no curl — probe /health with node itself.
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:9225/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 30s
       timeout: 10s
       retries: 3

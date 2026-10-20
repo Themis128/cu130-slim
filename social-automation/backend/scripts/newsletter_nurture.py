@@ -192,7 +192,7 @@ async def cmd_run(args) -> None:
                 await add_lead_note(lead["id"], f"Newsletter nurture skipped: {e}")
         except Exception as e:  # noqa: BLE001
             failed += 1
-            print(f"[{i}] {action} {name}: error {e}")
+            print(f"[{i}] {action} {name}: {type(e).__name__} {e}")
         if not dry_run and i < len(pending):
             pause = random.uniform(*MESSAGE_PAUSE)
             print(f"  sleeping {pause:.0f}s")
