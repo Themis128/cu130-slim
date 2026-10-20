@@ -143,7 +143,10 @@ async def _published_cadence() -> dict[str, dict]:
                 )
             )
         ).all()
-        # Platforms with an active account but zero publishes in 28d
+        # Platforms with an active account but zero publishes in 28d.
+        # Messaging channels (telegram, whatsapp, viber) publish via the
+        # send endpoints, logged as analytics_events channel_post/bot_reply —
+        # post_targets is feed-only, so check that surface before flagging.
         silent = (
             await db.execute(
                 text(
@@ -154,7 +157,25 @@ async def _published_cadence() -> dict[str, dict]:
                     "     JOIN social_accounts sa2 ON sa2.id = pt.social_account_id"
                     "     WHERE pt.status='published'"
                     "       AND pt.published_at > now() - interval '28 days')"
+                    "   AND sa.platform NOT IN ("
+                    "     SELECT DISTINCT sa3.platform FROM analytics_events ae"
+                    "     JOIN social_accounts sa3 ON sa3.id = ae.social_account_id"
+                    "     WHERE ae.event_type IN ('channel_post','bot_reply')"
+                    "       AND ae.occurred_at > now() - interval '28 days')"
                     " ORDER BY sa.platform"
+                )
+            )
+        ).all()
+        # Messaging-channel send activity, surfaced alongside feed cadence
+        sends = (
+            await db.execute(
+                text(
+                    "SELECT sa.platform, count(*) AS n, max(ae.occurred_at) AS last_send"
+                    "  FROM analytics_events ae"
+                    "  JOIN social_accounts sa ON sa.id = ae.social_account_id"
+                    " WHERE ae.event_type = 'channel_post'"
+                    "   AND ae.occurred_at > now() - interval '28 days'"
+                    " GROUP BY sa.platform ORDER BY sa.platform"
                 )
             )
         ).all()
@@ -162,6 +183,8 @@ async def _published_cadence() -> dict[str, dict]:
         r[0]: {"posts_28d": r[1], "per_week": round(r[1] / 4, 1), "last": str(r[2])[:10]}
         for r in rows
     }
+    for platform, n, last_send in sends:
+        out[f"{platform} (sends)"] = {"posts_28d": n, "per_week": round(n / 4, 1), "last": str(last_send)[:10]}
     out["_silent_accounts"] = [r[0] for r in silent]
     return out
 
