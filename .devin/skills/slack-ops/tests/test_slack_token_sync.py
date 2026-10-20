@@ -80,16 +80,97 @@ def test_write_env_token_unchanged_and_append(env):
 
 def test_recreate_services_hits_every_consumer_and_aggregates_rc(monkeypatch):
     calls = _stub_recreate(monkeypatch, rc=1)
-    rc = sync._recreate_services()
+    monkeypatch.setattr(sync, "_n8n_busy", lambda: False)
+    rc, pending = sync._recreate_services(list(sync.SERVICES))
     assert rc == 1
     assert len(calls) == len(sync.SERVICES)
     assert "social-api" in calls and "celery-beat" in calls
     assert sum(1 for c in calls if c.startswith("social-worker")) == 4
+    # every compose call failed → every service stays pending for retry
+    assert pending == list(sync.SERVICES)
 
 
 def test_recreate_services_ok(monkeypatch):
     _stub_recreate(monkeypatch, rc=0)
-    assert sync._recreate_services() == 0
+    monkeypatch.setattr(sync, "_n8n_busy", lambda: False)
+    rc, pending = sync._recreate_services(list(sync.SERVICES))
+    assert rc == 0 and pending == []
+
+
+def test_recreate_defers_n8n_while_executions_run(monkeypatch):
+    """A forced n8n recreate mid-execution would kill it — skip and pend it."""
+    calls = _stub_recreate(monkeypatch, rc=0)
+    monkeypatch.setattr(sync, "_n8n_busy", lambda: True)
+    rc, pending = sync._recreate_services(list(sync.SERVICES))
+    assert rc == 0
+    assert "n8n" not in calls
+    assert pending == ["n8n"]
+
+
+def test_n8n_busy_waits_then_drains(monkeypatch):
+    monkeypatch.setattr(sync, "N8N_BUSY_POLL_S", 0)
+    monkeypatch.setattr(sync, "N8N_BUSY_WAIT_S", 60)
+    runs = iter([2, 1, 0])
+    monkeypatch.setattr(sync, "_n8n_running_executions", lambda: next(runs))
+    assert sync._n8n_busy() is False
+
+
+def test_n8n_busy_still_busy_after_wait(monkeypatch):
+    monkeypatch.setattr(sync, "N8N_BUSY_POLL_S", 0)
+    monkeypatch.setattr(sync, "N8N_BUSY_WAIT_S", 0)
+    monkeypatch.setattr(sync, "_n8n_running_executions", lambda: 3)
+    assert sync._n8n_busy() is True
+
+
+def test_n8n_probe_failure_is_treated_idle(monkeypatch, capsys):
+    """Unreachable API ⇒ the same-process execution engine can't be running."""
+    monkeypatch.setattr(sync, "_env_lookup", lambda n: "key")
+    monkeypatch.setattr(
+        sync.urllib.request, "urlopen",
+        lambda req, timeout: (_ for _ in ()).throw(OSError("conn refused")),
+    )
+    assert sync._n8n_busy() is False
+    assert "treating as idle" in capsys.readouterr().err
+
+
+def test_n8n_probe_counts_running(monkeypatch):
+    monkeypatch.setattr(sync, "_env_lookup", lambda n: "key")
+
+    class FakeResp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b'{"data": [{"id": 1}, {"id": 2}]}'
+
+    monkeypatch.setattr(sync.urllib.request, "urlopen", lambda req, timeout: FakeResp())
+    assert sync._n8n_running_executions() == 2
+
+
+def test_pending_services_json_and_bare_marker(env):
+    assert sync._pending_services() == []  # no marker → nothing pending
+    env.pending.write_text('["n8n", "bogus-svc"]')
+    assert sync._pending_services() == ["n8n"]  # unknown names dropped
+    env.pending.write_text("")  # bare marker from an older run
+    assert sync._pending_services() == list(sync.SERVICES)
+
+
+def test_main_defers_n8n_and_retries_only_it(env, monkeypatch):
+    _token_file(env.tok, "slack_tokens.json", ttl_s=99999)
+    monkeypatch.setattr(sync, "_n8n_busy", lambda: True)
+    calls = _stub_recreate(monkeypatch, rc=0)
+    assert sync.main() == 0
+    assert "n8n" not in calls
+    assert json.loads(env.pending.read_text()) == ["n8n"]
+    # next run: n8n idle → only it is recreated, marker clears
+    monkeypatch.setattr(sync, "_n8n_busy", lambda: False)
+    calls.clear()
+    assert sync.main() == 0
+    assert calls == ["n8n"]
+    assert not env.pending.exists()
 
 
 def test_install_cron_idempotent(monkeypatch):
@@ -114,7 +195,7 @@ def test_install_cron_idempotent(monkeypatch):
 
 def test_main_flow_changed_token_recreates_and_clears_marker(env, monkeypatch):
     _token_file(env.tok, "slack_tokens.json", ttl_s=99999)  # fresh → no refresh
-    monkeypatch.setattr(sync, "_recreate_services", lambda: 0)
+    monkeypatch.setattr(sync, "_recreate_services", lambda targets: (0, []))
     rc = sync.main()
     assert rc == 0
     assert "SLACK_BOT_TOKEN=xoxe-AAA" in env.env.read_text()
@@ -123,9 +204,9 @@ def test_main_flow_changed_token_recreates_and_clears_marker(env, monkeypatch):
 
 def test_main_flow_failure_sets_marker_and_retries_unchanged(env, monkeypatch):
     _token_file(env.tok, "slack_tokens.json", ttl_s=99999)
-    monkeypatch.setattr(sync, "_recreate_services", lambda: 7)
+    monkeypatch.setattr(sync, "_recreate_services", lambda targets: (7, ["n8n"]))
     assert sync.main() == 7  # failure rc propagates
-    assert env.pending.exists()
+    assert json.loads(env.pending.read_text()) == ["n8n"]
     # second run: token unchanged, but the marker forces a retry
     assert sync.main() == 7
     assert env.pending.exists()
@@ -133,8 +214,8 @@ def test_main_flow_failure_sets_marker_and_retries_unchanged(env, monkeypatch):
 
 def test_main_flow_marker_cleared_on_success(env, monkeypatch):
     _token_file(env.tok, "slack_tokens.json", ttl_s=99999)
-    env.pending.touch()  # stale marker from an earlier failed recreation
-    monkeypatch.setattr(sync, "_recreate_services", lambda: 0)
+    env.pending.touch()  # stale bare marker → full consumer set is pending
+    monkeypatch.setattr(sync, "_recreate_services", lambda targets: (0, []))
     assert sync.main() == 0
     assert not env.pending.exists()
 
@@ -150,7 +231,7 @@ def test_rotated_token_file_is_0600(env, monkeypatch):
         "expires_in": 43200,
     }
     monkeypatch.setattr(sync, "_refresh", lambda tok: resp)
-    monkeypatch.setattr(sync, "_recreate_services", lambda: 0)
+    monkeypatch.setattr(sync, "_recreate_services", lambda targets: (0, []))
     assert sync.main() == 0
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert json.loads(path.read_text())["access_token"] == "xoxe-ROTATED"
