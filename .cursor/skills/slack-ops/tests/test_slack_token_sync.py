@@ -48,8 +48,10 @@ def _stub_recreate(monkeypatch, rc=0):
     calls = []
 
     def fake_run(cmd, **kwargs):
-        calls.append(cmd[-1])
-        return SimpleNamespace(returncode=rc, stderr=b"")
+        # distinguish "compose stop n8n" from "compose up ... n8n" and
+        # "docker inspect n8n" probes — all end with the service name
+        calls.append("stop" if "stop" in cmd else ("inspect" if "inspect" in cmd else cmd[-1]))
+        return SimpleNamespace(returncode=rc, stderr=b"", stdout=b"true")
 
     monkeypatch.setattr(sync.subprocess, "run", fake_run)
     return calls
@@ -83,11 +85,39 @@ def test_recreate_services_hits_every_consumer_and_aggregates_rc(monkeypatch):
     monkeypatch.setattr(sync, "_n8n_busy", lambda: False)
     rc, pending = sync._recreate_services(list(sync.SERVICES))
     assert rc == 1
+    # 6 compose up calls (one per non-n8n consumer) + 1 failed "compose stop
+    # n8n" — the failing stop pends n8n before its recreate is attempted
     assert len(calls) == len(sync.SERVICES)
     assert "social-api" in calls and "celery-beat" in calls
     assert sum(1 for c in calls if c.startswith("social-worker")) == 4
     # every compose call failed → every service stays pending for retry
+    # (the failing "stop" for n8n also pends it, like the failing "up")
     assert pending == list(sync.SERVICES)
+
+
+def test_recreate_stops_n8n_gracefully_before_recreate(monkeypatch):
+    """Drain-check is a snapshot — a graceful stop before the recreate closes
+    the window where a new execution could start after the last probe."""
+    calls = _stub_recreate(monkeypatch, rc=0)
+    monkeypatch.setattr(sync, "_n8n_busy", lambda: False)
+    rc, pending = sync._recreate_services(["n8n"])
+    assert rc == 0 and pending == []
+    assert calls == ["stop", "n8n"]  # stop precedes the up --force-recreate
+
+
+def test_recreate_pends_n8n_when_stop_fails(monkeypatch):
+    """A failed graceful stop must not proceed to the force-recreate."""
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append("stop" if "stop" in cmd else cmd[-1])
+        return SimpleNamespace(returncode=9 if "stop" in cmd else 0, stderr=b"boom", stdout=b"")
+
+    monkeypatch.setattr(sync.subprocess, "run", fake_run)
+    monkeypatch.setattr(sync, "_n8n_busy", lambda: False)
+    rc, pending = sync._recreate_services(["n8n"])
+    assert pending == ["n8n"]
+    assert calls == ["stop"]  # never reached the force-recreate
 
 
 def test_recreate_services_ok(monkeypatch):
@@ -108,29 +138,64 @@ def test_recreate_defers_n8n_while_executions_run(monkeypatch):
 
 
 def test_n8n_busy_waits_then_drains(monkeypatch):
-    monkeypatch.setattr(sync, "N8N_BUSY_POLL_S", 0)
+    monkeypatch.setattr(sync, "N8N_BUSY_POLL_S", 0)  # clamped to 1s, not an infinite spin
     monkeypatch.setattr(sync, "N8N_BUSY_WAIT_S", 60)
+    monkeypatch.setattr(sync.time, "sleep", lambda s: None)
     runs = iter([2, 1, 0])
     monkeypatch.setattr(sync, "_n8n_running_executions", lambda: next(runs))
     assert sync._n8n_busy() is False
 
 
 def test_n8n_busy_still_busy_after_wait(monkeypatch):
-    monkeypatch.setattr(sync, "N8N_BUSY_POLL_S", 0)
     monkeypatch.setattr(sync, "N8N_BUSY_WAIT_S", 0)
+    monkeypatch.setattr(sync.time, "sleep", lambda s: None)
     monkeypatch.setattr(sync, "_n8n_running_executions", lambda: 3)
     assert sync._n8n_busy() is True
 
 
-def test_n8n_probe_failure_is_treated_idle(monkeypatch, capsys):
-    """Unreachable API ⇒ the same-process execution engine can't be running."""
+def test_n8n_probe_failure_with_running_container_is_busy(monkeypatch, capsys):
+    """API unreachable but the container is up ⇒ executions may still run."""
     monkeypatch.setattr(sync, "_env_lookup", lambda n: "key")
     monkeypatch.setattr(
         sync.urllib.request, "urlopen",
         lambda req, timeout: (_ for _ in ()).throw(OSError("conn refused")),
     )
+    monkeypatch.setattr(sync, "_n8n_container_running", lambda: True)
+    assert sync._n8n_busy() is True
+    assert "state unknown" in capsys.readouterr().err
+
+
+def test_n8n_probe_failure_with_stopped_container_is_idle(monkeypatch):
+    """API unreachable AND container stopped ⇒ nothing left to kill."""
+    monkeypatch.setattr(sync, "_env_lookup", lambda n: "key")
+    monkeypatch.setattr(
+        sync.urllib.request, "urlopen",
+        lambda req, timeout: (_ for _ in ()).throw(OSError("conn refused")),
+    )
+    monkeypatch.setattr(sync, "_n8n_container_running", lambda: False)
     assert sync._n8n_busy() is False
-    assert "treating as idle" in capsys.readouterr().err
+
+
+def test_n8n_probe_failure_with_unreadable_state_is_busy(monkeypatch):
+    """Docker inspect itself failing ⇒ can't rule out running executions."""
+    monkeypatch.setattr(sync, "_env_lookup", lambda n: None)  # no API key at all
+    monkeypatch.setattr(sync, "_n8n_container_running", lambda: None)
+    assert sync._n8n_busy() is True
+
+
+def test_n8n_container_running_parses_docker_inspect(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        assert cmd[:2] == ["docker", "inspect"] and cmd[2] == "n8n"
+        return SimpleNamespace(returncode=0, stdout=b"true\n", stderr=b"")
+
+    monkeypatch.setattr(sync.subprocess, "run", fake_run)
+    assert sync._n8n_container_running() is True
+
+    monkeypatch.setattr(
+        sync.subprocess, "run",
+        lambda cmd, **kw: SimpleNamespace(returncode=1, stdout=b"", stderr=b"no such container"),
+    )
+    assert sync._n8n_container_running() is None
 
 
 def test_n8n_probe_counts_running(monkeypatch):
@@ -165,11 +230,11 @@ def test_main_defers_n8n_and_retries_only_it(env, monkeypatch):
     assert sync.main() == 0
     assert "n8n" not in calls
     assert json.loads(env.pending.read_text()) == ["n8n"]
-    # next run: n8n idle → only it is recreated, marker clears
+    # next run: n8n idle → only it is recreated (graceful stop first), marker clears
     monkeypatch.setattr(sync, "_n8n_busy", lambda: False)
     calls.clear()
     assert sync.main() == 0
-    assert calls == ["n8n"]
+    assert calls == ["stop", "n8n"]
     assert not env.pending.exists()
 
 
