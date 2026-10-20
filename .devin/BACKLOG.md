@@ -25,11 +25,12 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   (docs/ops/n8n-failure-notifications.md). Webhooks still need re-creation
   in the Slack app console (user action) + `.env` refresh.
   Via `slack-ops` / `slack_tool.py webhooks`.
-- [ ] **Watch Postgres restarts** — one mid-publish restart ~15:14 EEST 2026-10-19
-
-  left an orphaned `processing` queue lock (manually reset). Queue verified
-  clean 2026-10-19 (0 processing rows; 288 completed / 1 failed). If it
-  recurs, investigate the recreate trigger + add stale-lock sweeper.
+- [x] **Postgres restarts — investigated 2026-10-20** — recurrence was a
+  graceful whole-stack restart ~18:36 UTC (host/WSL-level event, exit=0,
+  no OOM), NOT a crash loop. Queue clean (0 processing rows). No sweeper
+  needed: the queue claim already reclaims PROCESSING rows with
+  `locked_at` >15min stale (publishing.py claim query), and `locked_at`
+  is always set atomically with the PROCESSING transition — orphan-free.
 - [x] **`/api/v1/ai/generate-content` exceeds ~280s** — FIXED 2026-10-20
   (PR #754). Root cause: `score_brand_compliance._ai_tone_match` hardcoded
   `provider_name="dmr"` (~72s local call behind the DMR slot) regardless of
@@ -69,8 +70,10 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 - [x] **cloudless.gr PR #2228** — `/links` live social proof. MERGED
   2026-10-20 (subscriber count via `Contact/leadSource=Email`,
   `unstable_cache` for the dynamic route, conditional attribution).
-- [ ] **PR #754** — generate-content provider pass-through + cloudflare
-  default for interactive callers. Auto-merge armed.
+- [x] **PR #754** — MERGED; follow-ups #757 (bounded chroma indexing,
+  db/team threading), #758 (remaining compliance callers), #759 (n8n
+  Slack recipe → bot token), #760/#761 (engagement-ops skill + messaging
+  fix), #762 (cross-channel + predictive skills) all merged 2026-10-20.
 - [x] **PR #739** — skills sync merged `2026-10-19T12:48Z`.
 - [x] **PR #740** — Oxford AIE docs merged (`5c1d2ff6`).
 
@@ -111,10 +114,12 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   skipped by the drip. The newsletter leads carry LinkedIn profile URLs in
   `description` — LinkedIn DM via the sidecar is the only reachable nurture
   channel. Email nurture cannot move this cohort.
-- [ ] **EspoCRM: `LinkedIn newsletter` TargetList missing** — the 168 leads
-  exist (source=Newsletter) but the list vanished; `Social engagement
-  (replies)` shows entryCount 168 — investigate whether members were
-  mis-attributed or the list was deleted/recreated.
+- [x] **EspoCRM: `LinkedIn newsletter` TargetList restored 2026-10-20** —
+  the 168 newsletter leads were mis-attributed to `Social engagement
+  (replies)` (entryCount exactly 168, all members source=Newsletter, no
+  reply notes). Recreated `LinkedIn newsletter` (`6ad6be0fa76d3000c`),
+  re-linked all 168, unlinked them from the engagement list (now 0). The
+  engagement sweep only re-adds genuinely reply-engaged leads from here.
 
 ## Growth / funnel
 

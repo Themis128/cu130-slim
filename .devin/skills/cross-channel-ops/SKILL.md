@@ -77,10 +77,10 @@ docker exec social-api python scripts/crosschannel_audit.py --json   # digests
 ## First run (2026-10-20)
 
 ```
-shared slugs: —  |  email-only: aie-course  |  social-only: —
+shared slugs: —  |  email-only: aie-course, first-approach, renewal
 events: build-in-public ×2
-email CTA tagged 36.4% | posts with CTA 29.9% (167 posts/30d)
-gaps: no shared slugs, tagging 36.4%, CTA coverage 29.9%
+email CTA tagged 63.6% | posts with CTA 29.9% (167 posts/30d)
+gaps: no shared slugs, tagging 63.6%, CTA coverage 29.9%
 ```
 
 Honest readings:
@@ -94,9 +94,11 @@ Honest readings:
 - **`build-in-public`** is the only social slug that produced site events
   in 30d — 2 events. Attribution machinery works but is starved: only
   ~30% of posts carry a CTA link at all.
-- **Email tagging 36.4%** — most campaign CTAs in `email_campaigns`
-  (incl. drafts) lack `utm_campaign`; the 4 `aie-course` drip steps are
-  correctly tagged, older/draft ones aren't.
+- **Email tagging 63.6%** — campaigns tag in EITHER `meta_data.cta_url`
+  OR `html_body` links (`&amp;`-encoded); the audit checks both. The 4
+  untagged are all already-`sent` campaigns — left as honest history, not
+  retro-edited. All current drafts carry a tagged CTA (the two drafts
+  with body-only tags had `meta.cta_url` backfilled 2026-10-20).
 
 ## Dispatch rules
 
