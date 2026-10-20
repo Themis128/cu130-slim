@@ -72,6 +72,12 @@ recreate mid-run would kill them); the sync polls
 pending marker for the next 2h cron pass when still busy. If the sync is
 ever replaced, failure alerts silently stop at the next token expiry.
 
-> Status 2026-10-20: no active workflow wires an Error Trigger yet (verified —
-> zero `errorTrigger`/`errorWorkflow`/webhook refs in the live n8n DB). Add the
-> flow above when the first workflow needs failure alerting.
+> Status 2026-10-20: wired live. `notify-failures` (Error Trigger → Slack
+> `chat.postMessage`, `n8n-workflows/notify-failures.json`) is deployed and
+> published; all 21 active workflows have `settings.errorWorkflow =
+> "notify-failures"` — set in the repo JSONs (source of truth) and applied
+> live via `PUT /api/v1/workflows/{id}` (no restart needed — the setting is
+> read at execution time). `SLACK_BOT_TOKEN` and `SLACK_ALERTS_CHANNEL_ID`
+> are present in the n8n container env. End-to-end delivery is verified by
+> the next real workflow failure — force one on a scheduled run if a live
+> confirmation is wanted sooner.
