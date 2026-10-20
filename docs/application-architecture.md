@@ -1883,6 +1883,7 @@ LAN; public traffic arrives only via the Cloudflare Tunnel.
 | 5555 | flower | Celery monitor |
 | 8888 | jupyter | Analytics notebook (token auth) |
 | 9390 | social-metrics | nginx /metrics exporter |
+| 9392 | n8n-metrics | nginx /metrics exporter (n8n) |
 | 9100/9101 | minio | S3 storage |
 | 9223 | browser-novnc | CDP bridge |
 | 9224 | tiktok-browser-sidecar | TikTok |
