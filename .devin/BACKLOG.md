@@ -16,9 +16,14 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   (`no_service`, Slack app likely reinstalled). Bot-token fallback verified
   on **all five channels** 2026-10-20 (`chat.postMessage` ok):
   C0BT263L17U (general+publishing), C0C7N9SB59S (alerts), C0BCLPM1NN4
-  (billing+support), C0C7JEEG2E6 (leads), C0C8DU44CAV (telegram) — so every
-  notification path still lands. Webhooks still need re-creation in the
-  Slack app console (user action) + `.env` refresh.
+  (billing+support), C0C7JEEG2E6 (leads), C0C8DU44CAV (telegram) — every
+  wired notification path still lands. Caveat (Devin Review #755): the
+  documented n8n error-notification recipe posts to the dead incoming
+  webhooks directly — verified live n8n DB 2026-10-20: zero workflows wire
+  errorTrigger/errorWorkflow, so nothing is currently dropped; recipe doc
+  rewritten to use `chat.postMessage` + `SLACK_BOT_TOKEN` instead
+  (docs/ops/n8n-failure-notifications.md). Webhooks still need re-creation
+  in the Slack app console (user action) + `.env` refresh.
   Via `slack-ops` / `slack_tool.py webhooks`.
 - [x] **Postgres restarts — investigated 2026-10-20** — recurrence was a
   graceful whole-stack restart ~18:36 UTC (host/WSL-level event, exit=0,
