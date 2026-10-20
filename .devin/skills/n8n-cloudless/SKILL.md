@@ -107,13 +107,41 @@ Plus 13 social post workflows (`{platform}-{text|image|carousel}-post`,
 (posts are created as drafts, nothing is published to platforms).
 
 n8n env (compose): `SOCIAL_API_URL`, `SOCIAL_ADMIN_EMAIL`, `SOCIAL_ADMIN_PASSWORD`,
-`SOCIAL_TOTP_SECRET`, `NODE_FUNCTION_ALLOW_BUILTIN=crypto`,
+`SOCIAL_TOTP_SECRET`,
 `CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID`, `CLOUDLESS_CAROUSEL_TOPIC`, `CLOUDLESS_CAROUSEL_SLIDES`,
 `SOCIALAUTO_DIGEST_DAYS`, `GENERIC_TIMEZONE=Europe/Athens`, `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`.
+(`NODE_FUNCTION_ALLOW_BUILTIN` no longer lives on the n8n env — with external
+task runners the allowlist is the sidecar's `/etc/task-runners.json`; the stock
+`n8nio/runners` image already allows `crypto`+`moment`.)
 
 Slack posting needs `SLACK_WEBHOOK_URL` (or `SLACK_BOT_TOKEN` + `SLACK_CHANNEL_ID`) on
-`social-api` / `social-worker`. Channel: `#socialauto` (`C0BT263L17U`).
+`social-api` / `social-worker`. Channel: `#socialauto` (`C0C1F1K3DDF`).
 Celery beat also runs the same digest at `SLACK_DIGEST_HOUR` (default 09:00 Athens).
+
+## Base configuration (tuned 2026-10-20)
+
+`n8nio/n8n:2.43.4` (newest release ≥7d old at upgrade time; 2.44.x was <7d).
+
+Production env knobs set in compose (grouped block after `EXECUTIONS_MODE`):
+
+| Knob | Value | Why |
+|---|---|---|
+| `N8N_SCHEDULER_ENABLED` | `true` | Durable scheduler — `scheduled_job`/`scheduled_task` DB rows; restarts no longer drop pending schedule runs, misfires within `misfireGraceSeconds` still fire. |
+| `EXECUTIONS_TIMEOUT` / `_MAX` | `3600` / `86400` | Bounds runaway executions; `linkedin-dm-deferred-reply` overrides to 86400 via `settings.executionTimeout` (Wait-node resume time). |
+| `N8N_CONCURRENCY_PRODUCTION_LIMIT` | `10` | Caps concurrent prod executions (default unlimited). |
+| `EXECUTIONS_DATA_MAX_AGE` / `PRUNE_MAX_COUNT` | `168` / `2000` | ~100 execs/day → ~700 rows. Slack alerts + `post_targets` are the audit trail, not n8n history. |
+| `EXECUTIONS_DATA_SAVE_ON_PROGRESS` | `false` | Per-node progress writes not needed for post-hoc debugging. |
+| `N8N_METRICS` + `*_SCHEDULER_METRICS` + `*_WORKFLOW_ID_LABEL` + `*_API_ENDPOINTS` | `true` | `/metrics` on :5678; exposed to omv Prometheus via the `n8n-metrics` nginx proxy on LAN :9392 (metrics-only, rest 404 — same pattern as `social-metrics`:9390). |
+| `N8N_RUNNERS_MODE` | `external` | Code-node JS runs in the `n8n-task-runner` sidecar (`n8nio/runners:2.43.4`, broker `n8n:5679`, shared `N8N_RUNNERS_AUTH_TOKEN`). Internal mode is deprecated/insecure. |
+| `N8N_UNVERIFIED_PACKAGES_ENABLED` / `COMPRESSION_NODE_*` | pinned | Silences startup deprecation warnings; matches future defaults. |
+
+Sidecars added: `n8n-task-runner` (backend net only, `depends_on n8n healthy`)
+and `n8n-metrics` (LAN :9392). When n8n is recreated (e.g. slack_token_sync
+drain), runners reconnect to the broker automatically — no action needed.
+
+**Follow-up**: n8n warns `Postgres 16 is outside the supported range` —
+social-postgres is PG16; a PG17 upgrade is a separate tracked task (shared DB,
+needs dump/restore planning).
 
 ## n8n 2.x rules (hard-won)
 

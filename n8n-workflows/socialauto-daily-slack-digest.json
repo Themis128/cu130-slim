@@ -149,7 +149,7 @@
           ]
         },
         "sendBody": true,
-        "jsonBody": "={\n  \"id\": {{ JSON.stringify($json.pageId) }},\n  \"title\": {{ JSON.stringify($json.title) }},\n  \"language\": \"en\",\n  \"parentPath\": \"en/news/updates\"\n}",
+        "jsonBody": "={{ JSON.stringify({ id: $('Format IntraVox Digest').item.json.pageId, title: $('Format IntraVox Digest').item.json.title, language: 'en', parentPath: 'en/news/updates' }) }}",
         "options": {
           "timeout": 30000
         },
@@ -214,7 +214,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst active = reports.find(x => ((x.overview && (x.overview.connected_accounts || x.overview.total_posts)) > 0)) || reports[0] || {};\nlet intravox = null;\ntry {\n  const upd = $('Update IntraVox Content').item.json;\n  intravox = upd.uniqueId ? `page ${upd.uniqueId}` : (upd.error || 'failed');\n} catch (e) {\n  intravox = $('Format IntraVox Digest').item.json.markdown ? 'failed' : 'skipped-empty';\n}\nreturn [{\n  json: {\n    ok: true,\n    message: r.message || '',\n    posted_to_slack: !!active.posted_to_slack,\n    slack_error: active.slack_error || null,\n    issue_count: (active.issues || []).length,\n    team_name: active.team_name || null,\n    teams_reported: reports.length,\n    intravox: intravox,\n  }\n}];"
+        "jsCode": "const r = $('Run Daily Digest').item.json;\nconst reports = r.reports || [];\nconst active = reports.find(x => ((x.overview && (x.overview.connected_accounts || x.overview.total_posts)) > 0)) || reports[0] || {};\nlet intravox = null;\ntry {\n  const upd = $('Update IntraVox Content').item.json;\n  intravox = upd.uniqueId ? `page ${upd.uniqueId}` : (upd.error || 'failed');\n} catch (e) {\n  // Update skipped (no page) or never ran (no digest) — surface why.\n  try {\n    const b = $('Build IntraVox Payload').item.json;\n    intravox = b && b.create_error ? `create-failed: ${b.create_error}` : 'skipped';\n  } catch (e2) {\n    intravox = $('Format IntraVox Digest').item.json.markdown ? 'failed' : 'skipped-empty';\n  }\n}\nreturn [{\n  json: {\n    ok: true,\n    message: r.message || '',\n    posted_to_slack: !!active.posted_to_slack,\n    slack_error: active.slack_error || null,\n    issue_count: (active.issues || []).length,\n    team_name: active.team_name || null,\n    teams_reported: reports.length,\n    intravox: intravox,\n  }\n}];"
       },
       "id": "summarize",
       "name": "Summarize Result",
@@ -270,7 +270,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const fmt = $('Format IntraVox Digest').item.json;\nconst raw = $('List IntraVox Pages').item.json;\nconst items = Array.isArray(raw) ? raw : (raw.pages || raw.items || []);\nconst hit = items.find(x => x.id === fmt.pageId) || null;\nreturn [{ json: { existingUid: hit ? hit.uniqueId : null } }];"
+        "jsCode": "const fmt = $('Format IntraVox Digest').item.json;\n// pages?path=en returns a flat list of {uniqueId,title,...} — no id/path\n// field, so match the deterministic digest title across ALL items.\nconst items = $('List IntraVox Pages').all().map(i => i.json);\nconst hit = items.find(x => x.title === fmt.title) || null;\nreturn [{ json: { existingUid: hit ? hit.uniqueId : null } }];"
       },
       "id": "find-existing-page",
       "name": "Find Existing Page",
@@ -343,6 +343,38 @@
       "position": [
         980,
         220
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-page",
+              "leftValue": "={{ $json.uniqueId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "has-page-uid",
+      "name": "Has Page?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1640,
+        360
       ]
     }
   ],
@@ -428,7 +460,7 @@
       "main": [
         [
           {
-            "node": "Update IntraVox Content",
+            "node": "Has Page?",
             "type": "main",
             "index": 0
           }
@@ -502,6 +534,24 @@
         [
           {
             "node": "List IntraVox Pages",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Summarize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Page?": {
+      "main": [
+        [
+          {
+            "node": "Update IntraVox Content",
             "type": "main",
             "index": 0
           }

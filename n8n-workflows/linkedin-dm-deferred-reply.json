@@ -390,7 +390,8 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "errorWorkflow": "notify-failures"
+    "errorWorkflow": "notify-failures",
+    "executionTimeout": 86400
   },
   "staticData": null,
   "tags": [],
