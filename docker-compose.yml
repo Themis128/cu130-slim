@@ -2024,6 +2024,7 @@ volumes:
   # external keeps `compose down -v` from ever deleting the live data.
   social_postgres_data_v17:
     external: true
+    name: cu130-slim_social_postgres_data_v17
   redis_data: null
   tunnel_url: null
   browser_cookies: null
