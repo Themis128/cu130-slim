@@ -369,7 +369,12 @@ class LinkedInSidecarClient:
         vanity: str | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Open the composer on a member profile and send (1st-degree only)."""
+        """DM a member profile via the sidecar's internal messaging API.
+
+        Creates a new 1:1 conversation when none exists (1st-degree only —
+        non-connections get a message request at best). ``dry_run=True``
+        resolves the recipient URN without sending.
+        """
         payload = {
             "profile_url": profile_url,
             "vanity": vanity,

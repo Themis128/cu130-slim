@@ -131,15 +131,14 @@ async def cmd_list() -> None:
         print(f"  {action:10s} status={status:12s} {n}")
 
 
-async def _touch_lead(lead: dict, *, dry_run: bool) -> str:
+async def _touch_lead(lead: dict, *, detail: str = "") -> str:
+    """Mark a lead In Process + attach the nurture note after a live touch."""
     lead_id = lead["id"]
-    first = (lead.get("firstName") or "").strip() or "there"
-    await espo_patch(f"/Lead/{lead_id}", {"status": "New" if dry_run else "In Process"})
-    verb = "would contact" if dry_run else "contacted"
+    await espo_patch(f"/Lead/{lead_id}", {"status": "In Process"})
     await add_lead_note(
         lead_id,
-        f"Newsletter nurture ({verb} via LinkedIn "
-        f"{'dry run' if dry_run else 'sidecar'}).",
+        "Newsletter nurture (contacted via LinkedIn sidecar)."
+        + (f" {detail}" if detail else ""),
     )
     return lead_id
 
@@ -179,16 +178,32 @@ async def cmd_run(args) -> None:
                     note=CONNECT_NOTE_TEMPLATE.format(first=first),
                     dry_run=dry_run,
                 )
-            await _touch_lead(lead, dry_run=dry_run)
-            print(f"[{i}] {action} {name}: {res.get('status')} {url}")
+            if dry_run:
+                print(
+                    f"[{i}] {action} {name}: dry-run ok — "
+                    f"resolved {res.get('recipient', url)}"
+                )
+            else:
+                await _touch_lead(lead)
+                print(f"[{i}] {action} {name}: {res.get('status')} {url}")
             done += 1
         except LinkedInSidecarError as e:
-            skipped += 1
-            print(f"[{i}] {action} {name}: sidecar {e.status_code} — {str(e)[:160]}")
-            if "RATE_LIMITED" in str(e) or e.status_code == 429:
-                print("circuit breaker open — stopping run")
+            err = str(e)
+            if "RATE_LIMITED" in err or e.status_code == 429:
+                skipped += 1
+                print(f"[{i}] {action} {name}: sidecar 429 — stopping run")
                 break
-            if "NOT_CONNECTED" in str(e) or "NO_CONNECT" in str(e):
+            if "PENDING" in err or e.status_code == 409:
+                # Invite already pending on LinkedIn — the touch exists,
+                # so the lead belongs in In Process like a fresh invite.
+                if not dry_run:
+                    await _touch_lead(lead, detail="Invitation already pending.")
+                print(f"[{i}] {action} {name}: already pending {url}")
+                done += 1
+                continue
+            skipped += 1
+            print(f"[{i}] {action} {name}: sidecar {e.status_code} — {err[:160]}")
+            if "NOT_CONNECTED" in err or "NO_CONNECT" in err:
                 await add_lead_note(lead["id"], f"Newsletter nurture skipped: {e}")
         except Exception as e:  # noqa: BLE001
             failed += 1

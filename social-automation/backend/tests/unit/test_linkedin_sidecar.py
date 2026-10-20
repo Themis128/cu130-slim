@@ -232,6 +232,30 @@ async def test_posting_and_messaging(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_profile_message_and_connect(monkeypatch):
+    c = _client(monkeypatch, _Http(default=_resp(200, {"status": "ok"})))
+
+    await c.send_profile_message(
+        "hi there", profile_url="https://www.linkedin.com/in/x/", dry_run=True
+    )
+    m, u, kw = c._http.calls[-1]
+    assert m == "POST" and u == "/messages/profile/send"
+    assert kw["json"]["profile_url"].endswith("/in/x/")
+    assert kw["json"]["text"] == "hi there" and kw["json"]["dry_run"] is True
+
+    await c.send_profile_message("hi", vanity="someone")
+    assert c._http.calls[-1][2]["json"]["vanity"] == "someone"
+
+    await c.send_connect(profile_url="https://www.linkedin.com/in/y/", note="hey")
+    m, u, kw = c._http.calls[-1]
+    assert m == "POST" and u == "/connect"
+    assert kw["json"]["note"] == "hey" and kw["json"]["dry_run"] is False
+
+    await c.send_connect(vanity="z", dry_run=True)
+    assert c._http.calls[-1][2]["json"]["dry_run"] is True
+
+
+@pytest.mark.asyncio
 async def test_error_mapping(monkeypatch):
     # every >=400 path → LinkedInSidecarError with status+detail
     c = _client(monkeypatch, _Http(default=_resp(404, text="gone")))
@@ -251,6 +275,8 @@ async def test_error_mapping(monkeypatch):
         c.company_post_image("v", [{"i": 1}]),
         c.get_conversations(), c.get_thread_messages("t"),
         c.send_message("t", "x"),
+        c.send_profile_message("x", profile_url="https://x"),
+        c.send_connect(profile_url="https://x"),
     ]
     for coro in calls:
         with pytest.raises(L.LinkedInSidecarError) as e:
