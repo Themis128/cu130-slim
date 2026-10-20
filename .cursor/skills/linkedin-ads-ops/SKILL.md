@@ -96,6 +96,33 @@ scripts/linkedin_cm.py shot /tmp/cm.png
   Payloads >~100KB blow the shell arg limit — `linkedin_cm.py upload`
   sends the JSON body via a temp file.
 
+## Internal CM API via sidecar (verified 2026-10-20)
+
+When the CM SPA breaks (`/campaignmanager/accounts/<id>` redirects to
+`/campaignmanager/login`, page shows "Oops, something went wrong"), the
+frontend is unusable but the backing **campaign-manager-api still works**
+through `/debug/eval` fetch — cookie auth is enough for reads and writes.
+
+- `csrf-token` header = `JSESSIONID` cookie value with surrounding `"` stripped
+  (verbatim `"ajax:…"` → `403 CSRF check failed`). Read it server-side via
+  `GET /debug/all-cookies` — it's httpOnly, absent from `document.cookie`.
+- Always send `x-restli-protocol-version: 2.0.0` + `credentials:'include'`.
+- GET entity: `/campaign-manager-api/campaignManagerCampaigns/<numericId>` →
+  full campaign record (`status`, `servingStatuses`, `dailyBudget`,
+  `totalBudget`, `runSchedule`, …). Account: `.../campaignManagerAccounts/<id>`
+  → includes `campaignCount {active,total,draft}` + `currentUserRole`.
+- Mutate: `POST` to the entity URL with `X-RestLi-Method: PARTIAL_UPDATE`
+  (rest.li query tunneling), body `{"patch":{"$set":{"status":"REMOVED"}}}`.
+  Raw `PATCH` and `X-HTTP-Method-Override` are rejected (500).
+- Validation: end date can't be earlier than the lifetime budget allows
+  ("End Date cannot be set … if Lifetime Budget is …"), start date is
+  immutable once passed. For killing spend, `status:"REMOVED"` alone is the
+  terminal move — verified on `857622786` + `907100946`: `204` → re-GET shows
+  `status=REMOVED`, `servingStatuses=["STOPPED"]`, account `campaignCount
+  .active=0`. REMOVED campaigns cannot be resumed.
+- Transient `Execution context was destroyed` = page re-navigating; wait ~8s
+  and re-navigate to `/feed/` before evals.
+
 ## Promotional-credit safety (from LinkedIn docs)
 
 Standing rule: **never spend money, never enter payment details.**

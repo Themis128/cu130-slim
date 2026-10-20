@@ -107,6 +107,20 @@ green.
 - The bridge is a single Chromium context — healing platform X briefly
   preempts platform Y's live page. The hourly cadence keeps this cheap.
 - Never log cookie values; logs show names/counts only.
+- **linkedin-mcp-server scripted login (verified 2026-10-20)**: noVNC
+  `--login` isn't required — credential login runs headless in a throwaway
+  container on the same image+profile volume:
+  `docker run --entrypoint /app/.venv/bin/python -v
+  cu130-slim_linkedin_mcp_data:/home/pwuser/.linkedin-mcp <image> script.py`,
+  using the package's own `BrowserManager(user_data_dir=~/.linkedin-mcp/
+  profile, headless=True, **build_launch_options(cfg))` → `/login` → fill the
+  *visible* `input[type=email]`/`[type=password]` (the page renders a hidden
+  duplicate form — pick `is_visible()`) → submit → user taps the app-push
+  challenge → poll for `li_at` → `browser.export_cookies()` +
+  `session_state.write_source_state(profile)`. Without `source-state.json`
+  the daemon rejects the profile ("source session metadata is missing"). The
+  downgrade guard also refuses profiles last opened by a newer chromium —
+  move `profile/` aside and log in fresh rather than fighting it.
 - Secrets read via `secret_store` fall back to `.env` — keep
   `LINKEDIN_PASSWORD`, `INSTAGRAM_USERNAME/PASSWORD`,
   `TWITTER_LOGIN_PASSWORD`, `TIKTOK_SESSION_ID` populated for
