@@ -3355,7 +3355,10 @@ app.post("/post/link", handlePostLink);
 
 app.get("/messages", handleListMessages);
 app.get("/messages/:thread_id", handleReadThread);
+// Literal route before the :thread_id param — otherwise "profile" binds it.
+app.post("/messages/profile/send", handleSendProfileMessage);
 app.post("/messages/:thread_id/send", handleSendMessage);
+app.post("/connect", handleConnect);
 
 // Posting — company page
 app.post("/company/:vanity/post/text", handleCompanyPostText);
@@ -4118,6 +4121,211 @@ async function handleReadThread(req, res) {
     res
       .status(status)
       .json({ error: err.message, code: err.code || "THREAD_ERROR" });
+  }
+}
+
+// Newsletter nurture: open the message composer directly on a member profile.
+// Works only for 1st-degree connections (LinkedIn renders no Message button
+// otherwise). `dry_run: true` opens the composer, types the text, then stops
+// before Send — used to validate the flow without delivering anything.
+async function handleSendProfileMessage(req, res) {
+  const { profile_url, vanity, text, dry_run } = req.body || {};
+  const url =
+    profile_url ||
+    (vanity ? `https://www.linkedin.com/in/${vanity}/` : null);
+  if (!url)
+    return res
+      .status(400)
+      .json({ error: "profile_url or vanity is required" });
+  if (!text) return res.status(400).json({ error: "text is required" });
+  try {
+    await ensureBrowser();
+    await navigate(url, 30000);
+    await page.waitForTimeout(2500);
+
+    // 1st-degree profiles show a primary "Message" action button.
+    const msgBtn = page
+      .locator(
+        'main section button:has-text("Message"), main section a:has-text("Message"), button[aria-label*="Message" i]',
+      )
+      .first();
+    if ((await msgBtn.count()) === 0) {
+      return res.status(404).json({
+        error: "No Message button on profile — likely not a 1st-degree connection",
+        code: "NOT_CONNECTED",
+      });
+    }
+    await msgBtn.click();
+    await page.waitForTimeout(2000);
+
+    const editor = page
+      .locator(
+        'div.msg-form__contenteditable[contenteditable="true"], div[contenteditable="true"][role="textbox"]',
+      )
+      .last();
+    if ((await editor.count()) === 0) {
+      return res
+        .status(404)
+        .json({ error: "Message composer did not open" });
+    }
+    await editor.click();
+    await page.keyboard.type(text);
+    await page.waitForTimeout(600);
+
+    if (dry_run) {
+      return res.json({
+        status: "ok",
+        dry_run: true,
+        sent: false,
+        profile_url: url,
+        text,
+      });
+    }
+
+    const sendBtn = page
+      .locator(
+        'button.msg-form__send-button, form[class*="msg-form"] button[type="submit"], button[aria-label*="Send"]',
+      )
+      .last();
+    if ((await sendBtn.count()) > 0) {
+      await sendBtn.click();
+    } else {
+      await page.keyboard.press("Enter");
+    }
+    await page.waitForTimeout(2000);
+    res.json({ status: "ok", sent: true, profile_url: url, text });
+  } catch (err) {
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res
+      .status(status)
+      .json({ error: err.message, code: err.code || "SEND_ERROR" });
+  }
+}
+
+// Newsletter nurture: send a connection invite with an optional ≤300-char
+// note. Handles both the primary "Connect" button and the "More" overflow.
+// `dry_run: true` opens the invite dialog (and fills the note) but never
+// clicks Send.
+async function handleConnect(req, res) {
+  const { profile_url, vanity, note, dry_run } = req.body || {};
+  const url =
+    profile_url ||
+    (vanity ? `https://www.linkedin.com/in/${vanity}/` : null);
+  if (!url)
+    return res
+      .status(400)
+      .json({ error: "profile_url or vanity is required" });
+  if (note && note.length > 300)
+    return res.status(400).json({ error: "note exceeds 300 characters" });
+  try {
+    await ensureBrowser();
+    await navigate(url, 30000);
+    await page.waitForTimeout(2500);
+
+    const distance = await page
+      .evaluate(
+        () =>
+          document.querySelector(".dist-value")?.innerText?.trim() || null,
+      )
+      .catch(() => null);
+    if (distance === "1st") {
+      return res.json({
+        status: "ok",
+        already_connected: true,
+        profile_url: url,
+      });
+    }
+
+    let connectBtn = page
+      .locator(
+        'main section button[aria-label*="connect" i], main section button:has-text("Connect")',
+      )
+      .first();
+    let found = await connectBtn.count();
+    let visible = found > 0 && (await connectBtn.isVisible().catch(() => false));
+    if (!visible) {
+      const moreBtn = page
+        .locator(
+          'main section button[aria-label*="More action" i], main section button:has-text("More")',
+        )
+        .first();
+      if ((await moreBtn.count()) > 0) {
+        await moreBtn.click();
+        await page.waitForTimeout(900);
+        connectBtn = page
+          .locator(
+            'div[role="menuitem"]:has-text("Connect"), [role="menu"] span:has-text("Connect")',
+          )
+          .first();
+        found = await connectBtn.count();
+        visible =
+          found > 0 && (await connectBtn.isVisible().catch(() => false));
+      }
+    }
+    if (!visible) {
+      const pending = await page
+        .locator('main section button:has-text("Pending")')
+        .count();
+      return res.status(404).json({
+        error: pending
+          ? "Invitation already pending"
+          : "No Connect control found (may be Follow-only or already connected)",
+        code: pending ? "PENDING" : "NO_CONNECT",
+      });
+    }
+    await connectBtn.click();
+    await page.waitForTimeout(1600);
+
+    if (note) {
+      const addNote = page
+        .locator('button:has-text("Add a note")')
+        .first();
+      if ((await addNote.count()) > 0) {
+        await addNote.click();
+        await page.waitForTimeout(800);
+        const ta = page
+          .locator('textarea[name="message"], #custom-message')
+          .first();
+        if ((await ta.count()) > 0) await ta.fill(note);
+      }
+    }
+
+    if (dry_run) {
+      return res.json({
+        status: "ok",
+        dry_run: true,
+        invited: false,
+        note_filled: Boolean(note),
+        profile_url: url,
+      });
+    }
+
+    const sendBtn = page
+      .locator(
+        'div[role="dialog"] button:has-text("Send"), button[aria-label*="Send" i]',
+      )
+      .last();
+    if ((await sendBtn.count()) === 0) {
+      return res.status(500).json({
+        error: "Invitation send button not found",
+        code: "NO_SEND",
+      });
+    }
+    await sendBtn.click();
+    await page.waitForTimeout(1600);
+    res.json({
+      status: "ok",
+      invited: true,
+      note: Boolean(note),
+      profile_url: url,
+    });
+  } catch (err) {
+    const status =
+      err.code === "RATE_LIMITED" || err.status === 429 ? 429 : 500;
+    res
+      .status(status)
+      .json({ error: err.message, code: err.code || "CONNECT_ERROR" });
   }
 }
 
