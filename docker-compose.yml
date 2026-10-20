@@ -751,7 +751,10 @@ services:
     memswap_limit: 512m
     restart: unless-stopped
   social-postgres:
-    image: postgres:16-alpine
+    # PG16→17 migrated 2026-10-20 via pg_dumpall → new volume (old
+    # cu130-slim_social_postgres_data kept intact as rollback).
+    # n8n 2.43+ requires PG17 (PG16 was compat-only).
+    image: postgres:17-alpine
     container_name: social-postgres
     networks:
       - db
