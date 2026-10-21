@@ -38,6 +38,9 @@ SLEEPER_ENABLED = os.environ.get("STACK_OPS_SLEEPER", "1") == "1"
 # Extra low-CPU polls required before sleeping a service that still has open
 # proxied connections (idle SSE/MCP streams, abandoned noVNC tabs).
 CONN_STREAK = int(os.environ.get("STACK_OPS_CONN_STREAK", "4"))
+# A hung docker CLI (engine dead, socket relay wedged) must not stall the
+# sleeper or a proxied connection forever — cap every docker invocation.
+DOCKER_CMD_TIMEOUT = int(os.environ.get("STACK_OPS_DOCKER_TIMEOUT", "30"))
 
 CONF = json.loads((Path(__file__).parent / "services.json").read_text())
 # name -> {"target": host:port, "idle_min": int, "wait_page": bool, "group": [names]}
@@ -71,7 +74,12 @@ async def docker(*args: str) -> tuple[int, str]:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
-    out, _ = await proc.communicate()
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), DOCKER_CMD_TIMEOUT)
+    except TimeoutError:
+        proc.kill()
+        await proc.wait()
+        return -1, "docker command timed out"
     return proc.returncode or 0, out.decode(errors="replace").strip()
 
 
@@ -89,7 +97,9 @@ async def container_state(name: str) -> str:
         return "stopped"
     if health == "healthy" or health == "":
         return "running"
-    return "starting"
+    if health == "starting":
+        return "starting"
+    return "unhealthy"
 
 
 async def container_states(names: list[str]) -> dict[str, str]:
@@ -119,45 +129,101 @@ async def container_states(names: list[str]) -> dict[str, str]:
             states[cname] = "stopped"
         elif health in ("healthy", ""):
             states[cname] = "running"
-        else:
+        elif health == "starting":
             states[cname] = "starting"
+        else:
+            states[cname] = "unhealthy"
     return states
 
 
-async def cpu_pct(name: str) -> float:
-    rc, out = await docker("stats", "--no-stream", "--format", "{{.CPUPerc}}", name)
-    try:
-        return float(out.rstrip("%"))
-    except ValueError:
-        return 99.0
+async def cpu_pcts(names: list[str]) -> dict[str, float]:
+    """docker container name -> CPU percent, one batched `docker stats` spawn.
+
+    A missing container is simply absent from the result — callers treat
+    absence as busy (conservative: don't sleep what we can't measure).
+    """
+    if not names:
+        return {}
+    rc, out = await docker(
+        "stats", "--no-stream", "--format", "{{.Name}} {{.CPUPerc}}", *names)
+    pct: dict[str, float] = {}
+    for line in out.splitlines():
+        cname, _, val = line.rpartition(" ")
+        try:
+            pct[cname.lstrip("/")] = float(val.rstrip("%"))
+        except ValueError:
+            continue
+    return pct
 
 
 async def wake(name: str) -> bool:
-    """Start + wait healthy. Idempotent, deduped per service."""
+    """Start + wait healthy. Idempotent, deduped per service.
+
+    Handles missing containers (pruned by docker system prune) by recreating
+    via docker compose up -d instead of just docker start.
+    """
     svc = SERVICES.get(name, {})
     docker_name = resolve_container(name)
+    # Use docker-compose service name for compose commands (may differ from container name)
+    compose_service = svc.get("service", name)
     for dep in svc.get("group", []):
         await wake(dep)
     lock = wake_locks.setdefault(docker_name, asyncio.Lock())
     async with lock:
         st = await container_state(docker_name)
-        if st == "running":
+        if st in ("running", "unhealthy"):
+            # "unhealthy" means Docker's probe fails — the app may still serve
+            # (seen: sidecar healthy by endpoint, unhealthy by check). The
+            # caller's upstream-connect retry covers the not-listening case,
+            # so don't burn the whole wake timeout on it.
+            if st == "unhealthy":
+                log.warning(
+                    "%s healthcheck unhealthy — treating as awake", docker_name)
             touch(docker_name)
             return True
         log.info("waking %s (was %s)", docker_name, st)
-        rc, out = await docker("start", docker_name)
-        if rc != 0:
-            log.error("docker start %s failed: %s", docker_name, out)
-            return False
-        deadline = time.monotonic() + WAKE_TIMEOUT_S
+
+        async def recreate() -> bool:
+            """Pruned container → recreate from the compose file.
+            --no-deps: sleeper dependencies live in `group`, not depends_on."""
+            log.info("recreating %s via compose up -d %s",
+                     docker_name, compose_service)
+            rc, out = await docker(
+                "compose", "-p", "cu130-slim", "-f", "/app/docker-compose.yml",
+                "up", "-d", "--no-deps", compose_service)
+            if rc != 0:
+                log.error("compose up -d %s failed: %s", compose_service, out)
+            return rc == 0
+
+        if st == "missing":
+            if not await recreate():
+                return False
+        else:
+            rc, out = await docker("start", docker_name)
+            if rc != 0:
+                # Race: container may have been pruned between inspect & start.
+                if await container_state(docker_name) == "missing":
+                    log.info("start raced a prune on %s — recreating", docker_name)
+                    if not await recreate():
+                        return False
+                else:
+                    log.error("docker start %s failed: %s", docker_name, out)
+                    return False
+
+        # Use service-specific wake timeout or default
+        wake_timeout = svc.get("wake_timeout_s", WAKE_TIMEOUT_S)
+        deadline = time.monotonic() + wake_timeout
         while time.monotonic() < deadline:
             st = await container_state(docker_name)
-            if st == "running":
+            if st in ("running", "unhealthy"):
+                if st == "unhealthy":
+                    log.warning(
+                        "%s woke but healthcheck is unhealthy", docker_name)
                 touch(docker_name)
                 log.info("woke %s", docker_name)
                 return True
             await asyncio.sleep(2)
-        log.error("wake %s timed out", docker_name)
+        log.error("wake %s timed out after %ds", docker_name, wake_timeout)
         return False
 
 
@@ -276,13 +342,21 @@ async def handle_conn(reader: asyncio.StreamReader, writer: asyncio.StreamWriter
 
 async def sleeper_loop() -> None:
     await asyncio.sleep(30)  # let the stack settle after boot
+    # Canonical (non-alias) services precomputed — aliases share a container
+    # with their canonical owner, so they must never be slept independently.
+    canonical = [
+        (name, svc, resolve_container(name))
+        for name, svc in SERVICES.items() if not is_secondary_alias(name)
+    ]
     while True:
-        for name, svc in SERVICES.items():
-            if is_secondary_alias(name):
-                continue
-            docker_name = resolve_container(name)
+        # One batched inspect for the whole managed fleet — a per-service
+        # spawn costs ~2s through the Docker Desktop socket relay, so 15+
+        # sequential inspects ate most of a 60s poll interval.
+        states = await container_states([dn for _, _, dn in canonical])
+        candidates = []
+        for name, svc, docker_name in canonical:
             try:
-                st = await container_state(docker_name)
+                st = states.get(docker_name, "missing")
                 if st in ("stopped", "missing"):
                     continue
                 if st == "starting":
@@ -294,12 +368,19 @@ async def sleeper_loop() -> None:
                 if idle_for < svc["idle_min"] * 60:
                     low_cpu_streak[docker_name] = 0
                     continue
+                candidates.append((name, docker_name))
+            except Exception as e:
+                log.error("sleeper check %s: %s", name, e)
+        # One batched stats call for just the idle-expired candidates.
+        pcts = await cpu_pcts([dn for _, dn in candidates])
+        for name, docker_name in candidates:
+            try:
                 # Open proxied conns (SSE, idle noVNC tabs, forgotten MCP
                 # streams) don't block sleep, but earn extra low-CPU polls so
                 # a genuinely busy session keeps the service up via CPU.
                 need_streak = CONN_STREAK if active_conns.get(
                     docker_name, 0) > 0 else 2
-                if await cpu_pct(docker_name) < CPU_PCT_MAX:
+                if pcts.get(docker_name, 99.0) < CPU_PCT_MAX:
                     low_cpu_streak[docker_name] = low_cpu_streak.get(
                         docker_name, 0) + 1
                     if low_cpu_streak[docker_name] >= need_streak:
@@ -330,7 +411,10 @@ async def api_handler(reader: asyncio.StreamReader,
         if len(path_q) > 1:
             for kv in path_q[1].split("&"):
                 if kv.startswith("ttl="):
-                    ttl = int(kv[4:])
+                    try:
+                        ttl = int(kv[4:])
+                    except ValueError:
+                        ttl = 0
 
         code, body = 404, {"error": "not found"}
         if segs == ["healthz"]:
@@ -375,9 +459,12 @@ async def api_handler(reader: asyncio.StreamReader,
             res = await asyncio.gather(*(sleep_service(n) for n in canonical))
             code, body = 200, {"slept": dict(zip(canonical, res))}
         elif len(segs) == 2 and segs[0] == "keepawake" and method == "POST":
-            docker_name = resolve_container(segs[1])
-            keepawake[docker_name] = time.monotonic() + (ttl or 7200)
-            code, body = 200, {"keepawake": segs[1], "ttl_s": ttl or 7200}
+            if segs[1] not in SERVICES:
+                code, body = 404, {"error": "unknown service"}
+            else:
+                docker_name = resolve_container(segs[1])
+                keepawake[docker_name] = time.monotonic() + (ttl or 7200)
+                code, body = 200, {"keepawake": segs[1], "ttl_s": ttl or 7200}
         payload = json.dumps(body).encode()
         writer.write(
             f"HTTP/1.1 {code} X\r\nContent-Type: application/json\r\n"
@@ -414,18 +501,23 @@ def _docker_ts_to_monotonic(ts: str, now_wall: float, now_mono: float) -> float:
 
 async def main() -> None:
     now_mono, now_wall = time.monotonic(), time.time()
-    for name, svc in SERVICES.items():
-        docker_name = svc.get("container", name)
-        if docker_name in last_active:
-            continue
-        # Seed idle clock from the container's real StartedAt so containers
-        # started outside the proxy (compose up, session healer) get a full
-        # idle window, and long-running-but-untouched ones can sleep promptly.
-        rc, out = await docker(
-            "inspect", "-f", "{{.State.StartedAt}}", docker_name)
+    # Seed idle clocks from each container's real StartedAt (one batched
+    # inspect) so containers started outside the proxy (compose up, session
+    # healer) get a full idle window, and untouched ones can sleep promptly.
+    containers = sorted({svc.get("container", n) for n, svc in SERVICES.items()})
+    rc, out = await docker(
+        "inspect", "-f", "{{.Name}}|{{.State.StartedAt}}", *containers)
+    started_at: dict[str, str] = {}
+    if rc == 0:
+        for line in out.splitlines():
+            cname, _, ts = line.partition("|")
+            if cname:
+                started_at[cname.lstrip("/")] = ts
+    for docker_name in containers:
+        ts = started_at.get(docker_name)
         last_active[docker_name] = (
-            _docker_ts_to_monotonic(out, now_wall, now_mono)
-            if rc == 0 and out and out != "<nil>" else now_mono)
+            _docker_ts_to_monotonic(ts, now_wall, now_mono)
+            if ts and ts != "<nil>" else now_mono)
     servers = []
     for port, name in LISTENERS.items():
         servers.append(await asyncio.start_server(

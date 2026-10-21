@@ -157,7 +157,8 @@ class TestControlApi(ApiTestBase):
         self.assertEqual(set(body), set(stack_ops.SERVICES))
         for info in body.values():
             self.assertIn(info["state"],
-                          ("running", "starting", "stopped", "missing"))
+                          ("running", "starting", "unhealthy",
+                           "stopped", "missing"))
 
 
 class TestControlApiFailures(ApiTestBase):
@@ -202,6 +203,15 @@ class TestSleepAll(ApiTestBase):
 class TestKeepawake(ApiTestBase):
     async def asyncSetUp(self):
         await self._serve(stack_ops.api_handler)
+
+    async def test_keepawake_unknown_service_404(self):
+        code, _ = await self._req("POST", "/keepawake/not-a-service?ttl=60")
+        self.assertEqual(code, 404)
+
+    async def test_keepawake_bad_ttl_does_not_crash(self):
+        code, body = await self._req("POST", "/keepawake/languagetool?ttl=abc")
+        self.assertEqual(code, 200)
+        self.assertEqual(body["ttl_s"], 7200)  # falls back to default
 
     async def test_keepawake_keyed_by_container(self):
         # regression: stack_ops.keepawake was stored under the alias, but the sleeper
@@ -287,6 +297,64 @@ class TestWaitPageFlow(ProxyTestBase):
         data = await self._roundtrip(port, b"\x05\x01\x00")
         self.assertEqual(data, b"")
         self.assertTrue(self.wake_calls)
+
+
+class TestContainerStates(unittest.IsolatedAsyncioTestCase):
+    """Batched inspect parsing incl. the new 'unhealthy' state."""
+
+    def _fake_docker(self, output: str):
+        return patch.object(stack_ops, "docker",
+                            new=AsyncMock(return_value=(0, output)))
+
+    async def test_maps_health_states(self):
+        out = ("/a|running|healthy\n/b|running|starting\n"
+               "/c|running|unhealthy\n/d|exited|\n")
+        with self._fake_docker(out):
+            st = await stack_ops.container_states(["a", "b", "c", "d", "e"])
+        self.assertEqual(st["a"], "running")
+        self.assertEqual(st["b"], "starting")
+        self.assertEqual(st["c"], "unhealthy")
+        self.assertEqual(st["d"], "stopped")
+        self.assertNotIn("e", st)
+
+    async def test_unhealthy_counts_as_awake(self):
+        # Regression: unhealthy was reported as "starting", so wake() burned
+        # the whole timeout on a container that was already serving.
+        with patch.object(stack_ops, "container_state",
+                          new=AsyncMock(return_value="unhealthy")):
+            self.assertTrue(await stack_ops.wake("languagetool"))
+
+    async def test_cpu_pcts_parses_batch(self):
+        out = "a 0.10%\nb 12.55%\n"
+        with self._fake_docker(out):
+            pcts = await stack_ops.cpu_pcts(["a", "b", "gone"])
+        self.assertAlmostEqual(pcts["a"], 0.10)
+        self.assertAlmostEqual(pcts["b"], 12.55)
+        self.assertNotIn("gone", pcts)
+
+
+class TestWakeRecreate(unittest.IsolatedAsyncioTestCase):
+    async def test_missing_container_recreates_via_compose(self):
+        calls = []
+
+        async def fake_docker(*args):
+            calls.append(args)
+            if args[0] == "inspect":
+                # missing on first inspect, running after compose up
+                state = "missing" if len([c for c in calls
+                                          if c[0] == "compose"]) == 0 \
+                    else "x|running|healthy|"
+                return (1, "") if state == "missing" else (0, state)
+            return (0, "")
+
+        with patch.object(stack_ops, "docker", new=fake_docker), \
+             patch.object(stack_ops, "container_state",
+                          new=AsyncMock(side_effect=["missing", "running"])):
+            self.assertTrue(await stack_ops.wake("languagetool"))
+        compose_calls = [c for c in calls if c[0] == "compose"]
+        self.assertTrue(compose_calls)
+        self.assertIn("--no-deps", compose_calls[0])
+        self.assertIn("languagetool", compose_calls[0])
 
 
 class TestProxyPipe(ProxyTestBase):
