@@ -6,13 +6,15 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
 ## Meta end-to-end audit — 2026-10-21
 
-- [ ] **Browser warm/keepalive ownership fix** — branch `fix/meta-browser-warm-ownership`:
+- [x] **Browser warm/keepalive ownership fix** — PR #780 merged:
   warm now rejects interactive/foreign sessions; keepalive skips busy/interactive
   sessions and stops after page/context replacement. Ten regression cases plus
   39 existing bridge-client tests pass. Full backend suite: 6475 passed,
   11 skipped; changed Python files lint clean; compose config validates.
-  Deploy only at a safe browser restart
-  window; do not tear down another platform's live session.
+  Deployed bridge code and restarted after owner approval; live contention
+  checks 5/5 passed; foreign warm returned 409 with owner page unchanged.
+  Scheduler resumed and confirmed running/unpaused. Updated browser image
+  built successfully for future recreations; persistent volumes preserved.
 - [ ] **Secondary security email** — fresh Playwright MCP Accounts Center read
   still shows only the existing email and phone, not the requested secondary
   email. Previous success UI did not establish persistence. Add attempts return
