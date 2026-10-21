@@ -60,7 +60,12 @@ telegram account.
 ### 2. `telegram` MCP — user session (optional, for channel creation)
 
 - Install: `~/tools/telegram-mcp` (chigwell/telegram-mcp, Telethon).
-  Registered in `.devin/mcp_config.json`; runs `uv run telegram-mcp`.
+  Registered in `.devin/mcp_config.json` with the absolute launcher:
+  `/home/tbaltzakis/tools/telegram-mcp/.venv/bin/python`
+  `/home/tbaltzakis/tools/telegram-mcp/main.py` (script argument), with
+  `cwd=/home/tbaltzakis/tools/telegram-mcp`.
+  Do not restore the bare `uv run telegram-mcp` MCP launcher: project discovery
+  depends on the caller's working directory, which the MCP client may not honor.
 - **Credentials needed** (in `~/tools/telegram-mcp/.env`, never committed):
   `TELEGRAM_API_ID` + `TELEGRAM_API_HASH` from https://my.telegram.org/apps,
   then `uv run telegram-mcp-generate-session --qr` for the session.
