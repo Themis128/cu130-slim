@@ -68,14 +68,15 @@ def is_secondary_alias(name: str) -> bool:
     return docker_name != name and docker_name in SERVICES
 
 
-async def docker(*args: str) -> tuple[int, str]:
+async def docker(*args: str, timeout: int | None = None) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         "docker", *args,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
     )
     try:
-        out, _ = await asyncio.wait_for(proc.communicate(), DOCKER_CMD_TIMEOUT)
+        out, _ = await asyncio.wait_for(
+            proc.communicate(), timeout or DOCKER_CMD_TIMEOUT)
     except TimeoutError:
         proc.kill()
         await proc.wait()
@@ -229,7 +230,7 @@ async def wake(name: str) -> bool:
 
 async def sleep_service(name: str) -> bool:
     docker_name = resolve_container(name)
-    rc, out = await docker("stop", "-t", "30", docker_name)
+    rc, out = await docker("stop", "-t", "30", docker_name, timeout=45)
     if rc == 0:
         log.info("slept %s", docker_name)
     else:
@@ -368,12 +369,12 @@ async def sleeper_loop() -> None:
                 if idle_for < svc["idle_min"] * 60:
                     low_cpu_streak[docker_name] = 0
                     continue
-                candidates.append((name, docker_name))
+                candidates.append((name, svc, docker_name))
             except Exception as e:
                 log.error("sleeper check %s: %s", name, e)
         # One batched stats call for just the idle-expired candidates.
-        pcts = await cpu_pcts([dn for _, dn in candidates])
-        for name, docker_name in candidates:
+        pcts = await cpu_pcts([dn for _, _, dn in candidates])
+        for name, svc, docker_name in candidates:
             try:
                 # Open proxied conns (SSE, idle noVNC tabs, forgotten MCP
                 # streams) don't block sleep, but earn extra low-CPU polls so
@@ -384,6 +385,14 @@ async def sleeper_loop() -> None:
                     low_cpu_streak[docker_name] = low_cpu_streak.get(
                         docker_name, 0) + 1
                     if low_cpu_streak[docker_name] >= need_streak:
+                        # Re-check eligibility right before stopping — a
+                        # keepawake or proxied traffic may have landed while
+                        # earlier candidates were being stopped.
+                        if (time.monotonic() < keepawake.get(docker_name, 0)
+                                or time.monotonic() - last_active.get(
+                                    docker_name, 0) < svc["idle_min"] * 60):
+                            low_cpu_streak[docker_name] = 0
+                            continue
                         await sleep_service(name)
                 else:
                     low_cpu_streak[docker_name] = 0
@@ -505,14 +514,15 @@ async def main() -> None:
     # inspect) so containers started outside the proxy (compose up, session
     # healer) get a full idle window, and untouched ones can sleep promptly.
     containers = sorted({svc.get("container", n) for n, svc in SERVICES.items()})
+    # rc is nonzero when ANY name is missing — but inspect still emits lines
+    # for the containers it found, so parse whatever came back regardless.
     rc, out = await docker(
         "inspect", "-f", "{{.Name}}|{{.State.StartedAt}}", *containers)
     started_at: dict[str, str] = {}
-    if rc == 0:
-        for line in out.splitlines():
-            cname, _, ts = line.partition("|")
-            if cname:
-                started_at[cname.lstrip("/")] = ts
+    for line in out.splitlines():
+        cname, _, ts = line.partition("|")
+        if cname:
+            started_at[cname.lstrip("/")] = ts
     for docker_name in containers:
         ts = started_at.get(docker_name)
         last_active[docker_name] = (
