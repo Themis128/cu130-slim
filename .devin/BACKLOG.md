@@ -58,10 +58,14 @@ PR #781 (deployment evidence) was authoritatively verified merged at
   the profile picker on subsequent navigations within minutes — every
   publish attempt 401s `Not logged in to Facebook`. Consistent with the
   account's "email may not be secure" flag; durable fix is the account
-  security step in #782, not more retries. Failed post
-  `2c82267a-f248-477f-955a-abdf5e256c8e` (FB personal lane, infra-only
-  failure) can be re-queued via `POST /api/v1/publishing/queue/{id}/retry`
-  once the session holds.
+  security step in #782, not more retries. Failed queue item
+  `deb9da45-615e-44eb-98b1-5eb27074b058` (post
+  `2c82267a-f248-477f-955a-abdf5e256c8e`, FB personal lane, infra-only
+  failure) can be re-queued via
+  `POST /api/v1/publishing/queue/{queue_item_id}/retry` once the session
+  holds. If that ID is stale, look up the queue item by post:
+  `SELECT id FROM publish_queue WHERE post_id =
+  '2c82267a-f248-477f-955a-abdf5e256c8e' ORDER BY updated_at DESC LIMIT 1`.
 - [ ] **Complete live publish/webhook delivery E2E** after restrictions clear:
   no synthetic posts/messages sent during audit. Messenger profile GET succeeds
   with subscription, menu and ice breakers; Threads profile GET succeeds.
@@ -153,6 +157,9 @@ PR #781 (deployment evidence) was authoritatively verified merged at
 - [x] **cloudless.gr PR #2232** — EU AI Act checklist lead magnet.
   Authoritative GitHub status rechecked: MERGED 2026-10-21T08:23:40Z.
   No remaining merge blocker; prior auto-merge/CI note was stale.
+- [x] **PR #797** — Telegram channel-ops guides (`.devin` + `.cursor`)
+  synced to the absolute MCP launcher from PR #778. MERGED 2026-10-21
+  with all checks green; closes the Devin Review finding on #778.
 
 ## Blocked on humans / consoles
 
