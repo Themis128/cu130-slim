@@ -2,8 +2,9 @@ import asyncio
 import importlib.util
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import httpx
 import pytest
 from fastapi import HTTPException
 
@@ -64,3 +65,32 @@ async def test_keepalive_respects_session_ownership(bridge, monkeypatch, protect
         page.goto.assert_not_awaited()
     if protected == "replaced":
         bridge._state["page"].goto.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("interactive,owner,caller,status", [
+    (True, "facebook", "facebook", 409),
+    (False, "twitter", "facebook", 409),
+    (False, "facebook", "twitter", 409),
+    (False, "facebook", "facebook", 200),
+])
+async def test_warm_http_route(bridge, interactive, owner, caller, status):
+    page = Mock()
+    page.is_closed.return_value = False
+    page.goto = AsyncMock()
+    bridge._state.update(page=page, context=object(), interactive=interactive,
+                         busy_owner=owner, busy_until=time.time() + 300)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=bridge.app),
+                                 base_url="http://bridge") as client:
+        response = await client.post("/session/warm?platform=facebook",
+                                     headers={"X-Platform": caller})
+    assert response.status_code == status
+    if status == 200:
+        page.goto.assert_awaited_once()
+        bridge._keepalive_task.cancel()
+        try:
+            await bridge._keepalive_task
+        except asyncio.CancelledError:
+            pass
+    else:
+        page.goto.assert_not_awaited()

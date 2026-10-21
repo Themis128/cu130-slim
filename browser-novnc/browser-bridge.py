@@ -29,10 +29,10 @@ try:
     from patchright.async_api import async_playwright
 except ImportError:
     from playwright.async_api import async_playwright
+import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import uvicorn
 
 COOKIE_DIR = Path(os.environ.get("BRIDGE_COOKIE_DIR", "/app/cookies"))
 COOKIE_DIR.mkdir(parents=True, exist_ok=True)
@@ -1184,7 +1184,8 @@ async def get_instagram_profile():
                 };
                 // Try various selectors for the name field
                 let fullName = '';
-                for (const sel of ['input[name="first_name"]', 'input[aria-label="Name"]', 'input[aria-label="Όνομα"]', 'header + section input[type="text"]']) {
+                for (const sel of ['input[name="first_name"]', 'input[aria-label="Name"]',
+                                   'input[aria-label="Όνομα"]', 'header + section input[type="text"]']) {
                     const v = getVal(sel);
                     if (v) { fullName = v; break; }
                 }
@@ -1194,7 +1195,8 @@ async def get_instagram_profile():
                     if (el && el.tagName === 'TEXTAREA') { bio = el.value || ''; break; }
                 }
                 let url = '';
-                for (const sel of ['input[name="external_url"]', 'input[placeholder="Website"]', 'input[aria-label="Website"]', 'input[aria-label="Ιστότοπος"]']) {
+                for (const sel of ['input[name="external_url"]', 'input[placeholder="Website"]',
+                                   'input[aria-label="Website"]', 'input[aria-label="Ιστότοπος"]']) {
                     const v = getVal(sel);
                     if (v) { url = v; break; }
                 }
@@ -1228,7 +1230,8 @@ async def get_instagram_profile():
                 if (v) { fullName = v; break; }
             }
             let bio = '';
-            const ta = document.querySelector('textarea[name="biography"]') || document.querySelector('textarea#pepBio') || document.querySelector('textarea[placeholder="Bio"]') || document.querySelector('textarea');
+            const ta = document.querySelector('textarea[name="biography"]') || document.querySelector('textarea#pepBio')
+                || document.querySelector('textarea[placeholder="Bio"]') || document.querySelector('textarea');
             if (ta) bio = ta.value || '';
             let url = getVal('input[name="external_url"]') || getVal('input[placeholder="Website"]') || getVal('input[aria-label="Website"]');
             let picUrl = '';

@@ -126,7 +126,8 @@ def cmd_debug_token(account_id: str) -> None:
                 "granular_scopes": [
                     s.get("scope") for s in data.get("granular_scopes", [])
                 ],
-                "error": data.get("error"),
+                "http_status": resp.status_code,
+                "error": data.get("error") or payload.get("error"),
             },
             indent=2,
         )
