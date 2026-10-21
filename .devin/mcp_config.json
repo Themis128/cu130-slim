@@ -160,10 +160,9 @@
       "url": "https://mcp.deepwiki.com/mcp"
     },
     "telegram": {
-      "command": "uv",
+      "command": "/home/tbaltzakis/tools/telegram-mcp/.venv/bin/python",
       "args": [
-        "run",
-        "telegram-mcp"
+        "/home/tbaltzakis/tools/telegram-mcp/main.py"
       ],
       "cwd": "/home/tbaltzakis/tools/telegram-mcp"
     }
