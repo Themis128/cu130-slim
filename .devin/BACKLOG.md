@@ -52,6 +52,16 @@ PR #781 (deployment evidence) was authoritatively verified merged at
   Official profile read works (13 followers, 64 media); quota read reports 24
   remaining. Neither read proves publishing permission. Resolve Account Status
   challenge/appeal before attempting publication; do not bypass with private API.
+- [ ] **Facebook sidecar session instability — 2026-10-21:** the restored
+  session logs in and persists correctly (verified across a browser restart
+  via `/session` re-inject + `saveSession`), but Facebook re-challenges to
+  the profile picker on subsequent navigations within minutes — every
+  publish attempt 401s `Not logged in to Facebook`. Consistent with the
+  account's "email may not be secure" flag; durable fix is the account
+  security step in #782, not more retries. Failed post
+  `2c82267a-f248-477f-955a-abdf5e256c8e` (FB personal lane, infra-only
+  failure) can be re-queued via `POST /api/v1/publishing/queue/{id}/retry`
+  once the session holds.
 - [ ] **Complete live publish/webhook delivery E2E** after restrictions clear:
   no synthetic posts/messages sent during audit. Messenger profile GET succeeds
   with subscription, menu and ice breakers; Threads profile GET succeeds.
