@@ -4,6 +4,33 @@ Living list. **Every agent session must read this at start and update it at end*
 check off what landed, add anything left unfinished, and keep items verbatim enough
 to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
+## Registered leftovers — 2026-10-21
+
+All entries below remain open until their acceptance criteria are verified.
+Issue registration is not resolution. No outreach, test publishing, paid ads,
+verification-code requests or destructive draft cleanup was performed.
+Historical observations below retain their dates; re-query before acting.
+
+| Issue | Remaining work | Gate |
+| --- | --- | --- |
+| [#782](https://github.com/Themis128/cu130-slim/issues/782) | Secondary Meta recovery email persistence | Owner / Meta verification |
+| [#783](https://github.com/Themis128/cu130-slim/issues/783) | Instagram lock and publishing restriction | Account Status recovery |
+| [#784](https://github.com/Themis128/cu130-slim/issues/784) | Real publish and inbound-webhook E2E | Recovery and test-send approval |
+| [#785](https://github.com/Themis128/cu130-slim/issues/785) | Meta business verification / lead App Review | Owner evidence / Meta decision |
+| [#786](https://github.com/Themis128/cu130-slim/issues/786) | WhatsApp verification and registration | Owner ready for fresh code |
+| [#787](https://github.com/Themis128/cu130-slim/issues/787) | Instagram private-session reassessment | Resolve restriction, respect cooldown |
+| [#788](https://github.com/Themis128/cu130-slim/issues/788) | Instagram approved funnel profile link | Supported app / owner action |
+| [#789](https://github.com/Themis128/cu130-slim/issues/789) | TikTok profile website | Owner solves challenge |
+| [#790](https://github.com/Themis128/cu130-slim/issues/790) | TikTok Direct Post audit | Platform review |
+| [#791](https://github.com/Themis128/cu130-slim/issues/791) | TikTok unfinished inbox shares | Owner reviews drafts |
+| [#792](https://github.com/Themis128/cu130-slim/issues/792) | Optional legacy Slack webhook replacement | Not a functional blocker; owner choice |
+| [#793](https://github.com/Themis128/cu130-slim/issues/793) | Partner shortlist review | Approval before outreach |
+| [#794](https://github.com/Themis128/cu130-slim/issues/794) | Paced newsletter nurture batches | Approval after fresh dry run |
+| [#795](https://github.com/Themis128/cu130-slim/issues/795) | AI-governance offer / service page | Positioning and pricing decision |
+
+PR #781 (deployment evidence) was authoritatively verified merged at
+2026-10-21T12:50:43Z. PR #780 remains the merged implementation record.
+
 ## Meta end-to-end audit — 2026-10-21
 
 - [x] **Browser warm/keepalive ownership fix** — PR #780 merged:
@@ -113,10 +140,9 @@ to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
   Prometheus n8n target. MERGED.
 - [x] **PR #775** — LinkedIn newsletter nurture lanes (sidecar
   profile-DM + invite, client, CLI). MERGED 2026-10-21.
-- [ ] **cloudless.gr PR #2232** — EU AI Act checklist lead magnet.
-  Auto-merge armed; the one red check (Playwright live-D1, chatbot specs)
-  is a pre-existing main failure (CF secrets empty in CI env), not
-  required by branch protection.
+- [x] **cloudless.gr PR #2232** — EU AI Act checklist lead magnet.
+  Authoritative GitHub status rechecked: MERGED 2026-10-21T08:23:40Z.
+  No remaining merge blocker; prior auto-merge/CI note was stale.
 
 ## Blocked on humans / consoles
 
