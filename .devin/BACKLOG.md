@@ -4,6 +4,32 @@ Living list. **Every agent session must read this at start and update it at end*
 check off what landed, add anything left unfinished, and keep items verbatim enough
 to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
+## Meta end-to-end audit — 2026-10-21
+
+- [ ] **Browser warm/keepalive ownership fix** — branch `fix/meta-browser-warm-ownership`:
+  warm now rejects interactive/foreign sessions; keepalive skips busy/interactive
+  sessions and stops after page/context replacement. Ten regression cases plus
+  39 existing bridge-client tests pass. Full backend suite: 6475 passed,
+  11 skipped; changed Python files lint clean; compose config validates.
+  Deploy only at a safe browser restart
+  window; do not tear down another platform's live session.
+- [ ] **Secondary security email** — fresh Playwright MCP Accounts Center read
+  still shows only the existing email and phone, not the requested secondary
+  email. Previous success UI did not establish persistence. Add attempts return
+  a generic temporary error even for Facebook alone; cause unverified. Owner
+  must complete/retry through the trusted mobile app and confirm contact info.
+- [ ] **Instagram restriction** — Accounts Center shows `cloudless.gr` locked;
+  recent publish failed code 25/subcode 2207050, non-transient user restriction.
+  Official profile read works (13 followers, 64 media); quota read reports 24
+  remaining. Neither read proves publishing permission. Resolve Account Status
+  challenge/appeal before attempting publication; do not bypass with private API.
+- [ ] **Complete live publish/webhook delivery E2E** after restrictions clear:
+  no synthetic posts/messages sent during audit. Messenger profile GET succeeds
+  with subscription, menu and ice breakers; Threads profile GET succeeds.
+  Facebook Page token debug reports valid. Instagram Facebook-host debug probe
+  returned HTTP 400/code 2 transient error; diagnostics now preserve top-level
+  errors instead of returning misleading null/error-null output.
+
 ## Ops — infra health
 
 - [x] **LanguageTool `stack-ops:8010`** — container was being deleted repeatedly;
