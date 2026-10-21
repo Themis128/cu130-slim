@@ -34,7 +34,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 
-COOKIE_DIR = Path("/app/cookies")
+COOKIE_DIR = Path(os.environ.get("BRIDGE_COOKIE_DIR", "/app/cookies"))
 COOKIE_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -581,11 +581,16 @@ async def warm_session(platform: str = "facebook"):
     session for daemon-mode sends.
     """
     global _keepalive_task
+    if _state.get("interactive"):
+        raise HTTPException(409, "Interactive session active — warming deferred")
     if not _state["context"] or not _state["page"]:
         raise HTTPException(400, "No active browser session — start one first")
+    if _req_platform.get() != platform:
+        raise HTTPException(409, "Warm platform must match X-Platform")
+    page = await _ensure_live_page()
     target = _warm_urls.get(platform, _warm_urls.get("facebook", "https://www.facebook.com/messages/"))
     try:
-        await _state["page"].goto(target, wait_until="domcontentloaded", timeout=30000)
+        await page.goto(target, wait_until="domcontentloaded", timeout=30000)
         _state["message"] = f"Session warmed for {platform}"
     except Exception as exc:
         _state["message"] = f"Warm failed: {exc}"
@@ -599,11 +604,17 @@ async def warm_session(platform: str = "facebook"):
 async def _keepalive_loop(platform: str):
     """Background task that keeps the session alive by navigating every 5 min."""
     target = _warm_urls.get(platform, "https://www.facebook.com/messages/")
+    page = _state.get("page")
+    context = _state.get("context")
     while True:
         try:
             await asyncio.sleep(300)  # 5 minutes
-            if _state["page"]:
-                await _state["page"].goto(target, wait_until="domcontentloaded", timeout=30000)
+            if page is not _state.get("page") or context is not _state.get("context"):
+                break
+            if _state.get("interactive") or time.time() < _state.get("busy_until", 0.0):
+                continue
+            if page:
+                await page.goto(target, wait_until="domcontentloaded", timeout=30000)
         except asyncio.CancelledError:
             break
         except Exception:

@@ -112,7 +112,8 @@ def cmd_debug_token(account_id: str) -> None:
         },
         timeout=15,
     )
-    data = resp.json().get("data", {})
+    payload = resp.json()
+    data = payload.get("data", {})
     print(
         json.dumps(
             {
