@@ -82,8 +82,10 @@ def healthy() -> bool:
 
 def warmup_models() -> None:
     """Issue warm-up requests for primary models to avoid cold-start latency."""
+    # Only pre-warm the 30m keep_alive-pinned 4B. Loading the 8B too (~5.1GB
+    # + ~2.7GB) can exceed the shared 8GB card and leaves both resident,
+    # fighting media GPU arbitration — the 8B lazy-loads on demand instead.
     primary_models = [
-        "ai/qwen3:8b-q4_K_M",
         "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
     ]
     for model in primary_models:
