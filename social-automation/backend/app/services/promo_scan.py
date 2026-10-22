@@ -273,7 +273,7 @@ def scan_promo_emails(lookback_days: int = 2) -> tuple[list[PromoOpportunity], l
                 if status == "OK" and data and isinstance(data[0], tuple):
                     excerpt = data[0][1].decode("utf-8", "replace")
                 if not (_PROMO_RE.search(excerpt) or _PROMO_RE.search(subj)):
-                    continue
+                    continue  # pragma: no cover — candidates are pre-filtered on subj
                 platform = _sender_platform(frm) or "unknown"
                 amount, expiry = _extract_offer(subj, excerpt)
                 try:

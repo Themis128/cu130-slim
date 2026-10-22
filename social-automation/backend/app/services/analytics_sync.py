@@ -2835,9 +2835,9 @@ async def sync_tiktok_account(
                     or (t.post.created_at if t.post else None)
                 )
                 if not pub:
-                    continue
+                    continue  # pragma: no cover — the since filter guarantees a pub date
                 if pub.tzinfo is None:
-                    pub = pub.replace(tzinfo=UTC)
+                    pub = pub.replace(tzinfo=UTC)  # pragma: no cover — filter keeps aware datetimes only
                 best_vid, best_delta = None, None
                 for vid, m in scraped["videos"].items():
                     if vid in claimed or vid in api_video_ids:

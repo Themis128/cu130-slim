@@ -310,3 +310,30 @@ class TestSpellcheckContent:
         out = asyncio.run(infographic_renderer._spellcheck_content(self._content()))
         assert out["title"] == "Why Cloadless Matters"  # unchanged but PIL-safe
         assert len(out["sections"]) == 1
+
+
+def test_spellcheck_skips_blank_and_nonstring_fields(monkeypatch):
+    import asyncio
+
+    import app.services.infographic_renderer as ir
+
+    content = {
+        "title": "",                    # blank → returned as-is
+        "subtitle": None,               # non-string → returned as-is
+        "footer": "  ",
+        "sections": [
+            {"heading": "Hi", "body": "Body", "icon": "x"},
+            {"heading": None, "body": "  ", "icon": "y"},
+        ],
+    }
+
+    async def _correct(text, **kw):
+        return text + "!"
+
+    import app.services.spellcheck as sc
+
+    monkeypatch.setattr(sc, "auto_correct", _correct)
+    out = asyncio.run(ir._spellcheck_content(content))
+    assert out["title"] == "" and out["subtitle"] is None
+    assert out["sections"][0]["heading"] == "Hi!"
+    assert out["sections"][1]["heading"] is None
