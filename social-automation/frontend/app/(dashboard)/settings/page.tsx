@@ -596,7 +596,7 @@ export default function SettingsPage() {
                 ] as const).map(({ key, label, Icon }) => (
                   <Button
                     key={key}
-                    variant={theme === key ? 'default' : 'outline-solid'}
+                    variant={theme === key ? 'default' : 'outline'}
                     style={{ height: '6rem', flexDirection: 'column', gap: '0.75rem', padding: '1.5rem' }}
                     onClick={() => { setTheme(key); toast.success(`Theme set to ${label}`) }}
                   >

@@ -400,7 +400,7 @@ export default function WorkflowsPage() {
                           <CardDescription className="mt-0.5">{template.description}</CardDescription>
                         </div>
                       </div>
-                      <Badge variant={isDefault ? 'default' : 'outline-solid'} className="capitalize shrink-0">
+                      <Badge variant={isDefault ? 'default' : 'outline'} className="capitalize shrink-0">
                         {template.category}
                       </Badge>
                     </div>

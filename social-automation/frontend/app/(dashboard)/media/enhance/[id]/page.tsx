@@ -321,7 +321,7 @@ export default function EnhancePage() {
               {['webp', 'jpeg', 'png', 'avif'].map(fmt => (
                 <Button
                   key={fmt}
-                  variant={convertFormat === fmt ? 'default' : 'outline-solid'}
+                  variant={convertFormat === fmt ? 'default' : 'outline'}
                   className="flex-1"
                   onClick={() => {
                     setConvertFormat(fmt)

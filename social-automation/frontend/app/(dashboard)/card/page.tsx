@@ -385,7 +385,7 @@ export default function DigitalCardPage() {
                 <div className="flex gap-2">
                   <Button
                     size="sm"
-                    variant={sendPlatform === 'whatsapp' ? 'default' : 'outline-solid'}
+                    variant={sendPlatform === 'whatsapp' ? 'default' : 'outline'}
                     onClick={() => setSendPlatform('whatsapp')}
                   >
                     <MessageCircle className="h-4 w-4 mr-1" />
@@ -393,7 +393,7 @@ export default function DigitalCardPage() {
                   </Button>
                   <Button
                     size="sm"
-                    variant={sendPlatform === 'messenger' ? 'default' : 'outline-solid'}
+                    variant={sendPlatform === 'messenger' ? 'default' : 'outline'}
                     onClick={() => setSendPlatform('messenger')}
                   >
                     <MessageCircle className="h-4 w-4 mr-1" />

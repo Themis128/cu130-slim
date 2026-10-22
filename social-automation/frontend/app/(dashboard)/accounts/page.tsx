@@ -762,7 +762,7 @@ export default function AccountsPage() {
                                   </div>
                                   <div className="flex items-center justify-between">
                                     <span className="text-muted-foreground">Status</span>
-                                    <Badge variant={acctExpired ? 'destructive' : acctExpiringSoon ? 'outline-solid' : 'success'}>
+                                    <Badge variant={acctExpired ? 'destructive' : acctExpiringSoon ? 'outline' : 'success'}>
                                       {acctExpired ? 'Expired' : acctExpiringSoon ? `${Math.ceil((new Date(acct.token_expires_at!).getTime() - Date.now()) / 86400000)}d left` : 'Active'}
                                     </Badge>
                                   </div>

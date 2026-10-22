@@ -279,7 +279,7 @@ function ChannelManagementCard({ accountId }: { accountId: string }) {
               </div>
               <Button
                 size="sm"
-                variant={isManaged ? 'outline-solid' : 'default'}
+                variant={isManaged ? 'outline' : 'default'}
                 onClick={() => manageMutation.mutate()}
                 disabled={manageMutation.isPending || isManaged}
               >

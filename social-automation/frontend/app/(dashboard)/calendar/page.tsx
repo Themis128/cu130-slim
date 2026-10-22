@@ -313,7 +313,7 @@ export default function CalendarPage() {
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <Button
-            variant={isCurrentMonth ? 'default' : 'outline-solid'}
+            variant={isCurrentMonth ? 'default' : 'outline'}
             className="min-w-[140px] text-sm"
             onClick={() => setMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
           >

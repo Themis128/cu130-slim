@@ -97,7 +97,7 @@ const TIER_LABELS: Record<string, string> = {
   enterprise: 'Enterprise',
 }
 
-const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline-solid' }> = {
+const STATUS_LABELS: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
   none: { label: 'No subscription', variant: 'secondary' },
   active: { label: 'Active', variant: 'default' },
   trialing: { label: 'Trial', variant: 'secondary' },

@@ -7,7 +7,7 @@ interface EmptyStateAction {
   label: string
   href?: string
   onClick?: () => void
-  variant?: 'default' | 'outline-solid' | 'ghost'
+  variant?: 'default' | 'outline' | 'ghost'
   icon?: ElementType
 }
 
@@ -56,14 +56,14 @@ export function EmptyState({
           )}
           {secondaryAction && (
             secondaryAction.href ? (
-              <Button asChild variant={secondaryAction.variant ?? 'outline-solid'} size="sm">
+              <Button asChild variant={secondaryAction.variant ?? 'outline'} size="sm">
                 <Link href={secondaryAction.href}>
                   {secondaryAction.icon && <secondaryAction.icon className="mr-2 h-4 w-4" />}
                   {secondaryAction.label}
                 </Link>
               </Button>
             ) : (
-              <Button onClick={secondaryAction.onClick} variant={secondaryAction.variant ?? 'outline-solid'} size="sm">
+              <Button onClick={secondaryAction.onClick} variant={secondaryAction.variant ?? 'outline'} size="sm">
                 {secondaryAction.icon && <secondaryAction.icon className="mr-2 h-4 w-4" />}
                 {secondaryAction.label}
               </Button>

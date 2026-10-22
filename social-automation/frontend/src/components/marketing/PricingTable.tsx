@@ -120,7 +120,7 @@ export function PricingTable() {
           <Button
             asChild
             className="mt-8"
-            variant={tier.highlighted ? 'default' : 'outline-solid'}
+            variant={tier.highlighted ? 'default' : 'outline'}
           >
             <Link href="/register">{tier.cta}</Link>
           </Button>

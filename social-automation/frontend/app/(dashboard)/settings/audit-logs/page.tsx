@@ -41,7 +41,7 @@ export default function AuditLogsPage() {
       <div className="flex items-center gap-2 flex-wrap">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <Button
-          variant={actionFilter === undefined ? 'default' : 'outline-solid'}
+          variant={actionFilter === undefined ? 'default' : 'outline'}
           size="sm"
           onClick={() => { setActionFilter(undefined); setPage(1) }}
         >
@@ -50,7 +50,7 @@ export default function AuditLogsPage() {
         {['create', 'update', 'delete', 'publish', 'approve', 'reject', 'submit_review'].map((a) => (
           <Button
             key={a}
-            variant={actionFilter === a ? 'default' : 'outline-solid'}
+            variant={actionFilter === a ? 'default' : 'outline'}
             size="sm"
             onClick={() => { setActionFilter(a); setPage(1) }}
             className="capitalize"

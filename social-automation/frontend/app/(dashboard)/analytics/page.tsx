@@ -339,7 +339,7 @@ export default function AnalyticsPage() {
             </SelectContent>
           </Select>
           <Button
-            variant={compareMode ? 'default' : 'outline-solid'}
+            variant={compareMode ? 'default' : 'outline'}
             size="sm"
             onClick={() => setCompareMode(v => !v)}
             className="gap-1.5"
