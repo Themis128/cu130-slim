@@ -44,7 +44,7 @@ from app.models.email_campaign import (
     EmailRecipient,
     RecipientStatus,
 )
-from app.models.user import Team
+from app.models.user import AuditLog, Team
 from app.services import espocrm_client
 from app.services.leads import _is_synthetic_email, is_valid_email
 
@@ -523,6 +523,20 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
                     s = {"drip": key, "errors": [str(exc)]}
                 team_stats[key] = s
                 report["mailed"] += s.get("mailed", 0)
+            # Observable artifact — every run, even a quiet one. The workforce
+            # audit reads this; counting only sent mail would read dark on a
+            # healthy worker with no qualifying recipients.
+            team_mailed = sum(
+                s.get("mailed", 0) for s in team_stats.values() if isinstance(s, dict)
+            )
+            db.add(AuditLog(
+                team_id=team.id,
+                action="email-drip",
+                resource_type="sweep",
+                detail=f"mailed={team_mailed} dry_run={dry_run}",
+                meta={"mailed": team_mailed, "dry_run": dry_run},
+            ))
+            await db.commit()
             report["teams"].append(team_stats)
 
     if report["mailed"] or any(
