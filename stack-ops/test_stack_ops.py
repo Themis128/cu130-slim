@@ -356,6 +356,30 @@ class TestWakeRecreate(unittest.IsolatedAsyncioTestCase):
         self.assertIn("--no-deps", compose_calls[0])
         self.assertIn("languagetool", compose_calls[0])
 
+    async def test_alias_recreates_via_canonical_service(self):
+        # browser-novnc-ui is an alias of container browser-novnc; the
+        # compose service is "browser-novnc", not the alias key.
+        calls = []
+
+        async def fake_docker(*args, **kwargs):
+            calls.append(args)
+            if args[0] == "inspect":
+                state = "missing" if len(
+                    [c for c in calls if c[0] == "compose"]) == 0 \
+                    else "x|running|healthy|"
+                return (1, "") if state == "missing" else (0, state)
+            return (0, "")
+
+        with patch.object(stack_ops, "docker", new=fake_docker), \
+             patch.object(stack_ops, "container_state",
+                          new=AsyncMock(side_effect=["missing", "running"])):
+            self.assertTrue(await stack_ops.wake("browser-novnc-ui"))
+        compose_calls = [c for c in calls if c[0] == "compose"]
+        self.assertTrue(compose_calls)
+        self.assertIn("browser-novnc", compose_calls[0])
+        self.assertNotIn("browser-novnc-ui", compose_calls[0])
+        self.assertIn("--env-file", compose_calls[0])
+
 
 class TestPrewarm(ApiTestBase):
     async def asyncSetUp(self):
