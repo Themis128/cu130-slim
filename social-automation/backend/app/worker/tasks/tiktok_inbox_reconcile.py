@@ -112,7 +112,10 @@ async def _reconcile_async() -> dict:
                         _tiktok_clarify_error,
                     )
 
-                    reason = str(status_data.get("fail_reason") or status_value)
+                    reason = str(
+                        status_data.get("fail_reason")
+                        or ("publish_cancelled" if status_value == "CANCELLED" else status_value)
+                    )
                     clarified = _tiktok_clarify_error(reason)
                     if status_value == "CANCELLED" or _err_has(reason, _TT_CANCELLED_MARKERS):
                         t.status = "skipped"
