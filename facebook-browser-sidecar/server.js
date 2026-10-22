@@ -240,6 +240,12 @@ function isFacebookPageUrl(urlStr) {
  * Returns true only when all three signals indicate a usable session.
  */
 async function isLoggedIn() {
+  return _isLoggedIn(true);
+}
+
+// allowPickerDismiss: first check may auto-dismiss the profile picker once,
+// then re-evaluate. Prevents recursion and repeated clicks.
+async function _isLoggedIn(allowPickerDismiss) {
   const url = page.url();
   if (!isFacebookPageUrl(url)) return false;
   if (
@@ -251,7 +257,14 @@ async function isLoggedIn() {
 
   // The profile picker page has a crypted_string query param and shows
   // "Continue as <name>" / "Use another profile" — not a usable session.
-  if (url.includes("crypted_string=")) return false;
+  // Dismiss it once instead of reporting logged-out (publishes were failing
+  // "Not logged in" purely because nobody clicked Continue).
+  if (url.includes("crypted_string=")) {
+    if (allowPickerDismiss && (await handleProfilePicker())) {
+      return _isLoggedIn(false);
+    }
+    return false;
+  }
 
   // Check for the c_user cookie — the primary authentication cookie.
   // Without it, no authenticated Graph/web request will work.
@@ -275,6 +288,9 @@ async function isLoggedIn() {
         bodyText.includes("Use another profile") ||
         bodyText.includes("Log in to Facebook"))
     ) {
+      if (allowPickerDismiss && (await handleProfilePicker())) {
+        return _isLoggedIn(false);
+      }
       return false;
     }
   } catch (_) {}
