@@ -80,7 +80,9 @@ dependencies = [
     # NOTE: no playwright/patchright here — all browser automation runs in the
     # dedicated sidecar containers; the backend talks to them over HTTP.
     # Instagram private API (username/password posting fallback while Graph API restricted)
-    "instagrapi>=2.1.0,<3.0.0",
+    # >=2.6.9: GHSA-ggxf-37hm-9wqf — server-supplied challenge paths could route
+    # session-authenticated requests outside the Instagram host.
+    "instagrapi>=2.6.9,<3.0.0",
     # PDF libraries — carousel PDF generation, page extraction, and rendering
     "PyMuPDF>=1.24.0",        # primary: fast PDF read/render (fitz)
     "pypdf>=4.0.0",           # lightweight PDF read/merge/split
@@ -105,6 +107,9 @@ dev = [
     "respx>=0.22.0",
     "ruff==0.4.3",
     "mypy==1.10.0",
+    # test-only: browser-novnc/browser-bridge.py is loaded via importlib in
+    # test_bridge_warm_ownership.py — needs the playwright fallback import.
+    "playwright>=1.40.0",
 ]
 
 [build-system]
