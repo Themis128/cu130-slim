@@ -472,16 +472,14 @@ async def api_handler(reader: asyncio.StreamReader,
             # Accept optional body: {"services": ["service1", "service2", ...]}
             # If no body, defaults to a sensible set of critical services
             target_services: list[str] = []
-            if b"Content-Length" in await reader.read(0) or True:
-                # Try to read body for custom service list
-                try:
-                    import json
-                    body_bytes = await reader.read(4096)
-                    if body_bytes:
-                        req_body = json.loads(body_bytes.decode())
-                        target_services = req_body.get("services", [])
-                except Exception:
-                    pass
+            try:
+                import json
+                body_bytes = await reader.read(4096)
+                if body_bytes:
+                    req_body = json.loads(body_bytes.decode())
+                    target_services = req_body.get("services", [])
+            except Exception:
+                pass
             
             if not target_services:
                 # Default critical services that benefit from prewarming
