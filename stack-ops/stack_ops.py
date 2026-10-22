@@ -473,7 +473,6 @@ async def api_handler(reader: asyncio.StreamReader,
             # If no body, defaults to a sensible set of critical services
             target_services: list[str] = []
             try:
-                import json
                 body_bytes = await reader.read(4096)
                 if body_bytes:
                     req_body = json.loads(body_bytes.decode())
