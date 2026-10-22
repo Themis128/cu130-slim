@@ -100,6 +100,7 @@ _FB_GROUP_MARKERS = (
 )
 _TT_OWNERSHIP_MARKERS = ("url_ownership_unverified",)
 _TT_UNAUDITED_MARKERS = ("unaudited_client_can_only_post_to_private_accounts",)
+_TT_CANCELLED_MARKERS = ("publish_cancelled",)
 _X_QUOTA_MARKERS = (
     "credits-depleted",
     "usagecapexceeded",
@@ -220,6 +221,13 @@ def _tiktok_clarify_error(exc: Exception | str) -> str:
             "publish_mode=MEDIA_UPLOAD (inbox draft) or DIRECT_POST with SELF_ONLY "
             "on a private account. "
             "https://developers.tiktok.com/doc/content-posting-api-reference-direct-post"
+        )
+    if _err_has(raw, _TT_CANCELLED_MARKERS):
+        return (
+            "TikTok publish_cancelled: the in-flight upload was cancelled via "
+            "/v2/post/publish/cancel/ — typically a superseded draft or stale-upload "
+            "cleanup, not a platform rejection. Re-queue only if the post should "
+            "still publish; otherwise leave it skipped."
         )
     return raw
 
@@ -3192,7 +3200,9 @@ async def _poll_tiktok_publish_status(
         if status_value in ("FAILED", "CANCELLED"):
             fail_reason = status_data.get("fail_reason") or "unknown"
             clarified = _tiktok_clarify_error(str(fail_reason))
-            skip = _err_has(clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS)
+            skip = _err_has(
+                clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS + _TT_CANCELLED_MARKERS
+            )
             return PublishResult(
                 success=False,
                 skipped=skip,
