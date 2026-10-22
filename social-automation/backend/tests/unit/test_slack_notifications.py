@@ -734,3 +734,20 @@ async def test_post_telegram_to_slack_unconfigured_reports():
     ):
         ok, err = await sn.post_telegram_to_slack("tg event")
     assert not ok and "not configured" in err
+
+
+@pytest.mark.asyncio
+async def test_fanout_talk_failure_is_silent(monkeypatch):
+    """nextcloud_talk.post_to_talk raising → fanout swallows it (never blocks Slack path)."""
+    import sys
+    from types import ModuleType
+
+    mod = ModuleType("app.services.nextcloud_talk")
+
+    async def _boom(*a, **k):
+        raise RuntimeError("talk down")
+
+    mod.post_to_talk = _boom
+    mod.blocks_to_text = lambda blocks: ""
+    monkeypatch.setitem(sys.modules, "app.services.nextcloud_talk", mod)
+    await sn._fanout_talk("hello", "digest")

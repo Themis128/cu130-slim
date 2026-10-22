@@ -647,3 +647,126 @@ def test_cloudflare_usage_unconfigured(monkeypatch):
     monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "")
     out = _run(de._export_cloudflare_usage())
     assert "error" in out
+
+
+class _MapDB:
+    """Feeds each db.execute call the next prepared mappings() result."""
+
+    def __init__(self, results):
+        self._it = iter(results)
+
+    async def execute(self, *a, **k):
+        rows = next(self._it)
+        return SimpleNamespace(
+            mappings=lambda: SimpleNamespace(all=lambda: rows)
+        )
+
+
+def test_export_funnel_web_attribution():
+    from datetime import datetime
+
+    per_post = [{
+        "post_id": "p1", "campaign": "cmp-a", "platform": "linkedin",
+        "published_at": datetime(2026, 10, 1), "views": 9, "leads": 2, "clicks": 4,
+    }]
+    by_campaign = [{"campaign": "cmp-a", "platform": "linkedin",
+                    "views": 9, "leads": 2, "clicks": 4}]
+    out = _run(de._export_funnel(_MapDB([per_post, by_campaign])))
+    assert out["per_post"][0]["post_id"] == "p1"
+    assert out["per_post"][0]["clicks"] == 4
+    assert out["by_campaign"][0]["campaign"] == "cmp-a"
+    assert out["window_days"] > 0
+
+
+def test_cf_gql_graphql_errors_raise():
+    class _Client:
+        async def post(self, *a, **k):
+            return _Resp({"errors": [{"message": "bad query"}, {"message": "no auth"}]})
+
+    try:
+        _run(de._cf_gql(_Client(), "tok", "acct", "workersInvocations{}"))
+        raise AssertionError("should have raised")
+    except RuntimeError as e:
+        assert "bad query" in str(e)
+
+
+def test_export_async_cf_usage_failure_isolated(monkeypatch):
+    s = de.settings
+    monkeypatch.setattr(s, "DATALAKE_R2_BUCKET", "lake")
+    monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "acc")
+    monkeypatch.setattr(s, "CLOUDFLARE_API_TOKEN", "tok")
+
+    db = _OneExecDB(_Scalars([]))
+    monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
+    for name in ("_export_accounts", "_export_posts", "_export_metrics",
+                 "_export_followers", "_export_account_events", "_export_leads",
+                 "_export_telegram_channels", "_export_web_events",
+                 "_export_ad_snapshots", "_export_ad_daily",
+                 "_export_ad_demographics", "_export_monetization",
+                 "_export_email_campaigns"):
+        monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_cloudflare_usage",
+                        AsyncMock(side_effect=RuntimeError("cf gql down")))
+    monkeypatch.setattr(de, "build_team_insights", AsyncMock(return_value={}))
+    written = {}
+
+    async def _put(key, rows, bucket):
+        written[key] = rows
+        return {"size": 3}
+    monkeypatch.setattr(de, "_put_json", _put)
+
+    out = _run(de._export_async())
+    assert out["ok"] is True
+    latest = written["lake/cloudflare-usage/latest.json"]
+    assert "cf gql down" in latest["error"]
+    hist = [k for k in written if k.startswith("lake/cloudflare-usage/history/")]
+    assert hist and "cf gql down" in written[hist[0]]["error"]
+
+
+def test_export_async_nextcloud_mirror(monkeypatch):
+    s = de.settings
+    monkeypatch.setattr(s, "DATALAKE_R2_BUCKET", "lake")
+    monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "acc")
+    monkeypatch.setattr(s, "CLOUDFLARE_API_TOKEN", "tok")
+
+    db = _OneExecDB(_Scalars([]))
+    monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
+    for name in ("_export_accounts", "_export_posts", "_export_metrics",
+                 "_export_followers", "_export_account_events", "_export_leads",
+                 "_export_telegram_channels", "_export_web_events",
+                 "_export_ad_snapshots", "_export_ad_daily",
+                 "_export_ad_demographics", "_export_monetization",
+                 "_export_email_campaigns"):
+        monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"h": 1}))
+    monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "build_team_insights", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_put_json", AsyncMock(return_value={"size": 1}))
+
+    uploaded = {}
+
+    async def _upload(key, data, ctype):
+        if "ops-health" in key:
+            raise RuntimeError("webdav 507")
+        uploaded[key] = data
+        return f"remote://{key}"
+
+    import app.services.nextcloud_export as nce
+    monkeypatch.setattr(nce, "nextcloud_export_enabled", lambda: True)
+    monkeypatch.setattr(nce, "upload_bytes", _upload)
+
+    out = _run(de._export_async())
+    nc = out["nextcloud"]
+    assert nc["enabled"] is True
+    mirrored = nc["mirrored"]
+    good = [k for k, v in mirrored.items() if not str(v).startswith("ERROR")]
+    bad = {k: v for k, v in mirrored.items() if str(v).startswith("ERROR")}
+    assert good == list(uploaded)
+    assert any("ops-health" in k for k in bad) or bad == {}

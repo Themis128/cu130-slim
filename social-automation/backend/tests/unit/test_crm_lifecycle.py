@@ -50,8 +50,7 @@ def test_score_rich_lead_reaches_hot():
         website="acme.gr",
         description=(
             "We want to migrate our hosting and need a proposal. "
-            "budget allocated for Q4 launch — timeline by December. " * 3
-            + "\nutm_medium: cpc\nutm_campaign: oct-audit"
+            "budget allocated for Q4 launch — timeline by December. " * 3 + "\nutm_medium: cpc\nutm_campaign: oct-audit"
         ),
     )
     score, band, reasons = crm_lifecycle.score_lead(lead, [])
@@ -62,9 +61,7 @@ def test_score_rich_lead_reaches_hot():
 
 def test_reply_note_pushes_score_up():
     base = crm_lifecycle.score_lead(_lead(email="x@gmail.com"), [])
-    replied = crm_lifecycle.score_lead(
-        _lead(email="x@gmail.com"), [_note("Reply received: hi · msg <a@b>")]
-    )
+    replied = crm_lifecycle.score_lead(_lead(email="x@gmail.com"), [_note("Reply received: hi · msg <a@b>")])
     assert replied[0] - base[0] == 25
 
 
@@ -139,8 +136,7 @@ async def test_sweep_scores_and_converts_hot(monkeypatch):
         id_="hot",
         account="Acme SA",
         website="acme.gr",
-        description="migrate hosting, need a proposal, budget set " * 4
-        + "\nutm_medium: cpc",
+        description="migrate hosting, need a proposal, budget set " * 4 + "\nutm_medium: cpc",
     )
     cold = _lead(id_="cold", email="x@gmail.com")
     fake = _FakeEspo([hot, cold])
@@ -198,9 +194,7 @@ async def test_dry_run_writes_nothing(monkeypatch):
 
 def test_nurture_drip_notes_add_five():
     base = crm_lifecycle.score_lead(_lead(email="x@gmail.com"), [])
-    one = crm_lifecycle.score_lead(
-        _lead(email="x@gmail.com"), [_note("Email drip sent: first approach")]
-    )
+    one = crm_lifecycle.score_lead(_lead(email="x@gmail.com"), [_note("Email drip sent: first approach")])
     two = crm_lifecycle.score_lead(
         _lead(email="x@gmail.com"),
         [_note("Email drip sent: first approach"), _note("Email drip sent: renewal")],
@@ -250,9 +244,7 @@ async def test_slack_report_lists_hot_first(monkeypatch):
     sent: list[str] = []
     import app.services.slack_notifications as SN
 
-    monkeypatch.setattr(
-        SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t))
-    )
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t)))
     await crm_lifecycle._slack_report(
         {
             "scored": 2,
@@ -274,12 +266,8 @@ async def test_slack_report_lists_hot_first(monkeypatch):
 async def test_slack_report_send_failure_swallowed(monkeypatch):
     import app.services.slack_notifications as SN
 
-    monkeypatch.setattr(
-        SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down"))
-    )
-    await crm_lifecycle._slack_report(
-        {"scored": 0, "rescored": 0, "converted": 0, "errors": 0, "dry_run": False, "details": []}
-    )
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down")))
+    await crm_lifecycle._slack_report({"scored": 0, "rescored": 0, "converted": 0, "errors": 0, "dry_run": False, "details": []})
 
 
 # ── celery task wrapper ──────────────────────────────────────────────────────
@@ -309,3 +297,14 @@ def test_task_failure_returns_none(monkeypatch):
     monkeypatch.setattr(task.crm_lifecycle, "run_crm_lifecycle_sweep", _boom)
     monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
     assert task.run_crm_lifecycle_sweep() is None
+
+
+@pytest.mark.asyncio
+async def test_slack_report_import_failure_returns(monkeypatch):
+    import sys
+    from types import SimpleNamespace as _SN
+
+    monkeypatch.setitem(sys.modules, "app.services.slack_notifications", _SN())
+    await crm_lifecycle._slack_report(
+        {"scored": 1, "rescored": 0, "converted": 0, "errors": 0, "dry_run": False, "details": [{"name": "x", "score": 1, "band": "cold"}]}
+    )

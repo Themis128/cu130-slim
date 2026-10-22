@@ -1697,3 +1697,29 @@ class TestIngestMetaLeadgen:
         http, fake = _wire_ingest(monkeypatch, _page_account(), resp, espo=fake_espo)
         ok = await messenger._ingest_meta_leadgen({"leadgen_id": "8800112233", "page_id": "pg-1"})
         assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_ingest_decrypt_failure_uses_plaintext_token(monkeypatch):
+    """Non-EA token whose decrypt blows up → kept as-is, Graph still fetched."""
+    monkeypatch.setattr(
+        messenger, "decrypt_token",
+        lambda t: (_ for _ in ()).throw(ValueError("not ciphertext")),
+    )
+    resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
+    http, fake = _wire_ingest(monkeypatch, _page_account(token="opaque-token"), resp)
+    ok = await messenger._ingest_meta_leadgen({"leadgen_id": "8800112233", "page_id": "pg-1"})
+    assert ok is True and http.urls
+
+
+@pytest.mark.asyncio
+async def test_ingest_unexpected_error_returns_false(monkeypatch):
+    """Any failure inside the ingest → False so Meta retries the delivery."""
+    resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
+    boom = SimpleNamespace(
+        target_list_id=AsyncMock(side_effect=RuntimeError("crm down")),
+        upsert_lead=AsyncMock(),
+    )
+    http, fake = _wire_ingest(monkeypatch, _page_account(), resp, espo=boom)
+    ok = await messenger._ingest_meta_leadgen({"leadgen_id": "8800112233", "page_id": "pg-1"})
+    assert ok is False

@@ -58,3 +58,9 @@ def test_tag_owned_links_strips_trailing_punctuation():
 def test_tag_owned_links_no_owned_host_is_noop():
     text = "No links here, just https://example.com/x"
     assert tag_owned_links(text, platform="x", campaign="c", content="p") == text
+
+
+def test_urlsplit_value_error_returns_url_unchanged():
+    """Invalid bracketed URLs raise in urlsplit — passed through untouched."""
+    bad = "http://[unclosed"
+    assert tracked_url(bad, source="x", medium="y", campaign="z", content="c") == bad
