@@ -47,6 +47,18 @@ SIGNATURES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
         "Inbox-share API flagged — keep posts to DIRECT_POST/public drafts; no code fix",
     ),
     (
+        "tiktok_publish_cancelled",
+        ("publish_cancelled",),
+        "transient",
+        "TikTok-side share cancellation — user dismissed the draft or a duplicate share; not a code fault",
+    ),
+    (
+        "media_public_url_missing",
+        ("no public media urls", "media_public_base_url"),
+        "config",
+        "MEDIA_PUBLIC_BASE_URL unset — platforms that PULL_FROM_URL can't fetch media; set the public base URL",
+    ),
+    (
         "session_expired",
         ("session expired", "session_expired", "not logged in", "login_required", "browser session not logged in"),
         "session",
@@ -54,7 +66,7 @@ SIGNATURES: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
     ),
     (
         "instagram_media_missing",
-        ("media not available", "no media", "missing image", "media required"),
+        ("media not available", "no media", "missing image", "media required", "at least one image"),
         "app-bug",
         "Media pipeline gap — the post published without an asset; check media generation + validate_media_for_platform",
     ),

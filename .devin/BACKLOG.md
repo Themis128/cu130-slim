@@ -133,6 +133,38 @@ PR #781 (deployment evidence) was authoritatively verified merged at
 - [x] **X/Twitter + TikTok token expiry** — TikTok self-healed (23.6h); X was
   refreshed by the token sweep 2026-10-19 (manual refresh verified → 20:17 UTC).
 
+## Autonomy learning loops — 2026-10-22 (PR #822)
+
+Adopted from the agentic-company survey: failure-trajectory learning,
+edit-diff self-improvement, earned autonomy, cited recall. All human-gated —
+proposals on `audit_logs` + Slack, nothing self-executes.
+
+- [x] **`app/services/failure_learning.py` + daily 10:05 beat
+  `run_failure_learning_sweep`** — classifies `post_targets.error_message`
+  into a 9-signature taxonomy (tiktok_domain_unverified, spam_risk,
+  session_expired, ig_media_missing, x_quota, meta_permissions,
+  threads_object_not_found, rate_limited, unhandled_exception); ≥3x/7d →
+  one remediation proposal per 3d cooldown (Slack + `audit_logs`).
+- [x] **Earned-autonomy ladder** — `scripts/workforce_audit.py` persists a
+  `workforce-verdict` audit row per worker per run; ≥10 consecutive clean
+  audits proposes graduation (supervised→review→auto), a failure verdict in
+  last 7 runs on an `auto` worker proposes demotion. Surfaced in
+  render/JSON/Slack.
+- [x] **Edit-diff voice learning** — `update_post` snapshots
+  `meta_data.original_text` on first human edit (never overwritten);
+  `app/services/edit_diff_learning.py` + Sunday 07:00 beat `run_edit_diff_sweep`
+  distills deterministic kept-vs-drafted features into voice_signature
+  suggestions (≥2 posts AND ≥40% share — single edits are taste).
+- [x] **Cited recall** — `company_brain.recall_cited` returns hits with
+  `kind`/`day`/`distance` provenance + named `gap` reasons; wired into
+  `strategy_report._llm_actions` (dated journal lines, explicit
+  no-evidence statement).
+- [x] **Workforce registration** — `failure-learner` + `voice-learner`
+  added with full ABPM contracts (autonomy=review); 20 workers total.
+- [x] **Tests** — 56 new/updated; new modules at 100% coverage; ruff clean.
+- [ ] **Post-merge** — restart `celery-beat` + `social-worker-*` after PR
+  #822 merges (beat_schedule + new task modules).
+
 ## Resolved this session — 2026-10-22
 
 - [x] **WSL/GPU fixes** — addressed multiple WSL2 + Docker Desktop GPU issues:
