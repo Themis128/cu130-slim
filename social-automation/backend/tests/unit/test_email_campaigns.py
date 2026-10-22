@@ -419,3 +419,11 @@ def test_parse_cta_line_valid():
         "Book a call",
         "https://cloudless.gr/contact",
     )
+
+
+def test_parse_cta_line_rejects_bad_url():
+    from app.services.email_brand import _parse_cta_line
+
+    assert _parse_cta_line("CTA: Book | notaurl") is None
+    assert _parse_cta_line("CTA: Book | https://x y") is None  # space in url
+    assert _parse_cta_line("CTA:  | https://ok.gr") is None   # empty label

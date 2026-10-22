@@ -2915,3 +2915,22 @@ async def test_sync_team_analytics_platform_filter(monkeypatch):
         db, uuid.uuid4(), platforms=["twitter", "instagram", "telegram"]
     )
     assert out.synced == 6
+
+
+@pytest.mark.asyncio
+async def test_persist_x_web_analytics_notes_appended(monkeypatch):
+    """web.notes entries land on result.notes, capped at 3."""
+    monkeypatch.setattr(A, "_persist_snapshot", AsyncMock())
+    monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
+    monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
+    web = SimpleNamespace(
+        tweets={}, followers=0, source="x_web", errors=[],
+        notes=["n1", "n2", "n3", "n4"],
+    )
+    result = A.SyncResult()
+    result.notes = "seed"
+    await A._persist_x_web_analytics(
+        _DB(), _account(platform="twitter"), web, {},
+        datetime.now(UTC), datetime.now(UTC), result,
+    )
+    assert result.notes == "seed twitter x_web: n1 twitter x_web: n2 twitter x_web: n3"

@@ -511,3 +511,18 @@ async def test_non_media_skipped():
     """Neither image nor video (e.g. PDF) → logged and returned, no vision call."""
     asset = _asset_obj(mime_type="application/pdf")
     await MA.auto_tag_asset(asset.id, session_factory=lambda: _DB(asset))
+
+
+class TestAutoTagVideoFailure:
+    @pytest.mark.asyncio
+    async def test_video_tag_failure_swallowed(self, monkeypatch):
+        import app.services.video_ai as va
+
+        asset = _asset_obj(mime_type="video/mp4")
+
+        async def boom(asset, db):
+            raise RuntimeError("frames fail")
+
+        monkeypatch.setattr(va, "auto_tag_video_asset", boom)
+        # must not raise; returns right after the logged warning
+        await MA.auto_tag_asset(asset.id, session_factory=lambda: _DB(asset))

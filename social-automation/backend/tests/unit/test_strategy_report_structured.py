@@ -111,3 +111,26 @@ class TestStructuredPayload:
     @pytest.mark.asyncio
     async def test_non_dict_reply(self, monkeypatch):
         assert await _run(monkeypatch, None) is None
+
+
+@pytest.mark.asyncio
+async def test_llm_actions_uses_brain_learnings(monkeypatch):
+    """When the company journal has recent outcomes, the learnings block is
+    injected into the strategist prompt."""
+    import app.services.company_brain as cb
+
+    async def _recall(team_id, query, n_results=4):
+        return ["posted X at 09:00 → +40% reach", "reels flopped twice"]
+
+    monkeypatch.setattr(cb, "recall", _recall)
+    seen = {}
+
+    async def _inf(prompt, **kw):
+        seen["prompt"] = prompt
+        return {"text": "1. " + A1}
+
+    monkeypatch.setattr(INF, "call_inference", _inf)
+    out = await SR._llm_actions(object(), "tid", {}, _digest())
+    assert out == [A1]
+    assert "Recent outcomes from the company journal" in seen["prompt"]
+    assert "+40% reach" in seen["prompt"]

@@ -331,3 +331,244 @@ async def test_email_promo_report_no_recipient(monkeypatch):
     r = await P.email_promo_report(r)
     assert r.emailed is False
     assert "not set" in r.email_error
+
+
+# ── remaining coverage ──────────────────────────────────────────────────────
+
+
+def test_report_text_playbook_and_warnings():
+    rep = P.PromoReport(generated_at=datetime(2026, 10, 20, tzinfo=UTC))
+    rep.opportunities.append(
+        P.PromoOpportunity(
+            platform="x", kind="email_offer", title="t", detail="d", action="a"
+        )
+    )
+    rep.playbook = ["do this today", "then that"]
+    rep.scan_errors = ["imap: down"]
+    text = rep.to_text()
+    assert "HOW TO EXPLOIT" in text and "do this today" in text
+    assert "SCAN WARNINGS" in text and "imap: down" in text
+
+
+def test_decode_empty_and_malformed(monkeypatch):
+    assert P._decode(None) == ""
+    assert P._decode("") == ""
+    monkeypatch.setattr(
+        P, "decode_header", lambda v: (_ for _ in ()).throw(ValueError("bad"))
+    )
+    assert P._decode("=?utf-8?q?broken?=") == "=?utf-8?q?broken?="
+
+
+def test_imap_search_bad_status():
+    class _M:
+        def search(self, *a):
+            return "NO", []
+
+    assert P._imap_search(_M(), "01-Jan-2026") == []
+
+
+def test_scan_uses_verified_ssl_context(monkeypatch):
+    captured = {}
+
+    class _IMAP(_FakeIMAP):
+        def __call__(self, host, port, ssl_context=None):
+            captured["ctx"] = ssl_context
+            return super().__call__(host, port, ssl_context)
+
+    monkeypatch.setattr(
+        P, "get_settings", lambda: _settings(SMTP_SSL_VERIFY=True)
+    )
+    msgs = {b"1": _msg("noreply@x.com", "Free ad credit inside", b"credit")}
+    monkeypatch.setattr(P.imaplib, "IMAP4_SSL", _IMAP(msgs))
+    P.scan_promo_emails()
+    import ssl as _ssl
+
+    assert isinstance(captured["ctx"], _ssl.SSLContext)
+    assert captured["ctx"].verify_mode != _ssl.CERT_NONE
+
+
+def test_scan_skips_bad_fetch_tuple_and_bad_date(monkeypatch):
+    msgs = {
+        b"1": {"header": b"not-tuple"},  # fetch returns non-tuple → skipped
+        b"2": _msg(
+            "promo@x.com", "Ad credit", b"free credit",  # promo
+        ),
+        b"3": _msg("news@x.com", "Weekly digest", b"hello there"),  # non-promo
+    }
+    msgs[b"2"]["header"] = (
+        b"From: promo@x.com\r\nSubject: Ad credit\r\nDate: @@garbage@@\r\n"
+    )
+
+    class _IMAP(_FakeIMAP):
+        def fetch(self, msg_id, spec):
+            if msg_id == b"1" and "HEADER" in spec:
+                return "OK", ["not-a-tuple"]
+            return super().fetch(msg_id, spec)
+
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    monkeypatch.setattr(P.imaplib, "IMAP4_SSL", _IMAP(msgs))
+    opps, errors = P.scan_promo_emails()
+    assert errors == []
+    assert len(opps) == 1
+    assert opps[0].expires == ""  # unparseable date → empty
+
+
+
+@pytest.mark.asyncio
+async def test_program_gates_failure_and_no_program(monkeypatch):
+    import app.services.monetization_report as mr
+
+    async def boom(db, team_id):
+        raise RuntimeError("gates down")
+
+    monkeypatch.setattr(mr, "_gather_gates", boom)
+    out = await P.collect_program_opportunities(object(), "t1")
+    assert out == []
+
+    async def gates(db, team_id):
+        return [SimpleNamespace(program=None), SimpleNamespace(
+            program=SimpleNamespace(criteria=[], monetizable=False),
+            eta_days=None,
+        )]
+
+    monkeypatch.setattr(mr, "_gather_gates", gates)
+    out = await P.collect_program_opportunities(object(), "t1")
+    assert out == []
+
+
+
+@pytest.mark.asyncio
+async def test_manual_checks_filters_by_connected_platform(monkeypatch):
+    monkeypatch.setattr(
+        P, "get_settings", lambda: _settings()
+    )
+
+    class _DB:
+        async def execute(self, _q):
+            return SimpleNamespace(scalars=lambda: ["linkedin", "x"])
+
+    out = await P.collect_manual_checks(_DB(), "t1")
+    plats = {o.platform for o in out}
+    # only connected platforms listed in _MANUAL_CHECKS get a row
+    assert plats == {"linkedin", "x"}
+    assert all(o.source == "console-only" for o in out)
+
+
+
+@pytest.mark.asyncio
+async def test_llm_playbook_success_empty_and_error(monkeypatch):
+    import app.services.inference as inf
+
+    async def ok(prompt, **kw):
+        return {"playbook": [" do A ", "", "do B"]}
+
+    monkeypatch.setattr(inf, "call_inference", ok)
+    out = await P._llm_playbook(
+        object(), "t1", [P.PromoOpportunity("x", "k", "t", "d", "a")]
+    )
+    assert out == ["do A", "do B"]
+
+    async def empty(prompt, **kw):
+        return {"playbook": None}
+
+    monkeypatch.setattr(inf, "call_inference", empty)
+    assert await P._llm_playbook(object(), "t1", []) == []
+
+    async def boom(prompt, **kw):
+        raise RuntimeError("dmr down")
+
+    monkeypatch.setattr(inf, "call_inference", boom)
+    assert await P._llm_playbook(object(), "t1", []) == []
+
+
+
+@pytest.mark.asyncio
+async def test_build_report_merges_sources_and_playbook(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    monkeypatch.setattr(
+        P, "scan_promo_emails",
+        lambda days: (
+            [P.PromoOpportunity("meta", "email_offer", "t", "d", "a")],
+            ["imap: warn"],
+        ),
+    )
+    async def _li(db):
+        return [], ["li: err"]
+
+    async def _prog(db, t):
+        return [P.PromoOpportunity("x", "program_gate", "t", "d", "a")]
+
+    async def _manual(db, t):
+        return [P.PromoOpportunity("google", "manual_check", "t", "d", "a")]
+
+    async def _play(db, t, o):
+        return ["do it"]
+
+    monkeypatch.setattr(P, "collect_linkedin_credit", _li)
+    monkeypatch.setattr(P, "collect_program_opportunities", _prog)
+    monkeypatch.setattr(P, "collect_manual_checks", _manual)
+    monkeypatch.setattr(P, "_llm_playbook", _play)
+
+    class _DB:
+        async def execute(self, _q):
+            return SimpleNamespace(
+                scalars=lambda: SimpleNamespace(
+                    all=lambda: [SimpleNamespace(id="team-1")]
+                )
+            )
+
+    rep = await P.build_promo_report(_DB())
+    assert len(rep.opportunities) == 3
+    assert rep.scan_errors == ["imap: warn", "li: err"]
+    assert rep.playbook == ["do it"] and rep.llm_used is True
+
+
+
+@pytest.mark.asyncio
+async def test_email_report_send_failure_sets_error(monkeypatch):
+    import app.services.email_digest as ed
+
+    async def boom(**kw):
+        raise RuntimeError("smtp down")
+
+    monkeypatch.setattr(ed, "send_email", boom)
+    monkeypatch.setattr(
+        P, "get_settings", lambda: _settings(PROMO_SCAN_EMAIL_TO="ops@test.gr")
+    )
+    rep = P.PromoReport(generated_at=datetime(2026, 10, 20, tzinfo=UTC))
+    rep = await P.email_promo_report(rep)
+    assert rep.emailed is False and "smtp down" in rep.email_error
+
+
+
+@pytest.mark.asyncio
+async def test_run_promo_scan_end_to_end(monkeypatch):
+    rep = P.PromoReport(generated_at=datetime(2026, 10, 20, tzinfo=UTC))
+    rep.opportunities = [
+        P.PromoOpportunity("meta", "email_offer", "t", "d", "a"),
+        P.PromoOpportunity("x", "program_gate", "t", "d", "a"),
+    ]
+    rep.scan_errors = ["w"]
+    rep.emailed = True
+
+    async def fake_build(db):
+        return rep
+
+    async def fake_email(r):
+        return r
+
+    monkeypatch.setattr(P, "build_promo_report", fake_build)
+    monkeypatch.setattr(P, "email_promo_report", fake_email)
+    out = await P.run_promo_scan(object())
+    assert out["opportunities"] == 2
+    assert out["email_offers"] == 1 and out["emailed"] is True
+
+
+@pytest.mark.asyncio
+async def test_linkedin_credit_no_ad_account(monkeypatch):
+    monkeypatch.setattr(
+        P, "get_settings",
+        lambda: _settings(LINKEDIN_AD_ACCOUNT_ID=""),
+    )
+    opps, errors = await P.collect_linkedin_credit(object())
+    assert opps == [] and errors == []
