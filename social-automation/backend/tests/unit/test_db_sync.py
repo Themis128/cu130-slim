@@ -687,7 +687,7 @@ async def test_sync_to_d1_reconcile_gate_failure(monkeypatch):
             return await super().set(k, v, nx=nx, ex=ex)
 
     svc = _svc()
-    d1 = _patch_d1(monkeypatch)
+    _patch_d1(monkeypatch)
     r = _BadReconcile()
     r.kv["d1sync:last:users"] = datetime.now(UTC).isoformat()
     monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))
