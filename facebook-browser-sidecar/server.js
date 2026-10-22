@@ -387,19 +387,37 @@ async function findTextInput(opts = {}) {
  */
 async function handleProfilePicker() {
   try {
-    // Check if we're on the profile picker page
+    // Picker detection: the crypted_string= URL variant AND the plain
+    // single-profile variant ("<Name>" heading + "Continue" + "Use another
+    // profile") — the latter has a bare facebook.com/ URL, so a URL check
+    // alone misses it (observed 2026-10-22: validate showed picker, handler
+    // returned early, publishes kept failing "Not logged in").
     const url = page.url();
-    if (!url.includes("crypted_string=")) return false;
+    const pickerMarker = await page
+      .locator('text=/Use another profile/i')
+      .first()
+      .isVisible({ timeout: 2000 })
+      .catch(() => false);
+    if (!url.includes("crypted_string=") && !pickerMarker) return false;
 
     console.log("Profile picker detected — attempting to select profile");
 
     // Strategy 1: Click "Continue as [name]" button for the main profile
     // The profile picker shows cards with "Continue as <Name>" buttons
-    const continueBtn = await findElement([
+    let continueBtn = await findElement([
       '[role="button"]:has-text("Continue as "):visible',
       'button:has-text("Continue as "):visible',
       'a[role="button"]:has-text("Continue as "):visible',
-    ], { timeout: 5000 });
+    ], { timeout: 3000 });
+
+    // Strategy 1b: single-profile variant shows an exact "Continue" button
+    if (!continueBtn) {
+      continueBtn = await page
+        .getByRole("button", { name: "Continue", exact: true })
+        .first()
+        .elementHandle({ timeout: 3000 })
+        .catch(() => null);
+    }
 
     if (continueBtn) {
       await continueBtn.click();
