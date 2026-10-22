@@ -22,8 +22,10 @@ API reference: https://subzeroid.github.io/aiograpi-rest/
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 from typing import Any
 
 import httpx
@@ -35,6 +37,96 @@ DEFAULT_TIMEOUT = 60.0
 # Greek locale and timezone (UTC+3 = 10800 seconds) to reduce challenge risk.
 DEFAULT_LOCALE = "el_GR"
 DEFAULT_TIMEZONE = "10800"
+
+# Retry configuration for 429 rate-limit errors from aiograpi sidecar
+RETRY_BASE_DELAY = 2.0  # seconds
+RETRY_MAX_DELAY = 60.0  # seconds
+RETRY_MAX_ATTEMPTS = 5
+RETRY_JITTER_FACTOR = 0.5
+
+
+def _is_rate_limit_error(status_code: int, detail: str) -> bool:
+    """Check if an error is a rate-limit (429) error."""
+    if status_code == 429:
+        return True
+    detail_lower = detail.lower()
+    return any(
+        k in detail_lower
+        for k in (
+            "throttle",
+            "clientthrottled",
+            "please_wait",
+            "rate limit",
+            "too many requests",
+        )
+    )
+
+
+async def _call_with_retry(
+    func,
+    *args,
+    max_attempts: int = RETRY_MAX_ATTEMPTS,
+    base_delay: float = RETRY_BASE_DELAY,
+    max_delay: float = RETRY_MAX_DELAY,
+    **kwargs,
+) -> Any:
+    """Call an async function with exponential backoff and jitter for rate limits.
+
+    Args:
+        func: Async callable to execute.
+        max_attempts: Maximum number of retry attempts.
+        base_delay: Base delay in seconds for exponential backoff.
+        max_delay: Maximum delay cap in seconds.
+        **kwargs: Passed to func.
+
+    Returns:
+        Result of func on success.
+
+    Raises:
+        The last exception after all retries are exhausted.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return await func(*args, **kwargs)
+        except InstagramPrivateAPIError as exc:
+            if not _is_rate_limit_error(exc.status_code, exc.detail):
+                raise
+            if attempt == max_attempts - 1:
+                logger.error(
+                    "Instagram Private API rate-limited after %d attempts: %s",
+                    max_attempts,
+                    exc.detail,
+                )
+                raise
+            jitter = random.uniform(0, RETRY_JITTER_FACTOR)
+            delay = min(base_delay * (2 ** attempt) + jitter, max_delay)
+            logger.warning(
+                "Instagram Private API rate-limited (attempt %d/%d), backing off %.1fs: %s",
+                attempt + 1,
+                max_attempts,
+                delay,
+                exc.detail,
+            )
+            await asyncio.sleep(delay)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 429:
+                raise
+            if attempt == max_attempts - 1:
+                logger.error(
+                    "Instagram Private API HTTP 429 after %d attempts",
+                    max_attempts,
+                )
+                raise
+            jitter = random.uniform(0, RETRY_JITTER_FACTOR)
+            delay = min(base_delay * (2 ** attempt) + jitter, max_delay)
+            logger.warning(
+                "Instagram Private API HTTP 429 (attempt %d/%d), backing off %.1fs",
+                attempt + 1,
+                max_attempts,
+                delay,
+            )
+            await asyncio.sleep(delay)
+    raise RuntimeError("_call_with_retry exhausted retries")
 
 
 class InstagramPrivateAPIError(Exception):
@@ -96,6 +188,9 @@ class InstagramPrivateAPIClient:
         chance of a challenge_required error from a datacenter IP.
         ``locale`` and ``timezone`` should match the account's real
         location (defaults: Greek locale, UTC+3).
+
+        This method retries on 429 rate-limit errors with exponential backoff
+        and jitter (base 2s, max 60s, up to 5 attempts).
         """
         data: dict[str, Any] = {
             "username": username,
@@ -108,48 +203,53 @@ class InstagramPrivateAPIClient:
         if proxy:
             data["proxy"] = proxy
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/auth/login",
-                data=data,
-                headers={"Accept": "application/json"},
-            )
-            # The sidecar returns the session_id as a plain string on success.
-            if resp.status_code == 200:
+        async def _do_login() -> dict[str, Any]:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    f"{self._base_url}/auth/login",
+                    data=data,
+                    headers={"Accept": "application/json"},
+                )
+                # The sidecar returns the session_id as a plain string on success.
+                if resp.status_code == 200:
+                    try:
+                        body = resp.json()
+                    except Exception:
+                        body = {}
+                    if isinstance(body, str):
+                        return {"session_id": body, "logged_in": True}
+                    if isinstance(body, bool) and body:
+                        session_id = resp.headers.get("x-session-id", "")
+                        return {"session_id": session_id, "logged_in": True}
+                    return body
+                # Error: could be challenge_required or two_factor_required
                 try:
-                    body = resp.json()
+                    error_body = resp.json()
                 except Exception:
-                    body = {}
-                if isinstance(body, str):
-                    return {"session_id": body, "logged_in": True}
-                if isinstance(body, bool) and body:
-                    session_id = resp.headers.get("x-session-id", "")
-                    return {"session_id": session_id, "logged_in": True}
-                return body
-            # Error: could be challenge_required or two_factor_required
-            try:
-                error_body = resp.json()
-            except Exception:
-                error_body = {"detail": resp.text}
+                    error_body = {"detail": resp.text}
 
-            # Detect challenge / 2FA from error response
-            exc_type = error_body.get("exc_type", "")
-            if exc_type == "ChallengeRequired":
-                return {
-                    "logged_in": False,
-                    "challenge_required": True,
-                    "two_factor_required": False,
-                    "message": error_body.get("hint", "Instagram challenge required."),
-                    "last_json": error_body.get("last_json", ""),
-                }
-            if exc_type == "TwoFactorRequired":
-                return {
-                    "logged_in": False,
-                    "challenge_required": False,
-                    "two_factor_required": True,
-                    "message": error_body.get("hint", "Instagram 2FA required."),
-                }
-            raise InstagramPrivateAPIError(resp.status_code, str(error_body.get("detail", resp.text))[:500])
+                # Detect challenge / 2FA from error response
+                exc_type = error_body.get("exc_type", "")
+                if exc_type == "ChallengeRequired":
+                    return {
+                        "logged_in": False,
+                        "challenge_required": True,
+                        "two_factor_required": False,
+                        "message": error_body.get("hint", "Instagram challenge required."),
+                        "last_json": error_body.get("last_json", ""),
+                    }
+                if exc_type == "TwoFactorRequired":
+                    return {
+                        "logged_in": False,
+                        "challenge_required": False,
+                        "two_factor_required": True,
+                        "message": error_body.get("hint", "Instagram 2FA required."),
+                    }
+                # Raise for other errors (including 429)
+                self._raise_for_status(resp)
+                return {}  # Unreachable, but satisfies type checker
+
+        return await _call_with_retry(_do_login)
 
     async def login_by_sessionid(
         self,
@@ -158,7 +258,11 @@ class InstagramPrivateAPIClient:
         locale: str = DEFAULT_LOCALE,
         timezone: str = DEFAULT_TIMEZONE,
     ) -> dict[str, Any]:
-        """Log in using an existing Instagram sessionid cookie value."""
+        """Log in using an existing Instagram sessionid cookie value.
+
+        This method retries on 429 rate-limit errors with exponential backoff
+        and jitter (base 2s, max 60s, up to 5 attempts).
+        """
         data: dict[str, Any] = {
             "sessionid": session_id,
             "locale": locale,
@@ -166,13 +270,17 @@ class InstagramPrivateAPIClient:
         }
         if proxy:
             data["proxy"] = proxy
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/auth/login/by/sessionid",
-                data=data,
-                headers={"Accept": "application/json"},
-            )
-            return self._raise_for_status(resp)
+
+        async def _do_login() -> dict[str, Any]:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    f"{self._base_url}/auth/login/by/sessionid",
+                    data=data,
+                    headers={"Accept": "application/json"},
+                )
+                return self._raise_for_status(resp)
+
+        return await _call_with_retry(_do_login)
 
     async def challenge_resolve(
         self,
@@ -184,17 +292,25 @@ class InstagramPrivateAPIClient:
 
         After ``login()`` returns ``challenge_required: True``, call this
         with the SMS/email code Instagram sent to the account owner.
+
+        This method retries on 429 rate-limit errors with exponential backoff
+        and jitter (base 2s, max 60s, up to 5 attempts).
         """
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.post(
-                f"{self._base_url}/auth/challenge/resolve",
-                data={
-                    "last_json": last_json if isinstance(last_json, str) else json.dumps(last_json),
-                    "security_code": security_code,
-                },
-                headers=self._headers(session_id),
-            )
-            return self._raise_for_status(resp)
+        data = {
+            "last_json": last_json if isinstance(last_json, str) else json.dumps(last_json),
+            "security_code": security_code,
+        }
+
+        async def _do_challenge() -> dict[str, Any]:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                resp = await client.post(
+                    f"{self._base_url}/auth/challenge/resolve",
+                    data=data,
+                    headers=self._headers(session_id),
+                )
+                return self._raise_for_status(resp)
+
+        return await _call_with_retry(_do_challenge)
 
     async def get_settings(self, session_id: str) -> dict[str, Any]:
         """Get the client settings (can be saved for session restore)."""
