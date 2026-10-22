@@ -32,10 +32,16 @@ logger = logging.getLogger(__name__)
 _RS_LAST_SYNC = "d1sync:last:{table}"
 _RS_DEBOUNCE = "d1sync:debounce:{table}"
 _RS_HASHES = "d1sync:hashes:{table}"
+_RS_RECONCILE = "d1sync:reconcile:{table}"
 
 # Minimum seconds between D1 writes for a given table. Queue tasks run
 # every ~30s; a 2-minute lag on the D1 mirror is fine for read replicas.
 _SYNC_MIN_INTERVAL = int(os.environ.get("D1_SYNC_MIN_INTERVAL", "120"))
+
+# Seconds between full-table reconciles per table. Watermark sync cannot
+# heal rows stranded below the watermark (failed writes, NULL updated_at)
+# and never deletes stale D1 rows — a periodic full diff covers all three.
+_SYNC_RECONCILE_INTERVAL = int(os.environ.get("D1_SYNC_RECONCILE_INTERVAL", "86400"))
 
 
 async def _sync_redis() -> Any:
@@ -300,8 +306,26 @@ class SyncService:
                 else:
                     last_sync = self._last_sync.get(table)
 
+            # Periodic full reconcile — Redis-gated to once per interval
+            # across all worker processes. Drops the WHERE clause so the
+            # hash-diff path sees every row (updates, deletes, and rows
+            # the incremental select can never reach).
+            reconcile = False
+            if r is not None:
+                try:
+                    reconcile = bool(
+                        await r.set(
+                            _RS_RECONCILE.format(table=table),
+                            "1",
+                            nx=True,
+                            ex=_SYNC_RECONCILE_INTERVAL,
+                        )
+                    )
+                except Exception:
+                    reconcile = False
+
             select_sql = f"SELECT * FROM {table}"
-            if last_sync:
+            if last_sync and not reconcile:
                 select_sql += f" WHERE updated_at > '{last_sync.isoformat()}'"
                 logger.debug("Incremental sync for %s (since %s)", table, last_sync.isoformat())
 
@@ -325,7 +349,7 @@ class SyncService:
             # only write rows that actually changed. Entries present in the
             # map but gone from Postgres get deleted in D1.
             hash_key = _RS_HASHES.format(table=table)
-            use_hash_diff = not last_sync and r is not None
+            use_hash_diff = (not last_sync or reconcile) and r is not None
             new_hashes: dict[str, str] = {}
             old_hashes: dict[str, str] = {}
             if use_hash_diff:
@@ -366,6 +390,26 @@ class SyncService:
                     )
                     stats["errors"] += 1
                     return stats
+
+            # Schema-drift self-heal: a Postgres migration that adds a
+            # column breaks every row upsert ("table X has no column Y")
+            # until the D1 mirror grows it too — and the watermark then
+            # strands the failed rows. Grow the mirror up front.
+            try:
+                d1_cols = {
+                    c["name"]
+                    for c in await d1_client.query_all(f"PRAGMA table_info({table})")
+                }
+                for col in columns:
+                    if col not in d1_cols:
+                        await d1_client.execute(
+                            f'ALTER TABLE {table} ADD COLUMN "{col}" TEXT'
+                        )
+                        logger.info("D1 %s: added missing column %s", table, col)
+            except Exception as exc:
+                logger.error("D1 column heal failed for %s: %s", table, exc)
+                stats["errors"] += 1
+                return stats
 
             # Build INSERT OR REPLACE statement (SQLite/D1 syntax)
             col_str = ", ".join(columns)
