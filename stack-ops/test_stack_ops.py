@@ -385,6 +385,23 @@ class TestPrewarm(ApiTestBase):
         self.assertEqual(code, 200)
         self.assertTrue(all(s in stack_ops.SERVICES for s in self.woken))
 
+    async def test_prewarm_fragmented_body(self):
+        # Body arrives in two TCP segments — the handler must honor
+        # Content-Length (readexactly), not a single read(). "metabase" is
+        # deliberately NOT in the default prewarm set: if the body parse
+        # fell back to defaults, this service would not be woken.
+        r, w = await asyncio.open_connection("127.0.0.1", self._port)
+        w.write(b"POST /prewarm HTTP/1.0\r\nContent-Length: 26\r\n\r\n"
+                b'{"services": ["met')
+        await w.drain()
+        await asyncio.sleep(0.05)
+        w.write(b'abase"]}')
+        await w.drain()
+        raw = await r.read()
+        w.close()
+        self.assertIn(b"200", raw.split(b"\r\n", 1)[0])
+        self.assertIn("metabase", self.woken)
+
 
 class TestProxyPipe(ProxyTestBase):
     async def asyncSetUp(self):
