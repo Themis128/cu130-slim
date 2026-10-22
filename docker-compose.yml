@@ -1980,6 +1980,9 @@ services:
       - STACK_OPS_WAKE_TIMEOUT=${STACK_OPS_WAKE_TIMEOUT:-120}
       - STACK_OPS_CONN_STREAK=${STACK_OPS_CONN_STREAK:-4}
       - STACK_OPS_SLEEPER=${STACK_OPS_SLEEPER:-1}
+      # Host repo path for pruned-service recreation — compose resolves
+      # relative bind sources against --project-directory on the host fs.
+      - STACK_OPS_HOST_DIR=${STACK_OPS_HOST_DIR:-/home/tbaltzakis/cu130-slim}
     networks:
       - backend
     ports:
@@ -2006,6 +2009,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./stack-ops/services.json:/app/services.json:ro
+      # Compose file + env so wake() can recreate pruned services
+      # (`docker compose -f /app/docker-compose.yml up -d --no-deps <svc>`).
+      # .env is required — the file uses ${VAR:?} required-var syntax.
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./.env:/app/.env:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/healthz >/dev/null || exit 1"]
       interval: 30s
