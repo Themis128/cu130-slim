@@ -473,8 +473,9 @@ async def api_handler(reader: asyncio.StreamReader,
             # If no body, defaults to a sensible set of critical services
             target_services: list[str] = []
             try:
-                import json
-                body_bytes = await reader.read(4096)
+                # Bounded read — a client that keeps the connection open
+                # (no Content-Length signal parsed above) must not hang us.
+                body_bytes = await asyncio.wait_for(reader.read(4096), 2.0)
                 if body_bytes:
                     req_body = json.loads(body_bytes.decode())
                     target_services = req_body.get("services", [])

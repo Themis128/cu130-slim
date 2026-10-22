@@ -357,6 +357,35 @@ class TestWakeRecreate(unittest.IsolatedAsyncioTestCase):
         self.assertIn("languagetool", compose_calls[0])
 
 
+class TestPrewarm(ApiTestBase):
+    async def asyncSetUp(self):
+        self.woken = []
+
+        async def fake_wake(name):
+            self.woken.append(name)
+            return True
+
+        self._p = patch.object(stack_ops, "wake", new=fake_wake)
+        self._p.start()
+        self.addCleanup(self._p.stop)
+        await self._serve(stack_ops.api_handler)
+
+    async def test_prewarm_wakes_named_services(self):
+        r, w = await asyncio.open_connection("127.0.0.1", self._port)
+        w.write(b"POST /prewarm HTTP/1.0\r\nContent-Length: 31\r\n\r\n"
+                b'{"services": ["languagetool"]}')
+        await w.drain()
+        raw = await r.read()
+        w.close()
+        self.assertIn(b"200", raw.split(b"\r\n", 1)[0])
+        self.assertIn("languagetool", self.woken)
+
+    async def test_prewarm_default_set_excludes_unknown(self):
+        code, body = await self._req("POST", "/prewarm")
+        self.assertEqual(code, 200)
+        self.assertTrue(all(s in stack_ops.SERVICES for s in self.woken))
+
+
 class TestProxyPipe(ProxyTestBase):
     async def asyncSetUp(self):
         self._state_p = patch.object(stack_ops, "container_state",
