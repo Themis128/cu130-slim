@@ -52,20 +52,23 @@ PR #781 (deployment evidence) was authoritatively verified merged at
   Official profile read works (13 followers, 64 media); quota read reports 24
   remaining. Neither read proves publishing permission. Resolve Account Status
   challenge/appeal before attempting publication; do not bypass with private API.
-- [ ] **Facebook sidecar session instability — 2026-10-21:** the restored
-  session logs in and persists correctly (verified across a browser restart
-  via `/session` re-inject + `saveSession`), but Facebook re-challenges to
-  the profile picker on subsequent navigations within minutes — every
-  publish attempt 401s `Not logged in to Facebook`. Consistent with the
-  account's "email may not be secure" flag; durable fix is the account
-  security step in #782, not more retries. Failed queue item
+- [x] **Facebook sidecar session instability — resolved 2026-10-22 (PR #804):**
+  root cause was the profile picker's *single-profile* variant — bare
+  `facebook.com/` URL (no `crypted_string=`), plain `Continue` button whose
+  accessible name is `Continue <Name>` via aria-label, so exact-text matching
+  never fired and the handler dead-ended on "Use another profile". The
+  `c_user` cookie gate also ran before the picker body check, short-circuiting
+  dismissal on fully downgraded sessions. Fixed: `isLoggedIn()` now detects
+  the picker by body markers first, auto-dismisses once
+  (`allowPickerDismiss` flag, no recursion), and re-evaluates — covering every
+  `goto` + `isLoggedIn` handler without per-route wiring. Verified live:
+  `/session` → picker detected → dismissed → `logged_in:true`; queue retry
   `deb9da45-615e-44eb-98b1-5eb27074b058` (post
-  `2c82267a-f248-477f-955a-abdf5e256c8e`, FB personal lane, infra-only
-  failure) can be re-queued via
-  `POST /api/v1/publishing/queue/{queue_item_id}/retry` once the session
-  holds. If that ID is stale, look up the queue item by post:
-  `SELECT id FROM publish_queue WHERE post_id =
-  '2c82267a-f248-477f-955a-abdf5e256c8e' ORDER BY updated_at DESC LIMIT 1`.
+  `2c82267a-f248-477f-955a-abdf5e256c8e`) **completed** on attempt 1 with the
+  picker re-challenged and auto-dismissed 3× mid-publish. Meta may still
+  re-challenge navigations (account-security flag, #782), but re-challenges
+  are now handled automatically; a persistent `profile_picker:true` after
+  dismissal or "Use another profile" alone still means a real logout.
 - [ ] **Complete live publish/webhook delivery E2E** after restrictions clear:
   no synthetic posts/messages sent during audit. Messenger profile GET succeeds
   with subscription, menu and ice breakers; Threads profile GET succeeds.
