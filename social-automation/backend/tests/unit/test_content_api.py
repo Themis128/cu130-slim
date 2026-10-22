@@ -500,6 +500,37 @@ async def test_update_post_404_and_metadata_rename(_seams):
 
 
 @pytest.mark.asyncio
+async def test_update_post_snapshots_original_text_once(_seams):
+    # First human edit snapshots the generated baseline for edit-diff learning
+    post = _post(status=PostStatus.DRAFT)
+    post.content_text = "generated draft"
+    post.meta_data = {}
+    await C.update_post(post.id,
+                        C.PostUpdate(content_text="human edit 1", target_account_ids=None),
+                        uuid.uuid4(), _user(),
+                        _DB(results=[_Res(one=post)]))
+    assert post.meta_data["original_text"] == "generated draft"
+    assert "original_text_captured_at" in post.meta_data
+
+    # Second edit keeps the ORIGINAL baseline — never overwritten
+    await C.update_post(post.id,
+                        C.PostUpdate(content_text="human edit 2", target_account_ids=None),
+                        uuid.uuid4(), _user(),
+                        _DB(results=[_Res(one=post)]))
+    assert post.meta_data["original_text"] == "generated draft"
+
+    # Same text → no snapshot churn; metadata replace preserves baseline
+    post2 = _post(status=PostStatus.DRAFT)
+    post2.content_text = "same"
+    post2.meta_data = {}
+    await C.update_post(post2.id,
+                        C.PostUpdate(content_text="same", metadata={"k": 9}, target_account_ids=None),
+                        uuid.uuid4(), _user(),
+                        _DB(results=[_Res(one=post2)]))
+    assert "original_text" not in (post2.meta_data or {})
+
+
+@pytest.mark.asyncio
 async def test_delete_external_platform_branches(_seams, monkeypatch):
     import app.core.security as SEC
     monkeypatch.setattr(SEC, "decrypt_token", lambda b: "tok")
