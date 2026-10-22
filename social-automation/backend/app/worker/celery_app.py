@@ -52,6 +52,8 @@ celery_app = Celery(
         "app.worker.tasks.skool_watch",
         "app.worker.tasks.monetization",
         "app.worker.tasks.promo_scan",
+        "app.worker.tasks.failure_learning",
+        "app.worker.tasks.edit_diff",
     ],
 )
 

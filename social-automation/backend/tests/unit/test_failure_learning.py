@@ -59,6 +59,12 @@ def _fail_row(platform="tiktok", error="boom", hours_ago=2):
         ("object not found on Threads", "threads_object_not_found"),
         ("HTTP 429 too many requests", "rate_limited"),
         ("Unhandled exception while publishing", "unhandled_exception"),
+        # real strings observed in post_targets.error_message
+        ("TikTok publish failed: publish_cancelled", "tiktok_publish_cancelled"),
+        ("Instagram requires at least one image. Set an image on the post.", "instagram_media_missing"),
+        ("No public media URLs available for TikTok (MEDIA_PUBLIC_BASE_URL not set or Clou", "media_public_url_missing"),
+        ("X free tier monthly write quota exhausted (1,500 tweets/month)", "x_quota_exhausted"),
+        ("Facebook API error 403 (OAuthException) [code 200]: (#200) If posting to a group", "meta_permissions"),
         ("something totally novel", "other"),
         (None, "other"),
         ("", "other"),
