@@ -411,9 +411,17 @@ async def api_handler(reader: asyncio.StreamReader,
             writer.close()
             return
         method, path = parts[0], parts[1]
-        # drain headers
-        while await reader.readline() not in (b"\r\n", b"\n", b""):
-            pass
+        # drain headers, capturing Content-Length for body-bearing routes
+        content_length = 0
+        while True:
+            hdr = await reader.readline()
+            if hdr in (b"\r\n", b"\n", b""):
+                break
+            if hdr.lower().startswith(b"content-length:"):
+                try:
+                    content_length = int(hdr.split(b":", 1)[1].strip())
+                except ValueError:
+                    content_length = 0
         path_q = path.split("?", 1)
         segs = [s for s in path_q[0].split("/") if s]
         ttl = 0
@@ -472,15 +480,18 @@ async def api_handler(reader: asyncio.StreamReader,
             # Accept optional body: {"services": ["service1", "service2", ...]}
             # If no body, defaults to a sensible set of critical services
             target_services: list[str] = []
-            try:
-                # Bounded read — a client that keeps the connection open
-                # (no Content-Length signal parsed above) must not hang us.
-                body_bytes = await asyncio.wait_for(reader.read(4096), 2.0)
-                if body_bytes:
+            if content_length > 0:
+                try:
+                    # readexactly handles fragmented bodies; bounded so a
+                    # stalled client can't hang us. Bodies are tiny — cap
+                    # the read so an oversized claim can't stall on data
+                    # that never arrives.
+                    body_bytes = await asyncio.wait_for(
+                        reader.readexactly(min(content_length, 4096)), 2.0)
                     req_body = json.loads(body_bytes.decode())
                     target_services = req_body.get("services", [])
-            except Exception:
-                pass
+                except Exception:
+                    pass
             
             if not target_services:
                 # Default critical services that benefit from prewarming
