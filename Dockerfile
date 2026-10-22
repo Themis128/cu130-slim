@@ -64,11 +64,9 @@ RUN git init /tmp/comfy \
     && git -C /tmp/comfy checkout FETCH_HEAD
 
 # Layer 2: ComfyUI requirements + comfy-kitchen patches
+COPY comfyui/patch_comfy_kitchen.py /tmp/patch_comfy_kitchen.py
 RUN pip install --no-cache-dir --retries 10 --timeout 300 "comfy-kitchen==0.2.40" \
-    && SITE=/opt/venv/lib/python3.10/site-packages \
-    && sed -i '1i from typing import List' $SITE/comfy_kitchen/backends/eager/na.py \
-    && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' $SITE/comfy_kitchen/backends/eager/na.py \
-    && sed -i 's/is_causal: list\[bool\]/is_causal: List[bool]/g' $SITE/comfy_kitchen/backends/eager/na.py \
+    && python3 /tmp/patch_comfy_kitchen.py /opt/venv/lib/python3.10/site-packages \
     && grep -v "comfy-kitchen" /tmp/comfy/requirements.txt | grep -v "^torch$" | grep -v "^torchvision$" | grep -v "^torchaudio$" | pip install --no-cache-dir --retries 10 --timeout 300 -r /dev/stdin
 
 # Layer 3: Security-pinned extras — small, changes more often than torch
