@@ -706,3 +706,39 @@ async def test_run_email_drip_sweep_aie_enabled(monkeypatch):
     ts = report["teams"][0]
     for key in (D.DRIP_FIRST_APPROACH, D.DRIP_RENEWAL, *D.DRIP_AIE_STEPS):
         assert key in ts
+
+
+@pytest.mark.asyncio
+async def test_run_email_drip_sweep_writes_audit_artifact(monkeypatch):
+    """Every sweep — even a quiet one — leaves an audit_logs sweep row so the
+    workforce audit can read worker liveness instead of sent-mail volume."""
+    import app.db.session as dbsession
+    from app.models.user import AuditLog
+
+    s = SimpleNamespace(
+        EMAIL_DRIP_AIE_ENABLED=False, EMAIL_DRIP_AIE_GAP_DAYS=7,
+        EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS=30,
+        DIGEST_EMAIL_TO="ops@cloudless.gr", SMTP_FROM="no@cloudless.gr",
+    )
+    monkeypatch.setattr(D, "get_settings", lambda: s)
+
+    team = SimpleNamespace(id=uuid.uuid4())
+    db = _DB(results=[[team]])
+    monkeypatch.setattr(
+        dbsession, "async_session_maker", lambda: _SessionCM(db)
+    )
+
+    async def none(*a, **kw):
+        return []
+
+    monkeypatch.setattr(D, "_first_approach_candidates", none)
+    monkeypatch.setattr(D, "_renewal_candidates", none)
+
+    report = await D.run_email_drip_sweep(dry_run=True)
+    artifacts = [o for o in db.added if isinstance(o, AuditLog)]
+    assert len(artifacts) == 1
+    assert artifacts[0].action == "email-drip"
+    assert artifacts[0].resource_type == "sweep"
+    assert artifacts[0].team_id == team.id
+    assert "mailed=0" in artifacts[0].detail
+    assert report["mailed"] == 0

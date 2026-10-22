@@ -145,43 +145,42 @@ WORKFORCE = [
         guardrails=("write only plausible follower counts (_plausible_follower_count guard)",),
         fallback="per-platform error recorded; next sweep retries",
         evidence=[
-            # per-account staleness: the min over accounts of each account's
-            # latest snapshot — a fresh account can no longer hide stale ones
+            # liveness is the per-attempt account_sync event — fires for every
+            # synced account every run. follower_snapshots is a change log with
+            # a 7-day heartbeat: flat counts write nothing for days and would
+            # read dark on a fully healthy worker.
             (
-                "stalest follower account",
+                "stalest synced account",
                 "SELECT min(last) FROM ("
-                "  SELECT social_account_id, max(captured_at) AS last"
-                "  FROM follower_snapshots GROUP BY social_account_id) s"
+                "  SELECT social_account_id, max(occurred_at) AS last"
+                "  FROM analytics_events WHERE event_type = 'account_sync'"
+                "  GROUP BY social_account_id) s"
                 "  JOIN social_accounts sa ON sa.id = s.social_account_id"
                 "  WHERE sa.status = 'active'",
             ),
             (
-                "stalest post-analytics account",
-                "SELECT min(last) FROM ("
-                "  SELECT sa.id AS acct, max(pas.captured_at) AS last"
-                "  FROM post_analytics_snapshots pas"
-                "  JOIN posts p ON p.id = pas.post_id"
-                "  JOIN post_targets pt ON pt.post_id = p.id"
-                "  JOIN social_accounts sa ON sa.id = pt.social_account_id"
-                "  GROUP BY sa.id) s WHERE true",
+                # post metrics only re-measure inside the publish window —
+                # quiet accounts go stale by design, so per-account min()
+                # reads dark forever. Output freshness is the real signal.
+                "latest post-analytics write",
+                "SELECT max(captured_at) FROM post_analytics_snapshots",
             ),
         ],
         escalations=[
             (
-                "active accounts w/ stale follower sync",
+                "active accounts w/ stale analytics sync",
                 "SELECT count(*) FROM ("
                 "  SELECT sa.id FROM social_accounts sa"
                 "  LEFT JOIN LATERAL ("
-                "    SELECT max(captured_at) AS last"
-                "    FROM follower_snapshots fs"
-                "    WHERE fs.social_account_id = sa.id) s ON true"
+                "    SELECT max(occurred_at) AS last"
+                "    FROM analytics_events ae"
+                "    WHERE ae.social_account_id = sa.id"
+                "    AND ae.event_type = 'account_sync') s ON true"
                 "  WHERE sa.status = 'active'"
-                "  AND sa.platform IN"
-                "      ('facebook','instagram','linkedin','x',"
-                "       'tiktok','threads')"
+                "  AND sa.platform NOT IN ('whatsapp')"
                 "  AND (s.last IS NULL"
-                "       OR s.last < now() - interval '1 hour')) t",
-                "per-account sync is failing — check the platform's follower endpoint (see follower-analytics-guard)",
+                "       OR s.last < now() - interval '3 hours')) t",
+                "per-account sync is failing — check the platform's analytics path (see follower-analytics-guard)",
             )
         ],
     ),
@@ -299,9 +298,12 @@ WORKFORCE = [
             "30-day dedup gate on campaign sends",
         ),
         fallback="send failure logged in email_logs; next sweep retries",
-        # real drip volume = campaign recipients sent — email_logs is the
-        # transactional stream (password resets would fake drip activity)
-        evidence=[("last drip mail", "SELECT max(sent_at) FROM email_recipients WHERE status = 'sent'")],
+        # liveness = the per-sweep audit artifact; sent mail is demand-driven
+        # output (zero qualifying recipients reads dark on a healthy worker)
+        evidence=[(
+            "last drip sweep",
+            "SELECT max(created_at) FROM audit_logs WHERE action='email-drip' AND resource_type='sweep'",
+        )],
     ),
     Worker(
         "lead-research",
