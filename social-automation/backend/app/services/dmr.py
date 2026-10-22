@@ -1181,7 +1181,12 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     # keeping it off the card removes ~0.7GB of fleet churn and one whole
     # load/evict cycle per content pipeline call (observed 2026-10-08: the
     # keep-warm+pipeline mix wedged the scheduler at 8/8GB used).
+    # context_size 8192 must stay in sync with the dmr-watchdog payload —
+    # /engines/_configure replaces the whole config, so omitting it here
+    # would restore the native 262144 ctx (~oversized KV allocation) on the
+    # next backend push.
     "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF": {
+        "context_size": 8192,
         "keep_alive": "60s",
         "mode": "embedding",
         "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8"],

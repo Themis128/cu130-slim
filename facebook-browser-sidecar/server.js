@@ -506,10 +506,14 @@ async function handleProfilePicker() {
  */
 async function navigateAndCheck(url) {
   await ensureBrowser();
-  await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-  await settle();
-  await closeDialogs();
-  await handleProfilePicker(); // Handle profile picker if it appears
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+    await settle();
+    await closeDialogs();
+    // Picker dismissal lands on the home feed, not the requested URL —
+    // re-navigate so callers land on the section they asked for.
+    if (!(await handleProfilePicker())) break;
+  }
   return await isLoggedIn();
 }
 
