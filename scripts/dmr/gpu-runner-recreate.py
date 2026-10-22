@@ -26,6 +26,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import json
 from pathlib import Path
 
 NAME = "docker-model-runner"
@@ -33,13 +34,38 @@ IMAGE = "local/model-runner:vllm-cuda-fixed"
 PORT = "12435"
 MODELS_VOLUME = "docker-model-runner-models"
 HEALTH_URL = f"http://localhost:{PORT}/engines/v1/models"
+DMR_BASE = f"http://localhost:{PORT}"
 
-# WSL2 NVIDIA userspace libs mounted by Docker Desktop (host-specific path —
-# if this path is absent the GPU layers will not work; re-derive with:
-#   docker inspect docker-model-runner --format '{{json .HostConfig.Binds}}')
-WSL_LIB_SRC = ("/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts/"
-               "Ubuntu-26.04/eead6ba894879fdc294fc12b89c87a9375c56ccfe49d"
-               "00db241cbfecbdbf5a1a")
+
+def find_wsl_lib_src() -> Path | None:
+    """Auto-detect WSL libcuda.so.1.1 mount path (works across Docker Desktop versions)."""
+    # Strategy 1: Docker Desktop bind-mount path (version-specific)
+    base = Path("/run/desktop/mnt/host/wsl/docker-desktop-bind-mounts")
+    if base.exists():
+        for distro in base.iterdir():
+            candidate = distro / "eead6ba894879fdc294fc12b89c87a9375c56ccfe49d00db241cbfecbdbf5a1a"
+            if candidate.is_dir() and (candidate / "libcuda.so.1.1").exists():
+                return candidate
+    # Strategy 2: Standard WSL driver path
+    wsl_drivers = Path("/usr/lib/wsl/drivers")
+    if wsl_drivers.exists():
+        for d in wsl_drivers.glob("nvltsi.inf_amd64_*"):
+            if (d / "libcuda.so.1.1").exists():
+                return d
+    # Strategy 3: ldconfig fallback
+    try:
+        import subprocess
+        result = subprocess.run(["ldconfig", "-p"], capture_output=True, text=True, timeout=5)
+        for line in result.stdout.splitlines():
+            if "libcuda.so.1" in line:
+                parts = line.split()
+                if len(parts) >= 4:
+                    path = Path(parts[-1]).parent
+                    if path.exists() and (path / "libcuda.so.1.1").exists():
+                        return path
+    except Exception:
+        pass
+    return None
 
 
 def log(msg: str) -> None:
@@ -52,6 +78,31 @@ def healthy() -> bool:
         return True
     except Exception:
         return False
+
+
+def warmup_models() -> None:
+    """Issue warm-up requests for primary models to avoid cold-start latency."""
+    primary_models = [
+        "ai/qwen3:8b-q4_K_M",
+        "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
+    ]
+    for model in primary_models:
+        try:
+            req = urllib.request.Request(
+                f"{DMR_BASE}/engines/v1/chat/completions",
+                data=json.dumps({
+                    "model": model,
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "max_tokens": 1,
+                    "temperature": 0,
+                }).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=30)
+            log(f"warmed up {model}")
+        except Exception as e:
+            log(f"warmup failed for {model}: {e}")
 
 
 if "--force" in sys.argv[1:]:
@@ -85,12 +136,13 @@ if subprocess.run(["docker", "image", "inspect", IMAGE],
     log(f"  and commit: docker commit <container> {IMAGE}")
     sys.exit(1)
 
+wsl_lib = find_wsl_lib_src()
 mount_args = []
-if Path(WSL_LIB_SRC).is_dir():
-    mount_args = ["-v", f"{WSL_LIB_SRC}:/usr/lib/wsl/lib:ro"]
+if wsl_lib:
+    mount_args = ["-v", f"{wsl_lib}:/usr/lib/wsl/lib:ro"]
+    log(f"using WSL lib mount: {wsl_lib}")
 else:
-    log(f"WARNING: WSL lib dir {WSL_LIB_SRC} not found — "
-        "GPU may not initialize")
+    log("WARNING: WSL libcuda.so.1.1 not found — GPU may not initialize")
 
 log(f"creating {NAME} from {IMAGE} on 127.0.0.1:{PORT}")
 subprocess.run([
@@ -110,6 +162,7 @@ log("waiting for engine health...")
 for i in range(24):
     if healthy():
         log(f"runner healthy on :{PORT} ({i}0s)")
+        warmup_models()
         sys.exit(0)
     time.sleep(10)
 
