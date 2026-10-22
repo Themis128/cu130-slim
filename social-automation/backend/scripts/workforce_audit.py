@@ -360,6 +360,46 @@ WORKFORCE = [
         # artifact — celery run-count is the evidence here
     ),
     Worker(
+        "failure-learner",
+        "app.worker.tasks.failure_learning.run_failure_learning_sweep",
+        "default",
+        DAY,
+        goal="Convert recurring publish-failure signatures into remediation proposals",
+        guardrails=(
+            "proposals only — never auto-apply a fix or edit production code",
+            "read-only on post_targets; writes are audit_log artifacts only",
+            "dedupe proposals inside the cooldown — never spam the same signature",
+        ),
+        autonomy="review",  # proposals land for a human; nothing self-executes
+        fallback="sweep failure logged; next daily run retries",
+        evidence=[
+            (
+                "last learning sweep",
+                "SELECT max(created_at) FROM audit_logs WHERE action='failure-learning' AND resource_type='sweep'",
+            )
+        ],
+    ),
+    Worker(
+        "voice-learner",
+        "app.worker.tasks.edit_diff.run_edit_diff_sweep",
+        "default",
+        7 * DAY,
+        goal="Distill recurring human edits into voice_signature suggestions",
+        guardrails=(
+            "suggestions only — never edit voice_signature or brand_voice directly",
+            "read-only on posts; writes are audit_log artifacts only",
+            "single edits are taste, not signal — patterns need >=2 posts at >=40% share",
+        ),
+        autonomy="review",
+        fallback="sweep failure logged; next weekly run retries",
+        evidence=[
+            (
+                "last edit-diff sweep",
+                "SELECT max(created_at) FROM audit_logs WHERE action='edit-diff' AND resource_type='sweep'",
+            )
+        ],
+    ),
+    Worker(
         "content-factory",
         "",
         "publishing",
@@ -469,8 +509,95 @@ async def audit() -> dict:
             if entry["status"] == "ok" and not w.scheduled:
                 entry["status"] = "unverified"
             out["workers"].append(entry)
+        await _persist_verdicts(db, out)
+        out["autonomy_proposals"] = await _autonomy_proposals(db)
     out["ungoverned"] = [w["name"] for w in out["workers"] if w["status"] == "ungoverned"]
     return out
+
+
+# ── Earned autonomy ladder (OpenMAO pattern: autonomy is earned, not assumed) ──
+# Every audit run persists one verdict row per worker into audit_logs — that
+# history IS the worker's track record. Ladder tiers: supervised → review →
+# auto. A streak of clean audits proposes graduation one tier up; a recent
+# dark/escalation/ungoverned verdict on an "auto" worker proposes narrowing.
+# Proposals are advisory — a human edits the Worker contract to apply them.
+
+AUTONOMY_LADDER = ("supervised", "review", "auto")
+GRADUATE_AFTER = 10  # consecutive clean audits to propose promotion
+DEMOTE_WITHIN = 7  # recent runs scanned for failure verdicts
+VERDICT_LOOKBACK_DAYS = 90
+_CLEAN = {"ok", "idle"}
+_BAD = {"dark", "escalation", "ungoverned"}
+
+
+async def _persist_verdicts(db, report: dict) -> None:
+    """One audit-log verdict row per worker per run — the track record."""
+    from app.models.user import AuditLog
+
+    team_id = (await db.execute(text("SELECT id FROM teams ORDER BY created_at LIMIT 1"))).scalar()
+    if not team_id:
+        return
+    for w in report["workers"]:
+        db.add(AuditLog(
+            team_id=team_id,
+            action="workforce-verdict",
+            resource_type="worker",
+            resource_id=w["name"],
+            detail=w["status"],
+            meta={"status": w["status"], "autonomy": w["governance"]["autonomy"]},
+        ))
+    await db.commit()
+
+
+async def _autonomy_proposals(db) -> list[dict]:
+    """Read the verdict history and emit graduation/demotion proposals."""
+    from sqlalchemy import select
+
+    from app.models.user import AuditLog
+
+    since = datetime.now(UTC) - timedelta(days=VERDICT_LOOKBACK_DAYS)
+    rows = (
+        await db.execute(
+            select(AuditLog.resource_id, AuditLog.meta)
+            .where(AuditLog.action == "workforce-verdict", AuditLog.created_at >= since)
+            .order_by(AuditLog.created_at.desc())
+        )
+    ).all()
+    history: dict[str, list[str]] = {}
+    for rid, meta in rows:
+        history.setdefault(rid, []).append((meta or {}).get("status", "ok"))
+
+    proposals: list[dict] = []
+    by_name = {w.name: w for w in WORKFORCE}
+    for name, verdicts in history.items():
+        w = by_name.get(name)
+        if not w:
+            continue
+        tier = AUTONOMY_LADDER.index(w.autonomy) if w.autonomy in AUTONOMY_LADDER else -1
+        streak = 0
+        for v in verdicts:
+            if v in _CLEAN:
+                streak += 1
+            else:
+                break
+        recent_bad = [v for v in verdicts[:DEMOTE_WITHIN] if v in _BAD]
+        if recent_bad and w.autonomy == "auto":
+            proposals.append({
+                "worker": name,
+                "direction": "demote",
+                "from": w.autonomy,
+                "to": "review",
+                "why": f"{len(recent_bad)} failure verdict(s) in last {DEMOTE_WITHIN} audits — narrow scope until clean",
+            })
+        elif streak >= GRADUATE_AFTER and 0 <= tier < len(AUTONOMY_LADDER) - 1:
+            proposals.append({
+                "worker": name,
+                "direction": "graduate",
+                "from": w.autonomy,
+                "to": AUTONOMY_LADDER[tier + 1],
+                "why": f"{streak} consecutive clean audits — track record supports widening",
+            })
+    return proposals
 
 
 def render_governance(report: dict) -> str:
@@ -511,6 +638,12 @@ def render(report: dict) -> str:
     lines += ["", "attention: " + (", ".join(bad) if bad else "none — all workers clocked in")]
     if unv:
         lines.append("unverified (no output artifact to check): " + ", ".join(unv))
+    props = report.get("autonomy_proposals") or []
+    if props:
+        lines.append("")
+        lines.append("autonomy proposals (advisory — edit the Worker contract to apply):")
+        for p in props:
+            lines.append(f"  {'▲' if p['direction'] == 'graduate' else '▼'} {p['worker']}: {p['from']} → {p['to']} — {p['why']}")
     return "\n".join(lines)
 
 
@@ -519,16 +652,27 @@ async def push_slack(report: dict) -> None:
     from app.services.slack_notifications import post_alert_to_slack
 
     bad = [w for w in report["workers"] if w["status"] in ("dark", "escalation", "ungoverned")]
-    if not bad:
+    props = report.get("autonomy_proposals") or []
+    if not bad and not props:
         return
-    lines = [
-        "*Agent workforce needs a human*",
-        *[
-            f"• `{w['name']}` — {w['status']}"
-            + ("".join(f" | {e['label']}={e['count']} — {e['why']}" for e in w["escalations"] if e["count"]) if w["status"] == "escalation" else "")
-            for w in bad
-        ],
-    ]
+    lines = []
+    if bad:
+        lines += [
+            "*Agent workforce needs a human*",
+            *[
+                f"• `{w['name']}` — {w['status']}"
+                + ("".join(f" | {e['label']}={e['count']} — {e['why']}" for e in w["escalations"] if e["count"]) if w["status"] == "escalation" else "")
+                for w in bad
+            ],
+        ]
+    if props:
+        if lines:
+            lines.append("")
+        lines.append("*Autonomy ladder — proposals (advisory)*")
+        lines += [
+            f"• `{p['worker']}` {p['direction']}: {p['from']} → {p['to']} — {p['why']}"
+            for p in props
+        ]
     await post_alert_to_slack("\n".join(lines))
 
 

@@ -94,29 +94,58 @@ async def remember(team_id, doc_id: str, text: str, metadata: dict | None = None
             return False
 
 
-async def recall(team_id, query: str, n_results: int = 4) -> list[str]:
-    """Return the n most semantically relevant memories for a query."""
+async def recall_cited(team_id, query: str, n_results: int = 4) -> dict:
+    """Citation-aware recall — every memory returns with its provenance.
+
+    An answer that can't say where it came from is indistinguishable from a
+    guess: each hit carries the journal metadata written by ``remember()``
+    (``kind``, ``day``) plus the vector distance, and a ``gap`` field names
+    *why* evidence is missing instead of silently returning nothing —
+    callers can distinguish "no memory yet" from "recall broke".
+    """
     if not company_brain_enabled() or not query.strip():
-        return []
+        return {"hits": [], "gap": "company brain disabled or empty query"}
     embedding = await _get_embedding(query[:2000])
     if not embedding:
-        return []
+        return {"hits": [], "gap": "embedding unavailable"}
     col = _brain_collection(team_id)
     async with httpx.AsyncClient(timeout=_CHROMA_TIMEOUT) as client:
         try:
             col_id = await _get_collection_id(client, col)
             if not col_id:
-                return []
+                return {"hits": [], "gap": "no brain collection — journal has never run"}
             r = await client.post(
                 f"{_collection_base_url()}/{col_id}/query",
-                json={"query_embeddings": [embedding], "n_results": n_results},
+                json={
+                    "query_embeddings": [embedding],
+                    "n_results": n_results,
+                    "include": ["documents", "metadatas", "distances"],
+                },
             )
             if r.status_code != 200:
-                return []
-            return r.json().get("documents", [[]])[0]
+                return {"hits": [], "gap": f"chroma query HTTP {r.status_code}"}
+            body = r.json()
+            docs = body.get("documents", [[]])[0]
+            metas = body.get("metadatas", [[]])[0]
+            dists = body.get("distances", [[]])[0]
+            hits = [
+                {
+                    "text": doc,
+                    "kind": (metas[i] or {}).get("kind") if i < len(metas) else None,
+                    "day": (metas[i] or {}).get("day") if i < len(metas) else None,
+                    "distance": dists[i] if i < len(dists) else None,
+                }
+                for i, doc in enumerate(docs)
+            ]
+            return {"hits": hits, "gap": None if hits else "no memories match — coverage gap"}
         except Exception as exc:  # noqa: BLE001
             logger.warning("company_brain recall failed: %s", exc)
-            return []
+            return {"hits": [], "gap": f"recall error: {exc}"}
+
+
+async def recall(team_id, query: str, n_results: int = 4) -> list[str]:
+    """Return the n most semantically relevant memories for a query."""
+    return [h["text"] for h in (await recall_cited(team_id, query, n_results))["hits"]]
 
 
 # ── Daily journal (write path) ────────────────────────────────────────

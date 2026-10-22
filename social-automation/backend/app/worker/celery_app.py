@@ -294,6 +294,21 @@ celery_app.conf.update(
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
             "schedule": 60.0,
         },
+        # Failure-trajectory learning — classify failed post_targets into
+        # the signature taxonomy; signatures recurring >=3x in 7d escalate
+        # as remediation proposals (Slack + audit_logs, human stays the
+        # approval gate). Daily after the publish/analytics dust settles.
+        "failure-learning-sweep": {
+            "task": "app.worker.tasks.failure_learning.run_failure_learning_sweep",
+            "schedule": crontab(hour=10, minute=5),
+        },
+        # Weekly edit-diff voice learning (Sunday 07:00) — diffs generated
+        # vs kept copy on edited posts and proposes voice_signature
+        # improvements to the human (never auto-applies).
+        "edit-diff-sweep": {
+            "task": "app.worker.tasks.edit_diff.run_edit_diff_sweep",
+            "schedule": crontab(hour=7, minute=0, day_of_week="sun"),
+        },
         # Daily SocialAuto report → Slack #socialauto is triggered by the
         # n8n workflow `socialauto-daily-slack-digest` (cron 0 9 * * * →
         # POST /api/v1/ops/daily-digest), NOT by beat — a beat entry here
