@@ -106,10 +106,23 @@ async def _reconcile_async() -> dict:
                             t.post.platform_specific = ps
                         summary["published"] += 1
                 elif status_value in ("FAILED", "CANCELLED"):
-                    reason = status_data.get("fail_reason") or status_value
-                    t.status = "failed"
-                    t.error_message = f"TikTok publish {status_value.lower()}: {reason}"
-                    summary["failed"] += 1
+                    from app.services.publishing import (
+                        _TT_CANCELLED_MARKERS,
+                        _err_has,
+                        _tiktok_clarify_error,
+                    )
+
+                    reason = str(status_data.get("fail_reason") or status_value)
+                    clarified = _tiktok_clarify_error(reason)
+                    if status_value == "CANCELLED" or _err_has(reason, _TT_CANCELLED_MARKERS):
+                        t.status = "skipped"
+                        t.error_message = clarified
+                        summary.setdefault("skipped", 0)
+                        summary["skipped"] += 1
+                    else:
+                        t.status = "failed"
+                        t.error_message = f"TikTok publish {status_value.lower()}: {clarified}"
+                        summary["failed"] += 1
                 elif status_value == "SEND_TO_USER_INBOX":
                     published_at = t.published_at or (
                         t.post.published_at if t.post else None
