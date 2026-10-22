@@ -664,10 +664,9 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 
 ### ComfyUI (`social-media-comfyui-gpu` container)
 
-- **`--gpu-only`** — forces text encoders, CLIP, and models onto GPU (minimum RAM usage).
-- **`--force-fp16`** — halves VRAM usage with minimal quality loss.
-- **`--reserve-vram 1`** — keeps 1GB VRAM free so ComfyUI doesn't OOM local-diffusers.
-- Note: `--gpu-only` and `--highvram` are mutually exclusive. `--gpu-only` is the stronger flag (forces everything onto GPU).
+- Flags are **profile-driven**: the entrypoint loads `profiles/${COMFYUI_PROFILE:-sdxl}.txt` and appends `CLI_ARGS`; `BASE_ARGS` only carries listen/port/preview. `--lowvram` lives in the `sdxl` and `flux` profiles (shared 8GB card) — the `quality` profile deliberately omits it, so do NOT add it to `BASE_ARGS` (appended args can't be removed).
+- The entrypoint also creates a `libcuda.so` → `libcuda.so.1.1` symlink under `/usr/lib/wsl/drivers/nvltsi.inf_amd64_*/` — WSL ships only the versioned lib and triton JIT compilation fails without the unversioned name.
+- `--gpu-only`/`--highvram` remain mutually exclusive; low-VRAM mode is the correct default on the shared card (GPU arbitration via `gpu_arbiter.py`).
 
 ### Java heap limits (RAM savings)
 
