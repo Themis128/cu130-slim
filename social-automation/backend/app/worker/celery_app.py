@@ -207,6 +207,8 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
+        "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
+        "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
