@@ -26,6 +26,13 @@ COPY pyproject.toml .
 RUN pip install --no-cache-dir -e . && \
     pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
 
+# instagrapi is installed --no-deps: every release >=2.6.9 (the
+# GHSA-ggxf-37hm-9wqf fix) hard-pins Pillow<13, conflicting with the
+# Pillow>=13.0.0 security floor. Its remaining runtime deps (requests,
+# pydantic, PySocks, pycryptodomex) are resolved explicitly here.
+RUN pip install --no-cache-dir "instagrapi==2.6.9" --no-deps && \
+    pip install --no-cache-dir "PySocks>=1.7.1" "pycryptodomex>=3.23.0"
+
 # ── Runtime base shared by the API and every worker ──
 # No compilers, no browser engines — browser automation lives in the
 # dedicated sidecar containers, not in this codebase.

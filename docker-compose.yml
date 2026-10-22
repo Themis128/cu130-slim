@@ -400,6 +400,7 @@ services:
       - host.docker.internal:host-gateway
     mem_limit: 1280m
     memswap_limit: 2560m
+    cpus: '3'
     restart: unless-stopped
   # External JS/Python task runners for n8n Code nodes (external mode —
   # internal mode is deprecated and shares the n8n uid). Launcher + runners
@@ -434,6 +435,7 @@ services:
       start_period: 20s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '2'
     restart: unless-stopped
     <<: *public-dns
   # Metrics-only LAN endpoint — proxies ONLY n8n /metrics on :9392 so the
@@ -461,6 +463,7 @@ services:
       retries: 3
     mem_limit: 128m
     memswap_limit: 256m
+    cpus: '1'
     restart: unless-stopped
     <<: *public-dns
   n8n-sandbox:
@@ -486,6 +489,7 @@ services:
       start_period: 10s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '2'
     restart: unless-stopped
   postgres:
     image: postgres:16-alpine
@@ -506,6 +510,7 @@ services:
       start_period: 20s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '2'
     restart: unless-stopped
   metabase:
     image: metabase/metabase:v0.63.14.1
@@ -544,6 +549,7 @@ services:
       start_period: 60s
     mem_limit: 1536m
     memswap_limit: 3072m
+    cpus: '2'
     restart: unless-stopped
   local-diffusers:
     build:
@@ -590,6 +596,7 @@ services:
     # Memory cap — model load spikes are fine, runaway creep is not (VM-wide wedge risk).
     mem_limit: 4608m
     memswap_limit: 9216m
+    cpus: '2'
   chroma:
     image: chromadb/chroma:1.5.9
     container_name: chroma
@@ -614,6 +621,7 @@ services:
       start_period: 20s
     mem_limit: 768m
     memswap_limit: 1536m
+    cpus: '2'
     restart: unless-stopped
   minio:
     image: bitnamilegacy/minio:latest
@@ -641,6 +649,7 @@ services:
       start_period: 15s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '2'
     restart: unless-stopped
   languagetool:
     image: erikvl87/languagetool
@@ -663,6 +672,7 @@ services:
       start_period: 30s
     mem_limit: 1024m
     memswap_limit: 2048m
+    cpus: '2'
     restart: unless-stopped
 
   portainer:
@@ -675,6 +685,7 @@ services:
       - portainer_data:/data
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
 
   flower:
@@ -703,6 +714,7 @@ services:
       start_period: 30s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '1'
     restart: unless-stopped
   env-manager-backend:
     image: ghcr.io/themis128/cu130-slim:env-manager-backend-latest
@@ -732,6 +744,7 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   env-manager-frontend:
     image: ghcr.io/themis128/cu130-slim:env-manager-frontend-latest
@@ -754,6 +767,7 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   social-postgres:
     # PG16→17 migrated 2026-10-20 via pg_dumpall → new volume (old
@@ -779,6 +793,7 @@ services:
       start_period: 20s
     mem_limit: 768m
     memswap_limit: 1536m
+    cpus: '2'
     restart: unless-stopped
   redis:
     image: redis:7-alpine
@@ -804,6 +819,7 @@ services:
       start_period: 10s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '2'
     restart: unless-stopped
   social-api:
     image: ghcr.io/themis128/cu130-slim:social-api-latest
@@ -1072,6 +1088,7 @@ services:
       start_period: 30s
     mem_limit: 2048m
     memswap_limit: 4096m
+    cpus: '4'
     restart: unless-stopped
   # ── Metrics exporter ─────────────────────────────────────────────────────
   # Prometheus on omv can't reach the loopback-bound API; this proxies ONLY
@@ -1094,6 +1111,7 @@ services:
       retries: 3
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   # ── Blue/green deploy ─────────────────────────────────────────────────────
   # api-gateway is the stable upstream the frontend proxies /api/v1 through.
@@ -1116,6 +1134,7 @@ services:
       start_period: 10s
     mem_limit: 128m
     memswap_limit: 256m
+    cpus: '1'
     restart: unless-stopped
   # Second API slot used by scripts/deploy-api.py. Same env/mounts as
   # social-api via `extends`; starts under the `bluegreen` profile only so a
@@ -1170,6 +1189,7 @@ services:
     stop_grace_period: 90s
     mem_limit: 1536m
     memswap_limit: 3072m
+    cpus: '4'
     restart: unless-stopped
 
   social-worker-media:
@@ -1209,6 +1229,7 @@ services:
     stop_grace_period: 15m
     mem_limit: 1536m
     memswap_limit: 3072m
+    cpus: '4'
     restart: unless-stopped
 
   social-worker-default:
@@ -1245,6 +1266,7 @@ services:
     stop_grace_period: 90s
     mem_limit: 1536m
     memswap_limit: 3072m
+    cpus: '4'
     restart: unless-stopped
 
   social-worker-messenger:
@@ -1283,6 +1305,7 @@ services:
     stop_grace_period: 90s
     mem_limit: 1024m
     memswap_limit: 2048m
+    cpus: '4'
     restart: unless-stopped
   celery-beat:
     image: ghcr.io/themis128/cu130-slim:social-worker-latest
@@ -1321,6 +1344,7 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   cloudflared:
     image: ghcr.io/themis128/cu130-slim:cloudflared-latest
@@ -1351,6 +1375,7 @@ services:
       start_period: 30s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
     depends_on:
       social-api:
@@ -1387,6 +1412,7 @@ services:
       start_period: 30s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '1'
     restart: unless-stopped
 
   # ── Instagram Private API sidecar (aiograpi-rest) ────────────────────────
@@ -1421,6 +1447,7 @@ services:
       start_period: 30s
     mem_limit: 1024m
     memswap_limit: 2048m
+    cpus: '2'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1460,6 +1487,7 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
 
   # ── Browser + noVNC container (visual browser for social logins) ─────────
@@ -1626,6 +1654,7 @@ services:
       start_period: 60s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '1'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1669,6 +1698,7 @@ services:
       start_period: 60s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '1'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1702,6 +1732,7 @@ services:
       start_period: 60s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '1'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1888,6 +1919,7 @@ services:
       - host.docker.internal:host-gateway
     mem_limit: 96m
     memswap_limit: 192m
+    cpus: '1'
     restart: unless-stopped
     # Healthy = the watch loop is ticking (heartbeat < 45s old).
     # We deliberately do NOT probe DMR here — DMR health is the watchdog's
@@ -1938,6 +1970,7 @@ services:
       start_period: 10s
     mem_limit: 64m
     memswap_limit: 128m
+    cpus: '1'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1978,6 +2011,7 @@ services:
       start_period: 30s
     mem_limit: 1024m
     memswap_limit: 2048m
+    cpus: '2'
     restart: unless-stopped
 
   # ── stack-ops: idle-sleep + wake-on-connect front proxy ────────────
@@ -2040,6 +2074,7 @@ services:
       start_period: 10s
     mem_limit: 192m
     memswap_limit: 384m
+    cpus: '1'
     restart: always
     <<: *public-dns
 

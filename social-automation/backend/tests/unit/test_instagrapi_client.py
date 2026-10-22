@@ -399,6 +399,5 @@ def test_save_session_error(monkeypatch, tmp_path):
 
 
 def test_is_session_error_instance():
-    from instagrapi.exceptions import LoginRequired
     c = IC.InstagrapiClient.__new__(IC.InstagrapiClient)
-    assert c._is_session_error(LoginRequired("x")) is True
+    assert c._is_session_error(IC.LoginRequired("x")) is True
