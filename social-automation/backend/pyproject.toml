@@ -79,10 +79,11 @@ dependencies = [
     "tiktok-private-api>=0.4.3",
     # NOTE: no playwright/patchright here — all browser automation runs in the
     # dedicated sidecar containers; the backend talks to them over HTTP.
-    # Instagram private API (username/password posting fallback while Graph API restricted)
-    # >=2.6.9: GHSA-ggxf-37hm-9wqf — server-supplied challenge paths could route
-    # session-authenticated requests outside the Instagram host.
-    "instagrapi>=2.6.9,<3.0.0",
+    # Instagram private API (instagrapi) is NOT a resolved dependency: every
+    # release >=2.6.9 (the GHSA-ggxf-37hm-9wqf fix) hard-pins Pillow<13, which
+    # conflicts with our Pillow>=13.0.0 security floor. The runtime image
+    # installs it --no-deps (see Dockerfile); the client lazy-imports it, so
+    # test/CI envs work without it.
     # PDF libraries — carousel PDF generation, page extraction, and rendering
     "PyMuPDF>=1.24.0",        # primary: fast PDF read/render (fitz)
     "pypdf>=4.0.0",           # lightweight PDF read/merge/split
