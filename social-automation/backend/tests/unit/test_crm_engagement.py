@@ -459,3 +459,15 @@ def test_task_failure_returns_none(monkeypatch):
     monkeypatch.setattr(task.crm_engagement, "run_crm_engagement_sweep", _boom)
     monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
     assert task.run_crm_engagement_sweep() is None
+
+
+@pytest.mark.asyncio
+async def test_slack_report_import_failure_returns(monkeypatch):
+    """If slack_notifications can't be imported, the report degrades silently."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "app.services.slack_notifications", SimpleNamespace())
+    await E._slack_report(
+        {"details": [{"email": "x"}], "errors": 0,
+         "matched": 1, "noted": 1, "status_bumped": 0}
+    )

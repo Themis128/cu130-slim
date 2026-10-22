@@ -226,3 +226,83 @@ def test_empty_preview_triggers_render(fake_render, monkeypatch):
     finally:
         get_settings.cache_clear()
     assert result["title"] == "Rendered Title"
+
+
+@pytest.mark.asyncio
+async def test_rendered_preview_no_bridge_url_returns_none(monkeypatch):
+    from types import SimpleNamespace
+
+    import app.core.config as cfg
+
+    monkeypatch.setattr(
+        cfg, "get_settings", lambda: SimpleNamespace(BROWSER_BRIDGE_URL="")
+    )
+    assert await lp._rendered_preview("https://public.example/x") is None
+
+
+class _BridgeNoHtml:
+    async def navigate(self, url):
+        pass
+
+    async def evaluate(self, _expr):
+        return {"result": "{\"url\": \"https://public.example/x\"}"}  # no html
+
+
+class _BridgeEmptyPreview:
+    async def navigate(self, url):
+        pass
+
+    async def evaluate(self, _expr):
+        import json
+
+        html = "<html><body><div>plain page, no meta</div></body></html>"
+        return {"result": json.dumps({"html": html, "url": "https://public.example/x"})}
+
+
+def _wire_bridge(monkeypatch, bridge):
+    import app.services.browser_bridge as bb
+    import app.services.browser_orchestrator as bo
+
+    monkeypatch.setattr(bb, "BrowserBridgeClient", lambda *_a, **_k: bridge)
+    monkeypatch.setattr(bo, "browser_session", lambda *_a, **_k: _FakeSession(bridge))
+    monkeypatch.setenv("BROWSER_BRIDGE_URL", "http://bridge:9223")
+
+
+@pytest.mark.asyncio
+async def test_rendered_preview_missing_html_returns_none(monkeypatch):
+    from app.core.config import get_settings
+
+    _wire_bridge(monkeypatch, _BridgeNoHtml())
+    get_settings.cache_clear()
+    try:
+        assert await lp._rendered_preview("https://public.example/x") is None
+    finally:
+        get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_rendered_preview_empty_extract_returns_none(monkeypatch):
+    from app.core.config import get_settings
+
+    _wire_bridge(monkeypatch, _BridgeEmptyPreview())
+    get_settings.cache_clear()
+    try:
+        assert await lp._rendered_preview("https://public.example/x") is None
+    finally:
+        get_settings.cache_clear()
+
+
+def test_challenge_body_uses_render_fallback(fake_render, monkeypatch):
+    """A 200 that IS a challenge/interstitial page → rendered preview returned."""
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    try:
+        result = run(
+            lambda _req: httpx.Response(200, html="<title>Just a moment...</title>"),
+            "https://public.example/x",
+        )
+    finally:
+        get_settings.cache_clear()
+    assert result["title"] == "Rendered Title"
+    assert fake_render.last_url == "https://public.example/x"

@@ -504,3 +504,10 @@ class TestVerifyMediaSemantics:
         out = await MA.verify_media_semantics(b"img", "a cat")
         assert out["match"] is True
         assert "qa error" in out["reason"]
+
+
+@pytest.mark.asyncio
+async def test_non_media_skipped():
+    """Neither image nor video (e.g. PDF) → logged and returned, no vision call."""
+    asset = _asset_obj(mime_type="application/pdf")
+    await MA.auto_tag_asset(asset.id, session_factory=lambda: _DB(asset))

@@ -258,3 +258,121 @@ async def test_uploads(tmp_path):
         call = fake.calls[6]
         assert call["data"]["caption"] == "cap"
         assert call["data"]["as_video"] == "true"
+
+
+def test_is_rate_limit_error_status_and_detail():
+    assert IP._is_rate_limit_error(429, "") is True
+    assert IP._is_rate_limit_error(400, "clientThrottled") is True
+    assert IP._is_rate_limit_error(400, "please_wait a few minutes") is True
+    assert IP._is_rate_limit_error(400, "rate limit exceeded") is True
+    assert IP._is_rate_limit_error(400, "bad request") is False
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_rate_limit_then_success(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr(IP.asyncio, "sleep", lambda s: sleeps.append(s) or _aw())
+
+    async def _aw():
+        return None
+
+    attempts = 0
+
+    async def flaky():
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise IP.InstagramPrivateAPIError(429, "rate limit")
+        return "ok"
+
+    assert await IP._call_with_retry(flaky, base_delay=0.01) == "ok"
+    assert attempts == 2 and len(sleeps) == 1
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_exhausts_on_rate_limit(monkeypatch):
+    monkeypatch.setattr(IP.asyncio, "sleep", lambda s: _none())
+
+    async def _none():
+        return None
+
+    async def always_limited():
+        raise IP.InstagramPrivateAPIError(429, "too many requests")
+
+    with pytest.raises(IP.InstagramPrivateAPIError):
+        await IP._call_with_retry(always_limited, max_attempts=3, base_delay=0.01)
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_non_rate_limit_raises_immediately():
+    calls = 0
+
+    async def boom():
+        nonlocal calls
+        calls += 1
+        raise IP.InstagramPrivateAPIError(400, "bad request")
+
+    with pytest.raises(IP.InstagramPrivateAPIError):
+        await IP._call_with_retry(boom, max_attempts=5)
+    assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_http_429_paths(monkeypatch):
+    sleeps = []
+
+    async def _s(s):
+        sleeps.append(s)
+
+    monkeypatch.setattr(IP.asyncio, "sleep", _s)
+
+    def _status_err(code):
+        req = IP.httpx.Request("GET", "http://side/x")
+        resp = IP.httpx.Response(code, request=req)
+        return IP.httpx.HTTPStatusError("e", request=req, response=resp)
+
+    # 429 → retried, then succeeds
+    n = 0
+
+    async def flaky():
+        nonlocal n
+        n += 1
+        if n == 1:
+            raise _status_err(429)
+        return "ok"
+
+    assert await IP._call_with_retry(flaky, base_delay=0.01) == "ok"
+    assert n == 2
+
+    # non-429 → raised immediately
+    async def boom500():
+        raise _status_err(500)
+
+    with pytest.raises(IP.httpx.HTTPStatusError):
+        await IP._call_with_retry(boom500, max_attempts=5)
+
+    # persistent 429 → last error raised after exhaustion
+    async def always():
+        raise _status_err(429)
+
+    with pytest.raises(IP.httpx.HTTPStatusError):
+        await IP._call_with_retry(always, max_attempts=3, base_delay=0.01)
+
+
+@pytest.mark.asyncio
+async def test_call_with_retry_zero_attempts():
+    async def never():
+        pytest.fail("must not be called")
+
+    with pytest.raises(RuntimeError, match="exhausted retries"):
+        await IP._call_with_retry(never, max_attempts=0)
+
+
+@pytest.mark.asyncio
+async def test_login_non_error_non_200_returns_empty(monkeypatch):
+    """A 3xx login response skips both success and raise paths → {}."""
+    c = _client()
+    resp = _Resp(status=302, body={"detail": "redirect"})
+    with _wire(resp)[0]:
+        out = await c.login("u", "p")
+    assert out == {}

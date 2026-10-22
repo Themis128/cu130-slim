@@ -405,3 +405,25 @@ async def test_emoji_batch_without_team_skips_quota(monkeypatch):
     out = await ai.generate_emoji_batch(_REQ, EmojiBatchRequest(concepts=["one"]), uuid.uuid4(), current_user=_user(), db=_DB(team=None))
     ai.check_quota.assert_not_awaited()
     assert out.emojis == [{"concept": "one", "image_base64": "A", "success": True, "provider": "cloudflare", "quality_check": None}]
+
+
+@pytest.mark.asyncio
+async def test_schedule_chroma_index_drops_write_when_capped():
+    """A full pending set → the new coroutine is closed, never scheduled."""
+    import asyncio as _aio
+
+    async def _park():
+        await _aio.sleep(60)
+
+    parked = [_aio.ensure_future(_park()) for _ in range(2)]
+    try:
+        ai._PENDING_INDEX_TASKS.clear()
+        ai._PENDING_INDEX_TASKS.update(parked)
+        doomed = _park()
+        ai._schedule_chroma_index(doomed)
+        assert doomed.cr_frame is None  # closed, never started
+        assert len(ai._PENDING_INDEX_TASKS) == 2
+    finally:
+        for t in parked:
+            t.cancel()
+        ai._PENDING_INDEX_TASKS.clear()

@@ -150,3 +150,20 @@ async def test_cover_uses_today_when_date_omitted(monkeypatch):
             newsletter_api.NewsletterCoverRequest(title="x"), _request()
         )
     assert seen["issue_date"] == sentinel
+
+
+@pytest.mark.asyncio
+async def test_cover_spellcheck_failure_uses_raw_title(monkeypatch):
+    """auto_correct blowing up must never block the cover — raw title wins."""
+    import app.services.spellcheck as SC
+
+    async def _boom(_text):
+        raise RuntimeError("languagetool down")
+
+    monkeypatch.setattr(SC, "auto_correct", _boom)
+    with _patched_settings():
+        resp = await newsletter_api.newsletter_cover(
+            newsletter_api.NewsletterCoverRequest(title="Raw Title"),
+            _request(),
+        )
+    assert resp.status_code == 200

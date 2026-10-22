@@ -410,3 +410,12 @@ class TestBrandedRenderer:
         c = _campaign(text_body="Hello {{first_name}}")
         _text, html = S.build_bodies(c, _recipient(), "https://u/x")
         assert html is not None and "cloudless<span" in html
+
+
+def test_parse_cta_line_valid():
+    from app.services.email_brand import _parse_cta_line
+
+    assert _parse_cta_line("CTA: Book a call | https://cloudless.gr/contact") == (
+        "Book a call",
+        "https://cloudless.gr/contact",
+    )

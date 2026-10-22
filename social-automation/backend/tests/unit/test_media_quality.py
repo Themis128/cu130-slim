@@ -600,3 +600,36 @@ class TestMediaQualityGibberish:
         result = await apply_media_quality(prompt="a red apple")
         spy.assert_not_awaited()
         assert result.gibberish_tokens == []
+
+
+class TestErrorPaths:
+    @pytest.mark.asyncio
+    async def test_spellcheck_outer_failure_swallowed(
+        self, monkeypatch, mock_nlp, mock_seo
+    ):
+        """correct_tags raising inside the task map → whole spellcheck block
+        is skipped non-fatally, pipeline continues."""
+        monkeypatch.setattr(
+            "app.services.media_quality.correct_text", _fake_correct_text
+        )
+
+        def _boom_tags(tags, language="en-US"):
+            raise RuntimeError("tags service down")
+
+        monkeypatch.setattr(
+            "app.services.media_quality.correct_tags", _boom_tags
+        )
+        result = await apply_media_quality(tags=["a"], caption="cap")
+        assert result.spellcheck_applied is False
+
+    @pytest.mark.asyncio
+    async def test_gibberish_gather_failure_swallowed(
+        self, monkeypatch, mock_spellcheck, mock_nlp, mock_seo
+    ):
+        """detect_gibberish returning a non-awaitable breaks gather →
+        flagged as warning, result still returned."""
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish", lambda t: "x"
+        )
+        result = await apply_media_quality(caption="some caption text")
+        assert result.gibberish_tokens == []

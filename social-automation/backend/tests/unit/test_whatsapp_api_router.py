@@ -1292,3 +1292,132 @@ async def test_account_phone_endpoints_502(monkeypatch):
     with pytest.raises(HTTPException) as e:
         await register_account_phone(acc.id, "123456", _user(), _DB([acc]))
     assert e.value.status_code == 502
+
+
+# ── Flow promotion (_maybe_promote_flow) ─────────────────────────────
+
+
+def _promo_account(**over):
+    meta = {
+        "access_token": "EAAtoken123",
+        "waba_id": "w1",
+        "phone_number_id": "pn",
+        "whatsapp_auto_reply": {
+            "enabled": True,
+            "flow_promotion": {
+                "enabled": True,
+                "intents": {"greeting": "flow-9"},
+                "resend_after_days": 7,
+                "body_text": "Open the form",
+                "cta": "Go",
+            },
+        },
+    }
+    meta.update(over)
+    return _wa_account(meta_data=meta)
+
+
+def _chatbot_mod_with_redis(redis_result=None, raise_=False):
+    mod = ModuleType("app.services.whatsapp_chatbot")
+    if raise_:
+        mod._get_redis = AsyncMock(side_effect=RuntimeError("redis down"))
+    else:
+        mod._get_redis = AsyncMock(return_value=redis_result)
+    mod.process_inbound_message = AsyncMock(
+        return_value={"reply": "auto answer", "intent": "greeting"}
+    )
+    return mod
+
+
+def _flows_mod(sent):
+    mod = ModuleType("app.services.whatsapp_flows")
+
+    class _FC:
+        def __init__(self, **kw):
+            self.kw = kw
+
+        async def send_flow(self, **kw):
+            sent.append({"init": self.kw, "send": kw})
+
+    mod.WhatsAppFlowsClient = _FC
+    return mod
+
+
+@pytest.mark.asyncio
+async def test_promote_flow_disabled_and_unmapped_intent(monkeypatch):
+    f = whatsapp._maybe_promote_flow
+    # promotion not enabled → exits before any Redis/Graph work
+    acc = _promo_account()
+    acc.meta_data["whatsapp_auto_reply"]["flow_promotion"]["enabled"] = False
+    await f(acc, "+30", "greeting")
+    # enabled but intent not in the map → exits
+    await f(_promo_account(), "+30", "billing")
+
+
+@pytest.mark.asyncio
+async def test_promote_flow_dedup_marker_skips_resend(monkeypatch):
+    r = SimpleNamespace(get=AsyncMock(return_value="1"), setex=AsyncMock())
+    sent = []
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(r))
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
+    await whatsapp._maybe_promote_flow(_promo_account(), "+30", "greeting")
+    r.get.assert_awaited_once()
+    assert sent == [] and r.setex.await_count == 0
+
+
+@pytest.mark.asyncio
+async def test_promote_flow_no_redis_fails_closed(monkeypatch):
+    sent = []
+    monkeypatch.setitem(
+        sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(raise_=True)
+    )
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
+    await whatsapp._maybe_promote_flow(_promo_account(), "+30", "greeting")
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_promote_flow_sends_and_marks(monkeypatch):
+    r = SimpleNamespace(get=AsyncMock(return_value=None), setex=AsyncMock())
+    sent = []
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(r))
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
+    acc = _promo_account()
+    await whatsapp._maybe_promote_flow(acc, "+30691", "greeting")
+    assert len(sent) == 1
+    call = sent[0]
+    assert call["init"]["waba_id"] == "w1" and call["init"]["phone_number_id"] == "pn"
+    assert call["send"]["to"] == "+30691" and call["send"]["flow_id"] == "flow-9"
+    assert call["send"]["flow_token"].startswith("promo:")
+    assert call["send"]["body_text"] == "Open the form" and call["send"]["flow_cta"] == "Go"
+    marker = f"wa:flow_sent:{acc.id}:+30691:flow-9"
+    r.setex.assert_awaited_once_with(marker, 7 * 86400, "1")
+
+
+@pytest.mark.asyncio
+async def test_promote_flow_decrypts_non_ea_token(monkeypatch):
+    r = SimpleNamespace(get=AsyncMock(return_value=None), setex=AsyncMock())
+    sent = []
+    calls = []
+    monkeypatch.setattr(whatsapp, "decrypt_token", lambda t: calls.append(t) or "EAdecrypted")
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(r))
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
+    acc = _promo_account(access_token="gAAAAenc")
+    await whatsapp._maybe_promote_flow(acc, "+30", "greeting")
+    assert calls == ["gAAAAenc"]
+    assert sent[0]["init"]["access_token"] == "EAdecrypted"
+
+
+@pytest.mark.asyncio
+async def test_process_inline_swallows_promotion_error(monkeypatch):
+    """A broken flow_promotion config logs+skips — the auto-reply still lands."""
+    acc = _wa_account(meta_data={
+        "phone_number_id": "pn", "access_token": "EAa",
+        "whatsapp_auto_reply": {"enabled": True, "flow_promotion": "bad-config"},
+    })
+    db = _DB([acc])
+    client = _patch_client(monkeypatch)
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis())
+    await _process_inline(db, "pn", "+30", "A", "hi", "text", "m1")
+    client.send_text.assert_awaited_once()
+    assert db.committed == 2
