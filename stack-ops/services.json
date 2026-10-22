@@ -17,9 +17,9 @@
     "env-manager-backend":      {"target": "env-manager-backend:8081",      "idle_min": 45},
     "linkedin-mcp-server":      {"target": "linkedin-mcp-server:9227",      "idle_min": 45},
     "airbyte-mcp-server":       {"target": "airbyte-mcp-server:9228",       "idle_min": 45},
-    "browser-novnc-ui":         {"container": "browser-novnc",              "target": "browser-novnc:6080", "idle_min": 20, "wait_page": true},
-    "browser-novnc-ui2":        {"container": "browser-novnc",              "target": "browser-novnc:6081", "idle_min": 20},
-    "browser-novnc-vnc":        {"container": "browser-novnc",              "target": "browser-novnc:5900", "idle_min": 20},
+    "browser-novnc-ui":         {"container": "browser-novnc", "service": "browser-novnc", "target": "browser-novnc:6080", "idle_min": 20, "wait_page": true},
+    "browser-novnc-ui2":        {"container": "browser-novnc", "service": "browser-novnc", "target": "browser-novnc:6081", "idle_min": 20},
+    "browser-novnc-vnc":        {"container": "browser-novnc", "service": "browser-novnc", "target": "browser-novnc:5900", "idle_min": 20},
     "comfyui":                  {"container": "social-media-comfyui-gpu",   "target": "social-media-comfyui-gpu:8000", "idle_min": 30, "wait_page": true, "upstream_wait_s": 420}
   },
   "listeners": {
