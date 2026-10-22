@@ -41,6 +41,9 @@ CONN_STREAK = int(os.environ.get("STACK_OPS_CONN_STREAK", "4"))
 # A hung docker CLI (engine dead, socket relay wedged) must not stall the
 # sleeper or a proxied connection forever — cap every docker invocation.
 DOCKER_CMD_TIMEOUT = int(os.environ.get("STACK_OPS_DOCKER_TIMEOUT", "30"))
+# Host-side repo path — compose resolves relative bind-mount sources
+# against --project-directory and the daemon reads them on the host fs.
+COMPOSE_HOST_DIR = os.environ.get("STACK_OPS_HOST_DIR", "")
 
 CONF = json.loads((Path(__file__).parent / "services.json").read_text())
 # name -> {"target": host:port, "idle_min": int, "wait_page": bool, "group": [names]}
@@ -165,7 +168,10 @@ async def wake(name: str) -> bool:
     """
     svc = SERVICES.get(name, {})
     docker_name = resolve_container(name)
-    # Use docker-compose service name for compose commands (may differ from container name)
+    # Compose service name — aliases (browser-novnc-ui/vnc) declare an
+    # explicit "service" key; canonical entries default to their key,
+    # which equals the compose service name (container_name may differ,
+    # e.g. comfyui -> social-media-comfyui-gpu).
     compose_service = svc.get("service", name)
     for dep in svc.get("group", []):
         await wake(dep)
@@ -189,9 +195,16 @@ async def wake(name: str) -> bool:
             --no-deps: sleeper dependencies live in `group`, not depends_on."""
             log.info("recreating %s via compose up -d %s",
                      docker_name, compose_service)
+            # --project-directory must be the HOST repo path: compose
+            # resolves relative bind-mount sources against it and the
+            # daemon interprets the result on the host filesystem.
+            args = ["compose", "-p", "cu130-slim",
+                    "-f", "/app/docker-compose.yml",
+                    "--env-file", "/app/.env"]
+            if COMPOSE_HOST_DIR:
+                args += ["--project-directory", COMPOSE_HOST_DIR]
             rc, out = await docker(
-                "compose", "-p", "cu130-slim", "-f", "/app/docker-compose.yml",
-                "up", "-d", "--no-deps", compose_service)
+                *args, "up", "-d", "--no-deps", compose_service)
             if rc != 0:
                 log.error("compose up -d %s failed: %s", compose_service, out)
             return rc == 0
