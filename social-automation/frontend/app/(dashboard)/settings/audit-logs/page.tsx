@@ -93,7 +93,7 @@ export default function AuditLogsPage() {
                     </div>
                     {e.detail && <p className="text-xs text-muted-foreground mt-0.5 truncate">{e.detail}</p>}
                   </div>
-                  <span className="text-xs text-muted-foreground flex-shrink-0">{new Date(e.created_at).toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{new Date(e.created_at).toLocaleString()}</span>
                 </div>
               ))}
             </div>

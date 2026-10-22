@@ -277,7 +277,7 @@ export default function DashboardPage() {
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div
-                          className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 text-white text-xs font-bold"
+                          className="h-8 w-8 rounded-full flex items-center justify-center shrink-0 text-white text-xs font-bold"
                           style={{ backgroundColor: platformColor }}
                         >
                           {(post.platform?.[0] ?? '?').toUpperCase()}

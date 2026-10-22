@@ -95,7 +95,7 @@ export default function BrandMonitoringPage() {
                       {m.url && <a href={m.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">View</a>}
                     </div>
                   </div>
-                  <div className="flex-shrink-0">{sentimentIcon(m.sentiment)}</div>
+                  <div className="shrink-0">{sentimentIcon(m.sentiment)}</div>
                 </div>
               </CardContent>
             </Card>

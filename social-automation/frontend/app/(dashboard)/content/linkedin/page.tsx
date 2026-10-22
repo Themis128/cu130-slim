@@ -51,7 +51,7 @@ function LinkedInPreview({ content, accountName }: { content: string; accountNam
   const display = truncated && !expanded ? content.slice(0, 250) + '...' : content
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden text-[13px] max-w-xl">
+    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-xs overflow-hidden text-[13px] max-w-xl">
       <div className="p-4">
         <div className="flex items-start gap-3 mb-3">
           <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 text-blue-600 flex items-center justify-center text-xs font-bold">

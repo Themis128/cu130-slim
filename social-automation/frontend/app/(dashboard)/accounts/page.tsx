@@ -130,7 +130,7 @@ const platforms: PlatformSetup[] = [
     id: 'instagram',
     name: 'Instagram',
     icon: Instagram,
-    color: 'bg-gradient-to-br from-purple-500 to-pink-500',
+    color: 'bg-linear-to-br from-purple-500 to-pink-500',
     textColor: 'text-pink-500',
     description: 'Visual content and Reels',
     devPortalUrl: 'https://developers.facebook.com/apps',
@@ -359,7 +359,7 @@ function CopyButton({ text }: { text: string }) {
   return (
     <button
       onClick={handleCopy}
-      className="ml-2 p-1 rounded hover:bg-muted transition-colors flex-shrink-0"
+      className="ml-2 p-1 rounded hover:bg-muted transition-colors shrink-0"
       title="Copy"
     >
       {copied ? (
@@ -416,7 +416,7 @@ function SetupGuideCard({ platform }: { platform: PlatformSetup }) {
           <ol className="space-y-4">
             {platform.steps.map((step, i) => (
               <li key={i} className="flex gap-3">
-                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center mt-0.5">
+                <span className="shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-semibold flex items-center justify-center mt-0.5">
                   {i + 1}
                 </span>
                 <div className="flex-1 space-y-1.5">
@@ -437,7 +437,7 @@ function SetupGuideCard({ platform }: { platform: PlatformSetup }) {
 
           {platform.troubleshooting && (
             <div className="mt-4 flex gap-2 rounded border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800/60 p-3 text-xs text-amber-800 dark:text-amber-200">
-              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <p className="leading-relaxed">{platform.troubleshooting}</p>
             </div>
           )}
@@ -616,10 +616,10 @@ export default function AccountsPage() {
         }`}>
           <div className="flex items-center gap-3 flex-wrap">
             {expiredCount > 0
-              ? <ShieldX className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0" />
+              ? <ShieldX className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0" />
               : expiringSoonCount > 0
-                ? <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                : <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                ? <ShieldAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
+                : <ShieldCheck className="h-5 w-5 text-green-600 dark:text-green-400 shrink-0" />
             }
             <div className="flex-1 min-w-0">
               <p className={`font-semibold text-sm ${
@@ -717,13 +717,13 @@ export default function AccountsPage() {
                       <>
                         {status.expired && (
                           <div className="mb-3 flex items-center gap-1.5 text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-950/30 rounded px-2 py-1.5">
-                            <ShieldX className="h-3 w-3 flex-shrink-0" />
+                            <ShieldX className="h-3 w-3 shrink-0" />
                             Token expired — reconnect to continue posting
                           </div>
                         )}
                         {status.expiringSoon && !status.expired && (
                           <div className="mb-3 flex items-center gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded px-2 py-1.5">
-                            <Clock className="h-3 w-3 flex-shrink-0" />
+                            <Clock className="h-3 w-3 shrink-0" />
                             Token expires in {status.daysLeft} day{status.daysLeft !== 1 ? 's' : ''} — reconnect soon
                           </div>
                         )}
@@ -946,7 +946,7 @@ export default function AccountsPage() {
                                   href={`/content/${post.id}/edit`}
                                   className="flex items-center gap-2 rounded px-2 py-1.5 hover:bg-muted/60 transition-colors group"
                                 >
-                                  <span className="text-[10px] tabular-nums text-muted-foreground w-[52px] flex-shrink-0">
+                                  <span className="text-[10px] tabular-nums text-muted-foreground w-[52px] shrink-0">
                                     {post.scheduled_at
                                       ? new Date(post.scheduled_at).toLocaleString('en-GB', { timeZone: 'Europe/Athens', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
                                       : '—'}
@@ -1194,7 +1194,7 @@ export default function AccountsPage() {
           <Card className="bg-primary/5 border-primary/20">
             <CardContent className="py-4">
               <div className="flex gap-4">
-                <div className="flex-shrink-0 space-y-2 text-sm">
+                <div className="shrink-0 space-y-2 text-sm">
                   <p className="font-semibold text-primary">How credential setup works</p>
                   <ol className="space-y-1 text-muted-foreground list-decimal list-inside">
                     <li>Create a developer app on the platform's portal (see guide per platform below)</li>
@@ -1232,7 +1232,7 @@ export default function AccountsPage() {
                     Login with <code className="font-mono text-xs bg-muted px-1 rounded">admin / admin</code>.
                   </p>
                 </div>
-                <Button asChild className="flex-shrink-0">
+                <Button asChild className="shrink-0">
                   <a href="http://localhost:8080" target="_blank" rel="noopener noreferrer">
                     <Settings2 className="mr-2 h-4 w-4" />
                     Open Env Manager

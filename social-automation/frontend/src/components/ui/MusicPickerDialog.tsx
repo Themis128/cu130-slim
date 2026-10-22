@@ -108,7 +108,7 @@ export function MusicPickerDialog({
                     key={asset.id}
                     type="button"
                     onClick={() => setSelectedId(asset.id)}
-                    className={`flex items-center gap-3 w-full rounded-lg border-2 p-3 transition-all text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    className={`flex items-center gap-3 w-full rounded-lg border-2 p-3 transition-all text-left focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${
                       isSelected
                         ? 'border-primary ring-2 ring-primary/30 bg-primary/5'
                         : 'border-transparent hover:border-muted-foreground/30 hover:bg-muted/30'

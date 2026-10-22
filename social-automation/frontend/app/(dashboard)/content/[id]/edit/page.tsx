@@ -372,7 +372,7 @@ export default function EditPostPage() {
               <div className="mt-3 flex gap-3 rounded-lg border bg-muted/30 p-3">
                 {linkPreview.image && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={linkPreview.image} alt="" className="h-20 w-32 rounded object-cover flex-shrink-0" />
+                  <img src={linkPreview.image} alt="" className="h-20 w-32 rounded object-cover shrink-0" />
                 )}
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{linkPreview.title || linkPreview.url}</p>
@@ -606,7 +606,7 @@ export default function EditPostPage() {
             <CardContent>
               <div className="flex flex-col sm:flex-row gap-6 items-center">
                 {/* Score ring */}
-                <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                <div className="flex flex-col items-center gap-2 shrink-0">
                   <div className="relative">
                     <svg width={104} height={104} className="-rotate-90">
                       <circle cx={52} cy={52} r={circR} fill="none" stroke="currentColor" strokeWidth={8} className="text-muted/20" />

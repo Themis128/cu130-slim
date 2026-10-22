@@ -110,7 +110,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className={cn(
             'fixed left-[50%] top-[20%] z-50 w-full max-w-xl translate-x-[-50%] rounded-xl border bg-background shadow-2xl',
@@ -127,10 +127,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
           {/* Search input */}
           <div className="flex items-center gap-3 border-b px-4 py-3">
-            <Search className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+            <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
             <input
               ref={inputRef}
-              className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              className="flex-1 bg-transparent text-sm outline-hidden placeholder:text-muted-foreground"
               placeholder="Search pages, actions..."
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -169,7 +169,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                         onMouseEnter={() => setActiveIndex(idx)}
                         onClick={item.action}
                       >
-                        <item.icon className="h-4 w-4 flex-shrink-0" />
+                        <item.icon className="h-4 w-4 shrink-0" />
                         <span className="flex-1">{item.label}</span>
                         {isActive && <ArrowRight className="h-3.5 w-3.5 opacity-60" />}
                       </button>

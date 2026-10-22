@@ -167,7 +167,7 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
       </Button>
       <button
         type="button"
-        className="min-w-[3.25rem] rounded px-1 text-center text-xs tabular-nums text-white/90 hover:bg-white/10"
+        className="min-w-13 rounded px-1 text-center text-xs tabular-nums text-white/90 hover:bg-white/10"
         title="Reset to fit (0)"
         onClick={(e) => { e.stopPropagation(); fitToScreen() }}
       >
@@ -214,7 +214,7 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/90 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
-          className="fixed inset-0 z-50 flex flex-col focus:outline-none"
+          className="fixed inset-0 z-50 flex flex-col focus:outline-hidden"
           aria-describedby={undefined}
         >
           <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-black/70 px-4 py-2">
@@ -302,7 +302,7 @@ export function ImageViewerDialog({ open, onOpenChange, item }: ImageViewerDialo
             {canZoom && (
               <div
                 data-zoom-toolbar
-                className="pointer-events-auto absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-white/20 bg-black/75 px-2 py-1 shadow-lg backdrop-blur-sm"
+                className="pointer-events-auto absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-0.5 rounded-full border border-white/20 bg-black/75 px-2 py-1 shadow-lg backdrop-blur-xs"
                 onPointerDown={(e) => e.stopPropagation()}
               >
                 {ZoomControls}

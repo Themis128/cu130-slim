@@ -6,7 +6,7 @@ export function CTASection() {
   return (
     <section className="bg-background py-20">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-primary to-primary/70 px-6 py-16 text-center shadow-xl">
+        <div className="relative overflow-hidden rounded-2xl bg-linear-to-br from-primary to-primary/70 px-6 py-16 text-center shadow-xl">
           <div
             aria-hidden="true"
             className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-white/10 blur-2xl"

@@ -227,7 +227,7 @@ export function PageProfileEditor({ accountId, accountName }: PageProfileEditorP
         {!hasManage && (
           <div className="rounded-lg border border-amber-300/60 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800/60 p-3 space-y-2">
             <div className="flex items-start gap-2 text-xs text-amber-800 dark:text-amber-200">
-              <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
               <div>
                 <p className="font-semibold">MANAGE task required</p>
                 <p className="mt-0.5">

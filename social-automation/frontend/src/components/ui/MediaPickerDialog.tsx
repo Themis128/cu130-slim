@@ -104,7 +104,7 @@ export function MediaPickerDialog({
                     key={asset.id}
                     type="button"
                     onClick={() => toggle(asset.id)}
-                    className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+                    className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring ${
                       isSelected
                         ? 'border-primary ring-2 ring-primary/30'
                         : 'border-transparent hover:border-muted-foreground/30'
@@ -133,7 +133,7 @@ export function MediaPickerDialog({
                     )}
                     {(asset.source === 'ai-generated' || asset.source?.startsWith('n8n')) && (
                       <div className="absolute top-1 right-1">
-                        <Sparkles className="h-3 w-3 text-white drop-shadow" />
+                        <Sparkles className="h-3 w-3 text-white drop-shadow-sm" />
                       </div>
                     )}
                   </button>

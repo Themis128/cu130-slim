@@ -32,7 +32,7 @@ export function AdvisorCard() {
   return (
     <div
       className={cn(
-        'fixed bottom-6 right-6 z-[9980] w-72 bg-popover border border-border rounded-xl shadow-2xl overflow-hidden',
+        'fixed bottom-6 right-6 z-9980 w-72 bg-popover border border-border rounded-xl shadow-2xl overflow-hidden',
         'transition-all duration-300',
         visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
       )}
@@ -41,19 +41,19 @@ export function AdvisorCard() {
       aria-label="Smart suggestion"
     >
       {/* Accent strip */}
-      <div className="h-0.5 bg-gradient-to-r from-primary via-primary/60 to-transparent" />
+      <div className="h-0.5 bg-linear-to-r from-primary via-primary/60 to-transparent" />
 
       <div className="p-4">
         {/* Header row */}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-lg flex-shrink-0" aria-hidden="true">{suggestion.icon}</span>
+            <span className="text-lg shrink-0" aria-hidden="true">{suggestion.icon}</span>
             <p className="font-semibold text-sm leading-tight">{suggestion.title}</p>
           </div>
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-muted-foreground hover:text-foreground flex-shrink-0 -mt-0.5 -mr-1"
+            className="h-6 w-6 text-muted-foreground hover:text-foreground shrink-0 -mt-0.5 -mr-1"
             onClick={dismiss}
             aria-label="Dismiss suggestion"
           >

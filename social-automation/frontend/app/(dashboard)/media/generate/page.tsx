@@ -148,7 +148,7 @@ const CONFERENCE_TEMPLATES: ConferenceTemplate[] = [
     id: 'countdown',
     label: 'Countdown Post',
     category: 'Promotion',
-    prompt: 'Abstract dynamic countdown clock visual with glowing numbers, motion blur trails of light, dark background with colorful accent streaks, excitement and urgency feeling',
+    prompt: 'Abstract dynamic countdown clock visual with glowing numbers, motion blur-sm trails of light, dark background with colorful accent streaks, excitement and urgency feeling',
     style: 'dark',
     aspectRatio: '1:1',
     description: '"X days until" countdown visual',

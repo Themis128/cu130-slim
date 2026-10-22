@@ -145,7 +145,7 @@ export function WeekCalendar({ posts }: WeekCalendarProps) {
                         {platforms.length > 0 && ` · ${platforms.join(', ')}`}
                       </p>
                     </div>
-                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-0.5" />
+                    <ChevronRight className="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5" />
                   </Link>
                 )
               })}

@@ -500,10 +500,10 @@ export default function CalendarPage() {
                         >
                           {isSel && <span className="text-primary">✓</span>}
                           {firstPlatform && colorMode === 'status' && (
-                            <span className={cn('w-1.5 h-1.5 rounded-full flex-shrink-0', PLATFORM_COLORS[firstPlatform] ?? 'bg-gray-400')} />
+                            <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', PLATFORM_COLORS[firstPlatform] ?? 'bg-gray-400')} />
                           )}
                           <span className="truncate flex-1">{post.content_text?.slice(0, 22) ?? '—'}</span>
-                          {time && <span className="flex-shrink-0 opacity-60">{time}</span>}
+                          {time && <span className="shrink-0 opacity-60">{time}</span>}
                         </div>
                       )
                     })}
@@ -520,7 +520,7 @@ export default function CalendarPage() {
                     onClick={e => e.stopPropagation()}
                     className="absolute bottom-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground hover:scale-110 transition-transform shadow-sm">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground hover:scale-110 transition-transform shadow-xs">
                       <Plus className="h-3 w-3" />
                     </span>
                   </Link>
@@ -584,12 +584,12 @@ export default function CalendarPage() {
                       className="flex items-start gap-3 px-4 py-3 hover:bg-muted/30 transition-colors group"
                     >
                       {/* Time column */}
-                      <div className="w-12 flex-shrink-0 text-right">
+                      <div className="w-12 shrink-0 text-right">
                         <span className="text-xs font-mono text-muted-foreground">{time}</span>
                       </div>
 
                       {/* Status dot */}
-                      <div className="mt-1 flex-shrink-0">
+                      <div className="mt-1 shrink-0">
                         <span className={cn('block h-2.5 w-2.5 rounded-full', STATUS_DOT[post.status] ?? 'bg-gray-400')} />
                       </div>
 
@@ -622,7 +622,7 @@ export default function CalendarPage() {
                         </div>
                       </div>
 
-                      <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 mt-1" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-1" />
                     </Link>
                   )
                 })}
