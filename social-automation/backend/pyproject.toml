@@ -28,7 +28,7 @@ dependencies = [
     "slowapi>=0.1.9",
     # Security: pin jaraco.context to fix path traversal via tar archives (GHSA)
     "jaraco.context>=6.1.0",
-    "Pillow>=10.4.0",
+    "Pillow>=13.0.0",
     # Extended image-format support for the media library viewer:
     # HEIC/HEIF (iPhone photos) and AVIF are re-encoded server-side by
     # /api/v1/media/view so every browser can display them.
