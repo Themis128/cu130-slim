@@ -266,6 +266,23 @@ async function _isLoggedIn(allowPickerDismiss) {
     return false;
   }
 
+  // Picker check BEFORE the cookie gate — when the session is fully
+  // downgraded there's no c_user, and short-circuiting here meant the
+  // picker never got dismissed (observed: publishes always "Not logged in").
+  try {
+    const bodyText = await page.innerText("body").catch(() => "");
+    if (
+      bodyText &&
+      (bodyText.includes("Continue as ") ||
+        bodyText.includes("Use another profile"))
+    ) {
+      if (allowPickerDismiss && (await handleProfilePicker())) {
+        return _isLoggedIn(false);
+      }
+      return false;
+    }
+  } catch (_) {}
+
   // Check for the c_user cookie — the primary authentication cookie.
   // Without it, no authenticated Graph/web request will work.
   let hasCUser = false;
@@ -279,18 +296,10 @@ async function _isLoggedIn(allowPickerDismiss) {
   } catch (_) {}
   if (!hasCUser) return false;
 
-  // Check page content for the profile picker text.
+  // Last content check: an explicit logged-out wall.
   try {
     const bodyText = await page.innerText("body").catch(() => "");
-    if (
-      bodyText &&
-      (bodyText.includes("Continue as ") ||
-        bodyText.includes("Use another profile") ||
-        bodyText.includes("Log in to Facebook"))
-    ) {
-      if (allowPickerDismiss && (await handleProfilePicker())) {
-        return _isLoggedIn(false);
-      }
+    if (bodyText && bodyText.includes("Log in to Facebook")) {
       return false;
     }
   } catch (_) {}
