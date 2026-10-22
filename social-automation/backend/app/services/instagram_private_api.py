@@ -22,8 +22,10 @@ API reference: https://subzeroid.github.io/aiograpi-rest/
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import random
 from typing import Any
 
 import httpx
@@ -35,6 +37,96 @@ DEFAULT_TIMEOUT = 60.0
 # Greek locale and timezone (UTC+3 = 10800 seconds) to reduce challenge risk.
 DEFAULT_LOCALE = "el_GR"
 DEFAULT_TIMEZONE = "10800"
+
+# Retry configuration for 429 rate-limit errors from aiograpi sidecar
+RETRY_BASE_DELAY = 2.0  # seconds
+RETRY_MAX_DELAY = 60.0  # seconds
+RETRY_MAX_ATTEMPTS = 5
+RETRY_JITTER_FACTOR = 0.5
+
+
+def _is_rate_limit_error(status_code: int, detail: str) -> bool:
+    """Check if an error is a rate-limit (429) error."""
+    if status_code == 429:
+        return True
+    detail_lower = detail.lower()
+    return any(
+        k in detail_lower
+        for k in (
+            "throttle",
+            "clientthrottled",
+            "please_wait",
+            "rate limit",
+            "too many requests",
+        )
+    )
+
+
+async def _call_with_retry(
+    func,
+    *args,
+    max_attempts: int = RETRY_MAX_ATTEMPTS,
+    base_delay: float = RETRY_BASE_DELAY,
+    max_delay: float = RETRY_MAX_DELAY,
+    **kwargs,
+) -> Any:
+    """Call an async function with exponential backoff and jitter for rate limits.
+
+    Args:
+        func: Async callable to execute.
+        max_attempts: Maximum number of retry attempts.
+        base_delay: Base delay in seconds for exponential backoff.
+        max_delay: Maximum delay cap in seconds.
+        **kwargs: Passed to func.
+
+    Returns:
+        Result of func on success.
+
+    Raises:
+        The last exception after all retries are exhausted.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return await func(*args, **kwargs)
+        except InstagramPrivateAPIError as exc:
+            if not _is_rate_limit_error(exc.status_code, exc.detail):
+                raise
+            if attempt == max_attempts - 1:
+                logger.error(
+                    "Instagram Private API rate-limited after %d attempts: %s",
+                    max_attempts,
+                    exc.detail,
+                )
+                raise
+            jitter = random.uniform(0, RETRY_JITTER_FACTOR)
+            delay = min(base_delay * (2 ** attempt) + jitter, max_delay)
+            logger.warning(
+                "Instagram Private API rate-limited (attempt %d/%d), backing off %.1fs: %s",
+                attempt + 1,
+                max_attempts,
+                delay,
+                exc.detail,
+            )
+            await asyncio.sleep(delay)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 429:
+                raise
+            if attempt == max_attempts - 1:
+                logger.error(
+                    "Instagram Private API HTTP 429 after %d attempts",
+                    max_attempts,
+                )
+                raise
+            jitter = random.uniform(0, RETRY_JITTER_FACTOR)
+            delay = min(base_delay * (2 ** attempt) + jitter, max_delay)
+            logger.warning(
+                "Instagram Private API HTTP 429 (attempt %d/%d), backing off %.1fs",
+                attempt + 1,
+                max_attempts,
+                delay,
+            )
+            await asyncio.sleep(delay)
+    raise RuntimeError("_call_with_retry exhausted retries")
 
 
 class InstagramPrivateAPIError(Exception):

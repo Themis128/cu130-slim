@@ -382,7 +382,72 @@ async function findTextInput(opts = {}) {
 }
 
 /**
- * Navigate to a URL, settle, dismiss dialogs, and verify login.
+ * Handle Facebook profile picker ("Continue as X" / "Use another profile").
+ * Returns true if picker was found and dismissed, false otherwise.
+ */
+async function handleProfilePicker() {
+  try {
+    // Check if we're on the profile picker page
+    const url = page.url();
+    if (!url.includes("crypted_string=")) return false;
+
+    console.log("Profile picker detected — attempting to select profile");
+
+    // Strategy 1: Click "Continue as [name]" button for the main profile
+    // The profile picker shows cards with "Continue as <Name>" buttons
+    const continueBtn = await findElement([
+      '[role="button"]:has-text("Continue as "):visible',
+      'button:has-text("Continue as "):visible',
+      'a[role="button"]:has-text("Continue as "):visible',
+    ], { timeout: 5000 });
+
+    if (continueBtn) {
+      await continueBtn.click();
+      await settle(10000);
+      console.log("Clicked Continue as button");
+      return true;
+    }
+
+    // Strategy 2: If "Use another profile" is shown, we might need to click it
+    // and then select from a list (this is more complex)
+    const useAnotherBtn = await findElement([
+      '[role="button"]:has-text("Use another profile"):visible',
+      'button:has-text("Use another profile"):visible',
+    ], { timeout: 3000 });
+
+    if (useAnotherBtn) {
+      console.log("Use another profile shown — cannot auto-select without profile name");
+      // Could implement profile selection logic here if needed
+      return false;
+    }
+
+    // Strategy 3: Look for profile cards and click the first one that's not "Use another profile"
+    const profileCards = await page.locator('[role="radio"], [data-testid*="profile"]').all();
+    for (const card of profileCards) {
+      const text = await card.innerText().catch(() => "");
+      if (text && !text.includes("Use another profile") && !text.includes("Log in to Facebook")) {
+        await card.click().catch(() => {});
+        await page.waitForTimeout(1000);
+        const submitBtn = await findElement([
+          '[role="button"]:has-text("Continue"):visible',
+          'button:has-text("Continue"):visible',
+        ], { timeout: 3000 });
+        if (submitBtn) {
+          await submitBtn.click();
+          await settle(10000);
+          console.log("Selected profile from picker");
+          return true;
+        }
+      }
+    }
+  } catch (e) {
+    console.log(`handleProfilePicker error: ${e.message}`);
+  }
+  return false;
+}
+
+/**
+ * Navigate to a URL, settle, dismiss dialogs, handle profile picker, and verify login.
  * Returns true if logged in, false otherwise.
  */
 async function navigateAndCheck(url) {
@@ -390,6 +455,7 @@ async function navigateAndCheck(url) {
   await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
   await settle();
   await closeDialogs();
+  await handleProfilePicker(); // Handle profile picker if it appears
   return await isLoggedIn();
 }
 
