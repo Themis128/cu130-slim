@@ -435,13 +435,24 @@ async function handleProfilePicker() {
       'a[role="button"]:has-text("Continue as "):visible',
     ], { timeout: 3000 });
 
-    // Strategy 1b: single-profile variant shows an exact "Continue" button
+    // Strategy 1b: single-profile variant shows a "Continue" button whose
+    // accessible name is "Continue <Name>" via aria-label — an exact-name
+    // match on "Continue" misses it. Match a Continue-prefixed accessible
+    // name, then fall back to exact inner text.
     if (!continueBtn) {
-      continueBtn = await page
-        .getByRole("button", { name: "Continue", exact: true })
-        .first()
-        .elementHandle({ timeout: 3000 })
-        .catch(() => null);
+      const byName = page.getByRole("button", { name: /^Continue\b/ }).first();
+      if (await byName.isVisible({ timeout: 3000 }).catch(() => false)) {
+        continueBtn = byName;
+      }
+    }
+    if (!continueBtn) {
+      const byText = page
+        .locator('div[role="button"]')
+        .filter({ hasText: /^Continue$/ })
+        .first();
+      if (await byText.isVisible({ timeout: 2000 }).catch(() => false)) {
+        continueBtn = byText;
+      }
     }
 
     if (continueBtn) {
