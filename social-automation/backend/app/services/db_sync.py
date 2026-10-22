@@ -394,18 +394,21 @@ class SyncService:
             # Schema-drift self-heal: a Postgres migration that adds a
             # column breaks every row upsert ("table X has no column Y")
             # until the D1 mirror grows it too — and the watermark then
-            # strands the failed rows. Grow the mirror up front.
+            # strands the failed rows. Grow the mirror up front. An empty
+            # PRAGMA means the table itself is missing — the PK check
+            # already refused that case; leave it to the upsert error.
             try:
                 d1_cols = {
                     c["name"]
                     for c in await d1_client.query_all(f"PRAGMA table_info({table})")
                 }
-                for col in columns:
-                    if col not in d1_cols:
-                        await d1_client.execute(
-                            f'ALTER TABLE {table} ADD COLUMN "{col}" TEXT'
-                        )
-                        logger.info("D1 %s: added missing column %s", table, col)
+                if d1_cols:
+                    for col in columns:
+                        if col not in d1_cols:
+                            await d1_client.execute(
+                                f'ALTER TABLE {table} ADD COLUMN "{col}" TEXT'
+                            )
+                            logger.info("D1 %s: added missing column %s", table, col)
             except Exception as exc:
                 logger.error("D1 column heal failed for %s: %s", table, exc)
                 stats["errors"] += 1
@@ -485,7 +488,24 @@ class SyncService:
             # Delete D1 rows whose PK vanished from Postgres
             if use_hash_diff and not self._d1_write_limit_hit:
                 deleted_keys: list[str] = []
-                for key in set(old_hashes) - set(new_hashes):
+                stale_keys = set(old_hashes) - set(new_hashes)
+                if reconcile:
+                    # The hash map only knows rows this sync wrote — rows
+                    # mirrored before the map existed are invisible to it.
+                    # On reconcile, diff live D1 PKs against Postgres.
+                    try:
+                        d1_pk_rows = await d1_client.query_all(
+                            f"SELECT {', '.join(pk_cols)} FROM {table}"
+                        )
+                        for d1row in d1_pk_rows:
+                            key = json.dumps([str(d1row.get(c)) for c in pk_cols])
+                            if key not in new_hashes:
+                                stale_keys.add(key)
+                    except Exception as exc:
+                        logger.error(
+                            "D1 PK reconcile read failed for %s: %s", table, exc
+                        )
+                for key in stale_keys:
                     try:
                         pk_vals = json.loads(key)
                     except (json.JSONDecodeError, TypeError):
@@ -513,7 +533,18 @@ class SyncService:
                 except Exception:
                     pass
 
-            await self._set_last_sync(table, r)
+            # Advance the watermark only when every changed row wrote
+            # cleanly — otherwise the failed rows' updated_at falls below
+            # it and the incremental select never retries them.
+            if stats["errors"] == 0:
+                await self._set_last_sync(table, r)
+            else:
+                logger.warning(
+                    "D1 sync for %s had %d errors — watermark held, "
+                    "failed rows retry next cycle",
+                    table,
+                    stats["errors"],
+                )
 
         finally:
             await engine.dispose()
