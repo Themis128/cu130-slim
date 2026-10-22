@@ -253,6 +253,11 @@ services:
       retries: 12
       start_period: 60s
     restart: unless-stopped
+    # Bound RAM/CPU — was the only uncapped service in the stack. A large
+    # generation job could push the 20GB WSL VM into OOM-killing siblings.
+    mem_limit: 8g
+    memswap_limit: 12g
+    cpus: '6'
   n8n:
     image: n8nio/n8n:2.43.4
     container_name: n8n
@@ -1495,6 +1500,8 @@ services:
     # Memory cap — Chromium tabs multiply silently; matches runtime docker update 2026-09-26.
     mem_limit: 2048m
     memswap_limit: 4096m
+    # CPU cap — shared multi-session bridge; a busy tab must not pin all cores.
+    cpus: '4'
 
   # ── TikTok Browser Automation sidecar (Playwright) ───────────────────────
   # RESTful HTTP wrapper around Playwright for TikTok profile settings that
@@ -1525,6 +1532,8 @@ services:
       start_period: 30s
     mem_limit: 1536m
     memswap_limit: 3072m
+    # CPU cap — automation browsers burst to a full core on page renders.
+    cpus: '2'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1568,6 +1577,9 @@ services:
     # headed (xvfb) Chromium needs real headroom on LinkedIn's Ember app.
     mem_limit: 6144m
     memswap_limit: 8192m
+    # CPU cap — heaviest renderer in the stack (Ember app); observed 71% of
+    # a core, so 3 gives burst headroom without letting it starve siblings.
+    cpus: '3'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1721,6 +1733,8 @@ services:
       start_period: 30s
     mem_limit: 1536m
     memswap_limit: 3072m
+    # CPU cap — automation browsers burst to a full core on page renders.
+    cpus: '2'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1759,6 +1773,8 @@ services:
       start_period: 10s
     mem_limit: 1024m
     memswap_limit: 2048m
+    # CPU cap — webhook processor is mostly idle; bound its DMR bursts.
+    cpus: '2'
     restart: unless-stopped
     <<: *public-dns
 
