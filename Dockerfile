@@ -29,10 +29,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 # (97687/97688/97689) — requests resolves 2.7.0 transitively, pin the floor.
 RUN pip install --no-cache-dir --upgrade pip "urllib3>=2.8.0"
 
-# ComfyUI source — cloned in the builder only for requirements.txt; the
-# runtime stage clones its own copy under /opt/ComfyUI.
-RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /tmp/comfy
-
 # Security-pinned versions addressing Trivy findings:
 # - starlette>=0.52.2 (CVE-2024-xxxx DoS/SSRF)
 # - setuptools>=78.1.1 (CVE-2025-47273 Path traversal in PackageIndex)
@@ -57,12 +53,20 @@ RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git /tmp/comfy
 RUN pip install --no-cache-dir --retries 50 --timeout 7200 \
     "torchvision==0.21.0+cu118" torchaudio --index-url https://download.pytorch.org/whl/cu118
 
+# ComfyUI source — cloned in the builder only for requirements.txt; the
+# runtime stage clones its own copy under /opt/ComfyUI. Pinned to a commit:
+# unpinned HEAD drifted past the comfy-kitchen pin (int8_decode import added
+# upstream only exists in comfy-kitchen >= 0.2.38) and broke the image.
+ARG COMFYUI_REF=1a82e6d01f395b43275c77acd289af1eb7090bb9
+RUN git init /tmp/comfy \
+    && git -C /tmp/comfy remote add origin https://github.com/comfyanonymous/ComfyUI.git \
+    && git -C /tmp/comfy fetch --depth 1 origin "$COMFYUI_REF" \
+    && git -C /tmp/comfy checkout FETCH_HEAD
+
 # Layer 2: ComfyUI requirements + comfy-kitchen patches
-RUN pip install --no-cache-dir --retries 10 --timeout 300 "comfy-kitchen==0.2.31" \
-    && SITE=/opt/venv/lib/python3.10/site-packages \
-    && sed -i '1i from typing import List' $SITE/comfy_kitchen/backends/eager/na.py \
-    && sed -i 's/kernel_size: list\[int\]/kernel_size: List[int]/g' $SITE/comfy_kitchen/backends/eager/na.py \
-    && sed -i 's/is_causal: list\[bool\]/is_causal: List[bool]/g' $SITE/comfy_kitchen/backends/eager/na.py \
+COPY comfyui/patch_comfy_kitchen.py /tmp/patch_comfy_kitchen.py
+RUN pip install --no-cache-dir --retries 10 --timeout 300 "comfy-kitchen==0.2.40" \
+    && python3 /tmp/patch_comfy_kitchen.py /opt/venv/lib/python3.10/site-packages \
     && grep -v "comfy-kitchen" /tmp/comfy/requirements.txt | grep -v "^torch$" | grep -v "^torchvision$" | grep -v "^torchaudio$" | pip install --no-cache-dir --retries 10 --timeout 300 -r /dev/stdin
 
 # Layer 3: Security-pinned extras — small, changes more often than torch
@@ -143,7 +147,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 # App code lives OUTSIDE the data mount so the mounted storage stays clean
 WORKDIR /opt/ComfyUI
-RUN git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git .
+ARG COMFYUI_REF=1a82e6d01f395b43275c77acd289af1eb7090bb9
+RUN git init . \
+    && git remote add origin https://github.com/comfyanonymous/ComfyUI.git \
+    && git fetch --depth 1 origin "$COMFYUI_REF" \
+    && git checkout FETCH_HEAD
 
 # Patch attention.py to handle missing int8_attention_is_available in older comfy_kitchen versions
 RUN sed -i 's/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = comfy_kitchen.int8_attention_is_available()/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = getattr(comfy_kitchen, "int8_attention_is_available", lambda: False)()/' /opt/ComfyUI/comfy/ldm/modules/attention.py
@@ -156,12 +164,11 @@ RUN sed -i 's/COMFY_KITCHEN_INT8_ATTENTION_IS_AVAILABLE = comfy_kitchen.int8_att
 RUN mkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input} \
     && rm -rf /opt/ComfyUI/custom_nodes /opt/ComfyUI/models /opt/ComfyUI/output /opt/ComfyUI/input
 
-# Create entrypoint script to setup symlinks at runtime.
-# Uses printf (not echo) so \n is reliably interpreted; exec replaces bash
-# with python3 so the process becomes PID 1 and receives SIGTERM correctly.
-# Also creates libcuda.so symlink for triton JIT compilation (WSL provides libcuda.so.1.1 only).
-RUN printf '#!/bin/bash\nset -e\n# Create libcuda.so symlink for triton JIT compilation\nfor d in /usr/lib/wsl/drivers/nvltsi.inf_amd64_*/; do\n  if [ -f "$d/libcuda.so.1.1" ] && [ ! -f "$d/libcuda.so" ]; then\n    ln -sf libcuda.so.1.1 "$d/libcuda.so"\n    echo "Created libcuda.so symlink in $d"\n  fi\ndone\nmkdir -p /home/user/ComfyUI/{custom_nodes,models,output,input}\nln -sfn /home/user/ComfyUI/models /opt/ComfyUI/models\nln -sfn /home/user/ComfyUI/output /opt/ComfyUI/output\nln -sfn /home/user/ComfyUI/input /opt/ComfyUI/input\nln -sfn /home/user/ComfyUI/custom_nodes /opt/ComfyUI/custom_nodes\n\nPROFILE=${COMFYUI_PROFILE:-sdxl}\nPROFILE_FILE="/opt/ComfyUI/profiles/${PROFILE}.txt"\nPROFILE_ARGS=""\nif [ -f "$PROFILE_FILE" ]; then\n  PROFILE_ARGS=$(grep -v "^#" "$PROFILE_FILE" | tr "\\n" " ")\nfi\n\nBASE_ARGS="--listen 0.0.0.0 --port 8000 --preview-method auto"\nexec python3 main.py $BASE_ARGS $PROFILE_ARGS ${CLI_ARGS:-}\n' > /entrypoint.sh \
-    && chmod +x /entrypoint.sh
+# Entrypoint: sets up data-mount symlinks at runtime and works around WSL's
+# lazy/read-only /usr/lib/wsl/drivers population for triton's -lcuda link.
+# exec replaces bash with python3 so the process becomes PID 1 (SIGTERM ok).
+COPY comfyui/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 EXPOSE 8000
 
