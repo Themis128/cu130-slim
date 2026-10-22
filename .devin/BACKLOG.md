@@ -162,8 +162,12 @@ proposals on `audit_logs` + Slack, nothing self-executes.
 - [x] **Workforce registration** — `failure-learner` + `voice-learner`
   added with full ABPM contracts (autonomy=review); 20 workers total.
 - [x] **Tests** — 56 new/updated; new modules at 100% coverage; ruff clean.
-- [ ] **Post-merge** — restart `celery-beat` + `social-worker-*` after PR
-  #822 merges (beat_schedule + new task modules).
+- [x] **Post-merge deploy** — PRs #822/#823/#824 all merged 2026-10-22;
+  `celery-beat` + `social-worker-default` restarted, both tasks registered
+  and routed to `default` queue. Live-verified: sweep artifacts in
+  `audit_logs` (`failure-learning`×2, `edit-diff`×2, `workforce-verdict`×20)
+  and 3 real demotion proposals emitted (email-drip, session-healer,
+  analytics-sync — all had recent failure verdicts).
 
 ## Resolved this session — 2026-10-22
 
