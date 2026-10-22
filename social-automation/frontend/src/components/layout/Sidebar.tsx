@@ -75,7 +75,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col h-screen flex-shrink-0 bg-card border-r transition-all duration-300 sticky top-0',
+        'flex flex-col h-screen shrink-0 bg-card border-r transition-all duration-300 sticky top-0',
         collapsed ? 'w-16' : 'w-64'
       )}
     >
@@ -115,7 +115,7 @@ export function Sidebar() {
               )}
               title={collapsed ? item.name : undefined}
             >
-              <item.icon className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+              <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
               {!collapsed && <span>{item.name}</span>}
             </Link>
           )

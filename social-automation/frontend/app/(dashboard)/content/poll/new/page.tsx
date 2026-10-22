@@ -256,7 +256,7 @@ export default function NewPollPage() {
             <div className="space-y-2">
               {options.filter(o => o.trim()).map((o, i) => (
                 <div key={i} className="flex items-center gap-3 rounded-lg border px-4 py-2.5">
-                  <div className="h-4 w-4 rounded-full border-2 border-primary flex-shrink-0" />
+                  <div className="h-4 w-4 rounded-full border-2 border-primary shrink-0" />
                   <span className="text-sm">{o}</span>
                 </div>
               ))}

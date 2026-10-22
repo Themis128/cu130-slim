@@ -8,7 +8,7 @@ export function Hero() {
       {/* Gradient backdrop */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/10 via-background to-background"
+        className="pointer-events-none absolute inset-0 bg-linear-to-br from-primary/10 via-background to-background"
       />
       <div
         aria-hidden="true"
@@ -64,7 +64,7 @@ export function Hero() {
               </span>
             </div>
             <div className="mt-4 space-y-4">
-              <div className="h-24 rounded-lg bg-gradient-to-br from-primary/20 to-primary/5" />
+              <div className="h-24 rounded-lg bg-linear-to-br from-primary/20 to-primary/5" />
               <div className="grid grid-cols-3 gap-3">
                 <div className="h-16 rounded-lg bg-muted" />
                 <div className="h-16 rounded-lg bg-muted" />

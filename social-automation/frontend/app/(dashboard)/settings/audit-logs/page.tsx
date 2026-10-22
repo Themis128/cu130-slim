@@ -41,7 +41,7 @@ export default function AuditLogsPage() {
       <div className="flex items-center gap-2 flex-wrap">
         <Filter className="h-4 w-4 text-muted-foreground" />
         <Button
-          variant={actionFilter === undefined ? 'default' : 'outline'}
+          variant={actionFilter === undefined ? 'default' : 'outline-solid'}
           size="sm"
           onClick={() => { setActionFilter(undefined); setPage(1) }}
         >
@@ -50,7 +50,7 @@ export default function AuditLogsPage() {
         {['create', 'update', 'delete', 'publish', 'approve', 'reject', 'submit_review'].map((a) => (
           <Button
             key={a}
-            variant={actionFilter === a ? 'default' : 'outline'}
+            variant={actionFilter === a ? 'default' : 'outline-solid'}
             size="sm"
             onClick={() => { setActionFilter(a); setPage(1) }}
             className="capitalize"
@@ -93,7 +93,7 @@ export default function AuditLogsPage() {
                     </div>
                     {e.detail && <p className="text-xs text-muted-foreground mt-0.5 truncate">{e.detail}</p>}
                   </div>
-                  <span className="text-xs text-muted-foreground flex-shrink-0">{new Date(e.created_at).toLocaleString()}</span>
+                  <span className="text-xs text-muted-foreground shrink-0">{new Date(e.created_at).toLocaleString()}</span>
                 </div>
               ))}
             </div>

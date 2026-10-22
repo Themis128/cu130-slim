@@ -91,12 +91,12 @@ function LinkedInPreview({ content, media, identity }: PreviewProps) {
   const display = truncated && !expanded ? content.slice(0, 200) + '...' : content
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden text-[13px]">
+    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-xs overflow-hidden text-[13px]">
       <div className="p-4">
         <div className="flex items-start gap-3 mb-3">
           <AccountAvatar
             identity={identity}
-            className="w-10 h-10 rounded-full flex-shrink-0 text-xs"
+            className="w-10 h-10 rounded-full shrink-0 text-xs"
             fallbackClass="bg-blue-100 dark:bg-blue-900 text-blue-600"
           />
           <div>
@@ -135,11 +135,11 @@ function LinkedInPreview({ content, media, identity }: PreviewProps) {
 
 function TwitterPreview({ content, media, identity }: PreviewProps) {
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm p-4 text-[13px]">
+    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-xs p-4 text-[13px]">
       <div className="flex gap-3">
         <AccountAvatar
           identity={identity}
-          className="w-10 h-10 rounded-full flex-shrink-0 text-xs"
+          className="w-10 h-10 rounded-full shrink-0 text-xs"
           fallbackClass="bg-sky-100 dark:bg-sky-900 text-sky-500"
         />
         <div className="flex-1 min-w-0">
@@ -177,12 +177,12 @@ function InstagramPreview({ content, media, identity }: PreviewProps) {
   const tags = content.match(hashtagRe) || []
 
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden text-[13px]">
+    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-xs overflow-hidden text-[13px]">
       <div className="flex items-center gap-2 px-3 py-2 border-b">
         <AccountAvatar
           identity={identity}
-          className="w-8 h-8 rounded-full flex-shrink-0 text-[10px]"
-          fallbackClass="bg-gradient-to-br from-pink-500 to-yellow-400 text-white"
+          className="w-8 h-8 rounded-full shrink-0 text-[10px]"
+          fallbackClass="bg-linear-to-br from-pink-500 to-yellow-400 text-white"
         />
         <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-[12px]">{identity.handle}</span>
         <MoreHorizontal className="ml-auto h-4 w-4 text-zinc-400" />
@@ -218,12 +218,12 @@ function InstagramPreview({ content, media, identity }: PreviewProps) {
 
 function FacebookPreview({ content, media, identity }: PreviewProps) {
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm overflow-hidden text-[13px]">
+    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-xs overflow-hidden text-[13px]">
       <div className="p-3">
         <div className="flex items-center gap-2 mb-3">
           <AccountAvatar
             identity={identity}
-            className="w-9 h-9 rounded-full flex-shrink-0 text-[10px]"
+            className="w-9 h-9 rounded-full shrink-0 text-[10px]"
             fallbackClass="bg-blue-100 dark:bg-blue-900 text-blue-700"
           />
           <div>
@@ -256,7 +256,7 @@ function FacebookPreview({ content, media, identity }: PreviewProps) {
 
 function ThreadsPreview({ content, media, identity }: PreviewProps) {
   return (
-    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-sm p-4 text-[13px]">
+    <div className="rounded-xl border bg-white dark:bg-zinc-900 shadow-xs p-4 text-[13px]">
       <div className="flex gap-3">
         <div className="flex flex-col items-center gap-1">
           <AccountAvatar
@@ -289,7 +289,7 @@ function ThreadsPreview({ content, media, identity }: PreviewProps) {
         </div>
       </div>
       <div className="flex items-center gap-2 mt-1">
-        <div className="w-5 h-5 rounded-full bg-zinc-200 dark:bg-zinc-700 flex-shrink-0" />
+        <div className="w-5 h-5 rounded-full bg-zinc-200 dark:bg-zinc-700 shrink-0" />
         <span className="text-zinc-400 text-[11px]">Reply to {identity.handle}...</span>
       </div>
     </div>
@@ -298,7 +298,7 @@ function ThreadsPreview({ content, media, identity }: PreviewProps) {
 
 function TikTokPreview({ content, media, identity }: PreviewProps) {
   return (
-    <div className="rounded-xl border bg-black text-white dark:bg-zinc-950 shadow-sm overflow-hidden text-[13px] flex flex-col h-[420px]">
+    <div className="rounded-xl border bg-black text-white dark:bg-zinc-950 shadow-xs overflow-hidden text-[13px] flex flex-col h-[420px]">
       <div className="flex items-center justify-between px-3 py-2 text-white/80">
         <span className="font-semibold text-[12px]">For You</span>
         <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.27 6.27 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V8.69a8.18 8.18 0 0 0 4.78 1.52V6.76a4.85 4.85 0 0 1-1.01-.07z"/></svg>
@@ -313,7 +313,7 @@ function TikTokPreview({ content, media, identity }: PreviewProps) {
         <div className="flex items-center gap-2">
           <AccountAvatar
             identity={identity}
-            className="w-8 h-8 rounded-full flex-shrink-0 text-[10px]"
+            className="w-8 h-8 rounded-full shrink-0 text-[10px]"
             fallbackClass="bg-card text-card-foreground"
           />
           <span className="font-semibold text-[12px]">{identity.handle}</span>
@@ -828,7 +828,7 @@ export default function NewPostPage() {
                       aria-label={`${platform.name} ${isConnected ? (isSelected ? 'selected' : 'not selected') : 'not connected'}`}
                       className={cn(
                         'flex items-center gap-2 rounded-lg border-2 px-3 py-1.5 text-sm font-medium transition-all',
-                        isSelected ? 'border-primary bg-primary text-primary-foreground shadow-sm' : 'border-muted hover:border-primary/50',
+                        isSelected ? 'border-primary bg-primary text-primary-foreground shadow-xs' : 'border-muted hover:border-primary/50',
                         !isConnected && 'opacity-40 cursor-not-allowed'
                       )}
                     >
@@ -1052,7 +1052,7 @@ export default function NewPostPage() {
                     className={cn(
                       'flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium transition-all',
                       tone === t.id
-                        ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                        ? 'border-primary bg-primary text-primary-foreground shadow-xs'
                         : 'border-muted bg-muted/40 text-muted-foreground hover:border-primary/50 hover:text-foreground'
                     )}
                   >
@@ -1341,7 +1341,7 @@ export default function NewPostPage() {
                         })}
                         className="flex w-full items-center gap-2.5 px-3 py-2.5 text-sm font-medium hover:bg-muted/50 transition-colors"
                       >
-                        <span className={cn('w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0', p.color)}>
+                        <span className={cn('w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0', p.color)}>
                           {p.icon}
                         </span>
                         <span>{p.name}</span>

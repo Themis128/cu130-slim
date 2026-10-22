@@ -128,7 +128,7 @@ export function TourOverlay() {
   // If we're not on the right page, show a minimal "getting there..." indicator
   if (!onCurrentPage) {
     return createPortal(
-      <div className="fixed bottom-6 right-6 z-[9999] bg-popover border border-border rounded-xl shadow-xl px-4 py-3 flex items-center gap-3 text-sm">
+      <div className="fixed bottom-6 right-6 z-9999 bg-popover border border-border rounded-xl shadow-xl px-4 py-3 flex items-center gap-3 text-sm">
         <Map className="h-4 w-4 text-primary animate-pulse" />
         <span className="text-muted-foreground">Navigating to the next step…</span>
       </div>,
@@ -142,7 +142,7 @@ export function TourOverlay() {
     <>
       {/* Backdrop — click to skip */}
       <div
-        className="fixed inset-0 z-[9990]"
+        className="fixed inset-0 z-9990"
         style={{ cursor: 'default' }}
         aria-hidden="true"
       />
@@ -150,7 +150,7 @@ export function TourOverlay() {
       {/* Spotlight box */}
       {rect && (
         <div
-          className="fixed z-[9991] pointer-events-none rounded-lg transition-all duration-200"
+          className="fixed z-9991 pointer-events-none rounded-lg transition-all duration-200"
           style={{
             top: rect.top,
             left: rect.left,
@@ -164,7 +164,7 @@ export function TourOverlay() {
       {/* Tooltip card */}
       {tooltipStyle && (
         <div
-          className="fixed z-[9992] bg-popover border border-border rounded-xl shadow-2xl p-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
+          className="fixed z-9992 bg-popover border border-border rounded-xl shadow-2xl p-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-200"
           style={tooltipStyle}
           role="dialog"
           aria-label={`Tour step ${currentStep + 1}: ${step.title}`}
@@ -172,7 +172,7 @@ export function TourOverlay() {
           {/* Header */}
           <div className="flex items-start justify-between gap-2 mb-1">
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex-shrink-0">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold shrink-0">
                 {currentStep + 1}
               </span>
               <h3 className="font-semibold text-sm leading-tight">{step.title}</h3>
@@ -180,7 +180,7 @@ export function TourOverlay() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-foreground -mt-0.5 -mr-1 flex-shrink-0"
+              className="h-6 w-6 text-muted-foreground hover:text-foreground -mt-0.5 -mr-1 shrink-0"
               onClick={skip}
               aria-label="Skip tour"
             >

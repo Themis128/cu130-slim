@@ -400,7 +400,7 @@ export default function WorkflowsPage() {
                           <CardDescription className="mt-0.5">{template.description}</CardDescription>
                         </div>
                       </div>
-                      <Badge variant={isDefault ? 'default' : 'outline'} className="capitalize shrink-0">
+                      <Badge variant={isDefault ? 'default' : 'outline-solid'} className="capitalize shrink-0">
                         {template.category}
                       </Badge>
                     </div>
@@ -554,7 +554,7 @@ export default function WorkflowsPage() {
               <Card key={tpl.id} className="flex flex-col">
                 <CardHeader className="pb-3">
                   <div className="flex items-start gap-3">
-                    <span className="text-2xl flex-shrink-0 leading-none mt-0.5">{tpl.emoji}</span>
+                    <span className="text-2xl shrink-0 leading-none mt-0.5">{tpl.emoji}</span>
                     <div className="min-w-0">
                       <CardTitle className="text-base leading-tight">{tpl.name}</CardTitle>
                       <Badge variant="outline" className="capitalize mt-1 text-[10px] px-1.5 py-0">{tpl.category}</Badge>
@@ -622,7 +622,7 @@ export default function WorkflowsPage() {
                     <CardContent className="py-4">
                       <div className="flex items-center justify-between gap-4">
                         <div className="flex items-center gap-4 min-w-0">
-                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
                             <Zap className="h-5 w-5 text-primary" />
                           </div>
                           <div className="min-w-0">
@@ -652,7 +652,7 @@ export default function WorkflowsPage() {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex items-center gap-2 shrink-0">
                           {statusBadge(workflow.status)}
                           {runs.length > 0 && (
                             <Button

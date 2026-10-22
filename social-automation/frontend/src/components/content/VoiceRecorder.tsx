@@ -151,7 +151,7 @@ export function VoiceRecorder({ onTranscript, model, disabled, className }: Voic
     <div className={className}>
       <Button
         type="button"
-        variant={recording ? 'destructive' : 'outline'}
+        variant={recording ? 'destructive' : 'outline-solid'}
         size="sm"
         onClick={recording ? stopRecording : () => void startRecording()}
         disabled={disabled || isBusy}

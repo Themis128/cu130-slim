@@ -17,10 +17,10 @@ import { cn } from '@/lib/utils'
 import { useTour } from '@/hooks/useTour'
 
 function NotifIcon({ type }: { type: AppNotification['type'] }) {
-  if (type === 'success') return <CheckCircle2 className="h-4 w-4 flex-shrink-0 text-green-500" />
-  if (type === 'error')   return <AlertCircle   className="h-4 w-4 flex-shrink-0 text-destructive" />
-  if (type === 'warning') return <AlertTriangle  className="h-4 w-4 flex-shrink-0 text-amber-500" />
-  return <Info className="h-4 w-4 flex-shrink-0 text-blue-500" />
+  if (type === 'success') return <CheckCircle2 className="h-4 w-4 shrink-0 text-green-500" />
+  if (type === 'error')   return <AlertCircle   className="h-4 w-4 shrink-0 text-destructive" />
+  if (type === 'warning') return <AlertTriangle  className="h-4 w-4 shrink-0 text-amber-500" />
+  return <Info className="h-4 w-4 shrink-0 text-blue-500" />
 }
 
 export function Header() {
@@ -45,7 +45,7 @@ export function Header() {
   }, [])
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b">
+    <header className="sticky top-0 z-30 h-16 bg-background/95 backdrop-blur-sm supports-backdrop-filter:bg-background/60 border-b">
       <div className="flex h-full items-center justify-between px-4 gap-4">
         {/* Mobile search button */}
         <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setPaletteOpen(true)} aria-label="Search">
@@ -57,7 +57,7 @@ export function Header() {
           onClick={() => setPaletteOpen(true)}
           className="flex-1 max-w-md hidden md:flex items-center gap-2 h-9 rounded-md border bg-muted/50 px-3 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
         >
-          <Search className="h-4 w-4 flex-shrink-0" />
+          <Search className="h-4 w-4 shrink-0" />
           <span className="flex-1 text-left">Search pages, actions...</span>
           <kbd className="inline-flex items-center gap-0.5 rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium">
             <Command className="h-2.5 w-2.5" />K

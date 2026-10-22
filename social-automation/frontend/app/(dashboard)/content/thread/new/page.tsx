@@ -72,7 +72,7 @@ function ThreadPreview({
             <div className="flex flex-col items-center gap-0">
               <AccountAvatar
                 identity={identity}
-                className="w-9 h-9 rounded-full flex-shrink-0 text-[10px]"
+                className="w-9 h-9 rounded-full shrink-0 text-[10px]"
                 fallbackClass="bg-sky-100 dark:bg-sky-900 text-sky-500"
               />
               {i < filled.length - 1 && <div className="w-0.5 flex-1 mt-1 bg-zinc-200 dark:bg-zinc-700 min-h-[24px]" />}
@@ -112,7 +112,7 @@ function ThreadPreview({
           <div className="flex flex-col items-center">
             <AccountAvatar
               identity={identity}
-              className="w-9 h-9 rounded-full flex-shrink-0 text-[10px]"
+              className="w-9 h-9 rounded-full shrink-0 text-[10px]"
               fallbackClass="bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300"
             />
             {i < filled.length - 1 && <div className="w-0.5 flex-1 mt-1 bg-zinc-200 dark:bg-zinc-700 min-h-[24px]" />}
@@ -465,7 +465,7 @@ export default function NewThreadPage() {
                 className="relative flex gap-3 group"
               >
                 {/* Left: number + connector */}
-                <div className="flex flex-col items-center pt-3 flex-shrink-0">
+                <div className="flex flex-col items-center pt-3 shrink-0">
                   <div className={cn(
                     'w-7 h-7 rounded-full border-2 flex items-center justify-center text-xs font-bold transition-colors',
                     post.text.trim() ? 'border-primary text-primary bg-primary/10' : 'border-muted text-muted-foreground'

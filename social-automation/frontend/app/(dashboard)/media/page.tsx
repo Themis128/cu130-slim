@@ -399,9 +399,9 @@ export default function MediaPage() {
             {pendingFiles.map((pf, i) => (
               <div key={`${pf.file.name}-${i}`} className="flex gap-4 rounded-lg border p-3">
                 {pf.preview ? (
-                  <img src={pf.preview} alt="" className="h-20 w-20 rounded-md object-cover flex-shrink-0 border" />
+                  <img src={pf.preview} alt="" className="h-20 w-20 rounded-md object-cover shrink-0 border" />
                 ) : (
-                  <div className="h-20 w-20 rounded-md bg-muted flex items-center justify-center flex-shrink-0 border">
+                  <div className="h-20 w-20 rounded-md bg-muted flex items-center justify-center shrink-0 border">
                     <ImageIcon className="h-7 w-7 text-muted-foreground" />
                   </div>
                 )}
@@ -510,7 +510,7 @@ export default function MediaPage() {
         >
           {/* Drag overlay */}
           {isDragOver && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm">
+            <div className="absolute inset-0 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-xs">
               <div className="text-center">
                 <Upload className="mx-auto h-10 w-10 text-primary mb-2" />
                 <p className="text-sm font-medium text-primary">Drop files to upload</p>
@@ -521,7 +521,7 @@ export default function MediaPage() {
           {isLoading ? (
             <div className="p-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {[1, 2, 3, 4, 5, 6].map((i) => (
-                <Skeleton key={i} className="aspect-[4/5] rounded-xl" />
+                <Skeleton key={i} className="aspect-4/5 rounded-xl" />
               ))}
             </div>
           ) : media.length === 0 ? (
@@ -565,7 +565,7 @@ export default function MediaPage() {
                   >
                     {/* Media preview — portrait 4:5 ratio like a social post */}
                     <div
-                      className={`relative aspect-[4/5] bg-muted/50 overflow-hidden ${!selectMode ? 'cursor-zoom-in' : ''}`}
+                      className={`relative aspect-4/5 bg-muted/50 overflow-hidden ${!selectMode ? 'cursor-zoom-in' : ''}`}
                       onClick={() => { if (!selectMode) setViewerItem(item) }}
                       onKeyDown={(e) => { if (!selectMode && e.key === 'Enter') setViewerItem(item) }}
                       role={!selectMode ? 'button' : undefined}
@@ -610,7 +610,7 @@ export default function MediaPage() {
                             </div>
                           </div>
                         ) : isAudio ? (
-                          <div className="flex h-full w-full flex-col items-center justify-center bg-gradient-to-br from-purple-500/10 to-muted/50">
+                          <div className="flex h-full w-full flex-col items-center justify-center bg-linear-to-br from-purple-500/10 to-muted/50">
                             <Music className="h-14 w-14 text-purple-500" />
                             <p className="mt-3 px-4 text-center text-sm font-medium text-foreground line-clamp-3">{item.filename}</p>
                           </div>

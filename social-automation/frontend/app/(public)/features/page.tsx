@@ -141,7 +141,7 @@ export default function FeaturesPage() {
                         key={b}
                         className="flex items-start gap-2 text-sm text-muted-foreground"
                       >
-                        <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />
+                        <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
                         {b}
                       </li>
                     ))}
@@ -149,7 +149,7 @@ export default function FeaturesPage() {
                 </div>
 
                 {/* Placeholder mockup */}
-                <div className="flex aspect-video items-center justify-center rounded-xl border border-border bg-gradient-to-br from-muted to-card p-6 text-center">
+                <div className="flex aspect-video items-center justify-center rounded-xl border border-border bg-linear-to-br from-muted to-card p-6 text-center">
                   <p className="text-sm text-muted-foreground">
                     {feature.mockup}
                   </p>

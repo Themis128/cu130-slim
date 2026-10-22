@@ -126,9 +126,9 @@ export function OnboardingChecklist({
                 )}
               >
                 {item.completed ? (
-                  <CheckCircle2 className="h-5 w-5 text-green-500 flex-shrink-0" />
+                  <CheckCircle2 className="h-5 w-5 text-green-500 shrink-0" />
                 ) : (
-                  <Circle className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  <Circle className="h-5 w-5 text-muted-foreground shrink-0" />
                 )}
                 <span className={cn('text-sm', item.completed && 'line-through')}>
                   {item.label}

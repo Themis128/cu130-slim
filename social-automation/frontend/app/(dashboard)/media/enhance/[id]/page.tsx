@@ -166,7 +166,7 @@ export default function EnhancePage() {
                   <div className="space-y-1">
                     {quality.issues.map((issue, i) => (
                       <div key={i} className="flex items-start gap-2 text-sm text-amber-600">
-                        <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                        <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
                         <span>{issue}</span>
                       </div>
                     ))}
@@ -321,7 +321,7 @@ export default function EnhancePage() {
               {['webp', 'jpeg', 'png', 'avif'].map(fmt => (
                 <Button
                   key={fmt}
-                  variant={convertFormat === fmt ? 'default' : 'outline'}
+                  variant={convertFormat === fmt ? 'default' : 'outline-solid'}
                   className="flex-1"
                   onClick={() => {
                     setConvertFormat(fmt)

@@ -32,7 +32,7 @@ const PLATFORMS: PlatformOption[] = [
   { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: 'bg-blue-600' },
   { id: 'facebook', name: 'Facebook', icon: Facebook, color: 'bg-blue-700' },
   { id: 'messenger', name: 'Messenger', icon: Facebook, color: 'bg-blue-500' },
-  { id: 'instagram', name: 'Instagram', icon: Instagram, color: 'bg-gradient-to-br from-purple-500 to-pink-500' },
+  { id: 'instagram', name: 'Instagram', icon: Instagram, color: 'bg-linear-to-br from-purple-500 to-pink-500' },
   { id: 'twitter', name: 'Twitter / X', icon: Twitter, color: 'bg-sky-500' },
   { id: 'threads', name: 'Threads', icon: ThreadsIcon, color: 'bg-gray-900' },
   { id: 'tiktok', name: 'TikTok', icon: TikTokIcon, color: 'bg-black' },
@@ -133,7 +133,7 @@ export function StepConnectAccount({ onContinue }: StepConnectAccountProps) {
         {/* Warning + Continue */}
         {connectedAccounts.length === 0 && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 text-sm text-amber-600 dark:text-amber-400">
-            <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
             <p>You can continue without connecting, but you won’t be able to publish until you do.</p>
           </div>
         )}

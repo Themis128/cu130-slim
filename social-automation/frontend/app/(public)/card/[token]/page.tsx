@@ -343,7 +343,7 @@ export default function DigitalCardPage({ params }: { params: { token: string } 
               {card.services.slice(0, 5).map((s, i) => (
                 <div key={i} className="flex items-start gap-2">
                   <div
-                    className="mt-1 w-1.5 h-1.5 rounded-full flex-shrink-0"
+                    className="mt-1 w-1.5 h-1.5 rounded-full shrink-0"
                     style={{ backgroundColor: accent }}
                   />
                   <div>

@@ -136,7 +136,7 @@ export default function ReportsPage() {
               <div key={nb.name} className="rounded-lg border p-3 space-y-3">
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2 min-w-0">
-                    <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="font-medium text-sm">{nb.name}</span>
                     <span className="text-xs text-muted-foreground">updated {fmtDate(nb.modified)}</span>
                   </div>

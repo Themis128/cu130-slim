@@ -397,7 +397,7 @@ export default function TikTokManagePage() {
                     }) => (
                       <div key={u.publish_id} className="flex flex-wrap items-center gap-2 p-3">
                         <code className="text-xs break-all flex-1">{u.publish_id}</code>
-                        <Badge variant={u.is_pending ? 'outline' : 'secondary'}>{u.status || '—'}</Badge>
+                        <Badge variant={u.is_pending ? 'outline-solid' : 'secondary'}>{u.status || '—'}</Badge>
                         <Button size="sm" variant="ghost" onClick={() => { setPublishId(u.publish_id); statusMut.mutate(u.publish_id) }}>
                           Status
                         </Button>
