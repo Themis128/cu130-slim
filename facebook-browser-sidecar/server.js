@@ -240,6 +240,12 @@ function isFacebookPageUrl(urlStr) {
  * Returns true only when all three signals indicate a usable session.
  */
 async function isLoggedIn() {
+  return _isLoggedIn(true);
+}
+
+// allowPickerDismiss: first check may auto-dismiss the profile picker once,
+// then re-evaluate. Prevents recursion and repeated clicks.
+async function _isLoggedIn(allowPickerDismiss) {
   const url = page.url();
   if (!isFacebookPageUrl(url)) return false;
   if (
@@ -251,7 +257,31 @@ async function isLoggedIn() {
 
   // The profile picker page has a crypted_string query param and shows
   // "Continue as <name>" / "Use another profile" — not a usable session.
-  if (url.includes("crypted_string=")) return false;
+  // Dismiss it once instead of reporting logged-out (publishes were failing
+  // "Not logged in" purely because nobody clicked Continue).
+  if (url.includes("crypted_string=")) {
+    if (allowPickerDismiss && (await handleProfilePicker())) {
+      return _isLoggedIn(false);
+    }
+    return false;
+  }
+
+  // Picker check BEFORE the cookie gate — when the session is fully
+  // downgraded there's no c_user, and short-circuiting here meant the
+  // picker never got dismissed (observed: publishes always "Not logged in").
+  try {
+    const bodyText = await page.innerText("body").catch(() => "");
+    if (
+      bodyText &&
+      (bodyText.includes("Continue as ") ||
+        bodyText.includes("Use another profile"))
+    ) {
+      if (allowPickerDismiss && (await handleProfilePicker())) {
+        return _isLoggedIn(false);
+      }
+      return false;
+    }
+  } catch (_) {}
 
   // Check for the c_user cookie — the primary authentication cookie.
   // Without it, no authenticated Graph/web request will work.
@@ -266,15 +296,10 @@ async function isLoggedIn() {
   } catch (_) {}
   if (!hasCUser) return false;
 
-  // Check page content for the profile picker text.
+  // Last content check: an explicit logged-out wall.
   try {
     const bodyText = await page.innerText("body").catch(() => "");
-    if (
-      bodyText &&
-      (bodyText.includes("Continue as ") ||
-        bodyText.includes("Use another profile") ||
-        bodyText.includes("Log in to Facebook"))
-    ) {
+    if (bodyText && bodyText.includes("Log in to Facebook")) {
       return false;
     }
   } catch (_) {}
@@ -387,19 +412,48 @@ async function findTextInput(opts = {}) {
  */
 async function handleProfilePicker() {
   try {
-    // Check if we're on the profile picker page
+    // Picker detection: the crypted_string= URL variant AND the plain
+    // single-profile variant ("<Name>" heading + "Continue" + "Use another
+    // profile") — the latter has a bare facebook.com/ URL, so a URL check
+    // alone misses it (observed 2026-10-22: validate showed picker, handler
+    // returned early, publishes kept failing "Not logged in").
     const url = page.url();
-    if (!url.includes("crypted_string=")) return false;
+    const pickerMarker = await page
+      .locator('text=/Use another profile/i')
+      .first()
+      .isVisible({ timeout: 2000 })
+      .catch(() => false);
+    if (!url.includes("crypted_string=") && !pickerMarker) return false;
 
     console.log("Profile picker detected — attempting to select profile");
 
     // Strategy 1: Click "Continue as [name]" button for the main profile
     // The profile picker shows cards with "Continue as <Name>" buttons
-    const continueBtn = await findElement([
+    let continueBtn = await findElement([
       '[role="button"]:has-text("Continue as "):visible',
       'button:has-text("Continue as "):visible',
       'a[role="button"]:has-text("Continue as "):visible',
-    ], { timeout: 5000 });
+    ], { timeout: 3000 });
+
+    // Strategy 1b: single-profile variant shows a "Continue" button whose
+    // accessible name is "Continue <Name>" via aria-label — an exact-name
+    // match on "Continue" misses it. Match a Continue-prefixed accessible
+    // name, then fall back to exact inner text.
+    if (!continueBtn) {
+      const byName = page.getByRole("button", { name: /^Continue\b/ }).first();
+      if (await byName.isVisible({ timeout: 3000 }).catch(() => false)) {
+        continueBtn = byName;
+      }
+    }
+    if (!continueBtn) {
+      const byText = page
+        .locator('div[role="button"]')
+        .filter({ hasText: /^Continue$/ })
+        .first();
+      if (await byText.isVisible({ timeout: 2000 }).catch(() => false)) {
+        continueBtn = byText;
+      }
+    }
 
     if (continueBtn) {
       await continueBtn.click();
