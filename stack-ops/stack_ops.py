@@ -467,6 +467,46 @@ async def api_handler(reader: asyncio.StreamReader,
             canonical = [n for n in SERVICES if not is_secondary_alias(n)]
             res = await asyncio.gather(*(sleep_service(n) for n in canonical))
             code, body = 200, {"slept": dict(zip(canonical, res))}
+        elif segs == ["prewarm"] and method == "POST":
+            # Prewarm a set of critical services in parallel
+            # Accept optional body: {"services": ["service1", "service2", ...]}
+            # If no body, defaults to a sensible set of critical services
+            target_services: list[str] = []
+            if b"Content-Length" in await reader.read(0) or True:
+                # Try to read body for custom service list
+                try:
+                    import json
+                    body_bytes = await reader.read(4096)
+                    if body_bytes:
+                        req_body = json.loads(body_bytes.decode())
+                        target_services = req_body.get("services", [])
+                except Exception:
+                    pass
+            
+            if not target_services:
+                # Default critical services that benefit from prewarming
+                target_services = [
+                    "linkedin-browser-sidecar",
+                    "facebook-browser-sidecar",
+                    "tiktok-browser-sidecar",
+                    "instagram-private-api",
+                    "warp-proxy",
+                    "languagetool",
+                    "comfyui",
+                ]
+                # Filter to only services that exist
+                target_services = [s for s in target_services if s in SERVICES]
+            
+            # Wake all in parallel
+            results = await asyncio.gather(*(wake(s) for s in target_services), return_exceptions=True)
+            body = {
+                "prewarmed": {
+                    svc: (result if isinstance(result, bool) else False)
+                    for svc, result in zip(target_services, results)
+                },
+                "requested": target_services,
+            }
+            code = 200
         elif len(segs) == 2 and segs[0] == "keepawake" and method == "POST":
             if segs[1] not in SERVICES:
                 code, body = 404, {"error": "unknown service"}

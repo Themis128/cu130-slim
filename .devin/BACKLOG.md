@@ -130,6 +130,37 @@ PR #781 (deployment evidence) was authoritatively verified merged at
 - [x] **X/Twitter + TikTok token expiry** — TikTok self-healed (23.6h); X was
   refreshed by the token sweep 2026-10-19 (manual refresh verified → 20:17 UTC).
 
+## Resolved this session — 2026-10-22
+
+- [x] **WSL/GPU fixes** — addressed multiple WSL2 + Docker Desktop GPU issues:
+  - `scripts/dmr/gpu-runner-recreate.py`: added dynamic WSL lib detection
+    (`find_wsl_lib_src()` with 3 strategies) replacing hardcoded path that
+    broke on distro upgrades; added `warmup_models()` for primary models
+    (qwen3:8b, qwen3-4b-instruct) so they're ready on first request.
+  - `docker-compose.yml`: embedding model
+    `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` now has explicit `context-size: 8192`
+    (was default 262144 → 36GB KV OOM on 8GB GPU).
+  - `Dockerfile`: ComfyUI `BASE_ARGS` now includes `--lowvram` (keeps text
+    encoders on CPU, ~1.5GB VRAM savings).
+- [x] **Facebook sidecar profile picker recovery** —
+  `facebook-browser-sidecar/server.js`: added `handleProfilePicker()` with 3
+  strategies (Continue as button, Use another profile handling, profile card
+  selection) integrated into `navigateAndCheck()` for automatic recovery.
+- [x] **Instagram private-API rate-limit handling** —
+  `app/services/instagram_private_api.py`: added `_call_with_retry()` with
+  exponential backoff + jitter (base 2s, max 60s, 5 attempts) applied to
+  `login()`, `login_by_sessionid()`, and `challenge_resolve()` for 429
+  `ClientThrottledError` from aiograpi sidecar.
+- [x] **Slack webhook regeneration runbook** — created
+  `docs/ops/slack-webhook-regeneration.md` documenting the full process:
+  recreate Slack app from manifest, create incoming webhooks per channel,
+  verify with `slack_tool.py webhooks`, and the stale-env recreation caveat.
+- [x] **stack-ops prewarm endpoint** — added `POST /prewarm` to
+  `stack-ops/stack_ops.py` that wakes critical services in parallel
+  (linkedin-browser-sidecar, facebook-browser-sidecar, tiktok-browser-sidecar,
+  instagram-private-api, warp-proxy, languagetool, comfyui) with optional
+  custom service list via JSON body.
+
 ## Open PRs / merges to verify
 
 - [x] **PR #737** — IG Graph permalink pk→shortcode fix + swept payloads.
