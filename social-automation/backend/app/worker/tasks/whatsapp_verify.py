@@ -161,14 +161,19 @@ async def _check_and_request() -> dict[str, Any]:
                     f"72h request window saturated ({len(times)} logged, "
                     f"oldest exits {oldest + timedelta(hours=72):%Y-%m-%d %H:%M}Z)"
                 )
-            elif rl_at and now - rl_at < timedelta(hours=72) and rl_phone in (None, phone_id):
-                # A recent 136024 for this phone (or a legacy marker without
-                # a phone id) means Meta's window is still saturated. With a
-                # request log the cap check above expires precisely; without
-                # one this is intentionally conservative — over-waiting costs
-                # nothing, another burst costs the whole quota.
-                window_end = rl_at + timedelta(hours=72)
-                skip_reason = f"in 72h rate-limit window (until {window_end:%Y-%m-%d %H:%M}Z)"
+            elif rl_at and rl_phone in (None, phone_id):
+                # Meta's stated cooldown after a 136024 is ~1 hour. When a
+                # request log exists for this phone, the ≥9/72h cap above is
+                # the real quota guard — hold only the stated cooldown so a
+                # single transient 136024 doesn't park verification for days.
+                # Without a log (legacy marker, or attempts made outside this
+                # task) stay conservative: we can't count what we can't see.
+                hold = timedelta(hours=1) if times else timedelta(hours=72)
+                if now - rl_at < hold:
+                    window_end = rl_at + hold
+                    skip_reason = (
+                        f"post-136024 cooldown (until {window_end:%Y-%m-%d %H:%M}Z)"
+                    )
             elif (
                 meta.get("whatsapp_code_status") == "sent"
                 and sent_at
