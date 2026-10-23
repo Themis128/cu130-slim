@@ -629,7 +629,7 @@ services:
     networks:
       - backend
     ports:
-      - 127.0.0.1:9100:9000
+      - 127.0.0.1:9102:9000
       - 127.0.0.1:9101:9001
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
