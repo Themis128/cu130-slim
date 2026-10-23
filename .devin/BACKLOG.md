@@ -13,20 +13,33 @@ Historical observations below retain their dates; re-query before acting.
 
 | Issue | Remaining work | Gate |
 | --- | --- | --- |
-| [#782](https://github.com/Themis128/cu130-slim/issues/782) | Secondary Meta recovery email persistence | Owner / Meta verification |
-| [#783](https://github.com/Themis128/cu130-slim/issues/783) | Instagram lock and publishing restriction | Account Status recovery |
-| [#784](https://github.com/Themis128/cu130-slim/issues/784) | Real publish and inbound-webhook E2E | Recovery and test-send approval |
-| [#785](https://github.com/Themis128/cu130-slim/issues/785) | Meta business verification / lead App Review | Owner evidence / Meta decision |
-| [#786](https://github.com/Themis128/cu130-slim/issues/786) | WhatsApp verification and registration | Owner ready for fresh code |
-| [#787](https://github.com/Themis128/cu130-slim/issues/787) | Instagram private-session reassessment | Resolve restriction, respect cooldown |
-| [#788](https://github.com/Themis128/cu130-slim/issues/788) | Instagram approved funnel profile link | Supported app / owner action |
-| [#789](https://github.com/Themis128/cu130-slim/issues/789) | TikTok profile website | Owner solves challenge |
-| [#790](https://github.com/Themis128/cu130-slim/issues/790) | TikTok Direct Post audit | Platform review |
-| [#791](https://github.com/Themis128/cu130-slim/issues/791) | TikTok unfinished inbox shares | Owner reviews drafts |
-| [#792](https://github.com/Themis128/cu130-slim/issues/792) | Optional legacy Slack webhook replacement | Not a functional blocker; owner choice |
-| [#793](https://github.com/Themis128/cu130-slim/issues/793) | Partner shortlist review | Approval before outreach |
-| [#794](https://github.com/Themis128/cu130-slim/issues/794) | Paced newsletter nurture batches | Approval after fresh dry run |
-| [#795](https://github.com/Themis128/cu130-slim/issues/795) | AI-governance offer / service page | Positioning and pricing decision |
+| ~~[#782](https://github.com/Themis128/cu130-slim/issues/782)~~ | Secondary Meta recovery email — CLOSED 2026-10-22: `tbaltzakis@cloudless.gr` verified present in Accounts Center | resolved |
+| ~~[#783](https://github.com/Themis128/cu130-slim/issues/783)~~ | IG lock/restriction — CLOSED 2026-10-22: restriction lifted, daily publishes verified | resolved |
+| [#784](https://github.com/Themis128/cu130-slim/issues/784) | Publish leg proven (55 FB publishes); Meta console sample → `/api/v1/messenger/webhook` 200 (HMAC verified). Remaining: one real inbound customer message | Owner sends test message from non-admin account |
+| [#785](https://github.com/Themis128/cu130-slim/issues/785) | Meta does NOT require business verification (Security Center); app not connected to `cloudless.gr` portfolio — connect blocked by temporary personal-account restriction; `leads_retrieval` not on app | Meta account restriction clears; then connect portfolio → leads use case → App Review |
+| [#786](https://github.com/Themis128/cu130-slim/issues/786) | Phone `NOT_VERIFIED`; 136024 cooldown gate fixed+deployed (PR #830): ~1h hold with request log; beat auto-retries `request_code` | Owner supplies SMS code → verify + register PIN |
+| ~~[#787](https://github.com/Themis128/cu130-slim/issues/787)~~ | IG private-session reassessment — CLOSED 2026-10-23: Graph covers publishing+DMs+insights live; private session off critical path | resolved |
+| [#788](https://github.com/Themis128/cu130-slim/issues/788) | IG profile link → `cloudless.gr/links` (verified 200 live) | IG mobile-app Edit-Profile only (no Graph write path) |
+| [#789](https://github.com/Themis128/cu130-slim/issues/789) | Challenge cleared (sidecar logged in); website field eligibility-gated: needs ≥1K followers or TikTok Business verification (account: 4 followers) | TikTok Business verification (owner docs + phone) or follower growth |
+| ~~[#790](https://github.com/Themis128/cu130-slim/issues/790)~~ | TikTok Direct Post audit — CLOSED 2026-10-23: console production-approved; `creator_info` returns `PUBLIC_TO_EVERYONE`; `unaudited` restriction lifted | resolved |
+| [#791](https://github.com/Themis128/cu130-slim/issues/791) | Local state clean: 0 pending/processing rows, no live publish_ids | Owner reviews TikTok app creator inbox |
+| ~~[#792](https://github.com/Themis128/cu130-slim/issues/792)~~ | Slack webhooks — CLOSED 2026-10-23: all `SLACK_*_WEBHOOK_URL` empty, bot-token auth.test live; webhooks inert | resolved (bot-token-only transport) |
+| [#793](https://github.com/Themis128/cu130-slim/issues/793) | Partner shortlist — 6 candidates verified live in `Partners & influencers` TargetList, posted to issue 2026-10-23 | Owner approve/drop per recipient |
+| [#794](https://github.com/Themis128/cu130-slim/issues/794) | Dry-run done 2026-10-23: 154 pending (145 DM + 9 connect); all touches 401 behind LinkedIn session — gated on LinkedIn 2FA approval | LinkedIn session healthy + owner approves batch size |
+| [#795](https://github.com/Themis128/cu130-slim/issues/795) | AI-governance offer / service page | Owner positioning and pricing decision |
+
+### Resolved since 2026-10-21 registration
+
+- **#782, #783** — verified live via Playwright MCP, closed 2026-10-22.
+- **#787, #790, #792** — verified live via API/console MCP, closed 2026-10-23.
+- **PR #829** — session-healer excludes tombstoned (deleted_at) FB pages from escalation. MERGED.
+- **PR #830** — WhatsApp 136024 gate: ~1h hold (not 72h) when a real request log exists. MERGED + deployed.
+- **PR #831** — MinIO S3 host port 9100→9102 (node-exporter clash); healthy.
+- **PR #828** — `publish_cancelled` reclassified `failed`→`skipped` + historical rows backfilled; bulk-cancel corruption on post `65e67080` repaired (4 targets restored to `published`). MERGED.
+
+### Still blocked on humans / consoles (2026-10-23)
+
+- **LinkedIn session** — `pending_2fa` checkpoint live in sidecar; 429 cleared. Owner approves push in LinkedIn mobile app → next heal persists cookies. Unblocks #794 and LinkedIn analytics sync.
 
 PR #781 (deployment evidence) was authoritatively verified merged at
 2026-10-21T12:50:43Z. PR #780 remains the merged implementation record.
@@ -237,10 +250,12 @@ proposals on `audit_logs` + Slack, nothing self-executes.
   blocked on Meta business verification. Webhook code is armed on both paths.
 - [ ] **WhatsApp phone registration** — `+30 697 777 7838` is
   `code_verification_status: NOT_VERIFIED` → Cloud API sends 133010
-  "Account not registered". **SMS code needed**: request_code currently
-  rate-limited (136024/2388091); when the user can receive the SMS, run
-  verify-code + register (whatsapp-ops scripts). Flow promotion is armed and
-  will activate automatically once registered.
+  "Account not registered". **SMS code needed**: PR #830 (merged+
+  deployed) fixed the 136024 gate — ~1h cooldown with request log,
+  beat auto-retries `request_code` on schedule; when the user can
+  receive the SMS, run verify-code + register (whatsapp-ops scripts).
+  Flow promotion is armed and will activate automatically once
+  registered.
 - [x] **LinkedIn org profile write — VERIFIED STALE 2026-10-21:** the
   cloudless-gr Company Page (`urn:li:organization:108614163`) is already
   fully populated — website `cloudless.gr`, CTA "Visit website"→cloudless.gr,
@@ -248,22 +263,22 @@ proposals on `audit_logs` + Slack, nothing self-executes.
   internal voyager lane: `canUpdateOrganizationProfile: true` — future
   writes can go through the browser sidecar (no `rw_organization_admin`
   re-auth needed).
-- [ ] **Instagram private-API (aiograpi sidecar) login rate-limited** —
-  `POST /auth/login` returns `429 ClientThrottledError` on
-  `caa.login.async.send_login_request` even via `warp-proxy` SOCKS5
-  (verified 2026-10-20); earlier same-day attempts failed at transport
-  (DNSError/Timeout). Web `sessionid` import still dead for mobile calls
-  (`login_required`) — confirmed again. Retry credential login after a
-  24–48h rate-limit window; do not burn attempts before then.
-  **Unblocked meanwhile:** bridge web session for `@cloudless.gr` restored
-  (saved-profile card → live feed, verified via in-session
-  `web_form_data`), fresh 6/6 cookies persisted, `web-session` store now
-  holds the correct `ds_user_id 36910035385` (the previously stored
-  `32323137563` was a stale/foreign ID). Web-API publish path
-  (`rupload_igphoto`) works; only instagrapi/sidecar calls stay down.
+- [x] **Instagram private-API (aiograpi sidecar) — NOT NEEDED**
+  (closed as #787, 2026-10-23): reassessment verified Graph API covers
+  all operational requirements — publishing (52 targets, latest
+  2026-10-22), DM bot (`get_conversations` + `send_dm` live), insights.
+  DM poller ladder is Graph-primary → browser-bridge fallback; the
+  private session is off every critical path. Its only remaining use —
+  profile bio/url edits — is mobile-app-gated anyway (#788). No
+  reconnect, cooldown, or challenge work required.
 - [ ] **Instagram bio → `/links`** — website/name edits are mobile-app-only
   (hard platform limit; do not force API/sidecar paths).
-- [ ] **TikTok bio/website** — writes captcha-blocked.
+- [ ] **TikTok bio/website** — captcha challenge cleared (sidecar
+  logged in 2026-10-23), but the website field is eligibility-gated:
+  ≥1,000 followers or Registered Business Account required (account
+  has 4 followers). Domain already in bio as plaintext. Path: TikTok
+  Business verification (Settings → Business verification, owner docs)
+  or follower growth — see #789.
 - [x] **LinkedIn newsletter outreach — BUILT + verified 2026-10-21**
   (PR #775): `scripts/newsletter_nurture.py` drives the cohort through two
   sidecar lanes — `message` (146 first-degree, Voyager createMessage) and
