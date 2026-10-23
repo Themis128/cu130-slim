@@ -105,6 +105,38 @@ def test_rate_limit_window_expired_retries():
     assert stats["code_sent"] == 1
 
 
+def test_logged_phone_retries_after_1h_cooldown():
+    """With a real request log, Meta's stated ~1h cooldown after 136024 is
+    the hold — the ≥9/72h count cap is the true quota guard."""
+    meta = {
+        "phone_number_id": "pid-1",
+        "whatsapp_code_status": "rate_limited",
+        "whatsapp_rate_limited_at": (datetime.now(UTC) - timedelta(minutes=65)).isoformat(),
+        "whatsapp_code_request_log": {
+            "pid-1": [(datetime.now(UTC) - timedelta(minutes=65)).isoformat()]
+        },
+    }
+    stats, calls = _run_with(meta)
+    assert calls == ["SMS"]
+    assert stats["code_sent"] == 1
+
+
+def test_logged_phone_still_waits_inside_1h():
+    """Inside the 1h cooldown the task must not burn another request."""
+    meta = {
+        "phone_number_id": "pid-1",
+        "whatsapp_code_status": "rate_limited",
+        "whatsapp_rate_limited_at": (datetime.now(UTC) - timedelta(minutes=30)).isoformat(),
+        "whatsapp_code_request_log": {
+            "pid-1": [(datetime.now(UTC) - timedelta(minutes=30)).isoformat()]
+        },
+    }
+    stats, calls = _run_with(meta)
+    assert calls == []
+    assert stats["rate_limited"] == 1
+    assert "cooldown" in stats["details"][0]
+
+
 def test_rate_limited_without_timestamp_still_attempts_once():
     """Legacy rows (status set before the timestamp field existed) attempt
     one request, then get stamped by the 136024 handler."""
