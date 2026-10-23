@@ -398,7 +398,7 @@ services:
       - N8N_ERROR_SLACK_WEBHOOK_URL=${N8N_ERROR_SLACK_WEBHOOK_URL:-}
     extra_hosts:
       - host.docker.internal:host-gateway
-    mem_limit: 1280m
+    mem_limit: 768m
     memswap_limit: 2560m
     cpus: '3'
     restart: unless-stopped
@@ -670,7 +670,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    mem_limit: 1024m
+    mem_limit: 640m
     memswap_limit: 2048m
     cpus: '2'
     restart: unless-stopped
@@ -1086,7 +1086,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    mem_limit: 2048m
+    mem_limit: 1024m
     memswap_limit: 4096m
     cpus: '4'
     restart: unless-stopped
@@ -1187,7 +1187,7 @@ services:
       retries: 3
       start_period: 30s
     stop_grace_period: 90s
-    mem_limit: 1536m
+    mem_limit: 1280m
     memswap_limit: 3072m
     cpus: '4'
     restart: unless-stopped
@@ -1227,7 +1227,7 @@ services:
     # grace period SIGKILLs them mid-run and the task only redelivers after
     # the 3600s broker visibility timeout — stuck "STARTED" for an hour.
     stop_grace_period: 15m
-    mem_limit: 1536m
+    mem_limit: 1280m
     memswap_limit: 3072m
     cpus: '4'
     restart: unless-stopped
@@ -1264,7 +1264,7 @@ services:
       retries: 3
       start_period: 30s
     stop_grace_period: 90s
-    mem_limit: 1536m
+    mem_limit: 1280m
     memswap_limit: 3072m
     cpus: '4'
     restart: unless-stopped
@@ -1526,7 +1526,7 @@ services:
       start_period: 15s
     restart: unless-stopped
     # Memory cap — Chromium tabs multiply silently; matches runtime docker update 2026-09-26.
-    mem_limit: 2048m
+    mem_limit: 1536m
     memswap_limit: 4096m
     # CPU cap — shared multi-session bridge; a busy tab must not pin all cores.
     cpus: '4'
@@ -1558,7 +1558,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    mem_limit: 1536m
+    mem_limit: 1024m
     memswap_limit: 3072m
     # CPU cap — automation browsers burst to a full core on page renders.
     cpus: '2'
@@ -1603,7 +1603,7 @@ services:
       start_period: 30s
     # 1536m/2560m/4096m all oom_killed the renderer on feed+editor —
     # headed (xvfb) Chromium needs real headroom on LinkedIn's Ember app.
-    mem_limit: 6144m
+    mem_limit: 2048m
     memswap_limit: 8192m
     # CPU cap — heaviest renderer in the stack (Ember app); observed 71% of
     # a core, so 3 gives burst headroom without letting it starve siblings.
@@ -1762,7 +1762,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    mem_limit: 1536m
+    mem_limit: 1024m
     memswap_limit: 3072m
     # CPU cap — automation browsers burst to a full core on page renders.
     cpus: '2'
@@ -1802,7 +1802,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    mem_limit: 1024m
+    mem_limit: 512m
     memswap_limit: 2048m
     # CPU cap — webhook processor is mostly idle; bound its DMR bursts.
     cpus: '2'
@@ -2009,7 +2009,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    mem_limit: 1024m
+    mem_limit: 512m
     memswap_limit: 2048m
     cpus: '2'
     restart: unless-stopped
