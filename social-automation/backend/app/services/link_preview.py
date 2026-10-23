@@ -19,6 +19,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from app.core.log_sanitize import sanitize_log_text
+from app.utils.http_signatures import signature_headers
 
 logger = logging.getLogger(__name__)
 
@@ -222,8 +223,9 @@ async def fetch_link_preview(url: str) -> dict:
                 if parsed.scheme == "https"
                 else {}
             )
+            req_headers = {"Host": host_header, **signature_headers("GET", parsed.geturl())}
             async with client.stream(
-                "GET", pinned, headers={"Host": host_header}, extensions=ext
+                "GET", pinned, headers=req_headers, extensions=ext
             ) as resp:
                 if resp.is_redirect:
                     location = resp.headers.get("location")
