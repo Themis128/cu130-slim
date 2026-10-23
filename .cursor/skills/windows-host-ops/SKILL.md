@@ -29,11 +29,19 @@ Ten tasks — `\DevOptimizer\` (elevated) + task-root (user-owned). All run
 
 Scripts live at `D:\DevOptimizer\scripts\` (`/mnt/d/DevOptimizer/scripts/`).
 
-## The empty-popup problem (fixed 2026-10-06)
+## The empty-popup problem (fixed 2026-10-06, regressed + re-fixed 2026-10-23)
 
 - `-WindowStyle Hidden` still **allocates a console** → brief empty conhost flash.
 - Fix: launch via `conhost.exe --headless` — no console is ever created.
 - Modifying `\DevOptimizer\` tasks needs elevation (UAC); root tasks are user-owned.
+- **REGRESSION 2026-10-21**: `scripts/reregister-staggered-tasks.ps1` re-registered
+  tasks with bare `powershell.exe` actions, stripping every headless wrap (~50
+  flashes/day from the two 30-min tasks alone). Re-fixed 2026-10-23 by
+  `scripts/_rewrap-headless.ps1` (enumerate `\DevOptimizer\` + root tasks, wrap
+  non-conhost actions; run elevated — RunLevel=Highest tasks deny unelevated
+  `Set-ScheduledTask`). The reregister script now has `New-HeadlessAction` —
+  **any script that creates/registers task actions MUST wrap in
+  `conhost.exe --headless`**; check for this whenever popups reappear.
 - WSL→Windows interop calls (`powershell.exe -Command ...` from WSL) also flash a
   console because the WSL session has no Windows console attached — expected, keep
   such calls minimal; orphaned ones leave a stuck empty window (safe to close).
