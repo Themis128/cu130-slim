@@ -217,7 +217,8 @@ WORKFORCE = [
         escalations=[
             (
                 "accounts not active",
-                "SELECT count(*) FROM social_accounts WHERE status <> 'active'",
+                "SELECT count(*) FROM social_accounts WHERE status <> 'active' "
+                "AND meta_data->>'deleted_at' IS NULL",
                 "session healing exhausted its ladder — human re-login needed",
             )
         ],
