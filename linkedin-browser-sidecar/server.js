@@ -4003,6 +4003,16 @@ app.get("/debug/form-html", async (req, res) => {
 });
 
 // ── Debug helpers (for admin dashboard navigation) ────────────────────────
+app.get("/debug/screenshot", async (req, res) => {
+  try {
+    await ensureBrowser();
+    await page.screenshot({ path: "/data/debug-shot.png", fullPage: !!req.query.full });
+    res.json({ status: "ok", path: "/data/debug-shot.png", url: page.url() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/debug/navigate", async (req, res) => {
   try {
     const { url } = req.body;
