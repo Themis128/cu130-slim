@@ -32,6 +32,18 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/accounts/{account_id}/test` — POST
 - `/api/v1/accounts/{account_id}/validate` — GET
 
+## `agency`
+
+- `/api/v1/agency/audits` — GET, POST
+- `/api/v1/agency/audits/{audit_id}` — GET
+- `/api/v1/agency/catalog` — GET
+- `/api/v1/agency/projects` — GET, POST
+- `/api/v1/agency/projects/{project_id}` — GET
+- `/api/v1/agency/proposals` — GET
+- `/api/v1/agency/proposals/{proposal_id}` — GET
+- `/api/v1/agency/proposals/{proposal_id}/approve` — POST
+- `/api/v1/agency/proposals/{proposal_id}/reject` — POST
+
 ## `ai`
 
 - `/api/v1/ai/analyze-content` — POST
