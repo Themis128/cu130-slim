@@ -54,6 +54,7 @@ celery_app = Celery(
         "app.worker.tasks.promo_scan",
         "app.worker.tasks.failure_learning",
         "app.worker.tasks.edit_diff",
+        "app.worker.tasks.kakkava_sync",
     ],
 )
 
@@ -209,6 +210,7 @@ celery_app.conf.update(
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
+        "app.worker.tasks.kakkava_sync.sync_kakkava_corpus": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -599,6 +601,16 @@ celery_app.conf.update(
             "task": "app.worker.tasks.skool_watch.watch_skool_vec",
             "schedule": 10800.0,  # every 3 hours
             "options": {"queue": "default"},
+        },
+        # Daily Kakkava doctrine sync — re-walk the read-only corpus mount,
+        # embed new/changed chunks into team_<id>_doctrine so generation
+        # recalls the current source material (services.kakkava.sync_corpus).
+        "kakkava-corpus-sync": {
+            "task": "app.worker.tasks.kakkava_sync.sync_kakkava_corpus",
+            "schedule": crontab(
+                hour=settings.KAKKAVA_SYNC_HOUR,
+                minute=settings.KAKKAVA_SYNC_MINUTE,
+            ),
         },
     },
 )

@@ -1679,6 +1679,17 @@ async def generate_content(
         web_sources = await web_search(request.prompt)
         web_section = f"\n\n{format_search_context(web_sources, request.prompt)}\n" if web_sources else ""
 
+    # Doctrine grounding — recall the most relevant Kakkava Visibility Era
+    # corpus chunks for this brief so the piece draws on the source material,
+    # not just the baked-in voice signature. Fail-silent when unsynced.
+    doctrine_section = ""
+    if team:
+        from app.services.kakkava import doctrine_context
+
+        doctrine_section = await doctrine_context(
+            team.id, request.prompt, n_results=3
+        )
+
     # Build prompt — use saved template if available, otherwise default
     brand_section = f"\n\nBRAND CONTEXT:\n{brand_context_str}\n" if brand_context_str else ""
     # Small local models summarize a signature blob instead of applying it —
@@ -1734,12 +1745,12 @@ async def generate_content(
                 user_prompt = user_prompt.replace(placeholder, request.length)
         prompt = (
             f"{saved_template.system_prompt}\n\n{user_prompt}"
-            f"{structure_hint}{email_hint}{pillar_section}{web_section}"
+            f"{structure_hint}{email_hint}{pillar_section}{web_section}{doctrine_section}"
             f"\n\nReturn JSON with: {json_contract}"
         )
     else:
         prompt = f"""Write a {request.platform} post based on this prompt: "{request.prompt}"
-{brand_section}{structure_hint}{email_hint}{pillar_section}{web_section}
+{brand_section}{structure_hint}{email_hint}{pillar_section}{web_section}{doctrine_section}
 Platform guidelines: {guide}
 Tone: {request.tone}
 Length: {request.length}
