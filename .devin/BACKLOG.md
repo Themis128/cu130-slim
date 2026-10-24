@@ -16,13 +16,15 @@ Leftovers for next sessions:
 - **First real proposal review** — first Slack `socialauto_proposal_approve`
   click is the end-to-end test of the approve lane (needs cloudless.gr
   PR #2279 merged + deployed for buttons to reach SocialAuto).
-- **Implementation agents NOT built** — PM loop tracks day-1/5/10/14
-  milestones but engineering work is still human/Devin; next phase is
-  GitHub-PR-scoped codegen agents behind `review` autonomy.
-- **Proposal email is markdown text**, no PDF — upgrade when volume
-  justifies.
-- **LLM triage refine** — classifier is deterministic keywords; a DMR/CF
-  pass can rank ambiguity but must keep the explainable-hits note.
+- **Implementation agents — phase 1 landed 2026-10-25 (PR #849):**
+  `agency-engineer` drafts PR manifests for sent proposals (plans only,
+  review tier). True codegen stays blocked on earned-autonomy graduation.
+- **Proposal email is markdown text**, no PDF — accepted as sufficient for
+  now; revisit only if lead volume justifies.
+- **LLM triage refine** — deliberately deferred; deterministic classifier
+  is explainable per ABPM. Revisit only if misroutes show up in notes.
+- **mypy `test` job failure on #849** — fixed in PR #851 (stats dicts →
+  dict[str,Any], set.add out of comprehension); deployed to containers.
 - **174 linkedin.com audit rows deleted 2026-10-25** — leads paste social
   profile URLs as "website"; skip-list now covers social/free-mail domains.
   If a legit lead has only a social URL, triage records `domain=n/a` — no
