@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
+import { WebMcpTools } from "@/components/webmcp-tools"
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' })
 
@@ -36,4 +37,3 @@ export default function RootLayout({
     </html>
   )
 }
-\nimport { WebMcpTools } from "@/components/webmcp-tools";
