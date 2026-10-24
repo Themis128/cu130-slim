@@ -3355,12 +3355,18 @@ app.post("/debug/eval", async (req, res) => {
 
 // Debug: real keystroke typing into a selector (trusted key events).
 app.post("/debug/type", async (req, res) => {
-  const { selector, text, delay } = req.body || {};
-  if (!selector || !text) return res.status(400).json({ error: "selector and text required" });
+  const { selector, text, delay, force } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
   try {
     await ensureBrowser();
-    await page.waitForSelector(selector, { timeout: 8000 });
-    await page.click(selector);
+    if (selector) {
+      if (force) {
+        await page.locator(selector).first().click({ force: true, timeout: 5000 }).catch(() => {});
+      } else {
+        await page.waitForSelector(selector, { timeout: 8000 });
+        await page.click(selector);
+      }
+    }
     await page.keyboard.type(text, { delay: delay || 60 });
     res.json({ status: "ok" });
   } catch (err) {
