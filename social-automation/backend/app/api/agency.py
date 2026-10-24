@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import require_admin
@@ -30,7 +30,6 @@ from app.models.user import TeamMember, User
 from app.services.agency_catalog import DELIVERY_DAYS, SERVICES, price_range
 from app.services.agency_pipeline import (
     project_milestones,
-    render_proposal,
     send_proposal,
 )
 from app.services.site_audit import run_site_audit

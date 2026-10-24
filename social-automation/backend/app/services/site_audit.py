@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from app.services.url_safety import UnsafeUrlError, validate_public_http_url
+from app.services.url_safety import validate_public_http_url
 
 logger = logging.getLogger(__name__)
 
