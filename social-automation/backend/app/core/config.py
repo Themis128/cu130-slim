@@ -610,6 +610,14 @@ class Settings(BaseSettings):
     # cloudless.gr contact path already applies.
     CRM_CONVERT_ENABLED: bool = True
 
+    # Autonomous agency pipeline — Front Desk triage → Architect site audit →
+    # proposal draft → 14-day PM loop. All outbound mail stays human-gated:
+    # AGENCY_PROPOSAL_AUTOSEND exists only for the earned-autonomy graduation
+    # path (workforce_audit ladder) and defaults OFF.
+    AGENCY_ENABLED: bool = True
+    AGENCY_AUDIT_MAX_PER_RUN: int = 5
+    AGENCY_PROPOSAL_AUTOSEND: bool = False
+
     # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
     # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the
     # "Reply received" note marker.

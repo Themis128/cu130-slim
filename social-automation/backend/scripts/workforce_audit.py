@@ -333,6 +333,90 @@ WORKFORCE = [
         guardrails=("quarantine beats delete — no bulk row removal",),
         fallback="conflicts parked for human review",
     ),
+    # ── Autonomous agency pipeline (agent-led fixed-scope model) ──────
+    Worker(
+        "agency-front-desk",
+        "app.worker.tasks.agency.run_agency_triage_sweep",
+        "default",
+        900,  # 15 min
+        goal="Classify every new lead into the service catalog and queue a site audit",
+        guardrails=(
+            "explainable routing only — deterministic keyword model, matched signals recorded",
+            "never email or contact a lead — triage writes notes and audit rows only",
+        ),
+        fallback="lead left untriaged; next sweep retries",
+        demand_driven=True,
+        evidence=[("last audit queued", "SELECT max(created_at) FROM agency_audits")],
+        pending_sql="SELECT count(*) FROM leads WHERE NOT COALESCE(meta_data ? 'agency_triaged', false)",
+    ),
+    Worker(
+        "agency-architect",
+        "app.worker.tasks.agency.run_agency_audit_sweep",
+        "default",
+        600,  # 10 min
+        goal="Deliver a deterministic site audit minutes after a lead arrives",
+        guardrails=(
+            "measured data only — every finding cites a real response/header",
+            "SSRF-guarded fetches — public URLs only (url_safety)",
+        ),
+        fallback="audit row → failed with error; next sweep does not retry",
+        demand_driven=True,
+        evidence=[("last completed audit", "SELECT max(completed_at) FROM agency_audits")],
+        pending_sql="SELECT count(*) FROM agency_audits WHERE status='pending'",
+        escalations=[
+            (
+                "failed audits",
+                "SELECT count(*) FROM agency_audits WHERE status='failed' AND created_at > now() - interval '7 days'",
+                "site unreachable or rejected by SSRF guard — a human must confirm the lead's URL",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-proposals",
+        "app.worker.tasks.agency.run_agency_proposal_sweep",
+        "default",
+        1800,  # 30 min
+        goal="Turn every completed audit into a priced fixed-scope proposal draft",
+        guardrails=(
+            "never auto-send — a proposal leaves only via human approve",
+            "prices come from the fixed catalog — never invent a number",
+        ),
+        autonomy="review",  # Slack approve/reject is the gate
+        fallback="audit stays unproposed; next sweep retries",
+        demand_driven=True,
+        evidence=[("last proposal drafted", "SELECT max(created_at) FROM agency_proposals")],
+        pending_sql="SELECT count(*) FROM agency_audits a WHERE a.status='completed' AND NOT EXISTS (SELECT 1 FROM agency_proposals p WHERE p.audit_id=a.id)",
+        escalations=[
+            (
+                "stale drafts",
+                "SELECT count(*) FROM agency_proposals WHERE status='draft' AND created_at < now() - interval '3 days'",
+                "draft awaiting human decision — the front desk promised a fast answer",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-pm",
+        "app.worker.tasks.agency.run_agency_pm_sweep",
+        "default",
+        DAY,
+        goal="Drive every won engagement through the 14-day milestone plan",
+        guardrails=(
+            "client updates are drafts for a human — never mailed directly",
+            "scope is fixed at kickoff — the agent never expands it",
+        ),
+        autonomy="review",
+        fallback="milestone stays pending; next daily sweep retries",
+        demand_driven=True,
+        evidence=[("last client update", "SELECT max(last_client_update_at) FROM agency_projects")],
+        pending_sql="SELECT count(*) FROM agency_projects WHERE status='active'",
+        escalations=[
+            (
+                "overdue projects",
+                "SELECT count(*) FROM agency_projects WHERE status='stalled'",
+                "project passed its 14-day due date — a human must reset scope or close it",
+            ),
+        ],
+    ),
     Worker(
         "datalake-export",
         "app.worker.tasks.datalake_export.export_datalake",
