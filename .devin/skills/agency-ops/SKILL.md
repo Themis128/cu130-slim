@@ -26,6 +26,9 @@ the shared data-driven mandate; this skill is the pipeline map.
   PR manifest (branch/files/tests), CI gates, human merges, progressive
   delivery, documented rollback. Plans only until the autonomy ladder
   graduates a codegen agent.
+- **LinkedIn SMB Playbook (Crawl–Walk–Run)** — adopted as the
+  `linkedin_growth` catalog service: organic foundation → boost validation
+  → campaign scale, rendered as `Service.phases` in proposals.
 - Plus the standing corpus: ABPM contracts (Vu/Calvanese), funnel stages
   (Tolstova & Silakova), trend grounding (Chernenko & Babenko),
   decision-shaped analytics (Adesina), engagement KPIs (Bening &
