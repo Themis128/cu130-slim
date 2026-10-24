@@ -31,7 +31,9 @@ export default function RootLayout({
       </head>
       <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
         <Providers>{children}</Providers>
+              <WebMcpTools />
       </body>
     </html>
   )
 }
+\nimport { WebMcpTools } from "@/components/webmcp-tools";

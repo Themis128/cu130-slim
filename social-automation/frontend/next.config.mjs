@@ -37,6 +37,21 @@ const nextConfig = {
           // microphone/camera allowed for same-origin only — the VoiceRecorder
           // (getUserMedia) and the embedded noVNC browser iframe need them.
           { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
+          // RFC 8288 Link headers for agent discovery
+          { key: 'Link', value: [
+            '</.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"',
+            '</.well-known/oauth-authorization-server>; rel="oauth-authorization-server"; type="application/json"',
+            '</.well-known/oauth-protected-resource>; rel="oauth-protected-resource"; type="application/json"',
+            '</.well-known/agent.json>; rel="agent-card"; type="application/json"',
+            '</.well-known/mcp/server-card.json>; rel="mcp-server-card"; type="application/json"',
+            '</.well-known/ai-catalog.json>; rel="ai-catalog"; type="application/json"',
+            '</.well-known/agent-skills/index.json>; rel="agent-skills"; type="application/json"',
+            '</api/v1/openapi.json>; rel="service-desc"; type="application/vnd.oai.openapi+json"',
+            '</api-docs>; rel="service-doc"; type="text/html"',
+            '</api/v1/health>; rel="status"',
+            '</privacy>; rel="privacy-policy"; type="text/html"',
+            '</auth.md>; rel="agent-auth"; type="text/markdown"',
+          ].join(', ') },
         ],
       },
     ]
