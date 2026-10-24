@@ -47,7 +47,6 @@ app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     lifespan=lifespan,
-    openapi_url=f"{settings.API_PREFIX}/openapi.json",
     docs_url="/docs" if (settings.DEBUG or settings.EXPOSE_API_DOCS) else None,
     redoc_url="/redoc" if (settings.DEBUG or settings.EXPOSE_API_DOCS) else None,
 )
@@ -66,6 +65,16 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_root():
+    return app.openapi()
+
+
+@app.get(f"{settings.API_PREFIX}/openapi.json", include_in_schema=False)
+async def openapi_prefixed():
+    return app.openapi()
+
 
 app.include_router(api_router, prefix=settings.API_PREFIX)
 
