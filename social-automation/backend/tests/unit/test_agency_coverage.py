@@ -222,7 +222,9 @@ async def test_list_and_get_endpoints():
 @pytest.mark.asyncio
 async def test_service_catalog():
     out = await A.service_catalog(current_user=_user())
-    assert len(out["services"]) == 4 and out["delivery_days"] == 14
+    assert len(out["services"]) == 5 and out["delivery_days"] == 14
+    lg = next(s for s in out["services"] if s["slug"] == "linkedin_growth")
+    assert lg["name"] == "LinkedIn B2B Growth"
     assert out["bundle_example_price_range"] == (3600, 3600)
 
 

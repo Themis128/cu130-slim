@@ -346,6 +346,8 @@ def render_proposal(*, audit: AgencyAudit, recipient_name: str | None, services:
         svc = SERVICES.get(slug)
         if svc:
             lines.append(f"- **{svc.name}** — €{svc.price_low_eur}–€{svc.price_high_eur}: {svc.summary}")
+            for phase in svc.phases:
+                lines.append(f"  - {phase}")
     if bundle:
         lines.append(f"- **{BUNDLE_NAME}** — €{BUNDLE_PRICE_EUR}/month flat")
     elif price_low:
