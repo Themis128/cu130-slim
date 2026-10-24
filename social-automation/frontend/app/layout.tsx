@@ -30,11 +30,15 @@ export default function RootLayout({
           }}
         />
               <script dangerouslySetInnerHTML={{ __html: `(function(){
-  function reg(){ var mc=document.modelContext; if(!mc||!mc.registerTool) return false;
-    mc.registerTool({name:"list_platforms",description:"List the social platforms SocialAuto can publish to",inputSchema:{type:"object",properties:{}},execute:async function(){return {platforms:["linkedin","x","instagram","facebook","threads","tiktok","telegram","whatsapp"]};}});
-    mc.registerTool({name:"check_api_health",description:"Check whether the SocialAuto API is healthy",inputSchema:{type:"object",properties:{}},execute:async function(){var r=await fetch("/api/v1/health");return {status:r.status,ok:r.ok};}});
-    return true; }
-  if(!reg()){ var n=0, iv=setInterval(function(){ if(reg()||++n>20) clearInterval(iv); },250); }
+  function targets(){ var t=[]; if(typeof document!=="undefined"&&document.modelContext) t.push(document.modelContext); if(typeof navigator!=="undefined"&&navigator.modelContext) t.push(navigator.modelContext); if(typeof window!=="undefined"&&window.modelContext) t.push(window.modelContext); return t; }
+  function tools(){ return [
+    {name:"list_platforms",description:"List the social platforms SocialAuto can publish to",inputSchema:{type:"object",properties:{}},execute:async function(){return {platforms:["linkedin","x","instagram","facebook","threads","tiktok","telegram","whatsapp"]};}},
+    {name:"check_api_health",description:"Check whether the SocialAuto API is healthy",inputSchema:{type:"object",properties:{}},execute:async function(){var r=await fetch("/api/v1/health");return {status:r.status,ok:r.ok};}}
+  ]; }
+  function reg(){ var t=targets(); if(!t.length) return false; var done=false;
+    t.forEach(function(mc){ try{ if(mc.registerTool){ tools().forEach(function(tool){ void mc.registerTool(tool); }); done=true; } else if(mc.provideContext){ mc.provideContext({tools:tools()}); done=true; } }catch(e){} });
+    return done; }
+  if(!reg()){ var n=0, iv=setInterval(function(){ if(reg()||++n>40) clearInterval(iv); },250); }
 })();` }} />
       </head>
       <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
