@@ -4,6 +4,34 @@ Living list. **Every agent session must read this at start and update it at end*
 check off what landed, add anything left unfinished, and keep items verbatim enough
 to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
+## Autonomous-agency pipeline — landed 2026-10-25 (branch `feat/agency-agents`)
+
+Four governed workers now run the agent-led agency model (triage → site audit →
+proposal → 14-day PM). Deployed live: migration `c2d4e6f8a0b2` applied,
+`social-api`/`social-worker-default`/`celery-beat` restarted, all 4 tasks
+registered, real triage+audit ran at 22:45 UTC. Skill: `agency-ops`.
+
+Leftovers for next sessions:
+
+- **First real proposal review** — first Slack `socialauto_proposal_approve`
+  click is the end-to-end test of the approve lane (needs cloudless.gr
+  PR #2279 merged + deployed for buttons to reach SocialAuto).
+- **Implementation agents NOT built** — PM loop tracks day-1/5/10/14
+  milestones but engineering work is still human/Devin; next phase is
+  GitHub-PR-scoped codegen agents behind `review` autonomy.
+- **Proposal email is markdown text**, no PDF — upgrade when volume
+  justifies.
+- **LLM triage refine** — classifier is deterministic keywords; a DMR/CF
+  pass can rank ambiguity but must keep the explainable-hits note.
+- **174 linkedin.com audit rows deleted 2026-10-25** — leads paste social
+  profile URLs as "website"; skip-list now covers social/free-mail domains.
+  If a legit lead has only a social URL, triage records `domain=n/a` — no
+  audit; human should ask for the real site.
+- **`agency-front-desk` evidence** — `agency_audits.created_at` is shared
+  with manual audits; a busy manual day could mask a dead sweep (fine —
+  demand-driven anyway).
+
+
 ## Registered leftovers — 2026-10-21
 
 All entries below remain open until their acceptance criteria are verified.
