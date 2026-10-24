@@ -418,6 +418,25 @@ WORKFORCE = [
         ],
     ),
     Worker(
+        "agency-engineer",
+        "app.worker.tasks.agency.run_agency_engineer_sweep",
+        "default",
+        DAY,
+        goal="Turn every sent proposal into a reviewable PR manifest",
+        guardrails=(
+            "plans only — never write client code or open PRs autonomously",
+            "every plan declares CI gate + rollback — no plan ships without both",
+        ),
+        autonomy="review",  # humans/Devin execute; codegen needs graduation
+        fallback="proposal stays unplanned; next sweep retries",
+        demand_driven=True,
+        evidence=[(
+            "last plan drafted",
+            "SELECT max(updated_at) FROM agency_proposals WHERE meta_data ? 'engineering_plan'",
+        )],
+        pending_sql="SELECT count(*) FROM agency_proposals WHERE status='sent' AND NOT COALESCE(meta_data ? 'engineering_plan', false)",
+    ),
+    Worker(
         "datalake-export",
         "app.worker.tasks.datalake_export.export_datalake",
         "default",

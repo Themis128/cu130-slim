@@ -74,3 +74,17 @@ def run_agency_pm_sweep() -> dict | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("agency pm sweep failed: %s", exc)
         return None
+
+
+@shared_task
+def run_agency_engineer_sweep() -> dict | None:
+    """Engineers: draft PR manifests for sent proposals (plans only)."""
+    from app.core.config import get_settings
+
+    if not get_settings().AGENCY_ENABLED:
+        return None
+    try:
+        return run_async(agency_pipeline.engineer_sweep())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agency engineer sweep failed: %s", exc)
+        return None

@@ -178,6 +178,10 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 180,
         },
+        "app.worker.tasks.agency.run_agency_engineer_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
@@ -234,6 +238,7 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_audit_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -343,6 +348,12 @@ celery_app.conf.update(
         "agency-pm-sweep": {
             "task": "app.worker.tasks.agency.run_agency_pm_sweep",
             "schedule": crontab(hour=9, minute=20),
+        },
+        # Engineers (Joshi 2025 agentic-DevOps): draft PR manifests for
+        # sent proposals — plans only, humans/Devin implement.
+        "agency-engineer-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_engineer_sweep",
+            "schedule": crontab(hour=9, minute=40),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
