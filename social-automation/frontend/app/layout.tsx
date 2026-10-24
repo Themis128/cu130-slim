@@ -36,8 +36,11 @@ export default function RootLayout({
     {name:"check_api_health",description:"Check whether the SocialAuto API is healthy",inputSchema:{type:"object",properties:{}},execute:async function(){var r=await fetch("/api/v1/health");return {status:r.status,ok:r.ok};}}
   ]; }
   function reg(){ var t=targets(); if(!t.length) return false; var done=false;
-    t.forEach(function(mc){ try{ if(mc.registerTool){ tools().forEach(function(tool){ void mc.registerTool(tool); }); done=true; } if(mc.provideContext){ mc.provideContext({tools:tools()}); done=true; } }catch(e){} });
+    t.forEach(function(mc){ try{ if(mc.registerTool){ try{ var _ac=new AbortController(); tools().forEach(function(tool){ try{ void mc.registerTool(tool,{signal:_ac.signal}); }catch(e){ void mc.registerTool(tool); } }); }catch(e){} done=true; } if(mc.provideContext){ mc.provideContext({tools:tools()}); done=true; } }catch(e){} });
     return done; }
+  ["document","navigator","window"].forEach(function(k){ try{ var o=(k==="document"?document:(k==="navigator"?navigator:window)); var cur=o.modelContext;
+    Object.defineProperty(o,"modelContext",{configurable:true,enumerable:true,
+      get:function(){return cur;}, set:function(v){cur=v; reg();}}); }catch(e){} });
   if(!reg()){ var n=0, iv=setInterval(function(){ if(reg()||++n>240) clearInterval(iv); },250); } window.addEventListener("load",function(){ reg(); }); window.addEventListener("DOMContentLoaded",function(){ reg(); });
 })();` }} />
       </head>
