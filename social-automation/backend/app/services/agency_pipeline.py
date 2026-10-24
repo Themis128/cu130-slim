@@ -211,11 +211,22 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
         stats["triaged"] += 1
 
         if domain:
-            db.add(AgencyAudit(
-                team_id=team_id, espo_lead_id=lid, url=f"https://{domain}",
-                meta_data={"lead_name": lead.get("name"), "lead_email": lead.get("emailAddress")},
-            ))
-            stats["audits"] += 1
+            # One audit per domain — many leads can share a site; don't
+            # queue a duplicate row per lead.
+            dup = (
+                await db.execute(
+                    select(AgencyAudit.id).where(
+                        AgencyAudit.team_id == team_id,
+                        AgencyAudit.url.contains(domain),
+                    ).limit(1)
+                )
+            ).first()
+            if not dup:
+                db.add(AgencyAudit(
+                    team_id=team_id, espo_lead_id=lid, url=f"https://{domain}",
+                    meta_data={"lead_name": lead.get("name"), "lead_email": lead.get("emailAddress")},
+                ))
+                stats["audits"] += 1
     return stats
 
 

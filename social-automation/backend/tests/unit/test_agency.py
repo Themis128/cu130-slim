@@ -65,6 +65,14 @@ def test_extract_domain_skips_own_and_freemail():
     assert C.extract_domain(None, "") is None
 
 
+def test_extract_domain_skips_social_profiles():
+    # Leads paste their LinkedIn/Facebook profile URL as "website" — that is
+    # not their company site and must never become an audit target.
+    assert C.extract_domain("find me at https://linkedin.com/in/maria-k") is None
+    assert C.extract_domain("fb page facebook.com/acme") is None
+    assert C.extract_domain("https://instagram.com/acme or acme.gr") == "acme.gr"
+
+
 # ── agency_catalog.price_range ──────────────────────────────────────────────
 
 def test_price_range_bundle():

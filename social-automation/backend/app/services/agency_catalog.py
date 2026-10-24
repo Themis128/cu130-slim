@@ -111,7 +111,18 @@ _BARE_DOMAIN_RE = re.compile(
     r"\b(?:www\.)?([a-z0-9][a-z0-9-]{1,62}\.(?:com|gr|net|org|io|dev|app|co|eu|ai|me|info|biz|shop|store|site|online|tech|cloud|agency|digital|consulting|services|solutions|gov|edu)(?:\.[a-z]{2,3})?)\b",
     re.I,
 )
-_OWN_DOMAINS = {"cloudless.gr", "social.cloudless.gr", "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "example.com"}
+_OWN_DOMAINS = {"cloudless.gr", "social.cloudless.gr", "example.com", "example.gr"}
+
+# Never an auditable client site — free-mail hosts and social platforms
+# (leads paste profile URLs, e.g. linkedin.com/in/name, as their "website").
+_FREE_MAIL_AND_SOCIAL = {
+    "gmail.com", "yahoo.com", "yahoo.gr", "hotmail.com", "outlook.com",
+    "icloud.com", "proton.me", "protonmail.com", "aol.com", "gmx.com",
+    "linkedin.com", "facebook.com", "fb.com", "instagram.com", "x.com",
+    "twitter.com", "threads.net", "tiktok.com", "youtube.com", "youtu.be",
+    "wa.me", "t.me", "telegram.me", "github.com", "linktr.ee", "calendly.com",
+    "wikipedia.org", "maps.google.com", "google.com",
+}
 
 
 def classify_services(text: str) -> list[tuple[str, int, list[str]]]:
@@ -148,14 +159,14 @@ def extract_domain(*texts: str | None) -> str | None:
         for m in _URL_RE.finditer(text):
             host = re.sub(r"^https?://", "", m.group(0), flags=re.I).split("/")[0].split(":")[0].lower()
             host = re.sub(r"^www\.", "", host)
-            if host and host not in _OWN_DOMAINS:
+            if host and host not in _OWN_DOMAINS and host not in _FREE_MAIL_AND_SOCIAL:
                 return host
     for text in texts:
         if not text:
             continue
         for m in _BARE_DOMAIN_RE.finditer(text):
             host = m.group(1).lower()
-            if host not in _OWN_DOMAINS:
+            if host not in _OWN_DOMAINS and host not in _FREE_MAIL_AND_SOCIAL:
                 return host
     return None
 
