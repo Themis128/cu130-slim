@@ -408,3 +408,22 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
   By design, but noisy — candidate fix: suppress/tolerate 409 in watchdog.
 - Recurrence path: if swap/page-alloc failures recur, the WSL utility VM
   needs `.wslconfig` memory/swap tuning or periodic docker-desktop restarts.
+
+### Follow-up fixes landed — 2026-10-25 (same session)
+
+- [x] **dmr-watchdog 409 noise** — `configure()` now reads HTTP status via
+  `wget -S`: 2xx (the endpoint returns 202, not 200) = applied, 409 =
+  "model loaded, config lands on next load" counted as pending, anything
+  else = real error. `apply_configs` logs only on pending-count
+  transitions + real errors. Verified live: "all canonical model configs
+  applied", no more per-minute 409 spam. `docker-compose.yml`.
+- [x] **Swap-exhaustion recurrence** — `WSL-Memory-Watchdog`
+  (`D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1`, every 30min)
+  now auto-remediates at >=95%: `docker desktop restart` (fallback
+  `wsl --terminate docker-desktop`) with a 2h cooldown stamp
+  (`logs\dd-restart.cooldown`) + event 1003. No .wslconfig change — 16GB
+  swap was the commit-balloon cause, keep 8GB. Note: post-restart swap
+  refill to ~60% is normal cold-anon eviction with ~9GB RAM available.
+- [x] Confirmed `--n-gpu-layers 0` (CPU-pinned DMR fleet) is canonical in
+  `dmr.py::_BEST_PRACTICE_CONFIGS` — the recreated watchdog now ships it;
+  GPU stays free for ComfyUI.
