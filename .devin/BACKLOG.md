@@ -391,3 +391,20 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
   mounted into nextcloud/nextcloud-cron/nextcloud-worker — shipped via
   this session's PR; previously only lived on-host.
 
+
+## Session ops notes — 2026-10-25 (Docker Desktop check)
+
+- Ran full stack audit: no OOMKilled containers, all core healthy; `Exited`
+  containers were stack-ops idle-sleep (by design), portainer exit=2 benign.
+- Found WSL utility-VM memory exhaustion: swap 8.0/8.0 GiB full, kernel page
+  allocation failures in dmesg, VRAM 7.6/8.2 GiB with 7 DMR models resident.
+- Fix applied: evicted/let DMR models expire (VRAM → 1.9 GiB), then
+  `wsl.exe --terminate docker-desktop` (surgical VM restart; Ubuntu session
+  unaffected). Swap → 632 MiB, RAM available 3.6→10 GiB. All containers
+  self-recovered via restart policies in <1 min; social.cloudless.gr 200,
+  n8n.cloudless.gr 302, 4 Celery nodes pong, cf-db health all true.
+- Known standing noise: `dmr-watchdog` logs `config apply failed — 409
+  Conflict` whenever target models are loaded; configs land on next load.
+  By design, but noisy — candidate fix: suppress/tolerate 409 in watchdog.
+- Recurrence path: if swap/page-alloc failures recur, the WSL utility VM
+  needs `.wslconfig` memory/swap tuning or periodic docker-desktop restarts.
