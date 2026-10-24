@@ -421,6 +421,14 @@ class Settings(BaseSettings):
     COMPANY_BRAIN_HOUR: int = 23     # Europe/Athens via Celery timezone
     COMPANY_BRAIN_MINUTE: int = 45   # Europe/Athens via Celery timezone
 
+    # Kakkava corpus — the Visibility Era source folder (PDFs/md/html)
+    # bind-mounted read-only from the host OneDrive path. Ingested into
+    # Chroma team_<id>_doctrine for semantic recall during generation.
+    KAKKAVA_DIR: str = "/mnt/kakkava"
+    KAKKAVA_SYNC_ENABLED: bool = True
+    KAKKAVA_SYNC_HOUR: int = 5       # Europe/Athens via Celery timezone
+    KAKKAVA_SYNC_MINUTE: int = 50    # Europe/Athens via Celery timezone
+
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""
     SOCIAL_ADMIN_PASSWORD: str = ""

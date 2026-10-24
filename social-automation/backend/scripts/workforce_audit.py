@@ -421,6 +421,26 @@ WORKFORCE = [
         fallback="generation failure → draft skipped, never posted empty",
         evidence=[("last post drafted", "SELECT max(created_at) FROM posts")],
     ),
+    Worker(
+        "kakkava-sync",
+        "app.worker.tasks.kakkava_sync.sync_kakkava_corpus",
+        "default",
+        DAY,
+        goal="Keep team_<id>_doctrine Chroma collections in sync with the Kakkava corpus folder",
+        guardrails=(
+            "read-only on the corpus mount — never writes to KAKKAVA_DIR",
+            "fail-silent: missing folder or Chroma outage yields empty stats, never crashes the sweep",
+            "idempotent — content-hash skips mean re-runs are safe",
+        ),
+        autonomy="auto",
+        fallback="per-team sync failure logged in worker output + audit_logs row records errors count",
+        evidence=[
+            (
+                "last corpus sync",
+                "SELECT max(created_at) FROM audit_logs WHERE action='kakkava-sync' AND resource_type='sweep'",
+            )
+        ],
+    ),
 ]
 
 
