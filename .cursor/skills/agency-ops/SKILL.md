@@ -13,6 +13,23 @@ the shared data-driven mandate; this skill is the pipeline map.
 | agency-architect | `agency.run_agency_audit_sweep` | */10 min | deterministic site audit of `agency_audits` pending rows | auto (measured data only) |
 | agency-proposals | `agency.run_agency_proposal_sweep` | */30 min | completed audit → priced proposal draft | **review** — Slack approve/reject gate |
 | agency-pm | `agency.run_agency_pm_sweep` | daily 09:20 | 14-day milestone loop on `agency_projects` | **review** — client updates are drafts |
+| agency-engineer | `agency.run_agency_engineer_sweep` | daily 09:40 | sent proposal → PR manifest (plan only) | **review** — humans/Devin execute |
+
+## Research grounding
+
+- **Yang, Gao & Huang 2025 — Sustainability Agency Theory** (Sustainability
+  17:4778): agent reports to the principal must carry *verifiable
+  evidence*, not status claims — PM updates and the day-14 handoff always
+  include a `Verify:` line / artifact links.
+- **Joshi 2025 — Generative AI & DevOps Pipelines** (IJIRCST 13(4)):
+  agentic delivery pattern adopted for `agency-engineer` — agent drafts a
+  PR manifest (branch/files/tests), CI gates, human merges, progressive
+  delivery, documented rollback. Plans only until the autonomy ladder
+  graduates a codegen agent.
+- Plus the standing corpus: ABPM contracts (Vu/Calvanese), funnel stages
+  (Tolstova & Silakova), trend grounding (Chernenko & Babenko),
+  decision-shaped analytics (Adesina), engagement KPIs (Bening &
+  Roostika), one-UTM integration (Prakoso), PPC↔SEO loop (Shrivastva).
 
 ## Flow
 

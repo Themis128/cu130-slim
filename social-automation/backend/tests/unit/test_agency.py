@@ -336,3 +336,56 @@ def test_agency_workers_have_governance_contracts():
             "app.worker.tasks.agency.run_agency_proposal_sweep",
             "app.worker.tasks.agency.run_agency_pm_sweep",
         }
+
+
+# ── Engineer agent (Joshi 2025 agentic-DevOps: plan → CI gate → human merge) ──
+
+def test_render_engineering_plan_has_gates_and_rollback():
+    proposal = SimpleNamespace(
+        id=__import__("uuid").uuid4(), services=["cloud", "analytics"],
+        recipient_name="Acme Corp", recipient_email="ops@acme.example",
+    )
+    audit = _audit(findings=[{"finding": "Missing CSP", "check": "hdr_csp",
+                              "severity": "warning", "detail": "", "service": "cloud"}])
+    plan = P.render_engineering_plan(proposal, audit)
+    assert "agency/acme-corp-" in plan
+    assert "Cloud Architecture" in plan and "Data Analytics" in plan
+    assert "Missing CSP" in plan          # findings carry into the plan
+    assert "pytest" in plan and "rollback" in plan.lower()  # CI gate + rollback mandatory
+
+
+def test_render_engineering_plan_without_audit():
+    proposal = SimpleNamespace(
+        id=__import__("uuid").uuid4(), services=["marketing"],
+        recipient_name=None, recipient_email="x@y.z", audit_id=None,
+    )
+    plan = P.render_engineering_plan(proposal, None)
+    assert "Digital Marketing" in plan and "Branch" in plan
+
+
+# ── SAT (Yang et al. 2025): client reports carry verifiable evidence ─────────
+
+def test_draft_update_carries_evidence_line():
+    proj = SimpleNamespace(name="Acme migration")
+    text = P._draft_update(proj, {"day": 5, "key": "architecture",
+                                  "label": "Arch draft", "evidence": "PR #12"})
+    assert "Verify: PR #12" in text
+    text2 = P._draft_update(proj, {"day": 5, "key": "a", "label": "Arch"})
+    assert "Verify:" in text2  # never a bare status claim
+
+
+def test_handoff_has_verify_section():
+    proj = SimpleNamespace(name="Acme", kickoff_at=datetime.now(UTC) - timedelta(days=14),
+                           milestones=[{"day": 1, "key": "k", "label": "Kickoff",
+                                        "done": True, "done_at": "x"}])
+    assert "Verify it yourself" in P._render_handoff(proj)
+
+
+def test_agency_engineer_registered_and_governed():
+    import scripts.workforce_audit as WA
+    from app.worker.celery_app import celery_app
+
+    celery_app.loader.import_default_modules()
+    assert "app.worker.tasks.agency.run_agency_engineer_sweep" in celery_app.tasks
+    w = {x.name: x for x in WA.WORKFORCE}["agency-engineer"]
+    assert w.goal and w.guardrails and w.fallback and w.autonomy == "review"

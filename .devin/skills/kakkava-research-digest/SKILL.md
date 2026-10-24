@@ -83,3 +83,22 @@ delivery capacity, and tracking before increasing ad spend or channel count.
 Reference source: `OneDrive/Kakkava Sofia/Back 2 business/📈 Business Scaling
 Checklist.pdf` — consult the PDF directly for the full itemized list; this
 note exists so the checklist is acknowledged, not summarized.
+
+
+## 6. Sustainability Agency Theory — Yang, Gao & Huang (Sustainability
+17:4778, 2025)
+
+Extends agency theory to hybrid orgs: agents must balance profit AND the
+principal's mission; conflicts surface when agents drift to profit-only
+actions. Adopted for the agency pipeline: client-facing agent reports carry
+verifiable evidence (PM updates get a `Verify:` artifact line; handoffs get
+a self-verification section) — transparency sustains the principal-agent
+relationship.
+
+## 7. Generative AI & DevOps Pipelines — Joshi (IJIRCST 13(4), 2025)
+
+Review of agentic CI/CD: agents propose changes as PRs, CI validates,
+humans merge, progressive delivery, documented rollback. Adopted as the
+`agency-engineer` worker: drafts PR manifests (branch/files/tests/rollback)
+for sent proposals — plans only, codegen stays at `review` tier until the
+autonomy ladder graduates it.
