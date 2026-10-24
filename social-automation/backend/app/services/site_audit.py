@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from app.services.url_safety import validate_public_http_url
+from app.services.url_safety import UnsafeUrlError, validate_public_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -171,9 +171,17 @@ async def run_site_audit(url: str) -> dict[str, Any]:
             redirect_target = resp.headers.get("location")
             # Follow once to audit the page that actually renders.
             if redirect_target:
-                final = await _get(client, str(httpx.URL(safe_url).join(redirect_target)))
-                if final is not None and final.status_code == 200:
-                    resp = final
+                # Re-validate the hop: a public lead URL must not be able to
+                # bounce the auditor onto internal services or cloud metadata.
+                try:
+                    next_url = validate_public_http_url(str(httpx.URL(safe_url).join(redirect_target)))
+                except UnsafeUrlError:
+                    logger.warning("site audit: refusing unsafe redirect from %s", safe_url)
+                    next_url = None
+                if next_url:
+                    final = await _get(client, next_url)
+                    if final is not None and final.status_code == 200:
+                        resp = final
 
         if resp.status_code != 200:
             findings.append(_finding(

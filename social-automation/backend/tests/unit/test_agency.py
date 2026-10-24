@@ -195,6 +195,52 @@ async def test_audit_rejects_private_url():
         await SA.run_site_audit("http://127.0.0.1/internal")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "location",
+    ["http://169.254.169.254/latest/meta-data/", "http://127.0.0.1:8000/admin", "http://localhost/"],
+)
+async def test_audit_refuses_redirect_to_internal_target(monkeypatch, location):
+    real_validate = SA.validate_public_http_url
+
+    def _validate(u):
+        # The lead host stands in for a public site; everything else goes
+        # through the real SSRF guard.
+        return u if "acme.example" in u else real_validate(u)
+
+    monkeypatch.setattr(SA, "validate_public_http_url", _validate)
+    routes = {
+        "https://acme.example": _Resp(302, {"location": location}),
+        location.rstrip("/"): _Resp(200, {"content-type": "text/html"}, "<title>secret</title>"),
+    }
+    seen_kw = {}
+    fake = _FakeClient(routes)
+
+    def _client(**kw):
+        seen_kw.update(kw)
+        return fake
+
+    monkeypatch.setattr(SA.httpx, "AsyncClient", _client)
+    result = await SA.run_site_audit("https://acme.example")
+    assert seen_kw.get("follow_redirects") is False
+    assert not any(c.startswith(location.rstrip("/")) for c in fake.calls)
+    assert result["http_status"] == 302
+
+
+@pytest.mark.asyncio
+async def test_audit_follows_public_redirect(monkeypatch):
+    monkeypatch.setattr(SA, "validate_public_http_url", lambda u: u)
+    routes = {
+        "https://acme.example": _Resp(301, {"location": "https://www.acme.example/"}),
+        "https://www.acme.example": _healthy_page(),
+    }
+    fake = _FakeClient(routes)
+    monkeypatch.setattr(SA.httpx, "AsyncClient", lambda **kw: fake)
+    result = await SA.run_site_audit("https://acme.example")
+    assert "https://www.acme.example/" in fake.calls
+    assert result["http_status"] == 200
+
+
 # ── agency_pipeline — proposal render + PM logic ────────────────────────────
 
 
