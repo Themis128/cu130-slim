@@ -36,9 +36,9 @@ export default function RootLayout({
     {name:"check_api_health",description:"Check whether the SocialAuto API is healthy",inputSchema:{type:"object",properties:{}},execute:async function(){var r=await fetch("/api/v1/health");return {status:r.status,ok:r.ok};}}
   ]; }
   function reg(){ var t=targets(); if(!t.length) return false; var done=false;
-    t.forEach(function(mc){ try{ if(mc.registerTool){ tools().forEach(function(tool){ void mc.registerTool(tool); }); done=true; } else if(mc.provideContext){ mc.provideContext({tools:tools()}); done=true; } }catch(e){} });
+    t.forEach(function(mc){ try{ if(mc.registerTool){ tools().forEach(function(tool){ void mc.registerTool(tool); }); done=true; } if(mc.provideContext){ mc.provideContext({tools:tools()}); done=true; } }catch(e){} });
     return done; }
-  if(!reg()){ var n=0, iv=setInterval(function(){ if(reg()||++n>40) clearInterval(iv); },250); }
+  if(!reg()){ var n=0, iv=setInterval(function(){ if(reg()||++n>240) clearInterval(iv); },250); } window.addEventListener("load",function(){ reg(); }); window.addEventListener("DOMContentLoaded",function(){ reg(); });
 })();` }} />
       </head>
       <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>

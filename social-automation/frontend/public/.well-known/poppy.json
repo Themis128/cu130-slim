@@ -1,0 +1,7 @@
+{
+  "protocol_version": "0.1",
+  "protocol": "PAP",
+  "name": "SocialAuto Personal Agent",
+  "organization": {"name": "Cloudless", "domain": "social.cloudless.gr"},
+  "web": {"agentCard": "https://social.cloudless.gr/.well-known/agent.json", "mcp": "https://social.cloudless.gr/.well-known/mcp/server-card.json"}
+}
