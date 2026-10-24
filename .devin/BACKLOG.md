@@ -358,3 +358,36 @@ proposals on `audit_logs` + Slack, nothing self-executes.
 - [x] LinkedIn newsletter funnel: 168 subscribers → EspoCRM leads, PR #735 merged.
 - [x] Oxford AIE brochure → 4 `ContentPromptTemplate`s live + verified via
   `/generate-content` (SEO 91).
+
+## omv Docker state wipe + workspace restore — 2026-10-24
+
+**Incident:** `cloud.cloudless.gr` → Cloudflare error 1033 (~21:56 EEST).
+omv hard-rebooted ~21:43 (same power-cycle event as the registered omv outage).
+Boot-time `docker.service` failed on the iptables bridge race
+(`Unable to enable ACCEPT OUTGOING rule`); the socket-activated dockerd came
+up with **zero containers/images** — the sda1 docker-root metadata
+(`containers/`, `image/`) was wiped during the unclean shutdown, along with
+`compose-files/workspace/workspace.yml` + `workspace.env`
+(override stub + php-conf.d survived; all sdb1 data intact).
+
+**Restore:** `workspace.yml` redeployed from repo
+`deploy/omv-workspace/docker-compose.yml` (NC 35.0.2), `workspace.env`
+re-extracted from `omv-confdbadm read conf.service.compose` (11 vars, never
+printed), stale bridge networks pruned. `docker compose up -d` for
+workspace + `~/cloudflared` + searxng + tempo → 15 containers healthy.
+Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
+`office` 200, `signal` welcome 200, `push` answers (400 = auth-gated, reachable).
+
+**Left over:**
+- [ ] OMV plugin DB (`conf.service.compose` → files.file[name=workspace].body)
+  still holds the **old NC34 compose** — a GUI save regenerates the old
+  `workspace.yml` and downgrades/undoes the repo version. Sync DB body to
+  repo compose or edit via OMV Workbench.
+- [ ] Root cause of the metadata wipe unproven (journald only kept current
+  boot). If it recurs, consider enabling persistent journald +
+  `docker.service` ordering hardening (the 10-after-k3s/waitAllMounts
+  drop-ins didn't prevent the iptables race).
+- [x] `php-conf.d/zz-jit-off.ini` (opcache.jit=disable, segfault hardening)
+  mounted into nextcloud/nextcloud-cron/nextcloud-worker — shipped via
+  this session's PR; previously only lived on-host.
+

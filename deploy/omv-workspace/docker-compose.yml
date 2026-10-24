@@ -79,6 +79,7 @@ services:
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - ./php-conf.d/zz-jit-off.ini:/usr/local/etc/php/conf.d/zz-jit-off.ini:ro
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
       # lost+found mask needs an explicit mode — plain `tmpfs:` entries
       # inherit the underlying dir's 2770 root:root, which scans log as
@@ -115,6 +116,7 @@ services:
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - ./php-conf.d/zz-jit-off.ini:/usr/local/etc/php/conf.d/zz-jit-off.ini:ro
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
       - type: tmpfs
         target: /omv-storage/lost+found
@@ -139,6 +141,7 @@ services:
     volumes:
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - ./php-conf.d/zz-jit-off.ini:/usr/local/etc/php/conf.d/zz-jit-off.ini:ro
       - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
     user: www-data
     entrypoint: php
