@@ -27,7 +27,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.db.session import get_session_factory
 from app.models.agency import (
     AgencyAudit,
     AgencyAuditStatus,
@@ -51,6 +50,14 @@ from app.services.agency_catalog import (
 )
 from app.services.site_audit import run_site_audit
 from app.services.url_safety import UnsafeUrlError
+
+
+def _factory(custom=None):
+    if custom is not None:
+        return custom
+    from app.worker._async import get_session_factory
+
+    return get_session_factory()
 
 logger = logging.getLogger(__name__)
 
@@ -212,11 +219,11 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
     return stats
 
 
-async def triage_sweep() -> dict[str, Any]:
+async def triage_sweep(*, session_factory=None) -> dict[str, Any]:
     """Front Desk agent: classify untriaged leads, queue site audits."""
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
-    factory = get_session_factory()
+    factory = _factory(session_factory)
     async with factory() as db:
         team_id = await _default_team_id(db)
         if not team_id:
@@ -238,12 +245,12 @@ async def triage_sweep() -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-async def audit_sweep() -> dict[str, Any]:
+async def audit_sweep(*, session_factory=None) -> dict[str, Any]:
     """Run pending site audits (bounded per run)."""
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
     limit = max(1, int(get_settings().AGENCY_AUDIT_MAX_PER_RUN))
-    factory = get_session_factory()
+    factory = _factory(session_factory)
     stats = {"status": "ok", "completed": 0, "failed": 0}
     async with factory() as db:
         rows = (
@@ -380,11 +387,11 @@ async def _post_proposal_alert(proposal: AgencyProposal, audit: AgencyAudit | No
         logger.exception("proposal slack alert failed")
 
 
-async def proposal_sweep() -> dict[str, Any]:
+async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
     """Draft proposals for completed audits that have none."""
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
-    factory = get_session_factory()
+    factory = _factory(session_factory)
     stats = {"status": "ok", "drafted": 0}
     async with factory() as db:
         audits = (
@@ -515,11 +522,11 @@ def _render_handoff(project: AgencyProject) -> str:
     )
 
 
-async def pm_sweep() -> dict[str, Any]:
+async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
     """Supervisor agent: milestone updates + day-14 handoff + overdue flags."""
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
-    factory = get_session_factory()
+    factory = _factory(session_factory)
     now = datetime.now(UTC)
     stats = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0}
     drafts: list[str] = []

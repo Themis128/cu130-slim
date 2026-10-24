@@ -55,6 +55,7 @@ celery_app = Celery(
         "app.worker.tasks.failure_learning",
         "app.worker.tasks.edit_diff",
         "app.worker.tasks.kakkava_sync",
+        "app.worker.tasks.agency",
     ],
 )
 
@@ -160,6 +161,23 @@ celery_app.conf.update(
             "soft_time_limit": 600,
             "time_limit": 900,
         },
+        # Agency pipeline — outbound site fetches, bounded per run.
+        "app.worker.tasks.agency.run_agency_triage_sweep": {
+            "soft_time_limit": 300,
+            "time_limit": 420,
+        },
+        "app.worker.tasks.agency.run_agency_audit_sweep": {
+            "soft_time_limit": 300,
+            "time_limit": 420,
+        },
+        "app.worker.tasks.agency.run_agency_proposal_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_pm_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
@@ -211,6 +229,11 @@ celery_app.conf.update(
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
         "app.worker.tasks.kakkava_sync.sync_kakkava_corpus": {"queue": "default"},
+        # ── agency pipeline: lead triage → site audit → proposal → PM ──
+        "app.worker.tasks.agency.run_agency_triage_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_audit_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -295,6 +318,31 @@ celery_app.conf.update(
         "crm-engagement-sweep": {
             "task": "app.worker.tasks.crm_engagement.run_crm_engagement_sweep",
             "schedule": crontab(minute="*/30"),
+        },
+        # ── Autonomous agency (agent-led fixed-scope pipeline) ─────────
+        # Front Desk: classify new leads into the service catalog and
+        # queue a site audit when an auditable domain is found.
+        "agency-triage-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_triage_sweep",
+            "schedule": crontab(minute="*/15"),
+        },
+        # Architect: run the deterministic site audit for pending rows —
+        # demand-driven, only works while audits wait.
+        "agency-audit-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_audit_sweep",
+            "schedule": crontab(minute="*/10"),
+        },
+        # Sales drafter: completed audits become priced proposals in the
+        # Slack review lane — approval is always a human click.
+        "agency-proposal-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_proposal_sweep",
+            "schedule": crontab(minute="*/30"),
+        },
+        # Supervisor: 14-day milestone loop for won engagements, after the
+        # 09:00 digest so the PM report rides the morning batch.
+        "agency-pm-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_pm_sweep",
+            "schedule": crontab(hour=9, minute=20),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
