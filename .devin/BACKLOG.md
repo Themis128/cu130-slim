@@ -379,15 +379,19 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 `office` 200, `signal` welcome 200, `push` answers (400 = auth-gated, reachable).
 
 **Left over:**
-- [ ] OMV plugin DB (`conf.service.compose` → files.file[name=workspace].body)
-  still holds the **old NC34 compose** — a GUI save regenerates the old
-  `workspace.yml` and downgrades/undoes the repo version. Sync DB body to
-  repo compose or edit via OMV Workbench.
-- [ ] Root cause of the metadata wipe unproven (journald only kept current
-  boot). If it recurs, consider enabling persistent journald +
-  `docker.service` ordering hardening (the 10-after-k3s/waitAllMounts
-  drop-ins didn't prevent the iptables race).
+- [x] OMV plugin DB body synced 2026-10-24 — `conf.service.compose`
+  files.file[name=workspace].body now byte-identical to the live
+  `workspace.yml` (NC 35.0.2, 10 services); env untouched (11 vars).
+- [x] Root cause FOUND: `cloudless-cleanup.timer` (Persistent=true) fired
+  at boot 21:44 while dockerd auto-started containers — `container prune`
+  deleted every not-yet-started container, `image prune -a` wiped images,
+  `--vacuum-size=100M` erased the crashed boot's journal. Fixed in
+  cloudless.gr PR #2266: dockerd-uptime guard (≥10min, monotonic),
+  size-vacuum dropped (retention.conf 2G governs), new
+  `50-restart-budget.conf` drop-in (StartLimitBurst 3→10) so
+  Restart=always survives the iptables race. Deployed live to omv;
+  `.sh` kept as compat wrapper → `.py`.
 - [x] `php-conf.d/zz-jit-off.ini` (opcache.jit=disable, segfault hardening)
   mounted into nextcloud/nextcloud-cron/nextcloud-worker — shipped via
-  this session's PR; previously only lived on-host.
+  PR #844; previously only lived on-host.
 
