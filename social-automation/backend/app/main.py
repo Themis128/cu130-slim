@@ -66,6 +66,16 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+@app.get("/openapi.json", include_in_schema=False)
+async def openapi_root():
+    return app.openapi()
+
+
+@app.get(f"{settings.API_PREFIX}/openapi.json", include_in_schema=False)
+async def openapi_prefixed():
+    return app.openapi()
+
+
 app.include_router(api_router, prefix=settings.API_PREFIX)
 
 # Customer-facing funnel shortcuts — /s/<token> (survey) and /u/<token>
