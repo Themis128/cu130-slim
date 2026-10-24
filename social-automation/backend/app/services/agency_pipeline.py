@@ -109,7 +109,7 @@ async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str,
             select(Lead).where(Lead.team_id == team_id).order_by(Lead.created_at.desc()).limit(200)
         )
     ).scalars().all()
-    stats = {"triaged": 0, "audits": 0, "skipped": 0}
+    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0}
     for lead in rows:
         md = dict(lead.meta_data or {})
         if md.get("agency_triaged"):
@@ -156,7 +156,7 @@ async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str,
 
 async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
     """EspoCRM-native leads (contact-form path) — note marker is the dedupe."""
-    stats = {"triaged": 0, "audits": 0, "skipped": 0}
+    stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0}
     leads = await espo.list_all(
         "Lead",
         select=["id", "name", "emailAddress", "website", "description", "status", "createdAt"],
@@ -246,7 +246,7 @@ async def triage_sweep(*, session_factory=None) -> dict[str, Any]:
             else {"triaged": 0, "audits": 0, "skipped": 0}
         )
         await db.commit()
-    stats = {"status": "ok", "local": local, "espo": espo_stats}
+    stats: dict[str, Any] = {"status": "ok", "local": local, "espo": espo_stats}
     logger.info("agency triage sweep: %s", stats)
     return stats
 
@@ -262,7 +262,7 @@ async def audit_sweep(*, session_factory=None) -> dict[str, Any]:
         return {"status": "disabled"}
     limit = max(1, int(get_settings().AGENCY_AUDIT_MAX_PER_RUN))
     factory = _factory(session_factory)
-    stats = {"status": "ok", "completed": 0, "failed": 0}
+    stats: dict[str, Any] = {"status": "ok", "completed": 0, "failed": 0}
     async with factory() as db:
         rows = (
             await db.execute(
@@ -403,7 +403,7 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
     factory = _factory(session_factory)
-    stats = {"status": "ok", "drafted": 0}
+    stats: dict[str, Any] = {"status": "ok", "drafted": 0}
     async with factory() as db:
         audits = (
             await db.execute(
@@ -548,7 +548,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
         return {"status": "disabled"}
     factory = _factory(session_factory)
     now = datetime.now(UTC)
-    stats = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0}
+    stats: dict[str, Any] = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0}
     drafts: list[str] = []
     async with factory() as db:
         projects = (
@@ -644,7 +644,7 @@ async def engineer_sweep(*, session_factory=None) -> dict[str, Any]:
     if not get_settings().AGENCY_ENABLED:
         return {"status": "disabled"}
     factory = _factory(session_factory)
-    stats = {"status": "ok", "planned": 0}
+    stats: dict[str, Any] = {"status": "ok", "planned": 0}
     async with factory() as db:
         sent = (
             await db.execute(

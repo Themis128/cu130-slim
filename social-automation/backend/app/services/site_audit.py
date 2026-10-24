@@ -82,7 +82,12 @@ def _detect_tech(html: str, headers: httpx.Headers) -> list[str]:
         found.append(f"server:{server.strip()[:40]}")
     # de-dupe preserving order
     seen: set[str] = set()
-    return [x for x in found if not (x in seen or seen.add(x))]
+    uniq: list[str] = []
+    for x in found:
+        if x not in seen:
+            seen.add(x)
+            uniq.append(x)
+    return uniq
 
 
 def _detect_analytics(html: str) -> list[str]:
