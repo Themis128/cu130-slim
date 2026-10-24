@@ -3381,6 +3381,47 @@ app.post("/debug/click", async (req, res) => {
   }
 });
 
+// Debug: press a real key (Enter, Tab, Escape, ArrowDown, ...).
+app.post("/debug/press", async (req, res) => {
+  const { key } = req.body || {};
+  if (!key) return res.status(400).json({ error: "key required" });
+  try {
+    await ensureBrowser();
+    await page.keyboard.press(key);
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: hover a selector (opens hover-driven menus).
+app.post("/debug/hover", async (req, res) => {
+  const { selector } = req.body || {};
+  if (!selector) return res.status(400).json({ error: "selector required" });
+  try {
+    await ensureBrowser();
+    await page.hover(selector, { timeout: 8000 });
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: wait ms and return current url + optional selector state.
+app.post("/debug/wait", async (req, res) => {
+  const { ms, selector } = req.body || {};
+  try {
+    await ensureBrowser();
+    await page.waitForTimeout(ms || 1000);
+    const visible = selector
+      ? await page.locator(selector).first().isVisible().catch(() => false)
+      : null;
+    res.json({ status: "ok", url: page.url(), visible });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Debug: navigate the shared page.
 app.post("/debug/navigate", async (req, res) => {
   const { url } = req.body || {};
