@@ -29,6 +29,13 @@ export default function RootLayout({
             __html: `try{var t=localStorage.getItem('theme')||'dark';if(t==='system'){t=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}document.documentElement.classList.toggle('dark',t==='dark')}catch(e){}`,
           }}
         />
+              <script dangerouslySetInnerHTML={{ __html: `(function(){
+  function reg(){ var mc=document.modelContext; if(!mc||!mc.registerTool) return false;
+    mc.registerTool({name:"list_platforms",description:"List the social platforms SocialAuto can publish to",inputSchema:{type:"object",properties:{}},execute:async function(){return {platforms:["linkedin","x","instagram","facebook","threads","tiktok","telegram","whatsapp"]};}});
+    mc.registerTool({name:"check_api_health",description:"Check whether the SocialAuto API is healthy",inputSchema:{type:"object",properties:{}},execute:async function(){var r=await fetch("/api/v1/health");return {status:r.status,ok:r.ok};}});
+    return true; }
+  if(!reg()){ var n=0, iv=setInterval(function(){ if(reg()||++n>20) clearInterval(iv); },250); }
+})();` }} />
       </head>
       <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
         <Providers>{children}</Providers>
