@@ -2,10 +2,9 @@
 
 Revision ID: d3e5f7a9b1c4
 """
+from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
-
-from alembic import op
 
 revision = "d3e5f7a9b1c4"
 down_revision = ("5d35f29495b9", "c2d4e6f8a0b2")
@@ -29,7 +28,6 @@ def upgrade() -> None:
         sa.Column("in_crm", sa.Boolean, server_default="false"),
         sa.Column("ingested_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("scored", sa.Boolean, server_default="false"),
-        sa.Column("meta_data", postgresql.JSONB, server_default="{}"),
     )
     op.create_table(
         "engagement_actions",
