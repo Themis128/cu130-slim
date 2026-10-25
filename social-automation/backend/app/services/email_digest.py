@@ -64,24 +64,44 @@ def _html_escape(text: str) -> str:
 
 
 def digest_email_subject(report: DigestReport) -> str:
+    """Human-friendly subjects — lead with the answer, not the alarm."""
     errors = sum(1 for i in report.issues if i.severity == "error")
     warnings = sum(1 for i in report.issues if i.severity == "warning")
-    day = report.generated_at.strftime("%Y-%m-%d")
+    day = report.generated_at.strftime("%a %d %b")
     if errors:
-        return f"[SocialAuto] ERRORS ({errors}) — daily report {day}"
+        return f"🔴 {errors} thing{'s' if errors > 1 else ''} to fix — your SocialAuto daily ({day})"
     if warnings:
-        return f"[SocialAuto] Warnings ({warnings}) — daily report {day}"
-    return f"[SocialAuto] Daily report {day} — OK"
+        return f"🟡 {warnings} thing{'s' if warnings > 1 else ''} to check — your SocialAuto daily ({day})"
+    return f"🟢 All clear — your SocialAuto daily ({day})"
+
+
+def _summary_line(report: DigestReport) -> str:
+    """One plain-English sentence for the top of the email."""
+    o = report.overview
+    errors = sum(1 for i in report.issues if i.severity == "error")
+    warnings = sum(1 for i in report.issues if i.severity == "warning")
+    published = o.get("published_posts", 0)
+    imp = report.impressions_24h
+    eng = report.engagement_24h
+    if errors:
+        lead = f"Heads up — {errors} item{'s' if errors > 1 else ''} need{'s' if errors == 1 else ''} your attention today."
+    elif warnings:
+        lead = f"Mostly good news — {warnings} thing{'s' if warnings > 1 else ''} worth a quick look."
+    else:
+        lead = "Everything ran smoothly yesterday."
+    return (f"{lead} You published {published} post{'s' if published != 1 else ''} "
+            f"and reached {imp:,} impressions ({eng:,} engagements).")
 
 
 def digest_to_plaintext(report: DigestReport) -> str:
     md = report.to_slack_markdown()
-    return (
+    body = (
         md.replace("*", "")
         .replace("🟢", "")
-        .replace("❌", "[ERROR]")
-        .replace("⚠️", "[WARN]")
+        .replace("❌", "[NEEDS FIXING]")
+        .replace("⚠️", "[WORTH A LOOK]")
     )
+    return _summary_line(report) + "\n\n" + body
 
 
 def digest_to_html(report: DigestReport) -> str:
@@ -90,17 +110,17 @@ def digest_to_html(report: DigestReport) -> str:
     warnings = [i for i in report.issues if i.severity == "warning"]
 
     rows = "".join(
-        f"<tr><td>{_html_escape(k.replace('_', ' ').title())}</td>"
+        f"<tr><td>{_html_escape(k)}</td>"
         f"<td><strong>{_html_escape(str(v))}</strong></td></tr>"
         for k, v in {
-            "total_posts": o.get("total_posts", 0),
-            "published": o.get("published_posts", 0),
-            "scheduled": o.get("scheduled_posts", 0),
-            "drafts": o.get("draft_posts", 0),
-            "failed": o.get("failed_posts", 0),
-            "impressions_24h": report.impressions_24h,
-            "engagement_24h": report.engagement_24h,
-            "connected_accounts": o.get("connected_accounts", 0),
+            "Posts total": o.get("total_posts", 0),
+            "Published yesterday": o.get("published_posts", 0),
+            "Scheduled": o.get("scheduled_posts", 0),
+            "In drafts": o.get("draft_posts", 0),
+            "Failed": o.get("failed_posts", 0),
+            "Reach (24h)": f"{report.impressions_24h:,}",
+            "Engagement (24h)": f"{report.engagement_24h:,}",
+            "Connected accounts": o.get("connected_accounts", 0),
         }.items()
     )
 
@@ -177,11 +197,11 @@ def digest_to_html(report: DigestReport) -> str:
                 f"<h3>Growth (last {report.days}d)</h3><ul>{items}</ul>"
             )
 
-    issue_html = "<p><strong>Issues:</strong> none</p>"
+    issue_html = "<p>✅ Nothing needs your attention today.</p>"
     if errors or warnings:
         parts: list[str] = []
         if errors:
-            parts.append("<h3 style='color:#b91c1c'>Errors</h3><ul>")
+            parts.append("<h3 style='color:#b91c1c'>Needs fixing</h3><ul>")
             for i in errors:
                 parts.append(
                     f"<li><b>{_html_escape(i.title)}</b>"
@@ -189,7 +209,7 @@ def digest_to_html(report: DigestReport) -> str:
                 )
             parts.append("</ul>")
         if warnings:
-            parts.append("<h3 style='color:#a16207'>Warnings</h3><ul>")
+            parts.append("<h3 style='color:#a16207'>Worth a look</h3><ul>")
             for i in warnings:
                 parts.append(
                     f"<li><b>{_html_escape(i.title)}</b>"
@@ -200,9 +220,10 @@ def digest_to_html(report: DigestReport) -> str:
 
     return f"""<!DOCTYPE html>
 <html><body style="font-family:system-ui,sans-serif;line-height:1.45;color:#111">
-  <h2>SocialAuto daily report · {_html_escape(report.team_name)}</h2>
-  <p>{_html_escape(report.generated_at.isoformat())} · last {report.days} day(s)</p>
-  <h3>Analytics</h3>
+  <h2>Good morning — here's your SocialAuto daily</h2>
+  <p style="font-size:16px">{_html_escape(_summary_line(report))}</p>
+  <p style="color:#666;font-size:13px">{_html_escape(report.team_name)} · {report.generated_at.strftime("%A %d %B")} · last {report.days} day(s)</p>
+  <h3>How yesterday went</h3>
   <table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">
     {rows}
   </table>

@@ -155,7 +155,7 @@ async def generate_linkedin_article(
     """
     sections = max(3, min(10, int(sections)))
 
-    prompt = f"""Write a LinkedIn article about: "{topic}"
+    prompt = f"""Write a LinkedIn newsletter article about: "{topic}"
 
 {_LINKEDIN_GUIDE}
 
@@ -163,6 +163,21 @@ Tone: {tone}
 Structure: exactly {sections} short sections with clear headings.
 {"End with 2-3 key takeaways." if include_takeaways else ""}
 {"End with a short call-to-action." if include_cta else ""}
+
+Authority requirements — LinkedIn newsletters rank on credibility:
+- quote: ONE real, attributed expert quote relevant to the topic — a real
+  person + real publication only. If you cannot name a genuine published
+  quote, return an empty object instead of inventing one. NEVER fabricate
+  quotes or attributions.
+- sources: 2-4 real, currently-published articles/journal pieces the
+  article draws on — title, publisher (e.g. Harvard Business Review,
+  arXiv, Wired), and the real URL. Well-known sources only; if unsure
+  of a URL, return the article's canonical domain page, not a guessed
+  deep link.
+- Each section body may inline-cite a source as "Source: <publisher>"
+  where genuinely relevant.
+- cover_prompt: a one-line image prompt for the article cover (visual,
+  brand-consistent, no text).
 
 {PLAIN_ENGLISH_RULES}
 {SOFIA_POST_SPEC}
@@ -172,7 +187,10 @@ Return JSON with:
 - subtitle: one-sentence summary
 - sections: array of objects with heading (string) and body (string, 80-150 words)
 - takeaways: array of 2-3 plain-English bullet strings (or empty)
-- cta: a short call-to-action string (or empty)"""
+- cta: a short call-to-action string (or empty)
+- quote: object with text, attribution (person + role), source_url (or empty object)
+- sources: array of objects with title, publisher, url
+- cover_prompt: one-line cover image prompt"""
 
     schema = {
         "type": "object",
@@ -192,8 +210,29 @@ Return JSON with:
             },
             "takeaways": {"type": "array", "items": {"type": "string"}},
             "cta": {"type": "string"},
+            "quote": {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string"},
+                    "attribution": {"type": "string"},
+                    "source_url": {"type": "string"},
+                },
+            },
+            "sources": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "publisher": {"type": "string"},
+                        "url": {"type": "string"},
+                    },
+                    "required": ["title", "publisher", "url"],
+                },
+            },
+            "cover_prompt": {"type": "string"},
         },
-        "required": ["title", "subtitle", "sections", "takeaways", "cta"],
+        "required": ["title", "subtitle", "sections", "takeaways", "cta", "quote", "sources", "cover_prompt"],
     }
 
     result = await _call_text(
@@ -229,6 +268,40 @@ Return JSON with:
         f"{s['heading']}\n{s['body']}" for s in cleaned_sections
     )
 
+    # Pull-quote block — real attributed quote only; empty object skips it.
+    quote = result.get("quote") or {}
+    quote_text = extract_rewritten_only(str(quote.get("text") or "")).strip()
+    quote_attr = extract_rewritten_only(str(quote.get("attribution") or "")).strip()
+    quote_url = str(quote.get("source_url") or "").strip()
+    quote_block = ""
+    if quote_text and quote_attr:
+        quote_block = (
+            f'\u201c{quote_text}\u201d\n\u2014 {quote_attr}'
+            + (f"\n{quote_url}" if quote_url else "")
+        )
+
+    # Sources & further reading — LinkedIn linkifies bare URLs in the paste.
+    sources = [
+        {
+            "title": extract_rewritten_only(str(x.get("title") or "")).strip(),
+            "publisher": extract_rewritten_only(str(x.get("publisher") or "")).strip(),
+            "url": str(x.get("url") or "").strip(),
+        }
+        for x in result.get("sources") or []
+        if x.get("title") and x.get("url")
+    ]
+    sources_block = ""
+    if sources:
+        lines = "\n".join(
+            f"\u2022 {x['title']} — {x['publisher']}\n  {x['url']}" for x in sources
+        )
+        sources_block = f"Sources & further reading\n{lines}"
+
+    if quote_block:
+        body += "\n\n" + quote_block
+    if sources_block:
+        body += "\n\n" + sources_block
+
     title = extract_rewritten_only(result.get("title") or "").strip()
     subtitle = extract_rewritten_only(result.get("subtitle") or "").strip()
     takeaways = [extract_rewritten_only(str(t)).strip() for t in result.get("takeaways") or [] if str(t).strip()]
@@ -239,6 +312,9 @@ Return JSON with:
         "subtitle": subtitle,
         "sections": cleaned_sections,
         "body": body,
+        "quote": {"text": quote_text, "attribution": quote_attr, "source_url": quote_url} if quote_text else {},
+        "sources": sources,
+        "cover_prompt": extract_rewritten_only(str(result.get("cover_prompt") or "")).strip(),
         "takeaways": takeaways,
         "cta": cta,
         "topic": topic,
