@@ -56,6 +56,10 @@ celery_app = Celery(
         "app.worker.tasks.edit_diff",
         "app.worker.tasks.kakkava_sync",
         "app.worker.tasks.agency",
+        "app.worker.tasks.notebooks",
+        "app.worker.tasks.human_gate",
+        "app.worker.tasks.nurture",
+        "app.worker.tasks.newsletter_subs",
     ],
 )
 
@@ -239,6 +243,10 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
+        "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
+        "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
+        "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
+        "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -247,6 +255,28 @@ celery_app.conf.update(
         "app.worker.tasks.instagram_messenger.poll_instagram_messenger": {"queue": "messenger"},
     },
     beat_schedule={
+        # Weekly publish/agency/audit KPI digest → ops channel (notebook twin).
+        "weekly-analytics-digest": {
+            "task": "app.worker.tasks.notebooks.run_weekly_analytics",
+            "schedule": crontab(day_of_week="mon", hour=8, minute=0),
+        },
+        # Human-gate watcher: sidecar checkpoints (LinkedIn 2FA, Meta
+        # restriction) → ops nudge, deduped 6h per gate in Redis.
+        "human-gate-watch": {
+            "task": "app.worker.tasks.human_gate.run_human_gate_watch",
+            "schedule": crontab(minute="*/30"),
+        },
+        # Public-lead nurture sequence — day 3/7/14 touches on
+        # newsletter + free-audit leads (idempotent meta_data stamps).
+        "nurture-sweep": {
+            "task": "app.worker.tasks.nurture.run_nurture_sweep",
+            "schedule": crontab(hour=11, minute=0),
+        },
+        # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
+        "newsletter-subs-sync": {
+            "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
+            "schedule": crontab(day_of_week="sun", hour=9, minute=15),
+        },
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
             "schedule": 30.0,

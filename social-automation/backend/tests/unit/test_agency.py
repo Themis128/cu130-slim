@@ -476,3 +476,40 @@ def test_influence_stage_progression():
     # every stage carries actions + brand guidance
     for s in __import__("app.services.influence_stage", fromlist=["STAGES"]).STAGES:
         assert s.actions and s.brand_relation and s.attentional_capital
+
+
+# ── nurture_sequence — public-lead 3-touch follow-up ────────────────────────
+
+def test_nurture_steps_sequential():
+    from app.services.nurture_sequence import STEPS
+    assert [s["day"] for s in STEPS] == [3, 7, 14]
+    assert all(s["subject"] and "{name}" in s["body"] for s in STEPS)
+
+
+def test_nurture_due_step_logic():
+    from app.models.lead import Lead
+    from app.services.nurture_sequence import _due_step
+    import datetime as _dt
+
+    def mk(days_old, meta=None):
+        l = Lead(name="Ada", email="a@b.co", meta_data=meta or {"form": "newsletter"})
+        l.created_at = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=days_old)
+        return l
+
+    assert _due_step(mk(1)) is None                     # too early for day-3
+    assert _due_step(mk(4))["key"] == "value"           # step 1 due
+    assert _due_step(mk(9, {"form": "newsletter", "nurture_step": 1}))["key"] == "audit_cta"
+    assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 2}))["key"] == "offer"
+    assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 3})) is None  # done
+    assert _due_step(mk(20, {"form": "newsletter", "unsubscribed": True})) is None
+
+
+def test_newsletter_subscriber_parse_and_dedupe():
+    from app.services.newsletter_subscribers import parse_subscriber
+    el = {"entityUrn": "urn:li:fsd_miniProfile:AbC123", "fullName": "Jane Doe",
+          "headline": "CTO", "publicIdentifier": "janedoe"}
+    sub = parse_subscriber(el)
+    assert sub["name"] == "Jane Doe" and "janedoe" in sub["profile_url"]
+    assert sub["urn"] == "urn:li:fsd_miniProfile:AbC123"
+    assert parse_subscriber({}) is None
+    assert parse_subscriber({"entityUrn": "urn:li:x"}) is None
