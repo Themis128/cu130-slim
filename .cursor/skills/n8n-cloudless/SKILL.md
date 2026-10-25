@@ -295,3 +295,25 @@ See [reference.md](reference.md).
 - **`Deployment key 'signing.hmac' cannot be read with this instance encryption key`** = stale `deployment_key` rows encrypted under a rotated `N8N_ENCRYPTION_KEY`. Fix (data loss limited to signing keys): `ALTER TABLE deployment_key DISABLE TRIGGER ALL; DELETE FROM deployment_key; ALTER TABLE deployment_key ENABLE TRIGGER ALL;` then restart — rows regenerate.
 - **Container shell has no `curl`** — probe webhooks with `docker exec n8n node -e "fetch(...)"`; a registered POST webhook answers 404 *"not registered for GET requests"* on GET.
 - n8n DB lives in `social-postgres` (db `n8n`, user `social_user`): `docker exec social-postgres psql -U social_user -d n8n -c "<sql>"`.
+
+## Rebuilding stored credentials (after key rotation)
+
+Credential `data` = AES-256-CBC, OpenSSL `Salted__` format, EVP_BytesToKey
+(md5, 1 iter) — encrypt fresh JSON with `N8N_ENCRYPTION_KEY` and UPDATE
+`credentials_entity.data` by name. Field map (verified against n8n-nodes-base
+credential defs, 2026-10-25):
+
+| credential type | fields |
+|---|---|
+| `httpBasicAuth` | `{"user": ..., "password": ...}` |
+| `nextCloudApi` | `{"user": ..., "password": ..., "webDavUrl": "https://cloud.cloudless.gr"}` |
+| `totpApi` | `{"secret": <base32 seed>, "label"?: ...}` |
+| `ollamaApi` | `{"apiUrl": "http://host.docker.internal:11434"}` |
+
+**Secret sources**: NEXTCLOUD_USERNAME/APP_PASSWORD live in worker/api
+container env (`docker exec social-api printenv NEXTCLOUD_USERNAME`) — NOT
+in n8n's compose block by default (added 2026-10-25). TOTP seed: the real
+secret is `social_automation.users.two_factor_secret` — but only when
+`two_factor_enabled=true`; currently no user has 2FA, so `auth.py` ignores
+otp and an empty `totpApi` credential is harmless. `SOCIAL_TOTP_SECRET` env
+exists but is unset — the credential is the only carrier when 2FA is on.
