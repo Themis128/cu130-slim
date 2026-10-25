@@ -64,25 +64,46 @@ async def _run(limit: int):
             a.comment_draft = (resp.get("text") or "").strip().strip('"') or None
         await db.commit()
 
-        # alert on new gate items — rapid human review
+        # real-time per-item gate pings — dedicated channel webhook with
+        # native deep links (platform:// schemes open the mobile app)
         if drafts_needed:
             try:
+                import os
+
                 from app.core.config import get_settings
                 from app.services.slack_notifications import _post_slack_text
 
                 cfg = get_settings()
-                lines = "\n".join(
-                    f"• {a.platform} {a.action} → @{a.target_author} "
-                    f"(score {a.score:.1f})" for a in drafts_needed
-                    if a.comment_draft)
-                if lines:
+                hook = (os.environ.get("SLACK_ENGAGEMENT_WEBHOOK_URL")
+                        or cfg.SLACK_ALERTS_WEBHOOK_URL)
+                chan = (os.environ.get("SLACK_ENGAGEMENT_CHANNEL_ID")
+                        or cfg.SLACK_ALERTS_CHANNEL_ID)
+                deeplink = {
+                    "linkedin": "linkedin://feed",
+                    "instagram": "instagram://app",
+                    "facebook": "fb://feed",
+                    "tiktok": "snssdk1233://",
+                    "twitter": "twitter://timeline",
+                    "threads": "instagram://app",
+                }
+                for a in drafts_needed:
+                    if not a.comment_draft:
+                        continue
+                    dl = deeplink.get(a.platform, "")
+                    draft = (a.comment_draft[:140] + "…"
+                             if len(a.comment_draft) > 140
+                             else a.comment_draft)
                     await _post_slack_text(
-                        webhook_url=cfg.SLACK_ALERTS_WEBHOOK_URL,
-                        channel_id=cfg.SLACK_ALERTS_CHANNEL_ID,
+                        webhook_url=hook,
+                        channel_id=chan,
                         purpose="engagement gate",
-                        text=(f":hourglass_flowing_sand: *{len(drafts_needed)} "
-                              f"engagement draft(s) awaiting review*\n{lines}\n"
-                              f"Approve at cloudless.gr/admin/socialauto"))
+                        text=(f":hourglass_flowing_sand: *{a.platform.title()} "
+                              f"{a.action} draft → @{a.target_author}* "
+                              f"(score {a.score:.1f})\n"
+                              f"> _{draft}_\n"
+                              + (f"<{dl}|📱 Open source post> · " if dl else "")
+                              + "<https://cloudless.gr/admin/socialauto|"
+                                "⚡ Open Control Gate>"))
             except Exception as exc:  # noqa: BLE001 — alerting never breaks the task
                 logger.warning("gate alert failed: %s", exc)
 
