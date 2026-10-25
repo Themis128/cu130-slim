@@ -24,6 +24,12 @@ Day-to-day operations for the Threads platform in the SocialAuto Cloudless stack
 # Check Threads app status and connected accounts
 python3 .devin/skills/threads-ops/scripts/check-threads-app.py
 
+# Unofficial read path (profiles/posts/search the Graph API can't do)
+python3 .devin/skills/threads-ops/scripts/threads-read.py about <handle>
+python3 .devin/skills/threads-ops/scripts/threads-read.py user-posts <handle>
+python3 .devin/skills/threads-ops/scripts/threads-read.py read <url|shortcode>
+python3 .devin/skills/threads-ops/scripts/threads-read.py search <query>
+
 # Get Threads profile info (bio, username, avatar, token)
 python3 .devin/skills/threads-ops/scripts/get-threads-profile.py
 
@@ -139,3 +145,12 @@ Before non-test users can connect Threads:
 - `scripts/update-threads-bio.py` — update Threads bio via browser bridge.
 - `scripts/update-threads-name.py` — update Threads display name via browser bridge (max 2 per 14 days).
 - `scripts/verify-threads-tester.py` — verify the app configuration and OAuth URL.
+
+## Threads read path (unofficial)
+
+`threads-read.py` wraps `yarn-threads-cli` (cookie auth, no OAuth) for
+reads the Threads Graph API cannot do: browse profiles, user search,
+fetch any post/replies by URL, liked posts. Needs `THREADS_SESSION_ID` +
+`THREADS_CSRF_TOKEN` in repo `.env` — export the `sessionid`/`csrftoken`
+cookies from a browser logged into threads.net (browser-novnc profile).
+Publishing stays on the official API (`post-threads.py` / publish path).
