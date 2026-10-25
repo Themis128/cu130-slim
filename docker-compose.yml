@@ -685,6 +685,7 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      target: api
     container_name: social-api
     networks:
       - backend
@@ -1011,7 +1012,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-publishing
     networks:
       - backend
@@ -1047,7 +1049,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-media
     networks:
       - backend
@@ -1085,7 +1088,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-default
     networks:
       - backend
@@ -1120,7 +1124,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-messenger
     networks:
       - backend
@@ -1156,7 +1161,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: celery-beat
     networks:
       - backend
