@@ -98,7 +98,7 @@ async def _run(limit: int):
                         token=os.environ.get("SLACK_BOT_TOKEN", ""),
                         channel_id=chan,
                         purpose="engagement gate",
-                        text=(f":hourglass_flowing_sand: *{a.platform.title()} "
+                        text=(f"<!channel> :hourglass_flowing_sand: *{a.platform.title()} "
                               f"{a.action} draft → @{a.target_author}* "
                               f"(score {a.score:.1f})\n"
                               f"> _{draft}_\n"
