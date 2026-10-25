@@ -249,8 +249,7 @@ services:
       - backend
       - db
     ports:
-      - 127.0.0.1:5678:5678
-      - 192.168.1.23:5678:5678
+      - 5678:5678
     volumes:
       - ./n8n-data:/home/node/.n8n
       - ./storage-user/metadata:/home/node/.n8n/storage/metadata
