@@ -307,3 +307,106 @@ async def create_audit_public(
         "teaser": (findings[0].get("detail") if findings else
                    "Your site looks healthy — details in your inbox."),
     }
+
+
+_PHONE_RE = re.compile(r"^\+[0-9][0-9\s().-]{6,19}$")
+
+
+class PublicSurveyRequest(BaseModel):
+    """Short funnel survey — the gated-exchange capture that trades a
+    deliverable for richer lead data than the bare email box."""
+    email: str = Field(..., max_length=320)
+    name: str | None = Field(None, max_length=200)
+    phone: str | None = Field(None, max_length=30)
+    company_size: str | None = Field(None, max_length=40)
+    interest: str | None = Field(None, max_length=120)
+    answers: dict[str, str] = Field(default_factory=dict)
+    website: str | None = Field(None, max_length=200)  # honeypot
+    site: str | None = Field(None, max_length=64)
+    form: str | None = Field(None, max_length=40)
+    page_path: str | None = Field(None, max_length=200)
+    locale: str | None = Field(None, max_length=10)
+    consent: bool | None = None
+
+
+@router.post("/public/survey")
+@limiter.limit("10/minute")
+async def create_survey_public(
+    body: PublicSurveyRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Public survey → richer Lead (email + phone + qualifying answers).
+
+    The survey trades a deliverable (the playbook / audit link / benchmark
+    report the form promised) for the fields the bare email box can't
+    capture: phone, company size, interest, free-text answers. Consent is
+    REQUIRED when a phone is given — calling without consent is abuse."""
+    from app.services.espocrm_client import upsert_lead
+
+    settings = get_settings()
+    if body.website:  # honeypot
+        return {"ok": True, "survey_delivery": "email" if playbook_url(settings) else "none"}
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    phone = (body.phone or "").strip() or None
+    if phone and not _PHONE_RE.match(phone):
+        raise HTTPException(status_code=400, detail="Invalid phone — use +<country><number>")
+    if phone and body.consent is False:
+        raise HTTPException(status_code=400,
+                            detail="Phone consent required — we'll only call about the survey")
+    team_id_raw = settings.CLOUDLESS_WEB_ANALYTICS_TEAM_ID
+    if not team_id_raw:
+        raise HTTPException(status_code=503, detail="Survey capture not configured")
+    team_id = uuid.UUID(team_id_raw)
+
+    meta = {
+        "form": "survey",
+        "answers": {k[:80]: v[:500] for k, v in (body.answers or {}).items()},
+        "consent_at": datetime.now(UTC).isoformat(),
+    }
+    if phone:
+        meta["phone"] = phone
+    if body.company_size:
+        meta["company_size"] = body.company_size
+    if body.interest:
+        meta["interest"] = body.interest[:120]
+    if body.site and _TOKEN_RE.match(body.site):
+        meta["site"] = body.site
+    if body.form and _TOKEN_RE.match(body.form):
+        meta["form_field"] = body.form
+    if body.page_path and _PATH_RE.match(body.page_path):
+        meta["path"] = body.page_path
+    if body.locale and _LOCALE_RE.match(body.locale):
+        meta["locale"] = body.locale
+
+    await create_lead(
+        db,
+        team_id=team_id,
+        source=LeadSource.website,
+        name=(body.name or email.split("@", 1)[0])[:200],
+        email=email,
+        notes=f"survey — {len(meta['answers'])} answers"
+              + (f", phone {phone}" if phone else ""),
+        meta_data=meta,
+    )
+    await db.commit()
+
+    # EspoCRM — upsert with the richer fields the local model can't hold
+    try:
+        first, _, last = (body.name or "").partition(" ")
+        await upsert_lead({
+            "emailAddress": email,
+            "firstName": first or email.split("@", 1)[0],
+            "lastName": last or "(survey)",
+            "phoneNumber": phone or "",
+            "source": "Website survey",
+            "description": "\n".join(
+                [f"{k}: {v}" for k, v in meta["answers"].items()]
+                + ([f"phone: {phone}"] if phone else []))[:2000],
+        })
+    except Exception:  # noqa: BLE001 — Espo down mustn't fail the survey
+        pass
+
+    return {"ok": True, "survey_delivery": "email" if playbook_url(settings) else "none"}

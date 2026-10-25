@@ -663,3 +663,52 @@ async def test_public_audit_endpoint(monkeypatch):
     req2 = L.PublicAuditRequest(email="lead@acme.test", url="https://acme.test", website="spam")
     out2 = await L.create_audit_public(req2, request=fake_req, db=_DB())
     assert out2["ok"] and out2["score"] is None
+
+
+@pytest.mark.asyncio
+async def test_public_survey_endpoint(monkeypatch):
+    """POST /leads/public/survey — richer capture: phone + answers → lead+espo."""
+    import app.api.leads as L
+
+    monkeypatch.setattr("app.api.leads.create_lead", lambda *a, **k: asyncio.sleep(0, None))
+    captured = []
+    async def fake_upsert(payload): captured.append(payload)
+    monkeypatch.setattr("app.services.espocrm_client.upsert_lead", fake_upsert)
+    L.limiter.enabled = False
+
+    class _S:
+        CLOUDLESS_WEB_ANALYTICS_TEAM_ID = str(uuid.uuid4())
+        PLAYBOOK_PDF_URL = "https://x/playbook.pdf"
+    monkeypatch.setattr("app.api.leads.get_settings", lambda: _S())
+
+    class _DB:
+        async def commit(self): pass
+        async def flush(self): pass
+    from starlette.requests import Request
+    fake_req = Request({"type": "http", "method": "POST", "path": "/x",
+                        "headers": [], "client": ("127.0.0.1", 1), "server": ("t", 80)})
+
+    req = L.PublicSurveyRequest(email="lead@acme.test", name="Jane D",
+                                 phone="+30 691 234 5678", company_size="11-50",
+                                 interest="cloud migration",
+                                 answers={"pain": "manual deploys"})
+    out = await L.create_survey_public(req, fake_req, _DB())
+    assert out["ok"] and captured
+    assert captured[0]["phoneNumber"] == "+30 691 234 5678"
+    assert "manual deploys" in captured[0]["description"]
+
+    # bad phone → 400
+    req2 = L.PublicSurveyRequest(email="a@b.co", phone="123")
+    try:
+        await L.create_survey_public(req2, fake_req, _DB())
+        raise AssertionError("should 400")
+    except HTTPException as e:
+        assert e.status_code == 400
+
+    # phone without consent → 400
+    req3 = L.PublicSurveyRequest(email="a@b.co", phone="+30 691 234 5678", consent=False)
+    try:
+        await L.create_survey_public(req3, fake_req, _DB())
+        raise AssertionError("should 400")
+    except HTTPException as e:
+        assert e.status_code == 400
