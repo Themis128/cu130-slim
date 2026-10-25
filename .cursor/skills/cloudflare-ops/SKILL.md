@@ -416,3 +416,12 @@ relevant when publish errors show unreachable media URLs.
   not a perms issue). When enabled: `scripts/cf_logpush_job.py` creates
   the `http_requests` → `datalake-bucket/cloudflare-http-logs/` zone job
   (25 GB/mo to R2 included free).
+
+## Tunnels (omv `cloudflared` — LOCALLY managed)
+
+- Live ingress source: `/etc/cloudflared/config.yml` on omv (service `cloudflared.service`, systemd). Tunnel JSON creds + `cert.pem` in `/etc/cloudflared/` and `~/.cloudflared/`. The k8s-style `infrastructure/cloudflare-tunnels/cloudflared-config.yml` in the repo is its mirror — keep in sync.
+- Edit ingress → `sudo sed -i ... config.yml` (backup first: `config.yml.bak.<tag>`) → `sudo systemctl restart cloudflared` → validate with `sudo cloudflared tunnel ingress validate --config /etc/cloudflared/config.yml`.
+- 2026-10-25: `n8n.cloudless.gr` repointed `192.168.1.128:30900` (dead k3s NodePort) → `192.168.1.23:5678` (dev-box Docker n8n). Dev-box n8n binds BOTH `127.0.0.1` and `192.168.1.23` in compose.
+- The `social-cloudless` tunnel on the dev box is **token-managed** (SOCIAL_TUNNEL_TOKEN) — ingress only via Zero Trust dashboard.
+- **Access blocks server-side calls**: `n8n.cloudless.gr` Access app allows authenticated users only — anything machine-to-machine must use LAN/tailnet URLs (`http://192.168.1.23:5678`), never the public hostname. Same trap as POSTIZ/MEILI/NTFY in-cluster DNS rules in `k8s/cloudless-app-hostpath.yaml`.
+- `cloudless-app` env: `envFrom` = `cloudless-app-config` ConfigMap THEN `cloudless-secrets` Secret — **the Secret wins** on duplicate keys; patch the Secret.

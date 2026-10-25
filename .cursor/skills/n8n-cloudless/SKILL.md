@@ -286,3 +286,12 @@ Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
 
 See [reference.md](reference.md).
 
+
+## Container ops (n8n 2.x, learned 2026-10-25)
+
+- **`import:workflow` deactivates** — follow with `n8n publish:workflow --id=<id>`, then `docker restart n8n` (CLI warns "changes will not take effect if n8n is running"; the running process caches active workflows). `--activeState=fromJson` is queue-mode only — don't use it.
+- **`n8n-nodes-base.function` is rejected by 2.x imports** — convert to `n8n-nodes-base.code` (`typeVersion:2`, `mode:"runOnceForAllItems"`, `items`→`$input.all()`). Done for `lead-enrich.json` (Round-robin owner).
+- **Env drift bites on recreate**: `docker restart` keeps old env; `compose up` injects `.env`. If `.env` was rotated after first init, `DB_POSTGRESDB_PASSWORD` no longer matches the PG volume (postgres ignores env post-init) → auth-fail crash loop. Ground truth = a still-working container (`social-api` `DATABASE_URL`); sync `.env` to it.
+- **`Deployment key 'signing.hmac' cannot be read with this instance encryption key`** = stale `deployment_key` rows encrypted under a rotated `N8N_ENCRYPTION_KEY`. Fix (data loss limited to signing keys): `ALTER TABLE deployment_key DISABLE TRIGGER ALL; DELETE FROM deployment_key; ALTER TABLE deployment_key ENABLE TRIGGER ALL;` then restart — rows regenerate.
+- **Container shell has no `curl`** — probe webhooks with `docker exec n8n node -e "fetch(...)"`; a registered POST webhook answers 404 *"not registered for GET requests"* on GET.
+- n8n DB lives in `social-postgres` (db `n8n`, user `social_user`): `docker exec social-postgres psql -U social_user -d n8n -c "<sql>"`.
