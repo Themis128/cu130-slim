@@ -132,6 +132,9 @@ def build_3c_prompt(post_text: str, author_name: str, voice_hints: list[str],
 - COMPLIMENT one specific point (quote or paraphrase it — prove you read it)
 - CONTRIBUTION: add one net-new expert insight or data point
 - CONVERSATION: end with an open question inviting reply
+- QUALIFIED-VIEW HOOK: where natural, seed a cliffhanger pointing to the
+  author's pinned media ("the 5s teardown in your pinned post nails this")
+  — drives >5s qualified views on the reader's own video assets
 - 15–45 words. Conversational, first-person. NO "Great post!", no filler,
   no emoji spam, no hashtags. Sound like a human colleague, not a bot.
 Author's brand voice: {voice_hints or 'professional, technical'}
