@@ -1995,6 +1995,8 @@ services:
       - ./jupyter/start-notebook.d:/usr/local/bin/start-notebook.d:ro
     environment:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID}
       - DATABASE_URL=postgresql://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
       # Media QA notebook (work/media_validation.ipynb): fetches assets via the
       # API and runs the semantic check against the DMR vision model (qwen3-vl).
