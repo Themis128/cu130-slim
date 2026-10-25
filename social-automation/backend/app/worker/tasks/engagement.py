@@ -64,6 +64,28 @@ async def _run(limit: int):
             a.comment_draft = (resp.get("text") or "").strip().strip('"') or None
         await db.commit()
 
+        # alert on new gate items — rapid human review
+        if drafts_needed:
+            try:
+                from app.core.config import get_settings
+                from app.services.slack_notifications import _post_slack_text
+
+                cfg = get_settings()
+                lines = "\n".join(
+                    f"• {a.platform} {a.action} → @{a.target_author} "
+                    f"(score {a.score:.1f})" for a in drafts_needed
+                    if a.comment_draft)
+                if lines:
+                    await _post_slack_text(
+                        webhook_url=cfg.SLACK_ALERTS_WEBHOOK_URL,
+                        channel_id=cfg.SLACK_ALERTS_CHANNEL_ID,
+                        purpose="engagement gate",
+                        text=(f":hourglass_flowing_sand: *{len(drafts_needed)} "
+                              f"engagement draft(s) awaiting review*\n{lines}\n"
+                              f"Approve at cloudless.gr/admin/socialauto"))
+            except Exception as exc:  # noqa: BLE001 — alerting never breaks the task
+                logger.warning("gate alert failed: %s", exc)
+
         # 3. dispatch auto-approved actions (likes) in score order
         from datetime import UTC, datetime
 
