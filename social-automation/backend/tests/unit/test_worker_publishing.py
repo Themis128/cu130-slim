@@ -618,12 +618,28 @@ async def test_scheduled_no_targets_fails(monkeypatch):
         [
             _res(scalars_all=[post]),
             _res(scalars_all=[]),
+            _res(first=None),  # no pending/processing publish_queue rows
         ]
     )
     _patch_db(monkeypatch, db)
     await W._check_scheduled_posts_async()
     assert post.status == PostStatus.FAILED
     assert "No target accounts" in post.failure_reason
+
+
+@pytest.mark.asyncio
+async def test_scheduled_no_targets_but_queued_keeps_publishing(monkeypatch):
+    post = _post(status=PostStatus.SCHEDULED)
+    db = _FakeDB(
+        [
+            _res(scalars_all=[post]),
+            _res(scalars_all=[]),
+            _res(first=object()),  # publish_queue already carries the work
+        ]
+    )
+    _patch_db(monkeypatch, db)
+    await W._check_scheduled_posts_async()
+    assert post.status == PostStatus.PUBLISHING
 
 
 @pytest.mark.asyncio

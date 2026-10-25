@@ -17,7 +17,6 @@ via FLUX img2img. With neither, a default mascot avatar is generated.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import uuid
 from typing import Any
@@ -53,13 +52,14 @@ def generate_avatar_story(self, *,
 
 
 async def _run(**kw) -> dict:
+    import httpx
     from sqlalchemy import select
+
     from app.db.session import get_session_factory
-    from app.models.user import TeamMember, User
     from app.models.content import MediaAsset  # noqa: F401 (registry)
+    from app.models.user import TeamMember, User
     from app.services.avatar_video import Scene, generate_avatar_video
     from app.services.media_storage import save_uploaded_media
-    import httpx
 
     scenes = [Scene(clip=s["clip"], line1=s.get("line1", ""),
                     line2=s.get("line2", ""), duration=float(s.get("duration", 6)))

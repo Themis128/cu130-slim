@@ -896,9 +896,11 @@ async def _check_scheduled_posts_async() -> None:
                         PublishQueue.status.in_(
                             [QueueStatus.PENDING, QueueStatus.PROCESSING]
                         ),
-                    )
+                    ).limit(1)
                 )
-                if queued.scalar_one_or_none() is not None:
+                # .first(): a multi-platform post has several queue rows,
+                # so scalar_one_or_none() would raise MultipleResultsFound.
+                if queued.scalars().first() is not None:
                     post.status = PostStatus.PUBLISHING
                     await db.commit()
                     continue
