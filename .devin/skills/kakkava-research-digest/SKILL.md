@@ -117,3 +117,19 @@ the 14-day window (days 1-5 / 6-10 / 11-14). Spend-gates between stages
 match the no-spend frame — boosts/campaigns stay human-approved, never
 autonomous. Note: the file itself is LinkedIn's collateral — adopt the
 framework, do not redistribute the PDF as Cloudless material.
+
+
+## 9. The Influencer-Entrepreneurship Journey — Cheng, de Regt & Young
+(Psychology and Marketing 41, 2024, doi:10.1002/mar.22084)
+
+Five-stage model of the influencer journey: potential → formulation →
+competence → monetization → reward, each with distinct attentional capital
+and brand-engagement guidance (brands must match collab type to stage).
+Adopted as `app/services/influence_stage.py`: deterministic
+`classify_stage(followers, engagement_rate, paid_collabs, recurring_offers,
+own_products)` returning stage + playbook actions. Uses: (a) Visibility-Era
+journey gating — our own Sofia-brand stage determines which paid moves are
+earned; (b) agency growth audits — partner/client stage informs the offer
+(gifted vs paid vs partnership). Pairs with the Crawl–Walk–Run paid-side
+framework: Crawl≈potential→formulation, Walk≈competence,
+Run≈monetization→reward.
