@@ -249,3 +249,29 @@ def test_task_wrapper(monkeypatch):
                         lambda c: (c.close(), {"refreshed": 0})[1])
     TR.refresh_expiring_tokens()
     assert len(calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_refresh_errors_send_slack_alert_with_token(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    monkeypatch.setattr(TR, "decrypt_token", lambda t: f"dec-{t}")
+    monkeypatch.setattr(TR, "encrypt_token", lambda t: f"enc-{t}")
+    monkeypatch.setattr(TR, "_get_oauth_client", lambda p: SimpleNamespace(
+        refresh_token=AsyncMock(side_effect=RuntimeError("rev"))))
+    monkeypatch.setattr(SN, "_get_slack_token", lambda: "xoxb-test")
+    post = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setattr(SN, "_post_slack_text", post)
+
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([_account()])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["errors"]
+    kw = post.await_args.kwargs
+    assert kw["token"] == "xoxb-test"
+    assert kw["purpose"] == "token-refresh alert"
+
+    # alert failure never breaks the task
+    post.side_effect = RuntimeError("slack down")
+    monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([_account()])())
+    out = await TR._refresh_expiring_tokens_async()
+    assert out["errors"]

@@ -1,11 +1,11 @@
-"""Nextcloud → media library auto-sync.
+"""Nextcloud Celery tasks.
 
-Walks a configured folder (default ``Photos/``), imports every new
-image/video as a MediaAsset, and skips files already imported —
-tracked via ``meta_data.nextcloud_path``.
-
-Beat runs it hourly; tune via NEXTCLOUD_SYNC_FOLDER /
-NEXTCLOUD_SYNC_ENABLED env.
+* ``sync_nextcloud_surfaces`` — push SocialAuto metrics + post pipeline
+  into Nextcloud Tables/Deck (idempotent).
+* ``sync_nextcloud_media`` — walk a configured folder (default ``Photos/``),
+  import every new image/video as a MediaAsset, and skip files already
+  imported (tracked via ``meta_data.nextcloud_path``). Tune via
+  NEXTCLOUD_SYNC_FOLDER / NEXTCLOUD_SYNC_ENABLED env.
 """
 from __future__ import annotations
 
@@ -15,20 +15,36 @@ from typing import Any
 from celery import shared_task
 from sqlalchemy import select
 
+from app.services import nextcloud_sync
+from app.worker._async import get_session_factory, run_async, task_session
+
+celery_app = __import__("app.worker.celery_app", fromlist=["celery_app"]).celery_app
+
+celery_app.set_default()
+celery_app.set_current()
+
 logger = logging.getLogger(__name__)
+
+
+@shared_task
+def sync_nextcloud_surfaces() -> None:
+    """Push follower metrics → Tables and post pipeline → Deck (idempotent)."""
+    if not nextcloud_sync.nextcloud_sync_enabled():
+        return
+    try:
+        run_async(nextcloud_sync.sync_all(get_session_factory()))
+    except Exception as exc:
+        logger.warning("nextcloud sync failed: %s", exc)
 
 
 @shared_task(name="app.worker.tasks.nextcloud_sync.sync_nextcloud_media",
              bind=True, max_retries=1)
 def sync_nextcloud_media(self, folder: str | None = None) -> dict[str, Any]:
-    from app.worker._async import run_async
-
     return run_async(_sync(folder))
 
 
 async def _sync(folder: str | None) -> dict[str, Any]:
     from app.core.config import get_settings
-    from app.db.session import async_session_maker
     from app.models.content import MediaAsset
     from app.models.user import TeamMember, User
     from app.services.media_sources import MediaSourceError, nextcloud_download, nextcloud_list
@@ -46,10 +62,14 @@ async def _sync(folder: str | None) -> dict[str, Any]:
         logger.warning("[nc-sync] list failed: %s", e)
         return {"error": str(e)[:200]}
 
-    async with async_session_maker() as db:
+    async with task_session() as db:
         u = (await db.execute(select(User))).scalars().first()
+        if u is None:
+            return {"skipped": "no user"}
         tm = (await db.execute(
             select(TeamMember).where(TeamMember.user_id == u.id))).scalars().first()
+        if tm is None:
+            return {"skipped": "no team"}
 
         # already-imported paths
         rows = (await db.execute(
@@ -58,7 +78,8 @@ async def _sync(folder: str | None) -> dict[str, Any]:
         ).scalars().all()
         seen = set(rows)
 
-        imported, errors = [], []
+        imported: list[str] = []
+        errors: list[dict[str, str]] = []
         for f in files:
             if f.id in seen:
                 continue

@@ -264,12 +264,13 @@ async def _refresh_expiring_tokens_async() -> dict:
     if summary["errors"]:
         try:
             from app.core.config import get_settings
-            from app.services.slack_notifications import _post_slack_text
+            from app.services.slack_notifications import _get_slack_token, _post_slack_text
 
             cfg = get_settings()
             lines = "\n".join(f"• {e}" for e in summary["errors"])
             await _post_slack_text(
                 webhook_url=cfg.SLACK_ALERTS_WEBHOOK_URL,
+                token=_get_slack_token(),
                 channel_id=cfg.SLACK_ALERTS_CHANNEL_ID,
                 purpose="token-refresh alert",
                 text=(
