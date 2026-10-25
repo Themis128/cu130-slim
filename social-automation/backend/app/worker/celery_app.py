@@ -60,9 +60,9 @@ celery_app = Celery(
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
         "app.worker.tasks.latency_watchdog",
-        "app.worker.tasks.newsletter_subs",
-        "app.worker.tasks.nextcloud_sync",
-    ],
+"app.worker.tasks.newsletter_subs",
+"app.worker.tasks.nextcloud_sync",
+"app.worker.tasks.avatar_video",        "app.worker.tasks.newsletter_subs",    ],
 )
 
 # Ensure @shared_task and Task.delay() from the API process use Redis, not default AMQP.
@@ -206,6 +206,7 @@ celery_app.conf.update(
         # ── media queue: CPU-intensive, long-running ───────────────────────
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
+        "app.worker.tasks.avatar_video.generate_avatar_story": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
