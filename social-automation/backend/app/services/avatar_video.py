@@ -12,7 +12,6 @@ Everything runs inside the worker container: ComfyUI on
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import subprocess
 import tempfile
@@ -128,8 +127,8 @@ def _speech_bubble(lines: list[str], out: Path) -> None:
     """Render a comic speech-bubble PNG (transparent bg) via PIL."""
     from PIL import Image, ImageDraw, ImageFont
     f = ImageFont.truetype(_FONT, 30)
-    lines = [l for l in lines if l]
-    bw = int(max(f.getlength(l) for l in lines)) + 60
+    lines = [ln for ln in lines if ln]
+    bw = int(max(f.getlength(ln) for ln in lines)) + 60
     bh = len(lines) * 48 + 50
     im = Image.new("RGBA", (bw, bh + 45), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
@@ -139,8 +138,8 @@ def _speech_bubble(lines: list[str], out: Path) -> None:
                (bw // 3 + 15, bh + 40)], fill="white", outline="black")
     d.polygon([(bw // 3 + 8, bh), (bw // 3 + 62, bh),
                (bw // 3 + 15, bh + 36)], fill="white")
-    for i, l in enumerate(lines):
-        d.text(((bw - f.getlength(l)) / 2, 25 + i * 48), l,
+    for i, ln in enumerate(lines):
+        d.text(((bw - f.getlength(ln)) / 2, 25 + i * 48), ln,
                fill="black", font=f)
     im.save(out)
 
@@ -233,9 +232,8 @@ async def generate_avatar_video(
         avatar_png = await render_avatar(
             image_bytes=source_photo, style_prompt=avatar_style_prompt)
 
-    base = get_settings().COMFYUI_URL.rstrip("/")
     async with httpx.AsyncClient(timeout=60) as client:
-        avatar_name = await upload_image(client, avatar_png, "avatar.png")
+        await upload_image(client, avatar_png, "avatar.png")
 
     # Render one i2v clip per unique motion (clips get looped per scene).
     needed = {sc.clip for sc in scenes}
