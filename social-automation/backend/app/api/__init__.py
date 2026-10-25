@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from app.api import (
     accounts,
+    agency,
     ai,
     ai_providers,
     analytics,
@@ -81,6 +82,7 @@ api_router.include_router(viber.router, prefix="/viber", tags=["viber"])
 api_router.include_router(bluesky.router, prefix="/bluesky", tags=["bluesky"])
 api_router.include_router(secrets.router, prefix="/secrets", tags=["secrets"])
 api_router.include_router(audit.router, prefix="/audit", tags=["audit"])
+api_router.include_router(agency.router, prefix="/agency", tags=["agency"])
 api_router.include_router(mcp.router, prefix="/mcp", tags=["mcp"])
 api_router.include_router(teams.router, prefix="/teams", tags=["teams"])
 api_router.include_router(twitter_tiktok.router, tags=["twitter-tiktok-dm"])

@@ -1,3 +1,11 @@
+from app.models.agency import (
+    AgencyAudit,
+    AgencyAuditStatus,
+    AgencyProject,
+    AgencyProjectStatus,
+    AgencyProposal,
+    AgencyProposalStatus,
+)
 from app.models.ai_usage import AIUsageLog
 from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
 from app.models.billing import BillingEvent
@@ -71,4 +79,10 @@ __all__ = [
     "WebAnalyticsConfig",
     "WebAnalyticsEvent",
     "WhatsAppMessage",
+    "AgencyAudit",
+    "AgencyAuditStatus",
+    "AgencyProposal",
+    "AgencyProposalStatus",
+    "AgencyProject",
+    "AgencyProjectStatus",
 ]

@@ -840,7 +840,12 @@ async def generate_carousel_copy(
     team_id,
 ) -> dict:
     num = max(3, min(10, num_slides))
-    prompt = f"""Create a {num}-slide LinkedIn infographic carousel for cloudless.gr about: "{topic}"
+    # Doctrine grounding — ground the carousel in the Kakkava corpus when the
+    # team's doctrine collection has been synced. Fail-silent otherwise.
+    from app.services.kakkava import doctrine_context
+
+    doctrine_section = await doctrine_context(team_id, topic, n_results=3)
+    prompt = f"""Create a {num}-slide LinkedIn infographic carousel for cloudless.gr about: "{topic}"{doctrine_section}
 
 CAPTION RULES (most important):
 - 2-3 short sentences max. No marketing clichés.

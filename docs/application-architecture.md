@@ -363,7 +363,7 @@ app/models/
 └── email_log.py     — EmailLog
 ```
 
-### Service Layer (133 services)
+### Service Layer (137 services)
 
 ```
 app/services/
@@ -569,6 +569,13 @@ app/services/
 │   │                           Telegram; Redis session, snapshot/restore)
 │   ├── whatsapp_flows.py     — WhatsApp Flows service
 │   └── publishing.py         — Publishing service
+│
+├── ── Agency Pipeline ────────────────────────────────────────
+│   ├── agency_catalog.py    — 5-service fixed-scope catalog + lead classifier
+│   ├── agency_pipeline.py   — triage/audit/proposal/PM/engineer sweeps
+│   ├── site_audit.py        — Architect: SSRF-guarded site audit (headers/TTFB/stack)
+│   ├── influence_stage.py   — Cheng et al. 5-stage influencer model
+│   └── agency API           — /api/v1/agency/* (audits, proposals, projects, catalog)
 ```
 
 ### MCP Server (35 tools)
@@ -1966,7 +1973,7 @@ All components verified live:
 | Celery workers | 4 nodes (publishing, media, default, messenger) |
 | Celery beat | running |
 | MCP tools | 27 registered |
-| Backend tests | 840 passed, 1 skipped |
+| Backend tests | 7000+ passed |
 | MCP tests | 10/10 passed |
 | Ruff lint | All checks passed |
 | TypeScript | 0 errors |
