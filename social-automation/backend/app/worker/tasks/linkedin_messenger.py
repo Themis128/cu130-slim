@@ -141,6 +141,56 @@ async def _poll_linkedin_messenger_async() -> dict:
     return stats
 
 
+_EMAIL_IN_TEXT = __import__("re").compile(
+    r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,}")
+_PHONE_IN_TEXT = __import__("re").compile(
+    r"\+[0-9][0-9\s().-]{7,19}")
+
+
+async def _capture_contact(account, convo_name: str, text: str) -> str | None:
+    """Extract email/phone from an inbound DM → Lead + EspoCRM.
+    Returns a short ack string for the reply, or None."""
+    email_m = _EMAIL_IN_TEXT.search(text)
+    phone_m = _PHONE_IN_TEXT.search(text)
+    if not email_m and not phone_m:
+        return None
+    email = email_m.group(0).lower() if email_m else None
+    phone = " ".join(phone_m.group(0).split()) if phone_m else None
+    try:
+        from app.db.session import async_session_maker
+        from app.models.lead import LeadSource
+        from app.services.leads import create_lead
+        if email:
+            async with async_session_maker() as db:
+                await create_lead(
+                    db, team_id=account.team_id, source=LeadSource.dm,
+                    name=convo_name, email=email,
+                    notes=f"LinkedIn DM capture — {convo_name}"
+                          + (f" · {phone}" if phone else ""),
+                    meta_data={"channel": "linkedin_dm", "phone": phone,
+                               "thread_origin": "newsletter"},
+                )
+        # EspoCRM — phoneNumber field carries it
+        try:
+            from app.services.espocrm_client import upsert_lead
+            first, _, last = convo_name.partition(" ")
+            await upsert_lead({
+                "emailAddress": email or "",
+                "firstName": first or convo_name,
+                "lastName": last or "(LinkedIn)",
+                "phoneNumber": phone or "",
+                "source": "LinkedIn DM",
+                "description": f"Captured in DM thread\n{phone or ''}",
+            })
+        except Exception:
+            pass
+        return (f"Got it — I'll send the details to {email}. " if email else
+                "Got it — I'll reach out on the number you shared. ")
+    except Exception as exc:
+        logger.warning("DM contact capture failed: %s", exc)
+        return None
+
+
 async def _process_account(
     account: SocialAccount,
     config: dict,
@@ -260,6 +310,11 @@ async def _process_account(
                 logger.debug("Thread %s paused (human handoff), skipping", thread_id)
                 continue
 
+            # 6b. LinkedIn-native funnel — the DM thread IS the form.
+            # If they dropped an email/phone, capture it into the CRM and
+            # prepend an ack to whatever the AI replies.
+            capture_ack = await _capture_contact(account, convo_name, last_text)
+
             # 7. Detect intent and retrieve brand context (RAG)
             intent = await detect_intent(last_text, cf_token, cf_account, dmr_url)
             brand_context = await retrieve_brand_context(last_text)
@@ -275,6 +330,9 @@ async def _process_account(
 
             if not reply_text:
                 reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
+
+            if capture_ack:
+                reply_text = capture_ack + reply_text
 
             # 8. Send the reply
             await sidecar.send_message(thread_id, reply_text)
