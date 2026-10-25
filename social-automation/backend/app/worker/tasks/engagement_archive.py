@@ -5,6 +5,7 @@ keep platform/author/action/score/status — outcomes stay queryable for
 the reciprocity loop and comment-style fine-tuning.
 """
 import logging
+
 from celery import shared_task
 from sqlalchemy import update
 
