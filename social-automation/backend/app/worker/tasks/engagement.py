@@ -67,10 +67,18 @@ async def _run(limit: int):
         # 3. dispatch auto-approved actions (likes) in score order
         from datetime import UTC, datetime
 
-        from app.services.engagement_actors import x_actor
-        actors = {"twitter": x_actor.act}
+        from app.services.engagement_actors import (
+            ig_actor,
+            linkedin_actor,
+            threads_actor,
+            x_actor,
+        )
+        actors = {"twitter": x_actor.act,
+                  "threads": threads_actor.act,
+                  "linkedin": linkedin_actor.act,
+                  "instagram": ig_actor.act}
         rows = (await db.execute(select(EngagementAction).where(
-            EngagementAction.status == "pending").order_by(
+            EngagementAction.status.in_(["pending", "pending_actor"])).order_by(
             EngagementAction.score.desc()).limit(limit))).scalars().all()
         done, failed = [], []
         for r in rows:
