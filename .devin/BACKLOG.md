@@ -34,6 +34,14 @@ Leftovers for next sessions:
   demand-driven anyway).
 
 
+### 2026-10-25 — human-gate digest posted to Slack
+
+Consolidated 5-item human-action digest posted to the ops channel
+(`SLACK_CHANNEL_ID` bot-token path — `SLACK_ALERTS_CHANNEL_ID` still empty,
+alerts lane falls back to it). Items: LinkedIn 2FA push, WhatsApp SMS code,
+Meta restriction/portfolio connect, LinkedIn specialties UI edit, #793/#795
+decisions. Owner replies there or on the GitHub issues → agent picks up.
+
 ## Registered leftovers — 2026-10-21
 
 All entries below remain open until their acceptance criteria are verified.

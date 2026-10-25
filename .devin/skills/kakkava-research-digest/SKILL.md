@@ -102,3 +102,18 @@ humans merge, progressive delivery, documented rollback. Adopted as the
 `agency-engineer` worker: drafts PR manifests (branch/files/tests/rollback)
 for sent proposals — plans only, codegen stays at `review` tier until the
 autonomy ladder graduates it.
+
+
+## 8. LinkedIn SMB Playbook — "The Smarter Way to Scale Your Small
+Business" (v3pdf, LinkedIn internal collateral)
+
+LinkedIn's own SMB advertising playbook: Crawl–Walk–Run framework —
+organic foundation (complete page, weekly posts, learn what resonates) →
+boost validation (small capped budgets on proven posts) → campaign scale
+(matched audiences, funnel ads, CRM-linked revenue measurement). Adopted
+as the `linkedin_growth` service in `agency_catalog.py` (€900–1,800): the
+three stages ship as named `Service.phases` shown in proposals, mapped to
+the 14-day window (days 1-5 / 6-10 / 11-14). Spend-gates between stages
+match the no-spend frame — boosts/campaigns stay human-approved, never
+autonomous. Note: the file itself is LinkedIn's collateral — adopt the
+framework, do not redistribute the PDF as Cloudless material.

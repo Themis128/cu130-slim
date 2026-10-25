@@ -435,3 +435,26 @@ def test_agency_engineer_registered_and_governed():
     assert "app.worker.tasks.agency.run_agency_engineer_sweep" in celery_app.tasks
     w = {x.name: x for x in WA.WORKFORCE}["agency-engineer"]
     assert w.goal and w.guardrails and w.fallback and w.autonomy == "review"
+
+
+def test_classify_linkedin_b2b_lead():
+    r = C.classify_services("we need linkedin b2b lead generation and social selling for our sales pipeline")
+    slugs = [s for s, _score, _h in r]
+    assert slugs[0] == "linkedin_growth"          # strongest signal wins
+    assert "linkedin_growth" in slugs
+
+
+def test_price_range_bundle_all_five():
+    low, high = C.price_range(list(C.SERVICES))
+    assert (low, high) == (C.BUNDLE_PRICE_EUR, C.BUNDLE_PRICE_EUR)
+
+
+def test_render_proposal_linkedin_phases():
+    audit = _audit(url="https://acme.example")
+    _s, body = P.render_proposal(audit=audit, recipient_name="Maria",
+                                services=["linkedin_growth"])
+    assert "LinkedIn B2B Growth" in body
+    assert "Crawl — organic foundation" in body
+    assert "Walk — boost validation" in body
+    assert "Run — campaign scale" in body
+    assert "€900" in body and "€1800" in body

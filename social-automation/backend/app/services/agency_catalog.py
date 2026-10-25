@@ -26,6 +26,10 @@ class Service:
     price_low_eur: int
     price_high_eur: int
     summary: str
+    # Optional named delivery phases shown in proposals (e.g. the LinkedIn
+    # "Crawl, Walk, Run" framework — organic foundation → boost validation →
+    # campaign scale). Empty = generic 14-day plan only.
+    phases: tuple[str, ...] = ()
 
 
 SERVICES: dict[str, Service] = {
@@ -59,9 +63,22 @@ SERVICES: dict[str, Service] = {
         price_high_eur=1600,
         summary="AI-powered content strategy, SEO, and performance marketing.",
     ),
+    "linkedin_growth": Service(
+        slug="linkedin_growth",
+        name="LinkedIn B2B Growth",
+        price_low_eur=900,
+        price_high_eur=1800,
+        summary="Decision-maker pipeline on LinkedIn — organic foundation, "
+        "boost validation, then campaign scale. Spend gates at each stage.",
+        phases=(
+            "Crawl — organic foundation: complete page, weekly content, learn what resonates (days 1-5)",
+            "Walk — boost validation: small capped budgets amplify proven posts to targeted audiences (days 6-10)",
+            "Run — campaign scale: matched audiences, funnel ads, CRM-linked revenue tracking (days 11-14)",
+        ),
+    ),
 }
 
-BUNDLE_NAME = "Full bundle (all four services)"
+BUNDLE_NAME = "Full bundle (all services)"
 BUNDLE_PRICE_EUR = 3600  # per month — a fraction of one hire
 
 DELIVERY_DAYS = 14
@@ -103,6 +120,15 @@ _SERVICE_SIGNALS: dict[str, tuple[tuple[str, int], ...]] = {
         ("facebook ads", 3), ("linkedin", 1), ("audience", 1),
         ("μάρκετινγκ", 3), ("διαφήμιση", 3), ("πελάτες", 1), ("πωλήσεις", 1),
         ("περιεχόμενο", 1),
+    ),
+    "linkedin_growth": (
+        ("linkedin", 3), ("b2b", 3), ("lead gen", 3), ("lead generation", 3),
+        ("outbound", 2), ("demand gen", 3), ("demand generation", 3),
+        ("abm", 2), ("account-based", 2), ("account based", 2),
+        ("social selling", 2), ("sales navigator", 2), ("prospecting", 2),
+        ("decision-maker", 2), ("decision maker", 2), ("sales pipeline", 2),
+        ("boost", 1), ("sponsored content", 2),
+        ("προσέγγιση", 1), ("πελάτες b2b", 3),
     ),
 }
 
@@ -176,7 +202,7 @@ def price_range(services: list[str]) -> tuple[int, int]:
     slugs = [s for s in services if s in SERVICES]
     if not slugs:
         return (0, 0)
-    if len(slugs) == 4:
+    if len(slugs) == len(SERVICES):
         return (BUNDLE_PRICE_EUR, BUNDLE_PRICE_EUR)
     return (
         sum(SERVICES[s].price_low_eur for s in slugs),
