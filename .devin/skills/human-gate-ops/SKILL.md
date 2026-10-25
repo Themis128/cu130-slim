@@ -51,9 +51,11 @@ but `localizedSpecialties` is **admin-writable via the Organization API**
   /rest/organizations/{id}` (v2 fallback) with
   `localizedSpecialties: [Web Development, Managed Hosting, AI Automation,
   Custom Software, Digital Marketing]`. Needs `rw_organization_admin` on
-  the app token — if the call 403s, request that scope in the LinkedIn
-  developer console (Community Management API product), then re-run; the
-  manual edit becomes unnecessary.
+  the app token. **Verified 2026-10-25:** org `108614163` exists; token
+  returns 401 — needs `rw_organization_admin` + `r_organization_admin` on
+  re-auth (LinkedIn dev console → Community Management API product →
+  re-connect the account). Once re-authed, this script sets specialties in
+  one call; the 60-second manual edit becomes unnecessary.
 
 ## 5. #793 partner approvals + #795 pricing decision
 

@@ -12,9 +12,22 @@ import asyncio, sys, os
 org_id = sys.argv[1] or os.environ.get("LINKEDIN_ORG_ID")
 WANTED = ["Web Development","Managed Hosting","AI Automation","Custom Software","Digital Marketing"]
 async def main():
-    from app.services.linkedin_api import LinkedInApiClient, LINKEDIN_REST_BASE, LINKEDIN_V2_BASE
+    from app.services.linkedin_api import LinkedInAPIClient, LINKEDIN_REST_BASE, LINKEDIN_V2_BASE
     import httpx
-    c = LinkedInApiClient()
+    token = None
+    try:
+        from sqlalchemy import text
+        from app.db.session import async_session_maker
+        async with async_session_maker() as db:
+            row = (await db.execute(text("SELECT access_token_enc FROM social_accounts WHERE platform='linkedin' AND access_token_enc IS NOT NULL AND status='active' ORDER BY created_at DESC LIMIT 1"))).first()
+            token = row[0] if row else None
+    except Exception as e:
+        print('token lookup failed:', e)
+    if not token:
+        token = __import__('os').environ.get('LINKEDIN_ACCESS_TOKEN')
+    if not token:
+        print('no linkedin token found (social_accounts + env) — connect the account first'); return
+    c = LinkedInAPIClient(access_token=token)
     if not org_id:
         orgs = await c.get_member_organizations()
         print("admin orgs:", [(o.id, o.vanity_name or o.name) for o in orgs])
