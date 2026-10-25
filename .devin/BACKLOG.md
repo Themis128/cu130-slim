@@ -47,6 +47,13 @@ Leftovers for next sessions:
 - **Instagram 'Confirm Email' (Oct 21, still open)** — Meta confirmation
   challenge on the cloudless.gr IG account; owner clicks the link in that
   message. Same thread as #785.
+- **#795 positioning DRAFTED on the issue** — AI Governance Audit &
+  Readiness: audience, fixed scope, evidence basis (own stack's disclosure/
+  audit-trail tooling), €1,600 + €400/mo retainer proposal. One-word owner
+  approve/adjust → I build the service page + catalog entry.
+- **Instagram Confirm Email (Oct 21)** — opened the link: it was only the
+  profile URL, no verification token. The actual confirmation is in-app
+  Meta Accounts Center (owner), not this email.
 - **shop-online heartbeat mail** (~2/hr from noreply@cloudless.gr) — inbox
   noise; optional Sieve rule → folder on omv-ha dovecot.
 
