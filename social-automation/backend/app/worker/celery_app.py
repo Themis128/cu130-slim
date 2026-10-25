@@ -18,6 +18,7 @@ celery_app = Celery(
         "app.worker.tasks.nextcloud_sync",
         "app.worker.tasks.engagement",
         "app.worker.tasks.engagement_ingest",
+        "app.worker.tasks.engagement_tiers",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
