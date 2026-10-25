@@ -313,7 +313,8 @@ Done: digest pages Oct 16-19 backfilled in IntraVox (real DB data); `socialauto-
 
 | Issue | Remaining work | Gate |
 | --- | --- | --- |
-| n8n `N8N_API_KEY` still empty in `.env` | Generate in n8n Settings→API when needed (public API read-side + admin integrations page) | Owner UI action |
+| ~~n8n `N8N_API_KEY` empty~~ | DONE 2026-10-25 — minted via DB insert (`user_api_keys`, JWT signed by derived instance secret); verified `GET /api/v1/workflows` → 200; written to `.env` | — |
 | Cloudflare Access: n8n.cloudless.gr has no service-token/webhook bypass | Browser access works; server-side must keep using LAN URL | By design — revisit if external callers need webhooks |
 | `test/backend-platform-coverage` branch | Carries session commits `1d2d837e`,`120277a5`,`dfe3bdf8` — merge via PR when reviewed | PR/merge decision |
 | uncommitted: `linkedin-browser-sidecar/Dockerfile` | Pre-existing local change, not from this session | Owner review |
+| Stored n8n credentials may be dead | Workflows using n8n credential store (e.g. `nextcloud-drop-to-draft` httpBasicAuth) had secrets encrypted under the rotated Oct-6 key — verify on next run, re-enter if decrypt fails | Next execution |
