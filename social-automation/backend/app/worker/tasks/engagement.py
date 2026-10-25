@@ -105,6 +105,14 @@ async def _run(limit: int):
                               + (f"<{dl}|📱 Open source post> · " if dl else "")
                               + "<https://cloudless.gr/admin/socialauto|"
                                 "⚡ Open Control Gate>"))
+                    try:
+                        from app.services.telegram_notify import send_telegram
+                        await send_telegram(
+                            f"⏳ {a.platform} {a.action} → @{a.target_author} "
+                            f"(score {a.score:.1f})\n\n{draft}\n\n"
+                            f"cloudless.gr/admin/socialauto")
+                    except Exception:
+                        pass
             except Exception as exc:  # noqa: BLE001 — alerting never breaks the task
                 logger.warning("gate alert failed: %s", exc)
 
