@@ -568,3 +568,5 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 - [x] Confirmed `--n-gpu-layers 0` (CPU-pinned DMR fleet) is canonical in
   `dmr.py::_BEST_PRACTICE_CONFIGS` — the recreated watchdog now ships it;
   GPU stays free for ComfyUI.
+| IG `cloudless.gr` monetization verified on-phone 2026-10-25 | Partnership ads ON, branded-content eligible (green check); marketplace/affiliate/bonuses/subscriptions/gifts/badges gated on "Established presence" (followers+account age). Bio already → cloudless.gr/links. Stale `INSTAGRAM_PASSWORD` in social_secrets replaced with live one | follower growth |
+| WhatsApp `request_code` | beat auto-retries on cooldown (136024-gated) — owner just needs to read SMS when it lands, then verify-code+register | SMS receipt |
