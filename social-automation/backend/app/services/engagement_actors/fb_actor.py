@@ -40,15 +40,10 @@ async def act(action, db) -> dict:
                          json={"url": action.target_post_id})
             await asyncio.sleep(6)
             expr = f"""(async () => {{
-              const sleep=ms=>new Promise(r=>setTimeout(r,ms));
               const box = document.querySelector('div[contenteditable=true][role=textbox], form[role=presentation] div[contenteditable=true]');
               if (!box) return 'no-comment-box';
               box.focus();
-              const text = {json.dumps(action.comment_draft)};
-              for (const ch of text) {{
-                document.execCommand('insertText', false, ch);
-                await new Promise(r => setTimeout(r, 30 + Math.random()*90));
-              }}
+              document.execCommand('insertText', false, {json.dumps(action.comment_draft)});
               const btn = [...document.querySelectorAll('[role=button]')].find(b => /comment|post/i.test(b.getAttribute('aria-label')||''));
               if (!btn) return 'no-submit';
               btn.click();

@@ -163,20 +163,38 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
             EngagementAction.created_at > day_ago,
         ))).scalar() or 0
     cap = {"linkedin": 30, "twitter": 60, "instagram": 40,
-           "threads": 40, "facebook": 20}.get(candidate.platform, 25)
+           "threads": 40, "facebook": 20, "tiktok": 30}.get(
+           candidate.platform, 25)
     if today >= cap:
         return {"skipped": f"daily cap {cap} reached", "queued_for_tomorrow": True}
 
+    # Meta hard-cap: max 5 comments/hour on facebook (anti-spam ceiling)
+    if candidate.platform == "facebook" and plan.action == "comment":
+        hour_ago = datetime.now(UTC) - timedelta(hours=1)
+        this_hour = (await db.execute(
+            select(func.count()).select_from(EngagementAction).where(
+                EngagementAction.platform == "facebook",
+                EngagementAction.action == "comment",
+                EngagementAction.created_at > hour_ago))).scalar() or 0
+        if this_hour >= 5:
+            return {"skipped": "fb hourly comment cap (5/h)"}
+
+    # viral tiktok candidates surface as duet/stitch flags for the phone
+    action_name = plan.action
+    gated = plan.action in ("comment", "repost")
+    if (candidate.platform == "tiktok"
+            and (candidate.meta_data or {}).get("viral")):
+        action_name = "duet_flag"
+        gated = True
     row = EngagementAction(
         platform=candidate.platform,
         target_post_id=candidate.post_id,
         target_author=candidate.author_handle,
-        action=plan.action,
+        action=action_name,
         score=plan.score,
         jitter_seconds=plan.jitter_seconds,
         comment_draft=plan.comment_draft,
-        status="pending_human_gate" if plan.action in ("comment", "repost")
-               else "pending",
+        status="pending_human_gate" if gated else "pending",
     )
     db.add(row)
     await db.commit()

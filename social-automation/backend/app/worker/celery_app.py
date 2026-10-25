@@ -20,6 +20,8 @@ celery_app = Celery(
         "app.worker.tasks.engagement_ingest",
         "app.worker.tasks.engagement_ingest_li",
         "app.worker.tasks.engagement_ingest_ig",
+        "app.worker.tasks.engagement_ingest_fb",
+        "app.worker.tasks.engagement_ingest_tt",
         "app.worker.tasks.engagement_tiers",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
