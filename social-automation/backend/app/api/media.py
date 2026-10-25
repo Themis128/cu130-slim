@@ -191,7 +191,7 @@ async def upload_media(team_id: TeamId,
     # Validate and sanitize user-supplied filename and extension.
     raw_name = file.filename or "upload"
     raw_ext = pathlib.Path(raw_name).suffix.lower()
-    allowed_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".avif", ".heic", ".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
+    allowed_exts = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mov", ".avif", ".heic", ".mkv", ".avi", ".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
     if raw_ext not in allowed_exts:
         raise HTTPException(status_code=400, detail="Unsupported file extension")
 
@@ -285,6 +285,8 @@ async def view_media(
         ".mp4": "video/mp4",
         ".webm": "video/webm",
         ".mov": "video/quicktime",
+        ".mkv": "video/x-matroska",
+        ".avi": "video/x-msvideo",
         ".pdf": "application/pdf",
         ".mp3": "audio/mpeg",
         ".wav": "audio/wav",
