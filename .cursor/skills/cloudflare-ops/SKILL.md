@@ -425,3 +425,28 @@ relevant when publish errors show unreachable media URLs.
 - The `social-cloudless` tunnel on the dev box is **token-managed** (SOCIAL_TUNNEL_TOKEN) — ingress only via Zero Trust dashboard.
 - **Access blocks server-side calls**: `n8n.cloudless.gr` Access app allows authenticated users only — anything machine-to-machine must use LAN/tailnet URLs (`http://192.168.1.23:5678`), never the public hostname. Same trap as POSTIZ/MEILI/NTFY in-cluster DNS rules in `k8s/cloudless-app-hostpath.yaml`.
 - `cloudless-app` env: `envFrom` = `cloudless-app-config` ConfigMap THEN `cloudless-secrets` Secret — **the Secret wins** on duplicate keys; patch the Secret.
+
+## Access bypass for machine callers (runbook — needs `CLOUDFLARE_ACCESS_TOKEN`)
+
+`n8n.cloudless.gr` is Access-gated (authenticated-users policy only). When a
+scoped token is restored to `.env` (`CLOUDFLARE_ACCESS_TOKEN` — Access
+read/write, minted via `scripts/cf_tokens.py` using the global key):
+
+1. `python3 scripts/cf_access.py list` → find the `n8n.cloudless.gr` app id.
+2. Prepend a bypass policy on the EXISTING app (not a second app — precedence
+   is ambiguous): policy `decision:bypass`, `include:[{"everyone":{}}]`,
+   scoped to `/webhook/*` and `/api/v1/*` paths — same prepend-mode
+   `cf_access.py` uses for `social.cloudless.gr` (`MAIN_APP_ID`/policy-order
+   pattern in the script). Path-scoped so the UI stays SSO-gated.
+3. Verify: `curl -X POST https://n8n.cloudless.gr/webhook/<path>` → n8n's
+   JSON 404/execution, not the Access 302.
+
+Until then: machine callers must use LAN/tailnet (`http://192.168.1.23:5678`,
+`http://100.83.120.93:5678`) — already live for cloudless-app + ETL.
+
+## PR merge decisions
+
+`scripts` → `.devin/skills/n8n-cloudless/scripts/pr_merge_decision.py
+<repo> <pr#>...` evaluates open PRs (labels, check-runs, mergeable_state)
+→ `MERGE`/`WAIT-CI`/`DO-NOT-MERGE`/`NEEDS-OWNER`. 2026-10-25: #2282 =
+DO-NOT-MERGE (owner label), #2284 = blocked → WAIT-CI.
