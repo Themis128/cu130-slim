@@ -29,6 +29,7 @@ def upgrade() -> None:
         sa.Column("in_crm", sa.Boolean, server_default="false"),
         sa.Column("ingested_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("scored", sa.Boolean, server_default="false"),
+        sa.Column("meta_data", postgresql.JSONB, server_default="{}"),
     )
     op.create_table(
         "engagement_actions",

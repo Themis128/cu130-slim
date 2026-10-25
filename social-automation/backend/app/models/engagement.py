@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import DateTime, Float, Integer, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -39,3 +39,4 @@ class EngagementCandidate(Base):
     in_crm: Mapped[bool] = mapped_column(default=False)
     ingested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
     scored: Mapped[bool] = mapped_column(default=False)
+    meta_data: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)

@@ -90,15 +90,19 @@ async def _run(limit: int):
         from datetime import UTC, datetime
 
         from app.services.engagement_actors import (
+            fb_actor,
             ig_actor,
             linkedin_actor,
             threads_actor,
+            tiktok_actor,
             x_actor,
         )
         actors = {"twitter": x_actor.act,
                   "threads": threads_actor.act,
                   "linkedin": linkedin_actor.act,
-                  "instagram": ig_actor.act}
+                  "instagram": ig_actor.act,
+                  "facebook": fb_actor.act,
+                  "tiktok": tiktok_actor.act}
         rows = (await db.execute(select(EngagementAction).where(
             EngagementAction.status.in_(["pending", "pending_actor"])).order_by(
             EngagementAction.score.desc()).limit(limit))).scalars().all()
