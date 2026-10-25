@@ -67,8 +67,10 @@ celery_app = Celery(
         "app.worker.tasks.notebooks",
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
-        "app.worker.tasks.newsletter_subs",
-    ],
+        "app.worker.tasks.latency_watchdog",
+"app.worker.tasks.newsletter_subs",
+"app.worker.tasks.nextcloud_sync",
+"app.worker.tasks.avatar_video",        "app.worker.tasks.newsletter_subs",    ],
 )
 
 # Ensure @shared_task and Task.delay() from the API process use Redis, not default AMQP.
@@ -212,6 +214,7 @@ celery_app.conf.update(
         # ── media queue: CPU-intensive, long-running ───────────────────────
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
+        "app.worker.tasks.avatar_video.generate_avatar_story": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
@@ -254,6 +257,7 @@ celery_app.conf.update(
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
+        "app.worker.tasks.latency_watchdog.run_latency_watchdog": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
@@ -274,11 +278,21 @@ celery_app.conf.update(
             "task": "app.worker.tasks.human_gate.run_human_gate_watch",
             "schedule": crontab(minute="*/30"),
         },
+        "nextcloud-media-sync": {
+            "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_media",
+            "schedule": crontab(minute=40),
+        },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).
         "nurture-sweep": {
             "task": "app.worker.tasks.nurture.run_nurture_sweep",
             "schedule": crontab(hour=11, minute=0),
+        },
+        # Latency watchdog — >20ms SLO breach → wrangler rollback after
+        # 3 consecutive checks (self-healing deployment loop).
+        "latency-watchdog": {
+            "task": "app.worker.tasks.latency_watchdog.run_latency_watchdog",
+            "schedule": crontab(minute="*/5"),
         },
         # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
         "newsletter-subs-sync": {
