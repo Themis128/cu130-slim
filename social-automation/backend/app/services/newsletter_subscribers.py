@@ -155,9 +155,11 @@ def _personalized_note(sub: dict[str, str]) -> str:
     hook = (f"saw you're {role} — " if role and len(role) <= 60 else "")
     # One-line company intro — who we are, not a pitch. The value ask comes
     # second, and only as an offer they can take or leave.
-    intro = ("For context — I run Cloudless, we help companies move to "
-             "cloud/serverless and ship the dashboards that tell them it's "
-             "working. ")
+    # Audience is mixed: founders, solo consultants, small teams, and
+    # companies alike — speak to the person, not just the org.
+    intro = ("For context — I run Cloudless, we help founders, teams and "
+             "companies move to cloud/serverless and ship the dashboards "
+             "that tell them it's working. ")
     return (f"Thanks for subscribing to The Cloudless Build Log, {name} — "
             f"{hook}really glad to have you. {intro}"
             f"If a future issue touches on something you're working "
