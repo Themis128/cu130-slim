@@ -184,8 +184,12 @@ async def _capture_contact(account, convo_name: str, text: str) -> str | None:
             })
         except Exception:
             pass
-        return (f"Got it — I'll send the details to {email}. " if email else
-                "Got it — I'll reach out on the number you shared. ")
+        first = convo_name.split()[0] if convo_name else "there"
+        if email:
+            return (f"Done, {first} — sending the details to {email} "
+                    f"shortly. ")
+        return (f"Noted, {first} — I'll reach out on the number you "
+                f"shared. ")
     except Exception as exc:
         logger.warning("DM contact capture failed: %s", exc)
         return None

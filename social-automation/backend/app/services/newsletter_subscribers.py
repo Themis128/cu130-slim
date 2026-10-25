@@ -144,16 +144,30 @@ async def sync_newsletter_subscribers(series_urn: str, redis=None) -> dict[str, 
     return stats
 
 
+def _personalized_note(sub: dict[str, str]) -> str:
+    """Welcome note grounded in the subscriber's own headline — never generic."""
+    name = sub["name"].split()[0]
+    headline = sub.get("headline") or ""
+    role = ""
+    if headline:
+        # first clause usually carries the role: "CTO at Acme" → "CTO"
+        role = headline.split(" at ")[0].split("|")[0].split(",")[0].strip()
+    hook = (f"saw you're {role} — " if role and len(role) <= 60 else "")
+    return (f"Thanks for subscribing to The Cloudless Build Log, {name} — "
+            f"{hook}really glad to have you. If a future issue touches on "
+            f"something you're working through, my inbox is open. And if "
+            f"you'd like the free site audit or the benchmark report, "
+            f"just reply here with your email and I'll send it.")
+
+
 async def _subscriber_alert(sub: dict[str, str]) -> None:
-    """Ops-channel ping on each NEW subscriber with a ready welcome note.
+    """Ops-channel ping on each NEW subscriber with a personalized note.
 
     Subscribers carry no email — the only nurture path is LinkedIn-native
     (connect-with-note or DM). The owner acts on the profile link.
     """
     from app.services.slack_notifications import post_alert_to_slack
-    note = (f"Thanks for subscribing to The Cloudless Build Log, "
-            f"{sub['name'].split()[0]} — glad to have you. If any issue "
-            f"raises a question, my inbox is open.")
+    note = _personalized_note(sub)
     await post_alert_to_slack(
         f":bell: *New newsletter subscriber* — {sub['name']}"
         f"{(' — ' + sub['headline']) if sub['headline'] else ''}\n"
