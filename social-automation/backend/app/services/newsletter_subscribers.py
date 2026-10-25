@@ -97,10 +97,10 @@ async def espo_upsert_subscriber(sub: dict[str, str]) -> bool:
     await espo_post("/Lead", {
         "firstName": first,
         "lastName": last or "(LinkedIn)",
-        "source": "LinkedIn newsletter",
+        "source": "Newsletter",
         "description": (f"LinkedIn newsletter subscriber\n{sub['headline']}\n"
                         f"{sub['profile_url']}\nLI-URN:{sub['urn']}"),
-        "title": sub["headline"][:200],
+        "title": sub["headline"][:90],
     })
     return True
 
