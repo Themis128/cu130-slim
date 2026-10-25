@@ -144,9 +144,14 @@ async def sync_newsletter_subscribers(series_urn: str) -> dict[str, Any]:
     if not subs:
         return stats
 
-    r = aioredis.from_url(get_settings().REDIS_URL)
-    raw = await r.smembers(_REDIS_KEY)
-    seen = {x.decode() if isinstance(x, bytes) else x for x in raw}
+    seen: set[str] = set()
+    r = None
+    try:
+        r = aioredis.from_url(get_settings().REDIS_URL)
+        raw = await r.smembers(_REDIS_KEY)
+        seen = {x.decode() if isinstance(x, bytes) else x for x in raw}
+    except Exception as exc:  # noqa: BLE001 — dedupe is a cache; down Redis just
+        logger.warning("subscriber dedupe set unavailable, proceeding without: %s", exc)
     new_urns = []
     for sub in subs:
         if sub["urn"] in seen:
@@ -162,6 +167,9 @@ async def sync_newsletter_subscribers(series_urn: str) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001
             logger.warning("subscriber upsert failed for %s: %s", sub["urn"][:40], exc)
             stats["skipped"] += 1
-    if new_urns:
-        await r.sadd(_REDIS_KEY, *new_urns)
+    if new_urns and r is not None:
+        try:
+            await r.sadd(_REDIS_KEY, *new_urns)
+        except Exception:  # noqa: BLE001
+            pass
     return stats
