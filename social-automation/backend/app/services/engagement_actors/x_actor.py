@@ -47,6 +47,9 @@ async def act(action, db) -> dict:
             return {"error": f"unknown action {action.action}"}
     if r.status_code in (200, 201):
         return {"ok": True, "resp": r.json().get("data")}
+    if r.status_code == 402:
+        # free-tier credits exhausted — retry next cycle, don't fail the row
+        return {"error": "x credits depleted", "skip": True}
     logger.warning("[x-actor] %s failed %s: %s",
                    action.action, r.status_code, r.text[:200])
     return {"error": f"{r.status_code}: {r.text[:150]}"}
