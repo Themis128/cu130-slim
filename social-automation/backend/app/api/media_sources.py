@@ -51,6 +51,8 @@ async def nextcloud_import(body: NcImport,
         from app.models.user import TeamMember
         tm = (await db.execute(
             select(TeamMember).where(TeamMember.user_id == user.id))).scalars().first()
+        if tm is None:
+            raise HTTPException(400, "user has no team")
         team_id = tm.team_id
     imported, errors = [], []
     for p in body.paths:
@@ -126,6 +128,8 @@ async def gdrive_import(body: GdImport,
         from app.models.user import TeamMember
         tm = (await db.execute(
             select(TeamMember).where(TeamMember.user_id == user.id))).scalars().first()
+        if tm is None:
+            raise HTTPException(400, "user has no team")
         team_id = tm.team_id
     imported, errors = [], []
     meta_by_id: dict[str, str] = {}

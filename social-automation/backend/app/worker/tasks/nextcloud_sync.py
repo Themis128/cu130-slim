@@ -15,14 +15,28 @@ from typing import Any
 from celery import shared_task
 from sqlalchemy import select
 
+from app.services import nextcloud_sync
+from app.worker._async import get_session_factory, run_async
+
 logger = logging.getLogger(__name__)
+
+
+# Restored: #930 replaced this module wholesale, but beat still schedules
+# sync-nextcloud-surfaces (metrics -> Tables, pipeline -> Deck).
+@shared_task
+def sync_nextcloud_surfaces() -> None:
+    """Push follower metrics → Tables and post pipeline → Deck (idempotent)."""
+    if not nextcloud_sync.nextcloud_sync_enabled():
+        return
+    try:
+        run_async(nextcloud_sync.sync_all(get_session_factory()))
+    except Exception as exc:
+        logger.warning("nextcloud sync failed: %s", exc)
 
 
 @shared_task(name="app.worker.tasks.nextcloud_sync.sync_nextcloud_media",
              bind=True, max_retries=1)
 def sync_nextcloud_media(self, folder: str | None = None) -> dict[str, Any]:
-    from app.worker._async import run_async
-
     return run_async(_sync(folder))
 
 
@@ -48,8 +62,12 @@ async def _sync(folder: str | None) -> dict[str, Any]:
 
     async with async_session_maker() as db:
         u = (await db.execute(select(User))).scalars().first()
+        if u is None:
+            return {"skipped": "no user"}
         tm = (await db.execute(
             select(TeamMember).where(TeamMember.user_id == u.id))).scalars().first()
+        if tm is None:
+            return {"skipped": "no team"}
 
         # already-imported paths
         rows = (await db.execute(

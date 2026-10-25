@@ -55,18 +55,20 @@ async def _run(**kw) -> dict:
     import httpx
     from sqlalchemy import select
 
-    from app.db.session import get_session_factory
     from app.models.content import MediaAsset  # noqa: F401 (registry)
     from app.models.user import TeamMember, User
     from app.services.avatar_video import Scene, generate_avatar_video
     from app.services.media_storage import save_uploaded_media
+    from app.worker._async import task_session
 
     scenes = [Scene(clip=s["clip"], line1=s.get("line1", ""),
                     line2=s.get("line2", ""), duration=float(s.get("duration", 6)))
               for s in kw["scenes"]]
 
     avatar_png = source_photo = None
-    async with get_session_factory()() as db:
+    # app.db.session has no get_session_factory; task_session() is the
+    # per-worker-loop session used by every other worker task.
+    async with task_session() as db:
         uid = uuid.UUID(kw["user_id"]) if kw["user_id"] else None
         tid = uuid.UUID(kw["team_id"]) if kw["team_id"] else None
         if uid is None or tid is None:
