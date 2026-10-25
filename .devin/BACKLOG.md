@@ -598,3 +598,23 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 - Dedicated `console-ops` sidecar so credential scraping doesn't fight platform sweeps.
 | IG `cloudless.gr` monetization verified on-phone 2026-10-25 | Partnership ads ON, branded-content eligible (green check); marketplace/affiliate/bonuses/subscriptions/gifts/badges gated on "Established presence" (followers+account age). Bio already → cloudless.gr/links. Stale `INSTAGRAM_PASSWORD` in social_secrets replaced with live one | follower growth |
 | WhatsApp `request_code` | beat auto-retries on cooldown (136024-gated) — owner just needs to read SMS when it lands, then verify-code+register | SMS receipt |
+
+| ENCRYPTION_KEY drift FIXED 2026-10-25 | `.env` had a 64-char value (someone ran `token_hex(32)` — produces 64 chars; code wants 32 raw bytes). All token decrypts silently failed (Threads publish surfaced it). Original 32-char key recovered from older containers (celery-beat/social-worker-messenger/social-worker-media), `.env` restored, drifted containers recreated. Threads post `faa2b803` then published | Guard: consider making `get_fernet()` accept 64-char hex via `bytes.fromhex()` fallback so this mistake can't recur; until then never rotate ENCRYPTION_KEY without re-encrypting tokens |
+| Threads `cloudless.gr` funnel tuned 2026-10-25 | `threads_auto_reply` enabled w/ funnel prompt (contact/pricing/threads-invite); DM session active in browser-novnc (cloudless.gr identity verified — `session/extract` pulled cookies); pinned branded intro post | None — fully live |
+
+## 2026-10-25 (AI video pipeline + Google Photos MCP)
+
+### Done
+- Google Photos MCP (`google-photos`) registered; OAuth via Picker API (one-time consent done, refresh token in .env). Skill: `.devin/skills/google-photos-ops`.
+- AI video pipeline live: Google Photos → FLUX img2img (cartoon/mascot) → Wan2.2-TI2V clips → ffmpeg caption/bubble scenes + music. DAY-18 videos in media library (`884d35d9` mascot Maria story, `b39922cc` day18 method video, `dd521e3d` mascot PNG).
+- Posted Maria story video to LI/IG/Threads/FB-page/TikTok (TikTok via media-inbox fallback — needs in-app confirm). X failed (empty creds).
+- Fixed `check_scheduled_posts`: no longer fails posts that have publish_queue work but no PostTarget rows; backfilled post_targets + republished rollup for post 4bf3556b.
+
+### Open (human gates)
+- X/Twitter: ALL creds empty in .env (TWITTER_CLIENT_ID/SECRET/etc) — needs X Developer Portal app creds, then re-run connect/twitter + re-queue twitter target of post 4bf3556b.
+- Email notifications: EMAIL_PROVIDER=smtp → smtp.resend.com but SMTP_PASSWORD empty; needs Resend API key, or switch to EMAIL_PROVIDER=cloudflare + CLOUDFLARE_EMAIL_API_TOKEN.
+- Cloudflare API token for D1/KV/Vectorize (currently postgres-only mode).
+- Rotate secrets pasted in chat: Google account password + OAuth client_secret (GOCSPX-YkUC…, file in Downloads) — refresh token in .env is fine.
+- TikTok unaudited app: posts land in TikTok inbox for manual confirm; needs app audit for direct posting.
+- .env CRLF endings break scripts using `cut -d=` (x-reconnect.sh needed tr -d '\r').
+- ComfyUI wake-proxy drops queued-but-not-started prompts on sleep/restart; pending jobs can vanish — resubmit if queue shows empty.

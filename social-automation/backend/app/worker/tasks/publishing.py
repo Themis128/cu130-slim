@@ -886,8 +886,24 @@ async def _check_scheduled_posts_async() -> None:
             targets = post_targets_result.scalars().all()
 
             # If there are no targets, fail the post immediately instead of
-            # setting it to PUBLISHING and leaving it stuck forever.
+            # setting it to PUBLISHING and leaving it stuck forever — unless
+            # publish_queue rows already carry the work (posts enqueued
+            # directly, without PostTarget rows).
             if not targets:
+                queued = await db.execute(
+                    select(PublishQueue).where(
+                        PublishQueue.post_id == post.id,
+                        PublishQueue.status.in_(
+                            [QueueStatus.PENDING, QueueStatus.PROCESSING]
+                        ),
+                    ).limit(1)
+                )
+                # .first(): a multi-platform post has several queue rows,
+                # so scalar_one_or_none() would raise MultipleResultsFound.
+                if queued.scalars().first() is not None:
+                    post.status = PostStatus.PUBLISHING
+                    await db.commit()
+                    continue
                 post.status = PostStatus.FAILED
                 post.failed_at = now
                 post.failure_reason = "No target accounts assigned to this post"
