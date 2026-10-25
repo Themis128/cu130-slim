@@ -475,7 +475,10 @@ WORKFORCE = [
         autonomy="auto",
         fallback="lead skipped; next daily sweep retries",
         evidence=[("last step sent", "SELECT max((meta_data->>'nurture_step_at')::timestamptz) FROM leads WHERE meta_data ? 'nurture_step_at'")],
-        pending_sql="SELECT count(*) FROM leads WHERE meta_data->>'form' IN ('newsletter','free-audit') AND NOT COALESCE(meta_data ? 'nurture_step', false) OR (meta_data->>'nurture_step')::int < 3",
+        pending_sql=(
+            "SELECT count(*) FROM leads WHERE meta_data->>'form' IN ('newsletter','free-audit') "
+            "AND NOT COALESCE(meta_data ? 'nurture_step', false) OR (meta_data->>'nurture_step')::int < 3"
+        ),
     ),
     Worker(
         "newsletter-subs-sync",

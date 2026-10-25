@@ -487,14 +487,15 @@ def test_nurture_steps_sequential():
 
 
 def test_nurture_due_step_logic():
-    from app.models.lead import Lead
-    from app.services.nurture_sequence import _due_step
     import datetime as _dt
 
+    from app.models.lead import Lead
+    from app.services.nurture_sequence import _due_step
+
     def mk(days_old, meta=None):
-        l = Lead(name="Ada", email="a@b.co", meta_data=meta or {"form": "newsletter"})
-        l.created_at = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=days_old)
-        return l
+        lead = Lead(name="Ada", email="a@b.co", meta_data=meta or {"form": "newsletter"})
+        lead.created_at = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=days_old)
+        return lead
 
     assert _due_step(mk(1)) is None                     # too early for day-3
     assert _due_step(mk(4))["key"] == "value"           # step 1 due
