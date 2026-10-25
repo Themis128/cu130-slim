@@ -153,11 +153,17 @@ def _personalized_note(sub: dict[str, str]) -> str:
         # first clause usually carries the role: "CTO at Acme" → "CTO"
         role = headline.split(" at ")[0].split("|")[0].split(",")[0].strip()
     hook = (f"saw you're {role} — " if role and len(role) <= 60 else "")
+    # One-line company intro — who we are, not a pitch. The value ask comes
+    # second, and only as an offer they can take or leave.
+    intro = ("For context — I run Cloudless, we help companies move to "
+             "cloud/serverless and ship the dashboards that tell them it's "
+             "working. ")
     return (f"Thanks for subscribing to The Cloudless Build Log, {name} — "
-            f"{hook}really glad to have you. If a future issue touches on "
-            f"something you're working through, my inbox is open. And if "
-            f"you'd like the free site audit or the benchmark report, "
-            f"just reply here with your email and I'll send it.")
+            f"{hook}really glad to have you. {intro}"
+            f"If a future issue touches on something you're working "
+            f"through, my inbox is open. And if you'd like the free site "
+            f"audit or the benchmark report, just reply here with your "
+            f"email and I'll send it.")
 
 
 async def _subscriber_alert(sub: dict[str, str]) -> None:
