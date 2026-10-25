@@ -54,6 +54,12 @@ celery_app = Celery(
         "app.worker.tasks.promo_scan",
         "app.worker.tasks.failure_learning",
         "app.worker.tasks.edit_diff",
+        "app.worker.tasks.kakkava_sync",
+        "app.worker.tasks.agency",
+        "app.worker.tasks.notebooks",
+        "app.worker.tasks.human_gate",
+        "app.worker.tasks.nurture",
+        "app.worker.tasks.newsletter_subs",
     ],
 )
 
@@ -159,6 +165,27 @@ celery_app.conf.update(
             "soft_time_limit": 600,
             "time_limit": 900,
         },
+        # Agency pipeline — outbound site fetches, bounded per run.
+        "app.worker.tasks.agency.run_agency_triage_sweep": {
+            "soft_time_limit": 300,
+            "time_limit": 420,
+        },
+        "app.worker.tasks.agency.run_agency_audit_sweep": {
+            "soft_time_limit": 300,
+            "time_limit": 420,
+        },
+        "app.worker.tasks.agency.run_agency_proposal_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_pm_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_engineer_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
@@ -209,6 +236,17 @@ celery_app.conf.update(
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
+        "app.worker.tasks.kakkava_sync.sync_kakkava_corpus": {"queue": "default"},
+        # ── agency pipeline: lead triage → site audit → proposal → PM ──
+        "app.worker.tasks.agency.run_agency_triage_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_audit_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
+        "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
+        "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
+        "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
+        "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -217,6 +255,28 @@ celery_app.conf.update(
         "app.worker.tasks.instagram_messenger.poll_instagram_messenger": {"queue": "messenger"},
     },
     beat_schedule={
+        # Weekly publish/agency/audit KPI digest → ops channel (notebook twin).
+        "weekly-analytics-digest": {
+            "task": "app.worker.tasks.notebooks.run_weekly_analytics",
+            "schedule": crontab(day_of_week="mon", hour=8, minute=0),
+        },
+        # Human-gate watcher: sidecar checkpoints (LinkedIn 2FA, Meta
+        # restriction) → ops nudge, deduped 6h per gate in Redis.
+        "human-gate-watch": {
+            "task": "app.worker.tasks.human_gate.run_human_gate_watch",
+            "schedule": crontab(minute="*/30"),
+        },
+        # Public-lead nurture sequence — day 3/7/14 touches on
+        # newsletter + free-audit leads (idempotent meta_data stamps).
+        "nurture-sweep": {
+            "task": "app.worker.tasks.nurture.run_nurture_sweep",
+            "schedule": crontab(hour=11, minute=0),
+        },
+        # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
+        "newsletter-subs-sync": {
+            "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
+            "schedule": crontab(day_of_week="sun", hour=9, minute=15),
+        },
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
             "schedule": 30.0,
@@ -293,6 +353,37 @@ celery_app.conf.update(
         "crm-engagement-sweep": {
             "task": "app.worker.tasks.crm_engagement.run_crm_engagement_sweep",
             "schedule": crontab(minute="*/30"),
+        },
+        # ── Autonomous agency (agent-led fixed-scope pipeline) ─────────
+        # Front Desk: classify new leads into the service catalog and
+        # queue a site audit when an auditable domain is found.
+        "agency-triage-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_triage_sweep",
+            "schedule": crontab(minute="*/15"),
+        },
+        # Architect: run the deterministic site audit for pending rows —
+        # demand-driven, only works while audits wait.
+        "agency-audit-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_audit_sweep",
+            "schedule": crontab(minute="*/10"),
+        },
+        # Sales drafter: completed audits become priced proposals in the
+        # Slack review lane — approval is always a human click.
+        "agency-proposal-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_proposal_sweep",
+            "schedule": crontab(minute="*/30"),
+        },
+        # Supervisor: 14-day milestone loop for won engagements, after the
+        # 09:00 digest so the PM report rides the morning batch.
+        "agency-pm-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_pm_sweep",
+            "schedule": crontab(hour=9, minute=20),
+        },
+        # Engineers (Joshi 2025 agentic-DevOps): draft PR manifests for
+        # sent proposals — plans only, humans/Devin implement.
+        "agency-engineer-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_engineer_sweep",
+            "schedule": crontab(hour=9, minute=40),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
@@ -600,6 +691,16 @@ celery_app.conf.update(
             "schedule": 10800.0,  # every 3 hours
             "options": {"queue": "default"},
         },
+        # Daily Kakkava doctrine sync — re-walk the read-only corpus mount,
+        # embed new/changed chunks into team_<id>_doctrine so generation
+        # recalls the current source material (services.kakkava.sync_corpus).
+        "kakkava-corpus-sync": {
+            "task": "app.worker.tasks.kakkava_sync.sync_kakkava_corpus",
+            "schedule": crontab(
+                hour=settings.KAKKAVA_SYNC_HOUR,
+                minute=settings.KAKKAVA_SYNC_MINUTE,
+            ),
+        },
     },
 )
 
@@ -609,7 +710,7 @@ celery_app.conf.update(
 # long as the child. Building it here (not at import time) is what prevents
 # forked parents from sharing connections into children.
 
-from celery.signals import worker_process_init, worker_process_shutdown  # noqa: E402
+from celery.signals import task_failure, worker_process_init, worker_process_shutdown  # noqa: E402
 
 
 @worker_process_init.connect
@@ -624,3 +725,25 @@ def _stop_worker_async_loop(**_kwargs):
     from app.worker._async import stop_worker_loop
 
     stop_worker_loop()
+
+
+@task_failure.connect
+def _notify_task_failure(sender=None, task_id=None, exception=None, **_kwargs):
+    """Post unexpected task failures to the ops channel — silent task
+    deaths currently only surface in docker logs."""
+    try:
+        import asyncio
+
+        from app.services.slack_notifications import post_alert_to_slack
+        name = getattr(sender, "name", str(sender))
+        msg = f":warning: Worker task failed `{name}`\n```{str(exception)[:300]}```"
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(post_alert_to_slack(msg))
+            else:
+                loop.run_until_complete(post_alert_to_slack(msg))
+        except RuntimeError:
+            asyncio.run(post_alert_to_slack(msg))
+    except Exception:  # noqa: BLE001 — never let the notifier crash the worker
+        pass

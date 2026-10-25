@@ -184,6 +184,7 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",")]
 
     # Social OAuth
+    LINKEDIN_NEWSLETTER_SERIES_URN: str = ""
     LINKEDIN_CLIENT_ID: str = ""
     LINKEDIN_CLIENT_SECRET: str = ""
     LINKEDIN_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/linkedin/callback"
@@ -421,6 +422,14 @@ class Settings(BaseSettings):
     COMPANY_BRAIN_HOUR: int = 23     # Europe/Athens via Celery timezone
     COMPANY_BRAIN_MINUTE: int = 45   # Europe/Athens via Celery timezone
 
+    # Kakkava corpus — the Visibility Era source folder (PDFs/md/html)
+    # bind-mounted read-only from the host OneDrive path. Ingested into
+    # Chroma team_<id>_doctrine for semantic recall during generation.
+    KAKKAVA_DIR: str = "/mnt/kakkava"
+    KAKKAVA_SYNC_ENABLED: bool = True
+    KAKKAVA_SYNC_HOUR: int = 5       # Europe/Athens via Celery timezone
+    KAKKAVA_SYNC_MINUTE: int = 50    # Europe/Athens via Celery timezone
+
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""
     SOCIAL_ADMIN_PASSWORD: str = ""
@@ -601,6 +610,14 @@ class Settings(BaseSettings):
     # Contact+Opportunity via Espo's own convert action. Same rule the
     # cloudless.gr contact path already applies.
     CRM_CONVERT_ENABLED: bool = True
+
+    # Autonomous agency pipeline — Front Desk triage → Architect site audit →
+    # proposal draft → 14-day PM loop. All outbound mail stays human-gated:
+    # AGENCY_PROPOSAL_AUTOSEND exists only for the earned-autonomy graduation
+    # path (workforce_audit ladder) and defaults OFF.
+    AGENCY_ENABLED: bool = True
+    AGENCY_AUDIT_MAX_PER_RUN: int = 5
+    AGENCY_PROPOSAL_AUTOSEND: bool = False
 
     # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
     # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the

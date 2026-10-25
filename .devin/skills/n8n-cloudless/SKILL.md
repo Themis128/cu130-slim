@@ -193,6 +193,13 @@ From repo root:
 
 # Daily analytics + issues digest → Slack #socialauto
 .devin/skills/n8n-cloudless/scripts/deploy-daily-digest.py
+# Validate workflow JSON before import/publish (naming, error handling,
+# security, performance, docs). Exit 1 on issues — gate pre-deploy.
+node .devin/skills/n8n-cloudless/scripts/validate-n8n-workflow.js \
+    --dir n8n-workflows        # all local workflow files
+node .devin/skills/n8n-cloudless/scripts/validate-n8n-workflow.js \
+    --live cloudless-cf-carousel-linkedin   # or export from the container
+
 
 # Register in social app Workflows UI (template + deployed workflow)
 .devin/skills/n8n-cloudless/scripts/register-workflow.py
@@ -286,3 +293,34 @@ Also: `scripts/deploy_n8n_cloudless_carousel.py` (default `--cli`).
 
 See [reference.md](reference.md).
 
+
+## Container ops (n8n 2.x, learned 2026-10-25)
+
+- **`import:workflow` deactivates** — follow with `n8n publish:workflow --id=<id>`, then `docker restart n8n` (CLI warns "changes will not take effect if n8n is running"; the running process caches active workflows). `--activeState=fromJson` is queue-mode only — don't use it.
+- **`n8n-nodes-base.function` is rejected by 2.x imports** — convert to `n8n-nodes-base.code` (`typeVersion:2`, `mode:"runOnceForAllItems"`, `items`→`$input.all()`). Done for `lead-enrich.json` (Round-robin owner).
+- **Env drift bites on recreate**: `docker restart` keeps old env; `compose up` injects `.env`. If `.env` was rotated after first init, `DB_POSTGRESDB_PASSWORD` no longer matches the PG volume (postgres ignores env post-init) → auth-fail crash loop. Ground truth = a still-working container (`social-api` `DATABASE_URL`); sync `.env` to it.
+- **`Deployment key 'signing.hmac' cannot be read with this instance encryption key`** = stale `deployment_key` rows encrypted under a rotated `N8N_ENCRYPTION_KEY`. Fix (data loss limited to signing keys): `ALTER TABLE deployment_key DISABLE TRIGGER ALL; DELETE FROM deployment_key; ALTER TABLE deployment_key ENABLE TRIGGER ALL;` then restart — rows regenerate.
+- **Container shell has no `curl`** — probe webhooks with `docker exec n8n node -e "fetch(...)"`; a registered POST webhook answers 404 *"not registered for GET requests"* on GET.
+- n8n DB lives in `social-postgres` (db `n8n`, user `social_user`): `docker exec social-postgres psql -U social_user -d n8n -c "<sql>"`.
+
+## Rebuilding stored credentials (after key rotation)
+
+Credential `data` = AES-256-CBC, OpenSSL `Salted__` format, EVP_BytesToKey
+(md5, 1 iter) — encrypt fresh JSON with `N8N_ENCRYPTION_KEY` and UPDATE
+`credentials_entity.data` by name. Field map (verified against n8n-nodes-base
+credential defs, 2026-10-25):
+
+| credential type | fields |
+|---|---|
+| `httpBasicAuth` | `{"user": ..., "password": ...}` |
+| `nextCloudApi` | `{"user": ..., "password": ..., "webDavUrl": "https://cloud.cloudless.gr"}` |
+| `totpApi` | `{"secret": <base32 seed>, "label"?: ...}` |
+| `ollamaApi` | `{"apiUrl": "http://host.docker.internal:11434"}` |
+
+**Secret sources**: NEXTCLOUD_USERNAME/APP_PASSWORD live in worker/api
+container env (`docker exec social-api printenv NEXTCLOUD_USERNAME`) — NOT
+in n8n's compose block by default (added 2026-10-25). TOTP seed: the real
+secret is `social_automation.users.two_factor_secret` — but only when
+`two_factor_enabled=true`; currently no user has 2FA, so `auth.py` ignores
+otp and an empty `totpApi` credential is harmless. `SOCIAL_TOTP_SECRET` env
+exists but is unset — the credential is the only carrier when 2FA is on.

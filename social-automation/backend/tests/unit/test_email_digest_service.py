@@ -76,16 +76,16 @@ class TestHelpers:
 
     def test_subject(self):
         r = _report(issues=[_issue("error"), _issue("error"), _issue("warning")])
-        assert "ERRORS (2)" in ED.digest_email_subject(r)
+        assert "2 things to fix" in ED.digest_email_subject(r)
         r.issues = [_issue("warning")]
-        assert "Warnings (1)" in ED.digest_email_subject(r)
+        assert "1 thing to check" in ED.digest_email_subject(r)
         r.issues = []
-        assert "OK" in ED.digest_email_subject(r)
+        assert "All clear" in ED.digest_email_subject(r)
 
     def test_plaintext(self):
         out = ED.digest_to_plaintext(_report())
         assert "*" not in out
-        assert "[ERROR]" in out and "[WARN]" in out
+        assert "[NEEDS FIXING]" in out and "[WORTH A LOOK]" in out
 
     def test_recipients(self):
         assert ED._recipients(_settings()) == ["a@x.co", "b@x.co"]
@@ -120,7 +120,7 @@ class TestDigestToHtml:
             },
         )
         html = ED.digest_to_html(r)
-        assert "SocialAuto daily report" in html
+        assert "SocialAuto daily" in html
         assert "Top posts" in html
         assert "&lt;b&gt;hi&lt;/b&gt;" in html  # escaped
         assert "@acc" in html
@@ -134,7 +134,7 @@ class TestDigestToHtml:
 
     def test_minimal_report(self):
         html = ED.digest_to_html(_report())
-        assert "Issues:</strong> none" in html
+        assert "Nothing needs your attention" in html
         assert "Top posts" not in html
         assert "Growth" not in html
 
@@ -370,7 +370,7 @@ class TestEmailDigest:
         out = await ED.email_digest(r)
         assert out.emailed is True
         assert out.email_error is None
-        assert "ERRORS (1)" in smtp.messages[0]["Subject"]
+        assert "1 thing to fix" in smtp.messages[0]["Subject"]
 
     @pytest.mark.asyncio
     async def test_send_failure(self, monkeypatch):

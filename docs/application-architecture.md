@@ -363,7 +363,7 @@ app/models/
 └── email_log.py     — EmailLog
 ```
 
-### Service Layer (133 services)
+### Service Layer (137 services)
 
 ```
 app/services/
@@ -569,6 +569,13 @@ app/services/
 │   │                           Telegram; Redis session, snapshot/restore)
 │   ├── whatsapp_flows.py     — WhatsApp Flows service
 │   └── publishing.py         — Publishing service
+│
+├── ── Agency Pipeline ────────────────────────────────────────
+│   ├── agency_catalog.py    — 5-service fixed-scope catalog + lead classifier
+│   ├── agency_pipeline.py   — triage/audit/proposal/PM/engineer sweeps
+│   ├── site_audit.py        — Architect: SSRF-guarded site audit (headers/TTFB/stack)
+│   ├── influence_stage.py   — Cheng et al. 5-stage influencer model
+│   └── agency API           — /api/v1/agency/* (audits, proposals, projects, catalog)
 ```
 
 ### MCP Server (35 tools)
@@ -621,7 +628,7 @@ app/mcp/server.py
 (Bot Builder lives in the REST API + `/messenger` UI, not in MCP tools.)
 ```
 
-### Celery Tasks (44 task modules, 43 beat schedules)
+### Celery Tasks (46 task modules, 45 beat schedules)
 
 ```
 app/worker/tasks/
@@ -1080,7 +1087,12 @@ gated `/metrics`, fresh registry per scrape so failures only export
   mounted at `/notebooks` in workers too). The kernel inherits the worker
   environment — `DATABASE_URL`, AI/Slack secrets, and `import app.*` all
   work — so notebooks reuse the real service layer instead of duplicating
-  logic. The notebook writes `report.html`/`report.txt` + chart PNGs +
+  logic. `notebooks/_lib.py` is the shared helpers pack (`db()` → pandas
+  DataFrame, `slack()` → ops channel via env-injected bot token, `espo()`,
+  `dmr()`, `sql()` magic) — new analysis notebooks start from it.
+  `scripts/run-notebook.sh` executes any repo notebook inside the jupyter
+  container via papermill (host-cron / manual path, output →
+  `notebooks/output/`). The notebook writes `report.html`/`report.txt` + chart PNGs +
   a `*.manifest.json` into `notebooks/output/` (visible in Jupyter at
   `work/output/`); the task then emails each manifest report with charts
   as `cid:` inline images (renders in Gmail, unlike base64 data-URIs).
@@ -1090,7 +1102,12 @@ gated `/metrics`, fresh registry per scrape so failures only export
   report (10:45 EEST — queue state, failed targets, follower-series
   anomalies, sync freshness, content scoreboard; `fallback_to_code=False`
   so a failure never substitutes an unrelated brief) are generated this
-  way.
+  way. Two workers complement this: `tasks/notebooks.py`
+  (`weekly-analytics-digest`, Mondays 08:00 — publish/agency/audit KPIs →
+  Slack, direct queries rather than papermill) and `tasks/human_gate.py`
+  (`human-gate-watch`, every 30 min — sidecar checkpoint polling for
+  LinkedIn 2FA / Meta restriction, Slack nudges deduped 6h per gate in
+  Redis). Both registered in `workforce_audit.py`.
 
 **Growth initiatives & ad-campaign analytics** — off-platform growth
 pushes (e.g. LinkedIn's monthly Page invitation credits) are recorded as
@@ -1966,7 +1983,7 @@ All components verified live:
 | Celery workers | 4 nodes (publishing, media, default, messenger) |
 | Celery beat | running |
 | MCP tools | 27 registered |
-| Backend tests | 840 passed, 1 skipped |
+| Backend tests | 7000+ passed |
 | MCP tests | 10/10 passed |
 | Ruff lint | All checks passed |
 | TypeScript | 0 errors |

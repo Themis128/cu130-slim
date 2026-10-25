@@ -333,6 +333,167 @@ WORKFORCE = [
         guardrails=("quarantine beats delete — no bulk row removal",),
         fallback="conflicts parked for human review",
     ),
+    # ── Autonomous agency pipeline (agent-led fixed-scope model) ──────
+    Worker(
+        "agency-front-desk",
+        "app.worker.tasks.agency.run_agency_triage_sweep",
+        "default",
+        900,  # 15 min
+        goal="Classify every new lead into the service catalog and queue a site audit",
+        guardrails=(
+            "explainable routing only — deterministic keyword model, matched signals recorded",
+            "never email or contact a lead — triage writes notes and audit rows only",
+        ),
+        fallback="lead left untriaged; next sweep retries",
+        demand_driven=True,
+        evidence=[("last audit queued", "SELECT max(created_at) FROM agency_audits")],
+        pending_sql="SELECT count(*) FROM leads WHERE NOT COALESCE(meta_data ? 'agency_triaged', false)",
+    ),
+    Worker(
+        "agency-architect",
+        "app.worker.tasks.agency.run_agency_audit_sweep",
+        "default",
+        600,  # 10 min
+        goal="Deliver a deterministic site audit minutes after a lead arrives",
+        guardrails=(
+            "measured data only — every finding cites a real response/header",
+            "SSRF-guarded fetches — public URLs only (url_safety)",
+        ),
+        fallback="audit row → failed with error; next sweep does not retry",
+        demand_driven=True,
+        evidence=[("last completed audit", "SELECT max(completed_at) FROM agency_audits")],
+        pending_sql="SELECT count(*) FROM agency_audits WHERE status='pending'",
+        escalations=[
+            (
+                "failed audits",
+                "SELECT count(*) FROM agency_audits WHERE status='failed' AND created_at > now() - interval '7 days'",
+                "site unreachable or rejected by SSRF guard — a human must confirm the lead's URL",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-proposals",
+        "app.worker.tasks.agency.run_agency_proposal_sweep",
+        "default",
+        1800,  # 30 min
+        goal="Turn every completed audit into a priced fixed-scope proposal draft",
+        guardrails=(
+            "never auto-send — a proposal leaves only via human approve",
+            "prices come from the fixed catalog — never invent a number",
+        ),
+        autonomy="review",  # Slack approve/reject is the gate
+        fallback="audit stays unproposed; next sweep retries",
+        demand_driven=True,
+        evidence=[("last proposal drafted", "SELECT max(created_at) FROM agency_proposals")],
+        pending_sql="SELECT count(*) FROM agency_audits a WHERE a.status='completed' AND NOT EXISTS (SELECT 1 FROM agency_proposals p WHERE p.audit_id=a.id)",
+        escalations=[
+            (
+                "stale drafts",
+                "SELECT count(*) FROM agency_proposals WHERE status='draft' AND created_at < now() - interval '3 days'",
+                "draft awaiting human decision — the front desk promised a fast answer",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-pm",
+        "app.worker.tasks.agency.run_agency_pm_sweep",
+        "default",
+        DAY,
+        goal="Drive every won engagement through the 14-day milestone plan",
+        guardrails=(
+            "client updates are drafts for a human — never mailed directly",
+            "scope is fixed at kickoff — the agent never expands it",
+        ),
+        autonomy="review",
+        fallback="milestone stays pending; next daily sweep retries",
+        demand_driven=True,
+        evidence=[("last client update", "SELECT max(last_client_update_at) FROM agency_projects")],
+        pending_sql="SELECT count(*) FROM agency_projects WHERE status='active'",
+        escalations=[
+            (
+                "overdue projects",
+                "SELECT count(*) FROM agency_projects WHERE status='stalled'",
+                "project passed its 14-day due date — a human must reset scope or close it",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-engineer",
+        "app.worker.tasks.agency.run_agency_engineer_sweep",
+        "default",
+        DAY,
+        goal="Turn every sent proposal into a reviewable PR manifest",
+        guardrails=(
+            "plans only — never write client code or open PRs autonomously",
+            "every plan declares CI gate + rollback — no plan ships without both",
+        ),
+        autonomy="review",  # humans/Devin execute; codegen needs graduation
+        fallback="proposal stays unplanned; next sweep retries",
+        demand_driven=True,
+        evidence=[(
+            "last plan drafted",
+            "SELECT max(updated_at) FROM agency_proposals WHERE meta_data ? 'engineering_plan'",
+        )],
+        pending_sql="SELECT count(*) FROM agency_proposals WHERE status='sent' AND NOT COALESCE(meta_data ? 'engineering_plan', false)",
+    ),
+    Worker(
+        "analytics-digest",
+        "app.worker.tasks.notebooks.run_weekly_analytics",
+        "default",
+        7 * DAY,
+        goal="Weekly publish/agency/audit KPI digest → ops channel",
+        guardrails=("read-only queries; single Slack post; no external sends",),
+        autonomy="auto",
+        fallback="skip on error; notebook twin in notebooks/weekly-analytics.ipynb",
+        evidence=[("last proposal", "SELECT max(updated_at) FROM agency_proposals")],
+        pending_sql="SELECT count(*) FROM agency_proposals WHERE status='draft'",
+    ),
+    Worker(
+        "human-gate-watch",
+        "app.worker.tasks.human_gate.run_human_gate_watch",
+        "default",
+        1800,
+        goal="Surface blocked human gates (LinkedIn 2FA, Meta restriction) to ops",
+        guardrails=(
+            "read-only sidecar polls; Slack nudge ≤1/6h per gate (Redis dedup)",
+            "never impersonate the owner — surface only",
+        ),
+        autonomy="auto",
+        fallback="skip when sidecar asleep",
+        evidence=[],
+    ),
+    Worker(
+        "nurture-sweep",
+        "app.worker.tasks.nurture.run_nurture_sweep",
+        "default",
+        DAY,
+        goal="Advance public leads through the 3-touch nurture sequence",
+        guardrails=(
+            "only public-capture leads (form newsletter/free-audit); unsubscribe + opt-out respected",
+            "sequential steps stamped in meta_data — no duplicates",
+        ),
+        autonomy="auto",
+        fallback="lead skipped; next daily sweep retries",
+        evidence=[("last step sent", "SELECT max((meta_data->>'nurture_step_at')::timestamptz) FROM leads WHERE meta_data ? 'nurture_step_at'")],
+        pending_sql=(
+            "SELECT count(*) FROM leads WHERE meta_data->>'form' IN ('newsletter','free-audit') "
+            "AND NOT COALESCE(meta_data ? 'nurture_step', false) OR (meta_data->>'nurture_step')::int < 3"
+        ),
+    ),
+    Worker(
+        "newsletter-subs-sync",
+        "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
+        "default",
+        7 * DAY,
+        goal="Pull LinkedIn newsletter subscribers into EspoCRM",
+        guardrails=(
+            "read-only voyager call via sidecar cookies; LI-URN dedupe — never double-create",
+            "no email means no outreach — these are awareness-stage contacts",
+        ),
+        autonomy="auto",
+        fallback="skip when sidecar session dead (2FA gate)",
+        evidence=[("last sync", "SELECT max(created_at) FROM leads WHERE meta_data->>'form'='linkedin-newsletter'")],
+    ),
     Worker(
         "datalake-export",
         "app.worker.tasks.datalake_export.export_datalake",
@@ -420,6 +581,26 @@ WORKFORCE = [
         autonomy="review",  # quality gate before publish
         fallback="generation failure → draft skipped, never posted empty",
         evidence=[("last post drafted", "SELECT max(created_at) FROM posts")],
+    ),
+    Worker(
+        "kakkava-sync",
+        "app.worker.tasks.kakkava_sync.sync_kakkava_corpus",
+        "default",
+        DAY,
+        goal="Keep team_<id>_doctrine Chroma collections in sync with the Kakkava corpus folder",
+        guardrails=(
+            "read-only on the corpus mount — never writes to KAKKAVA_DIR",
+            "fail-silent: missing folder or Chroma outage yields empty stats, never crashes the sweep",
+            "idempotent — content-hash skips mean re-runs are safe",
+        ),
+        autonomy="auto",
+        fallback="per-team sync failure logged in worker output + audit_logs row records errors count",
+        evidence=[
+            (
+                "last corpus sync",
+                "SELECT max(created_at) FROM audit_logs WHERE action='kakkava-sync' AND resource_type='sweep'",
+            )
+        ],
     ),
 ]
 

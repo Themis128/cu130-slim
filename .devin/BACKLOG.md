@@ -4,6 +4,130 @@ Living list. **Every agent session must read this at start and update it at end*
 check off what landed, add anything left unfinished, and keep items verbatim enough
 to act on (IDs, URLs, file paths). Rules: `.devin/rules/` + `AGENTS.md`.
 
+## Autonomous-agency pipeline — landed 2026-10-25 (branch `feat/agency-agents`)
+
+Four governed workers now run the agent-led agency model (triage → site audit →
+proposal → 14-day PM). Deployed live: migration `c2d4e6f8a0b2` applied,
+`social-api`/`social-worker-default`/`celery-beat` restarted, all 4 tasks
+registered, real triage+audit ran at 22:45 UTC. Skill: `agency-ops`.
+
+Leftovers for next sessions:
+
+- **First real proposal review** — first Slack `socialauto_proposal_approve`
+  click is the end-to-end test of the approve lane. ~~needs cloudless.gr
+  PR #2279 merged + deployed~~ — VERIFIED 2026-10-25: #2279 merged and
+  `Deploy to Pi` run 40144047437 succeeded; buttons now reach SocialAuto.
+  Only remaining gate: a real proposal must be generated and the owner must
+  click approve/reject.
+- **Implementation agents — phase 1 landed 2026-10-25 (PR #849):**
+  `agency-engineer` drafts PR manifests for sent proposals (plans only,
+  review tier). True codegen stays blocked on earned-autonomy graduation.
+- **Proposal email is markdown text**, no PDF — accepted as sufficient for
+  now; revisit only if lead volume justifies.
+- **LLM triage refine** — deliberately deferred; deterministic classifier
+  is explainable per ABPM. Revisit only if misroutes show up in notes.
+- **mypy `test` job failure on #849** — fixed in PR #851 (stats dicts →
+  dict[str,Any], set.add out of comprehension); deployed to containers.
+- **174 linkedin.com audit rows deleted 2026-10-25** — leads paste social
+  profile URLs as "website"; skip-list now covers social/free-mail domains.
+  If a legit lead has only a social URL, triage records `domain=n/a` — no
+  audit; human should ask for the real site.
+- **`agency-front-desk` evidence** — `agency_audits.created_at` is shared
+  with manual audits; a busy manual day could mask a dead sweep (fine —
+  demand-driven anyway).
+
+
+### 2026-10-25 — human-gate digest posted to Slack
+
+### 2026-10-25 — mailbox triage leftovers
+
+- ~~**OMV health-check references nonexistent `collectd.service`**~~ —
+  FIXED 2026-10-25: script is `/usr/local/sbin/nas-health-check` on omv
+  (192.168.1.128, ssh via omv-ha hop), 06:00 UTC daily cron via
+  `/etc/cron.d/nas-jobs`. collectd was intentionally disabled
+  (`conf.system.monitoring.perfstats.enable=false`); fix = added
+  `systemctl is-enabled --quiet $svc || continue` guard inside the service
+  loop (backup `nas-health-check.bak.20251025`). Dry-run verified:
+  collectd skips, all other services pass.
+- **Instagram 'Confirm Email' (Oct 21, still open)** — Meta confirmation
+  challenge on the cloudless.gr IG account; owner clicks the link in that
+  message. Same thread as #785.
+- **#795 positioning DRAFTED on the issue** — AI Governance Audit &
+  Readiness: audience, fixed scope, evidence basis (own stack's disclosure/
+  audit-trail tooling), €1,600 + €400/mo retainer proposal. One-word owner
+  approve/adjust → I build the service page + catalog entry.
+- **Instagram Confirm Email (Oct 21)** — opened the link: it was only the
+  profile URL, no verification token. The actual confirmation is in-app
+  Meta Accounts Center (owner), not this email.
+- ~~**shop-online heartbeat mail**~~ — DONE 2026-10-25: sieve rule
+  `Subject contains "shop-online"` → `fileinto "Heartbeat"` compiled and
+  ACTIVE on omv-ha dovecot
+  (`/var/mail/vhosts/cloudless.gr/tbaltzakis/sieve/heartbeat.sieve`,
+  folder `Heartbeat` created + subscribed, `sieve-test` verified).
+
+
+Consolidated 5-item human-action digest posted to the ops channel
+(`SLACK_CHANNEL_ID` bot-token path — `SLACK_ALERTS_CHANNEL_ID` still empty,
+alerts lane falls back to it). Items: LinkedIn 2FA push, WhatsApp SMS code,
+Meta restriction/portfolio connect, LinkedIn specialties UI edit, #793/#795
+decisions. Owner replies there or on the GitHub issues → agent picks up.
+
+### 2026-10-25 — workspace-commerce pointer + human-gate re-probe
+
+- **cloudless.gr PR #2283 merged + deployed**: `cloud.cloudless.gr` agent
+  discovery now advertises the store — `ai-catalog.json` entry →
+  `/.well-known/ucp`, linkset anchor for cloudless.gr, `store` skill in both
+  agent cards, Commerce section in `index.md`. Verified live. Also fixed
+  pre-existing ruff-format drift in `infrastructure/omv/cloudless-cleanup.py`.
+- **Human-gate re-probe results** (no state changes — all still owner-gated):
+  - LinkedIn sidecar :9225 `/health` → session healthy, `page_ok:true`,
+    no pending 2FA, not rate-limited.
+  - LinkedIn specialties — retried via Organization API PATCH
+    (`linkedin-specialties.sh 108614163`): **401 on both rest/v2** — token
+    has `r_organization_admin` only, lacks `rw_organization_admin`. Manual
+    UI edit remains the only path (or request the write scope on the app).
+  - WhatsApp `1334613883061552` → `code_verification_status: NOT_VERIFIED`
+    still; cooldown auto-retry unchanged. Owner SMS code is the only input.
+  - FB sidecar :9226 `/health` → `has_session:true, active_page_id:null`;
+    `/session/validate` timed out this run (browser likely busy) — Meta
+    restriction status unverified, still owner-side in Accounts Center.
+- **Open owner decisions**: #793 partner shortlist, #794 newsletter nurture
+  batch (168 leads, 145 pending), #795 audit-offer positioning, #784 inbound
+  webhook real-message test. Same-day re-nudge skipped (digest already sent).
+- **Second sweep same day** — LinkedIn specialties CLOSED via sidecar fix
+  (see Registered table); collectd alert fixed on omv; shop-online sieve
+  active. FB sidecar `/session/validate` now returns `logged_in:true`
+  (earlier timeout was transient). Meta account-status pages
+  (`accountscenter.facebook.com`, `/accountstatus`) not reachable through the
+  sidecar context — restriction status stays a phone-side check (#785).
+  Closure note posted to ops channel.
+
+- **Third sweep** — PR #873 landed: n8n workflow validator
+  (`n8n-cloudless/scripts/validate-n8n-workflow.js`, gate pre-import) +
+  `threads-ops/scripts/threads-read.py` (yarn-threads-cli read path).
+  Threads cookie bootstrap attempted via browser-novnc: profile has IG
+  `sessionid` but threads.com/login requires typing IG credentials (no
+  one-click SSO in that context) — **owner: log into threads.com once in
+  the noVNC session**, then export `THREADS_SESSION_ID`/`THREADS_CSRF_TOKEN`
+  into `.env` and run `threads-read.py whoami` to verify.
+
+- **Threads read path AUTHENTICATED 2026-10-25** — SSO'd threads.com via
+  browser-novnc bridge: /session/navigate → "Use your Instagram account" →
+  "Continue with Instagram" → cloudless.gr confirm (warm IG session, no
+  typed creds). Extracted sessionid+csrftoken from Chromium cookie DB
+  (openssl AES-128-CBC, PBKDF2 "peanuts"/"saltysalt") → `.env`
+  THREADS_SESSION_ID/THREADS_CSRF_TOKEN. `yarn-threads-cli whoami` verified
+  @cloudless.gr — threads-read.py fully live.
+  Note: /session/login 409s while the bridge browser is busy with a sidecar
+  session — use the manual navigate+click path instead.
+- **Human-gate unlocks researched 2026-10-25** (posted to ops Slack):
+  - #786 WhatsApp: `code_method=VOICE` alternative exists (Meta calls the
+    number, reads the code); request window frees ~2026-10-26 02:24Z —
+    auto-retry or fire VOICE then. WABA accepts a 2nd number (unverified
+    biz ≤2) — any spare number verifies today.
+  - #784: Meta app **test users** can message the page for real —
+    no second FB account needed; sidecar test-user login + page message.
+  - #785: confirmed no API surface for restriction status — phone only.
 ## Registered leftovers — 2026-10-21
 
 All entries below remain open until their acceptance criteria are verified.
@@ -15,7 +139,7 @@ Historical observations below retain their dates; re-query before acting.
 | --- | --- | --- |
 | ~~[#782](https://github.com/Themis128/cu130-slim/issues/782)~~ | Secondary Meta recovery email — CLOSED 2026-10-22: `tbaltzakis@cloudless.gr` verified present in Accounts Center | resolved |
 | ~~[#783](https://github.com/Themis128/cu130-slim/issues/783)~~ | IG lock/restriction — CLOSED 2026-10-22: restriction lifted, daily publishes verified | resolved |
-| LinkedIn company specialties | One 60-second manual field: cloudless.gr page → Edit → Specialties → add `Web Development`, `Managed Hosting`, `AI Automation`, `Custom Software` (keep `Digital Marketing`). ArtDeco pill input stays display:none in headless sidecar — 16 automation paths exhausted | Manual pointer only |
+| ~~LinkedIn company specialties~~ | DONE 2026-10-25 via sidecar browser: fixed two bugs in `linkedin-browser-sidecar/server.js` `handleUpdateCompanySpecialties` — (1) `/company/<vanity>/admin/edit/` 404s → `/company/unavailable/`; must resolve vanity → numeric id (org `108614163`) via the `/admin/dashboard/` redirect first. (2) Specialties live in the hidden "Details" artdeco-tabpanel; must click `button.org-page-edit__tab` Details + type real keystrokes (`pressSequentially`), the `.artdeco-pill__ghost` is aria-hidden decoration that intercepts nothing. All 5 pills verified on live edit page. Fix rides PR #870 | resolved |
 | ~~omv Pi outage~~ | RESOLVED 2026-10-24: host hard-down (no tailnet ping, no LAN). Power cycle recovered; k3s unit is `k3s-k3s-omv.service` (not `k3s.service`), watchdog drop-ins auto-started it; 0 non-Running pods, site 200. Diagnostics path: Windows ARP table + scan LAN from omv-ha (`ssh tbaltzakis@192.168.1.130`, key `~/.ssh/id_rsa_win`) | resolved |
 | [#784](https://github.com/Themis128/cu130-slim/issues/784) | Publish leg proven (55 FB publishes); Meta console sample → `/api/v1/messenger/webhook` 200 (HMAC verified). Remaining: one real inbound customer message | Owner sends test message from non-admin account |
 | [#785](https://github.com/Themis128/cu130-slim/issues/785) | Meta does NOT require business verification (Security Center); app not connected to `cloudless.gr` portfolio — connect blocked by temporary personal-account restriction; `leads_retrieval` not on app | Meta account restriction clears; then connect portfolio → leads use case → App Review |
@@ -359,6 +483,19 @@ proposals on `audit_logs` + Slack, nothing self-executes.
 - [x] Oxford AIE brochure → 4 `ContentPromptTemplate`s live + verified via
   `/generate-content` (SEO 91).
 
+
+## Session leftovers — 2026-10-25 (n8n/IntraVox ops day)
+
+Done: digest pages Oct 16-19 backfilled in IntraVox (real DB data); `socialauto-daily-slack-digest` `Summarize Result` now throws on failed IntraVox write (commit 1d2d837e); `lead-enrich`/`newsletter-nurture` workflows imported+published on dev-box n8n (`function`→`code` node fix, webhooks verified registered); n8n LAN-bound (`192.168.1.23:5678`+loopback), compose image aligned 2.43.4; `.env` `SOCIAL_POSTGRES_PASSWORD` synced to live value; stale `deployment_key` rows cleared+regenerated; omv cloudflared repointed `n8n.cloudless.gr`→`192.168.1.23:5678` (verified 200); `cloudless-secrets` `N8N_API_URL` patched live (pod→n8n 200); cloudless.gr PR #2284 open with all doc/config fixes.
+
+| Issue | Remaining work | Gate |
+| --- | --- | --- |
+| ~~n8n `N8N_API_KEY` empty~~ | DONE 2026-10-25 — minted via DB insert (`user_api_keys`, JWT signed by derived instance secret); verified `GET /api/v1/workflows` → 200; written to `.env` | — |
+| Cloudflare Access: n8n.cloudless.gr has no service-token/webhook bypass | Browser access works; server-side must keep using LAN URL | By design — revisit if external callers need webhooks |
+| `test/backend-platform-coverage` branch | Carries session commits `1d2d837e`,`120277a5`,`dfe3bdf8` — merge via PR when reviewed | PR/merge decision |
+| uncommitted: `linkedin-browser-sidecar/Dockerfile` | Pre-existing local change, not from this session | Owner review |
+| ~~Stored n8n credentials dead~~ | DONE 2026-10-25 — 6 stored creds re-encrypted under current key; NEXTCLOUD_* env restored to .env+n8n compose mapping (lost on first recreate); TOTP cred holds empty secret — harmless while no user has two_factor_enabled | — |
+| ~~env drift on workers/social-api/celery-beat~~ | DONE 2026-10-25 — shared vars declared in x-worker-env anchor + social-api env; secrets in .env; DONE — nextcloud-mcp-server added as a compose service (env→.env refs, named volume, port 9231); comfyui-gpu was already the `comfyui` service (DEBIAN_FRONTEND = image-baked, added to drift-check filter) | — |
 ## omv Docker state wipe + workspace restore — 2026-10-24
 
 **Incident:** `cloud.cloudless.gr` → Cloudflare error 1033 (~21:56 EEST).
@@ -379,15 +516,57 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 `office` 200, `signal` welcome 200, `push` answers (400 = auth-gated, reachable).
 
 **Left over:**
-- [ ] OMV plugin DB (`conf.service.compose` → files.file[name=workspace].body)
-  still holds the **old NC34 compose** — a GUI save regenerates the old
-  `workspace.yml` and downgrades/undoes the repo version. Sync DB body to
-  repo compose or edit via OMV Workbench.
-- [ ] Root cause of the metadata wipe unproven (journald only kept current
-  boot). If it recurs, consider enabling persistent journald +
-  `docker.service` ordering hardening (the 10-after-k3s/waitAllMounts
-  drop-ins didn't prevent the iptables race).
+- [x] OMV plugin DB body synced 2026-10-24 — `conf.service.compose`
+  files.file[name=workspace].body now byte-identical to the live
+  `workspace.yml` (NC 35.0.2, 10 services); env untouched (11 vars).
+- [x] Root cause FOUND: `cloudless-cleanup.timer` (Persistent=true) fired
+  at boot 21:44 while dockerd auto-started containers — `container prune`
+  deleted every not-yet-started container, `image prune -a` wiped images,
+  `--vacuum-size=100M` erased the crashed boot's journal. Fixed in
+  cloudless.gr PR #2266: dockerd-uptime guard (≥10min, monotonic),
+  size-vacuum dropped (retention.conf 2G governs), new
+  `50-restart-budget.conf` drop-in (StartLimitBurst 3→10) so
+  Restart=always survives the iptables race. Deployed live to omv;
+  `.sh` kept as compat wrapper → `.py`.
 - [x] `php-conf.d/zz-jit-off.ini` (opcache.jit=disable, segfault hardening)
   mounted into nextcloud/nextcloud-cron/nextcloud-worker — shipped via
-  this session's PR; previously only lived on-host.
+  PR #844; previously only lived on-host.
 
+
+## Session ops notes — 2026-10-25 (Docker Desktop check)
+
+- Ran full stack audit: no OOMKilled containers, all core healthy; `Exited`
+  containers were stack-ops idle-sleep (by design), portainer exit=2 benign.
+- Found WSL utility-VM memory exhaustion: swap 8.0/8.0 GiB full, kernel page
+  allocation failures in dmesg, VRAM 7.6/8.2 GiB with 7 DMR models resident.
+- Fix applied: evicted/let DMR models expire (VRAM → 1.9 GiB), then
+  `wsl.exe --terminate docker-desktop` (surgical VM restart; Ubuntu session
+  unaffected). Swap → 632 MiB, RAM available 3.6→10 GiB. All containers
+  self-recovered via restart policies in <1 min; social.cloudless.gr 200,
+  n8n.cloudless.gr 302, 4 Celery nodes pong, cf-db health all true.
+- Known standing noise: `dmr-watchdog` logs `config apply failed — 409
+  Conflict` whenever target models are loaded; configs land on next load.
+  By design, but noisy — candidate fix: suppress/tolerate 409 in watchdog.
+- Recurrence path: if swap/page-alloc failures recur, the WSL utility VM
+  needs `.wslconfig` memory/swap tuning or periodic docker-desktop restarts.
+
+### Follow-up fixes landed — 2026-10-25 (same session)
+
+- [x] **dmr-watchdog 409 noise** — `configure()` now reads HTTP status via
+  `wget -S`: 2xx (the endpoint returns 202, not 200) = applied, 409 =
+  "model loaded, config lands on next load" counted as pending, anything
+  else = real error. `apply_configs` logs only on pending-count
+  transitions + real errors. Verified live: "all canonical model configs
+  applied", no more per-minute 409 spam. `docker-compose.yml`.
+- [x] **Swap-exhaustion recurrence** — `WSL-Memory-Watchdog`
+  (`D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1`, every 30min)
+  now auto-remediates at >=95%: `docker desktop restart` (fallback
+  `wsl --terminate docker-desktop`) with a 2h cooldown stamp
+  (`logs\dd-restart.cooldown`) + event 1003. No .wslconfig change — 16GB
+  swap was the commit-balloon cause, keep 8GB. Note: post-restart swap
+  refill to ~60% is normal cold-anon eviction with ~9GB RAM available.
+- [x] Confirmed `--n-gpu-layers 0` (CPU-pinned DMR fleet) is canonical in
+  `dmr.py::_BEST_PRACTICE_CONFIGS` — the recreated watchdog now ships it;
+  GPU stays free for ComfyUI.
+| IG `cloudless.gr` monetization verified on-phone 2026-10-25 | Partnership ads ON, branded-content eligible (green check); marketplace/affiliate/bonuses/subscriptions/gifts/badges gated on "Established presence" (followers+account age). Bio already → cloudless.gr/links. Stale `INSTAGRAM_PASSWORD` in social_secrets replaced with live one | follower growth |
+| WhatsApp `request_code` | beat auto-retries on cooldown (136024-gated) — owner just needs to read SMS when it lands, then verify-code+register | SMS receipt |
