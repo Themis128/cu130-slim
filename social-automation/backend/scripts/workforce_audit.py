@@ -471,7 +471,22 @@ WORKFORCE = [
         guardrails=(
             "only public-capture leads (form newsletter/free-audit); unsubscribe + opt-out respected",
             "sequential steps stamped in meta_data — no duplicates",
+        )
+    Worker(
+        "newsletter-subs-sync",
+        "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
+        "default",
+        7 * DAY,
+        goal="Pull LinkedIn newsletter subscribers into EspoCRM",
+        guardrails=(
+            "read-only voyager call via sidecar cookies; LI-URN dedupe — never double-create",
+            "no email means no outreach — these are awareness-stage contacts",
         ),
+        autonomy="auto",
+        fallback="skip when sidecar session dead (2FA gate)",
+        evidence=[("last sync", "SELECT max(created_at) FROM leads WHERE meta_data->>'form'='linkedin-newsletter'")],
+    ),
+,
         autonomy="auto",
         fallback="lead skipped; next daily sweep retries",
         evidence=[("last step sent", "SELECT max((meta_data->>'nurture_step_at')::timestamptz) FROM leads WHERE meta_data ? 'nurture_step_at'")],

@@ -502,3 +502,14 @@ def test_nurture_due_step_logic():
     assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 2}))["key"] == "offer"
     assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 3})) is None  # done
     assert _due_step(mk(20, {"form": "newsletter", "unsubscribed": True})) is None
+
+
+def test_newsletter_subscriber_parse_and_dedupe():
+    from app.services.newsletter_subscribers import parse_subscriber
+    el = {"entityUrn": "urn:li:fsd_miniProfile:AbC123", "fullName": "Jane Doe",
+          "headline": "CTO", "publicIdentifier": "janedoe"}
+    sub = parse_subscriber(el)
+    assert sub["name"] == "Jane Doe" and "janedoe" in sub["profile_url"]
+    assert sub["urn"] == "urn:li:fsd_miniProfile:AbC123"
+    assert parse_subscriber({}) is None
+    assert parse_subscriber({"entityUrn": "urn:li:x"}) is None

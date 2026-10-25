@@ -59,6 +59,7 @@ celery_app = Celery(
         "app.worker.tasks.notebooks",
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
+        "app.worker.tasks.newsletter_subs",
     ],
 )
 
@@ -245,6 +246,7 @@ celery_app.conf.update(
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
+        "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -269,6 +271,11 @@ celery_app.conf.update(
         "nurture-sweep": {
             "task": "app.worker.tasks.nurture.run_nurture_sweep",
             "schedule": crontab(hour=11, minute=0),
+        },
+        # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
+        "newsletter-subs-sync": {
+            "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
+            "schedule": crontab(day_of_week="sun", hour=9, minute=15),
         },
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
