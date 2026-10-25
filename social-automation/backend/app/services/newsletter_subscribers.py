@@ -1,129 +1,152 @@
-"""LinkedIn newsletter subscribers → EspoCRM sync.
+"""LinkedIn newsletter subscribers -> EspoCRM sync.
 
-LinkedIn exposes no public API for newsletter subscriber lists — the UI
-loads them via an authenticated Voyager endpoint. We reuse the logged-in
-linkedin-sidecar session's cookies (export_cookies) to call the exact
-endpoint the dashboard calls:
+Subscribers are scraped from the rendered subscribers dialog — LinkedIn's
+voyager subscriber endpoint 400s on our call shapes, but the analytics UI
+renders the same list server-side. Path: analytics page -> "See all" ->
+scroll the dialog to stable height -> extract /in/ rows.
 
-    GET /voyager/api/voyagerPublishingDashSeriesSubscribers
-        ?q=contentSeries&seriesUrn=urn:li:fsd_contentSeries:<id>
-        &count=50&start=<n>
-
-Subscribers carry name/headline/profile URL — no email, so Espo dedupe is
-by a ``LI-URN:<urn>`` marker in the Lead description (contains-search),
-and locally via a Redis set so we never re-post.
+Dedupe: LI-URN marker in the Espo Lead description + Redis set.
+Subscribers carry no email — nurture is LinkedIn-native (welcome alert
+with a ready note -> owner connects/DMs).
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import os
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
-_VOYAGER = "https://www.linkedin.com/voyager/api/voyagerPublishingDashSeriesSubscribers"
-_PAGE = 50
 _REDIS_KEY = "linkedin-newsletter:synced-urns"
 
+_SCRAPE_EXPR = """const link=[...document.querySelectorAll('a')].find(a=>
+  /^\\s*See all\\s*$/i.test(a.innerText||'') && /subscriber/i.test(a.href));
+if(!link) return {err:'no See all link', url:location.href,
+  text:(document.body.innerText||'').slice(0,300)};
+link.click();
+await new Promise(r=>setTimeout(r,5000));
+for(let i=0;i<15;i++){
+  if(document.querySelectorAll('a[href*="/in/"]').length>0) break;
+  await new Promise(r=>setTimeout(r,1500));
+}
+let lastH=0,stable=0;
+for(let i=0;i<60&&stable<3;i++){
+  const dlg=[...document.querySelectorAll('*')].find(e=>
+    e.scrollHeight>e.clientHeight&&e.clientHeight>300);
+  if(dlg){dlg.scrollTop=dlg.scrollHeight;
+    if(dlg.scrollHeight===lastH){stable++;}else{stable=0;lastH=dlg.scrollHeight;}}
+  await new Promise(r=>setTimeout(r,700));
+}
+const rows=[...document.querySelectorAll('a[href*="/in/"]')];
+const seen=new Set(); const subs=[];
+for(const a of rows){
+  const name=(a.innerText||'').split('\\n')[0].trim();
+  const urn=(a.href.match(/\\/in\\/([\\w-]+)/)||[])[1]||'';
+  if(!name||seen.has(urn)) continue; seen.add(urn);
+  const parent=a.closest('li,div[class]');
+  const txt=(parent?parent.innerText:'').split('\\n')
+    .map(x=>x.trim()).filter(Boolean);
+  const headline=txt.slice(1).join(' | ')
+    .replace(/\\d+(st|nd|rd|th) degree connection \\| \\d+(st|nd|rd|th) \\| /,'')
+    .replace(/\\| (Message|Follow)$/,'').slice(0,150);
+  subs.push({name, urn, headline});
+}
+return {url:location.href, count:subs.length, subs:subs};"""
 
-def parse_subscriber(el: dict[str, Any]) -> dict[str, str] | None:
-    """One voyager element → {name, headline, urn, profile_url}."""
-    urn = str(el.get("entityUrn") or el.get("urn") or "")
-    if "miniProfile" not in urn and "fsd_miniProfile" not in urn:
-        # some responses nest under 'subscriber'
-        el = el.get("subscriber") or {}
-        urn = str(el.get("entityUrn") or "")
-    name = str(el.get("fullName") or el.get("name") or
-               f"{el.get('firstName','')} {el.get('lastName','')}".strip())
-    if not urn or not name:
-        return None
-    public_id = el.get("publicIdentifier") or ""
-    return {
-        "name": name,
-        "headline": str(el.get("headline") or ""),
-        "urn": urn,
-        "profile_url": f"https://www.linkedin.com/in/{public_id}/" if public_id else "",
-    }
 
-
-async def fetch_subscribers(cookies: dict[str, str], series_urn: str, *,
-                            max_pages: int = 40) -> list[dict[str, str]]:
-    """Paginate the voyager subscriber feed with the sidecar's cookies."""
-    csrf = (cookies.get("JSESSIONID") or "").strip('"')
-    li_at = cookies.get("li_at")
-    if not csrf or not li_at:
-        raise RuntimeError("linkedin cookies missing li_at/JSESSIONID — session dead")
-    headers = {
-        "csrf-token": csrf,
-        "cookie": f'JSESSIONID="{csrf}"; li_at={li_at}',
-        "user-agent": "Mozilla/5.0",
-        "x-restli-protocol-version": "2.0.0",
-        "accept": "application/vnd.linkedin.normalized+json+2.1",
-    }
+async def fetch_subscribers(series_urn: str) -> list[dict[str, str]]:
+    """Scrape the subscribers dialog via the sidecar's /debug/eval."""
+    base = os.environ.get("LINKEDIN_BROWSER_SIDECAR_URL", "http://stack-ops:9225")
+    series_id = series_urn.split(":")[-1]
+    page_url = (f"https://www.linkedin.com/analytics/newsletter/"
+                f"urn:li:fsd_contentSeries:{series_id}/")
     out: list[dict[str, str]] = []
-    async with httpx.AsyncClient(timeout=30) as c:
-        start = 0
-        while start < max_pages * _PAGE:
-            r = await c.get(_VOYAGER, params={
-                "q": "contentSeries", "seriesUrn": series_urn,
-                "count": _PAGE, "start": start}, headers=headers)
-            r.raise_for_status()
-            data = r.json()
-            elements = data.get("elements") or []
-            for el in elements:
-                sub = parse_subscriber(el)
-                if sub:
-                    out.append(sub)
-            if len(elements) < _PAGE:
-                break
-            start += _PAGE
+    async with httpx.AsyncClient(base_url=base, timeout=180) as c:
+        await c.post("/debug/navigate", json={"url": page_url})
+        await asyncio.sleep(7)
+        resp = await c.post("/debug/eval", json={"expr": _SCRAPE_EXPR})
+        payload = resp.json().get("value") or {}
+        if payload.get("err"):
+            logger.warning("subscriber scrape failed: %s", payload["err"])
+            return out
+        for s in payload.get("subs") or []:
+            out.append({
+                "name": s["name"],
+                "headline": s.get("headline") or "",
+                "urn": f"urn:li:in:{s['urn']}",
+                "profile_url": f"https://www.linkedin.com/in/{s['urn']}/",
+            })
     return out
 
 
 async def espo_upsert_subscriber(sub: dict[str, str]) -> bool:
-    """Create an EspoCRM Lead for the subscriber if the LI-URN is new.
-    Dedupes on the marker in description (Espo 'contains' where)."""
+    """Upsert into EspoCRM; dedupe on the LI-URN marker in description."""
     from app.services.espocrm_client import espo_get, espo_post
-    urn = sub["urn"]
     found = await espo_get("/Lead", params={"searchParams": json.dumps({
         "maxSize": 1, "select": ["id"],
-        "where": [{"type": "contains", "attribute": "description", "value": urn}],
+        "where": [{"type": "contains", "attribute": "description", "value": sub["urn"]}],
     })})
     if found.get("list"):
         return False
     first, _, last = sub["name"].partition(" ")
     await espo_post("/Lead", {
-        "firstName": first, "lastName": last or "(LinkedIn)",
+        "firstName": first,
+        "lastName": last or "(LinkedIn)",
         "source": "LinkedIn newsletter",
         "description": (f"LinkedIn newsletter subscriber\n{sub['headline']}\n"
-                        f"{sub['profile_url']}\nLI-URN:{urn}"),
+                        f"{sub['profile_url']}\nLI-URN:{sub['urn']}"),
         "title": sub["headline"][:200],
     })
     return True
 
 
-async def sync_newsletter_subscribers(series_urn: str, redis=None) -> dict[str, int]:
-    """Full sync: sidecar cookies → voyager → dedupe → EspoCRM leads."""
+def _personalized_note(sub: dict[str, str]) -> str:
+    name = sub["name"].split()[0]
+    headline = sub.get("headline") or ""
+    role = headline.split(" at ")[0].split("|")[0].split(",")[0].strip() if headline else ""
+    hook = f"Saw you're {role}, " if role and len(role) <= 60 else ""
+    intro = ("For context: I run Cloudless, we help founders, teams and "
+             "companies move to cloud and serverless, and ship the "
+             "dashboards that tell them it's working. ")
+    return (f"Thanks for subscribing to The Cloudless Build Log, {name}. "
+            f"{hook}Really glad to have you. {intro}"
+            "If a future issue touches on something you're working "
+            "through, my inbox is open. And if you'd like the free site "
+            "audit or the benchmark report, just reply here with your "
+            "email and I'll send it.")
+
+
+async def _subscriber_alert(sub: dict[str, str]) -> None:
+    from app.services.slack_notifications import post_alert_to_slack
+    await post_alert_to_slack(
+        f":bell: *New newsletter subscriber* {sub['name']}"
+        + (f" | {sub['headline']}" if sub["headline"] else "")
+        + f"\n{sub['profile_url'] or '(no profile link)'}\n"
+        f"Suggested welcome note:\n> {_personalized_note(sub)}")
+
+
+async def sync_newsletter_subscribers(series_urn: str) -> dict[str, Any]:
+    """Full sync: DOM scrape -> dedupe -> EspoCRM + Slack welcome alert."""
     import redis.asyncio as aioredis
-
     from app.core.config import get_settings
-    from app.services.linkedin_sidecar import LinkedInSidecarClient
 
-    stats = {"fetched": 0, "created": 0, "skipped": 0}
+    stats: dict[str, Any] = {"fetched": 0, "created": 0, "skipped": 0}
     if not series_urn:
         return {"skipped": "no LINKEDIN_NEWSLETTER_SERIES_URN configured"}
 
-    client = LinkedInSidecarClient()
-    cookies = await client.export_cookies()
-    subs = await fetch_subscribers(cookies, series_urn)
+    subs = await fetch_subscribers(series_urn)
     stats["fetched"] = len(subs)
+    if not subs:
+        return stats
 
-    r = redis or aioredis.from_url(get_settings().REDIS_URL)
-    seen = await r.smembers(_REDIS_KEY)
-    seen = {x.decode() if isinstance(x, bytes) else x for x in seen}
+    r = aioredis.from_url(get_settings().REDIS_URL)
+    raw = await r.smembers(_REDIS_KEY)
+    seen = {x.decode() if isinstance(x, bytes) else x for x in raw}
     new_urns = []
     for sub in subs:
         if sub["urn"] in seen:
@@ -142,42 +165,3 @@ async def sync_newsletter_subscribers(series_urn: str, redis=None) -> dict[str, 
     if new_urns:
         await r.sadd(_REDIS_KEY, *new_urns)
     return stats
-
-
-def _personalized_note(sub: dict[str, str]) -> str:
-    """Welcome note grounded in the subscriber's own headline — never generic."""
-    name = sub["name"].split()[0]
-    headline = sub.get("headline") or ""
-    role = ""
-    if headline:
-        # first clause usually carries the role: "CTO at Acme" → "CTO"
-        role = headline.split(" at ")[0].split("|")[0].split(",")[0].strip()
-    hook = (f"saw you're {role}, " if role and len(role) <= 60 else "")
-    # One-line company intro — who we are, not a pitch. The value ask comes
-    # second, and only as an offer they can take or leave.
-    # Audience is mixed: founders, solo consultants, small teams, and
-    # companies alike — speak to the person, not just the org.
-    intro = ("For context: I run Cloudless, we help founders, teams and "
-             "companies move to cloud and serverless, and ship the "
-             "dashboards that tell them it's working. ")
-    return (f"Thanks for subscribing to The Cloudless Build Log, {name}. "
-            f"{hook}Really glad to have you. {intro}"
-            f"If a future issue touches on something you're working "
-            f"through, my inbox is open. And if you'd like the free site "
-            f"audit or the benchmark report, just reply here with your "
-            f"email and I'll send it.")
-
-
-async def _subscriber_alert(sub: dict[str, str]) -> None:
-    """Ops-channel ping on each NEW subscriber with a personalized note.
-
-    Subscribers carry no email — the only nurture path is LinkedIn-native
-    (connect-with-note or DM). The owner acts on the profile link.
-    """
-    from app.services.slack_notifications import post_alert_to_slack
-    note = _personalized_note(sub)
-    await post_alert_to_slack(
-        f":bell: *New newsletter subscriber* {sub['name']}"
-        f"{(' | ' + sub['headline']) if sub['headline'] else ''}\n"
-        f"{sub['profile_url'] or '(no profile link)'}\n"
-        f"Suggested welcome note:\n> {note}")
