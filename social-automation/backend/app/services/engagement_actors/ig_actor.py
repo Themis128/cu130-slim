@@ -40,8 +40,5 @@ async def act(action, db) -> dict:
         return {"ok": True}
     if res == "already-liked-or-no-btn":
         return {"ok": True, "resp": {"note": res}}
-    if not res or res == "post-not-visible":
-        # empty eval = browser stolen mid-call; post off-screen = retry next pass
-        return {"error": res or "browser busy", "skip": True}
     logger.warning("[ig-actor] like %s: %s", sc, res)
-    return {"error": res}
+    return {"error": res, "skip": res == "post-not-visible"}
