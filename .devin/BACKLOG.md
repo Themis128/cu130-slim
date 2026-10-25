@@ -14,8 +14,11 @@ registered, real triage+audit ran at 22:45 UTC. Skill: `agency-ops`.
 Leftovers for next sessions:
 
 - **First real proposal review** — first Slack `socialauto_proposal_approve`
-  click is the end-to-end test of the approve lane (needs cloudless.gr
-  PR #2279 merged + deployed for buttons to reach SocialAuto).
+  click is the end-to-end test of the approve lane. ~~needs cloudless.gr
+  PR #2279 merged + deployed~~ — VERIFIED 2026-10-25: #2279 merged and
+  `Deploy to Pi` run 40144047437 succeeded; buttons now reach SocialAuto.
+  Only remaining gate: a real proposal must be generated and the owner must
+  click approve/reject.
 - **Implementation agents — phase 1 landed 2026-10-25 (PR #849):**
   `agency-engineer` drafts PR manifests for sent proposals (plans only,
   review tier). True codegen stays blocked on earned-autonomy graduation.
@@ -63,6 +66,29 @@ Consolidated 5-item human-action digest posted to the ops channel
 alerts lane falls back to it). Items: LinkedIn 2FA push, WhatsApp SMS code,
 Meta restriction/portfolio connect, LinkedIn specialties UI edit, #793/#795
 decisions. Owner replies there or on the GitHub issues → agent picks up.
+
+### 2026-10-25 — workspace-commerce pointer + human-gate re-probe
+
+- **cloudless.gr PR #2283 merged + deployed**: `cloud.cloudless.gr` agent
+  discovery now advertises the store — `ai-catalog.json` entry →
+  `/.well-known/ucp`, linkset anchor for cloudless.gr, `store` skill in both
+  agent cards, Commerce section in `index.md`. Verified live. Also fixed
+  pre-existing ruff-format drift in `infrastructure/omv/cloudless-cleanup.py`.
+- **Human-gate re-probe results** (no state changes — all still owner-gated):
+  - LinkedIn sidecar :9225 `/health` → session healthy, `page_ok:true`,
+    no pending 2FA, not rate-limited.
+  - LinkedIn specialties — retried via Organization API PATCH
+    (`linkedin-specialties.sh 108614163`): **401 on both rest/v2** — token
+    has `r_organization_admin` only, lacks `rw_organization_admin`. Manual
+    UI edit remains the only path (or request the write scope on the app).
+  - WhatsApp `1334613883061552` → `code_verification_status: NOT_VERIFIED`
+    still; cooldown auto-retry unchanged. Owner SMS code is the only input.
+  - FB sidecar :9226 `/health` → `has_session:true, active_page_id:null`;
+    `/session/validate` timed out this run (browser likely busy) — Meta
+    restriction status unverified, still owner-side in Accounts Center.
+- **Open owner decisions**: #793 partner shortlist, #794 newsletter nurture
+  batch (168 leads, 145 pending), #795 audit-offer positioning, #784 inbound
+  webhook real-message test. Same-day re-nudge skipped (digest already sent).
 
 ## Registered leftovers — 2026-10-21
 
