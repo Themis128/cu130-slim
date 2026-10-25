@@ -596,3 +596,16 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 - omv-ha `sasl_passwd` may hold the original Resend key (the new `socialauto` key now in use — old can be revoked).
 - Rotate secrets pasted in chat: Google password, OAuth `GOCSPX` secret, `TH!…` password.
 - Dedicated `console-ops` sidecar so credential scraping doesn't fight platform sweeps.
+
+| NC220 NAS recording live 2026-10-25 | Stream is HTTP digest-auth multipart at http://192.168.1.42:8080/stream/video/h264 (NOT RTSP :554 — camera's RTSP rejected the same creds). systemd service `nc220-record` on github-omv writes 10-min .h264 segments + 7-day retention to sdb1 `workspace/camera-recordings/` (SMB share `NAS_Storage`). Playable in VLC/mpv. | — |
+| Slack workspace joined 2026-10-25 | Phone signed into SocialAuto workspace as `themis` via magic link pulled from dovecot (mail lands on omv-ha, not Gmail) | — |
+| @t_baltzakis pro switch 2026-10-25 | Switched to Creator account, category Digital creator. Welcome message + FAQ still to configure under professional tools | FAQ/welcome msg |
+| TikTok verification REJECTED 2026-10-25 | Business Suite → "Not approved: business can't be verified". Form has personal name "Baltzakis Themistoklis" vs brand "Cloudless" mismatch; needs Edit + clearer ΓΕΜΗ/ΑΦΜ cert doc | resubmit w/ better doc |
+| X OAuth creds 2026-10-25 | TWITTER_CLIENT_ID/SECRET empty in .env — user said "scrape console.x.com" but console needs login; still needs user to paste creds | console.x.com creds |
+
+## 2026-10-25 (media-source import — all three live)
+
+- Google Photos: 34 picked items imported to `media_assets` via Picker API session (interactive by design — each sync needs a fresh picker consent).
+- Nextcloud: `/media-sources/nextcloud/files|import` — WebDAV PROPFIND/GET against cloud.cloudless.gr; verified listing + Gorilla.jpg download. `NEXTCLOUD_DAV_URL` was commented out in .env — now set.
+- Google Drive: `/media-sources/gdrive/connect-url|connect|files|import` — drive.readonly consent completed (localhost:4180 listener), `GOOGLE_DRIVE_REFRESH_TOKEN` in .env, `drive.googleapis.com` enabled in project credentials-462313. Verified: 30 files listed.
+- PR #930 feat/media-sources (media_sources service + api).
