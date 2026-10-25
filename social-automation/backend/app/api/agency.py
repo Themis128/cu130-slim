@@ -390,7 +390,7 @@ async def service_catalog(
 
 @router.get("/metrics")
 async def agency_metrics(
-    user: User = Depends(current_user),
+    user: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     """The 6-20 client operational control board metrics.
