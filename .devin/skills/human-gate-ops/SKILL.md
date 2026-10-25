@@ -22,8 +22,9 @@ Beat auto-retries `request_code` inside the ~1h cooldown window — nothing
 to re-trigger manually. The owner only supplies the code.
 
 - `scripts/whatsapp-verify.sh CODE [PIN]` — one-shot finish:
-  `POST /register/verify-code` with the SMS code, then `POST /register/register`
-  with the 6-digit PIN (defaults to `WHATSAPP_PIN` env or prompts-free usage).
+  `POST /{phone-number-id}/verify_code {code}` then `POST
+  /{phone-number-id}/register {messaging_product:"whatsapp", pin}` — the PIN
+  is the 2FA PIN configured on the WABA (Meta docs).
   Uses the running social-api admin session — no container secrets printed.
 
 ## 3. Meta in-app confirmation + restriction (#785)
@@ -42,16 +43,17 @@ phone/desktop session. The agent part is *watching*, not clicking:
 
 ## 4. LinkedIn page specialties (manual UI edit)
 
-16 headless paths exhausted (ArtDeco pill input stays `display:none`).
-Last remaining automated try: **Playwright MCP `browser_navigate` against
-the persistent headed session** (`browser-novnc`, the same profile the
-sidecar keeps warm) — a real pointer-click path, not DOM injection.
+16 headless paths exhausted (ArtDeco pill input stays `display:none`) —
+but `localizedSpecialties` is **admin-writable via the Organization API**
+(Microsoft Learn, Organization schema: `Admin Only: True`).
 
-- `scripts/linkedin-specialties.sh` — opens
-  `linkedin.com/company/…/edit/` via the headed profile, runs keyboard-first
-  entry (Tab→type→Enter on the pill field), screenshots before+after to
-  Slack. If it fails again, the human does the 60-second edit; the script
-  exists so re-trying after LinkedIn ships a UI change is one command.
+- `scripts/linkedin-specialties.sh [ORG_ID]` — `PATCH
+  /rest/organizations/{id}` (v2 fallback) with
+  `localizedSpecialties: [Web Development, Managed Hosting, AI Automation,
+  Custom Software, Digital Marketing]`. Needs `rw_organization_admin` on
+  the app token — if the call 403s, request that scope in the LinkedIn
+  developer console (Community Management API product), then re-run; the
+  manual edit becomes unnecessary.
 
 ## 5. #793 partner approvals + #795 pricing decision
 
