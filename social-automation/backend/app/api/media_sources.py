@@ -9,8 +9,6 @@
 """
 from __future__ import annotations
 
-import uuid
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +47,7 @@ async def nextcloud_import(body: NcImport,
     team_id = getattr(user, "team_id", None)
     if team_id is None:
         from sqlalchemy import select
+
         from app.models.user import TeamMember
         tm = (await db.execute(
             select(TeamMember).where(TeamMember.user_id == user.id))).scalars().first()
@@ -123,6 +122,7 @@ async def gdrive_import(body: GdImport,
     team_id = getattr(user, "team_id", None)
     if team_id is None:
         from sqlalchemy import select
+
         from app.models.user import TeamMember
         tm = (await db.execute(
             select(TeamMember).where(TeamMember.user_id == user.id))).scalars().first()

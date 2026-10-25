@@ -263,9 +263,8 @@ async def _refresh_expiring_tokens_async() -> dict:
     )
     if summary["errors"]:
         try:
-            from app.services.slack_notifications import _post_slack_text
-
             from app.core.config import get_settings
+            from app.services.slack_notifications import _post_slack_text
 
             cfg = get_settings()
             lines = "\n".join(f"• {e}" for e in summary["errors"])
