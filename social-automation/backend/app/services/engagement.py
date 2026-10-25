@@ -177,7 +177,6 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
         comment_draft=plan.comment_draft,
         status="pending_human_gate" if plan.action in ("comment", "repost")
                else "pending",
-        scheduled_at=None,  # jitter applied at dispatch time
     )
     db.add(row)
     await db.commit()

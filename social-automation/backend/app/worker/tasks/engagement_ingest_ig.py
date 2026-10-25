@@ -14,18 +14,25 @@ logger = logging.getLogger(__name__)
 
 BRIDGE = "http://browser-novnc:9223"
 
-EXTRACT_JS = """(() => {
+# single atomic call — scrolls inside the page then extracts (minimizes
+# the window where a platform sweep can steal the browser mid-run)
+EXTRACT_JS = """(async () => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   const out = [];
-  document.querySelectorAll('article').forEach((el, i) => {
-    if (i >= 12) return;
-    const link = el.querySelector('a[href*="/p/"], a[href*="/reel/"]');
-    const href = link ? link.getAttribute('href') : '';
-    const author = el.querySelector('a[role=link] span, header a')?.innerText?.trim() || '';
-    const txt = (el.querySelector('h1, div._a9zr, span')?.innerText || '').trim().slice(0,1200);
-    const time = el.querySelector('time')?.getAttribute('datetime') || '';
-    if (href && author) out.push({href, author, txt, time});
-  });
-  return JSON.stringify(out);
+  for (let s = 0; s < 3; s++) {
+    document.querySelectorAll('article').forEach((el, i) => {
+      const link = el.querySelector('a[href*="/p/"], a[href*="/reel/"]');
+      const href = link ? link.getAttribute('href') : '';
+      const author = el.querySelector('a[role=link] span, header a')?.innerText?.trim() || '';
+      const txt = (el.querySelector('h1, div._a9zr, span')?.innerText || '').trim().slice(0,1200);
+      const time = el.querySelector('time')?.getAttribute('datetime') || '';
+      if (href && author && !out.some(o => o.href === href))
+        out.push({href, author, txt, time});
+    });
+    window.scrollBy(0, 1400);
+    await sleep(1500);
+  }
+  return JSON.stringify(out.slice(0, 15));
 })()"""
 
 
@@ -58,9 +65,6 @@ async def _run():
         await c.post("/session/navigate",
                      json={"url": "https://www.instagram.com/"})
         await asyncio.sleep(7)
-        for _ in range(3):
-            await _ev(c, "window.scrollBy(0,1200); 'ok'")
-            await asyncio.sleep(2)
         raw = await _ev(c, EXTRACT_JS)
         posts = js.loads(raw or "[]")
 
