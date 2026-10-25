@@ -58,6 +58,7 @@ celery_app = Celery(
         "app.worker.tasks.agency",
         "app.worker.tasks.notebooks",
         "app.worker.tasks.human_gate",
+        "app.worker.tasks.nurture",
     ],
 )
 
@@ -243,6 +244,7 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
+        "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -261,6 +263,12 @@ celery_app.conf.update(
         "human-gate-watch": {
             "task": "app.worker.tasks.human_gate.run_human_gate_watch",
             "schedule": crontab(minute="*/30"),
+        },
+        # Public-lead nurture sequence — day 3/7/14 touches on
+        # newsletter + free-audit leads (idempotent meta_data stamps).
+        "nurture-sweep": {
+            "task": "app.worker.tasks.nurture.run_nurture_sweep",
+            "schedule": crontab(hour=11, minute=0),
         },
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
