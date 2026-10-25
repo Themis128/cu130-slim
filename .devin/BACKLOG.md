@@ -41,12 +41,14 @@ Leftovers for next sessions:
 
 ### 2026-10-25 — mailbox triage leftovers
 
-- **OMV health-check references nonexistent `collectd.service`** — daily
-  alert 'Service collectd is NOT running!' fires but no unit/process exists
-  on the host. Fix on omv: remove collectd from the health script's service
-  list (or guard with `systemctl cat collectd` existence check). Script is
-  not under `/usr/local/{bin,sbin}` or `/root/nas-daily-health*` — find it
-  via `grep -rln 'Daily health check' /etc /opt /srv` then edit.
+- ~~**OMV health-check references nonexistent `collectd.service`**~~ —
+  FIXED 2026-10-25: script is `/usr/local/sbin/nas-health-check` on omv
+  (192.168.1.128, ssh via omv-ha hop), 06:00 UTC daily cron via
+  `/etc/cron.d/nas-jobs`. collectd was intentionally disabled
+  (`conf.system.monitoring.perfstats.enable=false`); fix = added
+  `systemctl is-enabled --quiet $svc || continue` guard inside the service
+  loop (backup `nas-health-check.bak.20251025`). Dry-run verified:
+  collectd skips, all other services pass.
 - **Instagram 'Confirm Email' (Oct 21, still open)** — Meta confirmation
   challenge on the cloudless.gr IG account; owner clicks the link in that
   message. Same thread as #785.
@@ -57,8 +59,11 @@ Leftovers for next sessions:
 - **Instagram Confirm Email (Oct 21)** — opened the link: it was only the
   profile URL, no verification token. The actual confirmation is in-app
   Meta Accounts Center (owner), not this email.
-- **shop-online heartbeat mail** (~2/hr from noreply@cloudless.gr) — inbox
-  noise; optional Sieve rule → folder on omv-ha dovecot.
+- ~~**shop-online heartbeat mail**~~ — DONE 2026-10-25: sieve rule
+  `Subject contains "shop-online"` → `fileinto "Heartbeat"` compiled and
+  ACTIVE on omv-ha dovecot
+  (`/var/mail/vhosts/cloudless.gr/tbaltzakis/sieve/heartbeat.sieve`,
+  folder `Heartbeat` created + subscribed, `sieve-test` verified).
 
 
 Consolidated 5-item human-action digest posted to the ops channel
@@ -89,6 +94,13 @@ decisions. Owner replies there or on the GitHub issues → agent picks up.
 - **Open owner decisions**: #793 partner shortlist, #794 newsletter nurture
   batch (168 leads, 145 pending), #795 audit-offer positioning, #784 inbound
   webhook real-message test. Same-day re-nudge skipped (digest already sent).
+- **Second sweep same day** — LinkedIn specialties CLOSED via sidecar fix
+  (see Registered table); collectd alert fixed on omv; shop-online sieve
+  active. FB sidecar `/session/validate` now returns `logged_in:true`
+  (earlier timeout was transient). Meta account-status pages
+  (`accountscenter.facebook.com`, `/accountstatus`) not reachable through the
+  sidecar context — restriction status stays a phone-side check (#785).
+  Closure note posted to ops channel.
 
 ## Registered leftovers — 2026-10-21
 
@@ -101,7 +113,7 @@ Historical observations below retain their dates; re-query before acting.
 | --- | --- | --- |
 | ~~[#782](https://github.com/Themis128/cu130-slim/issues/782)~~ | Secondary Meta recovery email — CLOSED 2026-10-22: `tbaltzakis@cloudless.gr` verified present in Accounts Center | resolved |
 | ~~[#783](https://github.com/Themis128/cu130-slim/issues/783)~~ | IG lock/restriction — CLOSED 2026-10-22: restriction lifted, daily publishes verified | resolved |
-| LinkedIn company specialties | One 60-second manual field: cloudless.gr page → Edit → Specialties → add `Web Development`, `Managed Hosting`, `AI Automation`, `Custom Software` (keep `Digital Marketing`). ArtDeco pill input stays display:none in headless sidecar — 16 automation paths exhausted | Manual pointer only |
+| ~~LinkedIn company specialties~~ | DONE 2026-10-25 via sidecar browser: fixed two bugs in `linkedin-browser-sidecar/server.js` `handleUpdateCompanySpecialties` — (1) `/company/<vanity>/admin/edit/` 404s → `/company/unavailable/`; must resolve vanity → numeric id (org `108614163`) via the `/admin/dashboard/` redirect first. (2) Specialties live in the hidden "Details" artdeco-tabpanel; must click `button.org-page-edit__tab` Details + type real keystrokes (`pressSequentially`), the `.artdeco-pill__ghost` is aria-hidden decoration that intercepts nothing. All 5 pills verified on live edit page. Fix rides PR #870 | resolved |
 | ~~omv Pi outage~~ | RESOLVED 2026-10-24: host hard-down (no tailnet ping, no LAN). Power cycle recovered; k3s unit is `k3s-k3s-omv.service` (not `k3s.service`), watchdog drop-ins auto-started it; 0 non-Running pods, site 200. Diagnostics path: Windows ARP table + scan LAN from omv-ha (`ssh tbaltzakis@192.168.1.130`, key `~/.ssh/id_rsa_win`) | resolved |
 | [#784](https://github.com/Themis128/cu130-slim/issues/784) | Publish leg proven (55 FB publishes); Meta console sample → `/api/v1/messenger/webhook` 200 (HMAC verified). Remaining: one real inbound customer message | Owner sends test message from non-admin account |
 | [#785](https://github.com/Themis128/cu130-slim/issues/785) | Meta does NOT require business verification (Security Center); app not connected to `cloudless.gr` portfolio — connect blocked by temporary personal-account restriction; `leads_retrieval` not on app | Meta account restriction clears; then connect portfolio → leads use case → App Review |
