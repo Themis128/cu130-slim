@@ -628,7 +628,7 @@ app/mcp/server.py
 (Bot Builder lives in the REST API + `/messenger` UI, not in MCP tools.)
 ```
 
-### Celery Tasks (44 task modules, 43 beat schedules)
+### Celery Tasks (46 task modules, 45 beat schedules)
 
 ```
 app/worker/tasks/
@@ -1087,7 +1087,12 @@ gated `/metrics`, fresh registry per scrape so failures only export
   mounted at `/notebooks` in workers too). The kernel inherits the worker
   environment — `DATABASE_URL`, AI/Slack secrets, and `import app.*` all
   work — so notebooks reuse the real service layer instead of duplicating
-  logic. The notebook writes `report.html`/`report.txt` + chart PNGs +
+  logic. `notebooks/_lib.py` is the shared helpers pack (`db()` → pandas
+  DataFrame, `slack()` → ops channel via env-injected bot token, `espo()`,
+  `dmr()`, `sql()` magic) — new analysis notebooks start from it.
+  `scripts/run-notebook.sh` executes any repo notebook inside the jupyter
+  container via papermill (host-cron / manual path, output →
+  `notebooks/output/`). The notebook writes `report.html`/`report.txt` + chart PNGs +
   a `*.manifest.json` into `notebooks/output/` (visible in Jupyter at
   `work/output/`); the task then emails each manifest report with charts
   as `cid:` inline images (renders in Gmail, unlike base64 data-URIs).
@@ -1097,7 +1102,12 @@ gated `/metrics`, fresh registry per scrape so failures only export
   report (10:45 EEST — queue state, failed targets, follower-series
   anomalies, sync freshness, content scoreboard; `fallback_to_code=False`
   so a failure never substitutes an unrelated brief) are generated this
-  way.
+  way. Two workers complement this: `tasks/notebooks.py`
+  (`weekly-analytics-digest`, Mondays 08:00 — publish/agency/audit KPIs →
+  Slack, direct queries rather than papermill) and `tasks/human_gate.py`
+  (`human-gate-watch`, every 30 min — sidecar checkpoint polling for
+  LinkedIn 2FA / Meta restriction, Slack nudges deduped 6h per gate in
+  Redis). Both registered in `workforce_audit.py`.
 
 **Growth initiatives & ad-campaign analytics** — off-platform growth
 pushes (e.g. LinkedIn's monthly Page invitation credits) are recorded as

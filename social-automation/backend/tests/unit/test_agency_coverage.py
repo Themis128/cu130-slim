@@ -611,3 +611,104 @@ async def test_triage_espo_leads_path(monkeypatch):
     assert db.added and db.added[0].espo_lead_id == "e1"
     assert "marketing" in db.added[0].url or "espo-shop" in db.added[0].url
     assert notes and "Marketing" in notes[0] or "marketing" in notes[0]
+
+
+@pytest.mark.asyncio
+async def test_public_audit_endpoint(monkeypatch):
+    """POST /leads/public/audit runs a real audit, creates lead+audit rows."""
+    from fastapi import HTTPException
+
+    import app.api.leads as L
+
+    audit_result = {
+        "url": "https://acme.test/", "score": 42,
+        "findings": [{"detail": "missing HSTS"}],
+        "recommended_services": ["cloud"], "action_plan": "fix headers",
+    }
+    monkeypatch.setattr("app.services.site_audit.run_site_audit",
+                        lambda u: asyncio.sleep(0, audit_result))
+    monkeypatch.setattr("app.services.url_safety.validate_public_http_url", lambda u: u)
+    monkeypatch.setattr("app.api.leads.create_lead", lambda *a, **k: asyncio.sleep(0, SimpleNamespace(id=uuid.uuid4())))
+
+    class _S:
+        CLOUDLESS_WEB_ANALYTICS_TEAM_ID = str(uuid.uuid4())
+    monkeypatch.setattr("app.api.leads.get_settings", lambda: _S())
+    L.limiter.enabled = False  # slowapi hits real Redis otherwise
+
+    added = []
+    class _DB:
+        async def flush(self): pass
+        def add(self, r): added.append(r)
+        async def commit(self): pass
+    from starlette.requests import Request
+    fake_req = Request({"type": "http", "method": "POST",
+                        "path": "/x", "headers": [],
+                        "client": ("127.0.0.1", 1), "server": ("t", 80)})
+    req = L.PublicAuditRequest(email="lead@acme.test", url="https://acme.test")
+    out = await L.create_audit_public(req, fake_req, _DB())
+    assert out["ok"] and out["score"] == 42 and out["issues"] == 1
+    assert added and added[0].url == "https://acme.test/" and added[0].score == 42
+
+    # unsafe URL → 400
+    from app.services.url_safety import UnsafeUrlError
+    monkeypatch.setattr("app.services.url_safety.validate_public_http_url",
+                        lambda u: (_ for _ in ()).throw(UnsafeUrlError("bad")))
+    try:
+        await L.create_audit_public(req, fake_req, _DB())
+        raise AssertionError("should 400")
+    except HTTPException as e:
+        assert e.status_code == 400
+
+    # honeypot → silent ok
+    req2 = L.PublicAuditRequest(email="lead@acme.test", url="https://acme.test", website="spam")
+    out2 = await L.create_audit_public(req2, request=fake_req, db=_DB())
+    assert out2["ok"] and out2["score"] is None
+
+
+@pytest.mark.asyncio
+async def test_public_survey_endpoint(monkeypatch):
+    """POST /leads/public/survey — richer capture: phone + answers → lead+espo."""
+    import app.api.leads as L
+
+    monkeypatch.setattr("app.api.leads.create_lead", lambda *a, **k: asyncio.sleep(0, None))
+    captured = []
+    async def fake_upsert(payload): captured.append(payload)
+    monkeypatch.setattr("app.services.espocrm_client.upsert_lead", fake_upsert)
+    L.limiter.enabled = False
+
+    class _S:
+        CLOUDLESS_WEB_ANALYTICS_TEAM_ID = str(uuid.uuid4())
+        PLAYBOOK_PDF_URL = "https://x/playbook.pdf"
+    monkeypatch.setattr("app.api.leads.get_settings", lambda: _S())
+
+    class _DB:
+        async def commit(self): pass
+        async def flush(self): pass
+    from starlette.requests import Request
+    fake_req = Request({"type": "http", "method": "POST", "path": "/x",
+                        "headers": [], "client": ("127.0.0.1", 1), "server": ("t", 80)})
+
+    req = L.PublicSurveyRequest(email="lead@acme.test", name="Jane D",
+                                 phone="+30 691 234 5678", company_size="11-50",
+                                 interest="cloud migration",
+                                 answers={"pain": "manual deploys"})
+    out = await L.create_survey_public(req, fake_req, _DB())
+    assert out["ok"] and captured
+    assert captured[0]["phoneNumber"] == "+30 691 234 5678"
+    assert "manual deploys" in captured[0]["description"]
+
+    # bad phone → 400
+    req2 = L.PublicSurveyRequest(email="a@b.co", phone="123")
+    try:
+        await L.create_survey_public(req2, fake_req, _DB())
+        raise AssertionError("should 400")
+    except HTTPException as e:
+        assert e.status_code == 400
+
+    # phone without consent → 400
+    req3 = L.PublicSurveyRequest(email="a@b.co", phone="+30 691 234 5678", consent=False)
+    try:
+        await L.create_survey_public(req3, fake_req, _DB())
+        raise AssertionError("should 400")
+    except HTTPException as e:
+        assert e.status_code == 400

@@ -2702,9 +2702,25 @@ async function handleUpdateCompanySpecialties(req, res) {
   }
   try {
     await ensureBrowser();
-    // Navigate directly to the admin edit page (not /about/)
-    await navigate(`https://www.linkedin.com/company/${vanity}/admin/edit/`);
+    // LinkedIn rejects /company/<vanity>/admin/edit/ (redirects to
+    // /company/unavailable/). Resolve the vanity first — /company/<vanity>/
+    // lands on /company/<numericId>/admin/dashboard/ — then build the edit
+    // URL from the numeric id LinkedIn itself gives us.
+    await navigate(`https://www.linkedin.com/company/${vanity}/`);
+    await page.waitForTimeout(2500);
+    const orgMatch = page.url().match(/\/company\/(\d+)/);
+    const orgId = orgMatch ? orgMatch[1] : vanity;
+    await navigate(`https://www.linkedin.com/company/${orgId}/admin/edit/`);
     await page.waitForTimeout(3000);
+
+    // Specialties live in the "Details" tab panel — hidden until activated.
+    const detailsTab = page
+      .locator('button.org-page-edit__tab:has-text("Details")')
+      .first();
+    if ((await detailsTab.count()) > 0) {
+      await detailsTab.click();
+      await page.waitForTimeout(1500);
+    }
 
     // Find the specialties section by looking for the h4 heading
     const specHeading = page.locator('h4:has-text("Specialties")').first();
@@ -2726,18 +2742,14 @@ async function handleUpdateCompanySpecialties(req, res) {
         .json({ error: "Could not locate the specialties input" });
     }
 
-    // Click the "Add a specialty" ghost to activate the input if needed
-    const ghost = page
-      .locator('.artdeco-pill__ghost:has-text("Add a specialty")')
-      .first();
-    if ((await ghost.count()) > 0) {
-      await ghost.click();
-      await page.waitForTimeout(500);
-    }
-
+    // The "Add a specialty" ghost div is aria-hidden decoration — the real
+    // text input sits on top and intercepts pointer events. Focus it
+    // directly and type real keystrokes (Ember ignores fill()-injected
+    // values; LinkedIn commits a pill on Enter).
     for (const s of specialties) {
       await specInput.click();
-      await specInput.fill(s);
+      await specInput.pressSequentially(s, { delay: 40 });
+      await page.waitForTimeout(400);
       await page.keyboard.press("Enter");
       await page.waitForTimeout(800);
     }
