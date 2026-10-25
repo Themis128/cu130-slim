@@ -60,8 +60,7 @@ celery_app = Celery(
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
         "app.worker.tasks.latency_watchdog",
-        "app.worker.tasks.avatar_video",
-        "app.worker.tasks.newsletter_subs",
+"app.worker.tasks.avatar_video",        "app.worker.tasks.newsletter_subs",
     ],
 )
 
