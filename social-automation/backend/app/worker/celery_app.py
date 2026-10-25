@@ -59,6 +59,7 @@ celery_app = Celery(
         "app.worker.tasks.notebooks",
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
+        "app.worker.tasks.latency_watchdog",
         "app.worker.tasks.newsletter_subs",
         "app.worker.tasks.nextcloud_sync",
     ],
@@ -247,6 +248,7 @@ celery_app.conf.update(
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
+        "app.worker.tasks.latency_watchdog.run_latency_watchdog": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
@@ -276,6 +278,12 @@ celery_app.conf.update(
         "nurture-sweep": {
             "task": "app.worker.tasks.nurture.run_nurture_sweep",
             "schedule": crontab(hour=11, minute=0),
+        },
+        # Latency watchdog — >20ms SLO breach → wrangler rollback after
+        # 3 consecutive checks (self-healing deployment loop).
+        "latency-watchdog": {
+            "task": "app.worker.tasks.latency_watchdog.run_latency_watchdog",
+            "schedule": crontab(minute="*/5"),
         },
         # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
         "newsletter-subs-sync": {

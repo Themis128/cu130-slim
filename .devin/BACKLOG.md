@@ -609,3 +609,5 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 - Nextcloud: `/media-sources/nextcloud/files|import` — WebDAV PROPFIND/GET against cloud.cloudless.gr; verified listing + Gorilla.jpg download. `NEXTCLOUD_DAV_URL` was commented out in .env — now set.
 - Google Drive: `/media-sources/gdrive/connect-url|connect|files|import` — drive.readonly consent completed (localhost:4180 listener), `GOOGLE_DRIVE_REFRESH_TOKEN` in .env, `drive.googleapis.com` enabled in project credentials-462313. Verified: 30 files listed.
 - PR #930 feat/media-sources (media_sources service + api).
+| IG `cloudless.gr` monetization verified on-phone 2026-10-25 | Partnership ads ON, branded-content eligible (green check); marketplace/affiliate/bonuses/subscriptions/gifts/badges gated on "Established presence" (followers+account age). Bio already → cloudless.gr/links. Stale `INSTAGRAM_PASSWORD` in social_secrets replaced with live one | follower growth |
+| WhatsApp `request_code` | beat auto-retries on cooldown (136024-gated) — owner just needs to read SMS when it lands, then verify-code+register | SMS receipt |
