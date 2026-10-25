@@ -12,7 +12,7 @@ import os
 import httpx
 
 logger = logging.getLogger(__name__)
-BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
+BRIDGE = os.environ.get("FB_BROWSER_URL", "http://browser-novnc:9223")
 
 LIKE_JS = """(() => {
   const btn = document.querySelector('[aria-label="Like"], [aria-label*="like" i]');
