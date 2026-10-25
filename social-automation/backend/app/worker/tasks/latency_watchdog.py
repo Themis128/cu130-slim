@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 import os
 import time
-from datetime import datetime, UTC
 
 import httpx
 from celery import shared_task
@@ -38,7 +37,8 @@ async def _measure() -> float:
 async def _rollback() -> bool:
     """wrangler rollback on the pi-origin-proxy — the self-heal path.
     Only fires inside a container that has wrangler + CF credentials."""
-    import asyncio, shutil
+    import asyncio
+    import shutil
     if not shutil.which("wrangler"):
         logger.warning("wrangler not in this container — rollback is a host op")
         return False
