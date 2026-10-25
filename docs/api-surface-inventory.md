@@ -341,6 +341,15 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/media/upload/prepare` — POST
 - `/api/v1/media/view` — GET
 
+## `media-sources`
+
+- `/api/v1/media-sources/gdrive/connect` — POST
+- `/api/v1/media-sources/gdrive/connect-url` — POST
+- `/api/v1/media-sources/gdrive/files` — GET
+- `/api/v1/media-sources/gdrive/import` — POST
+- `/api/v1/media-sources/nextcloud/files` — GET
+- `/api/v1/media-sources/nextcloud/import` — POST
+
 ## `messenger`
 
 - `/api/v1/messenger/sidecar/status` — GET
