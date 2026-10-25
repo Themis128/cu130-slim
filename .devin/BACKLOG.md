@@ -317,4 +317,4 @@ Done: digest pages Oct 16-19 backfilled in IntraVox (real DB data); `socialauto-
 | Cloudflare Access: n8n.cloudless.gr has no service-token/webhook bypass | Browser access works; server-side must keep using LAN URL | By design — revisit if external callers need webhooks |
 | `test/backend-platform-coverage` branch | Carries session commits `1d2d837e`,`120277a5`,`dfe3bdf8` — merge via PR when reviewed | PR/merge decision |
 | uncommitted: `linkedin-browser-sidecar/Dockerfile` | Pre-existing local change, not from this session | Owner review |
-| Stored n8n credentials may be dead | Workflows using n8n credential store (e.g. `nextcloud-drop-to-draft` httpBasicAuth) had secrets encrypted under the rotated Oct-6 key — verify on next run, re-enter if decrypt fails | Next execution |
+| ~~Stored n8n credentials dead~~ | DONE 2026-10-25 — all 6 re-encrypted under current key via DB (round-trip verified); TOTP cred stores empty secret — harmless: no SocialAuto user has two_factor_enabled (auth.py ignores otp) | — |
