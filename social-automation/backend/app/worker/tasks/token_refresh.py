@@ -270,6 +270,7 @@ async def _refresh_expiring_tokens_async() -> dict:
             lines = "\n".join(f"• {e}" for e in summary["errors"])
             await _post_slack_text(
                 webhook_url=cfg.SLACK_ALERTS_WEBHOOK_URL,
+                token=cfg.SLACK_BOT_TOKEN,
                 channel_id=cfg.SLACK_ALERTS_CHANNEL_ID,
                 purpose="token-refresh alert",
                 text=(
