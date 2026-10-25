@@ -305,3 +305,15 @@ PR #781 (deployment evidence) was authoritatively verified merged at
 - [x] LinkedIn newsletter funnel: 168 subscribers → EspoCRM leads, PR #735 merged.
 - [x] Oxford AIE brochure → 4 `ContentPromptTemplate`s live + verified via
   `/generate-content` (SEO 91).
+
+
+## Session leftovers — 2026-10-25 (n8n/IntraVox ops day)
+
+Done: digest pages Oct 16-19 backfilled in IntraVox (real DB data); `socialauto-daily-slack-digest` `Summarize Result` now throws on failed IntraVox write (commit 1d2d837e); `lead-enrich`/`newsletter-nurture` workflows imported+published on dev-box n8n (`function`→`code` node fix, webhooks verified registered); n8n LAN-bound (`192.168.1.23:5678`+loopback), compose image aligned 2.43.4; `.env` `SOCIAL_POSTGRES_PASSWORD` synced to live value; stale `deployment_key` rows cleared+regenerated; omv cloudflared repointed `n8n.cloudless.gr`→`192.168.1.23:5678` (verified 200); `cloudless-secrets` `N8N_API_URL` patched live (pod→n8n 200); cloudless.gr PR #2284 open with all doc/config fixes.
+
+| Issue | Remaining work | Gate |
+| --- | --- | --- |
+| n8n `N8N_API_KEY` still empty in `.env` | Generate in n8n Settings→API when needed (public API read-side + admin integrations page) | Owner UI action |
+| Cloudflare Access: n8n.cloudless.gr has no service-token/webhook bypass | Browser access works; server-side must keep using LAN URL | By design — revisit if external callers need webhooks |
+| `test/backend-platform-coverage` branch | Carries session commits `1d2d837e`,`120277a5`,`dfe3bdf8` — merge via PR when reviewed | PR/merge decision |
+| uncommitted: `linkedin-browser-sidecar/Dockerfile` | Pre-existing local change, not from this session | Owner review |
