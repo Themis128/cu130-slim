@@ -66,7 +66,7 @@ async def _run():
             await asyncio.sleep(2)
 
         r = await _post(c, "/debug/eval", {"expr": EXTRACT_JS})
-        raw = r.json().get("value") or r.json().get("result") or "[]"
+        raw = r.json().get("result") or "[]"
         posts = js.loads(raw) if isinstance(raw, str) else raw
 
     def _age_seconds(label: str) -> float:
