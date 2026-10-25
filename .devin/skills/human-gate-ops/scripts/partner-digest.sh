@@ -9,11 +9,16 @@ async def main():
     from app.services import espocrm_client as espo
     from app.services.slack_notifications import _post_slack_text, _get_slack_token
     from app.core.config import get_settings
-    lists = await espo.list_all("TargetList", {"type":"equals","attribute":"name","value":"Partners & influencers"}) if hasattr(espo, "list_all") else []
-    if not lists:
-        print("no TargetList found — pull via API manually"); return
-    tl = lists[0]
-    items = await espo.list_related("TargetList", tl.get("id"), "targets") if hasattr(espo, "list_related") else []
+    tl_id = await espo.target_list_id("Partners & influencers")
+    if not tl_id:
+        print("no TargetList 'Partners & influencers' — check name"); return
+    tl = {"id": tl_id, "name": "Partners & influencers"}
+    import json as _j
+    resp = await espo.espo_get("/Lead", params={"searchParams": _j.dumps({
+        "maxSize": 50, "select": ["name", "emailAddress"],
+        "where": [{"type": "linkedWith", "attribute": "targetLists", "value": [tl_id]}],
+    })})
+    items = resp.get("list", [])
     names = [t.get("name") or t.get("emailAddress") or t.get("id") for t in items]
     s = get_settings()
     body = (":handshake: *Partner shortlist pending approval (#793)*\n" +
