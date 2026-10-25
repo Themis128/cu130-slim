@@ -7,7 +7,6 @@ Tiers feed score_candidate()'s RYR weighting:
 Runs daily; reads engagement_actions (outbound) + espocrm lead handles.
 """
 import logging
-
 from celery import shared_task
 from sqlalchemy import func, select
 
