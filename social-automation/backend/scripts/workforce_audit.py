@@ -471,7 +471,12 @@ WORKFORCE = [
         guardrails=(
             "only public-capture leads (form newsletter/free-audit); unsubscribe + opt-out respected",
             "sequential steps stamped in meta_data — no duplicates",
-        )
+        ),
+        autonomy="auto",
+        fallback="lead skipped; next daily sweep retries",
+        evidence=[("last step sent", "SELECT max((meta_data->>'nurture_step_at')::timestamptz) FROM leads WHERE meta_data ? 'nurture_step_at'")],
+        pending_sql="SELECT count(*) FROM leads WHERE meta_data->>'form' IN ('newsletter','free-audit') AND NOT COALESCE(meta_data ? 'nurture_step', false) OR (meta_data->>'nurture_step')::int < 3",
+    ),
     Worker(
         "newsletter-subs-sync",
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
@@ -485,12 +490,6 @@ WORKFORCE = [
         autonomy="auto",
         fallback="skip when sidecar session dead (2FA gate)",
         evidence=[("last sync", "SELECT max(created_at) FROM leads WHERE meta_data->>'form'='linkedin-newsletter'")],
-    ),
-,
-        autonomy="auto",
-        fallback="lead skipped; next daily sweep retries",
-        evidence=[("last step sent", "SELECT max((meta_data->>'nurture_step_at')::timestamptz) FROM leads WHERE meta_data ? 'nurture_step_at'")],
-        pending_sql="SELECT count(*) FROM leads WHERE meta_data->>'form' IN ('newsletter','free-audit') AND NOT COALESCE(meta_data ? 'nurture_step', false) OR (meta_data->>'nurture_step')::int < 3",
     ),
     Worker(
         "datalake-export",
