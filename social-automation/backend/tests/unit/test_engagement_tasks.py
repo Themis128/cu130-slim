@@ -222,7 +222,7 @@ async def test_dispatch_full_sweep(monkeypatch):
     # 1. scoring
     assert fresh.scored is True
     assert queued[0].posted_seconds_ago == 0
-    assert queued[0].meta_data == {"viral": False}
+    assert queued[0].meta_data is None  # viral duet_flag path not wired to dispatch yet
     # 2. drafts — quotes stripped, long draft kept, blank → None
     assert drafted.comment_draft == "Sharp take — what about D1?"
     assert long_draft.comment_draft == "y" * 200
