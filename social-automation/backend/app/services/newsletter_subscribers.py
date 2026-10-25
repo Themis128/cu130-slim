@@ -34,13 +34,21 @@ for(let i=0;i<15;i++){
   if(document.querySelectorAll('a[href*="/in/"]').length>0) break;
   await new Promise(r=>setTimeout(r,1500));
 }
-let lastH=0,stable=0;
-for(let i=0;i<60&&stable<3;i++){
-  const dlg=[...document.querySelectorAll('*')].find(e=>
-    e.scrollHeight>e.clientHeight&&e.clientHeight>300);
-  if(dlg){dlg.scrollTop=dlg.scrollHeight;
-    if(dlg.scrollHeight===lastH){stable++;}else{stable=0;lastH=dlg.scrollHeight;}}
-  await new Promise(r=>setTimeout(r,700));
+const target=parseInt(((document.body.innerText.match(/(\d[\d,]*)\s+Subscriber/i)||[])[1]||'0').replace(/,/g,''),10)||null;
+const extract=()=>{
+  const rows=[...document.querySelectorAll('a[href*="/in/"]')];
+  const seen=new Set(); const n=[];
+  for(const a of rows){const u=(a.href.match(/\/in\/([\w-]+)/)||[])[1]||'';if(u&&!seen.has(u)){seen.add(u);n.push(1);}}
+  return n.length;
+};
+let prev=0,stable=0;
+for(let i=0;i<80&&stable<4;i++){
+  const dlgs=[...document.querySelectorAll('*')].filter(e=>e.scrollHeight>e.clientHeight&&e.clientHeight>200);
+  for(const d of dlgs) d.scrollTop=d.scrollHeight;
+  await new Promise(r=>setTimeout(r,800));
+  const n=extract();
+  if(n===prev){stable++;}else{stable=0;prev=n;}
+  if(target&&n>=target) break;
 }
 const rows=[...document.querySelectorAll('a[href*="/in/"]')];
 const seen=new Set(); const subs=[];
