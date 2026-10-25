@@ -14,7 +14,7 @@ import httpx
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
 
 EXTRACT_JS = """(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));

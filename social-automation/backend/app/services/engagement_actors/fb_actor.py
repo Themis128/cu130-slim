@@ -1,3 +1,4 @@
+import os
 """Facebook engagement actor — comment via in-page UI on group posts.
 
 Navigates to the post permalink, focuses the comment box, types and
@@ -11,7 +12,7 @@ import logging
 import httpx
 
 logger = logging.getLogger(__name__)
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
 
 LIKE_JS = """(() => {
   const btn = document.querySelector('[aria-label="Like"], [aria-label*="like" i]');

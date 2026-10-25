@@ -1,3 +1,4 @@
+import os
 """Instagram feed ingestion via shared browser bridge → candidates.
 
 Uses browser-novnc :9223 (/session/*). Skips cleanly when the browser
@@ -12,7 +13,7 @@ from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
 
 # single atomic call — scrolls inside the page then extracts (minimizes
 # the window where a platform sweep can steal the browser mid-run)

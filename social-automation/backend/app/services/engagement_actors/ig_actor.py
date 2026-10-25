@@ -1,3 +1,4 @@
+import os
 """Instagram engagement actor — like via in-page UI click on the feed card.
 
 Finds the article whose link matches the target shortcode and clicks its
@@ -10,7 +11,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
 
 LIKE_JS = """(() => {
   const el = [...document.querySelectorAll('article')].find(a =>

@@ -1,3 +1,4 @@
+import os
 """TikTok engagement actor — punchy short comments via in-page UI.
 
 Comment drafts for TikTok get rewritten short (<10 words) by the 3C
@@ -11,7 +12,7 @@ import logging
 import httpx
 
 logger = logging.getLogger(__name__)
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
 
 
 async def act(action, db) -> dict:
