@@ -483,6 +483,19 @@ proposals on `audit_logs` + Slack, nothing self-executes.
 - [x] Oxford AIE brochure → 4 `ContentPromptTemplate`s live + verified via
   `/generate-content` (SEO 91).
 
+
+## Session leftovers — 2026-10-25 (n8n/IntraVox ops day)
+
+Done: digest pages Oct 16-19 backfilled in IntraVox (real DB data); `socialauto-daily-slack-digest` `Summarize Result` now throws on failed IntraVox write (commit 1d2d837e); `lead-enrich`/`newsletter-nurture` workflows imported+published on dev-box n8n (`function`→`code` node fix, webhooks verified registered); n8n LAN-bound (`192.168.1.23:5678`+loopback), compose image aligned 2.43.4; `.env` `SOCIAL_POSTGRES_PASSWORD` synced to live value; stale `deployment_key` rows cleared+regenerated; omv cloudflared repointed `n8n.cloudless.gr`→`192.168.1.23:5678` (verified 200); `cloudless-secrets` `N8N_API_URL` patched live (pod→n8n 200); cloudless.gr PR #2284 open with all doc/config fixes.
+
+| Issue | Remaining work | Gate |
+| --- | --- | --- |
+| ~~n8n `N8N_API_KEY` empty~~ | DONE 2026-10-25 — minted via DB insert (`user_api_keys`, JWT signed by derived instance secret); verified `GET /api/v1/workflows` → 200; written to `.env` | — |
+| Cloudflare Access: n8n.cloudless.gr has no service-token/webhook bypass | Browser access works; server-side must keep using LAN URL | By design — revisit if external callers need webhooks |
+| `test/backend-platform-coverage` branch | Carries session commits `1d2d837e`,`120277a5`,`dfe3bdf8` — merge via PR when reviewed | PR/merge decision |
+| uncommitted: `linkedin-browser-sidecar/Dockerfile` | Pre-existing local change, not from this session | Owner review |
+| ~~Stored n8n credentials dead~~ | DONE 2026-10-25 — 6 stored creds re-encrypted under current key; NEXTCLOUD_* env restored to .env+n8n compose mapping (lost on first recreate); TOTP cred holds empty secret — harmless while no user has two_factor_enabled | — |
+| ~~env drift on workers/social-api/celery-beat~~ | DONE 2026-10-25 — shared vars declared in x-worker-env anchor + social-api env; secrets in .env; DONE — nextcloud-mcp-server added as a compose service (env→.env refs, named volume, port 9231); comfyui-gpu was already the `comfyui` service (DEBIAN_FRONTEND = image-baked, added to drift-check filter) | — |
 ## omv Docker state wipe + workspace restore — 2026-10-24
 
 **Incident:** `cloud.cloudless.gr` → Cloudflare error 1033 (~21:56 EEST).
