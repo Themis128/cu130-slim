@@ -71,6 +71,8 @@ celery_app = Celery(
 "app.worker.tasks.newsletter_subs",
 "app.worker.tasks.nextcloud_sync",
 "app.worker.tasks.avatar_video",        "app.worker.tasks.newsletter_subs",    ],
+    ],
+ (feat(workers): analytics-digest + human-gate-watch governed workers)
 )
 
 # Ensure @shared_task and Task.delay() from the API process use Redis, not default AMQP.
@@ -259,6 +261,7 @@ celery_app.conf.update(
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.latency_watchdog.run_latency_watchdog": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
+ (feat(workers): analytics-digest + human-gate-watch governed workers)
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -287,18 +290,16 @@ celery_app.conf.update(
         "nurture-sweep": {
             "task": "app.worker.tasks.nurture.run_nurture_sweep",
             "schedule": crontab(hour=11, minute=0),
-        },
         # Latency watchdog — >20ms SLO breach → wrangler rollback after
         # 3 consecutive checks (self-healing deployment loop).
         "latency-watchdog": {
             "task": "app.worker.tasks.latency_watchdog.run_latency_watchdog",
             "schedule": crontab(minute="*/5"),
-        },
         # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
         "newsletter-subs-sync": {
             "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
             "schedule": crontab(day_of_week="sun", hour=9, minute=15),
-        },
+ (feat(workers): analytics-digest + human-gate-watch governed workers)
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
             "schedule": 30.0,

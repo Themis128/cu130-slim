@@ -31,7 +31,10 @@ _GATES = (
 
 async def _watch() -> dict:
     import redis.asyncio as aioredis
+<<<<<<< HEAD
 
+=======
+>>>>>>> 7b29e19e (feat(workers): analytics-digest + human-gate-watch governed workers)
     from app.core.config import get_settings
     from app.services.slack_notifications import post_alert_to_slack
 
