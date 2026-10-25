@@ -95,6 +95,7 @@ async def _run(limit: int):
                              else a.comment_draft)
                     await _post_slack_text(
                         webhook_url=hook,
+                        token=os.environ.get("SLACK_BOT_TOKEN", ""),
                         channel_id=chan,
                         purpose="engagement gate",
                         text=(f":hourglass_flowing_sand: *{a.platform.title()} "
