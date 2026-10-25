@@ -31,6 +31,7 @@ _GATES = (
 
 async def _watch() -> dict:
     import redis.asyncio as aioredis
+
     from app.core.config import get_settings
     from app.services.slack_notifications import post_alert_to_slack
 
