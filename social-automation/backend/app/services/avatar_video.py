@@ -15,7 +15,7 @@ import asyncio
 import logging
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -92,7 +92,8 @@ async def render_avatar(*, image_bytes: bytes,
                         timeout_s: float = 600.0) -> bytes:
     """Transform a source photo into a stylized avatar via FLUX img2img."""
     base = get_settings().COMFYUI_URL.rstrip("/")
-    async with httpx.AsyncClient(timeout=60) as client:
+    # base_url is required: upload_image posts to the relative /upload/image.
+    async with httpx.AsyncClient(base_url=base, timeout=60) as client:
         name = await upload_image(client, image_bytes, "avatar_src.png")
         graph = _flux_img2img_graph(image_name=name, prompt=style_prompt,
                                     seed=seed, denoise=denoise)
@@ -210,7 +211,7 @@ async def generate_avatar_video(
     avatar_style_prompt: str = (
         "cute chibi cartoon mascot, huge head tiny body, flat vector, "
         "thick outlines, bold colors, clean white background, full body"),
-    scenes: list[Scene] = field(default_factory=list),
+    scenes: list[Scene] | None = None,
     music_bytes: bytes | None = None,
     width: int = 576,
     height: int = 1024,
@@ -232,9 +233,7 @@ async def generate_avatar_video(
         avatar_png = await render_avatar(
             image_bytes=source_photo, style_prompt=avatar_style_prompt)
 
-    async with httpx.AsyncClient(timeout=60) as client:
-        await upload_image(client, avatar_png, "avatar.png")
-
+    # generate_video() uploads image_bytes itself for each i2v clip.
     # Render one i2v clip per unique motion (clips get looped per scene).
     needed = {sc.clip for sc in scenes}
     clips: dict[str, bytes] = {}
