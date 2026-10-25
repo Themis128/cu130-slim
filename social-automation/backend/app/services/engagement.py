@@ -43,7 +43,6 @@ class EngagementCandidate:
     is_followed: bool
     is_connection: bool
     in_crm: bool  # lead/contact in espocrm
-    meta_data: dict | None = None  # ingest extras (e.g. tiktok views/viral)
 
 
 @dataclass
@@ -105,37 +104,12 @@ def score_candidate(c: EngagementCandidate, ryr_tier: str = "medium") -> Engagem
     return EngagementPlan("like", s, jitter, None, False, "1x action: like")
 
 
-GROWTH_KEYWORDS = {"founder","startup","saas","bootstrap","mvp","run rate",
-                   "agency","overhead","revenue","growth","indie","vc","funding"}
-TECH_KEYWORDS = {"serverless","cloudflare","workers","edge","d1","r2","vercel",
-                 "latency","next.js","docker","k8s","database","engineer","cto"}
-
-def classify_vector(author_bio: str, post_text: str) -> tuple[str, str]:
-    """Dual-vector routing: GROWTH_UNIT_ECONOMICS vs TECH_STACK."""
-    text = (author_bio + " " + post_text).lower()
-    g = sum(k in text for k in GROWTH_KEYWORDS)
-    t = sum(k in text for k in TECH_KEYWORDS)
-    if t > g:
-        return ("TECH_STACK",
-                "Critique the infra angle — cold layouts, edge-data sync limits, "
-                "D1/R2 architecture, ultra-low latency configs. Code-adjacent peer tone.")
-    return ("GROWTH_UNIT_ECONOMICS",
-            "Focus on the 14-day delivery frame and cost compression — serverless "
-            "automation compressing 6-month roadmaps. No deep deployment jargon.")
-
-
-def build_3c_prompt(post_text: str, author_name: str, voice_hints: list[str],
-                    vector_override: str | None = None) -> str:
+def build_3c_prompt(post_text: str, author_name: str, voice_hints: list[str]) -> str:
     """Prompt for the DMR LLM to write a 3C comment — never generic."""
-    override = f"- VECTOR FOCUS: {vector_override}\n" if vector_override else ""
     return f"""Write a LinkedIn comment replying to {author_name}'s post. Rules:
-{override}
 - COMPLIMENT one specific point (quote or paraphrase it — prove you read it)
 - CONTRIBUTION: add one net-new expert insight or data point
 - CONVERSATION: end with an open question inviting reply
-- QUALIFIED-VIEW HOOK: where natural, seed a cliffhanger pointing to the
-  author's pinned media ("the 5s teardown in your pinned post nails this")
-  — drives >5s qualified views on the reader's own video assets
 - 15–45 words. Conversational, first-person. NO "Great post!", no filler,
   no emoji spam, no hashtags. Sound like a human colleague, not a bot.
 Author's brand voice: {voice_hints or 'professional, technical'}
@@ -167,38 +141,21 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
             EngagementAction.created_at > day_ago,
         ))).scalar() or 0
     cap = {"linkedin": 30, "twitter": 60, "instagram": 40,
-           "threads": 40, "facebook": 20, "tiktok": 30}.get(
-           candidate.platform, 25)
+           "threads": 40, "facebook": 20}.get(candidate.platform, 25)
     if today >= cap:
         return {"skipped": f"daily cap {cap} reached", "queued_for_tomorrow": True}
 
-    # Meta hard-cap: max 5 comments/hour on facebook (anti-spam ceiling)
-    if candidate.platform == "facebook" and plan.action == "comment":
-        hour_ago = datetime.now(UTC) - timedelta(hours=1)
-        this_hour = (await db.execute(
-            select(func.count()).select_from(EngagementAction).where(
-                EngagementAction.platform == "facebook",
-                EngagementAction.action == "comment",
-                EngagementAction.created_at > hour_ago))).scalar() or 0
-        if this_hour >= 5:
-            return {"skipped": "fb hourly comment cap (5/h)"}
-
-    # viral tiktok candidates surface as duet/stitch flags for the phone
-    action_name = plan.action
-    gated = plan.action in ("comment", "repost")
-    if (candidate.platform == "tiktok"
-            and (candidate.meta_data or {}).get("viral")):
-        action_name = "duet_flag"
-        gated = True
     row = EngagementAction(
         platform=candidate.platform,
         target_post_id=candidate.post_id,
         target_author=candidate.author_handle,
-        action=action_name,
+        action=plan.action,
         score=plan.score,
         jitter_seconds=plan.jitter_seconds,
         comment_draft=plan.comment_draft,
-        status="pending_human_gate" if gated else "pending",
+        status="pending_human_gate" if plan.action in ("comment", "repost")
+               else "pending",
+        scheduled_at=None,  # jitter applied at dispatch time
     )
     db.add(row)
     await db.commit()

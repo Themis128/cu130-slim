@@ -25,12 +25,9 @@ async def _x():
         acct = (await db.execute(select(SocialAccount).where(
             SocialAccount.platform=="twitter", SocialAccount.status=="active"))
         ).scalars().first()
-        if not acct:
+        if not acct or not getattr(acct,"access_token",None):
             return {"error":"no active twitter account"}
-        from app.core.security import decrypt_token
-        token = decrypt_token(acct.access_token_enc)
-        if not token:
-            return {"error":"empty token"}
+        token = acct.access_token
         uid = (acct.meta_data or {}).get("user_id")
         async with httpx.AsyncClient(timeout=20) as h:
             r = await h.get(
