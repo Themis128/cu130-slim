@@ -26,6 +26,7 @@ The task runs every 3 minutes via Celery beat.
 """
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime
 
 from sqlalchemy import select
@@ -141,9 +142,9 @@ async def _poll_linkedin_messenger_async() -> dict:
     return stats
 
 
-_EMAIL_IN_TEXT = __import__("re").compile(
+_EMAIL_IN_TEXT = re.compile(
     r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,}")
-_PHONE_IN_TEXT = __import__("re").compile(
+_PHONE_IN_TEXT = re.compile(
     r"\+[0-9][0-9\s().-]{7,19}")
 
 
