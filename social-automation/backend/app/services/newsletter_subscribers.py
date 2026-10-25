@@ -132,6 +132,7 @@ async def sync_newsletter_subscribers(series_urn: str, redis=None) -> dict[str, 
         try:
             if await espo_upsert_subscriber(sub):
                 stats["created"] += 1
+                await _subscriber_alert(sub)
             else:
                 stats["skipped"] += 1
             new_urns.append(sub["urn"])
@@ -141,3 +142,20 @@ async def sync_newsletter_subscribers(series_urn: str, redis=None) -> dict[str, 
     if new_urns:
         await r.sadd(_REDIS_KEY, *new_urns)
     return stats
+
+
+async def _subscriber_alert(sub: dict[str, str]) -> None:
+    """Ops-channel ping on each NEW subscriber with a ready welcome note.
+
+    Subscribers carry no email — the only nurture path is LinkedIn-native
+    (connect-with-note or DM). The owner acts on the profile link.
+    """
+    from app.services.slack_notifications import post_alert_to_slack
+    note = (f"Thanks for subscribing to The Cloudless Build Log, "
+            f"{sub['name'].split()[0]} — glad to have you. If any issue "
+            f"raises a question, my inbox is open.")
+    await post_alert_to_slack(
+        f":bell: *New newsletter subscriber* — {sub['name']}"
+        f"{(' — ' + sub['headline']) if sub['headline'] else ''}\n"
+        f"{sub['profile_url'] or '(no profile link)'}\n"
+        f"Suggested welcome note:\n> {note}")
