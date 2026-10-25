@@ -1,4 +1,3 @@
-import os
 """Facebook engagement actor — comment via in-page UI on group posts.
 
 Navigates to the post permalink, focuses the comment box, types and
@@ -8,6 +7,7 @@ Likes via aria-label click. Reposts are never auto-acted.
 import asyncio
 import json
 import logging
+import os
 
 import httpx
 

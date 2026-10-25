@@ -1,4 +1,3 @@
-import os
 """Instagram feed ingestion via shared browser bridge → candidates.
 
 Uses browser-novnc :9223 (/session/*). Skips cleanly when the browser
@@ -7,6 +6,7 @@ is busy with platform sweeps or the session isn't logged in.
 import asyncio
 import json as js
 import logging
+import os
 
 import httpx
 from celery import shared_task

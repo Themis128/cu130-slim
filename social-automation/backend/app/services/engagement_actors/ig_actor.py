@@ -1,4 +1,3 @@
-import os
 """Instagram engagement actor — like via in-page UI click on the feed card.
 
 Finds the article whose link matches the target shortcode and clicks its
@@ -6,6 +5,7 @@ Like button (aria-label). Comments stay human-gated and are not auto-acted.
 Skips cleanly when the shared browser is busy.
 """
 import logging
+import os
 
 import httpx
 

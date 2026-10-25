@@ -1,4 +1,3 @@
-import os
 """TikTok engagement actor — punchy short comments via in-page UI.
 
 Comment drafts for TikTok get rewritten short (<10 words) by the 3C
@@ -8,6 +7,7 @@ duet/stitch suggestions (manual phone action — never automated).
 import asyncio
 import json
 import logging
+import os
 
 import httpx
 
