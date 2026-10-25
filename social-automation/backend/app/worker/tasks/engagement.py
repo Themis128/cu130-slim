@@ -1,6 +1,7 @@
 """Engagement sweep — score new candidates, draft 3C comments, dispatch
 queued actions honoring jitter + caps."""
 import logging
+
 from celery import shared_task
 from sqlalchemy import select
 
@@ -17,12 +18,14 @@ def dispatch_engagements(self, limit: int = 10):
 async def _run(limit: int):
     from app.db.session import async_session_maker
     from app.models.engagement import EngagementAction, EngagementCandidate
+    from app.services.dmr import call_dmr_chat
     from app.services.engagement import (
         EngagementCandidate as Cand,
+    )
+    from app.services.engagement import (
         build_3c_prompt,
         queue_engagement,
     )
-    from app.services.dmr import call_dmr_chat
 
     async with async_session_maker() as db:
         # 1. score unscored candidates → queue actions
@@ -58,13 +61,28 @@ async def _run(limit: int):
         await db.commit()
 
         # 3. dispatch auto-approved actions (likes) in score order
+        from datetime import UTC, datetime
+
+        from app.services.engagement_actors import x_actor
+        actors = {"twitter": x_actor.act}
         rows = (await db.execute(select(EngagementAction).where(
             EngagementAction.status == "pending").order_by(
             EngagementAction.score.desc()).limit(limit))).scalars().all()
-        done = []
+        done, failed = [], []
         for r in rows:
-            r.status = "dispatched"
-            done.append(f"{r.platform}:{r.action}@{r.target_author}")
+            actor = actors.get(r.platform)
+            if not actor:
+                r.status = "pending_actor"
+                failed.append(f"{r.platform}:no-actor")
+                continue
+            res = await actor(r, db)
+            if res.get("ok"):
+                r.status = "acted"
+                r.acted_at = datetime.now(UTC)
+                done.append(f"{r.platform}:{r.action}@{r.target_author}")
+            else:
+                r.status = "failed"
+                failed.append(f"{r.target_author}:{res.get('error','?')[:60]}")
         await db.commit()
         return {"scored": len(fresh), "drafted": len(drafts_needed),
-                "dispatched": done}
+                "dispatched": done, "failed": failed}
