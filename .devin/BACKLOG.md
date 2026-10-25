@@ -318,3 +318,4 @@ Done: digest pages Oct 16-19 backfilled in IntraVox (real DB data); `socialauto-
 | `test/backend-platform-coverage` branch | Carries session commits `1d2d837e`,`120277a5`,`dfe3bdf8` — merge via PR when reviewed | PR/merge decision |
 | uncommitted: `linkedin-browser-sidecar/Dockerfile` | Pre-existing local change, not from this session | Owner review |
 | ~~Stored n8n credentials dead~~ | DONE 2026-10-25 — 6 stored creds re-encrypted under current key; NEXTCLOUD_* env restored to .env+n8n compose mapping (lost on first recreate); TOTP cred holds empty secret — harmless while no user has two_factor_enabled | — |
+| env drift on workers/social-api/celery-beat | `env_drift_check.py` flags undeclared vars (ESPOCRM_*, SLACK_*, DMR_MEDIA_MODEL, TELEGRAM_NOTIFY_EMAIL, INTRANET_FEED_*, NEWSLETTER_SERVICE_TOKEN) — declare in compose anchor before next recreate | Next compose up |
