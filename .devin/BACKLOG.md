@@ -36,6 +36,21 @@ Leftovers for next sessions:
 
 ### 2026-10-25 — human-gate digest posted to Slack
 
+### 2026-10-25 — mailbox triage leftovers
+
+- **OMV health-check references nonexistent `collectd.service`** — daily
+  alert 'Service collectd is NOT running!' fires but no unit/process exists
+  on the host. Fix on omv: remove collectd from the health script's service
+  list (or guard with `systemctl cat collectd` existence check). Script is
+  not under `/usr/local/{bin,sbin}` or `/root/nas-daily-health*` — find it
+  via `grep -rln 'Daily health check' /etc /opt /srv` then edit.
+- **Instagram 'Confirm Email' (Oct 21, still open)** — Meta confirmation
+  challenge on the cloudless.gr IG account; owner clicks the link in that
+  message. Same thread as #785.
+- **shop-online heartbeat mail** (~2/hr from noreply@cloudless.gr) — inbox
+  noise; optional Sieve rule → folder on omv-ha dovecot.
+
+
 Consolidated 5-item human-action digest posted to the ops channel
 (`SLACK_CHANNEL_ID` bot-token path — `SLACK_ALERTS_CHANNEL_ID` still empty,
 alerts lane falls back to it). Items: LinkedIn 2FA push, WhatsApp SMS code,
