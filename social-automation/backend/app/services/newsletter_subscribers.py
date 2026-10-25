@@ -133,6 +133,7 @@ async def _subscriber_alert(sub: dict[str, str]) -> None:
 async def sync_newsletter_subscribers(series_urn: str) -> dict[str, Any]:
     """Full sync: DOM scrape -> dedupe -> EspoCRM + Slack welcome alert."""
     import redis.asyncio as aioredis
+
     from app.core.config import get_settings
 
     stats: dict[str, Any] = {"fetched": 0, "created": 0, "skipped": 0}
