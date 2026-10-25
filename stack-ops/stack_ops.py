@@ -199,8 +199,8 @@ async def wake(name: str) -> bool:
             # resolves relative bind-mount sources against it and the
             # daemon interprets the result on the host filesystem.
             args = ["compose", "-p", "cu130-slim",
-                    "-f", "/app/docker-compose.yml",
-                    "--env-file", "/app/.env"]
+                    "-f", "/repo/docker-compose.yml",
+                    "--env-file", "/repo/.env"]
             if COMPOSE_HOST_DIR:
                 args += ["--project-directory", COMPOSE_HOST_DIR]
             rc, out = await docker(
