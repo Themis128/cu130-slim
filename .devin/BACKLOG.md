@@ -120,6 +120,14 @@ decisions. Owner replies there or on the GitHub issues → agent picks up.
   @cloudless.gr — threads-read.py fully live.
   Note: /session/login 409s while the bridge browser is busy with a sidecar
   session — use the manual navigate+click path instead.
+- **Human-gate unlocks researched 2026-10-25** (posted to ops Slack):
+  - #786 WhatsApp: `code_method=VOICE` alternative exists (Meta calls the
+    number, reads the code); request window frees ~2026-10-26 02:24Z —
+    auto-retry or fire VOICE then. WABA accepts a 2nd number (unverified
+    biz ≤2) — any spare number verifies today.
+  - #784: Meta app **test users** can message the page for real —
+    no second FB account needed; sidecar test-user login + page message.
+  - #785: confirmed no API surface for restriction status — phone only.
 ## Registered leftovers — 2026-10-21
 
 All entries below remain open until their acceptance criteria are verified.
