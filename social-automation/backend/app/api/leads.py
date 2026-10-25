@@ -327,6 +327,10 @@ class PublicSurveyRequest(BaseModel):
     page_path: str | None = Field(None, max_length=200)
     locale: str | None = Field(None, max_length=10)
     consent: bool | None = None
+    consent_at: str | None = Field(None, max_length=40)
+    # Originating social platform (linkedin/x/threads/instagram/facebook/tiktok)
+    # — feeds platform-aware nurture openers via meta_data.platform.
+    platform: str | None = Field(None, max_length=32)
 
 
 @router.post("/public/survey")
@@ -380,6 +384,8 @@ async def create_survey_public(
         meta["path"] = body.page_path
     if body.locale and _LOCALE_RE.match(body.locale):
         meta["locale"] = body.locale
+    if body.platform and _TOKEN_RE.match(body.platform):
+        meta["platform"] = body.platform[:32]
 
     await create_lead(
         db,
