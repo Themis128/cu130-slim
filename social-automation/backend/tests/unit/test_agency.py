@@ -458,3 +458,21 @@ def test_render_proposal_linkedin_phases():
     assert "Walk — boost validation" in body
     assert "Run — campaign scale" in body
     assert "€900" in body and "€1800" in body
+
+
+# ── Cheng et al. 2024 — influencer-entrepreneurship stage model ─────────────
+
+def test_influence_stage_progression():
+    from app.services.influence_stage import classify_stage
+
+    assert classify_stage(followers=0).key == "potential"
+    assert classify_stage(followers=500, engagement_rate=0.05).key == "formulation"
+    assert classify_stage(followers=2500).key == "formulation"
+    assert classify_stage(followers=15_000).key == "competence"
+    assert classify_stage(followers=500, engagement_rate=0.08).key == "competence"
+    assert classify_stage(followers=80_000, paid_collabs=5).key == "monetization"
+    assert classify_stage(followers=80_000, recurring_offers=1).key == "monetization"
+    assert classify_stage(followers=200_000, own_products=True).key == "reward"
+    # every stage carries actions + brand guidance
+    for s in __import__("app.services.influence_stage", fromlist=["STAGES"]).STAGES:
+        assert s.actions and s.brand_relation and s.attentional_capital
