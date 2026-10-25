@@ -596,3 +596,5 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 - omv-ha `sasl_passwd` may hold the original Resend key (the new `socialauto` key now in use — old can be revoked).
 - Rotate secrets pasted in chat: Google password, OAuth `GOCSPX` secret, `TH!…` password.
 - Dedicated `console-ops` sidecar so credential scraping doesn't fight platform sweeps.
+| IG `cloudless.gr` monetization verified on-phone 2026-10-25 | Partnership ads ON, branded-content eligible (green check); marketplace/affiliate/bonuses/subscriptions/gifts/badges gated on "Established presence" (followers+account age). Bio already → cloudless.gr/links. Stale `INSTAGRAM_PASSWORD` in social_secrets replaced with live one | follower growth |
+| WhatsApp `request_code` | beat auto-retries on cooldown (136024-gated) — owner just needs to read SMS when it lands, then verify-code+register | SMS receipt |
