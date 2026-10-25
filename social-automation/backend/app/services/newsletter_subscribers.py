@@ -152,16 +152,16 @@ def _personalized_note(sub: dict[str, str]) -> str:
     if headline:
         # first clause usually carries the role: "CTO at Acme" → "CTO"
         role = headline.split(" at ")[0].split("|")[0].split(",")[0].strip()
-    hook = (f"saw you're {role} — " if role and len(role) <= 60 else "")
+    hook = (f"saw you're {role}, " if role and len(role) <= 60 else "")
     # One-line company intro — who we are, not a pitch. The value ask comes
     # second, and only as an offer they can take or leave.
     # Audience is mixed: founders, solo consultants, small teams, and
     # companies alike — speak to the person, not just the org.
-    intro = ("For context — I run Cloudless, we help founders, teams and "
-             "companies move to cloud/serverless and ship the dashboards "
-             "that tell them it's working. ")
-    return (f"Thanks for subscribing to The Cloudless Build Log, {name} — "
-            f"{hook}really glad to have you. {intro}"
+    intro = ("For context: I run Cloudless, we help founders, teams and "
+             "companies move to cloud and serverless, and ship the "
+             "dashboards that tell them it's working. ")
+    return (f"Thanks for subscribing to The Cloudless Build Log, {name}. "
+            f"{hook}Really glad to have you. {intro}"
             f"If a future issue touches on something you're working "
             f"through, my inbox is open. And if you'd like the free site "
             f"audit or the benchmark report, just reply here with your "
@@ -177,7 +177,7 @@ async def _subscriber_alert(sub: dict[str, str]) -> None:
     from app.services.slack_notifications import post_alert_to_slack
     note = _personalized_note(sub)
     await post_alert_to_slack(
-        f":bell: *New newsletter subscriber* — {sub['name']}"
-        f"{(' — ' + sub['headline']) if sub['headline'] else ''}\n"
+        f":bell: *New newsletter subscriber* {sub['name']}"
+        f"{(' | ' + sub['headline']) if sub['headline'] else ''}\n"
         f"{sub['profile_url'] or '(no profile link)'}\n"
         f"Suggested welcome note:\n> {note}")
