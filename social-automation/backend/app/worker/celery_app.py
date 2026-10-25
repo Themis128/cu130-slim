@@ -710,7 +710,7 @@ celery_app.conf.update(
 # long as the child. Building it here (not at import time) is what prevents
 # forked parents from sharing connections into children.
 
-from celery.signals import worker_process_init, worker_process_shutdown  # noqa: E402
+from celery.signals import task_failure, worker_process_init, worker_process_shutdown  # noqa: E402
 
 
 @worker_process_init.connect
@@ -725,3 +725,24 @@ def _stop_worker_async_loop(**_kwargs):
     from app.worker._async import stop_worker_loop
 
     stop_worker_loop()
+
+
+@task_failure.connect
+def _notify_task_failure(sender=None, task_id=None, exception=None, **_kwargs):
+    """Post unexpected task failures to the ops channel — silent task
+    deaths currently only surface in docker logs."""
+    try:
+        import asyncio
+        from app.services.slack_notifications import post_alert_to_slack
+        name = getattr(sender, "name", str(sender))
+        msg = f":warning: Worker task failed `{name}`\n```{str(exception)[:300]}```"
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(post_alert_to_slack(msg))
+            else:
+                loop.run_until_complete(post_alert_to_slack(msg))
+        except RuntimeError:
+            asyncio.run(post_alert_to_slack(msg))
+    except Exception:  # noqa: BLE001 — never let the notifier crash the worker
+        pass
