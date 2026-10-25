@@ -205,6 +205,34 @@ class LinkedInAPIClient:
             f"{LINKEDIN_V2_BASE}/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
         ]
 
+    async def get_member_groups(self) -> list[dict[str, Any]]:
+        """Groups the authenticated member belongs to — Community Management
+        API surface (``r_member_social`` + the Community Management product).
+
+        Returns ``[{id, name, urn}, ...]`` — the ``urn`` values are the
+        ``container_urn`` targets for group posting. Requires the Community
+        Management product on the app (still pending approval — falls back
+        to an empty list with a warning, not a crash).
+        """
+        for url in (
+            f"{LINKEDIN_REST_BASE}/groupMemberships?q=member&member=urn:li:person:{{person_id}}",
+            f"{LINKEDIN_V2_BASE}/groupMemberships?q=member",
+        ):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(url, headers=self._headers())
+                    if resp.status_code >= 400:
+                        continue
+                    out = []
+                    for el in resp.json().get("elements", []):
+                        urn = el.get("group") or el.get("groupUrn") or ""
+                        out.append({"urn": urn, "name": el.get("name", "")})
+                    return out
+            except Exception:
+                continue
+        logger.info("get_member_groups: Community Management API not yet available")
+        return []
+
         elements: list[dict] = []
         async with httpx.AsyncClient(timeout=30.0) as client:
             for url in urls:
