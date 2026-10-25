@@ -48,6 +48,13 @@ export default function HomePage() {
         <FeatureGrid />
         <PlatformSupport />
         <CTASection />
+      {/* WebMCP declarative tools — agent-facing actions per the WebMCP draft */}
+      <form {...{ toolname: "check_api_health", tooldescription: "Check whether the SocialAuto API is healthy" }} action="/api/v1/health" method="get" hidden>
+        <input name="ping" value="1" {...{ toolparamdescription: "Ping flag; response body reports service health" }} />
+      </form>
+      <form {...{ toolname: "list_platforms", tooldescription: "List the social platforms SocialAuto can publish to" }} action="/api/v1/social/accounts" method="get" hidden>
+        <input name="format" value="json" {...{ toolparamdescription: "Response format" }} />
+      </form>
       </main>
       <PublicFooter />
     </div>

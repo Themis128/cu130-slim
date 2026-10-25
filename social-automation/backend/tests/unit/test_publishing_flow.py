@@ -1197,6 +1197,12 @@ async def test_tt_poll_terminal_states(monkeypatch):
     assert not r3.success and r3.skipped
     assert r3.platform_meta["tiktok"]["fail_reason"] == marker
 
+    # FAILED + publish_cancelled (developer cancel) → skipped, clarified
+    client5 = _tt_client(check_publish_status=AsyncMock(return_value={"data": {"status": "FAILED", "fail_reason": "publish_cancelled"}}))
+    r5 = await P._poll_tiktok_publish_status(client5, "p4", "DIRECT_POST", "u")
+    assert not r5.success and r5.skipped
+    assert "cancelled via" in r5.error
+
     # Timeout → non-skipped failure with detail
     client4 = _tt_client(check_publish_status=AsyncMock(return_value={"data": {"status": "PROCESSING_UPLOAD", "uploaded_bytes": 5}}))
     r4 = await P._poll_tiktok_publish_status(client4, "p3", "DIRECT_POST", "u", attempts=2, interval_sec=0)

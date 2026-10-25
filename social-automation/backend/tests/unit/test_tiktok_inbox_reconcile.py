@@ -137,6 +137,25 @@ async def test_reconcile_failed_status(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_reconcile_cancelled_status_marks_skipped(monkeypatch):
+    acc = _account()
+    cancelled = _target(acc, post_id="pub_cancelled")
+    stale = _target(acc, post_id="pub_stale")
+    check = AsyncMock(
+        side_effect=[
+            {"data": {"status": "CANCELLED"}},
+            {"data": {"status": "FAILED", "fail_reason": "publish_cancelled"}},
+        ]
+    )
+    db = _DB([_Res([cancelled, stale])])
+    _wire(monkeypatch, db, [cancelled, stale], check=check)
+    out = await rec._reconcile_async()
+    assert out["skipped"] == 2
+    assert cancelled.status == "skipped" and "publish_cancelled" in cancelled.error_message
+    assert stale.status == "skipped" and "publish_cancelled" in stale.error_message
+
+
+@pytest.mark.asyncio
 async def test_reconcile_inbox_pending_fresh_vs_stale(monkeypatch):
     acc = _account()
     fresh = _target(acc, published_at=datetime.now(UTC))

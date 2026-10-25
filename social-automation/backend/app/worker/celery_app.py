@@ -52,6 +52,10 @@ celery_app = Celery(
         "app.worker.tasks.skool_watch",
         "app.worker.tasks.monetization",
         "app.worker.tasks.promo_scan",
+        "app.worker.tasks.failure_learning",
+        "app.worker.tasks.edit_diff",
+        "app.worker.tasks.kakkava_sync",
+        "app.worker.tasks.agency",
     ],
 )
 
@@ -157,6 +161,27 @@ celery_app.conf.update(
             "soft_time_limit": 600,
             "time_limit": 900,
         },
+        # Agency pipeline — outbound site fetches, bounded per run.
+        "app.worker.tasks.agency.run_agency_triage_sweep": {
+            "soft_time_limit": 300,
+            "time_limit": 420,
+        },
+        "app.worker.tasks.agency.run_agency_audit_sweep": {
+            "soft_time_limit": 300,
+            "time_limit": 420,
+        },
+        "app.worker.tasks.agency.run_agency_proposal_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_pm_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_engineer_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
@@ -205,6 +230,15 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
+        "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
+        "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
+        "app.worker.tasks.kakkava_sync.sync_kakkava_corpus": {"queue": "default"},
+        # ── agency pipeline: lead triage → site audit → proposal → PM ──
+        "app.worker.tasks.agency.run_agency_triage_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_audit_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -290,9 +324,55 @@ celery_app.conf.update(
             "task": "app.worker.tasks.crm_engagement.run_crm_engagement_sweep",
             "schedule": crontab(minute="*/30"),
         },
+        # ── Autonomous agency (agent-led fixed-scope pipeline) ─────────
+        # Front Desk: classify new leads into the service catalog and
+        # queue a site audit when an auditable domain is found.
+        "agency-triage-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_triage_sweep",
+            "schedule": crontab(minute="*/15"),
+        },
+        # Architect: run the deterministic site audit for pending rows —
+        # demand-driven, only works while audits wait.
+        "agency-audit-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_audit_sweep",
+            "schedule": crontab(minute="*/10"),
+        },
+        # Sales drafter: completed audits become priced proposals in the
+        # Slack review lane — approval is always a human click.
+        "agency-proposal-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_proposal_sweep",
+            "schedule": crontab(minute="*/30"),
+        },
+        # Supervisor: 14-day milestone loop for won engagements, after the
+        # 09:00 digest so the PM report rides the morning batch.
+        "agency-pm-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_pm_sweep",
+            "schedule": crontab(hour=9, minute=20),
+        },
+        # Engineers (Joshi 2025 agentic-DevOps): draft PR manifests for
+        # sent proposals — plans only, humans/Devin implement.
+        "agency-engineer-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_engineer_sweep",
+            "schedule": crontab(hour=9, minute=40),
+        },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
             "schedule": 60.0,
+        },
+        # Failure-trajectory learning — classify failed post_targets into
+        # the signature taxonomy; signatures recurring >=3x in 7d escalate
+        # as remediation proposals (Slack + audit_logs, human stays the
+        # approval gate). Daily after the publish/analytics dust settles.
+        "failure-learning-sweep": {
+            "task": "app.worker.tasks.failure_learning.run_failure_learning_sweep",
+            "schedule": crontab(hour=10, minute=5),
+        },
+        # Weekly edit-diff voice learning (Sunday 07:00) — diffs generated
+        # vs kept copy on edited posts and proposes voice_signature
+        # improvements to the human (never auto-applies).
+        "edit-diff-sweep": {
+            "task": "app.worker.tasks.edit_diff.run_edit_diff_sweep",
+            "schedule": crontab(hour=7, minute=0, day_of_week="sun"),
         },
         # Daily SocialAuto report → Slack #socialauto is triggered by the
         # n8n workflow `socialauto-daily-slack-digest` (cron 0 9 * * * →
@@ -580,6 +660,16 @@ celery_app.conf.update(
             "task": "app.worker.tasks.skool_watch.watch_skool_vec",
             "schedule": 10800.0,  # every 3 hours
             "options": {"queue": "default"},
+        },
+        # Daily Kakkava doctrine sync — re-walk the read-only corpus mount,
+        # embed new/changed chunks into team_<id>_doctrine so generation
+        # recalls the current source material (services.kakkava.sync_corpus).
+        "kakkava-corpus-sync": {
+            "task": "app.worker.tasks.kakkava_sync.sync_kakkava_corpus",
+            "schedule": crontab(
+                hour=settings.KAKKAVA_SYNC_HOUR,
+                minute=settings.KAKKAVA_SYNC_MINUTE,
+            ),
         },
     },
 )

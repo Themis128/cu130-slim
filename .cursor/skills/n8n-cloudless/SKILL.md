@@ -193,6 +193,13 @@ From repo root:
 
 # Daily analytics + issues digest → Slack #socialauto
 .devin/skills/n8n-cloudless/scripts/deploy-daily-digest.py
+# Validate workflow JSON before import/publish (naming, error handling,
+# security, performance, docs). Exit 1 on issues — gate pre-deploy.
+node .devin/skills/n8n-cloudless/scripts/validate-n8n-workflow.js \
+    --dir n8n-workflows        # all local workflow files
+node .devin/skills/n8n-cloudless/scripts/validate-n8n-workflow.js \
+    --live cloudless-cf-carousel-linkedin   # or export from the container
+
 
 # Register in social app Workflows UI (template + deployed workflow)
 .devin/skills/n8n-cloudless/scripts/register-workflow.py

@@ -42,6 +42,8 @@ x-worker-env: &worker-env
   - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
+  - KAKKAVA_DIR=/mnt/kakkava
+  - KAKKAVA_SYNC_ENABLED=${KAKKAVA_SYNC_ENABLED:-true}
   - LANGUAGETOOL_URL=http://stack-ops:8010
   - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
   - CLOUDFLARE_AI_API_TOKEN=${CLOUDFLARE_AI_API_TOKEN:-}
@@ -167,6 +169,9 @@ x-worker-volumes: &worker-volumes
   # the stale copy baked into the image.
   - ./social-automation/backend/tests:/app/tests
   - ./social-automation/uploads:/app/uploads
+  # Kakkava doctrine corpus (host OneDrive folder) — read-only; the daily
+  # kakkava-corpus-sync beat ingests it into team_<id>_doctrine collections.
+  - ${KAKKAVA_HOST_DIR:-/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia}:/mnt/kakkava:ro
   - tunnel_url:/run/tunnel
   # Report notebooks — papermill executes /notebooks/reports/*.ipynb inside
   # workers; rendered outputs go to /notebooks/output (visible in Jupyter
@@ -333,7 +338,7 @@ services:
       - N8N_ERROR_SLACK_WEBHOOK_URL=${N8N_ERROR_SLACK_WEBHOOK_URL:-}
     extra_hosts:
       - host.docker.internal:host-gateway
-    mem_limit: 1280m
+    mem_limit: 768m
     memswap_limit: 2560m
     restart: unless-stopped
   n8n-sandbox:
@@ -494,7 +499,7 @@ services:
     networks:
       - backend
     ports:
-      - 127.0.0.1:9100:9000
+      - 127.0.0.1:9102:9000
       - 127.0.0.1:9101:9001
     environment:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
@@ -534,7 +539,7 @@ services:
       timeout: 10s
       retries: 5
       start_period: 30s
-    mem_limit: 1024m
+    mem_limit: 640m
     memswap_limit: 2048m
     restart: unless-stopped
 
@@ -725,6 +730,8 @@ services:
       - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
       - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
       - CHROMA_URL=http://chroma:8000
+      - KAKKAVA_DIR=/mnt/kakkava
+      - KAKKAVA_SYNC_ENABLED=${KAKKAVA_SYNC_ENABLED:-true}
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
       - LINKEDIN_REDIRECT_URI=${LINKEDIN_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/linkedin/callback}
@@ -900,6 +907,8 @@ services:
       - ./social-automation/backend/alembic:/app/alembic
       - ./social-automation/backend/tests:/app/tests
       - ./social-automation/uploads:/app/uploads
+      # Kakkava doctrine corpus (host OneDrive folder) — read-only.
+      - ${KAKKAVA_HOST_DIR:-/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia}:/mnt/kakkava:ro
       # Read-only access to notebook reports output for /api/v1/reports.
       - ./notebooks:/notebooks:ro
       - tunnel_url:/run/tunnel
@@ -933,7 +942,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    mem_limit: 2048m
+    mem_limit: 1024m
     memswap_limit: 4096m
     restart: unless-stopped
   # ── Metrics exporter ─────────────────────────────────────────────────────
@@ -1030,7 +1039,7 @@ services:
       retries: 3
       start_period: 30s
     stop_grace_period: 90s
-    mem_limit: 1536m
+    mem_limit: 1280m
     memswap_limit: 3072m
     restart: unless-stopped
 
@@ -1068,7 +1077,7 @@ services:
     # grace period SIGKILLs them mid-run and the task only redelivers after
     # the 3600s broker visibility timeout — stuck "STARTED" for an hour.
     stop_grace_period: 15m
-    mem_limit: 1536m
+    mem_limit: 1280m
     memswap_limit: 3072m
     restart: unless-stopped
 
@@ -1103,7 +1112,7 @@ services:
       retries: 3
       start_period: 30s
     stop_grace_period: 90s
-    mem_limit: 1536m
+    mem_limit: 1280m
     memswap_limit: 3072m
     restart: unless-stopped
 
@@ -1356,7 +1365,7 @@ services:
       start_period: 15s
     restart: unless-stopped
     # Memory cap — Chromium tabs multiply silently; matches runtime docker update 2026-09-26.
-    mem_limit: 2048m
+    mem_limit: 1536m
     memswap_limit: 4096m
 
   # ── TikTok Browser Automation sidecar (Playwright) ───────────────────────
@@ -1384,7 +1393,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    mem_limit: 1536m
+    mem_limit: 1024m
     memswap_limit: 3072m
     restart: unless-stopped
     <<: *public-dns
@@ -1424,9 +1433,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    mem_limit: 1536m
-    memswap_limit: 3072m
-    restart: no
+    # 1536m/2560m/4096m all oom_killed the renderer on feed+editor —
+    # headed (xvfb) Chromium needs real headroom on LinkedIn's Ember app.
+    mem_limit: 2048m
+    memswap_limit: 8192m
+    # CPU cap — heaviest renderer in the stack (Ember app); observed 71% of
+    # a core, so 3 gives burst headroom without letting it starve siblings.
+    cpus: '3'
+    restart: unless-stopped
     <<: *public-dns
 
   # ── LinkedIn MCP Server (read/search/messaging) ───────────────────────────
@@ -1543,7 +1557,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
-    mem_limit: 1536m
+    mem_limit: 1024m
     memswap_limit: 3072m
     restart: no
     <<: *public-dns
@@ -1580,7 +1594,7 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
-    mem_limit: 1024m
+    mem_limit: 512m
     memswap_limit: 2048m
     restart: no
     <<: *public-dns
@@ -1600,6 +1614,7 @@ services:
       - |
         fails=0
         last_started=""
+        last_pend=-1
         echo "[dmr-watchdog] watching http://host.docker.internal:12435/engines/v1/models"
 
         # Canonical configs mirror _BEST_PRACTICE_CONFIGS in
@@ -1608,24 +1623,54 @@ services:
         # so runtime flags must be included or they'd be stripped.
         # (The docker-model CLI plugin is Desktop-internal and I/O-errors
         # inside containers — use the HTTP endpoint like the app does.)
+        # Returns: 0 = applied, 2 = HTTP 409 (model loaded — the config is
+        # stored for the next load; expected and retried every minute,
+        # logged on transitions only), 1 = real failure.
         configure() {
-          wget -q -O /dev/null -T 10 \
+          resp=$$(wget -S -O /dev/null -T 10 \
             --header "Content-Type: application/json" \
             --post-data "$$1" \
-            http://host.docker.internal:12435/engines/_configure
+            http://host.docker.internal:12435/engines/_configure 2>&1)
+          case "$$resp" in
+            *"HTTP/1.1 2"*) return 0 ;;
+            *" 409 "*) return 2 ;;
+            *) echo "[dmr-watchdog] configure error: $$(echo "$$resp" | tail -n 1)"; return 1 ;;
+          esac
         }
 
         apply_configs() {
-          echo "[dmr-watchdog] applying canonical model configs"
-          ok=0
-          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","99","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","99","--threads","8"]}' || ok=1
-          configure '{"model":"ai/smollm3","context-size":2048,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","99","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
-          # Return 0 only if every push landed; a failed push retries next tick
-          return $$ok
+          pend=0
+          fail=0
+          try() {
+            configure "$$1"
+            rc=$$?
+            [ "$$rc" -eq 2 ] && pend=$$((pend+1))
+            [ "$$rc" -eq 1 ] && fail=$$((fail+1))
+            return 0
+          }
+          try '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}'
+          try '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}'
+          try '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}'
+          try '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}'
+          try '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","context-size":8192,"keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}'
+          try '{"model":"ai/smollm3","context-size":4096,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","0","--threads","4","--batch-size","512","--flash-attn","on"]}'
+          try '{"model":"cloudless/qwen3-4b-media:latest","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}'
+          if [ "$$fail" -gt 0 ]; then
+            echo "[dmr-watchdog] config apply failed ($$fail error(s), $$pend pending) - retrying next tick"
+            last_pend=-1
+            return 1
+          fi
+          # Pending (409) configs land on the next model load; the periodic
+          # tick keeps retrying, so only log when the pending count changes.
+          if [ "$$pend" -ne "$$last_pend" ]; then
+            if [ "$$pend" -gt 0 ]; then
+              echo "[dmr-watchdog] $$pend model config(s) pending (models loaded - apply on next load)"
+            else
+              echo "[dmr-watchdog] all canonical model configs applied"
+            fi
+            last_pend=$$pend
+          fi
+          return 0
         }
 
         tick=0
@@ -1639,8 +1684,6 @@ services:
             if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
               if apply_configs; then
                 last_started=$$started
-              else
-                echo "[dmr-watchdog] config apply failed - retrying next tick"
               fi
             fi
           fi
@@ -1730,7 +1773,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
-    mem_limit: 1024m
+    mem_limit: 512m
     memswap_limit: 2048m
     restart: unless-stopped
 

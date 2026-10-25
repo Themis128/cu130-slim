@@ -111,3 +111,56 @@ class TestStructuredPayload:
     @pytest.mark.asyncio
     async def test_non_dict_reply(self, monkeypatch):
         assert await _run(monkeypatch, None) is None
+
+
+@pytest.mark.asyncio
+async def test_llm_actions_uses_brain_learnings(monkeypatch):
+    """When the company journal has recent outcomes, the learnings block is
+    injected into the strategist prompt."""
+    import app.services.company_brain as cb
+
+    async def _recall(team_id, query, n_results=4):
+        return {
+            "hits": [
+                {"text": "posted X at 09:00 → +40% reach", "day": "2026-10-21", "kind": "daily-journal"},
+                {"text": "reels flopped twice", "day": None, "kind": "daily-journal"},
+            ],
+            "gap": None,
+        }
+
+    monkeypatch.setattr(cb, "recall_cited", _recall)
+    seen = {}
+
+    async def _inf(prompt, **kw):
+        seen["prompt"] = prompt
+        return {"text": "1. " + A1}
+
+    monkeypatch.setattr(INF, "call_inference", _inf)
+    out = await SR._llm_actions(object(), "tid", {}, _digest())
+    assert out == [A1]
+    assert "Recent outcomes from the company journal" in seen["prompt"]
+    assert "+40% reach" in seen["prompt"]
+    assert "2026-10-21" in seen["prompt"]  # cited date preserved
+
+
+@pytest.mark.asyncio
+async def test_llm_actions_brain_gap_named_in_prompt(monkeypatch):
+    """When recall has no evidence, the gap reason is stated — the strategist
+    must not assume a history that isn't there."""
+    import app.services.company_brain as cb
+
+    async def _recall(team_id, query, n_results=4):
+        return {"hits": [], "gap": "no brain collection — journal has never run"}
+
+    monkeypatch.setattr(cb, "recall_cited", _recall)
+    seen = {}
+
+    async def _inf(prompt, **kw):
+        seen["prompt"] = prompt
+        return {"text": "1. " + A2}
+
+    monkeypatch.setattr(INF, "call_inference", _inf)
+    out = await SR._llm_actions(object(), "tid", {}, _digest())
+    assert out == [A2]
+    assert "no brain collection" in seen["prompt"]
+    assert "Recent outcomes" not in seen["prompt"]

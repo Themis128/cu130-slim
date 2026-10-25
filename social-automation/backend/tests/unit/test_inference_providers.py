@@ -1146,3 +1146,40 @@ async def test_nvidia_flux_pipeline_no_image(monkeypatch):
             "p", "http://nv/dev", "k1", "http://nv/ktx", "k2"
         )
     assert ei.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_provider_non200_errors(monkeypatch):
+    # HF chat non-200 → 502
+    _http(monkeypatch, posts=[_Resp(429, text="rate limited")])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_hf_chat("p", "m", "k")
+    assert ei.value.status_code == 502 and "HF text fallback" in ei.value.detail
+
+    # HF txt2img non-200 → 502
+    _http(monkeypatch, posts=[_Resp(503, text="loading")])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_hf_txt2img("p", "m", "k")
+    assert "HF txt2img fallback" in ei.value.detail
+
+    # HF img2img non-200 → 502
+    _http(monkeypatch, posts=[_Resp(500, text="boom")])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_hf_img2img("p", "b64", "m", "k")
+    assert "HF img2img fallback" in ei.value.detail
+
+    # Pixazo: generate ok but image download non-200 → 502
+    _http(
+        monkeypatch,
+        posts=[_Resp(200, {"output": "https://img.x/i.png"})],
+        gets=[_Resp(404, text="gone")],
+    )
+    with pytest.raises(HTTPException) as ei:
+        await I._call_pixazo_txt2img("p", "k")
+    assert "Pixazo image download failed" in ei.value.detail
+
+    # Together txt2img non-200 → 502
+    _http(monkeypatch, posts=[_Resp(402, text="no credits")])
+    with pytest.raises(HTTPException) as ei:
+        await I._call_together_txt2img("p", "m", "k")
+    assert "Together txt2img fallback" in ei.value.detail

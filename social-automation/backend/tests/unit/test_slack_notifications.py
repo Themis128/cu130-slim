@@ -751,3 +751,16 @@ async def test_fanout_talk_failure_is_silent(monkeypatch):
     mod.blocks_to_text = lambda blocks: ""
     monkeypatch.setitem(sys.modules, "app.services.nextcloud_talk", mod)
     await sn._fanout_talk("hello", "digest")
+
+
+@pytest.mark.asyncio
+async def test_fanout_talk_failure_is_swallowed(monkeypatch):
+    import app.services.nextcloud_talk as nt
+
+    async def boom(*a, **kw):
+        raise RuntimeError("talk down")
+
+    monkeypatch.setattr(nt, "post_to_talk", boom)
+    import app.services.slack_notifications as SN
+
+    await SN._fanout_talk("text", "digest")  # must not raise

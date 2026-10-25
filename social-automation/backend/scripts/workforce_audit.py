@@ -145,43 +145,42 @@ WORKFORCE = [
         guardrails=("write only plausible follower counts (_plausible_follower_count guard)",),
         fallback="per-platform error recorded; next sweep retries",
         evidence=[
-            # per-account staleness: the min over accounts of each account's
-            # latest snapshot — a fresh account can no longer hide stale ones
+            # liveness is the per-attempt account_sync event — fires for every
+            # synced account every run. follower_snapshots is a change log with
+            # a 7-day heartbeat: flat counts write nothing for days and would
+            # read dark on a fully healthy worker.
             (
-                "stalest follower account",
+                "stalest synced account",
                 "SELECT min(last) FROM ("
-                "  SELECT social_account_id, max(captured_at) AS last"
-                "  FROM follower_snapshots GROUP BY social_account_id) s"
+                "  SELECT social_account_id, max(occurred_at) AS last"
+                "  FROM analytics_events WHERE event_type = 'account_sync'"
+                "  GROUP BY social_account_id) s"
                 "  JOIN social_accounts sa ON sa.id = s.social_account_id"
                 "  WHERE sa.status = 'active'",
             ),
             (
-                "stalest post-analytics account",
-                "SELECT min(last) FROM ("
-                "  SELECT sa.id AS acct, max(pas.captured_at) AS last"
-                "  FROM post_analytics_snapshots pas"
-                "  JOIN posts p ON p.id = pas.post_id"
-                "  JOIN post_targets pt ON pt.post_id = p.id"
-                "  JOIN social_accounts sa ON sa.id = pt.social_account_id"
-                "  GROUP BY sa.id) s WHERE true",
+                # post metrics only re-measure inside the publish window —
+                # quiet accounts go stale by design, so per-account min()
+                # reads dark forever. Output freshness is the real signal.
+                "latest post-analytics write",
+                "SELECT max(captured_at) FROM post_analytics_snapshots",
             ),
         ],
         escalations=[
             (
-                "active accounts w/ stale follower sync",
+                "active accounts w/ stale analytics sync",
                 "SELECT count(*) FROM ("
                 "  SELECT sa.id FROM social_accounts sa"
                 "  LEFT JOIN LATERAL ("
-                "    SELECT max(captured_at) AS last"
-                "    FROM follower_snapshots fs"
-                "    WHERE fs.social_account_id = sa.id) s ON true"
+                "    SELECT max(occurred_at) AS last"
+                "    FROM analytics_events ae"
+                "    WHERE ae.social_account_id = sa.id"
+                "    AND ae.event_type = 'account_sync') s ON true"
                 "  WHERE sa.status = 'active'"
-                "  AND sa.platform IN"
-                "      ('facebook','instagram','linkedin','x',"
-                "       'tiktok','threads')"
+                "  AND sa.platform NOT IN ('whatsapp')"
                 "  AND (s.last IS NULL"
-                "       OR s.last < now() - interval '1 hour')) t",
-                "per-account sync is failing — check the platform's follower endpoint (see follower-analytics-guard)",
+                "       OR s.last < now() - interval '3 hours')) t",
+                "per-account sync is failing — check the platform's analytics path (see follower-analytics-guard)",
             )
         ],
     ),
@@ -218,7 +217,8 @@ WORKFORCE = [
         escalations=[
             (
                 "accounts not active",
-                "SELECT count(*) FROM social_accounts WHERE status <> 'active'",
+                "SELECT count(*) FROM social_accounts WHERE status <> 'active' "
+                "AND meta_data->>'deleted_at' IS NULL",
                 "session healing exhausted its ladder — human re-login needed",
             )
         ],
@@ -299,9 +299,12 @@ WORKFORCE = [
             "30-day dedup gate on campaign sends",
         ),
         fallback="send failure logged in email_logs; next sweep retries",
-        # real drip volume = campaign recipients sent — email_logs is the
-        # transactional stream (password resets would fake drip activity)
-        evidence=[("last drip mail", "SELECT max(sent_at) FROM email_recipients WHERE status = 'sent'")],
+        # liveness = the per-sweep audit artifact; sent mail is demand-driven
+        # output (zero qualifying recipients reads dark on a healthy worker)
+        evidence=[(
+            "last drip sweep",
+            "SELECT max(created_at) FROM audit_logs WHERE action='email-drip' AND resource_type='sweep'",
+        )],
     ),
     Worker(
         "lead-research",
@@ -329,6 +332,109 @@ WORKFORCE = [
         goal="Dedupe and quarantine dirty CRM data weekly",
         guardrails=("quarantine beats delete — no bulk row removal",),
         fallback="conflicts parked for human review",
+    ),
+    # ── Autonomous agency pipeline (agent-led fixed-scope model) ──────
+    Worker(
+        "agency-front-desk",
+        "app.worker.tasks.agency.run_agency_triage_sweep",
+        "default",
+        900,  # 15 min
+        goal="Classify every new lead into the service catalog and queue a site audit",
+        guardrails=(
+            "explainable routing only — deterministic keyword model, matched signals recorded",
+            "never email or contact a lead — triage writes notes and audit rows only",
+        ),
+        fallback="lead left untriaged; next sweep retries",
+        demand_driven=True,
+        evidence=[("last audit queued", "SELECT max(created_at) FROM agency_audits")],
+        pending_sql="SELECT count(*) FROM leads WHERE NOT COALESCE(meta_data ? 'agency_triaged', false)",
+    ),
+    Worker(
+        "agency-architect",
+        "app.worker.tasks.agency.run_agency_audit_sweep",
+        "default",
+        600,  # 10 min
+        goal="Deliver a deterministic site audit minutes after a lead arrives",
+        guardrails=(
+            "measured data only — every finding cites a real response/header",
+            "SSRF-guarded fetches — public URLs only (url_safety)",
+        ),
+        fallback="audit row → failed with error; next sweep does not retry",
+        demand_driven=True,
+        evidence=[("last completed audit", "SELECT max(completed_at) FROM agency_audits")],
+        pending_sql="SELECT count(*) FROM agency_audits WHERE status='pending'",
+        escalations=[
+            (
+                "failed audits",
+                "SELECT count(*) FROM agency_audits WHERE status='failed' AND created_at > now() - interval '7 days'",
+                "site unreachable or rejected by SSRF guard — a human must confirm the lead's URL",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-proposals",
+        "app.worker.tasks.agency.run_agency_proposal_sweep",
+        "default",
+        1800,  # 30 min
+        goal="Turn every completed audit into a priced fixed-scope proposal draft",
+        guardrails=(
+            "never auto-send — a proposal leaves only via human approve",
+            "prices come from the fixed catalog — never invent a number",
+        ),
+        autonomy="review",  # Slack approve/reject is the gate
+        fallback="audit stays unproposed; next sweep retries",
+        demand_driven=True,
+        evidence=[("last proposal drafted", "SELECT max(created_at) FROM agency_proposals")],
+        pending_sql="SELECT count(*) FROM agency_audits a WHERE a.status='completed' AND NOT EXISTS (SELECT 1 FROM agency_proposals p WHERE p.audit_id=a.id)",
+        escalations=[
+            (
+                "stale drafts",
+                "SELECT count(*) FROM agency_proposals WHERE status='draft' AND created_at < now() - interval '3 days'",
+                "draft awaiting human decision — the front desk promised a fast answer",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-pm",
+        "app.worker.tasks.agency.run_agency_pm_sweep",
+        "default",
+        DAY,
+        goal="Drive every won engagement through the 14-day milestone plan",
+        guardrails=(
+            "client updates are drafts for a human — never mailed directly",
+            "scope is fixed at kickoff — the agent never expands it",
+        ),
+        autonomy="review",
+        fallback="milestone stays pending; next daily sweep retries",
+        demand_driven=True,
+        evidence=[("last client update", "SELECT max(last_client_update_at) FROM agency_projects")],
+        pending_sql="SELECT count(*) FROM agency_projects WHERE status='active'",
+        escalations=[
+            (
+                "overdue projects",
+                "SELECT count(*) FROM agency_projects WHERE status='stalled'",
+                "project passed its 14-day due date — a human must reset scope or close it",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-engineer",
+        "app.worker.tasks.agency.run_agency_engineer_sweep",
+        "default",
+        DAY,
+        goal="Turn every sent proposal into a reviewable PR manifest",
+        guardrails=(
+            "plans only — never write client code or open PRs autonomously",
+            "every plan declares CI gate + rollback — no plan ships without both",
+        ),
+        autonomy="review",  # humans/Devin execute; codegen needs graduation
+        fallback="proposal stays unplanned; next sweep retries",
+        demand_driven=True,
+        evidence=[(
+            "last plan drafted",
+            "SELECT max(updated_at) FROM agency_proposals WHERE meta_data ? 'engineering_plan'",
+        )],
+        pending_sql="SELECT count(*) FROM agency_proposals WHERE status='sent' AND NOT COALESCE(meta_data ? 'engineering_plan', false)",
     ),
     Worker(
         "datalake-export",
@@ -360,6 +466,46 @@ WORKFORCE = [
         # artifact — celery run-count is the evidence here
     ),
     Worker(
+        "failure-learner",
+        "app.worker.tasks.failure_learning.run_failure_learning_sweep",
+        "default",
+        DAY,
+        goal="Convert recurring publish-failure signatures into remediation proposals",
+        guardrails=(
+            "proposals only — never auto-apply a fix or edit production code",
+            "read-only on post_targets; writes are audit_log artifacts only",
+            "dedupe proposals inside the cooldown — never spam the same signature",
+        ),
+        autonomy="review",  # proposals land for a human; nothing self-executes
+        fallback="sweep failure logged; next daily run retries",
+        evidence=[
+            (
+                "last learning sweep",
+                "SELECT max(created_at) FROM audit_logs WHERE action='failure-learning' AND resource_type='sweep'",
+            )
+        ],
+    ),
+    Worker(
+        "voice-learner",
+        "app.worker.tasks.edit_diff.run_edit_diff_sweep",
+        "default",
+        7 * DAY,
+        goal="Distill recurring human edits into voice_signature suggestions",
+        guardrails=(
+            "suggestions only — never edit voice_signature or brand_voice directly",
+            "read-only on posts; writes are audit_log artifacts only",
+            "single edits are taste, not signal — patterns need >=2 posts at >=40% share",
+        ),
+        autonomy="review",
+        fallback="sweep failure logged; next weekly run retries",
+        evidence=[
+            (
+                "last edit-diff sweep",
+                "SELECT max(created_at) FROM audit_logs WHERE action='edit-diff' AND resource_type='sweep'",
+            )
+        ],
+    ),
+    Worker(
         "content-factory",
         "",
         "publishing",
@@ -377,6 +523,26 @@ WORKFORCE = [
         autonomy="review",  # quality gate before publish
         fallback="generation failure → draft skipped, never posted empty",
         evidence=[("last post drafted", "SELECT max(created_at) FROM posts")],
+    ),
+    Worker(
+        "kakkava-sync",
+        "app.worker.tasks.kakkava_sync.sync_kakkava_corpus",
+        "default",
+        DAY,
+        goal="Keep team_<id>_doctrine Chroma collections in sync with the Kakkava corpus folder",
+        guardrails=(
+            "read-only on the corpus mount — never writes to KAKKAVA_DIR",
+            "fail-silent: missing folder or Chroma outage yields empty stats, never crashes the sweep",
+            "idempotent — content-hash skips mean re-runs are safe",
+        ),
+        autonomy="auto",
+        fallback="per-team sync failure logged in worker output + audit_logs row records errors count",
+        evidence=[
+            (
+                "last corpus sync",
+                "SELECT max(created_at) FROM audit_logs WHERE action='kakkava-sync' AND resource_type='sweep'",
+            )
+        ],
     ),
 ]
 
@@ -469,8 +635,95 @@ async def audit() -> dict:
             if entry["status"] == "ok" and not w.scheduled:
                 entry["status"] = "unverified"
             out["workers"].append(entry)
+        await _persist_verdicts(db, out)
+        out["autonomy_proposals"] = await _autonomy_proposals(db)
     out["ungoverned"] = [w["name"] for w in out["workers"] if w["status"] == "ungoverned"]
     return out
+
+
+# ── Earned autonomy ladder (OpenMAO pattern: autonomy is earned, not assumed) ──
+# Every audit run persists one verdict row per worker into audit_logs — that
+# history IS the worker's track record. Ladder tiers: supervised → review →
+# auto. A streak of clean audits proposes graduation one tier up; a recent
+# dark/escalation/ungoverned verdict on an "auto" worker proposes narrowing.
+# Proposals are advisory — a human edits the Worker contract to apply them.
+
+AUTONOMY_LADDER = ("supervised", "review", "auto")
+GRADUATE_AFTER = 10  # consecutive clean audits to propose promotion
+DEMOTE_WITHIN = 7  # recent runs scanned for failure verdicts
+VERDICT_LOOKBACK_DAYS = 90
+_CLEAN = {"ok", "idle"}
+_BAD = {"dark", "escalation", "ungoverned"}
+
+
+async def _persist_verdicts(db, report: dict) -> None:
+    """One audit-log verdict row per worker per run — the track record."""
+    from app.models.user import AuditLog
+
+    team_id = (await db.execute(text("SELECT id FROM teams ORDER BY created_at LIMIT 1"))).scalar()
+    if not team_id:
+        return
+    for w in report["workers"]:
+        db.add(AuditLog(
+            team_id=team_id,
+            action="workforce-verdict",
+            resource_type="worker",
+            resource_id=w["name"],
+            detail=w["status"],
+            meta={"status": w["status"], "autonomy": w["governance"]["autonomy"]},
+        ))
+    await db.commit()
+
+
+async def _autonomy_proposals(db) -> list[dict]:
+    """Read the verdict history and emit graduation/demotion proposals."""
+    from sqlalchemy import select
+
+    from app.models.user import AuditLog
+
+    since = datetime.now(UTC) - timedelta(days=VERDICT_LOOKBACK_DAYS)
+    rows = (
+        await db.execute(
+            select(AuditLog.resource_id, AuditLog.meta)
+            .where(AuditLog.action == "workforce-verdict", AuditLog.created_at >= since)
+            .order_by(AuditLog.created_at.desc())
+        )
+    ).all()
+    history: dict[str, list[str]] = {}
+    for rid, meta in rows:
+        history.setdefault(rid, []).append((meta or {}).get("status", "ok"))
+
+    proposals: list[dict] = []
+    by_name = {w.name: w for w in WORKFORCE}
+    for name, verdicts in history.items():
+        w = by_name.get(name)
+        if not w:
+            continue
+        tier = AUTONOMY_LADDER.index(w.autonomy) if w.autonomy in AUTONOMY_LADDER else -1
+        streak = 0
+        for v in verdicts:
+            if v in _CLEAN:
+                streak += 1
+            else:
+                break
+        recent_bad = [v for v in verdicts[:DEMOTE_WITHIN] if v in _BAD]
+        if recent_bad and w.autonomy == "auto":
+            proposals.append({
+                "worker": name,
+                "direction": "demote",
+                "from": w.autonomy,
+                "to": "review",
+                "why": f"{len(recent_bad)} failure verdict(s) in last {DEMOTE_WITHIN} audits — narrow scope until clean",
+            })
+        elif streak >= GRADUATE_AFTER and 0 <= tier < len(AUTONOMY_LADDER) - 1:
+            proposals.append({
+                "worker": name,
+                "direction": "graduate",
+                "from": w.autonomy,
+                "to": AUTONOMY_LADDER[tier + 1],
+                "why": f"{streak} consecutive clean audits — track record supports widening",
+            })
+    return proposals
 
 
 def render_governance(report: dict) -> str:
@@ -511,6 +764,12 @@ def render(report: dict) -> str:
     lines += ["", "attention: " + (", ".join(bad) if bad else "none — all workers clocked in")]
     if unv:
         lines.append("unverified (no output artifact to check): " + ", ".join(unv))
+    props = report.get("autonomy_proposals") or []
+    if props:
+        lines.append("")
+        lines.append("autonomy proposals (advisory — edit the Worker contract to apply):")
+        for p in props:
+            lines.append(f"  {'▲' if p['direction'] == 'graduate' else '▼'} {p['worker']}: {p['from']} → {p['to']} — {p['why']}")
     return "\n".join(lines)
 
 
@@ -519,16 +778,27 @@ async def push_slack(report: dict) -> None:
     from app.services.slack_notifications import post_alert_to_slack
 
     bad = [w for w in report["workers"] if w["status"] in ("dark", "escalation", "ungoverned")]
-    if not bad:
+    props = report.get("autonomy_proposals") or []
+    if not bad and not props:
         return
-    lines = [
-        "*Agent workforce needs a human*",
-        *[
-            f"• `{w['name']}` — {w['status']}"
-            + ("".join(f" | {e['label']}={e['count']} — {e['why']}" for e in w["escalations"] if e["count"]) if w["status"] == "escalation" else "")
-            for w in bad
-        ],
-    ]
+    lines = []
+    if bad:
+        lines += [
+            "*Agent workforce needs a human*",
+            *[
+                f"• `{w['name']}` — {w['status']}"
+                + ("".join(f" | {e['label']}={e['count']} — {e['why']}" for e in w["escalations"] if e["count"]) if w["status"] == "escalation" else "")
+                for w in bad
+            ],
+        ]
+    if props:
+        if lines:
+            lines.append("")
+        lines.append("*Autonomy ladder — proposals (advisory)*")
+        lines += [
+            f"• `{p['worker']}` {p['direction']}: {p['from']} → {p['to']} — {p['why']}"
+            for p in props
+        ]
     await post_alert_to_slack("\n".join(lines))
 
 

@@ -195,3 +195,169 @@ async def test_disabled_brain_no_ops(brain_on, monkeypatch):
     monkeypatch.setattr(cb.settings, "COMPANY_BRAIN_ENABLED", False)
     assert await cb.recall(uuid.uuid4(), "anything") == []
     assert await cb.remember(uuid.uuid4(), "d1", "text") is False
+
+
+@pytest.mark.asyncio
+async def test_remember_empty_text_and_no_embedding(brain_on, monkeypatch):
+    assert await cb.remember(uuid.uuid4(), "d1", "   ") is False
+    monkeypatch.setattr(cb, "_get_embedding", lambda *a, **k: _no_embed())
+    assert await cb.remember(uuid.uuid4(), "d1", "real text") is False
+
+
+async def _no_embed():
+    return None
+
+
+@pytest.mark.asyncio
+async def test_remember_missing_collection_and_transport_error(brain_on, monkeypatch):
+    # _wire_http captures the real AsyncClient once — a second patch in the
+    # same test would chain the previous lambda and keep the old transport.
+    # One handler with a mode switch avoids that.
+    state = {"mode": "missing"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if state["mode"] == "missing":
+            return httpx.Response(404, json={"missing": True})
+        if state["mode"] == "boom" and request.url.path.endswith("/add"):
+            raise httpx.ConnectError("chroma down")
+        return httpx.Response(200, json={"id": "col-1"})
+
+    _wire_http(monkeypatch, handler)
+    assert await cb.remember(uuid.uuid4(), "d1", "text") is False
+    state["mode"] = "boom"
+    assert await cb.remember(uuid.uuid4(), "d1", "text") is False
+
+
+@pytest.mark.asyncio
+async def test_recall_no_embedding_returns_empty(brain_on, monkeypatch):
+    monkeypatch.setattr(cb, "_get_embedding", lambda *a, **k: _no_embed())
+    assert await cb.recall(uuid.uuid4(), "q") == []
+
+
+@pytest.mark.asyncio
+async def test_recall_cited_returns_hits_with_provenance(brain_on, monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/query"):
+            return httpx.Response(200, json={
+                "documents": [["journal A", "journal B"]],
+                "metadatas": [[{"kind": "daily-journal", "day": "2026-10-21"}, {}]],
+                "distances": [[0.12, 0.44]],
+            })
+        return httpx.Response(200, json={"id": "col-1"})
+
+    _wire_http(monkeypatch, handler)
+    out = await cb.recall_cited(uuid.uuid4(), "what failed yesterday")
+    assert out["gap"] is None
+    assert out["hits"][0]["day"] == "2026-10-21"
+    assert out["hits"][0]["distance"] == 0.12
+    assert out["hits"][1]["kind"] is None  # missing metadata → None, not a crash
+
+
+@pytest.mark.asyncio
+async def test_recall_cited_gap_states(brain_on, monkeypatch):
+    # disabled → named gap
+    monkeypatch.setattr(cb.settings, "COMPANY_BRAIN_ENABLED", False)
+    out = await cb.recall_cited(uuid.uuid4(), "q")
+    assert out == {"hits": [], "gap": "company brain disabled or empty query"}
+    monkeypatch.setattr(cb.settings, "COMPANY_BRAIN_ENABLED", True)
+    assert (await cb.recall_cited(uuid.uuid4(), ""))["gap"] is not None
+
+    # no embedding → named gap
+    monkeypatch.setattr(cb, "_get_embedding", lambda *a, **k: _no_embed())
+    assert (await cb.recall_cited(uuid.uuid4(), "q"))["gap"] == "embedding unavailable"
+
+
+@pytest.mark.asyncio
+async def test_recall_cited_transport_gaps(brain_on, monkeypatch):
+    state = {"mode": "missing"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if state["mode"] == "missing":
+            return httpx.Response(404, json={})
+        if request.url.path.endswith("/query"):
+            if state["mode"] == "non200":
+                return httpx.Response(500, json={"err": "q"})
+            if state["mode"] == "empty":
+                return httpx.Response(200, json={"documents": [[]], "metadatas": [[]], "distances": [[]]})
+            raise httpx.ConnectError("chroma down")
+        return httpx.Response(200, json={"id": "col-1"})
+
+    _wire_http(monkeypatch, handler)
+    assert (await cb.recall_cited(uuid.uuid4(), "q"))["gap"] == "no brain collection — journal has never run"
+    state["mode"] = "non200"
+    assert (await cb.recall_cited(uuid.uuid4(), "q"))["gap"] == "chroma query HTTP 500"
+    state["mode"] = "empty"
+    assert (await cb.recall_cited(uuid.uuid4(), "q"))["gap"] == "no memories match — coverage gap"
+    state["mode"] = "boom"
+    assert "recall error" in (await cb.recall_cited(uuid.uuid4(), "q"))["gap"]
+
+
+@pytest.mark.asyncio
+async def test_recall_missing_collection_non200_and_error(brain_on, monkeypatch):
+    state = {"mode": "missing"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if state["mode"] == "missing":
+            return httpx.Response(404, json={})
+        if request.url.path.endswith("/query"):
+            if state["mode"] == "non200":
+                return httpx.Response(500, json={"err": "q"})
+            raise httpx.ConnectError("chroma down")
+        return httpx.Response(200, json={"id": "col-1"})
+
+    _wire_http(monkeypatch, handler)
+    assert await cb.recall(uuid.uuid4(), "q") == []
+    state["mode"] = "non200"
+    assert await cb.recall(uuid.uuid4(), "q") == []
+    state["mode"] = "boom"
+    assert await cb.recall(uuid.uuid4(), "q") == []
+
+
+def test_journal_text_skips_none_follower_snapshot():
+    signals = {
+        "published": {},
+        "failed": {},
+        "followers": {"linkedin": (None, 850), "tiktok": (4, None)},
+        "post_count": 0,
+    }
+    text = cb._journal_text("T", date(2026, 10, 18), signals)
+    assert "linkedin" not in text.split("## Followers")[1]
+    assert "tiktok: 4 (n/a vs prior day)" in text
+
+
+@pytest.mark.asyncio
+async def test_nextcloud_note_dav_fallback_and_not_configured(brain_on, monkeypatch):
+    monkeypatch.setattr(cb.settings, "NEXTCLOUD_BASE_URL", "")
+    monkeypatch.setattr(
+        cb.settings, "NEXTCLOUD_DAV_URL", "https://dav.test/remote.php/dav/files/t/"
+    )
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.host)
+        if "/apps/notes/" in request.url.path:
+            if request.method == "GET":
+                return httpx.Response(200, json=[])
+            return httpx.Response(200, json={"id": 1})
+        return httpx.Response(404, json={})
+
+    _wire_http(monkeypatch, handler)
+    assert await cb._write_nextcloud_note("T", "body") is True
+    assert seen and seen[0] == "dav.test"
+
+    monkeypatch.setattr(cb.settings, "NEXTCLOUD_DAV_URL", "")
+    assert await cb._write_nextcloud_note("T", "body") is False
+
+    monkeypatch.setattr(cb.settings, "NEXTCLOUD_BASE_URL", "https://cloud.test")
+    monkeypatch.setattr(cb.settings, "NEXTCLOUD_USERNAME", "   ")
+    assert await cb._write_nextcloud_note("T", "body") is False
+
+
+@pytest.mark.asyncio
+async def test_nextcloud_note_transport_error_returns_false(brain_on, monkeypatch):
+    def boom(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("nc down")
+
+    _wire_http(monkeypatch, boom)
+    assert await cb._write_nextcloud_note("T", "body") is False

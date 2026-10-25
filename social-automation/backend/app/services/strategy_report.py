@@ -1153,23 +1153,33 @@ async def _llm_actions(
     insights: dict[str, Any],
     digest: DigestReport,
 ) -> list[str] | None:
-    from app.services.company_brain import recall
+    from app.services.company_brain import recall_cited
     from app.services.inference import call_inference
 
     # Company-brain recall — pull the most relevant past-day journals so the
     # strategist sees what actually happened recently, not just the metrics.
-    learnings = await recall(
+    # Cited recall keeps each memory's date; the gap string names WHY
+    # evidence is missing instead of silently looking like "nothing happened".
+    recalled = await recall_cited(
         team_id,
         "daily journal publish outcomes follower growth failures",
         n_results=4,
     )
     learnings_block = ""
-    if learnings:
+    if recalled["hits"]:
         learnings_block = (
             "\nRecent outcomes from the company journal (use them — avoid "
             "repeating what failed, build on what grew):\n"
-            + "\n".join(f"- {doc[:400]}" for doc in learnings)
+            + "\n".join(
+                f"- [{h.get('day') or h.get('kind') or 'undated'}] {h['text'][:400]}"
+                for h in recalled["hits"]
+            )
             + "\n"
+        )
+    elif recalled.get("gap"):
+        learnings_block = (
+            f"\nCompany journal recall: {recalled['gap']} — decide from "
+            "today's metrics only; do not assume a history that isn't there.\n"
         )
 
     prompt = (

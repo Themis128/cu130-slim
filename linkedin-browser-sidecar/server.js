@@ -3340,6 +3340,107 @@ app.post("/profile/experience", handleAddExperience);
 app.post("/profile/education", handleAddEducation);
 app.post("/profile/skills", handleAddSkill);
 
+// Debug: evaluate JS in the live page (internal only, unauthenticated bridge).
+app.post("/debug/eval", async (req, res) => {
+  const { expr } = req.body || {};
+  if (!expr) return res.status(400).json({ error: "expr is required" });
+  try {
+    await ensureBrowser();
+    const value = await page.evaluate(`(async () => { ${expr} })()`);
+    res.json({ status: "ok", url: page.url(), value });
+  } catch (err) {
+    res.status(500).json({ error: err.message, url: page ? page.url() : null });
+  }
+});
+
+// Debug: real keystroke typing into a selector (trusted key events).
+app.post("/debug/type", async (req, res) => {
+  const { selector, text, delay, force } = req.body || {};
+  if (!text) return res.status(400).json({ error: "text required" });
+  try {
+    await ensureBrowser();
+    if (selector) {
+      if (force) {
+        await page.locator(selector).first().click({ force: true, timeout: 5000 }).catch(() => {});
+      } else {
+        await page.waitForSelector(selector, { timeout: 8000 });
+        await page.click(selector);
+      }
+    }
+    await page.keyboard.type(text, { delay: delay || 60 });
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: click a selector (trusted click).
+app.post("/debug/click", async (req, res) => {
+  const { selector } = req.body || {};
+  if (!selector) return res.status(400).json({ error: "selector required" });
+  try {
+    await ensureBrowser();
+    await page.click(selector, { timeout: 8000 });
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: press a real key (Enter, Tab, Escape, ArrowDown, ...).
+app.post("/debug/press", async (req, res) => {
+  const { key } = req.body || {};
+  if (!key) return res.status(400).json({ error: "key required" });
+  try {
+    await ensureBrowser();
+    await page.keyboard.press(key);
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: hover a selector (opens hover-driven menus).
+app.post("/debug/hover", async (req, res) => {
+  const { selector } = req.body || {};
+  if (!selector) return res.status(400).json({ error: "selector required" });
+  try {
+    await ensureBrowser();
+    await page.hover(selector, { timeout: 8000 });
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: wait ms and return current url + optional selector state.
+app.post("/debug/wait", async (req, res) => {
+  const { ms, selector } = req.body || {};
+  try {
+    await ensureBrowser();
+    await page.waitForTimeout(ms || 1000);
+    const visible = selector
+      ? await page.locator(selector).first().isVisible().catch(() => false)
+      : null;
+    res.json({ status: "ok", url: page.url(), visible });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Debug: navigate the shared page.
+app.post("/debug/navigate", async (req, res) => {
+  const { url } = req.body || {};
+  if (!url) return res.status(400).json({ error: "url is required" });
+  try {
+    await ensureBrowser();
+    await navigate(url);
+    res.json({ status: "ok", url: page.url() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Company page
 app.get("/company/:vanity", handleReadCompany);
 app.post("/company/:vanity/about", handleUpdateCompanyAbout);
@@ -3908,6 +4009,16 @@ app.get("/debug/form-html", async (req, res) => {
 });
 
 // ── Debug helpers (for admin dashboard navigation) ────────────────────────
+app.get("/debug/screenshot", async (req, res) => {
+  try {
+    await ensureBrowser();
+    await page.screenshot({ path: "/data/debug-shot.png", fullPage: !!req.query.full });
+    res.json({ status: "ok", path: "/data/debug-shot.png", url: page.url() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/debug/navigate", async (req, res) => {
   try {
     const { url } = req.body;

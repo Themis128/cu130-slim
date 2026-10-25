@@ -294,6 +294,20 @@ async def update_post(
     if "content_text" in update_data and update_data["content_text"]:
         update_data["content_text"] = await auto_correct(update_data["content_text"])
 
+    # Edit-diff learning (self-improvement loop): the first time a human
+    # edits a draft's copy, snapshot the generated baseline into meta_data
+    # so the weekly analyzer can distill kept-vs-drafted deltas into voice
+    # suggestions. Never overwrite an existing baseline — later edits still
+    # diff against the same original.
+    if update_data.get("content_text") and update_data["content_text"] != post.content_text:
+        # Write into the meta_data that will actually persist — an explicit
+        # `metadata` payload in the same request replaces post.meta_data.
+        meta = dict(update_data.get("meta_data") or post.meta_data or {})
+        if "original_text" not in meta:
+            meta["original_text"] = post.content_text
+            meta["original_text_captured_at"] = datetime.now(UTC).isoformat()
+            update_data["meta_data"] = meta
+
     for field, value in update_data.items():
         setattr(post, field, value)
 

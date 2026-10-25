@@ -770,3 +770,50 @@ def test_export_async_nextcloud_mirror(monkeypatch):
     bad = {k: v for k, v in mirrored.items() if str(v).startswith("ERROR")}
     assert good == list(uploaded)
     assert any("ops-health" in k for k in bad) or bad == {}
+
+
+def test_export_async_nextcloud_mirror_upload_failure(monkeypatch):
+    s = de.settings
+    monkeypatch.setattr(s, "DATALAKE_R2_BUCKET", "lake")
+    monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "acc")
+    monkeypatch.setattr(s, "CLOUDFLARE_API_TOKEN", "tok")
+
+    db = _OneExecDB(_Scalars([]))
+    monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
+    for name in ("_export_accounts", "_export_posts", "_export_metrics",
+                 "_export_followers", "_export_account_events", "_export_leads",
+                 "_export_telegram_channels", "_export_web_events",
+                 "_export_ad_snapshots", "_export_ad_daily",
+                 "_export_ad_demographics", "_export_monetization",
+                 "_export_email_campaigns"):
+        monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"h": 1}))
+    monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={"f": 1}))
+    monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
+    monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "build_team_insights", AsyncMock(return_value={}))
+    monkeypatch.setattr(de, "_put_json", AsyncMock(return_value={"size": 1}))
+
+    async def _upload(key, data, ctype):
+        if "socialauto-ops/" in key:      # matches _NC_MIRROR_RE
+            raise RuntimeError("webdav 507")
+        return f"remote://{key}"
+
+    import app.services.nextcloud_export as nce
+    monkeypatch.setattr(nce, "nextcloud_export_enabled", lambda: True)
+    monkeypatch.setattr(nce, "upload_bytes", _upload)
+
+    out = _run(de._export_async())
+    mirrored = out["nextcloud"]["mirrored"]
+    bad = {k: v for k, v in mirrored.items() if str(v).startswith("ERROR")}
+    assert any("ops" in k for k in bad) and "webdav 507" in next(iter(bad.values()))
+
+    # outer failure — nextcloud_export_enabled() raises → enabled=False + error
+    def _boom():
+        raise RuntimeError("nc config corrupt")
+
+    monkeypatch.setattr(nce, "nextcloud_export_enabled", _boom)
+    out = _run(de._export_async())
+    nc = out["nextcloud"]
+    assert nc["enabled"] is False and "nc config corrupt" in nc["error"]
