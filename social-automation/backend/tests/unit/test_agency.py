@@ -505,12 +505,76 @@ def test_nurture_due_step_logic():
     assert _due_step(mk(20, {"form": "newsletter", "unsubscribed": True})) is None
 
 
-def test_newsletter_subscriber_parse_and_dedupe():
-    from app.services.newsletter_subscribers import parse_subscriber
-    el = {"entityUrn": "urn:li:fsd_miniProfile:AbC123", "fullName": "Jane Doe",
-          "headline": "CTO", "publicIdentifier": "janedoe"}
-    sub = parse_subscriber(el)
-    assert sub["name"] == "Jane Doe" and "janedoe" in sub["profile_url"]
-    assert sub["urn"] == "urn:li:fsd_miniProfile:AbC123"
-    assert parse_subscriber({}) is None
-    assert parse_subscriber({"entityUrn": "urn:li:x"}) is None
+def test_newsletter_fetch_subscribers_maps_scrape_rows(monkeypatch):
+    import asyncio
+
+    import app.services.newsletter_subscribers as NS
+
+    calls = []
+
+    class _Resp:
+        def __init__(self, value):
+            self._value = value
+
+        def json(self):
+            return {"value": self._value}
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, path, json=None):
+            calls.append(path)
+            if path == "/debug/eval":
+                return _Resp({"count": 1, "subs": [
+                    {"name": "Jane Doe", "urn": "janedoe", "headline": "CTO"},
+                ]})
+            return _Resp(None)
+
+    async def _no_sleep(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(NS.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(NS.asyncio, "sleep", _no_sleep)
+    subs = asyncio.run(NS.fetch_subscribers("urn:li:fsd_contentSeries:123"))
+    assert calls == ["/debug/navigate", "/debug/eval"]
+    assert subs == [{
+        "name": "Jane Doe", "headline": "CTO", "urn": "urn:li:in:janedoe",
+        "profile_url": "https://www.linkedin.com/in/janedoe/",
+    }]
+
+
+def test_newsletter_fetch_subscribers_scrape_error_returns_empty(monkeypatch):
+    import asyncio
+
+    import app.services.newsletter_subscribers as NS
+
+    class _Resp:
+        def json(self):
+            return {"value": {"err": "no See all link"}}
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, path, json=None):
+            return _Resp()
+
+    async def _no_sleep(*_a, **_k):
+        return None
+
+    monkeypatch.setattr(NS.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(NS.asyncio, "sleep", _no_sleep)
+    assert asyncio.run(NS.fetch_subscribers("urn:li:fsd_contentSeries:123")) == []
