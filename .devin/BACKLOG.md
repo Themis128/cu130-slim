@@ -495,7 +495,7 @@ Done: digest pages Oct 16-19 backfilled in IntraVox (real DB data); `socialauto-
 | `test/backend-platform-coverage` branch | Carries session commits `1d2d837e`,`120277a5`,`dfe3bdf8` — merge via PR when reviewed | PR/merge decision |
 | uncommitted: `linkedin-browser-sidecar/Dockerfile` | Pre-existing local change, not from this session | Owner review |
 | ~~Stored n8n credentials dead~~ | DONE 2026-10-25 — 6 stored creds re-encrypted under current key; NEXTCLOUD_* env restored to .env+n8n compose mapping (lost on first recreate); TOTP cred holds empty secret — harmless while no user has two_factor_enabled | — |
-| ~~env drift on workers/social-api/celery-beat~~ | DONE 2026-10-25 — shared vars declared in x-worker-env anchor + social-api env; secrets in .env; remaining: nextcloud-mcp-server + comfyui-gpu are standalone containers not in compose (env drift only matters if recreated via compose) | — |
+| ~~env drift on workers/social-api/celery-beat~~ | DONE 2026-10-25 — shared vars declared in x-worker-env anchor + social-api env; secrets in .env; DONE — nextcloud-mcp-server added as a compose service (env→.env refs, named volume, port 9231); comfyui-gpu was already the `comfyui` service (DEBIAN_FRONTEND = image-baked, added to drift-check filter) | — |
 ## omv Docker state wipe + workspace restore — 2026-10-24
 
 **Incident:** `cloud.cloudless.gr` → Cloudflare error 1033 (~21:56 EEST).

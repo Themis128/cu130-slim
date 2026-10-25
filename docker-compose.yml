@@ -1833,7 +1833,26 @@ services:
     <<: *public-dns
 
 
+
+  nextcloud-mcp-server:
+    image: ghcr.io/cbcoutinho/nextcloud-mcp-server:0.198.3
+    container_name: nextcloud-mcp-server
+    networks: [backend]
+    restart: unless-stopped
+    environment:
+      - TZ=Europe/Athens
+      - NEXTCLOUD_HOST=${NEXTCLOUD_HOST:-https://cloud.cloudless.gr}
+      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
+      - NEXTCLOUD_PASSWORD=${NEXTCLOUD_PASSWORD:-}
+      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY:-}
+      - TOKEN_STORAGE_DB=${TOKEN_STORAGE_DB:-/data/tokens.db}
+    ports:
+      - "127.0.0.1:9231:8000"
+    volumes:
+      - nextcloud_mcp_data:/data
+
 volumes:
+  nextcloud_mcp_data: null
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
