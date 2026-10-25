@@ -14,9 +14,13 @@ async def _token(db):
     acct = (await db.execute(select(SocialAccount).where(
         SocialAccount.platform == "twitter",
         SocialAccount.status == "active"))).scalars().first()
-    if not acct or not acct.access_token:
+    if not acct:
         return None, None
-    return acct.access_token, (acct.meta_data or {}).get("user_id")
+    from app.core.security import decrypt_token
+    token = decrypt_token(acct.access_token_enc)
+    if not token:
+        return None, None
+    return token, (acct.meta_data or {}).get("user_id")
 
 
 async def act(action, db) -> dict:
