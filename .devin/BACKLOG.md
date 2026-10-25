@@ -102,6 +102,15 @@ decisions. Owner replies there or on the GitHub issues → agent picks up.
   sidecar context — restriction status stays a phone-side check (#785).
   Closure note posted to ops channel.
 
+- **Third sweep** — PR #873 landed: n8n workflow validator
+  (`n8n-cloudless/scripts/validate-n8n-workflow.js`, gate pre-import) +
+  `threads-ops/scripts/threads-read.py` (yarn-threads-cli read path).
+  Threads cookie bootstrap attempted via browser-novnc: profile has IG
+  `sessionid` but threads.com/login requires typing IG credentials (no
+  one-click SSO in that context) — **owner: log into threads.com once in
+  the noVNC session**, then export `THREADS_SESSION_ID`/`THREADS_CSRF_TOKEN`
+  into `.env` and run `threads-read.py whoami` to verify.
+
 ## Registered leftovers — 2026-10-21
 
 All entries below remain open until their acceptance criteria are verified.
