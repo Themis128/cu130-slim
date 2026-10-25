@@ -53,9 +53,13 @@ async def _run(limit: int):
                 EngagementCandidate.post_id == a.target_post_id))).scalars().first()
             if not cand:
                 continue
+            from app.services.engagement import classify_vector
+            vector, override = classify_vector(
+                cand.author_name + " " + cand.author_handle, cand.post_text)
             resp = await call_dmr_chat(
                 build_3c_prompt(cand.post_text, cand.author_name or cand.author_handle,
-                                voice_hints=["professional", "technical", "direct"]),
+                                voice_hints=["professional", "technical", "direct"],
+                                vector_override=override),
                 platform="linkedin", temperature=0.6, max_tokens=120)
             a.comment_draft = (resp.get("text") or "").strip().strip('"') or None
         await db.commit()

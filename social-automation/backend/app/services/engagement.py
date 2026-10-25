@@ -104,9 +104,31 @@ def score_candidate(c: EngagementCandidate, ryr_tier: str = "medium") -> Engagem
     return EngagementPlan("like", s, jitter, None, False, "1x action: like")
 
 
-def build_3c_prompt(post_text: str, author_name: str, voice_hints: list[str]) -> str:
+GROWTH_KEYWORDS = {"founder","startup","saas","bootstrap","mvp","run rate",
+                   "agency","overhead","revenue","growth","indie","vc","funding"}
+TECH_KEYWORDS = {"serverless","cloudflare","workers","edge","d1","r2","vercel",
+                 "latency","next.js","docker","k8s","database","engineer","cto"}
+
+def classify_vector(author_bio: str, post_text: str) -> tuple[str, str]:
+    """Dual-vector routing: GROWTH_UNIT_ECONOMICS vs TECH_STACK."""
+    text = (author_bio + " " + post_text).lower()
+    g = sum(k in text for k in GROWTH_KEYWORDS)
+    t = sum(k in text for k in TECH_KEYWORDS)
+    if t > g:
+        return ("TECH_STACK",
+                "Critique the infra angle — cold layouts, edge-data sync limits, "
+                "D1/R2 architecture, ultra-low latency configs. Code-adjacent peer tone.")
+    return ("GROWTH_UNIT_ECONOMICS",
+            "Focus on the 14-day delivery frame and cost compression — serverless "
+            "automation compressing 6-month roadmaps. No deep deployment jargon.")
+
+
+def build_3c_prompt(post_text: str, author_name: str, voice_hints: list[str],
+                    vector_override: str | None = None) -> str:
     """Prompt for the DMR LLM to write a 3C comment — never generic."""
+    override = f"- VECTOR FOCUS: {vector_override}\n" if vector_override else ""
     return f"""Write a LinkedIn comment replying to {author_name}'s post. Rules:
+{override}
 - COMPLIMENT one specific point (quote or paraphrase it — prove you read it)
 - CONTRIBUTION: add one net-new expert insight or data point
 - CONVERSATION: end with an open question inviting reply
