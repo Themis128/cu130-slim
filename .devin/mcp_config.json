@@ -169,6 +169,19 @@
     "/home/tbaltzakis/tools/telegram-mcp/main.py"
    ],
    "cwd": "/home/tbaltzakis/tools/telegram-mcp"
+  },
+  "google-photos": {
+   "command": "npx",
+   "args": [
+    "-y",
+    "@thenavidm/google-photos-mcp-cli",
+    "google-photos-mcp"
+   ],
+   "env": {
+    "GOOGLE_PHOTOS_CLIENT_ID": "${GOOGLE_PHOTOS_CLIENT_ID}",
+    "GOOGLE_PHOTOS_CLIENT_SECRET": "${GOOGLE_PHOTOS_CLIENT_SECRET}",
+    "GOOGLE_PHOTOS_REFRESH_TOKEN": "${GOOGLE_PHOTOS_REFRESH_TOKEN}"
+   }
   }
  }
 }
