@@ -944,7 +944,25 @@ Return JSON only:
                 slide[field] = await correct_text(slide[field])
     if copy.get("suggested_caption"):
         copy["suggested_caption"] = await correct_text(copy["suggested_caption"])
-    return copy
+    return _normalize_brand_domain(copy)
+
+
+_BRAND_WRONG_DOMAINS = ("cloudless.com", "www.cloudless.com")
+
+
+def _normalize_brand_domain(node):
+    """Generated copy occasionally emits cloudless.com — the brand domain is
+    cloudless.gr. Rewrite recursively across slides/caption so wrong-domain
+    links never reach render or publish."""
+    if isinstance(node, str):
+        for bad in _BRAND_WRONG_DOMAINS:
+            node = node.replace(bad, bad.replace(".com", ".gr"))
+        return node
+    if isinstance(node, dict):
+        return {k: _normalize_brand_domain(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_normalize_brand_domain(v) for v in node]
+    return node
 
 
 async def run_cloudless_carousel_pipeline(
