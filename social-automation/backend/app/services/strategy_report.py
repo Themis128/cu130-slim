@@ -65,6 +65,24 @@ _MONETIZATION_GATES: dict[str, list[tuple[int, str]]] = {
 _KPI_PLATFORM = "instagram"  # growth bet — the single KPI that unlocks the rest
 
 
+
+# Canonical display casing for platform names — naive .capitalize()/.title()
+# produces "Linkedin"/"Tiktok" which reads as typos in generated media/briefs.
+PLATFORM_DISPLAY: dict[str, str] = {
+    "linkedin": "LinkedIn", "tiktok": "TikTok", "instagram": "Instagram",
+    "facebook": "Facebook", "threads": "Threads", "twitter": "X (Twitter)",
+    "x": "X (Twitter)", "whatsapp": "WhatsApp", "telegram": "Telegram",
+    "viber": "Viber", "bluesky": "Bluesky", "youtube": "YouTube",
+}
+
+
+def platform_display(name: str | None) -> str:
+    """Canonical casing for a platform slug; falls back to capitalize()."""
+    if not name:
+        return "—"
+    return PLATFORM_DISPLAY.get(name.lower(), name.capitalize())
+
+
 @dataclass
 class BriefMedia:
     """One media asset attached to a recent published post."""
@@ -93,24 +111,7 @@ class BriefPost:
     pending_inbox: bool = False  # TikTok MEDIA_UPLOAD draft awaiting app publish
 
     @property
-    
-# Canonical display casing for platform names — naive .capitalize()/.title()
-# produces "Linkedin"/"Tiktok" which reads as typos in generated media/briefs.
-PLATFORM_DISPLAY: dict[str, str] = {
-    "linkedin": "LinkedIn", "tiktok": "TikTok", "instagram": "Instagram",
-    "facebook": "Facebook", "threads": "Threads", "twitter": "X (Twitter)",
-    "x": "X (Twitter)", "whatsapp": "WhatsApp", "telegram": "Telegram",
-    "viber": "Viber", "bluesky": "Bluesky", "youtube": "YouTube",
-}
-
-
-def platform_display(name: str | None) -> str:
-    """Canonical casing for a platform slug; falls back to capitalize()."""
-    if not name:
-        return "—"
-    return PLATFORM_DISPLAY.get(name.lower(), name.capitalize())
-
-def id_prefix(self) -> str:
+    def id_prefix(self) -> str:
         return (self.post_id or "")[:8]
 
 
