@@ -184,6 +184,7 @@ class Settings(BaseSettings):
         return [origin.strip() for origin in self.CORS_ORIGINS_STR.split(",")]
 
     # Social OAuth
+    LINKEDIN_NEWSLETTER_SERIES_URN: str = ""
     LINKEDIN_CLIENT_ID: str = ""
     LINKEDIN_CLIENT_SECRET: str = ""
     LINKEDIN_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/linkedin/callback"
