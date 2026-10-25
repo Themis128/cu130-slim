@@ -384,3 +384,84 @@ async def service_catalog(
         "delivery_days": DELIVERY_DAYS,
         "bundle_example_price_range": price_range(list(SERVICES)),
     }
+
+
+# ── Operational control board — 6-20 client metrics ───────────────────────
+
+@router.get("/metrics")
+async def agency_metrics(
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """The 6-20 client operational control board metrics.
+
+    TCD — token cost per delivery (ai_usage_logs, this month)
+    TSR — task success rate (post_targets published vs failed, 30d)
+    HIPC — human interventions per client-week (human_gate events)
+    PPL — parallel processing load (active Celery tasks)
+    ALV — audit lead vector (avg lead→audit minutes)
+    """
+    team_id = await _team_id(db, user)
+    now = datetime.now(UTC)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    thirty_d = now - timedelta(days=30)
+
+    from app.models.analytics import AiUsageLog  # adjust if name differs
+    from sqlalchemy import func
+
+    # TCD — total token cost this month across agency ops
+    tcd = (
+        await db.execute(
+            select(func.coalesce(func.sum(AiUsageLog.cost_usd), 0.0)).where(
+                AiUsageLog.team_id == team_id,
+                AiUsageLog.created_at >= month_start,
+            )
+        )
+    ).scalar_one()
+
+    # TSR — publish target success rate over 30d
+    pub = (
+        await db.execute(
+            select(func.count()).select_from(
+                select(PostTarget.status)
+                .where(PostTarget.updated_at >= thirty_d)
+                .subquery()
+            )
+        )
+    ).scalar_one() or 1
+    failed = (
+        await db.execute(
+            select(func.count())
+            .select_from(PostTarget)
+            .where(PostTarget.updated_at >= thirty_d, PostTarget.status == "failed")
+        )
+    ).scalar_one()
+    tsr = round(100.0 * (pub - failed) / max(pub, 1), 1)
+
+    # PPL — active Celery task threads (via inspect; fails open to 0)
+    ppl = 0
+    try:
+        from app.worker.celery_app import celery_app
+        active = celery_app.control.inspect().active() or {}
+        ppl = sum(len(v) for v in active.values())
+    except Exception:
+        ppl = 0
+
+    # ALV — avg minutes from lead creation to first audit this month
+    alv = (
+        await db.execute(
+            select(func.avg(func.extract("epoch", AgencyAudit.created_at - Lead.created_at) / 60))
+            .select_from(AgencyAudit)
+            .join(Lead, Lead.id == AgencyAudit.lead_id)
+            .where(AgencyAudit.team_id == team_id, AgencyAudit.created_at >= month_start)
+        )
+    ).scalar_one()
+
+    return {
+        "tcd_eur": round(float(tcd or 0), 2),
+        "tsr_pct": tsr,
+        "hipc_weekly": 0,  # populated once human-gate events are logged to DB
+        "ppl_active": ppl,
+        "alv_minutes": round(float(alv or 0), 1),
+        "period": "month_to_date",
+    }
