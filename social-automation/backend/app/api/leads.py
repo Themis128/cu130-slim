@@ -215,3 +215,95 @@ async def create_lead_public(
     delivery = await deliver_playbook(db, lead, email, already_sent=already_sent, settings=settings)
 
     return {"ok": True, "playbook_delivery": delivery, "playbook_url": url or None}
+
+
+class PublicAuditRequest(BaseModel):
+    email: str = Field(..., max_length=320)
+    name: str | None = Field(None, max_length=200)
+    url: str = Field(..., max_length=500)
+    website: str | None = Field(None, max_length=200)  # honeypot
+    site: str | None = Field(None, max_length=64)
+    form: str | None = Field(None, max_length=40)
+    page_path: str | None = Field(None, max_length=200)
+    locale: str | None = Field(None, max_length=10)
+    consent: bool | None = None
+
+
+@router.post("/public/audit")
+@limiter.limit("3/minute")
+async def create_audit_public(
+    body: PublicAuditRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Instant site-audit teaser in exchange for a lead's email + URL.
+
+    Runs the real Architect audit synchronously, returns the score and
+    issue count (never the full findings — those are the sales collateral
+    the proposal email carries). Creates a Lead + completed AgencyAudit so
+    the triage → proposal pipeline picks it up automatically.
+    """
+    from app.models.agency import AgencyAudit, AgencyAuditStatus
+    from app.services.site_audit import UnsafeUrlError, run_site_audit
+    from app.services.url_safety import validate_public_http_url
+
+    settings = get_settings()
+    if body.website:  # honeypot — silent success, same shape
+        return {"ok": True, "score": None, "issues": None}
+    email = body.email.strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Invalid email address")
+    if body.consent is False:
+        raise HTTPException(status_code=400, detail="Consent required")
+    team_id_raw = settings.CLOUDLESS_WEB_ANALYTICS_TEAM_ID
+    if not team_id_raw:
+        raise HTTPException(status_code=503, detail="Audit capture not configured")
+    team_id = uuid.UUID(team_id_raw)
+
+    try:
+        validate_public_http_url(body.url)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        audit = await run_site_audit(body.url)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    lead = await create_lead(
+        db,
+        team_id=team_id,
+        source=LeadSource.website,
+        name=(body.name or email.split("@", 1)[0])[:200],
+        email=email,
+        notes=f"free-audit — score {audit.get('score')}/100 for {body.url}",
+        meta_data={"form": "free-audit", "audit_url": body.url,
+                   "audit_score": audit.get("score")},
+    )
+    await db.flush()
+
+    row = AgencyAudit(
+        team_id=team_id,
+        lead_id=lead.id,
+        url=audit.get("url", body.url),
+        status=AgencyAuditStatus.completed,
+        score=audit.get("score"),
+        findings=audit.get("findings") or [],
+        recommended_services=audit.get("recommended_services") or [],
+        action_plan=audit.get("action_plan"),
+        meta_data={"source": "public-audit", "lead_email": email},
+        completed_at=datetime.now(UTC),
+    )
+    db.add(row)
+    await db.commit()
+
+    findings = audit.get("findings") or []
+    return {
+        "ok": True,
+        "score": audit.get("score"),
+        "issues": len(findings),
+        "teaser": (findings[0].get("detail") if findings else
+                   "Your site looks healthy — details in your inbox."),
+    }
