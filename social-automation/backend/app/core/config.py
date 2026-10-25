@@ -393,6 +393,12 @@ class Settings(BaseSettings):
     # Auth: Nextcloud app password (never the account login password).
     NEXTCLOUD_EXPORT_ENABLED: bool = False
     NEXTCLOUD_DAV_URL: str = ""
+
+    # Google sources — Photos Picker + Drive import share the OAuth client
+    GOOGLE_PHOTOS_CLIENT_ID: str = ""
+    GOOGLE_PHOTOS_CLIENT_SECRET: str = ""
+    GOOGLE_PHOTOS_REFRESH_TOKEN: str = ""
+    GOOGLE_DRIVE_REFRESH_TOKEN: str = ""
     NEXTCLOUD_USERNAME: str = ""
     NEXTCLOUD_APP_PASSWORD: str = ""
     NEXTCLOUD_EXPORT_ROOT: str = "SocialAuto"

@@ -568,6 +568,47 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 - [x] Confirmed `--n-gpu-layers 0` (CPU-pinned DMR fleet) is canonical in
   `dmr.py::_BEST_PRACTICE_CONFIGS` — the recreated watchdog now ships it;
   GPU stays free for ComfyUI.
+
+| X OAuth blocked on empty TWITTER_CLIENT_ID/SECRET in .env 2026-10-25 | `/api/v1/auth/oauth/twitter/authorize` exists and works but env vars are blank — user must paste them from console.x.com app, then restart social-api. NOTE: X_WEB_* cookie vars ARE set → publishing via browser fallback likely still works; only DM API auto-reply needs the OAuth token | Console creds |
+| tpCamera email alerts live 2026-10-25 | NC220 (192.168.1.42) → camera@cloudless.gr mailbox on omv-ha → new plaintext camrelay listener :2525 (LAN-only, permit_mynetworks — camera's TLS 1.0 can't do 587/465). Home/Away modes set (Home=off, Away=armed). RTSP :554 open but auth-gated — needs NC220 admin password for NAS recording | NC220 admin password |
+| @t_baltzakis IG partial tune 2026-10-25 | Name→"Themistoklis Baltzakis - Cloudless", bio→audit CTA, links→+cloudless.gr/links. TODO: professional-account switch for welcome/FAQ | Pro switch wizard |
+| Wireless ADB enabled 2026-10-25 | `adb tcpip 5555` → 192.168.1.77:5555 live; USB cable no longer needed (resets on reboot) | — |
+
+## 2026-10-25 (credential gates closed via sidecar scrape)
+
+### Done
+- TikTok Client Key/Secret scraped from developers.tiktok.com via browser-novnc → `.env` → `accounts/connect/tiktok` OAuth completed in-browser → account `active`. Both videos reposted.
+- X OAuth2 Client ID + regenerated Secret scraped from console.x.com (app 32806037) → `.env` → `accounts/connect/twitter` completed via public callback `social.cloudless.gr` → new account `active` (old `a89d6852` retired to `inactive`). Videos reposted to X.
+- Resend API key created via sidecar Google OAuth → `re_…` → `SMTP_PASSWORD` → test send OK to reviewer@cloudless.gr. Email notifications live.
+- Threads re-authed via noVNC login (4/4 cookies). TikTok web session re-validated (6/6 cookies).
+- `browser-novnc` localhost:8083 TCP forwarder (`docker exec -d`) bridges OAuth callbacks to social-api:8000 — needed for every in-container OAuth callback.
+
+### Fixes committed
+- `tiktok-reconnect.py`: accept `expired` status + Playwright image `v1.54.0-noble` (was pinned to nonexistent v1.62.1).
+- `.env` CRLF: `cut -d=` consumers need `tr -d '\r'`.
+
+### Ops notes
+- `browser-novnc` session lock sticks after `done` — restart clears it; `force=true` on `/session/start` claims it without a restart.
+- `docker compose restart` does NOT reload `.env` — use `up -d` to recreate containers after env changes.
+- session_healer cycles platforms continuously — for console-scrape work: stop celery-beat + workers first.
+
+### Still open
+- omv-ha `sasl_passwd` may hold the original Resend key (the new `socialauto` key now in use — old can be revoked).
+- Rotate secrets pasted in chat: Google password, OAuth `GOCSPX` secret, `TH!…` password.
+- Dedicated `console-ops` sidecar so credential scraping doesn't fight platform sweeps.
+
+| NC220 NAS recording live 2026-10-25 | Stream is HTTP digest-auth multipart at http://192.168.1.42:8080/stream/video/h264 (NOT RTSP :554 — camera's RTSP rejected the same creds). systemd service `nc220-record` on github-omv writes 10-min .h264 segments + 7-day retention to sdb1 `workspace/camera-recordings/` (SMB share `NAS_Storage`). Playable in VLC/mpv. | — |
+| Slack workspace joined 2026-10-25 | Phone signed into SocialAuto workspace as `themis` via magic link pulled from dovecot (mail lands on omv-ha, not Gmail) | — |
+| @t_baltzakis pro switch 2026-10-25 | Switched to Creator account, category Digital creator. Welcome message + FAQ still to configure under professional tools | FAQ/welcome msg |
+| TikTok verification REJECTED 2026-10-25 | Business Suite → "Not approved: business can't be verified". Form has personal name "Baltzakis Themistoklis" vs brand "Cloudless" mismatch; needs Edit + clearer ΓΕΜΗ/ΑΦΜ cert doc | resubmit w/ better doc |
+| X OAuth creds 2026-10-25 | TWITTER_CLIENT_ID/SECRET empty in .env — user said "scrape console.x.com" but console needs login; still needs user to paste creds | console.x.com creds |
+
+## 2026-10-25 (media-source import — all three live)
+
+- Google Photos: 34 picked items imported to `media_assets` via Picker API session (interactive by design — each sync needs a fresh picker consent).
+- Nextcloud: `/media-sources/nextcloud/files|import` — WebDAV PROPFIND/GET against cloud.cloudless.gr; verified listing + Gorilla.jpg download. `NEXTCLOUD_DAV_URL` was commented out in .env — now set.
+- Google Drive: `/media-sources/gdrive/connect-url|connect|files|import` — drive.readonly consent completed (localhost:4180 listener), `GOOGLE_DRIVE_REFRESH_TOKEN` in .env, `drive.googleapis.com` enabled in project credentials-462313. Verified: 30 files listed.
+- PR #930 feat/media-sources (media_sources service + api).
 | IG `cloudless.gr` monetization verified on-phone 2026-10-25 | Partnership ads ON, branded-content eligible (green check); marketplace/affiliate/bonuses/subscriptions/gifts/badges gated on "Established presence" (followers+account age). Bio already → cloudless.gr/links. Stale `INSTAGRAM_PASSWORD` in social_secrets replaced with live one | follower growth |
 | WhatsApp `request_code` | beat auto-retries on cooldown (136024-gated) — owner just needs to read SMS when it lands, then verify-code+register | SMS receipt |
 
