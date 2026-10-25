@@ -276,6 +276,8 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/leads` — GET, POST
 - `/api/v1/leads/public` — POST
+- `/api/v1/leads/public/audit` — POST
+- `/api/v1/leads/public/survey` — POST
 
 ## `linkedin`
 
