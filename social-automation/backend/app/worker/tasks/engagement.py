@@ -38,7 +38,8 @@ async def _run(limit: int):
                 author_name=c.author_name, post_id=c.post_id,
                 post_text=c.post_text, posted_seconds_ago=max(age, 0),
                 connection_tier=c.connection_tier, is_followed=c.is_followed,
-                is_connection=c.is_connection, in_crm=c.in_crm), db)
+                is_connection=c.is_connection, in_crm=c.in_crm,
+                meta_data=c.meta_data), db)
             c.scored = True
         await db.commit()
 
