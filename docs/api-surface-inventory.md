@@ -256,6 +256,12 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/email-campaigns/{campaign_id}/responses` — GET
 - `/api/v1/email-campaigns/{campaign_id}/send` — POST
 
+## `engagement`
+
+- `/api/v1/engagement/pending` — GET
+- `/api/v1/engagement/{action_id}/approve` — POST
+- `/api/v1/engagement/{action_id}/reject` — POST
+
 ## `inbox`
 
 - `/api/v1/inbox/inbox` — GET
