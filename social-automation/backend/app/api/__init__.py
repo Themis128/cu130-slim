@@ -22,6 +22,7 @@ from app.api import (
     mcp,
     media,
     media_enhance,
+    media_sources,
     messenger,
     meta_growth,
     newsletter,
@@ -91,3 +92,4 @@ api_router.include_router(digital_cards.router, prefix="/digital-cards", tags=["
 api_router.include_router(reports.router, prefix="/reports", tags=["reports"])
 api_router.include_router(service_feed.router, prefix="/service-feed", tags=["service-feed"])
 api_router.include_router(web_analytics.router, prefix="/analytics/web", tags=["web-analytics"])
+api_router.include_router(media_sources.router, prefix="/media-sources", tags=["media-sources"])
