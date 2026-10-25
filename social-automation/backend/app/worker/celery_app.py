@@ -60,8 +60,9 @@ celery_app = Celery(
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
         "app.worker.tasks.latency_watchdog",
-"app.worker.tasks.avatar_video",        "app.worker.tasks.newsletter_subs",
-    ],
+"app.worker.tasks.newsletter_subs",
+"app.worker.tasks.nextcloud_sync",
+"app.worker.tasks.avatar_video",        "app.worker.tasks.newsletter_subs",    ],
 )
 
 # Ensure @shared_task and Task.delay() from the API process use Redis, not default AMQP.
@@ -268,6 +269,10 @@ celery_app.conf.update(
         "human-gate-watch": {
             "task": "app.worker.tasks.human_gate.run_human_gate_watch",
             "schedule": crontab(minute="*/30"),
+        },
+        "nextcloud-media-sync": {
+            "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_media",
+            "schedule": crontab(minute=40),
         },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).

@@ -40,7 +40,7 @@ async def m():
     async with async_session_maker() as s:
         q = select(SocialAccount).where(
             SocialAccount.platform == "tiktok",
-            SocialAccount.status == "active",
+            SocialAccount.status.in_(["active","expired"]),
         )
         uname = os.environ.get("TIKTOK_USERNAME") or ""
         if uname:
@@ -85,9 +85,9 @@ try:
     if not (PW_WORK / "node_modules/playwright").exists():
         subprocess.run(
             ["docker", "run", "--rm", "-v", f"{PW_WORK}:/work", "-w", "/work",
-             "mcr.microsoft.com/playwright:v1.62.1",
+             "mcr.microsoft.com/playwright:v1.54.0-noble",
              "bash", "-lc",
-             "npm init -y >/dev/null && npm i playwright@1.62.1 --no-fund --no-audit"],
+             "npm init -y >/dev/null && npm i playwright@1.54.0 --no-fund --no-audit"],
             check=True)
 
     # 1. Export stored tiktok.com cookies + team_id
@@ -127,7 +127,7 @@ try:
     for k, v in env_vars.items():
         cmd += ["-e", f"{k}={v}"]
     cmd += ["-v", f"{PW_WORK}:/work", "-v", f"{PW_OUT}:/out", "-w", "/work",
-            "mcr.microsoft.com/playwright:v1.62.1",
+            "mcr.microsoft.com/playwright:v1.54.0-noble",
             "node", "/work/tiktok-oauth.mjs"]
     subprocess.run(cmd, check=True)
 
