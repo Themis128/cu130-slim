@@ -128,13 +128,20 @@ async def gdrive_import(body: GdImport,
             select(TeamMember).where(TeamMember.user_id == user.id))).scalars().first()
         team_id = tm.team_id
     imported, errors = [], []
+    meta_by_id: dict[str, str] = {}
+    try:
+        files = await media_sources.gdrive_list(page_size=200)
+        meta_by_id = {f.id: f.name for f in files}
+    except Exception:
+        pass
     for fid in body.file_ids:
         try:
             data, mime = await media_sources.gdrive_download(fid)
+            name = meta_by_id.get(fid, fid)
             asset = await save_uploaded_media(
                 db, team_id=team_id, user_id=user.id, content=data,
-                original_filename=fid, mime_type=mime,
-                alt_text=f"Google Drive import — {fid}", tags=body.tags,
+                original_filename=name, mime_type=mime,
+                alt_text=f"Google Drive import — {name}", tags=body.tags,
                 width=0, height=0)
             imported.append(str(asset.id))
         except Exception as e:
