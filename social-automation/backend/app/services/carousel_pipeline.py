@@ -696,6 +696,14 @@ async def build_ad_brand_kit(
     brand = await _load_brand_colors(db, team_id)
     brand["domain"] = "cloudless.gr"
 
+    # Spell-correct the copy before it renders into the creative —
+    # typos land permanently on the generated image otherwise.
+    from app.services.media_spellcheck import correct_text
+    headline = await correct_text(headline)
+    subline = await correct_text(subline)
+    cta = await correct_text(cta)
+    stat_label = await correct_text(stat_label) if stat_label else stat_label
+
     bg_img = None
     if image_prompt:
         try:
@@ -917,7 +925,7 @@ Return JSON only:
         },
         "required": ["slides", "suggested_caption", "hashtags"],
     }
-    return await call_inference(
+    copy = await call_inference(
         prompt,
         provider_name=text_provider,
         db=db,
@@ -927,6 +935,16 @@ Return JSON only:
         allow_fallback=True,  # DMR first → CF fallback
         platform="linkedin",
     )
+    # Spell-correct generated copy before it renders onto slides —
+    # typos land permanently on the image otherwise.
+    from app.services.media_spellcheck import correct_text
+    for slide in copy.get("slides", []):
+        for field in ("title", "body", "highlight"):
+            if slide.get(field):
+                slide[field] = await correct_text(slide[field])
+    if copy.get("suggested_caption"):
+        copy["suggested_caption"] = await correct_text(copy["suggested_caption"])
+    return copy
 
 
 async def run_cloudless_carousel_pipeline(
