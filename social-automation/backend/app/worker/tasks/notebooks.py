@@ -35,7 +35,8 @@ async def _weekly_analytics() -> dict:
             select(AgencyProposal.status, func.count()).where(AgencyProposal.created_at >= since)
             .group_by(AgencyProposal.status))).all()}
         audit = (await db.execute(
-            select(func.avg(AgencyAudit.score), func.count()).where(AgencyAudit.created_at >= since))).first()
+            select(func.avg(AgencyAudit.score), func.count()).where(AgencyAudit.created_at >= since)
+        )).first() or (0.0, 0)
 
     msg = (f"*Weekly SocialAuto — {dt.date.today()}*\n"
            f"Publish last 7d: `{pub}`\n"
