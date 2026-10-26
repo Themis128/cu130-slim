@@ -1,12 +1,21 @@
-"""Telegram channel event notifications — Slack + email.
+"""Telegram notifications.
 
-Best-effort fan-out for channel events observed via the bot webhook
-(membership changes, joins, leaves, invite-link attribution). A failure in
-either transport logs a warning and never raises into the webhook path.
+Two independent, best-effort helpers:
+
+* ``notify_channel_event`` — fan-out for channel events observed via the bot
+  webhook (membership changes, joins, leaves, invite-link attribution) to
+  Slack + email.
+* ``send_telegram`` — engagement-gate alerts via the telegram-mcp HTTP server
+  (host :8765), sent through the user's own Telethon session.
+
+A failure in any transport logs a warning and never raises into the caller.
 """
 from __future__ import annotations
 
 import logging
+import os
+
+import httpx
 
 from app.core.config import get_settings
 from app.services.email_digest import send_email
@@ -72,3 +81,38 @@ async def notify_channel_event(
         logger.warning("Telegram notify → email failed: %s", exc)
 
     return {"slack": slack_ok, "email": email_ok}
+
+
+# ---------------------------------------------------------------------------
+# Engagement-gate alerts via telegram-mcp
+# ---------------------------------------------------------------------------
+
+BASE = os.environ.get("TELEGRAM_MCP_URL", "http://host.docker.internal:8765/mcp")
+
+
+async def _rpc(client, method, params=None, sid=None):
+    headers = {"Content-Type": "application/json",
+               "Accept": "application/json, text/event-stream"}
+    if sid:
+        headers["Mcp-Session-Id"] = sid
+    r = await client.post(BASE, headers=headers, json={
+        "jsonrpc": "2.0", "id": 1, "method": method,
+        "params": params or {}})
+    return r
+
+
+async def send_telegram(text: str, chat: str = "me") -> bool:
+    try:
+        async with httpx.AsyncClient(timeout=30) as c:
+            init = await _rpc(c, "initialize", {
+                "protocolVersion": "2024-11-05", "capabilities": {},
+                "clientInfo": {"name": "socialauto", "version": "1"}})
+            sid = init.headers.get("mcp-session-id")
+            await _rpc(c, "notifications/initialized", sid=sid)
+            await _rpc(c, "tools/call", {
+                "name": "send_message",
+                "arguments": {"chat_id": chat, "message": text}}, sid=sid)
+        return True
+    except Exception as e:  # noqa: BLE001 — alerting never breaks callers
+        logger.warning("telegram send failed: %s", e)
+        return False
