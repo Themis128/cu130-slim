@@ -631,3 +631,11 @@ Verified: `cloud/status.php` 200 (NC 35.0.2, no db upgrade needed),
 - TikTok unaudited app: posts land in TikTok inbox for manual confirm; needs app audit for direct posting.
 - .env CRLF endings break scripts using `cut -d=` (x-reconnect.sh needed tr -d '\r').
 - ComfyUI wake-proxy drops queued-but-not-started prompts on sleep/restart; pending jobs can vanish — resubmit if queue shows empty.
+
+## 2026-10-26 — session closeout + PR sweep
+
+- Enabled squash auto-merge on all 30 open PRs → they land on master in order as validate+secret-scan pass.
+- Created `feat/phone-tiktok-skills` (PR #941): phone MCP server, tiktok-verification scripts (login-bootstrap + resubmit-via-sidecar), ig-personal-privacy switch, x-oauth-wire.
+- IG `t_baltzakis` → Personal + Private (verified). X OAuth live. social-api crash fixed (`notify_channel_event` restore + alembic stamp revert).
+- TikTok verification: still needs login in VNC (`localhost:6082/vnc.html`) or manual phone Edit — webview resists all injected input.
+- Dropbox is empty (~10MB cloud-only) — nothing to migrate to Nextcloud.
