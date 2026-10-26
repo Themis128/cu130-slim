@@ -90,7 +90,10 @@ def _due_step(lead: Lead) -> dict[str, Any] | None:
     if meta.get("unsubscribed") or meta.get("nurture_opted_out"):
         return None
     age = _lead_age_days(lead)
-    done = int(meta.get("nurture_step", 0) or 0)
+    try:
+        done = int(meta.get("nurture_step", 0) or 0)
+    except (TypeError, ValueError):
+        done = 0
     for idx, step in enumerate(STEPS, start=1):
         if idx <= done:
             continue
