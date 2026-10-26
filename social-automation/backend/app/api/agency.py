@@ -406,8 +406,9 @@ async def agency_metrics(
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     thirty_d = now - timedelta(days=30)
 
-    from app.models.analytics import AiUsageLog  # adjust if name differs
     from sqlalchemy import func
+
+    from app.models.analytics import AiUsageLog  # adjust if name differs
 
     # TCD — total token cost this month across agency ops
     tcd = (

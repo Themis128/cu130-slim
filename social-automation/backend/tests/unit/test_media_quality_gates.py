@@ -55,7 +55,8 @@ class TestSpellcheckGate:
                 calls.append(t)
                 return t + "*fixed"
 
-            import sys, types
+            import sys
+            import types
             sys.modules.setdefault(
                 "app.services.kakkava",
                 types.SimpleNamespace(doctrine_context=AsyncMock(return_value="")),
