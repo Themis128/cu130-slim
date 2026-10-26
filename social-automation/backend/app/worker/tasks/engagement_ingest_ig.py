@@ -6,13 +6,14 @@ is busy with platform sweeps or the session isn't logged in.
 import asyncio
 import json as js
 import logging
+import os
 
 import httpx
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
 
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
 
 # single atomic call — scrolls inside the page then extracts (minimizes
 # the window where a platform sweep can steal the browser mid-run)

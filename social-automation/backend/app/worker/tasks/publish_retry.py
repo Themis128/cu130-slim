@@ -15,11 +15,10 @@ process-publish-queue beat picks them up:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, UTC
-
-from sqlalchemy import select
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
+from sqlalchemy import select
 
 from app.db.session import async_session_maker
 from app.models.content import PostTarget
