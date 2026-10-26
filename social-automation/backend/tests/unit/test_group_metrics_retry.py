@@ -1,7 +1,5 @@
 """Group targeting, agency metrics, publish-retry — the session's new surfaces."""
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta, UTC
 
 
 class TestLinkedInGroupTargeting:
@@ -21,6 +19,7 @@ class TestLinkedInGroupTargeting:
     def test_create_post_group_param(self):
         # create_post accepts container_urn kwarg
         import inspect
+
         from app.services.linkedin_api import LinkedInAPIClient
         sig = inspect.signature(LinkedInAPIClient.create_post)
         assert "container_urn" in sig.parameters

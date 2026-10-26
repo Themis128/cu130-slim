@@ -406,15 +406,18 @@ async def agency_metrics(
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     thirty_d = now - timedelta(days=30)
 
-    from app.models.analytics import AiUsageLog  # adjust if name differs
     from sqlalchemy import func
+
+    from app.models.ai_usage import AIUsageLog
+    from app.models.content import PostTarget
+    from app.models.lead import Lead
 
     # TCD — total token cost this month across agency ops
     tcd = (
         await db.execute(
-            select(func.coalesce(func.sum(AiUsageLog.cost_usd), 0.0)).where(
-                AiUsageLog.team_id == team_id,
-                AiUsageLog.created_at >= month_start,
+            select(func.coalesce(func.sum(AIUsageLog.estimated_cost), 0.0)).where(
+                AIUsageLog.team_id == team_id,
+                AIUsageLog.created_at >= month_start,
             )
         )
     ).scalar_one()
