@@ -66,7 +66,12 @@ async def _run(limit: int):
 
         # real-time per-item gate pings — dedicated channel webhook with
         # native deep links (platform:// schemes open the mobile app)
-        if drafts_needed:
+        gated_items = (await db.execute(
+            select(EngagementAction).where(
+                EngagementAction.status == "pending_human_gate",
+                EngagementAction.created_at > datetime.now(UTC) - timedelta(hours=2))
+        )).scalars().all()
+        if gated_items:
             try:
                 import os
 
@@ -86,19 +91,15 @@ async def _run(limit: int):
                     "twitter": "twitter://timeline",
                     "threads": "instagram://app",
                 }
-                for a in drafts_needed:
-                    if not a.comment_draft:
-                        continue
+                for a in gated_items:
                     dl = deeplink.get(a.platform, "")
-                    draft = (a.comment_draft[:140] + "…"
-                             if len(a.comment_draft) > 140
-                             else a.comment_draft)
+                    draft = (a.comment_draft or "manual review")[:140]
                     await _post_slack_text(
                         webhook_url=hook,
                         token=os.environ.get("SLACK_BOT_TOKEN", ""),
                         channel_id=chan,
                         purpose="engagement gate",
-                        text=(f":hourglass_flowing_sand: *{a.platform.title()} "
+                        text=(f"<!channel> :hourglass_flowing_sand: *{a.platform.title()} "
                               f"{a.action} draft → @{a.target_author}* "
                               f"(score {a.score:.1f})\n"
                               f"> _{draft}_\n"
