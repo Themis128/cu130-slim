@@ -24,6 +24,7 @@ celery_app = Celery(
         "app.worker.tasks.engagement_ingest_tt",
         "app.worker.tasks.engagement_tiers",
         "app.worker.tasks.engagement_archive",
+        "app.worker.tasks.linkedin_ads_sync",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
