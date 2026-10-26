@@ -65,3 +65,18 @@ async def snapshot(db) -> dict:
     if acc:
         acc.meta_data = {**(acc.meta_data or {}), "ads": out}
     return out
+
+
+async def lead_gen_forms(db, account_urn: str) -> list[dict]:
+    """Pull Lead Gen Form responses — the CRM loop endpoint.
+
+    Each form response carries lead fields (name, email, company) that
+    map straight into the CRM contacts path.
+    """
+    tok = await _token(db)
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(
+            f"{API}/leadGenForms?q=owner&owner=(sponsoredAccount:{account_urn})"
+            "&count=10",
+            headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA})
+        return r.json().get("elements", [])
