@@ -187,6 +187,9 @@ x-worker-volumes: &worker-volumes
   - ./social-automation/backend/scripts:/app/scripts:ro
   - ./social-automation/uploads:/app/uploads
   - tunnel_url:/run/tunnel
+  # Kakkava doctrine corpus — read-only mount; kakkava_sync re-walks it
+  # daily and embeds chunks into team_<id>_doctrine for copy grounding.
+  - "/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia:/mnt/kakkava:ro"
   # Report notebooks — papermill executes /notebooks/reports/*.ipynb inside
   # workers; rendered outputs go to /notebooks/output (visible in Jupyter
   # at work/output since the same host dir is mounted there).
@@ -1059,6 +1062,7 @@ services:
       # Deploy seeds (content_prompt_templates etc.) — idempotent, applied on boot.
       - ./deploy/seeds:/app/deploy/seeds:ro
       - ./social-automation/uploads:/app/uploads
+      - "/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia:/mnt/kakkava:ro"
       # Read-only access to notebook reports output for /api/v1/reports.
       - ./notebooks:/notebooks:ro
       - tunnel_url:/run/tunnel
