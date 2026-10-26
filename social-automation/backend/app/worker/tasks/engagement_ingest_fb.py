@@ -14,22 +14,29 @@ import httpx
 from celery import shared_task
 
 logger = logging.getLogger(__name__)
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("FB_BROWSER_URL", "http://browser-novnc:9223")
 
 EXTRACT_JS = """(async () => {
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  // wait for real hydrated articles (FB lazy-loads; skeleton divs have no text)
+  const realArts = () => [...document.querySelectorAll('div[role=article]')]
+    .filter(el => (el.innerText || '').trim().length > 40);
+  for (let w = 0; w < 15 && realArts().length === 0; w++) {
+    window.scrollBy(0, 900);
+    await sleep(2000);
+  }
   const out = [];
-  for (let s = 0; s < 3; s++) {
-    document.querySelectorAll('div[role=article], div.feed_unit, div[class*=x1yztbdb]').forEach(el => {
-      const link = el.querySelector('a[href*="/posts/"], a[href*="permalink"], a[href*="story_fbid"]');
+  for (let s = 0; s < 5; s++) {
+    realArts().forEach(el => {
+      const link = el.querySelector('a[href*="/posts/"], a[href*="permalink"], a[href*="story_fbid"], a[href*="multi_permalinks"], a[href*="__cft__"]');
       const href = link ? link.getAttribute('href') : '';
       const author = el.querySelector('h3 a, strong a, a[role=link]')?.innerText?.trim() || '';
       const txt = (el.innerText || '').trim().slice(0, 1200);
-      if (href && txt.length > 40 && !out.some(o => o.href === href))
+      if (href && !out.some(o => o.href === href))
         out.push({href: href.slice(0, 200), author, txt});
     });
     window.scrollBy(0, 1500);
-    await sleep(1800);
+    await sleep(2200);
   }
   return JSON.stringify(out.slice(0, 10));
 })()"""

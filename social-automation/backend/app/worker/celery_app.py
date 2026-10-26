@@ -16,14 +16,6 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
-        "app.worker.tasks.engagement",
-        "app.worker.tasks.engagement_ingest",
-        "app.worker.tasks.engagement_ingest_li",
-        "app.worker.tasks.engagement_ingest_ig",
-        "app.worker.tasks.engagement_ingest_fb",
-        "app.worker.tasks.engagement_ingest_tt",
-        "app.worker.tasks.engagement_tiers",
-        "app.worker.tasks.engagement_archive",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
@@ -67,10 +59,9 @@ celery_app = Celery(
         "app.worker.tasks.notebooks",
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
-        "app.worker.tasks.latency_watchdog",
-"app.worker.tasks.newsletter_subs",
-"app.worker.tasks.nextcloud_sync",
-"app.worker.tasks.avatar_video",        "app.worker.tasks.newsletter_subs",    ],
+        "app.worker.tasks.publish_retry",
+        "app.worker.tasks.newsletter_subs",
+    ],
 )
 
 # Ensure @shared_task and Task.delay() from the API process use Redis, not default AMQP.
@@ -214,7 +205,6 @@ celery_app.conf.update(
         # ── media queue: CPU-intensive, long-running ───────────────────────
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
-        "app.worker.tasks.avatar_video.generate_avatar_story": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
@@ -257,8 +247,8 @@ celery_app.conf.update(
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
-        "app.worker.tasks.latency_watchdog.run_latency_watchdog": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
+        "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -278,21 +268,11 @@ celery_app.conf.update(
             "task": "app.worker.tasks.human_gate.run_human_gate_watch",
             "schedule": crontab(minute="*/30"),
         },
-        "nextcloud-media-sync": {
-            "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_media",
-            "schedule": crontab(minute=40),
-        },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).
         "nurture-sweep": {
             "task": "app.worker.tasks.nurture.run_nurture_sweep",
             "schedule": crontab(hour=11, minute=0),
-        },
-        # Latency watchdog — >20ms SLO breach → wrangler rollback after
-        # 3 consecutive checks (self-healing deployment loop).
-        "latency-watchdog": {
-            "task": "app.worker.tasks.latency_watchdog.run_latency_watchdog",
-            "schedule": crontab(minute="*/5"),
         },
         # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
         "newsletter-subs-sync": {
@@ -302,6 +282,12 @@ celery_app.conf.update(
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
             "schedule": 30.0,
+        },
+        # Retry failed publish targets — transient causes (media URL
+        # expiry, token contention) resolve on requeue. 15min cadence.
+        "publish-retry-sweep": {
+            "task": "app.worker.tasks.publish_retry.run_publish_retry_sweep",
+            "schedule": crontab(minute="*/15"),
         },
         "sync-analytics": {
             "task": "app.worker.tasks.analytics.sync_all_analytics",
