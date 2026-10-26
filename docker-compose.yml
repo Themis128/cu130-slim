@@ -77,6 +77,8 @@ x-worker-env: &worker-env
   - SLACK_ALERTS_CHANNEL_ID=${SLACK_ALERTS_CHANNEL_ID:-}
   - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
   - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
+  - FACEBOOK_GROUP_URLS=${FACEBOOK_GROUP_URLS:-}
+  - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-}
   - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
   - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
   - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
@@ -918,6 +920,8 @@ services:
       - SLACK_ALERTS_CHANNEL_ID=${SLACK_ALERTS_CHANNEL_ID:-}
       - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
       - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
+      - FACEBOOK_GROUP_URLS=${FACEBOOK_GROUP_URLS:-}
+      - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-}
       - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
       - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
       - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
@@ -1541,6 +1545,40 @@ services:
     # CPU cap — shared multi-session bridge; a busy tab must not pin all cores.
     cpus: '4'
 
+
+  # ── Dedicated engagement-ingestion browser (no sweeps → no steals) ──
+  engagement-browser:
+    build:
+      context: ./browser-novnc
+      dockerfile: Dockerfile
+    container_name: engagement-browser
+    init: true
+    networks:
+      - backend
+    environment:
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=800
+      - SCREEN_DEPTH=24
+      - VNC_PORT=5900
+      - NOVNC_PORT=6080
+      - BRIDGE_PORT=9223
+      - AUDIO_WS_PORT=6081
+      - TZ=Europe/Athens
+    volumes:
+      - engagement_cookies:/app/cookies
+      - engagement_profile:/app/browser-profile
+      - ./social-automation/uploads:/app/uploads:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9223/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    mem_limit: 1536m
+    memswap_limit: 4096m
+    cpus: '2'
+
   # ── TikTok Browser Automation sidecar (Playwright) ───────────────────────
   # RESTful HTTP wrapper around Playwright for TikTok profile settings that
   # the official Display API does not expose: privacy toggles, notification
@@ -2102,6 +2140,8 @@ volumes:
   tunnel_url: null
   browser_cookies: null
   browser_profile: null
+  engagement_cookies: null
+  engagement_profile: null
   minio_data: null
   instagram_sessions: null
   warp_data: null
