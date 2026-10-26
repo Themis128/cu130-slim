@@ -388,3 +388,50 @@ def frame_to_poster_jpeg(frame_bytes: bytes, max_edge: int = 720) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85, optimize=True)
     return buf.getvalue()
+
+
+# ── Slideshow composer — written content → video (Kakkava DAY 18 method) ──
+
+async def slideshow_video(
+    frames: list[bytes],
+    *,
+    seconds_per_slide: float = 3.0,
+    fps: int = 30,
+) -> bytes | None:
+    """Compose an mp4 slideshow from image frames via ffmpeg concat.
+
+    The DAY-18 path: text posts become video by rendering them as branded
+    slides (carousel_pipeline) then concatenating. Crossfade-free concat —
+    slides are styled for hard cuts; music gets muxed via attach_audio.
+    """
+    if not frames:
+        return None
+    with tempfile.TemporaryDirectory() as d:
+        dpath = Path(d)
+        names = []
+        for i, frame in enumerate(frames):
+            p = dpath / f"slide_{i:03d}.png"
+            p.write_bytes(frame)
+            names.append(p)
+        listfile = dpath / "list.txt"
+        listfile.write_text(
+            "".join(
+                f"file '{n.name}'\nduration {seconds_per_slide}\n"
+                for n in names
+            )
+            + f"file '{names[-1].name}'\n"  # concat demuxer quirk — last frame needs a second entry
+        )
+        out = dpath / "out.mp4"
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", str(listfile),
+            "-vf", f"fps={fps},format=yuv420p",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+            str(out),
+        ]
+        r = await _run(cmd)
+        if r.returncode != 0 or not out.exists():
+            logger.warning("[video/slideshow] ffmpeg rc=%s: %s", r.returncode, r.stderr.decode()[-400:])
+            return None
+        return out.read_bytes()

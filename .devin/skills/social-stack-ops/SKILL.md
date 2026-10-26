@@ -174,3 +174,20 @@ design — check `curl http://127.0.0.1:8787/status` before calling it down.**
   If it ever regresses past ~5s, ops-console probes fall back to proxied /health
   → sleeping services show "offline (ReadTimeout)". Running-but-slow containers
   report `busy (ReadTimeout)` online, not offline.
+
+## Env-drift check (learned 2026-10-25)
+
+**Undeclared env vars vanish on `compose up` recreate** — `docker restart`
+preserves old container env; only recreate injects compose env. Vars present
+in the container but absent from the service's `environment:` block silently
+disappear (NEXTCLOUD_* IntraVox auth broke exactly this way).
+
+Run `python -X utf8 .devin/skills/social-stack-ops/scripts/env_drift_check.py`
+— flags (a) live-container keys not declared in compose, (b) declared `${VAR}`
+mappings with empty `.env` values. Currently real drift on: workers +
+social-api + celery-beat (`DMR_MEDIA_MODEL`, `ESPOCRM_API_KEY/BASE_URL`,
+`SLACK_PUBLISHING_CHANNEL_ID`, `SLACK_TELEGRAM_CHANNEL_ID`,
+`SLACK_TELEGRAM_WEBHOOK_URL`, `TELEGRAM_NOTIFY_EMAIL`,
+`INTRANET_FEED_TEAM_ID/TOKEN`, `NEWSLETTER_SERVICE_TOKEN`) — same class as
+the NEXTCLOUD incident; declare them in compose or a shared anchor before
+the next `compose up`.

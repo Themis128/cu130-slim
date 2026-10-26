@@ -245,7 +245,8 @@ async def connect_account_body(
     await check_quota("social_accounts", team_id, db)
 
     # Messenger and WhatsApp use Facebook OAuth — resolve the alias for redirect_uri and scopes
-    oauth_platform = "facebook" if data.platform in ("messenger", "whatsapp") else data.platform
+    _alias = {"x": "twitter", "messenger": "facebook", "whatsapp": "facebook"}
+    oauth_platform = _alias.get(data.platform, data.platform)
     redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI", None)
     client = PLATFORM_CLIENTS.get(data.platform)
 
@@ -321,7 +322,8 @@ async def connect_account(
 
     # Redirect to auth endpoint
     # Messenger and WhatsApp use Facebook OAuth — resolve the alias
-    oauth_platform = "facebook" if platform in ("messenger", "whatsapp") else platform
+    _alias = {"x": "twitter", "messenger": "facebook", "whatsapp": "facebook"}
+    oauth_platform = _alias.get(platform, platform)
     redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI")
     client = PLATFORM_CLIENTS.get(platform)
 
@@ -613,7 +615,8 @@ async def refresh_account_token(
     if client is None:
         raise HTTPException(status_code=400, detail=f"Token refresh not supported for {platform}")
 
-    redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI", None)
+    alias = {"x": "twitter"}.get(platform, platform)
+    redirect_uri = getattr(settings, f"{alias.upper()}_REDIRECT_URI", None)
     if not redirect_uri:
         raise HTTPException(status_code=500, detail=f"Redirect URI not configured for {platform}")
 

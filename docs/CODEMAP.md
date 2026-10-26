@@ -356,6 +356,7 @@ All workflows authenticate to social-api via admin **TOTP login**; text generati
 | `weekly-cloud-computing-post` | Mon 09:00 | LinkedIn (org account) | main |
 | `marketing-image-generation` | every 24h + webhook `marketing-trigger` | Instagram `cloudless.gr` (CF image + caption → draft/post) | secondary — retargeted from Twitter 2026-09-21 |
 | `socialauto-daily-slack-digest` | daily 09:00 | Slack digest | reporting |
+| ↳ also writes `en/news/updates/socialauto-digest-YYYY-MM-DD` in IntraVox; since 2026-10-25 `Summarize Result` **throws** when a digest existed but the page write failed (silent `create_error` swallowed Oct 18-19 runs — Nextcloud wedge 404s). Missed days cannot be backfilled by the workflow (pageId is always today); Oct 16-19 were restored manually via `intravox_tool.py page-create`. Oct 16-17 produced zero executions — whole dev-box stack was down; containers are `restart: always` so only host-level downtime gaps the trigger. |
 | `{facebook,instagram,linkedin,threads,tiktok,twitter}-{text,image,carousel}-post` | webhook only | per-platform | on-demand |
 
 **n8n MCP server**: `.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py` — 13 tools (`n8n_list_workflows`, `n8n_deploy_workflow`, `n8n_trigger_webhook`, `n8n_audit_workflows`, …). API key covers workflow/credential endpoints; `/executions` returns 403 so execution tools fall back to reading Postgres `execution_data` (rehydrates n8n 2.x deduplicated format). Registered in `.devin/mcp_config.json`.
