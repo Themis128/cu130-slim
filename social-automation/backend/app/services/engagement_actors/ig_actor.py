@@ -4,6 +4,7 @@ Finds the article whose link matches the target shortcode and clicks its
 Like button (aria-label). Comments stay human-gated and are not auto-acted.
 Skips cleanly when the shared browser is busy.
 """
+import asyncio
 import logging
 import os
 
@@ -24,9 +25,27 @@ LIKE_JS = """(() => {
 })()"""
 
 
+REPOST_JS = """(async () => {
+  const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const share = document.querySelector('svg[aria-label*="Share"], [aria-label*="Share" i]');
+  if (!share) return 'no-share-btn';
+  (share.closest('[role=button]') || share).click();
+  await sleep(1500);
+  const story = [...document.querySelectorAll('[role=button], span, div')]
+    .find(b => /add post to your story|add to.*story/i.test(b.innerText || ''));
+  if (!story) return 'no-story-option';
+  (story.closest('[role=button]') || story).click();
+  await sleep(1200);
+  const confirm = [...document.querySelectorAll('[role=button]')]
+    .find(b => /^share|^done$/i.test((b.innerText || '').trim()));
+  if (confirm) confirm.click();
+  return 'shared-to-story';
+})()"""
+
+
 async def act(action, db) -> dict:
-    if action.action != "like":
-        return {"error": "ig: only like auto-acted", "skip": True}
+    if action.action not in ("like", "repost"):
+        return {"error": f"ig: {action.action} not auto-acted", "skip": True}
     sc = action.target_post_id
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=60) as c:
         try:
@@ -34,6 +53,16 @@ async def act(action, db) -> dict:
                          json={"platform": "instagram", "force": True})
         except Exception:
             return {"error": "browser busy", "skip": True}
+        if action.action == "repost":
+            await c.post("/session/navigate",
+                         json={"url": f"https://www.instagram.com/p/{sc}/"})
+            await asyncio.sleep(6)
+            r = await c.post("/session/evaluate",
+                             json={"expression": REPOST_JS})
+            res = r.json().get("result", "")
+            if res == "shared-to-story":
+                return {"ok": True, "resp": {"via": "share-to-story"}}
+            return {"error": res or "share sheet failed", "skip": True}
         r = await c.post("/session/evaluate", json={
             "expression": LIKE_JS.replace("{SC}", sc)})
         res = r.json().get("result", "")
