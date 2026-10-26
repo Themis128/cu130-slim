@@ -188,6 +188,16 @@
       "args": [
         "C:\\Users\\tbaltzakis\\cu130-slim\\.devin\\skills\\phone-access\\scripts\\phone-mcp-server.py"
       ]
+    },
+    "linkedin-ads": {
+      "command": "uvx",
+      "args": [
+        "linkedin-ads-mcp"
+      ],
+      "env": {
+        "LINKEDIN_ACCESS_TOKEN": "${LINKEDIN_ACCESS_TOKEN}",
+        "LINKEDIN_API_VERSION": "202511"
+      }
     }
   }
 }
