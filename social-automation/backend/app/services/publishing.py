@@ -1699,6 +1699,9 @@ async def _publish_linkedin(
 
     client = LinkedInAPIClient(access_token=access_token)
     author_urn = _linkedin_author_urn(account, client)
+    # Group targeting — Community Management API container. Post lands in
+    # the named group feed instead of the member/org main feed.
+    group_urn = ((getattr(post, "platform_specific", None) or {}).get("linkedin") or {}).get("group_urn")
     post_title = (post.content_text or "Carousel")[:80]
 
     # Detect media types — video and PDF get dedicated upload flows;
@@ -1766,6 +1769,7 @@ async def _publish_linkedin(
             link_url=post.link_url,
             link_title=override.get("title", ""),
             link_description=override.get("description", ""),
+            container_urn=group_urn,
         )
 
     return PublishResult(**dataclasses.asdict(result))

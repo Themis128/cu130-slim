@@ -19,6 +19,7 @@ class LeadSource(enum.StrEnum):
     instagram_dm = "instagram_dm"
     telegram_dm = "telegram_dm"
     website = "website"
+    linkedin_ads = "linkedin_ads"
 
 
 class LeadInterest(enum.StrEnum):
