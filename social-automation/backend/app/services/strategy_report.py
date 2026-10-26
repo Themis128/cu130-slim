@@ -65,6 +65,24 @@ _MONETIZATION_GATES: dict[str, list[tuple[int, str]]] = {
 _KPI_PLATFORM = "instagram"  # growth bet — the single KPI that unlocks the rest
 
 
+
+# Canonical display casing for platform names — naive .capitalize()/.title()
+# produces "Linkedin"/"Tiktok" which reads as typos in generated media/briefs.
+PLATFORM_DISPLAY: dict[str, str] = {
+    "linkedin": "LinkedIn", "tiktok": "TikTok", "instagram": "Instagram",
+    "facebook": "Facebook", "threads": "Threads", "twitter": "X (Twitter)",
+    "x": "X (Twitter)", "whatsapp": "WhatsApp", "telegram": "Telegram",
+    "viber": "Viber", "bluesky": "Bluesky", "youtube": "YouTube",
+}
+
+
+def platform_display(name: str | None) -> str:
+    """Canonical casing for a platform slug; falls back to capitalize()."""
+    if not name:
+        return "—"
+    return PLATFORM_DISPLAY.get(name.lower(), name.capitalize())
+
+
 @dataclass
 class BriefMedia:
     """One media asset attached to a recent published post."""
@@ -534,7 +552,7 @@ class StrategyReport:
                     if it.rescheduled_from else ""
                 )
                 + "</td>"
-                f"<td>{esc(it.platform.capitalize() if it.platform else '—')}</td>"
+                f"<td>{esc(platform_display(it.platform))}</td>"
                 f"<td>{esc(it.format.capitalize() if it.format else '—')}"
                 f"{' 📎' if it.media_required else ''}</td>"
                 f"<td>{esc(it.instruction)}</td>"
