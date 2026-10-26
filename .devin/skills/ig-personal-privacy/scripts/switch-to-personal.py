@@ -1,42 +1,64 @@
 #!/usr/bin/env python3
-"""Switch IG t_baltzakis Creator→Personal→Private on the Galaxy S22+.
+"""Switch @t_baltzakis IG to personal account via ADB UI automation.
 
-Uses uiautomator2 accessibility clicks — raw `input tap` fails on IG's
-React-native cards. Phone must be unlocked and on Wi-Fi ADB.
+The Personal card on Account-type screen is display-only on some builds —
+the real switch is the "Switch to personal account" link at the bottom of
+Account type and tools. Falls back to reporting if the link isn't found.
 """
-import re, sys, time
-import uiautomator2 as u2
+import subprocess, re, sys, time
 
-D = u2.connect("192.168.1.77:5555")
+DEVICE = "192.168.1.77:5555"
 
-def texts():
-    return [t for t in re.findall(r'text="([^"]+)"', D.dump_hierarchy()) if t.strip()]
+def sh(cmd):
+    return subprocess.run(f'adb -s {DEVICE} shell {cmd}', capture_output=True, text=True, shell=False).stdout
 
-def click_text(t, wait=4):
-    e = D(text=t)
-    if e.exists:
-        e.click(); time.sleep(wait); return True
+def tap(x, y):
+    subprocess.run(f'adb -s {DEVICE} shell input tap {x} {y}', shell=False)
+
+def back():
+    subprocess.run(f'adb -s {DEVICE} shell input keyevent KEYCODE_BACK', shell=False)
+
+def dump():
+    sh('uiautomator dump /sdcard/window_dump.xml')
+    return sh('cat /sdcard/window_dump.xml')
+
+def find(xml, needle):
+    for m in re.finditer(r'<node[^>]*text="%s"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"' % re.escape(needle), xml):
+        x1,y1,x2,y2 = map(int, m.groups())
+        return ((x1+x2)//2, (y1+y2)//2)
+    return None
+
+def tap_text(needle, wait=4):
+    xml = dump()
+    pos = find(xml, needle)
+    if pos:
+        tap(*pos); time.sleep(wait)
+        return True
     return False
 
-D.app_start("com.instagram.android"); time.sleep(6)
-D.click(0.9, 0.905); time.sleep(5)          # profile tab
-click_text("Options") or D(description="Options").click(); time.sleep(4)
-click_text("Account type and tools")
-# the "Your account" row opens the switch sheet
-click_text("Account type") or click_text("Professional")
-time.sleep(3)
-if click_text("Switch account type"):
-    time.sleep(2)
-    click_text("Switch to personal account")
-    time.sleep(2)
-    # confirm dialog — click the clickable confirm
-    for m in re.finditer(r'<node[^>]*>', D.dump_hierarchy()):
-        if "Switch to personal account" in m.group(0) and 'clickable="true"' in m.group(0):
-            b = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', m.group(0))
-            D.click((int(b.group(1))+int(b.group(3)))//2, (int(b.group(2))+int(b.group(4)))//2)
-            break
-    time.sleep(6)
+def scroll(times=3):
+    for _ in range(times):
+        sh('input swipe 540 1500 540 300 400'); time.sleep(1.5)
 
-t = texts()
-print("PERSONAL" if "Switch to professional account" in t else "still pro — check", t[:8])
-sys.exit(0)
+# Open IG → profile
+sh('monkey -p com.instagram.android -c android.intent.category.LAUNCHER 1')
+time.sleep(5)
+tap(972, 2137)  # profile tab
+time.sleep(4)
+
+# Options → Settings
+tap(989, 153); time.sleep(4)
+scroll(1)
+if not tap_text('Account type and tools'):
+    print('FAIL: Account type and tools not found'); sys.exit(1)
+scroll(3)
+# Look for switch link at bottom
+xml = dump()
+pos = find(xml, 'Switch to personal account')
+if pos:
+    tap(*pos); time.sleep(5)
+    # confirm sheet
+    tap_text('Switch account', 5) or tap_text('Switch', 5)
+    print('SWITCHED to personal')
+else:
+    print('No switch link visible — may already be personal or needs manual tap')

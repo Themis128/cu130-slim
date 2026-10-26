@@ -1,29 +1,36 @@
 #!/usr/bin/env python3
-"""Wire X OAuth creds into the SocialAuto stack.
+"""Wire X OAuth creds into the SocialAuto stack and generate the reauth URL.
 
 Usage: python wire.py <client_id> <client_secret>
-Writes .env → restarts social-api → prints the authorize URL hint.
-The creds already landed once via this path (token live @TBaltzakis).
 """
-import re, subprocess, sys, time
+import sys, subprocess, re, time, urllib.request
 
-ENV = r"C:\Users\tbaltzakis\cu130-slim\.env"
+REPO = r"C:\Users\tbaltzakis\cu130-slim"
+ENV = REPO + r"\.env"
 
-def run(*a): return subprocess.run(a, capture_output=True, text=True)
+def main(cid, secret):
+    env = open(ENV, encoding="utf-8").read()
+    # replace or append the two keys
+    for key, val in [("TWITTER_CLIENT_ID", cid), ("TWITTER_CLIENT_SECRET", secret)]:
+        if re.search(rf"^{key}=", env, re.M):
+            env = re.sub(rf"^{key}=.*", f"{key}={val}", env, flags=re.M)
+        else:
+            env += f"\n{key}={val}\n"
+    open(ENV, "w", encoding="utf-8").write(env)
+    print("env written")
 
-cid, secret = sys.argv[1], sys.argv[2]
-env = open(ENV, encoding="utf-8").read()
-for k, v in (("TWITTER_CLIENT_ID", cid), ("TWITTER_CLIENT_SECRET", secret)):
-    if f"{k}=" in env:
-        env = re.sub(rf"{k}=.*", f"{k}={v}", env)
-    else:
-        env += f"\n{k}={v}"
-open(ENV, "w", encoding="utf-8").write(env)
-print("env written")
+    subprocess.run(["docker","compose","-f",REPO+"\\docker-compose.yml","up","-d","social-api"], capture_output=True)
+    print("social-api restarting...")
+    time.sleep(12)
 
-run("docker", "compose", "restart", "social-api")
-print("restarting social-api…")
-time.sleep(20)
-h = run("docker", "ps", "--filter", "name=social-api", "--format", "{{.Status}}")
-print(h.stdout.strip() or h.stderr.strip())
-print("then: app → Accounts → Connect X, or the OAuth authorize endpoint with a user JWT + team_id")
+    try:
+        url = urllib.request.urlopen("http://localhost:8083/api/v1/oauth/twitter/authorize", timeout=10).read().decode()
+        print("authorize response:", url[:200])
+    except Exception as e:
+        print("authorize call failed:", e)
+        print("check social-api logs: docker logs social-api --tail 30")
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        print("usage: wire.py <client_id> <client_secret>"); sys.exit(1)
+    main(*sys.argv[1:])

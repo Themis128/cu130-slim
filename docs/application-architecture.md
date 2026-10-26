@@ -1988,3 +1988,12 @@ All components verified live:
 | Ruff lint | All checks passed |
 | TypeScript | 0 errors |
 | Compose config | VALID |
+
+## Peripheral Infrastructure (2026-10-25)
+
+- **NC220 camera recorder** — `systemd` service `nc220-record` on `github-omv`. The camera has no working RTSP for this build (`:554` rejects creds); the live stream is HTTP digest-auth multipart at `http://192.168.1.42:8080/stream/video/h264` (curl `--digest`, user `admin`). Writes 10-min `.h264` segments to `NAS_Storage/workspace/camera-recordings/` on sdb1 with 7-day retention. Play in VLC/mpv; remux to mp4 for sharing if needed.
+- **Camera alert relay** — postfix dedicated plaintext listener on omv `:2525` (NC220's TLS stack is too old for :587). Sender `camera@cloudless.gr`, recipient `tbaltzakis@cloudless.gr`, scoped to LAN via `mynetworks`. Sending interval raised from 1m to 1h (the camera batches motion events between sends).
+- **Slack workspace** — `socialauto-workspace.slack.com` joined on the phone as `themis`; channels `socialauto`, `socialauto-alerts`, `socialauto-publishing`. Magic links for `tbaltzakis@cloudless.gr` land in the omv dovecot mailbox (not Gmail).
+- **Personal IG `t_baltzakis`** — funnel-tuned (name/bio/links/pic) but left as **public Creator**; user may revert to private manually (Account type → Switch to personal, then Account privacy → Private). The "Personal" card on that screen is display-only on this build — the switch needs a manual tap path.
+- **X/Twitter OAuth** — `TWITTER_CLIENT_ID`/`SECRET` are empty in `.env`; DM auto-reply dead until real creds from console.x.com are pasted in.
+- **TikTok business verification** — rejected ("can't be verified"); resubmit with a doc tying the personal AFM cert to the business.
