@@ -263,6 +263,10 @@ TWITTER_SCOPES: list[str] = [
     "offline.access",
     "dm.read",
     "dm.write",
+    "like.write",
+    "like.read",
+    "follows.write",
+    "bookmark.read",
 ]
 
 
