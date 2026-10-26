@@ -16,16 +16,6 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
-        "app.worker.tasks.engagement",
-        "app.worker.tasks.engagement_ingest",
-        "app.worker.tasks.engagement_ingest_li",
-        "app.worker.tasks.engagement_ingest_ig",
-        "app.worker.tasks.engagement_ingest_fb",
-        "app.worker.tasks.engagement_ingest_tt",
-        "app.worker.tasks.engagement_tiers",
-        "app.worker.tasks.engagement_archive",
-        "app.worker.tasks.linkedin_ads_sync",
-        "app.worker.tasks.linkedin_leads_sync",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
@@ -69,6 +59,7 @@ celery_app = Celery(
         "app.worker.tasks.notebooks",
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
+        "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
     ],
 )
@@ -257,6 +248,7 @@ celery_app.conf.update(
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
+        "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -290,6 +282,12 @@ celery_app.conf.update(
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
             "schedule": 30.0,
+        },
+        # Retry failed publish targets — transient causes (media URL
+        # expiry, token contention) resolve on requeue. 15min cadence.
+        "publish-retry-sweep": {
+            "task": "app.worker.tasks.publish_retry.run_publish_retry_sweep",
+            "schedule": crontab(minute="*/15"),
         },
         "sync-analytics": {
             "task": "app.worker.tasks.analytics.sync_all_analytics",
