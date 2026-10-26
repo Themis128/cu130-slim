@@ -29,22 +29,28 @@ x-worker-env: &worker-env
   - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
   - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
   - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-  - ESPOCRM_BASE_URL=${ESPOCRM_BASE_URL:-http://192.168.1.200:30700}
-  - ESPOCRM_API_KEY=${ESPOCRM_API_KEY:-}
   - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
-  - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-C0C1B8PMTUN}
-  - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-C0C1B8PMTUN}
-  - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
-  - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-tbaltzakis@cloudless.gr}
   - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
   - DMR_COLD_TIMEOUT=${DMR_COLD_TIMEOUT:-240}
   - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
   - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
-  - KAKKAVA_DIR=/mnt/kakkava
-  - KAKKAVA_SYNC_ENABLED=${KAKKAVA_SYNC_ENABLED:-true}
   - LANGUAGETOOL_URL=http://stack-ops:8010
+  # Browser surfaces go through the stack-ops wake proxy (same as social-api):
+  # idle-sleep stops these containers after 20min, and direct hostnames have
+  # no DNS entry while stopped — every worker-side browser call (session
+  # healer, Skool watcher, publish fallbacks) died with ConnectError
+  # '[Errno -2] Name or service not known' until these were proxied.
+  - BROWSER_BRIDGE_URL=http://stack-ops:9223
+  - TIKTOK_BROWSER_SIDECAR_URL=http://stack-ops:9224
+  - LINKEDIN_BROWSER_SIDECAR_URL=http://stack-ops:9225
+  - LINKEDIN_MCP_SERVER_URL=http://stack-ops:9227/mcp
+  - LINKEDIN_NEWSLETTER_SERIES_URN=${LINKEDIN_NEWSLETTER_SERIES_URN:-}
+  - FACEBOOK_BROWSER_SIDECAR_URL=http://stack-ops:9226
+  - MESSENGER_SIDECAR_URL=http://stack-ops:9230
+  - INSTAGRAM_PRIVATE_API_URL=http://stack-ops:8000
+  - INSTAGRAM_PROXY=${INSTAGRAM_PROXY:-socks5://stack-ops:1080}
   - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
   - CLOUDFLARE_AI_API_TOKEN=${CLOUDFLARE_AI_API_TOKEN:-}
   - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
@@ -66,13 +72,19 @@ x-worker-env: &worker-env
   - NEXTCLOUD_EXPORT_ROOT=${NEXTCLOUD_EXPORT_ROOT:-SocialAuto}
   - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
   - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
-  - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-C0C1F1K3DDF}
+  - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-C0BT263L17U}
   - SLACK_ALERTS_WEBHOOK_URL=${SLACK_ALERTS_WEBHOOK_URL:-}
   - SLACK_ALERTS_CHANNEL_ID=${SLACK_ALERTS_CHANNEL_ID:-}
+  - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
+  - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
   - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
+  - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
   - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
   - SLACK_BILLING_CHANNEL_ID=${SLACK_BILLING_CHANNEL_ID:-}
   - SLACK_BILLING_DIGEST_HOUR=${SLACK_BILLING_DIGEST_HOUR:-}
+  - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
+  - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
+  - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
   - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
   - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
   - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -88,6 +100,8 @@ x-worker-env: &worker-env
   - CLOUDLESS_WEB_ANALYTICS_DOMAIN=${CLOUDLESS_WEB_ANALYTICS_DOMAIN:-}
   - CLOUDLESS_WEB_ANALYTICS_SECRET=${CLOUDLESS_WEB_ANALYTICS_SECRET:-}
   - CLOUDLESS_WEB_ANALYTICS_TEAM_ID=${CLOUDLESS_WEB_ANALYTICS_TEAM_ID:-}
+  - ESPOCRM_BASE_URL=${ESPOCRM_BASE_URL:-}
+  - ESPOCRM_API_KEY=${ESPOCRM_API_KEY:-}
   - EMAIL_PROVIDER=${EMAIL_PROVIDER:-smtp}
   - SMTP_HOST=${SMTP_HOST:-smtp.resend.com}
   - SMTP_PORT=${SMTP_PORT:-587}
@@ -168,10 +182,10 @@ x-worker-volumes: &worker-volumes
   # Live test tree — lets pytest run against the mounted source instead of
   # the stale copy baked into the image.
   - ./social-automation/backend/tests:/app/tests
+  # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
+  # slack_tool, monetization_tool, viber_tool, dedup_scan) — read-only.
+  - ./social-automation/backend/scripts:/app/scripts:ro
   - ./social-automation/uploads:/app/uploads
-  # Kakkava doctrine corpus (host OneDrive folder) — read-only; the daily
-  # kakkava-corpus-sync beat ingests it into team_<id>_doctrine collections.
-  - ${KAKKAVA_HOST_DIR:-/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia}:/mnt/kakkava:ro
   - tunnel_url:/run/tunnel
   # Report notebooks — papermill executes /notebooks/reports/*.ipynb inside
   # workers; rendered outputs go to /notebooks/output (visible in Jupyter
@@ -242,6 +256,11 @@ services:
       retries: 12
       start_period: 60s
     restart: unless-stopped
+    # Bound RAM/CPU — was the only uncapped service in the stack. A large
+    # generation job could push the 20GB WSL VM into OOM-killing siblings.
+    mem_limit: 8g
+    memswap_limit: 12g
+    cpus: '6'
   n8n:
     image: n8nio/n8n:2.43.4
     container_name: n8n
@@ -249,7 +268,7 @@ services:
       - backend
       - db
     ports:
-      - 5678:5678
+      - 127.0.0.1:5678:5678
     volumes:
       - ./n8n-data:/home/node/.n8n
       - ./storage-user/metadata:/home/node/.n8n/storage/metadata
@@ -303,6 +322,10 @@ services:
       - N8N_VERSION_NOTIFICATIONS_ENABLED=false
       - N8N_TEMPLATES_ENABLED=false
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # Nextcloud app password for IntraVox API calls from workflows
+      # (digest → intranet news). Basic auth is computed in-node.
+      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME}
+      - NEXTCLOUD_APP_PASSWORD=${NEXTCLOUD_APP_PASSWORD}
       - GENERIC_TIMEZONE=Europe/Athens
       - TZ=Europe/Athens
       # --- Postgres as n8n database backend (shared with stack) ---
@@ -315,14 +338,55 @@ services:
       - DB_POSTGRESDB_SCHEMA=public
       # --- Execution mode (regular = in-process, no separate worker needed) ---
       - EXECUTIONS_MODE=regular
+      # --- Durable scheduler: DB-backed schedule queue; a restart no longer
+      # drops pending runs and missed runs fire within their grace period.
+      # Available since n8n 2.36 (on-by-default from 2.45). Needs
+      # N8N_USE_WORKFLOW_PUBLICATION_SERVICE (default true in 2.x).
+      - N8N_SCHEDULER_ENABLED=true
+      # --- Execution bounds (data-driven 2026-10-20: ~100 execs/day,
+      # p95 ≈ 25min for ComfyUI/TikTok pipelines). 1h global default;
+      # long-waiting workflows (linkedin-dm-deferred-reply) override up to
+      # 24h via settings.executionTimeout. ---
+      - EXECUTIONS_TIMEOUT=3600
+      - EXECUTIONS_TIMEOUT_MAX=86400
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=10
+      # --- Execution-data retention: 7 days / 2000 rows (~2 weeks of
+      # headroom at current volume). Slack error alerts + SocialAuto
+      # post_targets are the durable audit trail, not n8n history. ---
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=168
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=2000
+      - EXECUTIONS_DATA_SAVE_ON_PROGRESS=false
+      # --- Prometheus /metrics (localhost-only; exposed to LAN via the
+      # n8n-metrics proxy service on :9392 for the omv Prometheus job) ---
+      - N8N_METRICS=true
+      - N8N_METRICS_INCLUDE_SCHEDULER_METRICS=true
+      - N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL=true
+      - N8N_METRICS_INCLUDE_API_ENDPOINTS=true
+      # --- Task runners: external mode (internal is deprecated and
+      # insecure — runner code shares the n8n uid). Code-node JS executes
+      # in the n8n-task-runner sidecar; NODE_FUNCTION_ALLOW_BUILTIN lives
+      # in its /etc/task-runners.json (crypto+moment allowed by default).
+      - N8N_RUNNERS_MODE=external
+      - N8N_RUNNERS_AUTH_TOKEN=${N8N_RUNNERS_AUTH_TOKEN}
+      - N8N_RUNNERS_BROKER_LISTEN_ADDRESS=0.0.0.0
+      - N8N_RUNNERS_TASK_TIMEOUT=300
+      # --- Pin defaults the startup log flags for future change ---
+      - N8N_UNVERIFIED_PACKAGES_ENABLED=false
+      - N8N_COMPRESSION_NODE_MAX_DECOMPRESSED_SIZE_BYTES=268435456
+      - N8N_COMPRESSION_NODE_MAX_ZIP_ENTRIES=1000
       # --- social-api integration ---
       - SOCIAL_API_URL=http://social-api:8000
       - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
       - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
       - SOCIAL_TOTP_SECRET=${SOCIAL_TOTP_SECRET:-}
-      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
-      - NEXTCLOUD_APP_PASSWORD=${NEXTCLOUD_APP_PASSWORD:-}
-      - NODE_FUNCTION_ALLOW_BUILTIN=crypto
+      # X-Service-Token for POST /api/v1/newsletter/linkedin/issue
+      - NEWSLETTER_SERVICE_TOKEN=${NEWSLETTER_SERVICE_TOKEN:-}
+      # chat.postMessage → #newsletter channel (no dedicated webhook exists)
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_NEWSLETTER_CHANNEL_ID=${SLACK_NEWSLETTER_CHANNEL_ID:-C0C1B8PMTUN}
+      # chat.postMessage → #socialauto-alerts for workflow error notifications
+      - SLACK_ALERTS_CHANNEL_ID=${SLACK_ALERTS_CHANNEL_ID:-C0C1D46212N}
       - CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID=${CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID:-9c4451bb-e820-489f-8676-76ddbc788ffe}
       - CLOUDLESS_FACEBOOK_ACCOUNT_ID=${CLOUDLESS_FACEBOOK_ACCOUNT_ID:-e280d96f-2807-4150-babe-f388d02bcfba}
       - CLOUDLESS_INSTAGRAM_ACCOUNT_ID=${CLOUDLESS_INSTAGRAM_ACCOUNT_ID:-38ddbd44-8811-4d0b-be62-a23fd2f50490}
@@ -339,7 +403,72 @@ services:
       - host.docker.internal:host-gateway
     mem_limit: 768m
     memswap_limit: 2560m
+    cpus: '3'
     restart: unless-stopped
+  # External JS/Python task runners for n8n Code nodes (external mode —
+  # internal mode is deprecated and shares the n8n uid). Launcher + runners
+  # connect to the n8n task broker on n8n:5679 with the shared auth token.
+  # Image version MUST match n8nio/n8n. The stock /etc/task-runners.json in
+  # this image already allowlists crypto+moment builtins for our Code nodes.
+  n8n-task-runner:
+    image: n8nio/runners:2.43.4
+    pull_policy: if_not_present
+    container_name: n8n-task-runner
+    init: true
+    networks:
+      - backend
+    environment:
+      - N8N_RUNNERS_AUTH_TOKEN=${N8N_RUNNERS_AUTH_TOKEN}
+      - N8N_RUNNERS_TASK_BROKER_URI=http://n8n:5679
+      - N8N_RUNNERS_TASK_TIMEOUT=300
+      # Keep the JS runner warm 60s between tasks (default 15s re-spawns too
+      # eagerly for our TOTP-on-every-publish cadence).
+      - N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=60
+      - GENERIC_TIMEZONE=Europe/Athens
+      - TZ=Europe/Athens
+    depends_on:
+      n8n:
+        condition: service_healthy
+    healthcheck:
+      # Launcher health endpoint.
+      test: ["CMD-SHELL", "wget -qO- http://localhost:5680/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    mem_limit: 512m
+    memswap_limit: 1024m
+    cpus: '2'
+    restart: unless-stopped
+    <<: *public-dns
+  # Metrics-only LAN endpoint — proxies ONLY n8n /metrics on :9392 so the
+  # omv Prometheus can scrape it without opening the n8n API/UI on the LAN.
+  # Same pattern as social-metrics (:9390 → social-api). Add a scrape
+  # target for <host-lan-ip>:9392 in the Prometheus config.
+  n8n-metrics:
+    image: nginx:1.27-alpine
+    pull_policy: if_not_present
+    container_name: n8n-metrics
+    networks:
+      - backend
+    ports:
+      - 9392:80
+    volumes:
+      - ./deploy/nginx/n8n-metrics.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      n8n:
+        condition: service_started
+    healthcheck:
+      test:
+        ["CMD-SHELL", "wget -qO- http://127.0.0.1/metrics | head -1 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    mem_limit: 128m
+    memswap_limit: 256m
+    cpus: '1'
+    restart: unless-stopped
+    <<: *public-dns
   n8n-sandbox:
     image: n8nio/n8n-sandbox-service-sandbox:latest
     container_name: n8n-sandbox
@@ -363,6 +492,7 @@ services:
       start_period: 10s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '2'
     restart: unless-stopped
   postgres:
     image: postgres:16-alpine
@@ -383,6 +513,7 @@ services:
       start_period: 20s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '2'
     restart: unless-stopped
   metabase:
     image: metabase/metabase:v0.63.14.1
@@ -421,6 +552,7 @@ services:
       start_period: 60s
     mem_limit: 1536m
     memswap_limit: 3072m
+    cpus: '2'
     restart: unless-stopped
   local-diffusers:
     build:
@@ -467,6 +599,7 @@ services:
     # Memory cap — model load spikes are fine, runaway creep is not (VM-wide wedge risk).
     mem_limit: 4608m
     memswap_limit: 9216m
+    cpus: '2'
   chroma:
     image: chromadb/chroma:1.5.9
     container_name: chroma
@@ -491,6 +624,7 @@ services:
       start_period: 20s
     mem_limit: 768m
     memswap_limit: 1536m
+    cpus: '2'
     restart: unless-stopped
   minio:
     image: bitnamilegacy/minio:latest
@@ -518,6 +652,7 @@ services:
       start_period: 15s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '2'
     restart: unless-stopped
   languagetool:
     image: erikvl87/languagetool
@@ -540,6 +675,7 @@ services:
       start_period: 30s
     mem_limit: 640m
     memswap_limit: 2048m
+    cpus: '2'
     restart: unless-stopped
 
   portainer:
@@ -552,6 +688,7 @@ services:
       - portainer_data:/data
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
 
   flower:
@@ -580,6 +717,7 @@ services:
       start_period: 30s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '1'
     restart: unless-stopped
   env-manager-backend:
     image: ghcr.io/themis128/cu130-slim:env-manager-backend-latest
@@ -609,6 +747,7 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   env-manager-frontend:
     image: ghcr.io/themis128/cu130-slim:env-manager-frontend-latest
@@ -631,9 +770,13 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   social-postgres:
-    image: postgres:16-alpine
+    # PG16→17 migrated 2026-10-20 via pg_dumpall → new volume (old
+    # cu130-slim_social_postgres_data kept intact as rollback).
+    # n8n 2.43+ requires PG17 (PG16 was compat-only).
+    image: postgres:17-alpine
     container_name: social-postgres
     networks:
       - db
@@ -642,7 +785,7 @@ services:
       - POSTGRES_USER=${SOCIAL_POSTGRES_USER}
       - POSTGRES_PASSWORD=${SOCIAL_POSTGRES_PASSWORD}
     volumes:
-      - social_postgres_data:/var/lib/postgresql/data
+      - social_postgres_data_v17:/var/lib/postgresql/data
     ports:
       - 127.0.0.1:5433:5432
     healthcheck:
@@ -653,6 +796,7 @@ services:
       start_period: 20s
     mem_limit: 768m
     memswap_limit: 1536m
+    cpus: '2'
     restart: unless-stopped
   redis:
     image: redis:7-alpine
@@ -678,6 +822,7 @@ services:
       start_period: 10s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '2'
     restart: unless-stopped
   social-api:
     image: ghcr.io/themis128/cu130-slim:social-api-latest
@@ -685,6 +830,7 @@ services:
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
+      target: api
     container_name: social-api
     networks:
       - backend
@@ -702,16 +848,6 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - REFRESH_TOKEN_EXPIRE_DAYS=7
       - N8N_API_URL=http://n8n:5678
-      - ESPOCRM_BASE_URL=${ESPOCRM_BASE_URL:-http://192.168.1.200:30700}
-      - ESPOCRM_API_KEY=${ESPOCRM_API_KEY:-}
-      - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
-      - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-C0C1B8PMTUN}
-      - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-C0C1B8PMTUN}
-      - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
-      - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-tbaltzakis@cloudless.gr}
-      - INTRANET_FEED_TEAM_ID=${INTRANET_FEED_TEAM_ID:-}
-      - INTRANET_FEED_TOKEN=${INTRANET_FEED_TOKEN:-}
-      - NEWSLETTER_SERVICE_TOKEN=${NEWSLETTER_SERVICE_TOKEN:-}
       - N8N_API_KEY=${N8N_API_KEY}
       - N8N_USER=${N8N_USER}
       - N8N_PASSWORD=${N8N_PASSWORD}
@@ -723,17 +859,20 @@ services:
       - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
       - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+      - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
       - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
       - DMR_COLD_TIMEOUT=${DMR_COLD_TIMEOUT:-240}
       - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
       - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
       - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
       - CHROMA_URL=http://chroma:8000
-      - KAKKAVA_DIR=/mnt/kakkava
-      - KAKKAVA_SYNC_ENABLED=${KAKKAVA_SYNC_ENABLED:-true}
       - LINKEDIN_CLIENT_ID=${LINKEDIN_CLIENT_ID}
       - LINKEDIN_CLIENT_SECRET=${LINKEDIN_CLIENT_SECRET}
       - LINKEDIN_REDIRECT_URI=${LINKEDIN_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/linkedin/callback}
+      - NEWSLETTER_SERVICE_TOKEN=${NEWSLETTER_SERVICE_TOKEN:-}
+      # X-Service-Token for GET /api/v1/service-feed/* (IntraVox intranet feeds)
+      - INTRANET_FEED_TOKEN=${INTRANET_FEED_TOKEN:-}
+      - INTRANET_FEED_TEAM_ID=${INTRANET_FEED_TEAM_ID:-}
       - LINKEDIN_EXTRA_SCOPES=${LINKEDIN_EXTRA_SCOPES:-}
       - TWITTER_CLIENT_ID=${TWITTER_CLIENT_ID}
       - TWITTER_CLIENT_SECRET=${TWITTER_CLIENT_SECRET}
@@ -771,13 +910,19 @@ services:
       - VECTORIZE_INDEX_NAME=${VECTORIZE_INDEX_NAME:-social-embeddings}
       - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
-      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-C0C1F1K3DDF}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID:-C0BT263L17U}
       - SLACK_ALERTS_WEBHOOK_URL=${SLACK_ALERTS_WEBHOOK_URL:-}
       - SLACK_ALERTS_CHANNEL_ID=${SLACK_ALERTS_CHANNEL_ID:-}
+      - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
+      - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
       - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
+      - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
       - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
       - SLACK_BILLING_CHANNEL_ID=${SLACK_BILLING_CHANNEL_ID:-}
       - SLACK_BILLING_DIGEST_HOUR=${SLACK_BILLING_DIGEST_HOUR:-}
+      - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
+      - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
+      - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
       - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
       - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
       - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -793,6 +938,8 @@ services:
       - CLOUDLESS_WEB_ANALYTICS_DOMAIN=${CLOUDLESS_WEB_ANALYTICS_DOMAIN:-}
       - CLOUDLESS_WEB_ANALYTICS_SECRET=${CLOUDLESS_WEB_ANALYTICS_SECRET:-}
       - CLOUDLESS_WEB_ANALYTICS_TEAM_ID=${CLOUDLESS_WEB_ANALYTICS_TEAM_ID:-}
+      - ESPOCRM_BASE_URL=${ESPOCRM_BASE_URL:-}
+      - ESPOCRM_API_KEY=${ESPOCRM_API_KEY:-}
       - EMAIL_PROVIDER=${EMAIL_PROVIDER:-smtp}
       - SMTP_HOST=${SMTP_HOST:-smtp.resend.com}
       - SMTP_PORT=${SMTP_PORT:-587}
@@ -882,6 +1029,7 @@ services:
       # LinkedIn Browser Automation sidecar (Playwright)
       - LINKEDIN_BROWSER_SIDECAR_URL=http://stack-ops:9225
       - LINKEDIN_MCP_SERVER_URL=http://stack-ops:9227/mcp
+      - LINKEDIN_NEWSLETTER_SERIES_URN=${LINKEDIN_NEWSLETTER_SERIES_URN:-}
       - AIRBYTE_MCP_SERVER_URL=http://stack-ops:9228/mcp
       # Facebook Browser Automation sidecar (Playwright)
       # Personal-profile posting + profile edits the Graph API does not support.
@@ -905,13 +1053,16 @@ services:
       - ./social-automation/backend/app:/app/app
       - ./social-automation/backend/alembic:/app/alembic
       - ./social-automation/backend/tests:/app/tests
+      # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
+      # slack_tool, monetization_tool, viber_tool) — read-only.
+      - ./social-automation/backend/scripts:/app/scripts:ro
+      # Deploy seeds (content_prompt_templates etc.) — idempotent, applied on boot.
+      - ./deploy/seeds:/app/deploy/seeds:ro
       - ./social-automation/uploads:/app/uploads
-      # Kakkava doctrine corpus (host OneDrive folder) — read-only.
-      - ${KAKKAVA_HOST_DIR:-/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia}:/mnt/kakkava:ro
       # Read-only access to notebook reports output for /api/v1/reports.
       - ./notebooks:/notebooks:ro
       - tunnel_url:/run/tunnel
-    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
+    command: sh -c "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"
     extra_hosts:
       - host.docker.internal:host-gateway
     depends_on:
@@ -943,6 +1094,7 @@ services:
       start_period: 30s
     mem_limit: 1024m
     memswap_limit: 4096m
+    cpus: '4'
     restart: unless-stopped
   # ── Metrics exporter ─────────────────────────────────────────────────────
   # Prometheus on omv can't reach the loopback-bound API; this proxies ONLY
@@ -965,6 +1117,7 @@ services:
       retries: 3
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   # ── Blue/green deploy ─────────────────────────────────────────────────────
   # api-gateway is the stable upstream the frontend proxies /api/v1 through.
@@ -987,6 +1140,7 @@ services:
       start_period: 10s
     mem_limit: 128m
     memswap_limit: 256m
+    cpus: '1'
     restart: unless-stopped
   # Second API slot used by scripts/deploy-api.py. Same env/mounts as
   # social-api via `extends`; starts under the `bluegreen` profile only so a
@@ -1011,7 +1165,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-publishing
     networks:
       - backend
@@ -1040,6 +1195,7 @@ services:
     stop_grace_period: 90s
     mem_limit: 1280m
     memswap_limit: 3072m
+    cpus: '4'
     restart: unless-stopped
 
   social-worker-media:
@@ -1047,7 +1203,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-media
     networks:
       - backend
@@ -1078,6 +1235,7 @@ services:
     stop_grace_period: 15m
     mem_limit: 1280m
     memswap_limit: 3072m
+    cpus: '4'
     restart: unless-stopped
 
   social-worker-default:
@@ -1085,7 +1243,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-default
     networks:
       - backend
@@ -1113,6 +1272,7 @@ services:
     stop_grace_period: 90s
     mem_limit: 1280m
     memswap_limit: 3072m
+    cpus: '4'
     restart: unless-stopped
 
   social-worker-messenger:
@@ -1120,7 +1280,8 @@ services:
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: social-worker-messenger
     networks:
       - backend
@@ -1150,13 +1311,15 @@ services:
     stop_grace_period: 90s
     mem_limit: 1024m
     memswap_limit: 2048m
+    cpus: '4'
     restart: unless-stopped
   celery-beat:
     image: ghcr.io/themis128/cu130-slim:social-worker-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
+      target: worker
     container_name: celery-beat
     networks:
       - backend
@@ -1187,6 +1350,7 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
   cloudflared:
     image: ghcr.io/themis128/cu130-slim:cloudflared-latest
@@ -1217,6 +1381,7 @@ services:
       start_period: 30s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
     depends_on:
       social-api:
@@ -1253,6 +1418,7 @@ services:
       start_period: 30s
     mem_limit: 512m
     memswap_limit: 1024m
+    cpus: '1'
     restart: unless-stopped
 
   # ── Instagram Private API sidecar (aiograpi-rest) ────────────────────────
@@ -1287,6 +1453,7 @@ services:
       start_period: 30s
     mem_limit: 1024m
     memswap_limit: 2048m
+    cpus: '2'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1326,6 +1493,7 @@ services:
       start_period: 15s
     mem_limit: 256m
     memswap_limit: 512m
+    cpus: '1'
     restart: unless-stopped
 
   # ── Browser + noVNC container (visual browser for social logins) ─────────
@@ -1366,6 +1534,8 @@ services:
     # Memory cap — Chromium tabs multiply silently; matches runtime docker update 2026-09-26.
     mem_limit: 1536m
     memswap_limit: 4096m
+    # CPU cap — shared multi-session bridge; a busy tab must not pin all cores.
+    cpus: '4'
 
   # ── TikTok Browser Automation sidecar (Playwright) ───────────────────────
   # RESTful HTTP wrapper around Playwright for TikTok profile settings that
@@ -1387,13 +1557,17 @@ services:
     volumes:
       - tiktok_browser_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9224/health || exit 1"]
+      # node image ships no curl — probe /health with node itself
+      # (same fix as linkedin/facebook sidecars, PR #779).
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:9224/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
     mem_limit: 1024m
     memswap_limit: 3072m
+    # CPU cap — automation browsers burst to a full core on page renders.
+    cpus: '2'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1421,13 +1595,14 @@ services:
       # fingerprint) — connect directly by default; set LINKEDIN_PROXY to opt in.
       - LINKEDIN_PROXY=${LINKEDIN_PROXY:-}
       - LINKEDIN_RATE_LIMIT_COOLDOWN_MS=${LINKEDIN_RATE_LIMIT_COOLDOWN_MS:-21600000}
-      - LINKEDIN_DEBUG_CONSOLE=${LINKEDIN_DEBUG_CONSOLE:-false}
+      - LINKEDIN_DEBUG_CONSOLE=${LINKEDIN_DEBUG_CONSOLE:-0}
     volumes:
       - linkedin_browser_data:/data
     depends_on:
       - warp-proxy
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9225/health || exit 1"]
+      # node:22-slim ships no curl — probe /health with node itself.
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:9225/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -1485,7 +1660,8 @@ services:
       start_period: 60s
     mem_limit: 512m
     memswap_limit: 1024m
-    restart: no
+    cpus: '1'
+    restart: unless-stopped
     <<: *public-dns
 
   # ── Airbyte MCP Server (data connectors: FB Marketing, etc.) ──────────────
@@ -1528,7 +1704,42 @@ services:
       start_period: 60s
     mem_limit: 512m
     memswap_limit: 1024m
-    restart: no
+    cpus: '1'
+    restart: unless-stopped
+    <<: *public-dns
+
+  # ── Nextcloud MCP Server ──────────────────────────────────────────────────
+  # ghcr.io/cbcoutinho/nextcloud-mcp-server — 110+ MCP tools over the omv
+  # Nextcloud workspace (Notes, Calendar, Contacts, Files/WebDAV, Deck,
+  # Cookbook, Tables, Sharing, News, Mail, Collectives, Talk) via
+  # streamable-http. Authenticates with the NEXTCLOUD_* app password already
+  # used by the media-export WebDAV mirror; registered in .devin/mcp_config.json.
+  nextcloud-mcp-server:
+    image: ghcr.io/cbcoutinho/nextcloud-mcp-server:0.198.3
+    container_name: nextcloud-mcp-server
+    networks:
+      - backend
+    ports:
+      - 127.0.0.1:9231:8000
+    environment:
+      - NEXTCLOUD_HOST=https://cloud.cloudless.gr
+      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
+      - NEXTCLOUD_PASSWORD=${NEXTCLOUD_APP_PASSWORD:-}
+      - TOKEN_STORAGE_DB=/data/tokens.db
+      - TOKEN_ENCRYPTION_KEY=${NEXTCLOUD_MCP_TOKEN_KEY:-}
+      - TZ=Europe/Athens
+    volumes:
+      - nextcloud_mcp_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(5); s.connect(('127.0.0.1',8000)); s.close()\" || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    mem_limit: 512m
+    memswap_limit: 1024m
+    cpus: '1'
+    restart: unless-stopped
     <<: *public-dns
 
   # ── Facebook Browser Automation sidecar (Playwright) ──────────────────────
@@ -1551,14 +1762,17 @@ services:
     volumes:
       - facebook_browser_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:9226/health || exit 1"]
+      # node:22-slim ships no curl — probe /health with node itself.
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:9226/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
     mem_limit: 1024m
     memswap_limit: 3072m
-    restart: no
+    # CPU cap — automation browsers burst to a full core on page renders.
+    cpus: '2'
+    restart: unless-stopped
     <<: *public-dns
 
   # ── Messenger webhook sidecar ───────────────────────────────────────────
@@ -1583,6 +1797,7 @@ services:
       - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
       - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+      - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
       - MESSENGER_AI_MODEL=${MESSENGER_AI_MODEL:-@cf/meta/llama-3.1-8b-instruct}
       - TZ=Europe/Athens
     extra_hosts:
@@ -1595,7 +1810,9 @@ services:
       start_period: 10s
     mem_limit: 512m
     memswap_limit: 2048m
-    restart: no
+    # CPU cap — webhook processor is mostly idle; bound its DMR bursts.
+    cpus: '2'
+    restart: unless-stopped
     <<: *public-dns
 
   # ── DMR GPU runner watchdog ─────────────────────────────────────────────
@@ -1613,7 +1830,6 @@ services:
       - |
         fails=0
         last_started=""
-        last_pend=-1
         echo "[dmr-watchdog] watching http://host.docker.internal:12435/engines/v1/models"
 
         # Canonical configs mirror _BEST_PRACTICE_CONFIGS in
@@ -1622,59 +1838,32 @@ services:
         # so runtime flags must be included or they'd be stripped.
         # (The docker-model CLI plugin is Desktop-internal and I/O-errors
         # inside containers — use the HTTP endpoint like the app does.)
-        # Returns: 0 = applied, 2 = HTTP 409 (model loaded — the config is
-        # stored for the next load; expected and retried every minute,
-        # logged on transitions only), 1 = real failure.
         configure() {
-          resp=$$(wget -S -O /dev/null -T 10 \
+          wget -q -O /dev/null -T 10 \
             --header "Content-Type: application/json" \
             --post-data "$$1" \
-            http://host.docker.internal:12435/engines/_configure 2>&1)
-          case "$$resp" in
-            *"HTTP/1.1 2"*) return 0 ;;
-            *" 409 "*) return 2 ;;
-            *) echo "[dmr-watchdog] configure error: $$(echo "$$resp" | tail -n 1)"; return 1 ;;
-          esac
+            http://host.docker.internal:12435/engines/_configure
         }
 
         apply_configs() {
-          pend=0
-          fail=0
-          try() {
-            configure "$$1"
-            rc=$$?
-            [ "$$rc" -eq 2 ] && pend=$$((pend+1))
-            [ "$$rc" -eq 1 ] && fail=$$((fail+1))
-            return 0
-          }
-          try '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}'
-          try '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}'
-          try '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}'
-          try '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}'
-          try '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","context-size":8192,"keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}'
-          try '{"model":"ai/smollm3","context-size":4096,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","0","--threads","4","--batch-size","512","--flash-attn","on"]}'
-          try '{"model":"cloudless/qwen3-4b-media:latest","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}'
-          if [ "$$fail" -gt 0 ]; then
-            echo "[dmr-watchdog] config apply failed ($$fail error(s), $$pend pending) - retrying next tick"
-            last_pend=-1
-            return 1
-          fi
-          # Pending (409) configs land on the next model load; the periodic
-          # tick keeps retrying, so only log when the pending count changes.
-          if [ "$$pend" -ne "$$last_pend" ]; then
-            if [ "$$pend" -gt 0 ]; then
-              echo "[dmr-watchdog] $$pend model config(s) pending (models loaded - apply on next load)"
-            else
-              echo "[dmr-watchdog] all canonical model configs applied"
-            fi
-            last_pend=$$pend
-          fi
-          return 0
+          echo "[dmr-watchdog] applying canonical model configs"
+          ok=0
+          configure '{"model":"ai/qwen3:8b-q4_K_M","context-size":6144,"keep_alive":"2m","llamacpp":{"reasoning-budget":-1},"runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","context-size":8192,"keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}' || ok=1
+          configure '{"model":"ai/smollm3","context-size":4096,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","0","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
+          configure '{"model":"cloudless/qwen3-4b-media:latest","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
+          # Return 0 only if every push landed; a failed push retries next tick
+          return $$ok
         }
 
         tick=0
         while true; do
           tick=$$((tick+1))
+          # Heartbeat for the container healthcheck — proves the loop is ticking.
+          touch /tmp/dmr-watchdog.beat
           # Configs are in-memory per loaded model — wiped on runner restart
           # AND on model unload (keep-alive expiry). Re-apply on StartedAt
           # change and periodically (~every 6th tick = 60s).
@@ -1683,6 +1872,8 @@ services:
             if wget -q -O /dev/null -T 5 http://host.docker.internal:12435/engines/v1/models 2>/dev/null; then
               if apply_configs; then
                 last_started=$$started
+              else
+                echo "[dmr-watchdog] config apply failed - retrying next tick"
               fi
             fi
           fi
@@ -1734,6 +1925,58 @@ services:
       - host.docker.internal:host-gateway
     mem_limit: 96m
     memswap_limit: 192m
+    cpus: '1'
+    restart: unless-stopped
+    # Healthy = the watch loop is ticking (heartbeat < 45s old).
+    # We deliberately do NOT probe DMR here — DMR health is the watchdog's
+    # job; this check only proves the watchdog itself is alive.
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          test -f /tmp/dmr-watchdog.beat &&
+          [ $$(( $$(date +%s) - $$(stat -c %Y /tmp/dmr-watchdog.beat) )) -lt 45 ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    <<: *public-dns
+
+  # Exposes the DMR OpenAI-compatible API on the LAN for hosts that cannot
+  # see host.docker.internal (omv Nextcloud Assistant → integration_openai
+  # points here). Plain TCP forwarder to host.docker.internal:12435 —
+  # LAN-only by topology (no auth; anyone on 192.168.1.0/24 can reach it).
+  dmr-lan-proxy:
+    image: node:24
+    container_name: dmr-lan-proxy
+    command:
+      - node
+      - -e
+      - |
+        const net = require('net');
+        net.createServer((s) => {
+          s.on('error', () => {});
+          const d = net.connect(12435, 'host.docker.internal');
+          d.on('error', () => s.destroy());
+          s.pipe(d).pipe(s);
+        }).listen(12436, '0.0.0.0', () => console.log('dmr-lan-proxy up'));
+    ports:
+      - "12436:12436"
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('net').connect(12436,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))\"",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    mem_limit: 64m
+    memswap_limit: 128m
+    cpus: '1'
     restart: unless-stopped
     <<: *public-dns
 
@@ -1752,8 +1995,6 @@ services:
       - ./jupyter/start-notebook.d:/usr/local/bin/start-notebook.d:ro
     environment:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN}
-      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
-      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID}
       - DATABASE_URL=postgresql://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
       # Media QA notebook (work/media_validation.ipynb): fetches assets via the
       # API and runs the semantic check against the DMR vision model (qwen3-vl).
@@ -1776,6 +2017,7 @@ services:
       start_period: 30s
     mem_limit: 512m
     memswap_limit: 2048m
+    cpus: '2'
     restart: unless-stopped
 
   # ── stack-ops: idle-sleep + wake-on-connect front proxy ────────────
@@ -1796,6 +2038,9 @@ services:
       - STACK_OPS_WAKE_TIMEOUT=${STACK_OPS_WAKE_TIMEOUT:-120}
       - STACK_OPS_CONN_STREAK=${STACK_OPS_CONN_STREAK:-4}
       - STACK_OPS_SLEEPER=${STACK_OPS_SLEEPER:-1}
+      # Host repo path for pruned-service recreation — compose resolves
+      # relative bind sources against --project-directory on the host fs.
+      - STACK_OPS_HOST_DIR=${STACK_OPS_HOST_DIR:-/home/tbaltzakis/cu130-slim}
     networks:
       - backend
     ports:
@@ -1822,6 +2067,11 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./stack-ops/services.json:/app/services.json:ro
+      # Compose file + env so wake() can recreate pruned services
+      # (`docker compose -f /app/docker-compose.yml up -d --no-deps <svc>`).
+      # .env is required — the file uses ${VAR:?} required-var syntax.
+      - ./docker-compose.yml:/app/docker-compose.yml:ro
+      - ./.env:/app/.env:ro
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8787/healthz >/dev/null || exit 1"]
       interval: 30s
@@ -1830,33 +2080,20 @@ services:
       start_period: 10s
     mem_limit: 192m
     memswap_limit: 384m
+    cpus: '1'
     restart: always
     <<: *public-dns
 
 
-
-  nextcloud-mcp-server:
-    image: ghcr.io/cbcoutinho/nextcloud-mcp-server:0.198.3
-    container_name: nextcloud-mcp-server
-    networks: [backend]
-    restart: unless-stopped
-    environment:
-      - TZ=Europe/Athens
-      - NEXTCLOUD_HOST=${NEXTCLOUD_HOST:-https://cloud.cloudless.gr}
-      - NEXTCLOUD_USERNAME=${NEXTCLOUD_USERNAME:-}
-      - NEXTCLOUD_PASSWORD=${NEXTCLOUD_PASSWORD:-}
-      - TOKEN_ENCRYPTION_KEY=${TOKEN_ENCRYPTION_KEY:-}
-      - TOKEN_STORAGE_DB=${TOKEN_STORAGE_DB:-/data/tokens.db}
-    ports:
-      - "127.0.0.1:9231:8000"
-    volumes:
-      - nextcloud_mcp_data:/data
-
 volumes:
-  nextcloud_mcp_data: null
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
+  # Pre-created via docker volume create during the PG16→17 migration;
+  # external keeps `compose down -v` from ever deleting the live data.
+  social_postgres_data_v17:
+    external: true
+    name: cu130-slim_social_postgres_data_v17
   redis_data: null
   tunnel_url: null
   browser_cookies: null
@@ -1869,6 +2106,7 @@ volumes:
   linkedin_mcp_data: null
   facebook_browser_data: null
   airbyte_mcp_data: null
+  nextcloud_mcp_data: null
 
 # Explicit network topology (restored 2026-09-06 to match runtime state).
 # Names are pinned so compose adopts the existing networks instead of

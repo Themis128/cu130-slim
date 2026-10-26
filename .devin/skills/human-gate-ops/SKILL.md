@@ -76,3 +76,10 @@ but `localizedSpecialties` is **admin-writable via the Organization API**
 - Anything that mutates an external platform stays `review` tier per
   ABPM — these scripts read state or send the owner's own confirmation,
   they don't impersonate the owner.
+
+## Scripts — one per gate
+
+- `x-reconnect.sh` — mints the X OAuth2 authorize URL (login → team → /connect/twitter). Click output to reconnect.
+- `x-status.sh` — counts refresh-400s in worker logs; 0 = reconnected.
+- `cmapi-check.sh` — probes `organizationAcls`; 200 = Community Management approved.
+- `check-inbox.sh` — mailbox triage (MAILBOX_PASSWORD env); filters system senders, shows real unread.

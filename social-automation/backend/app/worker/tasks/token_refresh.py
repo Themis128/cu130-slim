@@ -261,4 +261,25 @@ async def _refresh_expiring_tokens_async() -> dict:
         summary["skipped"],
         len(summary["errors"]),
     )
+    if summary["errors"]:
+        try:
+            from app.core.config import get_settings
+            from app.services.slack_notifications import _post_slack_text
+
+            cfg = get_settings()
+            lines = "\n".join(f"• {e}" for e in summary["errors"])
+            await _post_slack_text(
+                webhook_url=cfg.SLACK_ALERTS_WEBHOOK_URL,
+                token=cfg.SLACK_BOT_TOKEN,
+                channel_id=cfg.SLACK_ALERTS_CHANNEL_ID,
+                purpose="token-refresh alert",
+                text=(
+                    f":warning: *Social token refresh failed* — re-auth needed\n"
+                    f"{lines}\n"
+                    f"Run `social-auth-ops/scripts/gate-check.sh` then the "
+                    f"platform's reconnect script."
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 — alerting must never break the task
+            logger.warning("Slack token-refresh alert failed: %s", exc)
     return summary

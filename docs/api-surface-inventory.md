@@ -256,6 +256,12 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/email-campaigns/{campaign_id}/responses` — GET
 - `/api/v1/email-campaigns/{campaign_id}/send` — POST
 
+## `engagement`
+
+- `/api/v1/engagement/pending` — GET
+- `/api/v1/engagement/{action_id}/approve` — POST
+- `/api/v1/engagement/{action_id}/reject` — POST
+
 ## `inbox`
 
 - `/api/v1/inbox/inbox` — GET
@@ -340,6 +346,15 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/media/upload/complete` — POST
 - `/api/v1/media/upload/prepare` — POST
 - `/api/v1/media/view` — GET
+
+## `media-sources`
+
+- `/api/v1/media-sources/gdrive/connect` — POST
+- `/api/v1/media-sources/gdrive/connect-url` — POST
+- `/api/v1/media-sources/gdrive/files` — GET
+- `/api/v1/media-sources/gdrive/import` — POST
+- `/api/v1/media-sources/nextcloud/files` — GET
+- `/api/v1/media-sources/nextcloud/import` — POST
 
 ## `messenger`
 
