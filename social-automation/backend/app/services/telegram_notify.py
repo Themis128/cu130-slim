@@ -1,14 +1,7 @@
-"""Telegram notifications.
+"""Telegram gate alerts via the telegram-mcp HTTP server (host :8765).
 
-Two independent, best-effort helpers:
-
-* ``notify_channel_event`` — fan-out for channel events observed via the bot
-  webhook (membership changes, joins, leaves, invite-link attribution) to
-  Slack + email.
-* ``send_telegram`` — engagement-gate alerts via the telegram-mcp HTTP server
-  (host :8765), sent through the user's own Telethon session.
-
-A failure in any transport logs a warning and never raises into the caller.
+Sends through the user's own Telethon session — no bot token needed.
+Target: Saved Messages ("me") or TELEGRAM_GATE_CHAT_ID.
 """
 from __future__ import annotations
 
@@ -22,6 +15,8 @@ from app.services.email_digest import send_email
 from app.services.slack_notifications import post_telegram_to_slack
 
 logger = logging.getLogger(__name__)
+
+BASE = os.environ.get("TELEGRAM_MCP_URL", "http://host.docker.internal:8765/mcp")
 
 _EVENT_LABELS = {
     "member_joined": "New member joined",
@@ -81,13 +76,6 @@ async def notify_channel_event(
         logger.warning("Telegram notify → email failed: %s", exc)
 
     return {"slack": slack_ok, "email": email_ok}
-
-
-# ---------------------------------------------------------------------------
-# Engagement-gate alerts via telegram-mcp
-# ---------------------------------------------------------------------------
-
-BASE = os.environ.get("TELEGRAM_MCP_URL", "http://host.docker.internal:8765/mcp")
 
 
 async def _rpc(client, method, params=None, sid=None):

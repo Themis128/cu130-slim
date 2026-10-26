@@ -696,6 +696,14 @@ async def build_ad_brand_kit(
     brand = await _load_brand_colors(db, team_id)
     brand["domain"] = "cloudless.gr"
 
+    # Spell-correct the copy before it renders into the creative —
+    # typos land permanently on the generated image otherwise.
+    from app.services.media_spellcheck import correct_text
+    headline = await correct_text(headline)
+    subline = await correct_text(subline)
+    cta = await correct_text(cta)
+    stat_label = await correct_text(stat_label) if stat_label else stat_label
+
     bg_img = None
     if image_prompt:
         try:
@@ -917,7 +925,7 @@ Return JSON only:
         },
         "required": ["slides", "suggested_caption", "hashtags"],
     }
-    return await call_inference(
+    copy = await call_inference(
         prompt,
         provider_name=text_provider,
         db=db,
@@ -927,6 +935,34 @@ Return JSON only:
         allow_fallback=True,  # DMR first → CF fallback
         platform="linkedin",
     )
+    # Spell-correct generated copy before it renders onto slides —
+    # typos land permanently on the image otherwise.
+    from app.services.media_spellcheck import correct_text
+    for slide in copy.get("slides", []):
+        for field in ("title", "body", "highlight"):
+            if slide.get(field):
+                slide[field] = await correct_text(slide[field])
+    if copy.get("suggested_caption"):
+        copy["suggested_caption"] = await correct_text(copy["suggested_caption"])
+    return _normalize_brand_domain(copy)
+
+
+_BRAND_WRONG_DOMAINS = ("cloudless.com", "www.cloudless.com")
+
+
+def _normalize_brand_domain(node):
+    """Generated copy occasionally emits cloudless.com — the brand domain is
+    cloudless.gr. Rewrite recursively across slides/caption so wrong-domain
+    links never reach render or publish."""
+    if isinstance(node, str):
+        for bad in _BRAND_WRONG_DOMAINS:
+            node = node.replace(bad, bad.replace(".com", ".gr"))
+        return node
+    if isinstance(node, dict):
+        return {k: _normalize_brand_domain(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [_normalize_brand_domain(v) for v in node]
+    return node
 
 
 async def run_cloudless_carousel_pipeline(
