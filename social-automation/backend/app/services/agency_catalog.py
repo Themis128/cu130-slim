@@ -208,3 +208,34 @@ def price_range(services: list[str]) -> tuple[int, int]:
         sum(SERVICES[s].price_low_eur for s in slugs),
         sum(SERVICES[s].price_high_eur for s in slugs),
     )
+
+
+# ── Dynamic pricing (6-20 client operational board) ──────────────────────
+# Private per-proposal adjustments — public anchors stay at the flat
+# €800-2400/€3600 rates; the surcharge lands inside the proposal.
+
+_MAX_CONCURRENT = 20
+_BASE_COMPLEXITY_PREMIUM = 0.15   # monolith/legacy migrations +15%
+_CAPACITY_PREMIUM_FULL = 0.30     # +30% at max concurrent load
+
+
+def dynamic_price_range(
+    services: list[str],
+    *,
+    complexity: float = 0.0,
+    concurrent_projects: int = 0,
+) -> tuple[int, int]:
+    """The private per-proposal price — public anchor + premiums.
+
+    - ``complexity``: 0.0-1.0 audit signal (monolith/legacy sprawl).
+      >0.5 applies the 15% Compute Sprawl Surcharge on the high end.
+    - ``concurrent_projects``: live pipeline load. Scales 0→30% across
+      0→_MAX_CONCURRENT concurrent clients — regulates inbound volume.
+    """
+    lo, hi = price_range(services)
+    if complexity > 0.5:
+        hi = int(hi * (1 + _BASE_COMPLEXITY_PREMIUM))
+    if concurrent_projects > 0:
+        factor = 1 + _CAPACITY_PREMIUM_FULL * min(concurrent_projects, _MAX_CONCURRENT) / _MAX_CONCURRENT
+        lo, hi = int(lo * factor), int(hi * factor)
+    return (lo, hi)
