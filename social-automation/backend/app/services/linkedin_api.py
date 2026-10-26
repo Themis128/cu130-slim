@@ -153,6 +153,7 @@ class LinkedInAPIClient:
         visibility: str = "PUBLIC",
         is_reshare_disabled: bool = False,
         content: dict[str, Any] | None = None,
+        container_urn: str | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "author": author_urn,
@@ -168,6 +169,11 @@ class LinkedInAPIClient:
         }
         if content:
             payload["content"] = content
+        if container_urn:
+            # Community Management API: posting into a group sets the
+            # container to urn:li:group:{id}. Needs the Community
+            # Management product on the app — pending approval.
+            payload["container"] = container_urn
         return payload
 
     async def validate_token(self) -> dict[str, Any]:
@@ -249,6 +255,34 @@ class LinkedInAPIClient:
                 )
 
         return organizations
+
+    async def get_member_groups(self) -> list[dict[str, Any]]:
+        """Groups the authenticated member belongs to — Community Management
+        API surface (``r_member_social`` + the Community Management product).
+
+        Returns ``[{id, name, urn}, ...]`` — the ``urn`` values are the
+        ``container_urn`` targets for group posting. Requires the Community
+        Management product on the app (still pending approval — falls back
+        to an empty list with a warning, not a crash).
+        """
+        for url in (
+            f"{LINKEDIN_REST_BASE}/groupMemberships?q=member&member=urn:li:person:{{person_id}}",
+            f"{LINKEDIN_V2_BASE}/groupMemberships?q=member",
+        ):
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(url, headers=self._headers())
+                    if resp.status_code >= 400:
+                        continue
+                    out = []
+                    for el in resp.json().get("elements", []):
+                        urn = el.get("group") or el.get("groupUrn") or ""
+                        out.append({"urn": urn, "name": el.get("name", "")})
+                    return out
+            except Exception:
+                continue
+        logger.info("get_member_groups: Community Management API not yet available")
+        return []
 
     async def get_organization(self, org_id: str) -> dict[str, Any]:
         """Fetch a single organization by numeric id."""
@@ -381,11 +415,13 @@ class LinkedInAPIClient:
         link_url: str | None = None,
         link_title: str | None = None,
         link_description: str | None = None,
+        container_urn: str | None = None,
     ) -> LinkedInPostResult:
         """Publish a text or link-preview post.
 
         For image or document posts use ``create_multi_image_post`` or
-        ``create_document_post``.
+        ``create_document_post``. ``container_urn`` targets a group
+        (``urn:li:group:{id}``) — Community Management API scope.
         """
         if not author_urn.startswith("urn:li:"):
             return LinkedInPostResult(success=False, error=f"Invalid author URN: {author_urn}")
@@ -395,6 +431,7 @@ class LinkedInAPIClient:
             commentary=commentary,
             visibility=visibility,
             is_reshare_disabled=is_reshare_disabled,
+            container_urn=container_urn,
         )
 
         if link_url:
