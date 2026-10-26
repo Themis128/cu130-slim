@@ -37,6 +37,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/agency/audits` — GET, POST
 - `/api/v1/agency/audits/{audit_id}` — GET
 - `/api/v1/agency/catalog` — GET
+- `/api/v1/agency/metrics` — GET
 - `/api/v1/agency/projects` — GET, POST
 - `/api/v1/agency/projects/{project_id}` — GET
 - `/api/v1/agency/proposals` — GET

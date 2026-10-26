@@ -7,11 +7,12 @@ duet/stitch suggestions (manual phone action — never automated).
 import asyncio
 import json
 import logging
+import os
 
 import httpx
 
 logger = logging.getLogger(__name__)
-BRIDGE = "http://browser-novnc:9223"
+BRIDGE = os.environ.get("ENGAGEMENT_BROWSER_URL", "http://engagement-browser:9223")
 
 
 async def act(action, db) -> dict:
