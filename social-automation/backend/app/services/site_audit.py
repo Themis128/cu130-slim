@@ -122,6 +122,31 @@ def _seo_checks(html: str) -> list[dict[str, Any]]:
     return out
 
 
+def _geo_checks(html: str) -> list[dict[str, Any]]:
+    """GEO — Generative Engine Optimization. Whether AI models can read
+    and cite the page correctly (structured data, semantic HTML)."""
+    out: list[dict[str, Any]] = []
+    if not re.search(r'<script[^>]+type=["\']application/ld\+json["\']', html, re.I):
+        out.append(_finding(
+            "geo_jsonld", "warning",
+            "No JSON-LD structured data — AI engines can't cite you",
+            service="marketing",
+        ))
+    if not re.search(r'<(?:article|main|section)[\s>]', html, re.I):
+        out.append(_finding(
+            "geo_semantic", "info",
+            "Weak semantic HTML — AI summaries parse poorly",
+            service="marketing",
+        ))
+    if not re.search(r'<meta[^>]+property=["\']og:', html, re.I):
+        out.append(_finding(
+            "geo_og", "info",
+            "No OpenGraph tags — weak citation signals",
+            service="marketing",
+        ))
+    return out
+
+
 def _grade(findings: list[dict[str, Any]]) -> int:
     score = 100
     for f in findings:
@@ -240,6 +265,7 @@ async def run_site_audit(url: str) -> dict[str, Any]:
 
         if html:
             findings.extend(_seo_checks(html))
+            findings.extend(_geo_checks(html))
             scripts = len(re.findall(r"<script\b[^>]*src=", html, re.I))
             if scripts >= 15:
                 findings.append(_finding(

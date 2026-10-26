@@ -505,12 +505,34 @@ def test_nurture_due_step_logic():
     assert _due_step(mk(20, {"form": "newsletter", "unsubscribed": True})) is None
 
 
-def test_newsletter_subscriber_parse_and_dedupe():
-    from app.services.newsletter_subscribers import parse_subscriber
-    el = {"entityUrn": "urn:li:fsd_miniProfile:AbC123", "fullName": "Jane Doe",
-          "headline": "CTO", "publicIdentifier": "janedoe"}
-    sub = parse_subscriber(el)
-    assert sub["name"] == "Jane Doe" and "janedoe" in sub["profile_url"]
-    assert sub["urn"] == "urn:li:fsd_miniProfile:AbC123"
-    assert parse_subscriber({}) is None
-    assert parse_subscriber({"entityUrn": "urn:li:x"}) is None
+@pytest.mark.asyncio
+async def test_newsletter_fetch_subscribers_maps_scrape(monkeypatch):
+    """parse_subscriber was replaced by the DOM scrape in #889; cover the
+    payload -> subscriber dict mapping and the scrape-error path instead."""
+    import respx
+
+    import app.services.newsletter_subscribers as NS
+
+    async def _no_sleep(_s):
+        return None
+
+    monkeypatch.setattr(NS.asyncio, "sleep", _no_sleep)
+    base = "http://sidecar.test"
+    monkeypatch.setenv("LINKEDIN_BROWSER_SIDECAR_URL", base)
+    with respx.mock(base_url=base) as mock:
+        mock.post("/debug/navigate").respond(200, json={})
+        mock.post("/debug/eval").respond(200, json={"value": {"subs": [
+            {"name": "Jane Doe", "urn": "janedoe", "headline": "CTO"},
+            {"name": "No Head", "urn": "nohead"},
+        ]}})
+        subs = await NS.fetch_subscribers("urn:li:fsd_contentSeries:123")
+    assert subs[0] == {
+        "name": "Jane Doe", "headline": "CTO", "urn": "urn:li:in:janedoe",
+        "profile_url": "https://www.linkedin.com/in/janedoe/",
+    }
+    assert subs[1]["headline"] == ""
+
+    with respx.mock(base_url=base) as mock:
+        mock.post("/debug/navigate").respond(200, json={})
+        mock.post("/debug/eval").respond(200, json={"value": {"err": "no See all link"}})
+        assert await NS.fetch_subscribers("urn:li:fsd_contentSeries:123") == []
