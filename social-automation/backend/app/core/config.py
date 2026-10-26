@@ -432,8 +432,6 @@ class Settings(BaseSettings):
     # bind-mounted read-only from the host OneDrive path. Ingested into
     # Chroma team_<id>_doctrine for semantic recall during generation.
     KAKKAVA_DIR: str = "/mnt/kakkava"
-    KAKKAVA_SYNC_HOUR: int = 9
-    KAKKAVA_SYNC_MINUTE: int = 30
     KAKKAVA_SYNC_ENABLED: bool = True
     KAKKAVA_SYNC_HOUR: int = 5       # Europe/Athens via Celery timezone
     KAKKAVA_SYNC_MINUTE: int = 50    # Europe/Athens via Celery timezone
