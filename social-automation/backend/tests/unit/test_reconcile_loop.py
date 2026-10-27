@@ -46,14 +46,14 @@ async def test_reconcile_all_paths(monkeypatch):
         _acc(platform="x", status="active", expires=now - timedelta(days=1)),      # expired w/o probe
         _acc(platform="facebook", status="revoked", token="enc2"),                  # probe→active — revoked counts toward drift
         _acc(platform="whatsapp", status="active", token="enc3"),                   # probe→revoked drift + slack
-        _acc(platform="tiktok", status="active", token=""),                         # no token → inconclusive
+        _acc(platform="tiktok", status="active", token="enc4"),                       # probe→inconclusive → error
         _acc(platform="mastodon", status="active", token="enc5"),                   # unprobed → skip
         _acc(platform="linkedin", status="active", token="enc6"),                   # probe→active clean
     ]
     db = _db(rows)
     monkeypatch.setattr(R, "task_session", lambda: _Sess(db))
     monkeypatch.setattr(R, "decrypt_token", lambda t: "tok" if t != "enc_bad" else "")
-    probes = {"facebook": "active", "whatsapp": "revoked", "linkedin": "active"}
+    probes = {"facebook": "active", "whatsapp": "revoked", "linkedin": "active", "tiktok": "inconclusive"}
     monkeypatch.setattr(R, "_probe", AsyncMock(side_effect=lambda p, a, t, m: probes.get(p, "unprobed")))
     alert = AsyncMock()
     monkeypatch.setattr(R, "post_alert_to_slack", alert)
