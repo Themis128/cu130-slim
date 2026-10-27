@@ -134,6 +134,8 @@ async def apply_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     db.add(AnalyticsEvent(
         team_id=team_id,
         event_type="datalake_signals",
+        platform="datalake",
+        occurred_at=datetime.now(UTC),
         meta_data=signals,
     ))
     await db.commit()
