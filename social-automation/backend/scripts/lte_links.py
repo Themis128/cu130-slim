@@ -6,7 +6,9 @@ the links that feed web_analytics_events → R2 datalake → DuckDB.
 
 Run inside social-api / worker:  python /app/scripts/lte_links.py [--surface S] [--platform P]
 """
-import argparse, sys
+import argparse
+import sys
+
 sys.path.insert(0, "/app")
 from app.services.utm import tracked_url
 

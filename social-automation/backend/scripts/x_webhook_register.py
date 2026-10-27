@@ -9,7 +9,7 @@ Usage: python x_webhook_register.py <env_name> <webhook_url>
 """
 from __future__ import annotations
 
-import json
+import os
 import sys
 from urllib.parse import quote
 
@@ -18,7 +18,6 @@ from requests_oauthlib import OAuth1Session
 ENV = sys.argv[1] if len(sys.argv) > 1 else "prod"
 WEBHOOK_URL = sys.argv[2] if len(sys.argv) > 2 else "https://social.cloudless.gr/api/v1/webhooks/twitter"
 
-import os
 API_KEY = os.environ.get("TWITTER_API_KEY", "")
 API_SECRET = os.environ.get("TWITTER_API_SECRET", "")
 ACCESS = os.environ.get("TWITTER_ACCESS_TOKEN", "")

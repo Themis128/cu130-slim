@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
-import uuid
 
-from celery import shared_task
 from sqlalchemy import select
 
 from app.worker._async import run_async, task_session
@@ -53,7 +51,6 @@ async def _post_autoapprove() -> dict:
     if os.environ.get("AUTO_APPROVE_POSTS", "").lower() not in ("1", "true", "yes"):
         return {"approved": 0, "off": True}
     from app.models.content import Post, PostStatus
-    from app.models.social_account import User  # audit only needs an actor
 
     approved = 0
     async with task_session() as db:
