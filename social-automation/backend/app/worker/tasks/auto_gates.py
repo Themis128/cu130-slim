@@ -33,7 +33,7 @@ async def _survey_autosend() -> dict:
     async with task_session() as db:
         camps = (await db.execute(
             select(EmailCampaign).where(EmailCampaign.kind == "survey",
-                                        EmailCampaign.status == "draft")
+                                        EmailCampaign.status.in_(["draft", "sent"]))
         )).scalars().all()
         for c in camps:
             if not (c.meta_data or {}).get("auto_send"):
