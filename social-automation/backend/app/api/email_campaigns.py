@@ -311,8 +311,8 @@ async def responses_dashboard(
             select(EmailCampaign).where(
                 EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
             )
-        ).scalars().first()
-    )
+        )
+    ).scalars().first()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
     rows = (
