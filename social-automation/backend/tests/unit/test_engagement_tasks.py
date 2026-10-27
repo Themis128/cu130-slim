@@ -199,6 +199,8 @@ async def test_dispatch_full_sweep(monkeypatch):
         [fresh],
         [drafted, long_draft, no_cand, empty],
         [cand_li], [cand_m], [], [cand_t],
+        # gate-alert query: pending_human_gate rows from the last 2h
+        [drafted, long_draft],
         [ok_like, skip_like, fail_like, no_actor],
     ]))
     queued = []
@@ -231,14 +233,14 @@ async def test_dispatch_full_sweep(monkeypatch):
     assert dmr.await_count == 3
     prompt = dmr.await_args_list[0].args[0]
     assert "h's post" in prompt  # author_name empty → handle
-    # gate pings: only rows with drafts; deep link only for known platforms
+    # gate pings: one per recent gated row; deep link only for known platforms
     assert slack.await_count == 2
     t0 = slack.await_args_list[0].kwargs
     assert t0["webhook_url"] == "https://hooks.example/x"
     assert t0["channel_id"] == "C1"
     assert "linkedin://feed" in t0["text"]
     t1 = slack.await_args_list[1].kwargs["text"]
-    assert "y" * 140 + "…" in t1
+    assert "y" * 140 in t1 and "y" * 141 not in t1  # draft truncated to 140 chars
     assert "Open source post" not in t1
     assert tg.await_count == 2
     # 3. dispatch
