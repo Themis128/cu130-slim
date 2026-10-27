@@ -156,7 +156,7 @@ def _row_cand(**kw):
 def _row_action(**kw):
     base = dict(platform="twitter", action="like", target_post_id="p1",
                 target_author="h", score=9.0, comment_draft=None,
-                status="pending", acted_at=None)
+                status="pending", acted_at=None, meta_data=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -202,8 +202,6 @@ async def test_dispatch_full_sweep(monkeypatch):
         [fresh],
         [drafted, long_draft, no_cand, empty],
         [cand_li], [cand_m], [], [cand_t],
-        # gate-alert query: pending_human_gate rows from the last 2h
-        [drafted, long_draft],
         [ok_like, skip_like, fail_like, no_actor],
     ]))
     queued = []
