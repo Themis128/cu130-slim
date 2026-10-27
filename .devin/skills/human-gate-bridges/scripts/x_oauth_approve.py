@@ -5,20 +5,30 @@ prints the authorization URL.
 
     x_oauth_approve.py <authorization_url>
 """
-import json, sys, time, urllib.request
+import json, sys, time, time, urllib.request
 
 BRIDGE = "http://browser-novnc:9223"
 
-def ev(expr: str) -> dict:
-    r = urllib.request.Request(
-        BRIDGE + "/session/evaluate",
-        data=json.dumps({"expression": expr}).encode(),
-        headers={"Content-Type": "application/json"})
-    try:
-        with urllib.request.urlopen(r, timeout=20) as f:
-            return json.loads(f.read())
-    except Exception as e:
-        return {"error": str(e)}
+def ev(expr: str, tries: int = 8) -> dict:
+    # 409 = another platform session holds the shared bridge — back off.
+    last = None
+    for i in range(tries):
+        r = urllib.request.Request(
+            BRIDGE + "/session/evaluate",
+            data=json.dumps({"expression": expr}).encode(),
+            headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(r, timeout=20) as f:
+                return json.loads(f.read())
+        except urllib.error.HTTPError as e:
+            last = e
+            if e.code == 409:
+                time.sleep(30)
+                continue
+            return {"error": str(e)}
+        except Exception as e:
+            return {"error": str(e)}
+    return {"error": f"bridge busy after {tries} tries: {last}"}
 
 def main() -> int:
     if len(sys.argv) < 2:
