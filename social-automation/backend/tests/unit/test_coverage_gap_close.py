@@ -87,14 +87,19 @@ async def test_publish_retry_resets_and_skips(monkeypatch):
 
     res = MagicMock()
     res.scalars.return_value.all.return_value = [non_retry, fresh, stale]
-    db = MagicMock()
-    db.execute = AsyncMock(return_value=res)
-    db.commit = AsyncMock()
-    monkeypatch.setattr(P, "task_session", lambda: _Sess(db))
     q = MagicMock(status="queued")
     res2 = MagicMock()
-    res2.scalar_one_or_none.return_value = q
-    db.execute = AsyncMock(side_effect=[res, res2])
+    res2.scalars.return_value.first.return_value = q
+    calls = {"n": 0}
+
+    async def _exec(*a, **k):
+        calls["n"] += 1
+        return res if calls["n"] == 1 else res2
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_exec)
+    db.commit = AsyncMock()
+    monkeypatch.setattr(P, "task_session", lambda: _Sess(db))
     out = await P._sweep()
     assert stale.status == "pending"
     assert non_retry.status == "failed" and fresh.status == "failed"
