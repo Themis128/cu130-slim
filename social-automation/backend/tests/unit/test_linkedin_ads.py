@@ -20,7 +20,7 @@ class _R:
 
 class _C:
     def __init__(self, responses):
-        self._responses = list(responses)
+        self._responses = responses
 
     async def __aenter__(self):
         return self
