@@ -1017,8 +1017,13 @@ async def _export_async() -> dict:
                 f"lake/cloudflare-usage/history/{datetime.now(UTC).date().isoformat()}.json",
                 _coro_of(cf_usage),
             )
-        except Exception as exc:  # noqa: BLE001 — CF outage != abort
-            written["lake/cloudflare-usage/latest.json"] = f"ERROR: {exc}"
+        except Exception as exc:  # noqa: BLE001 — CF outage != abort; write error payload, not an error slot
+            err = {"error": str(exc)[:200]}
+            await put("lake/cloudflare-usage/latest.json", _coro_of(err))
+            await put(
+                f"lake/cloudflare-usage/history/{datetime.now(UTC).date().isoformat()}.json",
+                _coro_of(err),
+            )
 
         # Insights engine output — one gold-ready file per team.
         teams = (await db.execute(select(Team))).scalars().all()
