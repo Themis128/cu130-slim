@@ -39,7 +39,8 @@ async def _run(limit: int):
                 author_name=c.author_name, post_id=c.post_id,
                 post_text=c.post_text, posted_seconds_ago=max(age, 0),
                 connection_tier=c.connection_tier, is_followed=c.is_followed,
-                is_connection=c.is_connection, in_crm=c.in_crm), db)
+                is_connection=c.is_connection, in_crm=c.in_crm,
+                meta_data=c.meta_data), db)
             c.scored = True
         await db.commit()
 
@@ -116,6 +117,7 @@ async def _run(limit: int):
                             f"cloudless.gr/admin/socialauto")
                     except Exception:
                         pass
+                    a.meta_data = {**(a.meta_data or {}), "gate_notified": "1"}
             except Exception as exc:  # noqa: BLE001 — alerting never breaks the task
                 logger.warning("gate alert failed: %s", exc)
 
@@ -124,6 +126,7 @@ async def _run(limit: int):
             fb_actor,
             ig_actor,
             linkedin_actor,
+            skool_actor,
             threads_actor,
             tiktok_actor,
             x_actor,
@@ -133,10 +136,12 @@ async def _run(limit: int):
                   "linkedin": linkedin_actor.act,
                   "instagram": ig_actor.act,
                   "facebook": fb_actor.act,
-                  "tiktok": tiktok_actor.act}
+                  "tiktok": tiktok_actor.act,
+                  "skool": skool_actor.act}
         rows = (await db.execute(select(EngagementAction).where(
-            EngagementAction.status.in_(["pending", "pending_actor"])).order_by(
-            EngagementAction.score.desc()).limit(limit))).scalars().all()
+            EngagementAction.status.in_(["pending", "pending_actor"]),
+            EngagementAction.action != "duet_flag")).order_by(
+            EngagementAction.score.desc()).limit(limit)).scalars().all()
         done, failed = [], []
         for r in rows:
             actor = actors.get(r.platform)

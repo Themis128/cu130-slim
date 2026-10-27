@@ -67,3 +67,22 @@ Video-first channel — media REQUIRED. Full index: `media-pipelines`.
 | Video | 9:16 vertical (480x832 default), DIRECT_POST or MEDIA_UPLOAD | ComfyUI LTX/Wan (primary) / `branded-video-pipeline` shorts |
 | Photo slideshow | Photo-mode post | Brand slides |
 | `is_aigc` flag | Required for AI-generated video | — |
+
+
+## Publish-path rules (verified 2026-10-27, from upstream fixes)
+
+- **Photos**: `PULL_FROM_URL` only — FILE_UPLOAD photos fail. Must be
+  JPG/JPEG, never PNG (rejected). Verified-domain URL required.
+- **Videos**: `/video/init/` FILE_UPLOAD single-chunk <64MB, or
+  `PULL_FROM_URL` — no `media_type`/`post_mode` on video init.
+- **`unaudited_client_can_only_post_to_private_accounts`** — pre-audit
+  apps can only post to accounts set to **private**; flip the account
+  private for testing or finish the console audit (DIRECT_POST).
+- **Sticky IP** — `ttwid`/`msToken` cookies bind to the exit IP; the
+  warp-proxy must pin one IP per session, not rotate mid-session.
+- **`redirect_uri` must be the production URL**
+  `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` —
+  a localhost value in `.env` silently breaks OAuth callbacks.
+- **e2e green 2026-10-27**: scopes `video.publish`+`video.upload`,
+  `creator_info` ok, domain `cloudless.gr` verified, sidecar session live.
+  Console audit (needs `dev_email`/`dev_password`) unlocks DIRECT_POST.

@@ -84,7 +84,7 @@ async def _run():
                 posts = js.loads(raw or "[]")
                 for p in posts:
                     href = p.get("href", "")
-                    m = re.search(r"(?:posts/|permalink/|story_fbid=)([\w.%&=-]+)", href)
+                    m = re.search(r"(?:posts/|permalink/|story_fbid=|multi_permalinks=|__cft__\[\d+\]=)([\w.%&=-]+)", href)
                     pid = m.group(1) if m else href[-60:]
                     if not pid:
                         continue

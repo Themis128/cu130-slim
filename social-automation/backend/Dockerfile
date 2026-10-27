@@ -70,6 +70,7 @@ RUN find /opt/venv/lib/python*/site-packages /usr/local/lib/python*/site-package
 
 # Copy application code
 COPY . .
+COPY --from=browser browser-bridge.py /app/browser-bridge.py
 
 # Run as non-root user
 RUN addgroup --gid 1001 app \

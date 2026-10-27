@@ -78,7 +78,7 @@ x-worker-env: &worker-env
   - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
   - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
   - FACEBOOK_GROUP_URLS=${FACEBOOK_GROUP_URLS:-}
-  - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-}
+  - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-serverless,solofounder,ai,smallbusiness,webdev}
   - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
   - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
   - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
@@ -836,6 +836,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: api
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-api
     networks:
       - backend
@@ -921,7 +923,7 @@ services:
       - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
       - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
       - FACEBOOK_GROUP_URLS=${FACEBOOK_GROUP_URLS:-}
-      - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-}
+      - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-serverless,solofounder,ai,smallbusiness,webdev}
       - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
       - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
       - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}

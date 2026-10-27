@@ -66,7 +66,8 @@ def call(name, args):
         return {"focus": f"{cur.group(1)}/{cur.group(2)}" if cur else "?", "texts": texts()[:15]}
     if name == "phone_screenshot":
         r = subprocess.run(["adb","-s",DEVICE,"exec-out","screencap","-p"], capture_output=True)
-        open(args["path"], "wb").write(r.stdout)
+        with open(args["path"], "wb") as f:
+            f.write(r.stdout)
         return f"saved {len(r.stdout)}b to {args['path']}"
     return f"unknown tool {name}"
 
