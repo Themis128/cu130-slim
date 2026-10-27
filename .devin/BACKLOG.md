@@ -21,3 +21,9 @@
 - 2 live posts link cloudless.com not .gr — delete+recreate awaiting go-ahead (fb 7c7948a4, li bd301640)
 - Threads business profile: browser-session edits (bio/name) — threads-ops scripts ready
 - Stacked-branch conflicts recur — prefer fresh-off-master topic branches
+
+## 2026-10-27 — PR #948 review follow-ups (branch fix/pr-948-viral-meta-forwarding)
+- dispatch worker now forwards `c.meta_data` (viral flag) into service candidate — fixes lost duet_flag gating
+- test_dispatch_full_sweep: fixed stale meta_data assertion + added missing gated-items fake result (slack 4→2)
+- _Res.scalar() added for daily-cap count query; new test_dispatch_viral_tiktok_becomes_gated_duet_flag (ingest→dispatch)
+- 49 engagement unit tests green in social-api container; pushed as branch (PR #948 head lives on bot fork — merge/cherry-pick needed)
