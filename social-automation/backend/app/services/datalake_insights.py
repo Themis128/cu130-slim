@@ -23,15 +23,17 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.analytics import AnalyticsEvent
 from app.models.email_campaign import SurveyResponse
+from app.models.lead import Lead
+from app.models.linkedin_ads import AdDailyMetric
 
 # ── Signal extraction ────────────────────────────────────────────────────────
 
@@ -77,9 +79,72 @@ def compute_survey_signals(responses: list[dict]) -> dict[str, Any]:
     }
 
 
+def compute_lead_signals(leads: list[dict]) -> dict[str, Any]:
+    """Lead rows → per-source volume + interest/company-size mix (30d)."""
+    by_source: Counter[str] = Counter()
+    by_interest: Counter[str] = Counter()
+    sizes: Counter[str] = Counter()
+    for l in leads:
+        by_source[l.get("source") or "unknown"] += 1
+        if l.get("interest"):
+            by_interest[l["interest"]] += 1
+        if l.get("company_size"):
+            sizes[l["company_size"]] += 1
+    return {
+        "lead_volume_30d": len(leads),
+        "lead_sources": by_source.most_common(),
+        "lead_interests": by_interest.most_common(),
+        "lead_sizes": sizes.most_common(),
+    }
+
+
+def compute_funnel_signals(rows: list[dict]) -> dict[str, Any]:
+    """web-analytics UTM rows → per-platform/campaign view→click→lead rates."""
+    out: dict[str, Any] = {}
+    for r in rows:
+        plat = r.get("platform") or "unknown"
+        d = out.setdefault(plat, {"views": 0, "clicks": 0, "leads": 0})
+        d["views"] += int(r.get("views") or 0)
+        d["clicks"] += int(r.get("clicks") or 0)
+        d["leads"] += int(r.get("leads") or 0)
+    best = max(out.items(), key=lambda kv: kv[1]["leads"], default=None)
+    return {"platform_funnels": out,
+            "best_converting": best[0] if best else None}
+
+
+def compute_ad_signals(daily: list[dict]) -> dict[str, Any]:
+    """AdDailyMetric rows → spend, leads, CPL per campaign (trailing window)."""
+    per_campaign: dict[str, dict[str, float]] = {}
+    for r in daily:
+        d = per_campaign.setdefault(r.get("campaign") or "?", {"spend": 0.0, "leads": 0, "impressions": 0})
+        d["spend"] += float(r.get("spend_eur") or 0)
+        d["leads"] += int(r.get("leads") or 0)
+        d["impressions"] += int(r.get("impressions") or 0)
+    for c in per_campaign.values():
+        c["cpl"] = round(c["spend"] / c["leads"], 2) if c["leads"] else None
+    return {"ad_campaigns": per_campaign}
+
+
 def pick_actions(signals: dict[str, Any]) -> list[dict[str, Any]]:
     """Decide what the stack should do next — returns action dicts."""
     actions: list[dict[str, Any]] = []
+    best = signals.get("best_converting")
+    if best:
+        actions.append({
+            "type": "platform_focus", "platform": best,
+            "reason": f"{best} funnels the most leads — weight next posts there",
+        })
+    for src, n in signals.get("lead_sources", [])[:2]:
+        actions.append({
+            "type": "lead_source", "source": src, "volume": n,
+            "reason": f"{src} produced {n} leads (30d) — keep feeding it",
+        })
+    for camp, c in (signals.get("ad_campaigns") or {}).items():
+        if c.get("cpl") is not None and c["cpl"] > 30:
+            actions.append({
+                "type": "ad_efficiency", "campaign": camp, "cpl": c["cpl"],
+                "reason": f"{camp} CPL €{c['cpl']:.0f} — over the €30 LinkedIn benchmark",
+            })
     for word, n in signals.get("pain_topics", [])[:3]:
         actions.append({
             "type": "content_topic", "topic": word, "mentions": n,
@@ -108,8 +173,9 @@ def pick_actions(signals: dict[str, Any]) -> list[dict[str, Any]]:
 # ── Async boundaries ─────────────────────────────────────────────────────────
 
 async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
-    """Pull recent survey responses + fold in latest analytics signal event."""
-    rows = (
+    """Pull every funnel source the lake exports and merge the signals."""
+    since = datetime.now(UTC) - timedelta(days=30)
+    responses = (
         await db.execute(
             select(SurveyResponse.answers)
             .where(SurveyResponse.team_id == team_id)
@@ -117,7 +183,46 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
             .limit(200)
         )
     ).scalars().all()
-    signals = compute_survey_signals([{"answers": a} for a in rows])
+    leads = (
+        await db.execute(
+            text(
+                "SELECT source::text AS source, interest::text AS interest,"
+                " company_size::text AS company_size"
+                " FROM leads WHERE team_id=:t AND created_at >= :s"
+            ),
+            {"t": team_id, "s": since},
+        )
+    ).mappings().all()
+    funnel_rows = (
+        await db.execute(
+            text(
+                "SELECT payload->>'utm_source' AS platform,"
+                " count(*) FILTER (WHERE event_name='page_view') AS views,"
+                " count(*) FILTER (WHERE event_name LIKE '%\\_click') AS clicks,"
+                " count(*) FILTER (WHERE event_name='contact_submit') AS leads"
+                " FROM web_analytics_events"
+                " WHERE payload ? 'utm_source' AND occurred_at >= :s"
+                " GROUP BY 1"
+            ),
+            {"s": since},
+        )
+    ).mappings().all()
+    ad_daily = (
+        await db.execute(
+            select(AdDailyMetric.campaign_name, AdDailyMetric.spend_eur,
+                   AdDailyMetric.leads, AdDailyMetric.impressions)
+            .where(AdDailyMetric.team_id == team_id, AdDailyMetric.day >= since.date())
+        )
+    ).mappings().all()
+
+    signals = compute_survey_signals([{"answers": a} for a in responses])
+    signals.update(compute_lead_signals([dict(r) for r in leads]))
+    signals.update(compute_funnel_signals([dict(r) for r in funnel_rows]))
+    signals.update(compute_ad_signals([
+        {"campaign": r["campaign_name"], "spend_eur": r["spend_eur"],
+         "leads": r["leads"], "impressions": r["impressions"]}
+        for r in ad_daily
+    ]))
     signals["team_id"] = str(team_id)
     signals["computed_at"] = datetime.now(UTC).isoformat()
     signals["actions"] = pick_actions(signals)
@@ -144,7 +249,21 @@ async def apply_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
 
 def render_slack_lines(signals: dict[str, Any]) -> list[str]:
     """Human-readable summary for the alert channel."""
-    lines = [f"*datalake signals* — {signals.get('responses', 0)} survey responses"]
+    lines = [
+        f"*datalake signals* — {signals.get('responses', 0)} survey resp · "
+        f"{signals.get('lead_volume_30d', 0)} leads/30d"
+    ]
+    if signals.get("best_converting"):
+        f = (signals.get("platform_funnels") or {}).get(signals["best_converting"], {})
+        lines.append(
+            f"• best funnel: {signals['best_converting']} "
+            f"({f.get('views', 0)} views → {f.get('leads', 0)} leads)"
+        )
+    for src, n in (signals.get("lead_sources") or [])[:2]:
+        lines.append(f"• leads from {src}: {n}")
+    for camp, c in (signals.get("ad_campaigns") or {}).items():
+        if c.get("cpl") is not None:
+            lines.append(f"• ads: {camp} — €{c['spend']:.0f} spend, {c['leads']} leads, CPL €{c['cpl']:.0f}")
     if signals.get("audit_yes"):
         lines.append(f"• audit requests: {len(signals['audit_yes'])} → book them")
     for w, n in (signals.get("pain_topics") or [])[:3]:

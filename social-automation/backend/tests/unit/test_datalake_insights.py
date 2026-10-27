@@ -62,3 +62,35 @@ class TestPickActions:
         lines = di.render_slack_lines(s)
         assert any("audit" in ln for ln in lines)
         assert any("€500" in ln for ln in lines)
+
+
+class TestFunnelSignals:
+    def test_lead_signals(self):
+        s = di.compute_lead_signals([
+            {"source": "website", "interest": "audit", "company_size": "2-5"},
+            {"source": "website", "interest": "cloud", "company_size": "2-5"},
+            {"source": "telegram_dm", "interest": None, "company_size": None},
+        ])
+        assert s["lead_volume_30d"] == 3
+        assert s["lead_sources"][0] == ("website", 2)
+
+    def test_funnel_best_converting(self):
+        s = di.compute_funnel_signals([
+            {"platform": "ig", "views": 10, "clicks": 2, "leads": 0},
+            {"platform": "linkedin", "views": 5, "clicks": 3, "leads": 2},
+        ])
+        assert s["best_converting"] == "linkedin"
+        assert s["platform_funnels"]["linkedin"]["leads"] == 2
+
+    def test_ad_cpl_flagged(self):
+        s = di.compute_ad_signals([
+            {"campaign": "exp", "spend_eur": 90.0, "leads": 2, "impressions": 1000},
+        ])
+        assert s["ad_campaigns"]["exp"]["cpl"] == 45.0
+        acts = di.pick_actions({"ad_campaigns": s["ad_campaigns"]})
+        assert any(a["type"] == "ad_efficiency" for a in acts)
+
+    def test_empty_sources_safe(self):
+        s = {}
+        acts = di.pick_actions(s)
+        assert acts == []
