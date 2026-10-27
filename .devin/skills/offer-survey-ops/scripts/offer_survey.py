@@ -313,13 +313,13 @@ def cmd_readout(token: str, cid: str, yes: bool) -> None:
         f"about how they handle their digital presence. Who fixes things when they "
         f"break, how many vendors they juggle, what they would pay for one "
         f"reliable partner.",
-        "Here's what came back.",
-        f"Most run on {vendors} different vendors. A freelancer here, an agency "
-        f"there, a computer guy who doesn't talk to the others.",
-        f"What stings most is {pain_text}.",
-        f"On value, the answers cluster around {price} a month for one partner "
-        f"covering the site, the e-shop, the brand and the IT.",
-        "The pattern is the same every time. It's not a technology problem, it's "
+        "Here's what came back:\n\n"
+        f"• Vendor sprawl — most run on {vendors} different vendors: a freelancer "
+        f"here, an agency there, a computer guy who doesn't talk to the others.\n\n"
+        f"• The real pain — {pain_text}.\n\n"
+        f"• What it's worth — the answers cluster around {price} a month for one "
+        f"partner covering the site, the e-shop, the brand and the IT.",
+        "The pattern is the same every time: it's not a technology problem, it's "
         "a coordination problem. Nobody owns the whole picture, so the owner ends "
         "up managing vendors instead of running the business.",
     ]
@@ -328,7 +328,7 @@ def cmd_readout(token: str, cid: str, yes: bool) -> None:
             f"{audit} of {len(rows)} also asked for the free 30-minute audit, so "
             f"I'm booking those now. If you'd like one too, just reply to this email."
         )
-    paragraphs.append("That's it. No pitch in this one. Thanks for answering.")
+    paragraphs.append("That's it. No pitch in this one — thanks for answering.")
     body = "\n\n".join(paragraphs)
     c = req("/api/v1/email-campaigns", token, body={
         "name": f"SMB survey read-out ({date.today().isoformat()})",
