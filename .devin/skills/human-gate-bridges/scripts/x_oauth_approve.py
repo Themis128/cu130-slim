@@ -7,7 +7,7 @@ prints the authorization URL.
 """
 import json, sys, time, urllib.request
 
-BRIDGE = "http://browser-novnc:7900"
+BRIDGE = "http://browser-novnc:9223"
 
 def ev(expr: str) -> dict:
     r = urllib.request.Request(
