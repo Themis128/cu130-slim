@@ -33,7 +33,19 @@ export-ready email, downloads the ZIP, extracts `Connections.csv` into
 `Downloads/` — where `audience_watch.py` harvests and attaches it.
 `--daemon` polls every 10 min until the email arrives.
 
+## LinkedIn export click — `li_export_request.py`
+Drives LinkedIn's data-privacy export page through the shared browser
+bridge (`/session/evaluate`, same pattern as skool-ops). Requires an
+active LinkedIn session on the bridge — session_healer covers it.
+
+## X OAuth approve — `x_oauth_approve.py <url>`
+Drives the X consent page through the bridge — paste the authorization
+URL `wire.py` prints, the script clicks Authorize and prints back the
+`?code=` redirect for the callback paste. Requires an X session on the
+bridge.
+
 ## The residual human acts
-1. Request the LinkedIn export (one click, once)
-2. Approve X OAuth in a browser (one click, once)
-3. Hold the phone for the SMS code (or ADB reads it)
+1. None for LinkedIn export if the bridge session is live —
+   `li_export_request.py` clicks for you
+2. Same for X — `x_oauth_approve.py` approves for you
+3. The SMS code — ADB reads it (wa_verify.sh) or type it manually
