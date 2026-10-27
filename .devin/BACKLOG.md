@@ -1,5 +1,24 @@
 # BACKLOG (living)
 
+## Done 2026-10-27 (PR sweep — umbrella merge)
+- All open PRs landed on master via merge-commit umbrella #954: #947 (publish-queue
+  time budget), #944 (review-943 fixes), #927 (social-auth-ops), #926 (ai-video-ops
+  skill), #910 (arch docs), #895 (redis-py 7.x), #894 (compose watchdog),
+  #887 (sniffer tools), #868 (governed workers) — plus #950 merged directly.
+- skool_sync.py: added missing browser-bridge helpers (_bridge_nav/_bridge_eval/
+  _bridge_call + imports) — mypy name-defined x7 fixed before landing.
+- cloudless.gr: umbrella PR #2305 (auto-merge armed) carries 10 PR heads; CI
+  fixes applied (GSC page restored, agency board -> /admin/analytics/agency,
+  survey route getConfig fix, metabase workflow -> kubectl shim).
+
+## Leftovers
+- cloudless subset PRs (#2294/2295/2296/2292/2289) to close once #2305 lands —
+  their content lands via tops; diffs shrink to nothing.
+- dependabot #2301/#2302 rebuilt on main + auto-merge armed (lockfile regen).
+- X re-auth, LinkedIn li_at rotation, Community Management API submission —
+  unchanged from prior entry.
+- 2 live posts link cloudless.com not .gr — still awaiting go-ahead.
+
 ## Done 2026-10-25
 - Survey funnel + platform-aware nurture (#909 platform field fix; meta_data.platform drives PLATFORM openers)
 - Video ops: trim/convert/attach-audio/mute/extract + mkv/avi upload (#908)
