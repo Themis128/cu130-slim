@@ -444,8 +444,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 20  # 15 tables + edge + reports + insights + 2 CF files
-    assert out["bytes"] == 200
+    assert out["files"] == 21  # 16 tables + edge + reports + insights + 2 CF files
+    assert out["bytes"] == 210
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
