@@ -65,7 +65,7 @@ async def test_campaign_profiles_merges(monkeypatch):
              {"id": "l2", "name": "L2"}]
     contacts = [{"id": "c1", "name": "C1", "emailAddress": "a@x.com"}]
     accounts = [{"id": "ac1", "name": "A1"}]
-    E.list_all = AsyncMock(side_effect=[leads, contacts, accounts])
+    monkeypatch.setattr(E, "list_all", AsyncMock(side_effect=[leads, contacts, accounts]))
     profiles = await E.campaign_profiles()
     assert "a@x.com" in profiles or len(profiles) >= 0
 
