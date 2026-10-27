@@ -144,6 +144,20 @@ class PresetsResponse(BaseModel):
     presets: dict[str, dict]
 
 
+class VideoTrimRequest(BaseModel):
+    start: float = 0.0
+    end: float
+
+
+class VideoConvertRequest(BaseModel):
+    format: str = "mp4"  # mp4 | webm | mov
+
+
+class VideoAttachAudioRequest(BaseModel):
+    audio_asset_id: uuid.UUID
+    loop_audio: bool = True
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.get("/presets", response_model=PresetsResponse)
@@ -353,6 +367,108 @@ class BatchEnhanceResponse(BaseModel):
     task_id: str
     status: str
     asset_count: int
+
+
+async def _ensure_video(asset: MediaAsset) -> None:
+    if not (asset.mime_type or "").startswith("video/"):
+        raise HTTPException(status_code=422, detail="Asset is not a video")
+
+
+@router.post("/assets/{asset_id}/video/trim")
+async def video_trim(
+    asset_id: uuid.UUID,
+    body: VideoTrimRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Cut [start,end] seconds off a video; returns the trimmed mp4 bytes."""
+    asset = await _get_asset(asset_id, current_user, db)
+    await _ensure_video(asset)
+    from app.services.video_ai import trim_video
+    out = await trim_video(await _load_asset_bytes(asset), body.start, body.end, mime=asset.mime_type or "video/mp4")
+    if not out:
+        raise HTTPException(status_code=422, detail="Trim failed — check start/end against the video duration")
+    return _stream_response(out, "video/mp4")
+
+
+@router.post("/assets/{asset_id}/video/convert")
+async def video_convert(
+    asset_id: uuid.UUID,
+    body: VideoConvertRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transcode a video to mp4|webm|mov for platform-specific requirements."""
+    asset = await _get_asset(asset_id, current_user, db)
+    await _ensure_video(asset)
+    from app.services.video_ai import convert_video
+    out = await convert_video(await _load_asset_bytes(asset), body.format, mime=asset.mime_type or "video/mp4")
+    if not out:
+        raise HTTPException(status_code=422, detail="Conversion failed — unsupported target format")
+    mime_map = {"mp4": "video/mp4", "webm": "video/webm", "mov": "video/quicktime"}
+    return _stream_response(out, mime_map.get(body.format.lower().lstrip("."), "video/mp4"))
+
+
+@router.post("/assets/{asset_id}/video/attach-audio")
+async def video_attach_audio(
+    asset_id: uuid.UUID,
+    body: VideoAttachAudioRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mux a music/sound asset onto a video — the 'posts must carry audio' op.
+
+    Loops the audio under the video when it's shorter; replaces any existing
+    audio track. Output is faststart mp4 ready for platform upload.
+    """
+    asset = await _get_asset(asset_id, current_user, db)
+    await _ensure_video(asset)
+    audio_asset = await _get_asset(body.audio_asset_id, current_user, db)
+    if not (audio_asset.mime_type or "").startswith("audio/"):
+        raise HTTPException(status_code=422, detail="audio_asset_id is not an audio asset")
+    from app.services.video_ai import attach_audio
+    out = await attach_audio(
+        await _load_asset_bytes(asset),
+        await _load_asset_bytes(audio_asset),
+        video_mime=asset.mime_type or "video/mp4",
+        audio_mime=audio_asset.mime_type or "audio/mpeg",
+        loop_audio=body.loop_audio,
+    )
+    if not out:
+        raise HTTPException(status_code=422, detail="Audio mux failed — check the audio asset")
+    return _stream_response(out, "video/mp4")
+
+
+@router.post("/assets/{asset_id}/video/mute")
+async def video_mute(
+    asset_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Strip all audio tracks from a video."""
+    asset = await _get_asset(asset_id, current_user, db)
+    await _ensure_video(asset)
+    from app.services.video_ai import mute_video
+    out = await mute_video(await _load_asset_bytes(asset), mime=asset.mime_type or "video/mp4")
+    if not out:
+        raise HTTPException(status_code=422, detail="Mute failed")
+    return _stream_response(out, "video/mp4")
+
+
+@router.post("/assets/{asset_id}/video/audio")
+async def video_extract_audio(
+    asset_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Extract the audio track as mp3 — for reuse or replace workflows."""
+    asset = await _get_asset(asset_id, current_user, db)
+    await _ensure_video(asset)
+    from app.services.video_ai import extract_audio
+    out = await extract_audio(await _load_asset_bytes(asset), mime=asset.mime_type or "video/mp4")
+    if not out:
+        raise HTTPException(status_code=422, detail="No audio track to extract")
+    return _stream_response(out, "audio/mpeg")
 
 
 @router.post("/batch", response_model=BatchEnhanceResponse)
