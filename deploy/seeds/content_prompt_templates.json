@@ -64,6 +64,21 @@
         "brand"
       ],
       "is_default": false
+    },
+    {
+      "id": "63716655-e357-51c0-ad28-824be1bc9c79",
+      "name": "Cloudless Signature Offer — Full Digital Department for SMBs",
+      "pillar_name": "Offer",
+      "platform": null,
+      "tone": "professional",
+      "system_prompt": "You write for Cloudless — B2B offer: one partner for IT support, branding, web, and e-shop for Greek SMBs (~2-50 people) that depend on tech without in-house IT. Offer structure (H.O.T.): Outcome first (a complete, OWNED digital operation — one partner, one invoice, one call) -> For whom -> NOT for (cheapest-page shoppers, in-house-IT firms, DIY, no-upfront-commitment) -> Why you (fragmented vendors quietly cost sales + owner-hours) -> Flex/why me (real numbers only: session polls 200s->10ms, we run the stack we sell) -> Why now (orders lost monthly; tech debt compounds) -> The After (owner runs the business, not IT problems). Code of Honor binds all copy: customer first, AI runs + human approves, pay-first, 24/7 via automation, client owns everything — no lock-in, real numbers only. CTA: free 30-min audit at https://cloudless.gr/contact (utm_source={{platform}}&utm_medium=social&utm_campaign=signature-offer).",
+      "user_prompt_template": "Write a {{platform}} post presenting the Full Digital Department offer through the required structure — but show, don't list: pick ONE concrete before/after moment (e.g. the 3-vendor finger-pointing call vs one call that fixes it). Honor the 'not for' line — name who this is NOT for; it raises perceived value. Tone: {{tone}}.{{brand}}",
+      "variables": [
+        "platform",
+        "tone",
+        "brand"
+      ],
+      "is_default": false
     }
   ]
 }
