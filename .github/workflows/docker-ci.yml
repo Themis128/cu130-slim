@@ -53,10 +53,12 @@ jobs:
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
             target: api
+            build_contexts: browser=browser-novnc
           - name: social-worker-publishing
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
             target: worker
+            build_contexts: browser=browser-novnc
           - name: social-frontend
             context: social-automation/frontend
             dockerfile: social-automation/frontend/Dockerfile
@@ -131,6 +133,7 @@ jobs:
           context: ${{ matrix.service.context }}
           file: ${{ matrix.service.dockerfile }}
           target: ${{ matrix.service.target || '' }}
+          build-contexts: ${{ matrix.service.build_contexts || '' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           provenance: false
