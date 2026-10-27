@@ -1,6 +1,7 @@
 """Engagement sweep — score new candidates, draft 3C comments, dispatch
 queued actions honoring jitter + caps."""
 import logging
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 from sqlalchemy import select
@@ -118,8 +119,6 @@ async def _run(limit: int):
                 logger.warning("gate alert failed: %s", exc)
 
         # 3. dispatch auto-approved actions (likes) in score order
-        from datetime import UTC, datetime
-
         from app.services.engagement_actors import (
             fb_actor,
             ig_actor,
