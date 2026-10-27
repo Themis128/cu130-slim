@@ -977,12 +977,15 @@ async def _export_async() -> dict:
     # Build + write per-table so a single big table never accumulates all
     # the others in memory (OOM-killed the 1 GiB worker on 2026-10-27).
     written: dict[str, Any] = {}
+    tables: dict[str, Any] = {}  # mirror-eligible rollups only (small; raw stays R2-only)
 
     async def put(key: str, coro) -> None:
         try:
             rows = await coro
             res = await _put_json(key, rows, bucket)
             written[key] = res.get("size", 0)
+            if _NC_MIRROR_RE.match(key):
+                tables[key] = rows
         except Exception as exc:  # noqa: BLE001 — report, don't abort others
             written[key] = f"ERROR: {exc}"
 
