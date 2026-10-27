@@ -1,7 +1,7 @@
 """Engagement sweep — score new candidates, draft 3C comments, dispatch
 queued actions honoring jitter + caps."""
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from celery import shared_task
 from sqlalchemy import select
@@ -67,12 +67,10 @@ async def _run(limit: int):
 
         # real-time per-item gate pings — dedicated channel webhook with
         # native deep links (platform:// schemes open the mobile app)
-        gated_items = (await db.execute(
-            select(EngagementAction).where(
-                EngagementAction.status == "pending_human_gate",
-                EngagementAction.created_at > datetime.now(UTC) - timedelta(hours=2))
-        )).scalars().all()
-        if gated_items:
+        # Ping only the rows drafted in this sweep, so each gated comment is
+        # announced once. Re-querying every pending_human_gate row from the
+        # last 2h re-sent <!channel> for the same items on every beat tick.
+        if drafts_needed:
             try:
                 import os
 
@@ -92,9 +90,12 @@ async def _run(limit: int):
                     "twitter": "twitter://timeline",
                     "threads": "instagram://app",
                 }
-                for a in gated_items:
+                for a in drafts_needed:
+                    if not a.comment_draft:
+                        continue  # nothing to review (no candidate / empty LLM reply)
                     dl = deeplink.get(a.platform, "")
-                    draft = (a.comment_draft or "manual review")[:140]
+                    draft = (a.comment_draft[:140] + "…"
+                             if len(a.comment_draft) > 140 else a.comment_draft)
                     await _post_slack_text(
                         webhook_url=hook,
                         token=os.environ.get("SLACK_BOT_TOKEN", ""),
