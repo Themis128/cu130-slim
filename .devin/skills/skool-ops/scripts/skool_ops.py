@@ -109,6 +109,29 @@ def cmd_scan(wait: bool) -> int:
     return 1
 
 
+def cmd_login(email: str, password: str) -> int:
+    """Store SKOOL_EMAIL/SKOOL_PASSWORD in the platform secret store (D1→PG
+    →env), then run the session_healer recovery path to log in now."""
+    code = (
+        "import asyncio\n"
+        "from app.services.secret_store import secret_store\n"
+        "from app.services.session_healer import _recover_bridge_platform\n"
+        "async def go():\n"
+        f"    await secret_store.set('SKOOL_EMAIL', {email!r})\n"
+        f"    await secret_store.set('SKOOL_PASSWORD', {password!r})\n"
+        "    print('creds stored — healing skool…')\n"
+        "    ok = await _recover_bridge_platform('skool')\n"
+        "    print('login:', 'OK' if ok else 'FAILED — check status')\n"
+        "asyncio.run(go())\n"
+    )
+    # runs inside social-api where app.* is importable
+    r = subprocess.run(
+        ["docker", "compose", "exec", "-T", "social-api", "python", "-c", code],
+        capture_output=True, text=True, timeout=300)
+    print(r.stdout.strip() or r.stderr.strip())
+    return 0 if "login: OK" in r.stdout else 1
+
+
 def cmd_push_intravox() -> int:
     out = _scan_once()
     if "_busy" in out:
@@ -155,6 +178,12 @@ def main() -> int:
         return cmd_status()
     if args[0] == "scan":
         return cmd_scan("--wait" in args)
+    if args[0] == "login":
+        em = next((a.split("=", 1)[1] for a in args if a.startswith("--email=")), "")
+        pw = next((a.split("=", 1)[1] for a in args if a.startswith("--password=")), "")
+        if not em or not pw:
+            sys.exit("login needs --email= --password=")
+        return cmd_login(em, pw)
     if args[0] == "push-intravox":
         return cmd_push_intravox()
     print(__doc__)
