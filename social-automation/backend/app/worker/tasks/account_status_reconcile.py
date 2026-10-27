@@ -129,7 +129,7 @@ async def _reconcile() -> dict[str, int]:
                 acc.meta_data = {**(acc.meta_data or {}), "last_verify_attempt_at": now.isoformat()}
                 counts["error"] += 1
                 continue
-            if new_status in (None, "unprobed"):
+            if new_status is None or new_status == "unprobed":
                 continue
             counts[new_status] += 1
             acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat(),
