@@ -91,3 +91,10 @@
 - #958 (this file's earlier update), #960, #961, #963 merged by parallel sweeps — repo now has zero open PRs.
 - Fixed en route: `skool_sync.py` shipped undefined `_bridge_nav`/`_bridge_eval`/`json` (mypy ×7 + runtime break) — added helpers following the session_healer bridge pattern before landing #954.
 - Leftovers: none repository-side. Live-stack items remain: restart workers per AGENTS.md after publishing/worker code changes, TikTok sidecar verification still manual.
+
+## 2026-10-27 — Session closeout (post-sweep)
+
+- Landed: account-status-reconcile (#986→#993) and nurture-sidecar-warmup (#987→#990); BACKLOG registrations merged (#988). Both LTE issues closed.
+- cloudless.gr: umbrella #2305 landed + subsets closed; dependabot groups merged; #2308 skills+CI-path fix; #2309 links page (kept restored GSC page — PR was reverting); #2310 AI-governance offer draft live on /services.
+- Owner-gated remains (status comments + proposals posted on each): #784 test-post approval, #793 partner approvals, #794 batch size, #795 offer edits, #785 Meta evidence, #786 WA SMS (rate-limited — owner-side request best), #788 IG session bootstrap via noVNC, #789 TikTok captcha at noVNC (browser staged), #791 app-side share review.
+- New: espo_leads_tool.py CLI; owner-gate-ops + pr-sweep-ops skills.
