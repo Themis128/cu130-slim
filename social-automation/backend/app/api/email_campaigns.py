@@ -296,6 +296,86 @@ async def list_responses(
     ]
 
 
+@router.get("/{campaign_id}/responses/view", response_class=HTMLResponse)
+async def responses_dashboard(
+    campaign_id: uuid.UUID,
+    team_id: TeamId,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> HTMLResponse:
+    """Staff-facing HTML dashboard — aggregate survey answers per question."""
+    from app.models.email_campaign import SurveyResponse
+
+    c = (
+        await db.execute(
+            select(EmailCampaign).where(
+                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
+            )
+        ).scalars().first()
+    )
+    if c is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    rows = (
+        await db.execute(
+            select(SurveyResponse, EmailRecipient.email)
+            .outerjoin(EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id)
+            .where(SurveyResponse.campaign_id == campaign_id)
+            .order_by(SurveyResponse.submitted_at)
+        )
+    ).all()
+
+    questions = svc.survey_questions(c) or []
+    audit_yes = [
+        email or "—" for r, email in rows
+        if (r.answers or {}).get("audit_interest") == "Yes"
+    ]
+    counts: dict[str, dict[str, int]] = {}
+    for q in questions:
+        if q.get("type") == "choice":
+            for o in (q.get("options") or []):
+                counts.setdefault(q["id"], {})[str(o)] = 0
+    for r, _ in rows:
+        for k, v in (r.answers or {}).items():
+            if k in counts and str(v) in counts[k]:
+                counts[k][str(v)] += 1
+
+    cards = []
+    for q in questions:
+        qid, label = q["id"], _esc(str(q["label"]))
+        if qid in counts:
+            total = max(1, sum(counts[qid].values()))
+            bars = "".join(
+                f'<div style="margin:6px 0;"><div style="color:#c6d0e2;font-size:13px;">'
+                f'{_esc(opt)} — <b>{n}</b></div>'
+                f'<div style="background:#1e2a45;border-radius:4px;height:8px;margin-top:3px;">'
+                f'<div style="background:#22d3e6;height:8px;border-radius:4px;width:{int(100*n/total)}%;"></div></div></div>'
+                for opt, n in counts[qid].items()
+            )
+            cards.append(f'<div style="{_CARD_STYLE}"><div style="{_LABEL_STYLE}">{label}</div>{bars}</div>')
+        else:
+            answers_txt = "".join(
+                f'<div style="border-bottom:1px solid #1e2a45;padding:6px 0;color:#b9c4d8;font-size:13px;">'
+                f'<b style="color:#7fe7f4;">{_esc(e or "—")}:</b> {_esc(str((r.answers or {}).get(qid, "—")))[:400]}</div>'
+                for r, e in rows
+            )
+            cards.append(f'<div style="{_CARD_STYLE}"><div style="{_LABEL_STYLE}">{label}</div>{answers_txt or "<i style=color:#5f6b85>no answers yet</i>"}</div>')  # noqa: E501
+
+    audit_block = (
+        f'<div style="{_CARD_STYLE};border-color:#22d3e6;"><div style="{_LABEL_STYLE}">'
+        f':star: Audit requests ({len(audit_yes)})</div>'
+        + "".join(f'<div style="color:#7fe7f4;font-size:14px;padding:2px 0;">{_esc(e)}</div>' for e in audit_yes)
+        + "</div>"
+        if audit_yes else ""
+    )
+    body = (
+        f'{len(rows)} response(s) · {len(audit_yes)} audit request(s)'
+    )
+    form = audit_block + "".join(cards)
+    return HTMLResponse(
+        _FUNNEL_HTML.format(title=f"Responses — {_esc(c.name)}", body=body, form=form)
+    )
+
+
 @router.post("/{campaign_id}/send")
 async def send_campaign(
     campaign_id: uuid.UUID,
@@ -512,33 +592,54 @@ async def unsubscribe_post(token: str, db: AsyncSession = Depends(get_db)) -> HT
 
 _SURVEY_HTML = _FUNNEL_HTML
 
-_Q_STYLE = "width:100%;box-sizing:border-box;background:#0d1526;border:1px solid #1e2a45;border-radius:8px;color:#dde4f0;padding:10px 12px;font-size:14px;"
-_LABEL_STYLE = "display:block;color:#dde4f0;font-size:14px;font-weight:600;margin-bottom:6px;text-align:left;"
+_Q_STYLE = "width:100%;box-sizing:border-box;background:#0d1526;border:1px solid #1e2a45;border-radius:8px;color:#dde4f0;padding:12px 14px;font-size:14px;line-height:1.5;resize:vertical;"  # noqa: E501
+_LABEL_STYLE = "display:block;color:#dde4f0;font-size:15px;font-weight:600;margin-bottom:10px;text-align:left;line-height:1.4;"
 _RADIO_STYLE = "display:block;color:#b9c4d8;font-size:14px;margin:6px 0;text-align:left;"
+_CARD_STYLE = "background:#0d1526;border:1px solid #1e2a45;border-radius:10px;padding:16px 18px;margin-bottom:14px;text-align:left;"
+_QNUM_STYLE = "display:inline-block;min-width:22px;height:22px;line-height:22px;text-align:center;background:#22d3e6;color:#0b1220;border-radius:50%;font-size:12px;font-weight:700;margin-right:8px;vertical-align:middle;"  # noqa: E501
+_PILL = "display:block;margin:8px 0;cursor:pointer;"
+_PILL_SPAN = "display:block;padding:11px 14px;border:1px solid #2a3a5f;border-radius:8px;color:#c6d0e2;font-size:14px;transition:border-color .15s,background .15s;"  # noqa: E501
+_PILL_CSS = (
+    "input.qp{position:absolute;opacity:0;pointer-events:none}"
+    "input.qp:checked+span{border-color:#22d3e6;background:rgba(34,211,230,.12);color:#fff}"
+    "input.qp:focus-visible+span{outline:2px solid #22d3e6;outline-offset:1px}"
+    "span.pill:hover{border-color:#3f8fb5}"
+    ".seg{display:flex;gap:6px}"
+    ".seg label{flex:1;margin:0}"
+    ".seg span.segp{text-align:center;padding:12px 0}"
+    "input.qp:checked+span.segp{border-color:#22d3e6}"
+    ".req{color:#22d3e6;margin-left:4px}"
+)
+_SEG = "padding:11px 0;border:1px solid #2a3a5f;border-radius:8px;color:#c6d0e2;font-size:15px;font-weight:600;transition:border-color .15s,background .15s;display:block;cursor:pointer;"  # noqa: E501
 
 
-def _question_input(q: dict) -> str:
+def _question_input(q: dict, num: int) -> str:
     # Question ids/labels/options come from the campaign definition and are
     # rendered on an unauthenticated page — escape for both text and
     # attribute contexts.
     qid = _esc(str(q["id"]))
-    label = f'<label for="{qid}" style="{_LABEL_STYLE}">{_esc(str(q["label"]))}</label>'
     req = " required" if q.get("required") else ""
+    reqmark = '<span class="req">*</span>' if q.get("required") else ""
+    label = (
+        f'<label for="{qid}" style="{_LABEL_STYLE}">'
+        f'<span style="{_QNUM_STYLE}">{num}</span> {_esc(str(q["label"]))}{reqmark}</label>'
+    )
     if q.get("type") == "choice":
         opts = "".join(
-            f'<label style="{_RADIO_STYLE}"><input type="radio" name="{qid}" value="{eo}"{req} '
-            f'style="accent-color:#22d3e6;margin-right:8px;"> {eo}</label>'
+            f'<label style="{_PILL}"><input class="qp" type="radio" name="{qid}" value="{eo}"{req}>'
+            f'<span class="pill" style="{_PILL_SPAN}">{eo}</span></label>'
             for eo in (_esc(str(o)) for o in (q.get("options") or []))
         )
         return label + opts
     if q.get("type") == "rating":
         lo, hi = int(q.get("min", 1)), int(q.get("max", 5))
-        opts = "".join(
-            f'<label style="{_RADIO_STYLE}"><input type="radio" name="{qid}" value="{n}"{req} style="accent-color:#22d3e6;margin-right:8px;"> {n}</label>'
+        opts = '<div class="seg">' + "".join(
+            f'<label><input class="qp" type="radio" name="{qid}" value="{n}"{req}>'
+            f'<span class="segp" style="{_SEG}">{n}</span></label>'
             for n in range(lo, hi + 1)
-        )
+        ) + "</div>"
         return label + opts
-    return label + f'<textarea name="{qid}" rows="3" style="{_Q_STYLE}"{req}></textarea>'
+    return label + f'<textarea name="{qid}" rows="3" style="{_Q_STYLE}"{req} placeholder="Type your answer here…"></textarea>'
 
 
 @router.get("/surveys/{token}", response_class=HTMLResponse)
@@ -617,6 +718,17 @@ async def survey_submit(
             ),
             status_code=status,
         )
+    try:  # push-notify on each response — never blocks the submission
+        from app.services.slack_notifications import post_alert_to_slack
+        audit = " — AUDIT YES" if answers.get("audit_interest") == "Yes" else ""
+        await post_alert_to_slack(
+            f":clipboard: *Survey response*{audit}\n"
+            f"email: {answers.get('email', '—')}\n"
+            f"worth/mo: {answers.get('worth_per_month', '—')}\n"
+            f"hesitation: {str(answers.get('hesitation', '—'))[:200]}"
+        )
+    except Exception:
+        pass
     return HTMLResponse(
         _SURVEY_HTML.format(
             title="Thank you",
