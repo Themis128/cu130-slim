@@ -613,7 +613,7 @@ _PILL_CSS = (
 _SEG = "padding:11px 0;border:1px solid #2a3a5f;border-radius:8px;color:#c6d0e2;font-size:15px;font-weight:600;transition:border-color .15s,background .15s;display:block;cursor:pointer;"  # noqa: E501
 
 
-def _question_input(q: dict, num: int) -> str:
+def _question_input(q: dict, num: int | None = None) -> str:
     # Question ids/labels/options come from the campaign definition and are
     # rendered on an unauthenticated page — escape for both text and
     # attribute contexts.
@@ -677,10 +677,17 @@ async def survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLRes
             _SURVEY_HTML.format(title="Unavailable", body="This survey is not active.", form=""),
             status_code=404,
         )
-    fields = "".join(f'<div style="margin-bottom:18px;text-align:left;">{_question_input(q)}</div>' for q in questions)
+    n = len(questions)
+    fields = "".join(
+        f'<div style="{_CARD_STYLE}">{_question_input(q, i + 1)}</div>'
+        for i, q in enumerate(questions)
+    )
     form = (
+        f'<p style="color:#5f6b85;font-size:12px;text-align:right;margin:0 0 10px;">{n} questions · ~2 min</p>'
         f'<form method="post" action="/s/{_esc(token)}">'
-        f'{fields}<button type="submit" style="{_BTN_STYLE}">Submit</button></form>'
+        f'{fields}<button type="submit" style="{_BTN_STYLE}">Send my answers</button>'
+        f'<p style="color:#5f6b85;font-size:11px;text-align:center;margin:12px 0 0;">'
+        f'One-time link — your answers go straight to Themis, not a database farm.</p></form>'
     )
     return HTMLResponse(
         _SURVEY_HTML.format(
