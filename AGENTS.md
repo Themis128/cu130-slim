@@ -56,7 +56,7 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 - **Pre-commit hook** (`.githooks/pre-commit`, enabled via `git config core.hooksPath .githooks`) automatically runs `ruff check` + `mypy` on staged backend files inside the `social-api` container — same checks as the first two CI steps. It fails open when the container is down. Bypass with `--no-verify` only intentionally.
 - Container file drift: after committing tests/code, sync changed files into `social-api` + worker containers with `docker compose cp` — stale files in the container make the local gate diverge from CI.
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 1148 tests, 8 skipped).
+1. `pytest tests/unit -q` inside `social-api` — must pass for the **touched modules only** (e.g. `pytest tests/unit/test_<module>.py`). Do NOT run the whole ~7k suite inside `social-api`: the container's `mem_limit` is 1 GiB (steady-state ~600 MiB) and a full-suite run OOM-kills the production API (observed 2026-10-27). The full suite is CI's gate (`pytest tests/unit -v --tb=short` in `social-automation-backend.yml`); locally run it via the `.venv` on the host (`. .venv/bin/activate && python -m pytest tests/unit -q -m "not integration"`) or accept CI. If a containerized run is unavoidable, use `pytest --timeout=90 -v` so a hang fails fast instead of stalling silently, and `pkill -f pytest` stale runners first — orphaned runs compound memory pressure.
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
@@ -99,8 +99,9 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 ## Common commands
 
 ```bash
-# backend unit tests
-docker compose exec -T social-api python -m pytest tests/unit -q
+# backend unit tests — touched modules only inside social-api (1 GiB mem_limit);
+# full suite via host .venv or CI (see gate #1)
+docker compose exec -T social-api python -m pytest tests/unit/test_<module>.py -q
 
 # lint
 docker compose exec -T social-api python -m ruff check <paths>
