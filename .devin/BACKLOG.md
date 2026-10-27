@@ -40,6 +40,7 @@
 - 2 live posts link cloudless.com not .gr — delete+recreate awaiting go-ahead (fb 7c7948a4, li bd301640)
 - Threads business profile: browser-session edits (bio/name) — threads-ops scripts ready
 - Stacked-branch conflicts recur — prefer fresh-off-master topic branches
+- SMB offer survey: clean draft `9f98e2ce-24da-46f3-a19f-8d7e0e875270` ready — owner attaches audience (`offer_survey.py audience … --espocrm`) + sends; Q5 answers pricing → unblocks service page (#795). Skills: cloudless-code-of-honor, signature-offer-ops, offer-survey-ops
 
 
 ## Session 2026-10-27 — strategy-brief parse fix + playbook→queue loop
