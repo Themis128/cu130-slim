@@ -249,7 +249,7 @@ def _bridge(result, start_fails=False):
 @pytest.mark.asyncio
 async def test_ig_non_like_skips():
     out = await ig_actor.act(_action(action="comment"), None)
-    assert out == {"error": "ig: only like auto-acted", "skip": True}
+    assert out == {"error": "ig: comment not auto-acted", "skip": True}
 
 
 @pytest.mark.asyncio
