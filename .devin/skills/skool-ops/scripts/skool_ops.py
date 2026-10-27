@@ -152,7 +152,7 @@ def cmd_push_intravox() -> int:
     tool = _intravox_tool()
     r = subprocess.run(
         [sys.executable, tool, "page-create", pid,
-         f"Skool digest {day}", "--parent", "news"],
+         f"Skool digest {day}", "--parent", "en/news"],
         capture_output=True, text=True)
     print(r.stdout.strip() or r.stderr.strip())
     uid = None
