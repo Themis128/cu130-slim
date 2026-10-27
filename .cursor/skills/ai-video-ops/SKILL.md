@@ -75,8 +75,9 @@ avatar description in it ("cute chibi cartoon mascot … white background").
 - **Music licensing** — Kevin MacLeod tracks (incompetech.com) are CC-BY;
   the publish caption must carry the attribution line.
 - **Media rules** — every post needs correct media; videos must have
-  audio (attach-audio rule) — `_mux_music` covers it when `music_bytes`
-  is provided.
+  audio (attach-audio rule). `_mux_music` only runs when `music_url` is
+  given: without it the output is **silent and must not be published** —
+  attach a track first.
 
 ## CLI helper
 
