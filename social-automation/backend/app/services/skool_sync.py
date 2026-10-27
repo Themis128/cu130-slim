@@ -84,10 +84,18 @@ TYPE_JS = """(async (title, body) => {
 async def trend_scan() -> dict:
     """Community feed hot topics — top posts by engagement markers."""
     await _bridge_nav(COMMUNITY)
-    res = await _bridge_eval("""JSON.stringify([...document.querySelectorAll(
-      'div[class*=FeedCard], div[class*=PostCard], article')].slice(0,15)
-      .map(e => ({t: (e.innerText||'').slice(0,140),
-                  eng: ((e.innerText||'').match(/\\d+/g)||['0'])[0]})))""")
+    res = await _bridge_eval("""(() => {
+      const all = [...document.querySelectorAll('div')];
+      const c = all.filter(e => {
+        const t = e.innerText || '';
+        return t.includes('\\u2022') && t.length > 60 && t.length < 2500;
+      });
+      const o = c.filter(e => !c.some(x => x !== e && e.contains(x)
+        && (x.innerText || '').length > (e.innerText || '').length * 0.6));
+      return JSON.stringify(o.slice(0,15).map(e => ({
+        t: (e.innerText||'').slice(0,140),
+        eng: ((e.innerText||'').match(/\\d+/g)||['0'])[0]})));
+    })()""")
     try:
         raw = res.get("url") or res.get("result") or "[]"
         return {"top": json.loads(raw)}
