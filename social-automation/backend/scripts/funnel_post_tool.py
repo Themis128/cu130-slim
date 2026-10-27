@@ -9,16 +9,20 @@ Run inside social-api:
   python /app/scripts/funnel_post_tool.py --funnel personal \
       --platform LinkedIn --topic "200s->10ms session polls build-log" --at 20:30
 """
-import argparse, asyncio, sys
-from datetime import datetime, timedelta
+import argparse
+import asyncio
+import sys
+from datetime import datetime
 from zoneinfo import ZoneInfo
+
 sys.path.insert(0, "/app")
 from sqlalchemy import select
+
 from app.db.session import async_session_maker
 from app.models.content import Post
 from app.models.user import Team
-from app.services.utm import tracked_url
 from app.services.strategy_report import StrategyReport, execute_report_actions
+from app.services.utm import tracked_url
 
 ATH = ZoneInfo("Europe/Athens")
 PERSONAL = "https://cloudless.gr/links"
@@ -28,20 +32,19 @@ async def main(a):
     async with async_session_maker() as db:
         team = (await db.scalars(select(Team))).first()
         if not team:
-            print("FAIL: no team"); return
+            print("FAIL: no team")
+            return
         if a.funnel == "personal":
             recent = (await db.scalars(select(Post).where(
                 Post.status.in_(["published", "scheduled"]))
                 .order_by(Post.created_at.desc()).limit(20))).all()
             soft = sum(1 for p in recent if "themis.baltzakis" in (p.content_text or "") or "cloudless.gr/links" in (p.content_text or ""))
             if recent and soft / len(recent) >= 1 / 3:
-                print(f"SKIP: cadence {soft}/{len(recent)} >= 1/3 — funnel saturated"); return
+                print(f"SKIP: cadence {soft}/{len(recent)} >= 1/3 — funnel saturated")
+                return
         cta = a.cta or (PERSONAL if a.funnel == "personal" else BRAND_CTAS[0])
         tagged = tracked_url(cta, source=a.platform.lower(), medium="organic_social",
                              campaign=f"{a.funnel}-funnel", content="funnel-post")
-        now = datetime.now(ATH)
-        target = now.date() if a.at > (now + timedelta(hours=2)).strftime("%H:%M") \
-            else (now + timedelta(days=1)).date()
         line = (f"1. {a.platform} - {a.at} - text - {a.topic}. "
                 f"Soft CTA: point readers to {tagged}")
         rep = StrategyReport(generated_at=datetime.now(ATH), timezone="Europe/Athens",
