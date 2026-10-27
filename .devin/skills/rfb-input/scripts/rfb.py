@@ -45,7 +45,7 @@ def main():
     b64 = base64.b64encode(PAYLOAD.encode()).decode()
     r = subprocess.run(
         ["docker", "exec", "engagement-browser", "sh", "-c",
-         f"echo {b64} | base64 -d | python3 - {args}"],
+         "echo %s | base64 -d | python3 - %s" % (b64, shlex.quote(args))],
         capture_output=True, text=True, timeout=30)
     print(r.stdout.strip() or "done", r.stderr.strip()[:200])
 

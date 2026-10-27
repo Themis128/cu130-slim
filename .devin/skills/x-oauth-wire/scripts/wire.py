@@ -9,7 +9,8 @@ REPO = r"C:\Users\tbaltzakis\cu130-slim"
 ENV = REPO + r"\.env"
 
 def main(cid, secret):
-    env = open(ENV, encoding="utf-8").read()  # noqa: SIM115 — script scope
+    with open(ENV, encoding="utf-8") as _f:
+        env = _f.read()
     # replace or append the two keys
     for key, val in [("TWITTER_CLIENT_ID", cid), ("TWITTER_CLIENT_SECRET", secret)]:
         if re.search(rf"^{key}=", env, re.M):

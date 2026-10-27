@@ -62,7 +62,8 @@ async def _sweep() -> dict:
             qr = (await db.execute(
                 __import__("sqlalchemy").select(PublishQueue).where(
                     PublishQueue.post_id == tgt.post_id,
-                    PublishQueue.status.in_(["failed", "processing"]))
+                    PublishQueue.social_account_id == tgt.social_account_id,
+                    PublishQueue.status == "failed")
             )).scalars().first()
             if qr:
                 qr.status = "pending"

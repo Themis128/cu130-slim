@@ -12,7 +12,7 @@ set_kv TWITTER_CLIENT_SECRET "$CSEC"
 [ -n "${3:-}" ] && set_kv TWITTER_API_KEY "$3"
 [ -n "${4:-}" ] && set_kv TWITTER_API_SECRET "$4"
 echo "creds written. Restarting api + publishing worker…"
-docker compose restart social-api social-worker-publishing >/dev/null 2>&1 || true
+docker compose up -d --force-recreate social-api social-worker-publishing >/dev/null 2>&1 || true
 sleep 8
 
 EMAIL=$(grep -E '^SOCIAL_ADMIN_EMAIL=' .env | cut -d= -f2- | tr -d '\r')

@@ -561,7 +561,10 @@ async def _process_publish_queue_async() -> None:
 
         for idx, item in enumerate(items):
             elapsed = time.monotonic() - run_started
-            if elapsed + _WORST_CASE_TARGET_S > _RUN_BUDGET_S:
+            # Per-platform headroom — a tiktok can need ~660s of polling, so
+            # it must start earlier than a standard 420s target.
+            _need = 660.0 if (item.platform if hasattr(item, "platform") else "") == "tiktok" else _WORST_CASE_TARGET_S
+            if elapsed + _need > _RUN_BUDGET_S:
                 # Out of budget: hand the unstarted rows back instead of
                 # letting SoftTimeLimitExceeded cancel us mid-publish.
                 remaining = items[idx:]
@@ -726,8 +729,11 @@ async def _process_publish_queue_async() -> None:
                 # Per-item timeout: a single hung publish (media upload,
                 # platform retry loop, dead socket) must not starve the whole
                 # 50-item batch against the 900s soft limit.
+                # Per-platform deadline — TikTok status-polls up to ~10min,
+                # so a blanket 120s would cancel mid-publish and re-upload.
+                _item_deadline = 660.0 if account.platform == "tiktok" else 120.0
                 pub = await asyncio.wait_for(
-                    publish_to_platform(account, post, db), timeout=120.0
+                    publish_to_platform(account, post, db), timeout=_item_deadline
                 )
 
                 deferred = False

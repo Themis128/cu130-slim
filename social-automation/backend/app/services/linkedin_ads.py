@@ -14,17 +14,18 @@ API = "https://api.linkedin.com/v2"
 HEADERS_EXTRA = {"X-Restli-Protocol-Version": "2.0.0"}
 
 
-async def _token(db):
+async def _token(db, team_id=None):
     from app.core.security import decrypt_token
     from app.models.social_account import SocialAccount
-    acc = (await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "linkedin"))
-    ).scalars().first()
+    q = select(SocialAccount).where(SocialAccount.platform == "linkedin")
+    if team_id is not None:
+        q = q.where(SocialAccount.team_id == team_id)
+    acc = (await db.execute(q)).scalars().first()
     return decrypt_token(acc.access_token_enc)
 
 
-async def ad_accounts(db) -> list[dict]:
-    tok = await _token(db)
+async def ad_accounts(db, team_id=None) -> list[dict]:
+    tok = await _token(db, team_id)
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(
             f"{API}/adAccountsV2?q=search&search=(status:(values:List(ACTIVE)))",
@@ -44,10 +45,10 @@ async def campaigns(db, account_urn: str) -> list[dict]:
         return r.json().get("elements", [])
 
 
-async def snapshot(db) -> dict:
+async def snapshot(db, team_id=None) -> dict:
     """Pull ad account + campaign state → meta_data on the account."""
     from app.models.social_account import SocialAccount
-    accs = await ad_accounts(db)
+    accs = await ad_accounts(db, team_id)
     if not accs:
         return {"accounts": 0}
     out = {"accounts": len(accs), "campaigns": []}
@@ -61,9 +62,10 @@ async def snapshot(db) -> dict:
                 "status": cp.get("status"),
                 "account": a.get("name", urn)[-40:],
             })
-    acc = (await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "linkedin"))
-    ).scalars().first()
+    q = select(SocialAccount).where(SocialAccount.platform == "linkedin")
+    if team_id is not None:
+        q = q.where(SocialAccount.team_id == team_id)
+    acc = (await db.execute(q)).scalars().first()
     if acc:
         acc.meta_data = {**(acc.meta_data or {}), "ads": out}
     return out

@@ -81,9 +81,10 @@ async def _run(**kw) -> dict:
         async def _asset_bytes(asset_id: str | None):
             if not asset_id:
                 return None
-            row = (await db.execute(
-                select(MediaAsset).where(MediaAsset.id == uuid.UUID(asset_id)))
-            ).scalar_one_or_none()
+            q = select(MediaAsset).where(MediaAsset.id == uuid.UUID(asset_id))
+            if tid is not None:
+                q = q.where(MediaAsset.team_id == tid)
+            row = (await db.execute(q)).scalar_one_or_none()
             if not row:
                 return None
             from app.services.media_dedup import load_asset_bytes

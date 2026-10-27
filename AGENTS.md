@@ -574,7 +574,8 @@ Current chain (oldest → newest, 39 revisions):
 36. `a6b7c8d9e0f1` — ad_campaign_snapshots
 37. `b7c8d9e0f1a2` — ad_daily_metrics + ad_demographic_segments
 38. `c8d9e0f1a2b3` — publish_queue dedupe + partial unique index
-39. `f6e5d4c3b2a1` — 'website' leadsource enum (current head)
+39. `f6e5d4c3b2a1` — 'website' leadsource enum
+40. `f7a8b9c0d1e2` — merge five heads incl. engagement meta_data (current head)
 
 ## CodeQL alert history
 

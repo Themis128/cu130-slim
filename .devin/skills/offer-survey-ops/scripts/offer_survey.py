@@ -273,6 +273,57 @@ def cmd_suggest(token: str) -> None:
     print("  " + " ".join(f"--email={e}" for e, _ in good))
 
 
+def cmd_nudge(token: str, cid: str, yes: bool) -> None:
+    """Re-queue non-responders and (with --yes) resend the survey to them."""
+    out = req(f"/api/v1/email-campaigns/{cid}/nudge", token, body={})
+    if yes:
+        out["send"] = req(f"/api/v1/email-campaigns/{cid}/send", token, body={})
+    else:
+        out["note"] = "pass --yes to actually resend"
+    print(json.dumps(out))
+
+
+def cmd_readout(token: str, cid: str, yes: bool) -> None:
+    """Draft a read-out campaign to responders: aggregate summary as body,
+    responder emails as audience. --yes sends it (human gate)."""
+    rows = req(f"/api/v1/email-campaigns/{cid}/responses", token, method="GET")
+    if isinstance(rows, dict):
+        rows = rows.get("responses", rows.get("items", []))
+    emails = sorted({r.get("email") for r in rows if r.get("email")})
+    if not emails:
+        raise SystemExit("no responders yet — nothing to send a read-out to")
+    counts: dict[str, dict[str, int]] = {}
+    for r in rows:
+        for k, v in (r.get("answers") or {}).items():
+            counts.setdefault(k, {}).setdefault(str(v), 0)
+            counts[k][str(v)] += 1
+    lines = [f"{len(rows)} owners answered. The headline numbers:"]
+    for q in QUESTIONS:
+        qc = counts.get(q["id"])
+        if not qc:
+            continue
+        top = sorted(qc.items(), key=lambda kv: -kv[1])[:3]
+        lines.append(f"- {q['label']}: " + " · ".join(f"{k} ({n})" for k, n in top))
+    audit = sum(1 for r in rows if (r.get("answers") or {}).get("audit_interest") == "Yes")
+    lines.append(f"\n{audit} of {len(rows)} asked for the free audit.")
+    body = "\n".join(lines)
+    c = req("/api/v1/email-campaigns", token, body={
+        "name": f"SMB survey read-out ({date.today().isoformat()})",
+        "kind": "marketing",
+        "subject": "What owners actually said — the survey read-out",
+        "text_body": "{{first_name}}\n\n" + body + "\n\n— Themis, Cloudless",
+    })
+    rid = c.get("id")
+    req(f"/api/v1/email-campaigns/{rid}/audience", token,
+        body={"emails": [{"email": e} for e in emails], "include_espocrm": False})
+    out = {"draft_id": rid, "responders": len(emails), "audit_yes": audit}
+    if yes:
+        out["send"] = req(f"/api/v1/email-campaigns/{rid}/send", token, body={})
+    else:
+        out["note"] = f"review the draft then: offer_survey.py send {rid} --yes"
+    print(json.dumps(out))
+
+
 def cmd_send(token: str, cid: str, yes: bool) -> None:
     if not yes:
         raise SystemExit("send requires --yes (Code of Honor #2: human approves sends)")
@@ -296,6 +347,10 @@ def main() -> None:
         cmd_suggest(token)
     elif cmd == "responses" and len(args) >= 2:
         cmd_responses(token, args[1])
+    elif cmd == "nudge" and len(args) >= 2:
+        cmd_nudge(token, args[1], "--yes" in args)
+    elif cmd == "readout" and len(args) >= 2:
+        cmd_readout(token, args[1], "--yes" in args)
     elif cmd == "send" and len(args) >= 2:
         cmd_send(token, args[1], "--yes" in args)
     else:

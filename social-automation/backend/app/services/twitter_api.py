@@ -131,6 +131,8 @@ class TwitterAPIClient:
         self.api_base = api_base.rstrip("/")
         self.media_signer = media_signer
         self._ak, self._as, self._at, self._ats = self._build_oauth1()
+        # Opt-in flag: only the operator account may retry via env OAuth1 creds.
+        self._oauth1_fallback = media_signer is not None or __import__("os").environ.get("X_OAUTH1_FALLBACK") == "1"
 
     def _build_oauth1(self):
         """Read OAuth1.0a app creds from env — fallback when the OAuth2
@@ -156,8 +158,8 @@ class TwitterAPIClient:
             status_code = r.status_code
             headers = r.headers
             @property
-            def text(_): return r.text
-            def json(_): return r.json()
+            def text(self): return r.text
+            def json(self): return r.json()
         return _R()
 
     async def _send(self, client, method: str, url: str, **kwargs):
@@ -166,7 +168,10 @@ class TwitterAPIClient:
         # so callers and test doubles that expose only verb methods keep working.
         verb = getattr(client, method.lower())
         resp = await verb(url, headers=self._headers(), **kwargs)
-        if resp.status_code in (401, 403) and self._has_oauth1:
+        # OAuth1 fallback only when explicitly enabled — the env creds belong
+        # to the operator account; firing them for another account's request
+        # would post as the wrong identity.
+        if resp.status_code in (401, 403) and self._has_oauth1 and self._oauth1_fallback:
             resp = await asyncio.to_thread(self._oauth1_request, method, url, kwargs)
         return resp
 
