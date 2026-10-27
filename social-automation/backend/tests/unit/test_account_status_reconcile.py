@@ -37,39 +37,39 @@ class _Client:
 @pytest.mark.asyncio
 async def test_probe_meta_200_active():
     with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(200))):
-        assert await R._probe("facebook", "123", "tok") == "active"
+        assert await R._probe("facebook", "123", "tok", {}) == "active"
 
 
 @pytest.mark.asyncio
 async def test_probe_meta_401_revoked():
     with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(401))):
-        assert await R._probe("instagram", "123", "tok") == "revoked"
+        assert await R._probe("instagram", "123", "tok", {}) == "revoked"
 
 
 @pytest.mark.asyncio
 async def test_probe_meta_500_error():
     with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(500))):
-        assert await R._probe("threads", "123", "tok") == "error"
+        assert await R._probe("threads", "123", "tok", {}) == "error"
 
 
 @pytest.mark.asyncio
 async def test_probe_tiktok_error_code_maps_revoked():
     with patch.object(R.httpx, "AsyncClient",
                       lambda **k: _Client(_Resp(200, {"error": {"code": "access_token_invalid"}}))):
-        assert await R._probe("tiktok", "x", "tok") == "revoked"
+        assert await R._probe("tiktok", "x", "tok", {}) == "revoked"
 
 
 @pytest.mark.asyncio
 async def test_probe_tiktok_ok():
     with patch.object(R.httpx, "AsyncClient",
                       lambda **k: _Client(_Resp(200, {"error": {"code": "ok"}}))):
-        assert await R._probe("tiktok", "x", "tok") == "active"
+        assert await R._probe("tiktok", "x", "tok", {}) == "active"
 
 
 @pytest.mark.asyncio
 async def test_probe_unknown_platform_returns_error():
     with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(200))):
-        assert await R._probe("mastodon", "x", "tok") == "error"
+        assert await R._probe("mastodon", "x", "tok", {}) == "error"
 
 
 @pytest.mark.asyncio

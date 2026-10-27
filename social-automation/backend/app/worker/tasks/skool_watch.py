@@ -481,7 +481,6 @@ async def _watch() -> dict:
         await r.aclose()
 
 
-@celery_app.task(name="app.worker.tasks.skool_watch.watch_skool_vec")
 async def _push_intravox_digest(new_posts: list[dict]) -> None:
     """Mirror the Slack digest into the IntraVox news feed (en/news/<id>)."""
     import os as _os
@@ -519,5 +518,6 @@ async def _push_intravox_digest(new_posts: list[dict]) -> None:
         logger.debug("intravox digest push failed", exc_info=True)
 
 
+@celery_app.task(name="app.worker.tasks.skool_watch.watch_skool_vec")
 def watch_skool_vec() -> dict:
     return _run_async(_watch())
