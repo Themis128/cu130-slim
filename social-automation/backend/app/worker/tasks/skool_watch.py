@@ -485,7 +485,9 @@ async def _watch() -> dict:
 async def _push_intravox_digest(new_posts: list[dict]) -> None:
     """Mirror the Slack digest into the IntraVox news feed (en/news/<id>)."""
     import os as _os
+
     import httpx as _hx
+
     from app.core.config import settings as _s
     base = (_s.NEXTCLOUD_BASE_URL or _os.environ.get("NEXTCLOUD_DAV_URL", "").split("/remote.php")[0]).rstrip("/")
     user = _os.environ.get("NEXTCLOUD_USERNAME", "")
