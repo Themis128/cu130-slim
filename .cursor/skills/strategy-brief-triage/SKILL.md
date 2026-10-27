@@ -39,6 +39,7 @@ to `MonetizationAction`, and runs the shared
 |---|---|---|
 | `Strategy report inference failed: 502: DMR failed after retry: ReadTimeout` | DMR call exceeds timeout under GPU contention (gpu-arbiter waits 480s then proceeds unserialized; ComfyUI crowds the 8GB card at the 09:00 EET run) | OPEN — reserve a GPU slot for the brief or let CF Workers AI fallback trigger on ReadTimeout |
 | `Strategy LLM reply produced no actions (provider=None): [{'platform': …}]` | Model answered a Python-repr dict list (single quotes); `json.loads` rejected it → `_parse_actions` returned nothing | FIXED — `ast.literal_eval` fallback + `{platform,time,format,reason}` recomposition (`_action_entry`) |
+| Model wraps actions in prose / truncated JSON | `literal_eval` can't recover those | if seen again: `pip install json-repair` (MIT, FOSS — benchmarked best stdlib-adjacent repair lib) as a third parse stage before line-matching |
 | `Rule-based recommendations (AI writer unavailable)` in email | Either of the above → `llm_used=False`; playbook degenerates to LinkedIn outlier notes with no times/formats | symptom, not root cause |
 | Playbook items missing platform | prose `_parse_playbook_item` couldn't resolve → `execute_report_actions` drops them silently | by design; check brief actions text |
 
