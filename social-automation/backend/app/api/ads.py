@@ -16,7 +16,7 @@ router = APIRouter(prefix="/ads", tags=["ads"])
 async def linkedin_ads_status(db: AsyncSession = Depends(get_db), _u: User = Depends(get_current_user)):
     try:
         from app.services import linkedin_ads
-        accs = await linkedin_ads.ad_accounts(db)
+        accs = await linkedin_ads.ad_accounts(db, getattr(_u, "team_id", None))
         return {"accounts": len(accs), "detail": accs[:5]}
     except Exception as e:
         raise HTTPException(502, f"ads api: {e}")
@@ -25,6 +25,6 @@ async def linkedin_ads_status(db: AsyncSession = Depends(get_db), _u: User = Dep
 @router.post("/linkedin/snapshot")
 async def trigger_snapshot(db: AsyncSession = Depends(get_db), _u: User = Depends(get_current_user)):
     from app.services import linkedin_ads
-    snap = await linkedin_ads.snapshot(db)
+    snap = await linkedin_ads.snapshot(db, getattr(_u, "team_id", None))
     await db.commit()
     return snap

@@ -14,7 +14,7 @@ user = "tbaltzakis@cloudless.gr"
 cmd = [
     "ssh", "omv-ha",
     f"sudo -n doveadm fetch -u {user} 'uid body' mailbox '*' "
-    f"FROM {sender} SUBJECT {subject} SENTSINCE {age} 2>/dev/null"
+    f"FROM {shlex.quote(sender)} SUBJECT {shlex.quote(subject)} SENTSINCE {shlex.quote(age)} 2>/dev/null"
 ]
 out = subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout
 # split per-message on 'uid:' headers, newest uid last → scan in reverse

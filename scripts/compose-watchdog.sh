@@ -10,7 +10,10 @@ ALERT() {  # post to the ops Slack channel, throttled to once/30min per key
   docker compose exec -T social-api python -c "
 import asyncio
 from app.services.slack_notifications import post_alert_to_slack
-asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f"
+asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
+  # api down — fall back to the raw webhook so the outage still alerts
+  [ -n "${SLACK_ALERTS_WEBHOOK_URL:-}" ] && curl -sf -X POST "$SLACK_ALERTS_WEBHOOK_URL"     -H 'Content-Type: application/json' -d "{"text":"$msg"}" >/dev/null 2>&1 && touch "$f" || true
+}
 }
 # 1. containers stuck in Created / Restarting
 for c in social-api social-worker-default social-worker-publishing social-worker-media social-worker-messenger celery-beat redis; do
