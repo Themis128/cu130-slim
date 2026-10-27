@@ -27,15 +27,23 @@ def graph(path: str, **params) -> dict:
         return {"error": str(e)}
 
 
+ADBS = ["adb",
+        "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
+        "/mnt/c/platform-tools/adb.exe"]
+
+
 def adb_code() -> str | None:
-    try:
-        r = subprocess.run(
-            ["adb", "shell", "content", "query", "--uri", "content://sms/inbox", "--sort", "date DESC"],
-            capture_output=True, text=True, timeout=8)
-        m = CODE_RE.search(r.stdout)
-        return m.group(1) if m else None
-    except Exception:
-        return None
+    for adb in ADBS:
+        try:
+            r = subprocess.run(
+                [adb, "shell", "content", "query", "--uri", "content://sms/inbox", "--sort", "date DESC"],
+                capture_output=True, text=True, timeout=8)
+            m = CODE_RE.search(r.stdout)
+            if m:
+                return m.group(1)
+        except Exception:
+            continue
+    return None
 
 
 def mail_code() -> str | None:

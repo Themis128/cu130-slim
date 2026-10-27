@@ -4,7 +4,7 @@ shared browser bridge (same /session/evaluate pattern as skool-ops).
 Requires an active LinkedIn session on the bridge."""
 import json, sys, urllib.request
 
-BRIDGE = "http://browser-novnc:7900"
+BRIDGE = "http://browser-novnc:9223"
 
 def ev(expr: str) -> dict:
     r = urllib.request.Request(
