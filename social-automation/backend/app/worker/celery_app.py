@@ -25,6 +25,7 @@ celery_app = Celery(
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
+        "app.worker.tasks.account_status_reconcile",
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.personal_messenger",
         "app.worker.tasks.linkedin_messenger",
@@ -207,6 +208,11 @@ celery_app.conf.update(
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
+        # DMR keep-warm/health fire every 90s and can hold a worker slot ~10min
+        # via gpu:dmr_lock — on the 2-slot default worker they starve all
+        # default/celery queue tasks (observed 2026-10-27: llen=20 stuck).
+        "app.worker.tasks.dmr_health.keep_warm_dmr_models": {"queue": "media"},
+        "app.worker.tasks.dmr_health.check_dmr_health": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
         "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},
         "app.worker.tasks.analytics.sync_team_analytics_task": {"queue": "default"},
@@ -222,6 +228,7 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
         "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
+        "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
@@ -267,6 +274,12 @@ celery_app.conf.update(
         "human-gate-watch": {
             "task": "app.worker.tasks.human_gate.run_human_gate_watch",
             "schedule": crontab(minute="*/30"),
+        },
+        # Platform-truth reconciliation — re-reads each connected account's
+        # live status and flags drift (issue #986).
+        "account-status-reconcile": {
+            "task": "app.worker.tasks.account_status_reconcile.reconcile_account_status",
+            "schedule": crontab(minute=40, hour="*/6"),
         },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).

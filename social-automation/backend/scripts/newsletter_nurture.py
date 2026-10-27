@@ -158,6 +158,21 @@ async def cmd_run(args) -> None:
 
     dry_run = not args.approve
     sidecar = LinkedInSidecarClient()
+    # Idle-sleep wake race: the sidecar service wakes fast but browser-novnc
+    # takes ~30-60s to reconnect; requests sent meanwhile drop on the floor.
+    # Wait (bounded) for browser_connected before touching the first lead.
+    warm_deadline = asyncio.get_event_loop().time() + 90
+    while True:
+        try:
+            h = await sidecar.health()
+            if h.get("browser_connected"):
+                break
+        except Exception:
+            h = {}
+        if asyncio.get_event_loop().time() >= warm_deadline:
+            print("sidecar browser still connecting after 90s — proceeding anyway")
+            break
+        await asyncio.sleep(5)
     done = failed = skipped = 0
     for i, lead in enumerate(pending, 1):
         desc = lead.get("description") or ""
