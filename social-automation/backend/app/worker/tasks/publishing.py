@@ -1,7 +1,9 @@
+import asyncio
 import dataclasses
 import hashlib
 import logging
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -35,6 +37,22 @@ from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
+
+# ── Publish-queue run budget ────────────────────────────────────────────────
+# One run is capped by Celery's soft_time_limit (900s, celery_app.py). A
+# single target can legitimately take ~5-7 min (TikTok status poll 60x5s,
+# X browser-bridge lock wait + compose, IG container wait + live re-checks),
+# so claim a small batch and never *start* a target unless a worst-case
+# target still fits in the remaining budget. Unstarted rows go back to
+# PENDING for the next 30s beat instead of being stranded in PROCESSING.
+_QUEUE_BATCH_SIZE = 5
+_RUN_BUDGET_S = 900 - 60          # soft_time_limit minus a safety margin
+_WORST_CASE_TARGET_S = 420        # longest single-target publish observed
+# Stale-lock reclaim must exceed the task's *hard* time_limit (1200s) so a
+# run that is still alive never has its rows reclaimed by a parallel run
+# (that race can double-post: the idempotency guard only sees "published"
+# after the first publish commits).
+_STALE_LOCK_MINUTES = 25
 
 _DEFER_STATE_KEY = "publish_defer"
 _SWEEP_STATE_KEY = "publish_defer_sweep"
@@ -490,8 +508,9 @@ async def _process_publish_queue_async() -> None:
         # processors SELECT the same PENDING rows before either commits.
         # PROCESSING rows with a stale lock (>15 min) are reclaimed to recover
         # from worker crashes mid-publish.
+        run_started = time.monotonic()
         now = datetime.now(UTC)
-        stale_cutoff = now - timedelta(minutes=15)
+        stale_cutoff = now - timedelta(minutes=_STALE_LOCK_MINUTES)
         result = await db.execute(
             select(PublishQueue)
             .where(
@@ -505,7 +524,7 @@ async def _process_publish_queue_async() -> None:
                 ),
             )
             .order_by(PublishQueue.priority.desc(), PublishQueue.scheduled_at.asc())
-            .limit(50)
+            .limit(_QUEUE_BATCH_SIZE)
             .with_for_update(skip_locked=True)
         )
         items = result.scalars().all()
@@ -540,7 +559,23 @@ async def _process_publish_queue_async() -> None:
             item.locked_by = worker_id
         await db.commit()  # commit once: releases row locks; status keeps them claimed
 
-        for item in items:
+        for idx, item in enumerate(items):
+            elapsed = time.monotonic() - run_started
+            if elapsed + _WORST_CASE_TARGET_S > _RUN_BUDGET_S:
+                # Out of budget: hand the unstarted rows back instead of
+                # letting SoftTimeLimitExceeded cancel us mid-publish.
+                remaining = items[idx:]
+                for rest in remaining:
+                    rest.status = QueueStatus.PENDING
+                    rest.locked_at = None
+                    rest.locked_by = None
+                await db.commit()
+                logger.warning(
+                    "[publishing] run budget reached after %.0fs — released %d "
+                    "unstarted queue row(s) for the next beat",
+                    elapsed, len(remaining),
+                )
+                break
 
             try:
                 post_result = await db.execute(select(Post).where(Post.id == item.post_id))
@@ -688,7 +723,12 @@ async def _process_publish_queue_async() -> None:
                     )
                     continue
 
-                pub = await publish_to_platform(account, post, db)
+                # Per-item timeout: a single hung publish (media upload,
+                # platform retry loop, dead socket) must not starve the whole
+                # 50-item batch against the 900s soft limit.
+                pub = await asyncio.wait_for(
+                    publish_to_platform(account, post, db), timeout=120.0
+                )
 
                 deferred = False
                 if not pub.success and getattr(pub, "retry_after", None) is not None:

@@ -130,6 +130,42 @@ class TwitterAPIClient:
         self.access_token = access_token
         self.api_base = api_base.rstrip("/")
         self.media_signer = media_signer
+        self._ak, self._as, self._at, self._ats = self._build_oauth1()
+
+    def _build_oauth1(self):
+        """Read OAuth1.0a app creds from env — fallback when the OAuth2
+        Bearer token 401s (expired grant / rotated secret)."""
+        import os
+        vals = [os.environ.get(k) for k in (
+            "TWITTER_API_KEY", "TWITTER_API_SECRET",
+            "TWITTER_ACCESS_TOKEN", "TWITTER_ACCESS_TOKEN_SECRET")]
+        return vals if all(vals) else (None, None, None, None)
+
+    @property
+    def _has_oauth1(self) -> bool:
+        return self._ak is not None
+
+    def _oauth1_request(self, method: str, url: str, kwargs: dict):
+        """Synchronous OAuth1Session retry — proven user-context path."""
+        from requests_oauthlib import OAuth1Session
+        s = OAuth1Session(self._ak, self._as, self._at, self._ats)
+        ok = {k: v for k, v in kwargs.items() if k in ("json", "params", "data")}
+        r = s.request(method, url, **ok)
+
+        class _R:
+            status_code = r.status_code
+            headers = r.headers
+            @property
+            def text(_): return r.text
+            def json(_): return r.json()
+        return _R()
+
+    async def _send(self, client, method: str, url: str, **kwargs):
+        """Send with Bearer; on 401/403 retry once via OAuth1Session."""
+        resp = await client.request(method, url, headers=self._headers(), **kwargs)
+        if resp.status_code in (401, 403) and self._has_oauth1:
+            resp = await asyncio.to_thread(self._oauth1_request, method, url, kwargs)
+        return resp
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -199,7 +235,7 @@ class TwitterAPIClient:
         """
         url = f"{self.api_base}/users/me"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers())
+            resp = await self._send(client, 'GET', url)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -228,7 +264,7 @@ class TwitterAPIClient:
 
         url = f"{self.api_base}/tweets"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=self._headers(), json=payload)
+            resp = await self._send(client, 'POST', url, json=payload)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -241,7 +277,7 @@ class TwitterAPIClient:
         tweet_id = _validate_tweet_id(tweet_id)
         url = f"{self.api_base}/tweets/{tweet_id}"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.delete(url, headers=self._headers())
+            resp = await self._send(client, 'DELETE', url)
             if resp.status_code == 404:
                 return False
             self._raise_for_status(resp, url)
@@ -257,7 +293,7 @@ class TwitterAPIClient:
         url = f"{self.api_base}/tweets/{tweet_id}"
         params = {"tweet.fields": "created_at,public_metrics,entities"}
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
+            resp = await self._send(client, 'GET', url, params=params)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -269,7 +305,7 @@ class TwitterAPIClient:
             "user.fields": "created_at,public_metrics,profile_image_url,verified,description"
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
+            resp = await self._send(client, 'GET', url, params=params)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -284,7 +320,7 @@ class TwitterAPIClient:
             "user.fields": "created_at,public_metrics,profile_image_url,verified,description"
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
+            resp = await self._send(client, 'GET', url, params=params)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -432,7 +468,7 @@ class TwitterAPIClient:
             "tweet.fields": "created_at,public_metrics,entities",
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
+            resp = await self._send(client, 'GET', url, params=params)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -462,7 +498,7 @@ class TwitterAPIClient:
 
         url = f"{self.api_base}/dm_conversations/with/{participant_id}/messages"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=self._headers(), json={"text": text})
+            resp = await self._send(client, 'POST', url, json={"text": text})
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -482,7 +518,7 @@ class TwitterAPIClient:
 
         url = f"{self.api_base}/dm_conversations/{conversation_id}/messages"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=self._headers(), json={"text": text})
+            resp = await self._send(client, 'POST', url, json={"text": text})
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -511,7 +547,7 @@ class TwitterAPIClient:
             "dm.event.fields": dm_event_fields,
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
+            resp = await self._send(client, 'GET', url, params=params)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -536,7 +572,7 @@ class TwitterAPIClient:
             "dm.event.fields": dm_event_fields,
         }
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(url, headers=self._headers(), params=params)
+            resp = await self._send(client, 'GET', url, params=params)
             self._raise_for_status(resp, url)
             return resp.json()
 
@@ -550,7 +586,7 @@ class TwitterAPIClient:
 
         url = f"{self.api_base}/dm_events/{event_id}"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.delete(url, headers=self._headers())
+            resp = await self._send(client, 'DELETE', url)
             if resp.status_code == 204:
                 return True
             self._raise_for_status(resp, url)

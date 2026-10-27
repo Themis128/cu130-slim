@@ -86,12 +86,22 @@ overrides or pick `chat`/`stat`/`calendar`/`compare`.
 `highlight`; `calendar` → `{"heading": ..., "steps": [{"when","what"}]}`;
 `chat` → `{"attribution": ...}` + `highlight` as the quote.
 
-## Kakkava slide arc (DAY 3 niche formula)
+## Kakkava slide arc (DAY 3 niche formula) — ENFORCED
 
-Hook (ICP pain) → WHO (the specific person) → PROBLEM (their words) →
-RESULT (real, verifiable number) → CTA (one destination). Clarity
-attracts; vagueness gets ignored. Write for one specific person, not a
-generic audience.
+Hook (ICP pain/offer) → WHO (the specific person) → PROBLEM (their
+words) → RESULT (real, verifiable number) → CTA (one destination).
+Clarity attracts; vagueness gets ignored. Write for one specific
+person, not a generic audience.
+
+**Retention contract (burned 2026-10-27 — 5s avg on 55s reel, drop at
+0:01):**
+- Slide 1 IS the hook — the offer or pain in the first frame, no
+  intro/branding ramp. The first 2 seconds decide whether the viewer
+  stays; the strongest frame leads, not a title card.
+- **15–30s target duration** — the 55s cut failed; if it needs more,
+  the arc is carrying filler. Cut slides, don't stretch.
+- Text-overlay hook on frame 1 — the offer readable without audio
+  ("Free 30-min review — record your best post").
 
 ## LinkedIn video spec (official docs — verified 2026-10-06)
 

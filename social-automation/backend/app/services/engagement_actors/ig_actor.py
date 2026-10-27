@@ -38,8 +38,8 @@ REPOST_JS = """(async () => {
   await sleep(1200);
   const confirm = [...document.querySelectorAll('[role=button]')]
     .find(b => /^share|^done$/i.test((b.innerText || '').trim()));
-  if (confirm) confirm.click();
-  return 'shared-to-story';
+  if (confirm) { confirm.click(); return 'shared-to-story'; }
+  return 'no-confirm';
 })()"""
 
 

@@ -9,14 +9,15 @@ REPO = r"C:\Users\tbaltzakis\cu130-slim"
 ENV = REPO + r"\.env"
 
 def main(cid, secret):
-    env = open(ENV, encoding="utf-8").read()
+    env = open(ENV, encoding="utf-8").read()  # noqa: SIM115 — script scope
     # replace or append the two keys
     for key, val in [("TWITTER_CLIENT_ID", cid), ("TWITTER_CLIENT_SECRET", secret)]:
         if re.search(rf"^{key}=", env, re.M):
             env = re.sub(rf"^{key}=.*", f"{key}={val}", env, flags=re.M)
         else:
             env += f"\n{key}={val}\n"
-    open(ENV, "w", encoding="utf-8").write(env)
+    with open(ENV, "w", encoding="utf-8") as f:
+        f.write(env)
     print("env written")
 
     subprocess.run(["docker","compose","-f",REPO+"\\docker-compose.yml","up","-d","social-api"], capture_output=True)

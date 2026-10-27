@@ -62,3 +62,16 @@ if pos:
     print('SWITCHED to personal')
 else:
     print('No switch link visible — may already be personal or needs manual tap')
+
+# step 2 — privacy toggle (private account)
+# Settings → Account privacy → toggle Private account
+tap_text('Account privacy', 8)
+time.sleep(1.5)
+# toggle on the switch
+pos = find_text('Private account')
+if pos:
+    tap(*pos); time.sleep(4)
+    tap_text('Switch to private', 5) or tap_text('OK', 3)
+    print('PRIVACY toggled to private')
+else:
+    print('privacy screen not found — may already be private')

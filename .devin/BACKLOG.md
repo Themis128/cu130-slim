@@ -45,3 +45,11 @@
 - **Owner-visible:** briefs now auto-schedule tomorrow's playbook;
   drafted (not scheduled) items appear in the UI for media fixes.
 
+
+## 2026-10-27 — X OAuth1 fallback + PR sweep
+
+- TwitterAPIClient now retries 401/403 via OAuth1Session (user-context) — fixes dead OAuth2 grant when the secret rotates. Wired through `_send` on all 12 call sites; `x_tool.py` routes through it too. Verified live: `validate_token` returns `@TBaltzakis` (id 2046380838477041664).
+- 30 PRs → auto-merge queued; 13 conflicting branches rebased + pushed; merge queue drains via CI.
+- `feat/phone-tiktok-skills` (PR #941): phone MCP + TikTok resubmit/IG/X scripts — pending CI.
+- Slack sweep: alerts are transient worker timeouts (recovered); 2 engagement-gate reposts pending manual review by design.
+- Still open: TikTok verification (sidecar login or manual Edit); engagement-gate repost approvals; real X creds if OAuth2 reauth is wanted later (OAuth1 covers posting/DM now).

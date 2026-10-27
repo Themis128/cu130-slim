@@ -1,20 +1,41 @@
 # tiktok-verification
 
-TikTok business verification for `@cloudless.gr` was **rejected** — "The business can't be verified." The cert is under the personal name `Baltzakis Themistoklis` while the brand shows "Cloudless".
+Resubmit the rejected TikTok business registration for @cloudless.gr
+(Baltzakis Themistoklis, AFM 115307716) via the Business Center web path —
+the phone app's Business Suite is a WebView that ignores ALL injected input
+(coordinate taps, uiautomator2 a11y clicks, sendevent, CDP socket — verified).
 
-## Resubmit path (needs a doc decision)
+## Proven login path (2026-10-27)
 
-Open TikTok → profile → ☰ → **Business Suite** → the rejected submission → **Edit** → re-upload → resubmit.
+The app webview is a hard wall, but `business.tiktok.com` is a real DOM.
 
-## Two doc routes
+1. Sidecar session: `/session/start {platform:"tiktok"}` — tiktok.com cookies
+   already in `/app/cookies/` keep the consumer session logged in.
+2. `ads.tiktok.com/i18n/login/` → **"Log in with TikTok"** SSO — NOT email+password.
+   The SSO may offer `tbaltzakis` (personal) — that's the account the
+   Business Center is registered under; authorize it.
+3. Email OTP: code goes to `t***s@cloudless.gr` → fetch with
+   `.devin/skills/mail-code-fetch/scripts/fetch-code.py tiktok tiktok 15m`
+   (doveadm on omv-ha, newest-first).
+4. OTP input is React-controlled — `i.value=` sets do NOT register. Type
+   via RFB trusted input: `rfb-input` skill → `rfb.py click <input>` to
+   focus, then `rfb.py type CODE`. DOM→screen ≈ +80px for browser chrome.
+5. Land in Business Center → run `resubmit-via-sidecar.py` for the
+   Not approved → Edit → cert-swap → submit flow (real DOM clicks work).
 
-- **Sole-proprietor fix (recommended):** keep business name "Baltzakis Themistoklis" + upload a clean full-page ΓΕΜΗ/ΑΦΜ certificate PDF showing the AFM number `115307716` and the registered name clearly. TikTok rejects blurry/photo crops.
-- **Brand-name fix:** upload a doc tying "Cloudless" to the AFM (business-name registration or trademark) if one exists.
+## Scripts
 
-## What I can automate
+- `scripts/login-bootstrap.py` — opens login in sidecar, waits for session
+- `scripts/resubmit-via-sidecar.py` — drives the resubmit once logged in
+- Companion: `mail-code-fetch` (email OTP), `rfb-input` (trusted typing)
 
-The Edit flow is tap-drivable once the doc file is on the device — push a doc to `/sdcard/Download/` then I drive the resubmit. The doc choice is the human's call.
+## Doc requirements
 
-## On approval
+Clean official ΓΕΜΗ/AFM certificate (business name + AFM 115307716 legible).
+Push to sidecar `/session/upload` or place under `/sdcard/Download/` on phone.
+Do NOT fabricate or alter the legal document — owner provides it.
 
-Business tools auto-unlock: website field, contact buttons, lead-gen, chatbot. Nothing to reconfigure.
+## Rejection context
+
+Verification rejected once already. Re-submit only after replacing the cert
+with the clean official document, else TikTok may flag repeat submissions.
