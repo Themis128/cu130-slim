@@ -561,7 +561,10 @@ async def _process_publish_queue_async() -> None:
 
         for idx, item in enumerate(items):
             elapsed = time.monotonic() - run_started
-            if elapsed + _WORST_CASE_TARGET_S > _RUN_BUDGET_S:
+            # Per-platform headroom — a tiktok can need ~660s of polling, so
+            # it must start earlier than a standard 420s target.
+            _need = 660.0 if (item.platform if hasattr(item, "platform") else "") == "tiktok" else _WORST_CASE_TARGET_S
+            if elapsed + _need > _RUN_BUDGET_S:
                 # Out of budget: hand the unstarted rows back instead of
                 # letting SoftTimeLimitExceeded cancel us mid-publish.
                 remaining = items[idx:]
