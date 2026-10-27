@@ -323,6 +323,36 @@ async def _export_email_campaigns(db: AsyncSession) -> list[dict]:
     return out
 
 
+async def _export_survey_responses(db: AsyncSession) -> list[dict]:
+    """Flat survey-response table — one row per funnel submission, for
+    downstream processing (Metabase/DuckDB/ETL). PII-minimized: respondent
+    as email_hash/lead_id only; answers keyed by question id."""
+    from app.models.email_campaign import EmailRecipient, SurveyResponse
+
+    rows = (
+        await db.execute(
+            select(SurveyResponse, EmailRecipient.email, EmailRecipient.status)
+            .outerjoin(EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id)
+            .order_by(SurveyResponse.submitted_at.desc())
+        )
+    ).all()
+    return [
+        {
+            "response_id": str(resp.id),
+            "campaign_id": str(resp.campaign_id),
+            "team_id": str(resp.team_id),
+            "lead_id": str(resp.lead_id) if resp.lead_id else None,
+            "email_hash": _email_hash(email) if email else None,
+            "email_domain": _email_domain(email) if email else None,
+            "recipient_status": str(rstatus) if rstatus else None,
+            "answers": resp.answers,
+            "espocrm_noted": resp.espocrm_noted,
+            "submitted_at": _iso(resp.submitted_at),
+        }
+        for resp, email, rstatus in rows
+    ]
+
+
 async def _export_telegram_channels(db: AsyncSession) -> list[dict]:
     """Dimension table for the Telegram channel funnel — one row per chat
     the bot administers (discovered via ``my_chat_member`` webhook events),
@@ -932,6 +962,11 @@ def export_datalake() -> dict:
     return run_async(_export_async())
 
 
+
+async def _coro_of(v):
+    return v
+
+
 async def _export_async() -> dict:
     bucket = (settings.DATALAKE_R2_BUCKET or "").strip()
     if not bucket:
@@ -939,55 +974,54 @@ async def _export_async() -> dict:
     if not (settings.CLOUDFLARE_ACCOUNT_ID and settings.CLOUDFLARE_API_TOKEN):
         return {"ok": False, "error": "Cloudflare credentials not configured"}
 
-    async with _worker_db() as db:
-        tables: dict[str, Any] = {
-            "lake/socialauto-accounts/accounts.json": await _export_accounts(db),
-            "lake/socialauto-posts/posts.json": await _export_posts(db),
-            "lake/socialauto-post-metrics/metrics.json": await _export_metrics(db),
-            "lake/socialauto-followers/followers.json": await _export_followers(db),
-            "lake/socialauto-account-events/events.json": await _export_account_events(db),
-            "lake/socialauto-leads/leads.json": await _export_leads(db),
-            "lake/socialauto-telegram/channels.json": await _export_telegram_channels(db),
-            "lake/socialauto-web-events/events.json": await _export_web_events(db),
-            "lake/socialauto-ads/snapshots.json": await _export_ad_snapshots(db),
-            "lake/socialauto-ads/daily.json": await _export_ad_daily(db),
-            "lake/socialauto-ads/demographics.json": await _export_ad_demographics(db),
-            "lake/socialauto-ops/health.json": await _export_ops_health(db),
-            "lake/socialauto-funnel/funnel.json": await _export_funnel(db),
-            "lake/socialauto-monetization/gates.json": await _export_monetization(db),
-            "lake/socialauto-email-campaigns/campaigns.json": await _export_email_campaigns(db),
-        }
+    # Build + write per-table so a single big table never accumulates all
+    # the others in memory (OOM-killed the 1 GiB worker on 2026-10-27).
+    written: dict[str, Any] = {}
 
-        tables["lake/socialauto-edge-metrics/daily.json"] = await _export_edge_metrics()
-        tables["lake/socialauto-reports/reports.json"] = await _export_reports_index()
+    async def put(key: str, coro) -> None:
         try:
-            cf_usage = await _export_cloudflare_usage()
-        except Exception as exc:  # noqa: BLE001 — CF outage ≠ abort the export
-            cf_usage = {"error": str(exc)[:300]}
-        tables["lake/cloudflare-usage/latest.json"] = cf_usage
-        # Dated copy keeps a daily history (runs 4x/day overwrite same-day).
-        tables[
-            f"lake/cloudflare-usage/history/{datetime.now(UTC).date().isoformat()}.json"
-        ] = cf_usage
-
-        # Insights engine output — one gold-ready file per team.
-        teams = (await db.execute(select(Team))).scalars().all()
-        for team in teams:
-            try:
-                insights = await build_team_insights(db, team.id)
-                tables[f"lake/socialauto-insights/{team.id}.json"] = insights
-            except Exception as exc:  # noqa: BLE001 — export others anyway
-                tables[f"lake/socialauto-insights/{team.id}.json"] = {
-                    "error": str(exc)[:300]
-                }
-
-    written = {}
-    for key, rows in tables.items():
-        try:
+            rows = await coro
             res = await _put_json(key, rows, bucket)
             written[key] = res.get("size", 0)
         except Exception as exc:  # noqa: BLE001 — report, don't abort others
             written[key] = f"ERROR: {exc}"
+
+    async with _worker_db() as db:
+        await put("lake/socialauto-accounts/accounts.json", _export_accounts(db))
+        await put("lake/socialauto-posts/posts.json", _export_posts(db))
+        await put("lake/socialauto-post-metrics/metrics.json", _export_metrics(db))
+        await put("lake/socialauto-followers/followers.json", _export_followers(db))
+        await put("lake/socialauto-account-events/events.json", _export_account_events(db))
+        await put("lake/socialauto-leads/leads.json", _export_leads(db))
+        await put("lake/socialauto-telegram/channels.json", _export_telegram_channels(db))
+        await put("lake/socialauto-web-events/events.json", _export_web_events(db))
+        await put("lake/socialauto-ads/snapshots.json", _export_ad_snapshots(db))
+        await put("lake/socialauto-ads/daily.json", _export_ad_daily(db))
+        await put("lake/socialauto-ads/demographics.json", _export_ad_demographics(db))
+        await put("lake/socialauto-ops/health.json", _export_ops_health(db))
+        await put("lake/socialauto-funnel/funnel.json", _export_funnel(db))
+        await put("lake/socialauto-monetization/gates.json", _export_monetization(db))
+        await put("lake/socialauto-email-campaigns/campaigns.json", _export_email_campaigns(db))
+        await put("lake/socialauto-survey-responses/responses.json", _export_survey_responses(db))
+        await put("lake/socialauto-edge-metrics/daily.json", _export_edge_metrics())
+        await put("lake/socialauto-reports/reports.json", _export_reports_index())
+
+        try:
+            cf_usage = await _export_cloudflare_usage()
+            await put("lake/cloudflare-usage/latest.json", _coro_of(cf_usage))
+            # Dated copy keeps a daily history (runs 4x/day overwrite same-day).
+            await put(
+                f"lake/cloudflare-usage/history/{datetime.now(UTC).date().isoformat()}.json",
+                _coro_of(cf_usage),
+            )
+        except Exception as exc:  # noqa: BLE001 — CF outage != abort
+            written["lake/cloudflare-usage/latest.json"] = f"ERROR: {exc}"
+
+        # Insights engine output — one gold-ready file per team.
+        teams = (await db.execute(select(Team))).scalars().all()
+        for team in teams:
+            await put(f"lake/socialauto-insights/{team.id}.json",
+                      build_team_insights(db, team.id))
 
     errors = {k: v for k, v in written.items() if isinstance(v, str)}
 
