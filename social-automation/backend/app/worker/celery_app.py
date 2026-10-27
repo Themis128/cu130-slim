@@ -208,6 +208,11 @@ celery_app.conf.update(
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
+        # DMR keep-warm/health fire every 90s and can hold a worker slot ~10min
+        # via gpu:dmr_lock — on the 2-slot default worker they starve all
+        # default/celery queue tasks (observed 2026-10-27: llen=20 stuck).
+        "app.worker.tasks.dmr_health.keep_warm_dmr_models": {"queue": "media"},
+        "app.worker.tasks.dmr_health.check_dmr_health": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
         "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},
         "app.worker.tasks.analytics.sync_team_analytics_task": {"queue": "default"},
