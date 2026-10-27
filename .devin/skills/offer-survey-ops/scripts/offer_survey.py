@@ -223,6 +223,56 @@ def cmd_responses(token: str, cid: str) -> None:
         print(f"  → {e}")
 
 
+_JUNK_DOMAINS = {"messenger.local", "test.dev", "example.com", "localhost"}
+_OWNER_ADDRS = {"tbaltzakis@cloudless.gr", "themis.baltzakis@gmail.com",
+                "baltzakis.themis@gmail.com", "admin@example.com"}
+
+
+def _classify(lead: dict, seen: set[str]) -> tuple[str | None, str | None]:
+    e = (lead.get("email") or "").strip().lower()
+    if not e or "@" not in e:
+        return None, "no email"
+    dom = e.rsplit("@", 1)[1]
+    if dom in _JUNK_DOMAINS or dom.endswith(".local") or dom.endswith(".dev"):
+        return None, f"synthetic domain @{dom}"
+    if e in _OWNER_ADDRS:
+        return None, "owner/test mailbox"
+    if e.startswith("probe") or e.startswith("test"):
+        return None, "probe/test address"
+    if e in seen:
+        return None, "duplicate"
+    seen.add(e)
+    return e, None
+
+
+def cmd_suggest(token: str) -> None:
+    """List CRM leads, classify each mailable/junk, emit paste-ready flags."""
+    leads: list[dict] = []
+    off = 0
+    while True:
+        r = req(f"/api/v1/email-campaigns/crm/clients?limit=100&offset={off}",
+                token, method="GET")
+        batch = (r.get("leads") or []) + (r.get("contacts") or [])
+        leads += batch
+        if len(batch) < 100:
+            break
+        off += 100
+    good, junk = [], []
+    seen: set[str] = set()
+    for l in leads:
+        e, why = _classify(l, seen)
+        (good if e else junk).append((e or l.get("email") or "-", why or l.get("name", "")))
+    print(f"leads: {len(leads)}  mailable: {len(good)}  filtered: {len(junk)}")
+    print("\nMAILABLE:")
+    for e, name in good:
+        print(f"  {e:<45} {name}")
+    print("\nFILTERED:")
+    for e, why in junk:
+        print(f"  {e:<45} {why}")
+    print("\npaste-ready:")
+    print("  " + " ".join(f"--email={e}" for e, _ in good))
+
+
 def cmd_send(token: str, cid: str, yes: bool) -> None:
     if not yes:
         raise SystemExit("send requires --yes (Code of Honor #2: human approves sends)")
@@ -242,6 +292,8 @@ def main() -> None:
     elif cmd == "audience" and len(args) >= 2:
         emails = [a.split("=", 1)[1] for a in args[2:] if a.startswith("--email=")]
         cmd_audience(token, args[1], "--espocrm" in args, emails)
+    elif cmd == "suggest":
+        cmd_suggest(token)
     elif cmd == "responses" and len(args) >= 2:
         cmd_responses(token, args[1])
     elif cmd == "send" and len(args) >= 2:
