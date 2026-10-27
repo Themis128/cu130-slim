@@ -20,11 +20,12 @@ Pulls `X_CLIENT_ID`/`X_CLIENT_SECRET` from env or the platform secret
 store, runs `x-oauth-wire/wire.py`. You approve once in the browser —
 credentials never need pasting.
 
-## WhatsApp verify — `wa_verify.sh`
-Calls `request_code` (Graph API, SMS by default), then polls the Galaxy
-S22+ SMS inbox via `adb shell content query --uri content://sms/inbox`
-for a 6-digit code and submits `verify_code`. If ADB is offline, run
-`wa_verify.sh <code>` with the code manually — the rest is still scripted.
+## WhatsApp verify — `wa_verify.py`
+Calls `request_code` (Graph API, SMS by default), then polls **two**
+sources for the 6-digit code: the Galaxy S22+ SMS inbox via ADB, **and**
+the mailbox via doveadm (SMS→email forward covers ADB-off). Submits
+`verify_code`. Last resort: `wa_verify.py <code>` — the rest is still
+scripted.
 
 ## LinkedIn export — `li_export_watch.py`
 You click "Request data export" in LinkedIn's UI once (their portal, no
