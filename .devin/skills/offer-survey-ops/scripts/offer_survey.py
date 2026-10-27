@@ -308,34 +308,28 @@ def cmd_readout(token: str, cid: str, yes: bool) -> None:
     pain = _top("embarrassment", "their online presence")
     vendors = _top("vendor_count", "more than one")
     pain_text = pain.lower() if pain != "—" else "an online presence that understates the real quality of the work"
-    lines = [
-        f"A while back I asked {len(rows)} business owners a few short questions about "
-        f"how they handle their digital presence — who fixes things when they break, "
-        f"how many vendors they juggle, what they'd pay for one reliable partner.",
-        "",
-        "Here's what came back, in plain terms:",
-        "",
-        f"• Most run on {vendors} different vendors — a freelancer here, an agency there, "
-        f"a 'computer guy' who doesn't talk to the others.",
-        f"• What stings most: {pain_text}.",
-        f"• On value: the answer cluster sits around {price} a month for one partner "
-        f"covering site, e-shop, brand and IT.",
-        "",
-        "The pattern is the same every time: not a technology problem — a coordination "
-        "problem. Nobody owns the whole picture, so the owner ends up managing vendors "
-        "instead of running the business.",
-        "",
+    paragraphs = [
+        f"A while back I asked {len(rows)} business owners a few short questions "
+        f"about how they handle their digital presence. Who fixes things when they "
+        f"break, how many vendors they juggle, what they would pay for one "
+        f"reliable partner.",
+        "Here's what came back.",
+        f"Most run on {vendors} different vendors. A freelancer here, an agency "
+        f"there, a computer guy who doesn't talk to the others.",
+        f"What stings most is {pain_text}.",
+        f"On value, the answers cluster around {price} a month for one partner "
+        f"covering the site, the e-shop, the brand and the IT.",
+        "The pattern is the same every time. It's not a technology problem, it's "
+        "a coordination problem. Nobody owns the whole picture, so the owner ends "
+        "up managing vendors instead of running the business.",
     ]
     if audit:
-        lines += [
-            f"{audit} of {len(rows)} also asked for the free 30-minute audit — I'm "
-            f"booking those now. If you'd like one too, just reply to this email.",
-            "",
-        ]
-    lines += [
-        "That's it — no pitch in this one. Thanks for answering.",
-    ]
-    body = "\n".join(lines)
+        paragraphs.append(
+            f"{audit} of {len(rows)} also asked for the free 30-minute audit, so "
+            f"I'm booking those now. If you'd like one too, just reply to this email."
+        )
+    paragraphs.append("That's it. No pitch in this one. Thanks for answering.")
+    body = "\n\n".join(paragraphs)
     c = req("/api/v1/email-campaigns", token, body={
         "name": f"SMB survey read-out ({date.today().isoformat()})",
         "kind": "marketing",
