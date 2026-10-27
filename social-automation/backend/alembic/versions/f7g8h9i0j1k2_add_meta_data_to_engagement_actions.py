@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 from alembic import op
 
 revision = 'f7g8h9i0j1k2'
-down_revision = 'z9k0l1m2n3o4'
+down_revision = 'd3e5f7a9b1c4'
 branch_labels = None
 # engagement_actions is created on a different branch (d3e5f7a9b1c4);
 # without this a fresh `alembic upgrade head` may run this first and fail.
