@@ -87,7 +87,8 @@ async def test_list_all_paginates_and_stops(monkeypatch):
     monkeypatch.setattr(E, "espo_get", fake_get)
     items = await E.list_all("Lead", max_items=250)
     assert len(items) == 250
-    assert calls == [0, 100, 200]
+    expected = list(range(0, 250, E._PAGE))
+    assert calls == expected
 
 
 @pytest.mark.asyncio
