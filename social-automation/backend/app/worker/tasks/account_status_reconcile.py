@@ -37,20 +37,42 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 15.0
 
 
-async def _probe(platform: str, account_id: str, token: str) -> str:
-    """Return 'active' | 'revoked' | 'error' from a live platform read."""
+async def _probe(platform: str, account_id: str, token: str, meta: dict | None) -> str:
+    """Return 'active' | 'revoked' | 'inconclusive' from a live platform read."""
+    meta = meta or {}
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-            if platform in ("facebook", "instagram", "threads"):
+            if platform == "threads":
+                r = await c.get(
+                    "https://graph.threads.net/v1.0/me",
+                    params={"fields": "id", "access_token": token},
+                )
+            elif platform == "instagram":
+                if meta.get("login_type") == "business_login":
+                    url = "https://graph.instagram.com/v21.0/me"
+                else:
+                    url = f"https://graph.facebook.com/v21.0/{account_id}"
+                r = await c.get(url, params={"fields": "id", "access_token": token})
+            elif platform == "facebook":
                 r = await c.get(
                     f"https://graph.facebook.com/v21.0/{account_id}",
                     params={"fields": "id", "access_token": token},
                 )
             elif platform == "whatsapp":
+                phone_id = meta.get("phone_number_id")
+                if not phone_id:
+                    return "inconclusive"
                 r = await c.get(
-                    f"https://graph.facebook.com/v21.0/{account_id}",
+                    f"https://graph.facebook.com/v21.0/{phone_id}",
                     params={"fields": "code_verification_status", "access_token": token},
                 )
+                if r.status_code == 200:
+                    cvs = (r.json() or {}).get("code_verification_status")
+                    if cvs in (None, "VERIFIED", "EXPIRED"):
+                        return "active"
+                    if cvs == "NOT_VERIFIED":
+                        return "revoked"
+                    return "inconclusive"
             elif platform == "tiktok":
                 r = await c.post(
                     "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
@@ -60,7 +82,7 @@ async def _probe(platform: str, account_id: str, token: str) -> str:
                 if r.status_code == 200:
                     err = (r.json().get("error") or {}).get("code", "ok")
                     return "active" if err == "ok" else "revoked"
-                return "revoked" if r.status_code in (401, 403) else "error"
+                return "revoked" if r.status_code in (401, 403) else "inconclusive"
             elif platform == "linkedin":
                 r = await c.get(
                     "https://api.linkedin.com/v2/userinfo",
@@ -71,18 +93,20 @@ async def _probe(platform: str, account_id: str, token: str) -> str:
                     "https://api.x.com/2/users/me",
                     headers={"Authorization": f"Bearer {token}"},
                 )
+                if r.status_code == 401:
+                    return "inconclusive"
             elif platform == "telegram":
                 r = await c.get(f"https://api.telegram.org/bot{token}/getMe")
             else:
-                return "error"  # no probe defined — leave status alone below
+                return "unprobed"
             if r.status_code == 200:
                 return "active"
             if r.status_code in (400, 401, 403):
                 return "revoked"
-            return "error"
+            return "inconclusive"
     except Exception as exc:
-        logger.warning("probe %s failed: %s", platform, exc)
-        return "error"
+        logger.warning("probe %s failed: %s", platform, type(exc).__name__)
+        return "inconclusive"
 
 
 async def _reconcile() -> dict[str, int]:
@@ -100,17 +124,21 @@ async def _reconcile() -> dict[str, int]:
                     token = decrypt_token(acc.access_token_enc)
                 except Exception:
                     token = ""
-                new_status = await _probe(acc.platform, acc.account_id, token) if token else "error"
-            if new_status == "error":
-                # probe inconclusive — don't flip status, just stamp the try
-                acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat()}
+                new_status = await _probe(acc.platform, acc.account_id, token, acc.meta_data) if token else "inconclusive"
+            if new_status in ("inconclusive", "error"):
+                acc.meta_data = {**(acc.meta_data or {}), "last_verify_attempt_at": now.isoformat()}
                 counts["error"] += 1
                 continue
-            if new_status is None:
+            if new_status in (None, "unprobed"):
                 continue
             counts[new_status] += 1
-            acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat()}
+            acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat(),
+                             "token_probe_status": new_status}
             if acc.status != new_status:
+                if new_status == "active" and acc.status in ("expired", "revoked"):
+                    logger.info("token OK but not promoting %s %s — session health owns %s",
+                                acc.platform, acc.username, acc.status)
+                    continue
                 logger.info("drift: %s %s status %s -> %s", acc.platform, acc.username, acc.status, new_status)
                 counts["drifted"] += 1
                 if new_status in ("expired", "revoked") and acc.status == "active":
@@ -119,6 +147,13 @@ async def _reconcile() -> dict[str, int]:
                         f"is *{new_status}* on the platform but was `active` in DB. Reconnect needed."
                     )
                 acc.status = new_status
+                try:
+                    from app.services.db_router import db_router
+                    await db_router.execute(
+                        "UPDATE social_accounts SET status = ? WHERE id = ?",
+                        [new_status, str(acc.id)])
+                except Exception:
+                    logger.debug("D1 mirror skipped for %s", acc.id, exc_info=True)
         await db.commit()
     return counts
 
