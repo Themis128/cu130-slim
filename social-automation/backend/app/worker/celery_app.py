@@ -40,6 +40,7 @@ celery_app = Celery(
         "app.worker.tasks.telegram_digest",
         "app.worker.tasks.telegram_agent",
         "app.worker.tasks.dmr_health",
+        "app.worker.tasks.auto_gates",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.linkedin_invites",
@@ -239,6 +240,8 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
         "app.worker.tasks.email_campaigns.send_campaign": {"queue": "default"},
+        "app.worker.tasks.auto_gates.survey_autosend": {"queue": "default"},
+        "app.worker.tasks.auto_gates.post_autoapprove": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
@@ -572,6 +575,16 @@ celery_app.conf.update(
         # DMR models (mid 4B + llama3.2) so pipeline and chatbot calls never
         # cold-load. Interval stays below llama3.2's 2m keep_alive; the task
         # skips itself while a media job owns the GPU.
+        "survey-autosend": {
+            "task": "app.worker.tasks.auto_gates.survey_autosend",
+            "schedule": 900.0,  # every 15 min — fires flagged survey campaigns
+            "options": {"queue": "default"},
+        },
+        "post-autoapprove": {
+            "task": "app.worker.tasks.auto_gates.post_autoapprove",
+            "schedule": 600.0,  # every 10 min — promotes REVIEW when enabled
+            "options": {"queue": "default"},
+        },
         "keep-warm-dmr-models": {
             "task": "app.worker.tasks.dmr_health.keep_warm_dmr_models",
             "schedule": 90.0,
