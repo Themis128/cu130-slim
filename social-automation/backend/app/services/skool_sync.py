@@ -1,3 +1,47 @@
+"""Skool community sync + posting via the shared browser bridge.
+
+Skool has no public write API — posts go through the browser-novnc shared
+session (same bridge session_healer uses for session recovery). All human
+posts stay behind the engagement human-gate.
+"""
+import json
+import os
+from typing import Any
+
+import httpx
+
+BRIDGE_URL = os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
+PLATFORM = "skool"
+
+
+async def _bridge_call(path: str, body: dict | None = None, timeout: float = 60.0) -> tuple[int, dict]:
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        resp = await client.request(
+            "POST" if body is not None else "GET",
+            f"{BRIDGE_URL}{path}",
+            json=body,
+            headers={"X-Platform": PLATFORM},
+        )
+        try:
+            return resp.status_code, resp.json()
+        except Exception:
+            return resp.status_code, {}
+
+
+async def _bridge_nav(url: str) -> None:
+    """Navigate the shared browser to `url` under the skool platform tag."""
+    await _bridge_call("/session/navigate", {"url": url}, timeout=90.0)
+
+
+async def _bridge_eval(expression: str) -> Any:
+    """Evaluate JS in the shared browser, returning the response payload
+    (callers inspect ``result``/``url`` keys)."""
+    code, data = await _bridge_call(
+        "/session/evaluate", {"expression": expression}, timeout=30.0
+    )
+    if code == 200:
+        return data
+    return None
 
 
 # ---------------------------------------------------------------- posting ---
