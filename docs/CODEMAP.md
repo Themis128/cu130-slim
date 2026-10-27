@@ -163,7 +163,11 @@ Session healing: `.devin/skills/session-ops/session-transplant/` + `scripts/sess
 | LinkedIn | linkedin-sidecar (9225), polled 6h (rate limits) |
 | Threads / X / TikTok | bridge (9223) sessions |
 
-Webhook ingest: `/api/v1/messenger/webhook` + `/api/v1/whatsapp/webhook` (GET verify + POST events → chatbot auto-reply via DMR→CF AI→static chain) + `/api/v1/telegram/webhook/{account_id}` (secret-token header) + `/api/v1/viber/webhook/{account_id}` (HMAC-SHA256 `X-Viber-Content-Signature`).
+Webhook ingest: `/api/v1/messenger/webhook` + `/api/v1/whatsapp/webhook` (GET verify + POST events → chatbot auto-reply via DMR→CF AI→static chain) + `/api/v1/telegram/webhook/{account_id}` (secret-token header) + `/api/v1/viber/webhook/{account_id}` (HMAC-SHA256 `X-Viber-Content-Signature`) + `/api/v1/webhooks/twitter` (X Account Activity CRC challenge + DM/event ingest).
+
+`/api/v1/research/research/{ingest,ask,status}` — research workspace (Nextcloud-folder ingest → Chroma collection → DMR Q&A over the team corpus).
+
+`/api/v1/email-campaigns/{campaign_id}/{responses/view,nudge}` — campaign response viewer + manual nudge for survey/auto-send campaigns.
 
 Messaging channels (`whatsapp`, `telegram`, `viber`) are skipped by `publish_to_platform` — sends go through each router's `/send` endpoints; auto-reply bots run DMR-first inference via the shared `*_chatbot` helpers.
 
