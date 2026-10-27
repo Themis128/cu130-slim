@@ -68,6 +68,18 @@ async def _run(cmd: list[str], timeout: int = _FRAME_TIMEOUT) -> subprocess.Comp
     )
 
 
+async def _run_op(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
+    """`_run` for the video-edit ops: a missing ffmpeg binary or a timeout
+    becomes a failed CompletedProcess (rc 127/124) so callers return None
+    instead of raising."""
+    try:
+        return await _run(cmd, timeout=timeout)
+    except FileNotFoundError as exc:
+        return subprocess.CompletedProcess(cmd, 127, b"", str(exc).encode())
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, b"", b"timeout")
+
+
 def _parse_fps(raw: str | None) -> float | None:
     """Parse ffprobe's rational fps ('30000/1001') into a float."""
     if not raw or raw == "0/0":
@@ -422,7 +434,7 @@ async def trim_video(video_bytes: bytes, start: float, end: float, *, mime: str 
         src = Path(td) / f"in{_suffix_for_mime(mime)}"
         dst = Path(td) / "out.mp4"
         src.write_bytes(video_bytes)
-        r = await _run(
+        r = await _run_op(
             [
                 "ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(src),
                 "-t", f"{end - start:.3f}",
@@ -455,7 +467,7 @@ async def convert_video(video_bytes: bytes, fmt: str, *, mime: str = "video/mp4"
             if fmt == "mp4":
                 cmd += ["-movflags", "+faststart"]
         cmd.append(str(dst))
-        r = await _run(cmd, timeout=_VIDEO_OP_TIMEOUT)
+        r = await _run_op(cmd, timeout=_VIDEO_OP_TIMEOUT)
         if r.returncode != 0 or not dst.exists():
             logger.warning(f"[video/convert] ffmpeg rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
             return None
@@ -492,7 +504,7 @@ async def attach_audio(
             "-shortest", "-movflags", "+faststart",
             str(dst),
         ]
-        r = await _run(cmd, timeout=_VIDEO_OP_TIMEOUT)
+        r = await _run_op(cmd, timeout=_VIDEO_OP_TIMEOUT)
         if r.returncode != 0 or not dst.exists():
             logger.warning(f"[video/attach-audio] ffmpeg rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
             return None
@@ -505,7 +517,7 @@ async def mute_video(video_bytes: bytes, *, mime: str = "video/mp4") -> bytes | 
         src = Path(td) / f"in{_suffix_for_mime(mime)}"
         dst = Path(td) / "out.mp4"
         src.write_bytes(video_bytes)
-        r = await _run(
+        r = await _run_op(
             ["ffmpeg", "-y", "-i", str(src), "-c:v", "copy", "-an", "-movflags", "+faststart", str(dst)],
             timeout=_VIDEO_OP_TIMEOUT,
         )
@@ -521,7 +533,7 @@ async def extract_audio(video_bytes: bytes, *, mime: str = "video/mp4") -> bytes
         src = Path(td) / f"in{_suffix_for_mime(mime)}"
         dst = Path(td) / "out.mp3"
         src.write_bytes(video_bytes)
-        r = await _run(
+        r = await _run_op(
             ["ffmpeg", "-y", "-i", str(src), "-vn", "-c:a", "libmp3lame", "-q:a", "4", str(dst)],
             timeout=_VIDEO_OP_TIMEOUT,
         )
