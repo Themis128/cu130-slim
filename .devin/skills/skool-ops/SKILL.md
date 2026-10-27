@@ -34,6 +34,7 @@ IntraVox hub: page `kakkava-visibility-era` under nav `nav_social`.
 ```bash
 python3 skool_ops.py status              # bridge free? who holds it? skool logged in?
 python3 skool_ops.py scan [--wait]       # trend_scan with retry on 409
+python3 skool_ops.py login --email= --password=   # store creds in secret store + heal now
 python3 skool_ops.py push-intravox       # scan → digest page in en/news/kakkava-digest-<date>
 ```
 
