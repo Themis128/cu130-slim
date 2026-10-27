@@ -297,21 +297,50 @@ def cmd_readout(token: str, cid: str, yes: bool) -> None:
         for k, v in (r.get("answers") or {}).items():
             counts.setdefault(k, {}).setdefault(str(v), 0)
             counts[k][str(v)] += 1
-    lines = [f"{len(rows)} owners answered. The headline numbers:"]
-    for q in QUESTIONS:
-        qc = counts.get(q["id"])
-        if not qc:
-            continue
-        top = sorted(qc.items(), key=lambda kv: -kv[1])[:3]
-        lines.append(f"- {q['label']}: " + " · ".join(f"{k} ({n})" for k, n in top))
     audit = sum(1 for r in rows if (r.get("answers") or {}).get("audit_interest") == "Yes")
-    lines.append(f"\n{audit} of {len(rows)} asked for the free audit.")
+
+    # Human-friendly narrative — no raw question text, no counts-in-parens.
+    def _top(qid, default="—"):
+        qc = counts.get(qid) or {}
+        return max(qc.items(), key=lambda kv: kv[1])[0] if qc else default
+
+    price = _top("monthly_value")
+    pain = _top("embarrassment", "their online presence")
+    vendors = _top("vendor_count", "more than one")
+    pain_text = pain.lower() if pain != "—" else "an online presence that understates the real quality of the work"
+    lines = [
+        f"A while back I asked {len(rows)} business owners a few short questions about "
+        f"how they handle their digital presence — who fixes things when they break, "
+        f"how many vendors they juggle, what they'd pay for one reliable partner.",
+        "",
+        "Here's what came back, in plain terms:",
+        "",
+        f"• Most run on {vendors} different vendors — a freelancer here, an agency there, "
+        f"a 'computer guy' who doesn't talk to the others.",
+        f"• What stings most: {pain_text}.",
+        f"• On value: the answer cluster sits around {price} a month for one partner "
+        f"covering site, e-shop, brand and IT.",
+        "",
+        "The pattern is the same every time: not a technology problem — a coordination "
+        "problem. Nobody owns the whole picture, so the owner ends up managing vendors "
+        "instead of running the business.",
+        "",
+    ]
+    if audit:
+        lines += [
+            f"{audit} of {len(rows)} also asked for the free 30-minute audit — I'm "
+            f"booking those now. If you'd like one too, just reply to this email.",
+            "",
+        ]
+    lines += [
+        "That's it — no pitch in this one. Thanks for answering.",
+    ]
     body = "\n".join(lines)
     c = req("/api/v1/email-campaigns", token, body={
         "name": f"SMB survey read-out ({date.today().isoformat()})",
         "kind": "marketing",
-        "subject": "What owners actually said — the survey read-out",
-        "text_body": "{{first_name}}\n\n" + body + "\n\n— Themis, Cloudless",
+        "subject": "What you told me — the honest version",
+        "text_body": "Hi {{first_name}},\n\n" + body + "\n\n— Themis, Cloudless",
     })
     rid = c.get("id")
     req(f"/api/v1/email-campaigns/{rid}/audience", token,
