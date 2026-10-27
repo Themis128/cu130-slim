@@ -162,7 +162,10 @@ class TwitterAPIClient:
 
     async def _send(self, client, method: str, url: str, **kwargs):
         """Send with Bearer; on 401/403 retry once via OAuth1Session."""
-        resp = await client.request(method, url, headers=self._headers(), **kwargs)
+        # Use the verb helper (get/post/delete/...) rather than client.request
+        # so callers and test doubles that expose only verb methods keep working.
+        verb = getattr(client, method.lower())
+        resp = await verb(url, headers=self._headers(), **kwargs)
         if resp.status_code in (401, 403) and self._has_oauth1:
             resp = await asyncio.to_thread(self._oauth1_request, method, url, kwargs)
         return resp

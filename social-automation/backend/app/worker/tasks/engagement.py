@@ -140,8 +140,8 @@ async def _run(limit: int):
                   "skool": skool_actor.act}
         rows = (await db.execute(select(EngagementAction).where(
             EngagementAction.status.in_(["pending", "pending_actor"]),
-            EngagementAction.action != "duet_flag")).order_by(
-            EngagementAction.score.desc()).limit(limit)).scalars().all()
+            EngagementAction.action != "duet_flag").order_by(
+            EngagementAction.score.desc()).limit(limit))).scalars().all()
         done, failed = [], []
         for r in rows:
             actor = actors.get(r.platform)

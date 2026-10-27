@@ -215,7 +215,7 @@ async def test_queue_viral_tiktok_becomes_gated_duet_flag():
     db = _DB(counts=[0])
     c = _cand(platform="tiktok", is_followed=True, posted_seconds_ago=7200, meta_data={"viral": True})
     out = await E.queue_engagement(c, db)
-    assert out["queued"] == "like"
+    assert out["queued"] == "duet_flag"
     row = db.added[0]
     assert row.action == "duet_flag"
     assert row.status == "pending_human_gate"
