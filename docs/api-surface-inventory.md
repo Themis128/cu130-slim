@@ -341,6 +341,11 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/media/enhance/assets/{asset_id}/resize` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/smart-crop` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/upscale` — POST
+- `/api/v1/media/enhance/assets/{asset_id}/video/attach-audio` — POST
+- `/api/v1/media/enhance/assets/{asset_id}/video/audio` — POST
+- `/api/v1/media/enhance/assets/{asset_id}/video/convert` — POST
+- `/api/v1/media/enhance/assets/{asset_id}/video/mute` — POST
+- `/api/v1/media/enhance/assets/{asset_id}/video/trim` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/watermark` — POST
 - `/api/v1/media/enhance/batch` — POST
 - `/api/v1/media/enhance/presets` — GET
