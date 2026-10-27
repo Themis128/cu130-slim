@@ -736,11 +736,22 @@ async def survey_submit(
         )
     except Exception:
         pass
+    audit_yes = answers.get("audit_interest") == "Yes"
+    next_step = (
+        '<a href="https://cloudless.gr/contact" '
+        f'style="{_BTN_STYLE};text-decoration:none;display:block;margin:18px auto 0;width:fit-content;">'
+        'Book the free 30-min audit</a>'
+        if audit_yes
+        else '<p style="color:#8895ac;font-size:13px;margin:18px 0 0;text-align:center;">'
+        "I'll send you the read-out once everyone's answered — no pitch, just the patterns.</p>"
+    )
     return HTMLResponse(
         _SURVEY_HTML.format(
-            title="Thank you",
-            body="Your response has been recorded.",
-            form="",
+            title="Thank you — recorded",
+            body=("Your answers are in. Your audit slot is next — grab a time below."
+                  if audit_yes else
+                  "Your answers are in. I'll share the aggregated read-out once everyone answers."),
+            form=next_step,
         )
     )
 
