@@ -40,7 +40,7 @@ async def test_intravox_digest_push_happy(monkeypatch):
     monkeypatch.setenv("NEXTCLOUD_DAV_URL", "https://nc.example/remote.php/dav")
     monkeypatch.setenv("NEXTCLOUD_USERNAME", "u")
     monkeypatch.setenv("NEXTCLOUD_APP_PASSWORD", "p")
-    monkeypatch.setattr(S._hx, "AsyncClient", lambda **k: _C())
+    monkeypatch.setattr("httpx.AsyncClient", lambda **k: _C())
     await S._push_intravox_digest([{"t": "post one", "h": "/p/1"}])
 
 
@@ -53,11 +53,11 @@ async def test_intravox_digest_push_no_creds_returns():
 
 
 class _Sess:
-    def __init__(self, scalars):
-        self.scalars = scalars
+    def __init__(self, db):
+        self.db = db
 
     async def __aenter__(self):
-        return self
+        return self.db
 
     async def __aexit__(self, *a):
         return False
@@ -67,7 +67,7 @@ def test_nurture_sweep_skips_without_team(monkeypatch):
     from app.worker.tasks import nurture
     s = MagicMock()
     s.CLOUDLESS_WEB_ANALYTICS_TEAM_ID = ""
-    monkeypatch.setattr(nurture, "get_settings", lambda: s)
+    monkeypatch.setattr("app.core.config.get_settings", lambda: s)
     out = nurture.run_nurture_sweep()
     assert out == {"skipped": "no public-lead team configured"}
 
