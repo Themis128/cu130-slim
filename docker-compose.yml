@@ -1177,6 +1177,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-publishing
     networks:
       - backend
@@ -1215,6 +1217,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-media
     networks:
       - backend
@@ -1255,6 +1259,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-default
     networks:
       - backend
@@ -1292,6 +1298,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-messenger
     networks:
       - backend
@@ -1330,6 +1338,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: celery-beat
     networks:
       - backend
