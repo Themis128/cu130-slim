@@ -434,6 +434,20 @@ function CampaignCard({
     }
   }
 
+  const nudge = async () => {
+    setBusy('nudge')
+    try {
+      const r = await emailCampaignsApi.nudge(c.id)
+      toast.success(`${r.data.nudged} non-responder(s) re-queued — hit Send to follow up`)
+      setRecipients(null)
+      loadDetail()
+    } catch (err) {
+      toast.error(formatErrorToast('Couldn’t nudge.', err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const remove = async () => {
     setBusy('delete')
     try {
@@ -494,6 +508,16 @@ function CampaignCard({
               <Button size="sm" variant="outline" onClick={addAudience} disabled={busy === 'audience'}>
                 {busy === 'audience' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Add'}
               </Button>
+              {c.kind === 'survey' && (
+                <>
+                  <Button size="sm" variant="outline" onClick={nudge} disabled={busy === 'nudge'} title="Re-queue non-responders">
+                    {busy === 'nudge' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Nudge'}
+                  </Button>
+                  <Button size="sm" variant="outline" asChild title="Aggregate dashboard">
+                    <a href={`/api/v1/email-campaigns/${c.id}/responses/view`} target="_blank" rel="noreferrer">Dashboard</a>
+                  </Button>
+                </>
+              )}
               <Button size="sm" onClick={send} disabled={busy === 'send' || c.status === 'sent'}>
                 {busy === 'send' ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Send className="h-4 w-4 mr-1" />}
                 Send now
@@ -542,7 +566,12 @@ function CampaignCard({
                   {responses.map((r, i) => (
                     <li key={i} className="border rounded p-2">
                       <div className="flex justify-between text-muted-foreground text-xs mb-1">
-                        <span>{r.email ?? 'anonymous'} {r.espocrm_noted ? '· CRM ✓' : ''}</span>
+                        <span>
+                          {r.email ?? 'anonymous'} {r.espocrm_noted ? '· CRM ✓' : ''}
+                          {r.answers?.audit_interest === 'Yes' && (
+                            <Badge className="ml-1 bg-cyan-600/20 text-cyan-300 border-cyan-600/40">audit ✓</Badge>
+                          )}
+                        </span>
                         <span>{fmtDate(r.submitted_at)}</span>
                       </div>
                       {Object.entries(r.answers).map(([k, v]) => (
