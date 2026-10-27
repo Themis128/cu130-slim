@@ -106,6 +106,8 @@ async def _reconcile() -> dict[str, int]:
                 acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat()}
                 counts["error"] += 1
                 continue
+            if new_status is None:
+                continue
             counts[new_status] += 1
             acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat()}
             if acc.status != new_status:
