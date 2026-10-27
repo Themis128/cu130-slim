@@ -1,7 +1,7 @@
 """Engagement sweep — score new candidates, draft 3C comments, dispatch
 queued actions honoring jitter + caps."""
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 from sqlalchemy import select
