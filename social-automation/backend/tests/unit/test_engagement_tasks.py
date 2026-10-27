@@ -39,6 +39,9 @@ class _Res:
             first=lambda: self._rows[0] if self._rows else None,
         )
 
+    def scalar(self):
+        return self._rows[0] if self._rows else None
+
     def all(self):
         return list(self._rows)
 
@@ -224,7 +227,7 @@ async def test_dispatch_full_sweep(monkeypatch):
     # 1. scoring
     assert fresh.scored is True
     assert queued[0].posted_seconds_ago == 0
-    assert queued[0].meta_data is None  # viral duet_flag path not wired to dispatch yet
+    assert queued[0].meta_data == {"viral": False}  # dispatch forwards stored metadata
     # 2. drafts — quotes stripped, long draft kept, blank → None
     assert drafted.comment_draft == "Sharp take — what about D1?"
     assert long_draft.comment_draft == "y" * 200
@@ -253,6 +256,25 @@ async def test_dispatch_full_sweep(monkeypatch):
     assert out["dispatched"] == ["twitter:like@h"]
     assert out["failed"] == ["ig:busy", "fb:" + "x" * 60, "mastodon:no-actor"]
     assert db.commits == 3
+
+
+@pytest.mark.asyncio
+async def test_dispatch_viral_tiktok_becomes_gated_duet_flag(monkeypatch):
+    """Ingest → dispatch path: stored viral meta_data reaches queue_engagement
+    and produces a gated duet_flag instead of an auto-like."""
+    now = dt.datetime(2026, 10, 1, 12, tzinfo=dt.UTC)
+    fresh = _row_cand(platform="tiktok", post_id="tt-viral-1",
+                      posted_at=now - dt.timedelta(seconds=7200),
+                      meta_data={"views": 12000, "viral": True})
+    db = _use_db(monkeypatch, _DB([[fresh], [], [], []]))
+
+    out = await ENG._run(5)
+
+    assert fresh.scored is True
+    rows = [r for r in db.added if getattr(r, "target_post_id", None) == "tt-viral-1"]
+    assert rows and rows[0].action == "duet_flag"
+    assert rows[0].status == "pending_human_gate"
+    assert out["scored"] == 1
 
 
 @pytest.mark.asyncio
