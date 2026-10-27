@@ -425,6 +425,50 @@ async def send_campaign(
     return {"queued": True, "pending": len(pending)}
 
 
+@router.post("/{campaign_id}/nudge")
+async def nudge_campaign(
+    campaign_id: uuid.UUID,
+    team_id: TeamId,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict:
+    """Re-queue recipients who received the survey but haven't responded —
+    flips their recipient row back to pending for the next send."""
+    from app.models.email_campaign import SurveyResponse
+
+    c = (
+        await db.execute(
+            select(EmailCampaign).where(
+                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
+            )
+        )
+    ).scalars().first()
+    if c is None:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+    answered_ids = (
+        await db.execute(
+            select(SurveyResponse.recipient_id).where(
+                SurveyResponse.campaign_id == campaign_id)
+        )
+    ).all()
+    answered = {r[0] for r in answered_ids}
+    recs = (
+        await db.execute(
+            select(EmailRecipient).where(
+                EmailRecipient.campaign_id == campaign_id,
+                EmailRecipient.status == RecipientStatus.sent,
+            )
+        )
+    ).scalars().all()
+    nudged = 0
+    for r in recs:
+        if r.id not in answered:
+            r.status = RecipientStatus.pending
+            nudged += 1
+    await db.commit()
+    return {"nudged": nudged}
+
+
 # ── Suppression list (GDPR do-not-contact) ────────────────────────────────
 
 
