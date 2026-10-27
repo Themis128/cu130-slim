@@ -79,7 +79,7 @@ async def test_publish_retry_resets_and_skips(monkeypatch):
     from app.worker.tasks import publish_retry as P
 
     now = datetime.now(UTC)
-    non_retry = MagicMock(error_message="media format rejected by platform",
+    non_retry = MagicMock(error_message="account not connected",
                           updated_at=now - timedelta(hours=2), status="failed")
     fresh = MagicMock(error_message="timeout", updated_at=now, status="failed")
     stale = MagicMock(error_message="timeout", updated_at=now - timedelta(hours=2),
