@@ -43,7 +43,7 @@ class EngagementCandidate:
     is_followed: bool
     is_connection: bool
     in_crm: bool  # lead/contact in espocrm
-    meta_data: dict | None = None  # e.g. {"viral": True}
+    meta_data: dict | None = None  # ingest extras, e.g. {"viral": True}
 
 
 @dataclass

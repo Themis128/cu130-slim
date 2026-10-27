@@ -272,6 +272,78 @@ async def test_dispatch_alert_failure_is_swallowed(monkeypatch):
     assert out == {"scored": 0, "drafted": 1, "dispatched": [], "failed": []}
 
 
+class _CountingDB(_DB):
+    def __init__(self, results=()):
+        super().__init__(results)
+        self.queries = 0
+
+    async def execute(self, stmt):
+        self.queries += 1
+        return await super().execute(stmt)
+
+
+def _patch_alerts(monkeypatch):
+    import app.services.slack_notifications as SN
+    import app.services.telegram_notify as TN
+
+    slack = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setattr(SN, "_post_slack_text", slack)
+    monkeypatch.setattr(TN, "send_telegram", AsyncMock(return_value=True))
+    monkeypatch.setenv("SLACK_ENGAGEMENT_WEBHOOK_URL", "https://hooks.example/x")
+    monkeypatch.setenv("SLACK_ENGAGEMENT_CHANNEL_ID", "C1")
+    return slack
+
+
+@pytest.mark.asyncio
+async def test_gate_ping_sent_once_not_on_every_sweep(monkeypatch):
+    """A gated comment is announced in the sweep that drafts it; the next
+    sweep (row now has a draft, so it is no longer in drafts_needed) must
+    not re-ping <!channel> for it or run any extra gate query."""
+    import app.services.dmr as DMR
+
+    slack = _patch_alerts(monkeypatch)
+    monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(return_value={"text": "nice"}))
+    _patch_actors(monkeypatch, {})
+    a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
+
+    _use_db(monkeypatch, _DB([[], [a], [_row_cand(platform="linkedin")], []]))
+    await ENG._run(5)
+    assert slack.await_count == 1
+    assert "<!channel>" in slack.await_args.kwargs["text"]
+
+    # next beat tick: same row still pending_human_gate, but already drafted
+    db2 = _use_db(monkeypatch, _CountingDB([[], [], []]))
+    out = await ENG._run(5)
+    assert slack.await_count == 1  # no re-ping
+    assert db2.queries == 3  # score, drafts_needed, dispatch — no 2h gate re-query
+    assert out == {"scored": 0, "drafted": 0, "dispatched": [], "failed": []}
+
+
+@pytest.mark.asyncio
+async def test_gate_ping_skips_undrafted_and_truncates(monkeypatch):
+    import app.services.dmr as DMR
+
+    slack = _patch_alerts(monkeypatch)
+    _patch_actors(monkeypatch, {})
+    exact = _row_action(platform="linkedin", action="comment", status="pending_human_gate",
+                        target_post_id="p1")
+    blank = _row_action(platform="linkedin", action="comment", status="pending_human_gate",
+                        target_post_id="p2")
+    replies = iter([{"text": "z" * 140}, {"text": ""}])
+    monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(side_effect=lambda *a, **k: next(replies)))
+    _use_db(monkeypatch, _DB([
+        [], [exact, blank],
+        [_row_cand(platform="linkedin", post_id="p1")],
+        [_row_cand(platform="linkedin", post_id="p2")],
+        [],
+    ]))
+    await ENG._run(5)
+    assert blank.comment_draft is None
+    assert slack.await_count == 1  # blank draft → no ping
+    text = slack.await_args.kwargs["text"]
+    assert "z" * 140 in text and "…" not in text  # exactly 140 → not truncated
+
+
 @pytest.mark.asyncio
 async def test_dispatch_nothing_to_do(monkeypatch):
     _use_db(monkeypatch, _DB([[], [], []]))
