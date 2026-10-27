@@ -195,6 +195,28 @@ async def test_execute_report_actions_converts_playbook_to_executor_calls(monkey
     assert report.scheduled == out
 
 
+def test_scheduled_results_render_in_text_and_html():
+    """QUEUED BY THE PLATFORM block covers text + html scheduled output."""
+    report = SR.StrategyReport(
+        generated_at=datetime(2026, 10, 27, 7, 0, tzinfo=UTC),
+        timezone="Europe/Athens", team_name="T",
+        actions=[A1],
+        scheduled=[
+            {"platform": "linkedin", "status": "scheduled",
+             "scheduled_at": "2026-10-28 09:30 EET", "reason": None},
+            {"platform": "tiktok", "status": "drafted",
+             "scheduled_at": None, "reason": "video format — left as draft"},
+        ],
+    )
+    text = report.to_text()
+    assert "QUEUED BY THE PLATFORM" in text
+    assert "linkedin" in text and "2026-10-28 09:30 EET" in text
+    assert "video format" in text
+    html = report.to_html()
+    assert "Queued by the platform" in html
+    assert "drafted" in html and "linkedin" in html
+
+
 @pytest.mark.asyncio
 async def test_execute_report_actions_no_actions_noop():
     from app.models.user import Team

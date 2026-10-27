@@ -364,6 +364,39 @@ async def test_schedule_max_actions_param(monkeypatch):
     assert len(out) == 2
 
 
+@pytest.mark.asyncio
+async def test_schedule_slot_conflict_hops_and_low_compliance_drafts(monkeypatch):
+    """Taken slots shift +30min (covers hop loop); compliance <3 drops to
+    DRAFT even with media (covers the compliance gate branch)."""
+    acc = _account("linkedin")
+    db = _SeqDb([
+        _Res([SimpleNamespace(id=uuid.uuid4())]),  # owner
+        _Res([acc]),
+    ])
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("copy", [], 91)))
+    monkeypatch.setattr(X, "_generate_media", AsyncMock(return_value=uuid.uuid4()))
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=({"name": "b"}, {"v": 1}, "ctx")),
+    )
+    monkeypatch.setattr(
+        "app.services.brand_compliance.score_brand_compliance",
+        AsyncMock(return_value={"score": 2.0}),
+    )
+    hops = iter([True, False])  # first slot taken, second free
+    monkeypatch.setattr(
+        X, "_slot_taken", AsyncMock(side_effect=lambda *a, **k: next(hops))
+    )
+    out = await X.schedule_report_actions(
+        db, _team(), [MonetizationAction("linkedin", "post", "23:00", "image")],
+        "2026-10-27",
+    )
+    assert out[0]["status"] == "drafted"
+    assert "compliance" in out[0]["reason"]
+    post = next(o for o in db.added if isinstance(o, Post))
+    assert post.status == PostStatus.DRAFT
+
+
 def test_action_hash_stable():
     a = MonetizationAction("LinkedIn", "  Post X  ", "12:00", "text")
     # platform is stored lowercase by the report parser; hash must be stable
