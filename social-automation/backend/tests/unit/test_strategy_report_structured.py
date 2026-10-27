@@ -63,6 +63,40 @@ class TestParseActions:
     def test_json_object_not_list_falls_back(self):
         assert SR._parse_actions('["a"]') == []  # list but nothing long enough
 
+    def test_python_repr_list_single_quoted_dicts(self):
+        # Production failure (2026-10-19/24/27 briefs): the model answered
+        # with a Python-repr list of dicts — single quotes — which
+        # json.loads rejects. literal_eval must recover the actions.
+        text = (
+            "[{'platform': 'Threads', 'time': '09:00', 'format': 'Image', "
+            "'reason': 'Media posts beat text on Threads with a better rate.'},"
+            " {'platform': 'LinkedIn', 'time': '10:00', 'format': 'Carousel', "
+            "'reason': 'Carousels drive the strongest LinkedIn engagement.'}]"
+        )
+        out = SR._parse_actions(text)
+        assert out == [
+            "Threads - 09:00 - Image - Media posts beat text on Threads with a better rate.",
+            "LinkedIn - 10:00 - Carousel - Carousels drive the strongest LinkedIn engagement.",
+        ]
+
+    def test_actions_object_in_text(self):
+        # {"actions": [...]} returned as bare text must still parse.
+        text = json.dumps({"actions": [A1, A2]})
+        assert SR._parse_actions(text) == [A1, A2]
+
+    def test_python_repr_list_recomposed_items_feed_playbook_parser(self):
+        # The composed "Platform - HH:MM - Format - reason" line must give
+        # _parse_playbook_item a routable platform/time/format.
+        text = (
+            "[{'platform': 'TikTok', 'time': '20:00', 'format': 'video', "
+            "'reason': 'Repurpose the top LinkedIn post into a short clip.'}]"
+        )
+        out = SR._parse_actions(text)
+        item = SR._parse_playbook_item(out[0])
+        assert item.platform == "tiktok"
+        assert item.time_athens == "20:00"
+        assert item.format == "video"
+
     def test_caps_at_max_actions(self):
         # Distinct actions: near-duplicates are now collapsed before the cap.
         many = json.dumps([
@@ -111,6 +145,65 @@ class TestStructuredPayload:
     @pytest.mark.asyncio
     async def test_non_dict_reply(self, monkeypatch):
         assert await _run(monkeypatch, None) is None
+
+
+@pytest.mark.asyncio
+async def test_execute_report_actions_converts_playbook_to_executor_calls(monkeypatch):
+    """The playbook strings are parsed (platform/time/format) and handed to
+    the shared executor tagged as strategy-brief with tomorrow's date."""
+    import app.services.monetization_executor as X
+    from app.models.user import Team
+
+    seen = {}
+
+    async def _sched(db, team, actions, report_date, **kw):
+        seen["actions"] = actions
+        seen["report_date"] = report_date
+        seen["kw"] = kw
+        return [{"platform": a.platform, "status": "scheduled"} for a in actions]
+
+    monkeypatch.setattr(X, "schedule_report_actions", _sched)
+
+    report = SR.StrategyReport(
+        generated_at=datetime(2026, 10, 27, 7, 0, tzinfo=UTC),
+        timezone="Europe/Athens",
+        team_name="T",
+        actions=[
+            "1. LinkedIn - 09:30 - carousel - recap the audit-win post",
+            "2. TikTok - 20:00 - video - repurpose the top story",
+            "3. Reply to all open comments before lunch today",
+        ],
+        insights={"platforms": {"linkedin": {"best_hour_athens": (9, 0.4)}}},
+    )
+    team = Team()
+    team.id = "00000000-0000-0000-0000-000000000001"
+    out = await SR.execute_report_actions(object(), team, report)
+
+    # The platform-less action is dropped; the other two convert with
+    # platform + Athens time + format intact.
+    assert len(out) == 2
+    acts = seen["actions"]
+    assert (acts[0].platform, acts[0].time_athens, acts[0].format) == (
+        "linkedin", "09:30", "carousel")
+    assert (acts[1].platform, acts[1].time_athens, acts[1].format) == (
+        "tiktok", "20:00", "video")
+    assert seen["kw"]["source"] == "strategy-brief"
+    assert seen["kw"]["dedup_field"] == "strategy_action"
+    assert seen["kw"]["target_date"].isoformat() == "2026-10-28"  # Athens +1d
+    assert seen["kw"]["learned_hours"] == {"linkedin": 9}
+    assert seen["report_date"] == "2026-10-27"  # Athens date of the brief
+    assert report.scheduled == out
+
+
+@pytest.mark.asyncio
+async def test_execute_report_actions_no_actions_noop():
+    from app.models.user import Team
+
+    report = SR.StrategyReport(
+        generated_at=datetime(2026, 10, 27, 7, 0, tzinfo=UTC),
+        timezone="Europe/Athens", team_name="T",
+    )
+    assert await SR.execute_report_actions(object(), Team(), report) == []
 
 
 @pytest.mark.asyncio

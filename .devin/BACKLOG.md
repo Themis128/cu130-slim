@@ -21,3 +21,27 @@
 - 2 live posts link cloudless.com not .gr — delete+recreate awaiting go-ahead (fb 7c7948a4, li bd301640)
 - Threads business profile: browser-session edits (bio/name) — threads-ops scripts ready
 - Stacked-branch conflicts recur — prefer fresh-off-master topic branches
+
+
+## Session 2026-10-27 — strategy-brief parse fix + playbook→queue loop
+
+- **Landed (this branch):** `_parse_actions` now recovers Python-repr
+  dict-lists (single-quoted `[{'platform':…}]` replies were discarded →
+  rule-based fallback on 2026-10-19/24/27); `_action_entry` recomposes
+  `{platform,time,format,reason}` dicts into routable action lines;
+  `execute_report_actions` schedules the brief's playbook through
+  `monetization_executor.schedule_report_actions` (source=strategy-brief,
+  dedup=strategy_action, target=tomorrow); executor gained `source`/
+  `dedup_field`/`max_actions`/`target_date` params + a video-only guard
+  (tiktok/youtube → draft, never image media); notebook
+  `daily_strategy_brief` has `execute=True` + connected-accounts gate;
+  brief email now shows a "Queued by the platform" table.
+- **Still open:** DMR ReadTimeout on the 06:00Z run (gpu-arbiter 480s →
+  unserialized; ComfyUI contends the 8GB card) — consider reserving a slot
+  or making the CF Workers AI fallback trigger on ReadTimeout. Facebook
+  insights 400 `(#100) nonexisting field (insights)` new since 2026-10-26 —
+  check deprecated metric on personal profile. UTM coverage still ~0
+  (1/195 posts) — auto-append utm_source in publishing pipeline.
+- **Owner-visible:** briefs now auto-schedule tomorrow's playbook;
+  drafted (not scheduled) items appear in the UI for media fixes.
+

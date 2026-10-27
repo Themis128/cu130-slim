@@ -23,7 +23,7 @@ import base64
 import hashlib
 import logging
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -44,6 +44,11 @@ _MAX_SLOT_HOPS = 3
 
 # Platforms with no post-publish path — report only.
 _NON_POSTING = {"whatsapp", "messenger", "viber"}
+
+# Platforms whose only accepted media is video — the image pipeline can't
+# satisfy them, so actions land as drafts instead of scheduling a post that
+# would fail publish validation.
+_VIDEO_ONLY = {"tiktok", "youtube", "snapchat"}
 
 # Baseline posting windows (Athens) when an action lacks a sane time, and the
 # dead-night remap target. Conservative B2B defaults.
@@ -104,11 +109,14 @@ def _resolve_slot(
     action: MonetizationAction,
     now_utc: datetime,
     learned_hours: dict[str, int] | None = None,
+    target_date: date | None = None,
 ) -> datetime:
     """Action's Athens HH:MM → next UTC occurrence; dead-night → baseline.
 
     When the action has no time, prefer the insights engine's learned best
-    hour (shrunk-bucket winner, min n=3) over the static baseline."""
+    hour (shrunk-bucket winner, min n=3) over the static baseline.
+    ``target_date`` pins the slot to a specific Athens day (the strategy
+    brief's "tomorrow's playbook"); None keeps next-occurrence semantics."""
     hhmm = action.time_athens
     if not hhmm and learned_hours and action.platform in learned_hours:
         hhmm = f"{learned_hours[action.platform]:02d}:00"
@@ -121,9 +129,12 @@ def _resolve_slot(
         hour, minute = (
             int(x) for x in _PLATFORM_BASELINE.get(action.platform, "10:00").split(":")
         )
-    local = now_utc.astimezone(_ATHENS).replace(
-        hour=hour, minute=minute, second=0, microsecond=0
-    )
+    base = now_utc.astimezone(_ATHENS)
+    if target_date:
+        base = base.replace(
+            year=target_date.year, month=target_date.month, day=target_date.day
+        )
+    local = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if local.astimezone(UTC) <= now_utc + timedelta(minutes=10):
         local += timedelta(days=1)  # too soon / already passed → tomorrow
     return local.astimezone(UTC)
@@ -271,12 +282,21 @@ async def schedule_report_actions(
     actions: list[MonetizationAction],
     report_date: str,
     learned_hours: dict[str, int] | None = None,
+    *,
+    source: str = "monetization-report",
+    dedup_field: str = "monetization_action",
+    max_actions: int = _MAX_ACTIONS_PER_RUN,
+    target_date: date | None = None,
 ) -> list[dict[str, Any]]:
     """Materialise report actions as SCHEDULED posts. Returns a per-action
     result list for the report email. Idempotent per report date.
 
     ``learned_hours``: platform → Athens hour from the insights engine's
-    shrunk-bucket best-window analysis; used when an action has no time."""
+    shrunk-bucket best-window analysis; used when an action has no time.
+    ``source``/``dedup_field`` tag the created posts and drive the rerun
+    dedup, so the monetization report and the strategy brief share the
+    executor without colliding. ``target_date`` pins slots to a specific
+    Athens day (the strategy brief's "tomorrow"); None = next occurrence."""
     from app.models.user import User
 
     results: list[dict[str, Any]] = []
@@ -289,7 +309,7 @@ async def schedule_report_actions(
 
     brand_dict, voice_dict, brand_ctx = await load_brand_context(db, team.id)
 
-    for action in actions[:_MAX_ACTIONS_PER_RUN]:
+    for action in actions[:max_actions]:
         platform = action.platform
         entry: dict[str, Any] = {
             "platform": platform,
@@ -311,7 +331,7 @@ async def schedule_report_actions(
         existing = await db.scalar(
             select(func.count(Post.id)).where(
                 Post.team_id == team.id,
-                Post.meta_data["monetization_action"].astext == ahash,
+                Post.meta_data[dedup_field].astext == ahash,
             )
         )
         if existing:
@@ -319,7 +339,7 @@ async def schedule_report_actions(
             results.append(entry)
             continue
 
-        when = _resolve_slot(action, now, learned_hours)
+        when = _resolve_slot(action, now, learned_hours, target_date)
         for _ in range(_MAX_SLOT_HOPS):
             if not await _slot_taken(db, team.id, account.id, when):
                 break
@@ -338,10 +358,17 @@ async def schedule_report_actions(
             results.append(entry)
             continue
 
-        media_id = await _generate_media(db, team, owner.id if owner else None, action)
+        video_only = action.format == "video" or platform in _VIDEO_ONLY
+        media_id = None
+        if video_only:
+            entry["reason"] = "video format — media pipeline produces images; left as draft"
+        else:
+            media_id = await _generate_media(
+                db, team, owner.id if owner else None, action
+            )
+            if not media_id:
+                entry["reason"] = "media generation failed — left as draft"
         status = PostStatus.SCHEDULED if media_id else PostStatus.DRAFT
-        if not media_id:
-            entry["reason"] = "media generation failed — left as draft"
 
         if status == PostStatus.SCHEDULED and brand_dict:
             try:
@@ -366,8 +393,8 @@ async def schedule_report_actions(
             status=status,
             scheduled_at=when if status == PostStatus.SCHEDULED else None,
             meta_data={
-                "source": "monetization-report",
-                "monetization_action": ahash,
+                "source": source,
+                dedup_field: ahash,
                 "report_date": report_date,
                 "instruction": action.instruction,
                 "seo_score": seo,

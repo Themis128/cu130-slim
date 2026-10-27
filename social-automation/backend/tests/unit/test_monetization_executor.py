@@ -270,6 +270,100 @@ async def test_schedule_idempotent_skips_repeat(monkeypatch):
     assert out[0]["status"] == "skipped" and out[0]["reason"] == "already scheduled"
 
 
+@pytest.mark.asyncio
+async def test_schedule_video_only_platform_drafts_without_media_gen(monkeypatch):
+    """TikTok/video actions must not schedule an image post — the platform
+    only accepts video, so the executor drafts with an explicit reason and
+    never calls the image pipeline."""
+    acc = _account("tiktok")
+    db = _SeqDb([
+        _Res([SimpleNamespace(id=uuid.uuid4())]),  # owner
+        _Res([acc]),                                # _resolve_account
+    ])
+    media = AsyncMock(return_value=uuid.uuid4())
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("copy", [], 90)))
+    monkeypatch.setattr(X, "_generate_media", media)
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=(None, None, "")),
+    )
+    out = await X.schedule_report_actions(
+        db, _team(), [MonetizationAction("tiktok", "short clip", "20:00", "video")],
+        "2026-10-27",
+    )
+    assert out[0]["status"] == "drafted"
+    assert "video" in out[0]["reason"]
+    media.assert_not_called()  # image pipeline never invoked for video-only
+    post = next(o for o in db.added if isinstance(o, Post))
+    assert post.status == PostStatus.DRAFT
+    assert post.media_ids == []
+
+
+def test_resolve_slot_target_date_pins_day():
+    """target_date puts the slot on that Athens day even when today's same
+    hour hasn't passed yet (strategy brief = tomorrow's playbook)."""
+    now = datetime.now(UTC).astimezone(ATHENS).replace(
+        hour=8, minute=0, second=0, microsecond=0
+    ).astimezone(UTC)
+    tomorrow = (now.astimezone(ATHENS) + timedelta(days=1)).date()
+    a = MonetizationAction("linkedin", "post", "09:30", "image")
+    slot = X._resolve_slot(a, now, target_date=tomorrow).astimezone(ATHENS)
+    assert slot.date() == tomorrow
+    assert (slot.hour, slot.minute) == (9, 30)
+
+
+@pytest.mark.asyncio
+async def test_schedule_source_and_dedup_field_tagging(monkeypatch):
+    """Non-default source/dedup_field let other reports (strategy brief)
+    share the executor without colliding on monetization keys."""
+    acc = _account("linkedin")
+    db = _SeqDb([
+        _Res([SimpleNamespace(id=uuid.uuid4())]),
+        _Res([acc]),
+    ])
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("copy", ["#a"], 91)))
+    monkeypatch.setattr(X, "_generate_media", AsyncMock(return_value=uuid.uuid4()))
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=(None, None, "")),
+    )
+    out = await X.schedule_report_actions(
+        db, _team(), [MonetizationAction("linkedin", "B2B post", "23:00", "image")],
+        "2026-10-27", source="strategy-brief", dedup_field="strategy_action",
+    )
+    assert out[0]["status"] == "scheduled"
+    post = next(o for o in db.added if isinstance(o, Post))
+    assert post.meta_data["source"] == "strategy-brief"
+    assert "strategy_action" in post.meta_data
+    assert "monetization_action" not in post.meta_data
+
+
+@pytest.mark.asyncio
+async def test_schedule_max_actions_param(monkeypatch):
+    """max_actions caps the run — strategy briefs allow more than the
+    monetization default of 4."""
+    acc = _account("linkedin")
+    db = _SeqDb([
+        _Res([SimpleNamespace(id=uuid.uuid4())]),
+        _Res([acc]),
+        _Res([acc]),
+    ])
+    monkeypatch.setattr(X, "_generate_copy", AsyncMock(return_value=("copy", [], 90)))
+    monkeypatch.setattr(X, "_generate_media", AsyncMock(return_value=uuid.uuid4()))
+    monkeypatch.setattr(
+        "app.services.brand_compliance.load_brand_context",
+        AsyncMock(return_value=(None, None, "")),
+    )
+    actions = [
+        MonetizationAction("linkedin", f"distinct post number {i}", f"1{i}:00", "text")
+        for i in range(6)
+    ]
+    out = await X.schedule_report_actions(
+        db, _team(), actions, "2026-10-27", max_actions=2,
+    )
+    assert len(out) == 2
+
+
 def test_action_hash_stable():
     a = MonetizationAction("LinkedIn", "  Post X  ", "12:00", "text")
     # platform is stored lowercase by the report parser; hash must be stable
