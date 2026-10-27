@@ -49,7 +49,7 @@ async def test_probe_meta_401_revoked():
 @pytest.mark.asyncio
 async def test_probe_meta_500_error():
     with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(500))):
-        assert await R._probe("threads", "123", "tok", {}) == "error"
+        assert await R._probe("threads", "123", "tok", {}) == "inconclusive"
 
 
 @pytest.mark.asyncio
@@ -69,7 +69,7 @@ async def test_probe_tiktok_ok():
 @pytest.mark.asyncio
 async def test_probe_unknown_platform_returns_error():
     with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(200))):
-        assert await R._probe("mastodon", "x", "tok", {}) == "error"
+        assert await R._probe("mastodon", "x", "tok", {}) == "unprobed"
 
 
 @pytest.mark.asyncio
