@@ -44,7 +44,6 @@ class TestSurveySubmitAuditCTA:
         rec = _recipient(token="t-audit")
         campaign = _campaign(kind=CampaignKind.survey)
         db = _DB([_Res([rec]), _Res([campaign])])
-        answers = {"audit_interest": "Yes", "email": "a@b.c"}
         async def _ok(db, token, ans): return (SimpleNamespace(id=uuid.uuid4()), [])
         monkeypatch.setattr(api.svc, "submit_survey", _ok)
         req = _body_request(b'{"audit_interest":"Yes","email":"a@b.c"}', "application/json")
