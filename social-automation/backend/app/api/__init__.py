@@ -146,7 +146,9 @@ router.include_router(engagement.router)
 
 router.include_router(media_sources.router, prefix="/media-sources", tags=["media-sources"])
 
-from app.api import ads  # noqa: E402 — registered late to avoid import cycles
-from app.api import x_webhook  # noqa: E402
+from app.api import (  # noqa: E402 — registered late to avoid import cycles
+    ads,
+    x_webhook,  # noqa: E402
+)
 
 api_router.include_router(ads.router)

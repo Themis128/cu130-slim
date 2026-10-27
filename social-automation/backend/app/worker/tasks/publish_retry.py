@@ -58,7 +58,7 @@ async def _sweep() -> dict:
             tgt.error_message = None
             # Reactivate the actual queue row — the processor picks up
             # PublishQueue, not PostTarget status.
-            from app.models.publish_queue import PublishQueue
+            from app.models.queue import PublishQueue
             qr = (await db.execute(
                 __import__("sqlalchemy").select(PublishQueue).where(
                     PublishQueue.post_id == tgt.post_id,
