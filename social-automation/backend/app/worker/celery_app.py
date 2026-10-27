@@ -43,6 +43,7 @@ celery_app = Celery(
         "app.worker.tasks.auto_gates",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
+        "app.worker.tasks.datalake_insights",
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
@@ -235,6 +236,7 @@ celery_app.conf.update(
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
+        "app.worker.tasks.datalake_insights.datalake_insights_sweep": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
@@ -315,6 +317,13 @@ celery_app.conf.update(
         "export-datalake": {
             "task": "app.worker.tasks.datalake_export.export_datalake",
             "schedule": crontab(minute=10, hour="*/6"),  # every 6h at :10
+        },
+        # Read the lake source tables back into decision signals every 6h,
+        # right after the export — persists an AnalyticsEvent the next
+        # export carries into the gold layer + pings the alert channel.
+        "datalake-insights-sweep": {
+            "task": "app.worker.tasks.datalake_insights.datalake_insights_sweep",
+            "schedule": crontab(minute=20, hour="*/6"),  # every 6h at :20
         },
         # Push real follower metrics → Nextcloud Tables and mirror the
         # post pipeline → Deck board (idempotent, deduped by post:<uuid>
