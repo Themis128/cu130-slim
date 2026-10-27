@@ -12,6 +12,7 @@ email always goes out.
 """
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import re
@@ -324,6 +325,65 @@ def automation_plan(
     }
 
 
+async def execute_report_actions(
+    db: AsyncSession,
+    team: Team,
+    report: StrategyReport,
+    *,
+    target_date: date | None = None,
+) -> list[dict[str, Any]]:
+    """Schedule the brief's playbook as real posts through the same
+    executor chain the monetization report uses (copy → quality pipeline →
+    media → brand compliance → schedule), targeting *tomorrow* — the
+    playbook's stated horizon.
+
+    Playbook items are prose-parsed, so anything the parser couldn't resolve
+    to a platform is skipped rather than guessed. Idempotent per
+    ``strategy_action`` hash — a rerun of the same brief never re-schedules.
+    """
+    from app.services.monetization_executor import schedule_report_actions
+    from app.services.monetization_report import MonetizationAction
+
+    if not report.actions:
+        return []
+    tz = ZoneInfo(report.timezone)
+    day = target_date or (
+        report.generated_at.astimezone(tz) + timedelta(days=1)
+    ).date()
+    items = _resolve_slot_conflicts(
+        [_parse_playbook_item(a) for a in report.actions]
+    )
+    actions = [
+        MonetizationAction(
+            platform=it.platform,
+            instruction=it.instruction,
+            time_athens=it.time_athens,
+            format=it.format or _AUTOMATION_DEFAULT_FORMAT.get(it.platform, ""),
+        )
+        for it in items
+        if it.platform
+    ]
+    if not actions:
+        return []
+    learned_hours = {
+        name: p["best_hour_athens"][0]
+        for name, p in (report.insights.get("platforms") or {}).items()
+        if p.get("best_hour_athens")
+    }
+    report.scheduled = await schedule_report_actions(
+        db,
+        team,
+        actions,
+        report_date=report.generated_at.astimezone(tz).date().isoformat(),
+        learned_hours=learned_hours,
+        source="strategy-brief",
+        dedup_field="strategy_action",
+        max_actions=_MAX_ACTIONS,
+        target_date=day,
+    )
+    return report.scheduled
+
+
 @dataclass
 class StrategyReport:
     generated_at: datetime
@@ -342,6 +402,9 @@ class StrategyReport:
     # Connected messaging-only channels (whatsapp/telegram) — they publish
     # nothing, so they get an explicit note instead of a silent absence.
     messaging_channels: list[str] = field(default_factory=list)
+    # Per-action executor outcomes when the playbook is materialised
+    # (execute_report_actions) — {platform, instruction, status, …}.
+    scheduled: list[dict[str, Any]] = field(default_factory=list)
 
     def subject(self) -> str:
         day = self.generated_at.astimezone(ZoneInfo(self.timezone)).strftime("%Y-%m-%d")
@@ -447,7 +510,17 @@ class StrategyReport:
             lines.append("")
             lines.append("AGENT DEPLOYMENT BLOCK — paste to your Devin agent")
             lines.append(_agent_playbook_block(items, self.timezone))
-        else:
+        if self.scheduled:
+            lines.append("")
+            lines.append("QUEUED BY THE PLATFORM")
+            for r in self.scheduled:
+                when = f" @ {r['scheduled_at']}" if r.get("scheduled_at") else ""
+                reason = f" — {r['reason']}" if r.get("reason") else ""
+                lines.append(
+                    f"  [{r.get('status','?')}] {r.get('platform','?')}"
+                    f"{when}{reason}"
+                )
+        if not self.actions:
             lines.append("  No actions generated — publish consistently and re-check tomorrow.")
         lines.extend(self._initiatives_text())
         issues = (self.digest.issues if self.digest else [])
@@ -574,6 +647,7 @@ class StrategyReport:
             f"{action_rows}</table>{agent_block_html}"
             f"<p style='color:#666;font-size:12px'>"
             f"{'AI-written from your metrics' if self.llm_used else 'Rule-based recommendations (AI writer unavailable)'}</p>"
+            + self._scheduled_html(esc)
             if action_rows
             else "<p><i>No actions generated — publish consistently and re-check tomorrow.</i></p>"
         )
@@ -673,6 +747,27 @@ class StrategyReport:
                 g, lbl = nxt
                 rows.append((name, cur, f"{lbl} at {g:,} ({g - cur:,} to go)", g - cur))
         return rows
+
+    def _scheduled_html(self, esc) -> str:
+        """QUEUED BY THE PLATFORM block — what the executor actually did
+        with the playbook (scheduled / drafted / skipped + reason)."""
+        if not self.scheduled:
+            return ""
+        rows = "".join(
+            f"<tr><td>{esc(str(r.get('platform') or '—'))}</td>"
+            f"<td>{esc(str(r.get('status') or '—'))}</td>"
+            f"<td>{esc(str(r.get('scheduled_at') or '—'))}</td>"
+            f"<td>{esc(str(r.get('reason') or ''))}</td></tr>"
+            for r in self.scheduled
+        )
+        return (
+            "<h4 style='margin-bottom:4px'>Queued by the platform</h4>"
+            '<table cellpadding="6" cellspacing="0" border="1" '
+            "style='border-collapse:collapse;font-size:13px'>"
+            "<tr><th align='left'>Platform</th><th>Status</th>"
+            "<th>Slot (Athens)</th><th align='left'>Note</th></tr>"
+            f"{rows}</table>"
+        )
 
     def _initiatives_text(self) -> list[str]:
         """GROWTH INITIATIVES section — sent / accepted / pending / credits."""
@@ -1106,11 +1201,19 @@ def _action_entry(a: Any) -> str:
     if isinstance(a, dict):
         # {"action": ...} objects — or unknown schema, then the longest
         # string field (the likeliest candidate for the instruction text).
-        return str(
+        body = str(
             a.get("action") or a.get("text") or a.get("instruction")
             or max((str(v).strip() for v in a.values() if isinstance(v, str)),
                    key=len, default="")
         ).strip()
+        # {"platform", "time", "format", "reason"} replies lose their
+        # routing fields when flattened to body text — recompose them into
+        # the "Platform - HH:MM - Format - reason" shape the playbook
+        # parser understands so platform/time aren't dropped.
+        lead = " - ".join(
+            str(a[k]).strip() for k in ("platform", "time", "format") if a.get(k)
+        )
+        return f"{lead} - {body}" if lead else body
     return ""
 
 
@@ -1147,15 +1250,23 @@ def _parse_actions(text: str) -> list[str]:
         stripped = stripped.split("</think>", 1)[-1].strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```\w*\n?|\n?```$", "", stripped).strip()
-    if stripped.startswith("["):
+    if stripped.startswith(("[", "{")):
+        parsed: Any = None
         try:
             parsed = json.loads(stripped)
-            if isinstance(parsed, list):
-                entries = _finalize_actions([_action_entry(a) for a in parsed])
-                if entries:
-                    return entries
         except (ValueError, TypeError):
-            pass
+            # Models sometimes answer with a Python-repr list (single-quoted
+            # dicts) instead of strict JSON — literal_eval covers that.
+            try:
+                parsed = ast.literal_eval(stripped)
+            except (ValueError, TypeError, SyntaxError):
+                parsed = None
+        if isinstance(parsed, dict):
+            parsed = parsed.get("actions")
+        if isinstance(parsed, list):
+            entries = _finalize_actions([_action_entry(a) for a in parsed])
+            if entries:
+                return entries
 
     lines = []
     for line in stripped.splitlines():
@@ -1488,7 +1599,11 @@ async def run_strategy_report_for_all_teams(
     *,
     insight_days: int = 30,
     send: bool = True,
+    execute: bool = True,
 ) -> list[dict[str, Any]]:
+    """Daily entry point: build → execute playbook (schedule tomorrow's
+    posts) → email. The executor runs BEFORE the email so the brief shows
+    what was actually queued — same flow as the monetization report."""
     from app.models.social_account import SocialAccount
 
     teams = (await db.execute(select(Team))).scalars().all()
@@ -1523,6 +1638,8 @@ async def run_strategy_report_for_all_teams(
                 or report.digest.impressions_24h > 0
             )
         )
+        if active and execute:
+            await execute_report_actions(db, team, report)
         if active and send:
             report = await email_strategy_report(report)
         elif not active:
@@ -1531,6 +1648,7 @@ async def run_strategy_report_for_all_teams(
             {
                 "team_name": report.team_name,
                 "actions": report.actions,
+                "scheduled": report.scheduled,
                 "llm_used": report.llm_used,
                 "emailed": report.emailed,
                 "email_error": report.email_error,
