@@ -955,8 +955,12 @@ def _normalize_brand_domain(node):
     cloudless.gr. Rewrite recursively across slides/caption so wrong-domain
     links never reach render or publish."""
     if isinstance(node, str):
+        import re
         for bad in _BRAND_WRONG_DOMAINS:
-            node = node.replace(bad, bad.replace(".com", ".gr"))
+            host = bad.split("://")[-1].split("/")[0]
+            node = re.sub(
+                rf"(?<![\w.-]){re.escape(host)}(?![\w.-])",
+                host.replace(".com", ".gr"), node)
         return node
     if isinstance(node, dict):
         return {k: _normalize_brand_domain(v) for k, v in node.items()}

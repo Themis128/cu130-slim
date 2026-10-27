@@ -550,3 +550,23 @@ the current applied state.
 - `publish-ops` — alert signature runbook
 - PDFs (source material): `OneDrive/Kakkava Sofia/DAY {1-5} *.pdf`,
   `OneDrive/Kakkava Sofia/3 week/Day{11,12}/*.pdf`
+
+
+## AI-citation rules (Meltwater 9.5M-citation study, 2026-10)
+
+LinkedIn is the #2 AI-cited source (after YouTube) — being cited in AI
+answers is the new ranking. Rules applied to every generated post:
+
+- **75% of citations come from individual member posts**, not company
+  pages — founder/individual voice outranks brand voice on LinkedIn.
+- **Structured content wins** — clear headings in 92% of cited posts;
+  listicles = 54% of top-cited; every top-cited article uses bullets.
+  Always generate bullet/numbered structure, not prose blocks.
+- **Specific data is the citation hook** — real numbers, pricing, tool
+  rankings, vendor comparisons, decision frameworks. Generic
+  thought-leadership doesn't get cited.
+- **Fresh + original** — only 12% of cited material is >1yr old; 72%
+  is fully original (not reshared); 48% within 3 months. Post 2-3x/wk
+  minimum per expert, 3-4 long articles/month.
+- **Buyer's-guide / comparison format** — answer real questions
+  directly, structure hierarchically, cite specifics.

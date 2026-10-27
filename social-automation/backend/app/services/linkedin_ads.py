@@ -29,6 +29,7 @@ async def ad_accounts(db) -> list[dict]:
         r = await c.get(
             f"{API}/adAccountsV2?q=search&search=(status:(values:List(ACTIVE)))",
             headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA})
+        r.raise_for_status()
         return r.json().get("elements", [])
 
 
@@ -36,9 +37,10 @@ async def campaigns(db, account_urn: str) -> list[dict]:
     tok = await _token(db)
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(
-            f"{API}/adCampaignsV2?q=search&search=(status:(values:List(ACTIVE,PAUSED)))"
-            f"&search=(account:(values:List({account_urn})))",
+            f"{API}/adCampaignsV2?q=search&search=(account:(values:List({account_urn})),"
+            f"status:(values:List(ACTIVE,PAUSED)))",
             headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA})
+        r.raise_for_status()
         return r.json().get("elements", [])
 
 
@@ -68,15 +70,26 @@ async def snapshot(db) -> dict:
 
 
 async def lead_gen_forms(db, account_urn: str) -> list[dict]:
-    """Pull Lead Gen Form responses — the CRM loop endpoint.
-
-    Each form response carries lead fields (name, email, company) that
-    map straight into the CRM contacts path.
-    """
+    """Pull form definitions for an account (templates, not submissions)."""
     tok = await _token(db)
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(
             f"{API}/leadGenForms?q=owner&owner=(sponsoredAccount:{account_urn})"
             "&count=10",
             headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA})
+        r.raise_for_status()
+        return r.json().get("elements", [])
+
+
+async def lead_form_responses(db, account_urn: str) -> list[dict]:
+    """Pull actual lead submissions via leadFormResponses finder."""
+    tok = await _token(db)
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(
+            f"{API}/leadFormResponses?q=owner&owner=(sponsoredAccount:{account_urn})"
+            "&count=50&leadType=(leadType:SPONSORED)",
+            headers={"Authorization": f"Bearer {tok}",
+                     "Linkedin-Version": "202404", **HEADERS_EXTRA})
+        if r.status_code != 200:
+            return []
         return r.json().get("elements", [])

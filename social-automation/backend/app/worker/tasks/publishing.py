@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 import hashlib
 import logging
@@ -688,7 +689,12 @@ async def _process_publish_queue_async() -> None:
                     )
                     continue
 
-                pub = await publish_to_platform(account, post, db)
+                # Per-item timeout: a single hung publish (media upload,
+                # platform retry loop, dead socket) must not starve the whole
+                # 50-item batch against the 900s soft limit.
+                pub = await asyncio.wait_for(
+                    publish_to_platform(account, post, db), timeout=120.0
+                )
 
                 deferred = False
                 if not pub.success and getattr(pub, "retry_after", None) is not None:
