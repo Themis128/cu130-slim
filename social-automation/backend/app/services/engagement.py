@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ class EngagementCandidate:
     is_followed: bool
     is_connection: bool
     in_crm: bool  # lead/contact in espocrm
+    meta_data: dict = field(default_factory=dict)  # e.g. {"viral": True}
 
 
 @dataclass
