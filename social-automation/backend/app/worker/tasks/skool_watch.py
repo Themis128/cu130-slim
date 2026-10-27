@@ -474,6 +474,7 @@ async def _watch() -> dict:
             if new_posts:
                 lines = "\n".join(f"• <https://www.skool.com{p['h']}|{p['t'][:80]}>" for p in new_posts[:8])
                 await post_digest_text_to_slack(f"🎓 *{len(new_posts)} new post(s)* in the VEC Skool community:\n{lines}")
+                await _push_intravox_digest(new_posts)
 
         return summary
     finally:
@@ -481,5 +482,40 @@ async def _watch() -> dict:
 
 
 @celery_app.task(name="app.worker.tasks.skool_watch.watch_skool_vec")
+async def _push_intravox_digest(new_posts: list[dict]) -> None:
+    """Mirror the Slack digest into the IntraVox news feed (en/news/<id>)."""
+    import os as _os
+    import httpx as _hx
+    from app.core.config import settings as _s
+    base = (_s.NEXTCLOUD_BASE_URL or _os.environ.get("NEXTCLOUD_DAV_URL", "").split("/remote.php")[0]).rstrip("/")
+    user = _os.environ.get("NEXTCLOUD_USERNAME", "")
+    pw = _os.environ.get("NEXTCLOUD_APP_PASSWORD", "")
+    if not (base and user and pw):
+        return
+    day = time.strftime("%Y-%m-%d")
+    pid = f"kakkava-digest-{day}"
+    items = "\n".join(
+        f"- [{p['t'][:90]}](https://www.skool.com{p['h']})" for p in new_posts[:8])
+    md = ("## Skool community digest — " + day
+          + "\n\nSource: https://www.skool.com/sofia-kakkava-coaching\n\n" + items)
+    api = f"{base}/apps/intravox/api"
+    try:
+        async with _hx.AsyncClient(auth=(user, pw), timeout=30.0) as c:
+            r = await c.post(f"{api}/pages", json={
+                "id": pid, "title": f"Skool digest {day}",
+                "language": "en", "parentPath": "en/news"})
+            uid = r.json().get("uniqueId") if r.status_code in (200, 201) else None
+            if not uid:
+                return  # exists already or denied — page persists for the day
+            r2 = await c.get(f"{api}/pages/{uid}")
+            pg = r2.json()
+            pg.setdefault("layout", {}).setdefault("rows", []).append(
+                {"columns": 1, "widgets": [{"type": "text", "column": 1,
+                                          "order": 1, "content": md}]})
+            await c.put(f"{api}/pages/{uid}", json=pg)
+    except Exception:
+        logger.debug("intravox digest push failed", exc_info=True)
+
+
 def watch_skool_vec() -> dict:
     return _run_async(_watch())

@@ -86,10 +86,13 @@ def _scan_once() -> dict:
     if code == 409:
         return {"_busy": data.get("detail", "busy")}
     r = _eval(
-        "JSON.stringify([...document.querySelectorAll("
-        "'div[class*=FeedCard],div[class*=PostCard],article')].slice(0,15)"
-        ".map(e=>({t:(e.innerText||'').slice(0,140),"
-        "eng:((e.innerText||'').match(/\\d+/g)||['0'])[0]})))")
+        "(()=>{const all=[...document.querySelectorAll('div')];"
+        "const c=all.filter(e=>{const t=e.innerText||'';"
+        "return t.includes('\\u2022')&&t.length>60&&t.length<2500});"
+        "const o=c.filter(e=>!c.some(x=>x!==e&&e.contains(x)"
+        "&&((x.innerText||'').length>(e.innerText||'').length*0.6)));"
+        "return JSON.stringify(o.slice(0,15).map(e=>"
+        "({t:(e.innerText||'').slice(0,140),eng:((e.innerText||'').match(/\\d+/g)||['0'])[0]})))})()")
     try:
         return {"top": json.loads(r.get("result") or r.get("url") or "[]")}
     except Exception:
@@ -149,7 +152,7 @@ def cmd_push_intravox() -> int:
     tool = _intravox_tool()
     r = subprocess.run(
         [sys.executable, tool, "page-create", pid,
-         f"Skool digest {day}", "--parent", "news"],
+         f"Skool digest {day}", "--parent", "en/news"],
         capture_output=True, text=True)
     print(r.stdout.strip() or r.stderr.strip())
     uid = None
