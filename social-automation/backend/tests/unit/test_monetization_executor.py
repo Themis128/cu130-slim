@@ -384,9 +384,13 @@ async def test_schedule_slot_conflict_hops_and_low_compliance_drafts(monkeypatch
         AsyncMock(return_value={"score": 2.0}),
     )
     hops = iter([True, False])  # first slot taken, second free
-    monkeypatch.setattr(
-        X, "_slot_taken", AsyncMock(side_effect=lambda *a, **k: next(hops))
-    )
+    requested: list[datetime] = []
+
+    async def _taken(*a, **k):
+        requested.append(a[3])  # the `when` arg _slot_taken probed
+        return next(hops)
+
+    monkeypatch.setattr(X, "_slot_taken", _taken)
     out = await X.schedule_report_actions(
         db, _team(), [MonetizationAction("linkedin", "post", "23:00", "image")],
         "2026-10-27",
@@ -395,6 +399,14 @@ async def test_schedule_slot_conflict_hops_and_low_compliance_drafts(monkeypatch
     assert "compliance" in out[0]["reason"]
     post = next(o for o in db.added if isinstance(o, Post))
     assert post.status == PostStatus.DRAFT
+    # slot-hop evidence: the second probe must be exactly +30min after the
+    # first, and the entry records the accepted (shifted) slot — drafted
+    # posts store no scheduled_at, so this is the observable proof.
+    assert len(requested) == 2
+    assert requested[1] - requested[0] == timedelta(minutes=30)
+    assert out[0]["scheduled_at"] == requested[1].astimezone(ATHENS).strftime(
+        "%Y-%m-%d %H:%M %Z"
+    )
 
 
 def test_action_hash_stable():
