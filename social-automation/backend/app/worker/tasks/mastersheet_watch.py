@@ -7,10 +7,13 @@ Telegram-notifies on change, and logs the new data as datalake events
 """
 
 import asyncio
+import difflib
 import hashlib
 import json
 import logging
+import re
 import time
+from collections import Counter
 from datetime import UTC, datetime
 
 import httpx
@@ -69,6 +72,48 @@ def _fetch() -> dict:
     return {"text": text[:8000], "hash": hashlib.sha256(text.encode()).hexdigest()}
 
 
+# ── diff analytics ──────────────────────────────────────────────────────────
+
+_STOP = frozenset(
+    "the a an and or to of in for on your you we they it is are be this that with".split()
+    + "skip content notion uses cookies see cookie notice details accept reject get free".split())
+
+_PATTERNS = [
+    ("new_week",      re.compile(r"week\s*\d+", re.I)),
+    ("new_homework",  re.compile(r"homework|must-do|action", re.I)),
+    ("new_recording", re.compile(r"youtu\.be|zoom\.us|recording", re.I)),
+    ("new_slides",    re.compile(r"canva\.link|slides|presentation", re.I)),
+]
+
+def _keywords(lines: list[str], n: int = 5) -> list[str]:
+    """TF-score the new lines — salient terms the alert should name."""
+    words = Counter(
+        w.lower() for l in lines
+        for w in re.findall(r"[A-Za-zΑ-ω]{4,}", l)
+        if w.lower() not in _STOP)
+    return [w for w, _ in words.most_common(n)]
+
+
+def _classify_delta(old_text: str, new_text: str) -> dict:
+    """difflib line-delta → {changed, kind[], added_lines[], keywords[]}."""
+    if not old_text:
+        return {"changed": True, "kind": ["first_snapshot"], "added": [], "keywords": []}
+    delta = [
+        l.lstrip("+ ").strip()
+        for l in difflib.unified_diff(
+            old_text.splitlines(), new_text.splitlines(), lineterm="", n=0)
+        if l.startswith("+") and not l.startswith("+++")
+    ]
+    added = [l for l in delta if len(l) > 2][:50]
+    kinds = sorted({k for k, pat in _PATTERNS if any(pat.search(l) for l in added)})
+    return {
+        "changed": bool(added),
+        "kind": kinds or (["edit"] if added else []),
+        "added": added[:20],
+        "keywords": _keywords(added),
+    }
+
+
 async def _notify(db, text: str) -> None:
     acc = (
         await db.execute(
@@ -97,7 +142,6 @@ async def _run() -> dict:
                 .order_by(AnalyticsEvent.occurred_at.desc())
                 .limit(1))
         ).scalar_one_or_none()
-        changed = not last or last.meta_data.get("hash") != snap["hash"]
         acc = (
             await db.execute(
                 select(SocialAccount).where(
@@ -105,15 +149,26 @@ async def _run() -> dict:
                     SocialAccount.status == "active").limit(1))
         ).scalar_one()
         team_id = last.team_id if last else acc.team_id
+        delta = _classify_delta(
+            (last.meta_data.get("text", "") if last else ""), snap["text"])
+        changed = delta["changed"]
         db.add(AnalyticsEvent(
             team_id=team_id, event_type=EVENT_TYPE, platform=PLATFORM,
-            occurred_at=datetime.now(UTC), meta_data=snap))
+            occurred_at=datetime.now(UTC),
+            meta_data={"hash": snap["hash"], "delta": delta, "text": snap["text"]}))
         if changed:
+            kind_lbl = " + ".join(delta["kind"]) or "update"
+            kw = ", ".join(delta["keywords"]) or "—"
+            head = "\n".join(delta["added"][:6])
             db.add(AnalyticsEvent(
                 team_id=team_id, event_type="coaching_action", platform=PLATFORM,
                 occurred_at=datetime.now(UTC),
-                meta_data={"source": "mastersheet_watch", "topic": "mastersheet update",
-                           "content_head": snap["text"][:1500]}))
-            await _notify(db, "📚 Founders' Circle mastersheet changed — new content landed → datalake")
+                meta_data={"source": "mastersheet_watch", "topic": f"mastersheet: {kind_lbl}",
+                           "kind": delta["kind"], "keywords": delta["keywords"],
+                           "added_lines": delta["added"]}))
+            await _notify(
+                db,
+                f"📚 Founders' Circle — {kind_lbl}\n"
+                f"keywords: {kw}\n\n{head[:700]}")
             snap["telegram_notified"] = True
-    return {"changed": changed, "hash": snap["hash"][:12]}
+    return {"changed": changed, "hash": snap["hash"][:12], "delta": delta["kind"]}
