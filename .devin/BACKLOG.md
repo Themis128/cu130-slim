@@ -139,3 +139,7 @@
 
 - Verified retry path live (test post → revoked FB Page): attempts 0→3 → failed, failure_reason populated, pre-publish gates (channel-type, correct-media) correctly soft-skip instead of retrying.
 - compose-watchdog checks #7/#8: heal scheduled-post orphans (scheduled but no publish_queue row → enqueue, skipping published/skipped/failed targets), reconcile posts stuck 'publishing' >30min with no active queue row → failed, release stale >15min processing locks.
+
+## Session 2026-10-28 (cont.) — chronic Docker wedge escalation
+
+- 3rd daemon wedge in ~1h observed; watchdog already self-healed one at 08:57 (proven by /tmp/wd-dd-restart). Check #0 hardened: per-day restart counter → 3rd+ wedge triggers CHRONIC Slack alert (root cause = WSL mem/GPU-P, needs human); post-restart 90s engine-verify → 'restart failed' alert if still down. Fixed ALERT defined-after-use ordering.
