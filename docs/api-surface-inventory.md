@@ -258,8 +258,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/email-campaigns/unsubscribe/{token}/post` — POST
 - `/api/v1/email-campaigns/{campaign_id}` — GET, DELETE
 - `/api/v1/email-campaigns/{campaign_id}/audience` — POST
+- `/api/v1/email-campaigns/{campaign_id}/nudge` — POST
 - `/api/v1/email-campaigns/{campaign_id}/recipients` — GET
 - `/api/v1/email-campaigns/{campaign_id}/responses` — GET
+- `/api/v1/email-campaigns/{campaign_id}/responses/view` — GET
 - `/api/v1/email-campaigns/{campaign_id}/send` — POST
 
 ## `engagement`
@@ -471,6 +473,12 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/reports/notebooks` — GET
 - `/api/v1/reports/run` — POST
 
+## `research`
+
+- `/api/v1/research/research/ask` — POST
+- `/api/v1/research/research/ingest` — POST
+- `/api/v1/research/research/status` — GET
+
 ## `secrets`
 
 - `/api/v1/secrets` — GET
@@ -590,6 +598,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/viber/{account_id}/setup-webhook` — POST
 - `/api/v1/viber/{account_id}/threads/{user_id}/pause` — POST
 - `/api/v1/viber/{account_id}/threads/{user_id}/resume` — POST
+
+## `webhooks`
+
+- `/api/v1/webhooks/twitter` — GET, POST
 
 ## `whatsapp`
 
