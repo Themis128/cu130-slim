@@ -117,6 +117,7 @@ async def _bridge_health() -> str:
     import json
     import os
     import time
+    import urllib.parse
     import urllib.request
     tok, ct0 = os.environ.get("X_WEB_AUTH_TOKEN",""), os.environ.get("X_WEB_CT0","")
     if not (tok and ct0):
@@ -138,10 +139,12 @@ async def _bridge_health() -> str:
         time.sleep(6)
         r = _post("/session/evaluate", {"expression":"location.href"})
         cur = str(r.get("result") or r.get("url") or "")
-        if "login" in cur or "i/flow" in cur:
+        host = urllib.parse.urlparse(cur).hostname or ""
+        on_x = host == "x.com" or host.endswith(".x.com")
+        if on_x and (cur.startswith("https://x.com/login") or "/i/flow" in cur):
             await post_alert_to_slack(":warning: X session stale — refresh X_WEB_AUTH_TOKEN (x.com devtools cookies).")
             return "stale"
-        return "live" if "x.com" in cur else f"rotated ({cur[:40]})"
+        return "live" if on_x else f"rotated ({cur[:40]})"
     except Exception as e:
         return f"busy ({str(e)[:60]})"
 
