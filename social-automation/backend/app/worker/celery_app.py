@@ -40,6 +40,7 @@ celery_app = Celery(
         "app.worker.tasks.telegram_digest",
         "app.worker.tasks.synigoros_status",
         "app.worker.tasks.mastersheet_watch",
+        "app.worker.tasks.datalake_executor",
         "app.worker.tasks.telegram_agent",
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.auto_gates",
@@ -231,6 +232,7 @@ celery_app.conf.update(
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.synigoros_status.poll_synigoros": {"queue": "default"},
         "app.worker.tasks.mastersheet_watch.watch_mastersheet": {"queue": "default"},
+        "app.worker.tasks.datalake_executor.execute_actions": {"queue": "default"},
         "app.worker.tasks.telegram_agent.run_channel_agent_daily": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
@@ -555,6 +557,11 @@ celery_app.conf.update(
         "mastersheet-watch": {
             "task": "app.worker.tasks.mastersheet_watch.watch_mastersheet",
             "schedule": crontab(hour=8, minute=15),
+        },
+        # Execute datalake actions — drafts, pings, weights (+25min after sweep)
+        "datalake-executor": {
+            "task": "app.worker.tasks.datalake_executor.execute_actions",
+            "schedule": crontab(hour="*/6", minute=45),
         },
         # Purge terminal publish_queue rows (failed/cancelled) older than 3
         # days — keeps the queue bounded and the failed-count metric
