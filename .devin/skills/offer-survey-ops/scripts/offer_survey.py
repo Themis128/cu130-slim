@@ -297,21 +297,44 @@ def cmd_readout(token: str, cid: str, yes: bool) -> None:
         for k, v in (r.get("answers") or {}).items():
             counts.setdefault(k, {}).setdefault(str(v), 0)
             counts[k][str(v)] += 1
-    lines = [f"{len(rows)} owners answered. The headline numbers:"]
-    for q in QUESTIONS:
-        qc = counts.get(q["id"])
-        if not qc:
-            continue
-        top = sorted(qc.items(), key=lambda kv: -kv[1])[:3]
-        lines.append(f"- {q['label']}: " + " · ".join(f"{k} ({n})" for k, n in top))
     audit = sum(1 for r in rows if (r.get("answers") or {}).get("audit_interest") == "Yes")
-    lines.append(f"\n{audit} of {len(rows)} asked for the free audit.")
-    body = "\n".join(lines)
+
+    # Human-friendly narrative — no raw question text, no counts-in-parens.
+    def _top(qid, default="—"):
+        qc = counts.get(qid) or {}
+        return max(qc.items(), key=lambda kv: kv[1])[0] if qc else default
+
+    price = _top("monthly_value")
+    pain = _top("embarrassment", "their online presence")
+    vendors = _top("vendor_count", "more than one")
+    pain_text = pain.lower() if pain != "—" else "an online presence that understates the real quality of the work"
+    paragraphs = [
+        f"A while back I asked {len(rows)} business owners a few short questions "
+        f"about how they handle their digital presence. Who fixes things when they "
+        f"break, how many vendors they juggle, what they would pay for one "
+        f"reliable partner.",
+        "Here's what came back:\n\n"
+        f"• Vendor sprawl — most run on {vendors} different vendors: a freelancer "
+        f"here, an agency there, a computer guy who doesn't talk to the others.\n\n"
+        f"• The real pain — {pain_text}.\n\n"
+        f"• What it's worth — the answers cluster around {price} a month for one "
+        f"partner covering the site, the e-shop, the brand and the IT.",
+        "The pattern is the same every time: it's not a technology problem, it's "
+        "a coordination problem. Nobody owns the whole picture, so the owner ends "
+        "up managing vendors instead of running the business.",
+    ]
+    if audit:
+        paragraphs.append(
+            f"{audit} of {len(rows)} also asked for the free 30-minute audit, so "
+            f"I'm booking those now. If you'd like one too, just reply to this email."
+        )
+    paragraphs.append("That's it. No pitch in this one — thanks for answering.")
+    body = "\n\n".join(paragraphs)
     c = req("/api/v1/email-campaigns", token, body={
         "name": f"SMB survey read-out ({date.today().isoformat()})",
         "kind": "marketing",
-        "subject": "What owners actually said — the survey read-out",
-        "text_body": "{{first_name}}\n\n" + body + "\n\n— Themis, Cloudless",
+        "subject": "What you told me — the honest version",
+        "text_body": "Hi {{first_name}},\n\n" + body + "\n\n— Themis, Cloudless",
     })
     rid = c.get("id")
     req(f"/api/v1/email-campaigns/{rid}/audience", token,
