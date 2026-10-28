@@ -88,4 +88,12 @@ if [ -n "${P:-}" ]; then
     rm -f "$LKF"
   fi
 fi
+# 6. Draft posts sitting >24h with empty media_ids — violates the
+#    correct-media rule at publish time; surface for review, don't
+#    auto-attach (only a human/agent can judge *correct* media).
+EMPTY_MEDIA=$(docker exec social-postgres psql -U social_user -d social_automation -tAc \
+  "SELECT count(*) FROM posts WHERE status='draft' AND (media_ids='{}' OR media_ids IS NULL) AND created_at < now() - interval '24 hours'" 2>/dev/null || echo 0)
+if [ "${EMPTY_MEDIA:-0}" -gt 0 ]; then
+  ALERT "empty-media-drafts" ":warning: $EMPTY_MEDIA draft post(s) older than 24h have no media — attach correct media before scheduling"
+fi
 exit 0

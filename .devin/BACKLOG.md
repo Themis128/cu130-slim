@@ -119,3 +119,10 @@
 - `gpu_arbiter.dmr_slot()` gained `max_acquire_s` + `fail_on_timeout` — embeddings now bound the Redis FIFO wait to 30s and raise ConnectionError on timeout (fails fast into the CF BGE-M3 fallback) instead of stalling 480s then running unserialized. Inner `await_media_idle` re-check bounded by the caller's acquire budget. Files synced via `docker compose cp` into all 6 app containers; workers + api restarted.
 - Embedding model `keep_alive` 60s→15m in `_BEST_PRACTICE_CONFIGS` (dmr.py) + dmr-watchdog config (docker-compose.yml:1909 — takes effect on watchdog recreate). NOTE: containers mount the WSL clone (/home/tbaltzakis/cu130-slim) — repo edits live on Windows checkout `feat/gmail-ops-v2`; mirror to WSL clone or merge to master for durability.
 - compose-watchdog.sh check #5: `gpu:dmr_lock` held 3+ consecutive 10-min checks → Slack alert (starvation/leak detection).
+
+## Session 2026-10-28 (cont.) — PR/draft auto-healers
+
+- New `scripts/pr-watchdog.sh` (hourly task `Cloudless-PRWatchdog`, headless): per open PR on cu130-slim + cloudless.gr — failed checks→alert, checks pending→skip, green+clean+auto-merge-armed→squash merge fallback, behind→update-branch, blocked→alert with unresolved-thread count. NEVER auto-resolves review threads or merges unarmed PRs.
+- compose-watchdog check #6: drafts >24h with empty media_ids → Slack alert (no auto-attach — correct-media rule needs judgment).
+- PR #1058 merged to master. PR #2312 blocked on a real Sentry catch (single-asterisk italics don't render) — fixed to `**`, thread resolved, auto-merge re-armed.
+- feat/gmail-ops-v2 reconciled with origin (picked up li_member_snapshot). 4 recap drafts now carry brand media; needs_media flags cleared.
