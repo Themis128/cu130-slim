@@ -171,4 +171,6 @@ async def _run() -> dict:
                 f"📚 Founders' Circle — {kind_lbl}\n"
                 f"keywords: {kw}\n\n{head[:700]}")
             snap["telegram_notified"] = True
+        await db.commit()
+        snap["telegram_notified"] = snap.get("telegram_notified", False)
     return {"changed": changed, "hash": snap["hash"][:12], "delta": delta["kind"]}
