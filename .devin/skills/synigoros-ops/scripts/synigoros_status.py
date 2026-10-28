@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """synigoros_status.py — poll the Ombudsman tracking page for a complaint's status.
 
-    synigoros_status.py [--mail EMAIL] [--kpa 202610260029] [--bridge URL]
+    synigoros_status.py [--mail EMAIL] [--kpa KPA] [--bridge URL]
 
 Fill the tracking form on the adhoc browser bridge, click Ταυτοποίηση,
 extract Κατάσταση + Αριθμός Πρωτοκόλλου. Exit 0 with the status line, 1 on
