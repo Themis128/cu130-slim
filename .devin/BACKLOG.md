@@ -250,3 +250,9 @@
   #1084/#1087/#1088/#1090/#1092 lint fixes (parallel-merge leaks).
 - #1073 closed — corrupted rebase (2,604-file deletion); synigoros skill
   salvaged separately.
+
+## Session 2026-10-28 (cont.) — LinkedIn post copy discrepancy resolved
+
+- LI post published with template copy (my draft insert carried the cloned row's content_text, not the drafted "cognitive drift" copy). Published version is on-topic + live at urn:li:share:7521213608551292928 — LEFT LIVE (deleting would trail + double-fire for marginal gain).
+- Drafted LI copy survives in the quality-gate version log (13:13Z insert) — reuse as a FOLLOW-UP post instead of correcting the live one.
+- FB/IG/Threads carry correct drafted copy — publish as-written.
