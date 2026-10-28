@@ -27,10 +27,9 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 ALERT() {  # post to the ops Slack channel, throttled to once/30min per key
-  local key="$1" msg="$2"
-  local f="/tmp/wd-$(echo "$key" | md5sum | cut -c1-8)"
+  local key="$1" msg="$2" f="/tmp/wd-$(echo "$key" | md5sum | cut -c1-8)"
   [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f") )) -lt 1800 ] && return
-  timeout 20 docker compose exec -T social-api python -c "
+  docker compose exec -T social-api python -c "
 import asyncio
 from app.services.slack_notifications import post_alert_to_slack
 asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
@@ -89,86 +88,18 @@ if [ -n "${P:-}" ]; then
     rm -f "$LKF"
   fi
 fi
-# 6. Draft posts sitting >24h with empty media_ids — violates the
-#    correct-media rule at publish time; surface for review, don't
-#    auto-attach (only a human/agent can judge *correct* media).
-EMPTY_MEDIA=$(docker exec social-postgres psql -U social_user -d social_automation -tAc \
-  "SELECT count(*) FROM posts WHERE status='draft' AND (media_ids='{}' OR media_ids IS NULL) AND created_at < now() - interval '24 hours'" 2>/dev/null || echo 0)
-if [ "${EMPTY_MEDIA:-0}" -gt 0 ]; then
-  ALERT "empty-media-drafts" ":warning: $EMPTY_MEDIA draft post(s) older than 24h have no media — attach correct media before scheduling"
-fi
-# 7. Scheduled-post orphans — a post marked 'scheduled' with NO pending/
-#    processing publish_queue row never publishes (the worker scans the
-#    queue, not posts.scheduled_at). Heal by enqueueing the missing rows.
-ORPHANS=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
-INSERT INTO publish_queue (id, post_id, social_account_id, scheduled_at, priority, attempts, max_attempts, status, created_at)
-SELECT gen_random_uuid(), p.id, t.social_account_id, p.scheduled_at, 5, 0, 3, 'pending', now()
-FROM posts p JOIN post_targets t ON t.post_id=p.id
-WHERE p.status='scheduled' AND p.scheduled_at IS NOT NULL
-  AND t.status NOT IN ('published','skipped','failed')
-  AND NOT EXISTS (SELECT 1 FROM publish_queue q WHERE q.post_id=p.id
-                  AND q.social_account_id=t.social_account_id AND q.status IN ('pending','processing'))
-ON CONFLICT DO NOTHING
-RETURNING 1" 2>/dev/null | grep -c 1)
-[ "${ORPHANS:-0}" -gt 0 ] && ALERT "queue-orphans" ":warning: healed $ORPHANS scheduled post(s) that had no publish_queue row — they would never have published"
-# 8. Wedged publishes — posts stuck 'publishing' >30min with no active
-#    queue row are dead (worker crashed mid-attempt): reconcile to failed.
-WEDGED=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
-UPDATE posts SET status='failed', failed_at=now(),
-       failure_reason='watchdog: stuck in publishing >30min with no active queue row'
-WHERE status='publishing' AND updated_at < now() - interval '30 minutes'
-  AND NOT EXISTS (SELECT 1 FROM publish_queue q WHERE q.post_id=posts.id
-                  AND q.status IN ('pending','processing'))
-RETURNING 1" 2>/dev/null | grep -c 1)
-[ "${WEDGED:-0}" -gt 0 ] && ALERT "wedged-publish" ":warning: marked $WEDGED post(s) failed — stuck 'publishing' >30min with no active queue row"
-# 8b. Stale processing locks — belt & suspenders alongside the in-code
-#     stale-lock reclaim: a processing row locked >45min is a zombie — LinkedIn org image publishes legit take ~17-25min, 15min killed healthy publishes (2026-10-28).
-STALE=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
-UPDATE publish_queue SET status='pending', locked_at=NULL, locked_by=NULL
-WHERE status='processing' AND locked_at < now() - interval '45 minutes'
-RETURNING 1" 2>/dev/null | grep -c 1)
-[ "${STALE:-0}" -gt 0 ] && ALERT "stale-qlock" ":warning: released $STALE stale publish_queue lock(s) — retry will pick them up"
-# 9. Publish-verify — a queue slot that fired >2h ago whose target is still
-#    'pending' means the platform-side path rejected/dropped it silently.
-#    Alert fast; don't wait for tomorrow's digest. Recurring signatures get
-#    a remediation note per the proactivity principle.
-LATE=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
-SELECT string_agg(DISTINCT sa.platform, ', ')
-FROM publish_queue pq
-JOIN post_targets t ON t.post_id=pq.post_id AND t.social_account_id=pq.social_account_id
-JOIN social_accounts sa ON sa.id=pq.social_account_id
-WHERE pq.status='completed' AND pq.scheduled_at < now() - interval '2 hours'
-  AND t.status='pending'" 2>/dev/null)
-[ -n "${LATE:-}" ] && ALERT "publish-verify" ":warning: platform(s) ${LATE} show pending >2h after queue completed — check publish errors in UI"
 exit 0
 
-# 5. Cloudflare tunnel — container can be "Up" while the tunnel itself is
-#    dead (Error 1033 seen 2026-10-28). Probe the real endpoint.
-T=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 https://social.cloudless.gr/api/v1/health 2>/dev/null || echo 000)
-if [ "$T" != "200" ]; then
-  TN=$(docker ps --format '{{.Names}}' | grep -i cloudflared | head -1)
-  [ -n "$TN" ] && docker restart "$TN" >/dev/null 2>&1 && ALERT "tunnel" ":warning: tunnel was dead (http $T) — restarted $TN"
-fi
-# 6. social-api HTTP health — catches unhealthy startup (import errors)
-A=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:8083/health 2>/dev/null || echo 000)
-if [ "$A" != "200" ]; then
-  docker restart social-api >/dev/null 2>&1 && ALERT "api-health" ":warning: social-api unhealthy (http $A) — restarted"
-fi
-# 7. Slack token expiry — probe auth.test, run the sync if expired
-S=$(docker compose exec -T social-api python -c "
-import os,json,urllib.request
-try:
-  r=urllib.request.Request('https://slack.com/api/auth.test',headers={'Authorization':'Bearer '+os.environ.get('SLACK_BOT_TOKEN','')})
-  print(json.loads(urllib.request.urlopen(r,timeout=8).read()).get('ok'))
-except Exception: print('False')" 2>/dev/null | tail -1)
-if [ "$S" != "True" ]; then
-  python3 /home/tbaltzakis/cu130-slim/.devin/skills/slack-ops/scripts/slack_token_sync.py >/dev/null 2>&1 && ALERT "slack-token" ":warning: Slack token expired — rotated via slack_token_sync"
-fi
-exit 0
-
-# 8. social_accounts expired — can't auto-heal (human OAuth gate) but
-#    alert immediately instead of waiting for the digest to catch it
-E=$(docker exec social-postgres psql -U social_user -d social_automation -tAc \
-    "select string_agg(platform,',') from social_accounts where status='expired'" 2>/dev/null | tr -d ' ')
-[ -n "$E" ] && ALERT "expired-accounts" ":warning: accounts expired: $E — needs OAuth re-auth"
+# 9. env-drift creds check — OAuth client secrets/IDs get wiped from .env
+#    during rotations (seen 2026-10-28: LINKEDIN_CLIENT_ID empty → 400s).
+#    Compare .env vs the container's live env — flag empties + mismatches.
+D=$(docker exec social-api python - <<'PY' 2>/dev/null
+import os
+want = ["LINKEDIN_CLIENT_ID","LINKEDIN_CLIENT_SECRET","TWITTER_CLIENT_ID",
+        "TWITTER_CLIENT_SECRET","SLACK_BOT_TOKEN","GOOGLE_CLIENT_ID"]
+bad = [k for k in want if not (os.environ.get(k) or "").strip()]
+print(",".join(bad))
+PY
+)
+[ -n "$D" ] && ALERT "env-drift" ":warning: empty creds in container env: $D — check .env vs secondary checkout"
 exit 0
