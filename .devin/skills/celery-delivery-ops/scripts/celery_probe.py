@@ -139,3 +139,32 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# --- Shift.Forward adoption #1: SCOPE-style outcome check ---------------------
+# A task can return succeeded while the result is plausible-but-wrong —
+# e.g. survey_autosend returning {'sent': 0} when pending recipients exist.
+# assert_result validates the result SHAPE + semantic content, not just
+# the celery outcome.
+
+
+def assert_result(task_name: str, result: dict, expect: dict) -> list[str]:
+    """Verify a task result against expected semantic keys.
+
+    expect: {"sent": (int, [1])} means key 'sent' must be int and in [1].
+    Returns a list of violations — empty = outcome is semantically right.
+    """
+    bad = []
+    for key, rule in expect.items():
+        v = result.get(key) if isinstance(result, dict) else None
+        typ, allowed = rule
+        if not isinstance(v, typ):
+            bad.append(f"{task_name}.{key}: {v!r} not {typ.__name__}")
+        elif allowed and v not in allowed:
+            bad.append(f"{task_name}.{key}: {v!r} not in {allowed}")
+    return bad
+
+
+# usage:
+#   r = {"sent": 0}
+#   print(assert_result("survey_autosend", r, {"sent": (int, [1])}))
