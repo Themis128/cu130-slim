@@ -183,3 +183,11 @@
 - **FB** — live session confirmed on shared bridge (c_user/xs extracted) — business console surface warm.
 - **LinkedIn** — OAuth URL + `LINKEDIN_COOKIE` ready; bridge frees after platform lock releases.
 - **TikTok** — `business.tiktok.com` logged in on adhoc browser; cert upload is the physical step.
+
+## 2026-10-28 — residual automation ceiling (live findings)
+
+- **IG**: proven auto-login path = `session_bootstrap.py` + `rfb-input` — RFB trusted typing fills+submits, real server response. Blocker: stored `INSTAGRAM_PASSWORD` is stale (IG rejects it). Rotate secret → rerun script → done. NOTE: RFB only works on `engagement-browser` (x11vnc :5900), which is contended — the shared bridge cycles platform sessions (skool/facebook/tiktok) and preempts mid-flow. IG `sessionid` is extracted live but never persists to `/app/cookies/` — no jar transplant path to `instagram-private-api`.
+- **X**: OAuth1 (`TWITTER_ACCESS_TOKEN`) AND web cookie both dead (401 + onboarding redirect). No X password stored anywhere → stays physical. OAuth URL ready for the one login.
+- **WA**: `wa_verify_daemon.py` running — fully unattended.
+- **FB**: live session confirmed on bridge (c_user/xs).
+- **rfb.py** gotcha: hardcodes `engagement-browser` — clicks sent to adhoc browser (9232) silently do nothing.
