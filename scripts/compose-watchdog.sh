@@ -122,10 +122,10 @@ WHERE status='publishing' AND updated_at < now() - interval '30 minutes'
 RETURNING 1" 2>/dev/null | grep -c 1)
 [ "${WEDGED:-0}" -gt 0 ] && ALERT "wedged-publish" ":warning: marked $WEDGED post(s) failed — stuck 'publishing' >30min with no active queue row"
 # 8b. Stale processing locks — belt & suspenders alongside the in-code
-#     stale-lock reclaim: a processing row locked >15min is a zombie.
+#     stale-lock reclaim: a processing row locked >45min is a zombie — LinkedIn org image publishes legit take ~17-25min, 15min killed healthy publishes (2026-10-28).
 STALE=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
 UPDATE publish_queue SET status='pending', locked_at=NULL, locked_by=NULL
-WHERE status='processing' AND locked_at < now() - interval '15 minutes'
+WHERE status='processing' AND locked_at < now() - interval '45 minutes'
 RETURNING 1" 2>/dev/null | grep -c 1)
 [ "${STALE:-0}" -gt 0 ] && ALERT "stale-qlock" ":warning: released $STALE stale publish_queue lock(s) — retry will pick them up"
 # 9. Publish-verify — a queue slot that fired >2h ago whose target is still
