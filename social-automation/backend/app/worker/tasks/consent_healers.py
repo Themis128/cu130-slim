@@ -82,7 +82,7 @@ async def _linkedin_snapshot() -> str:
         import subprocess
         import sys
         script = ("/app/.devin/skills/offer-survey-ops/scripts/offer_survey.py")
-        r2 = subprocess.run(
+        subprocess.run(
             [sys.executable, script, "audience", SURVEY_CID,
              *(f"--email={e}" for e in emails)],
             capture_output=True, text=True)
