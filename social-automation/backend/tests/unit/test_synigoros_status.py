@@ -1,4 +1,5 @@
 """Coverage: synigoros_status bridge poll + notify + wrapper."""
+
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock
@@ -30,6 +31,7 @@ def _client():
 @pytest.mark.asyncio
 async def test_bridge_call_success(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     c = _client()
     resp = MagicMock(status_code=200)
     resp.raise_for_status = MagicMock()
@@ -42,6 +44,7 @@ async def test_bridge_call_success(monkeypatch):
 @pytest.mark.asyncio
 async def test_bridge_call_retries_409(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     c = _client()
     busy = MagicMock(status_code=409, text="busy")
@@ -55,6 +58,7 @@ async def test_bridge_call_retries_409(monkeypatch):
 @pytest.mark.asyncio
 async def test_bridge_call_raises_after_retries(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     c = _client()
     c.post = AsyncMock(side_effect=httpx.ConnectError("down"))
@@ -65,6 +69,7 @@ async def test_bridge_call_raises_after_retries(monkeypatch):
 @pytest.mark.asyncio
 async def test_ev_returns_result(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "_bridge_call", AsyncMock(return_value={"result": "v"}))
     assert await M._ev(MagicMock(), "1") == "v"
 
@@ -72,6 +77,7 @@ async def test_ev_returns_result(monkeypatch):
 @pytest.mark.asyncio
 async def test_poll_page_never_renders(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(M, "_bridge_call", AsyncMock(return_value={}))
     monkeypatch.setattr(M, "_ev", AsyncMock(return_value=False))
@@ -83,6 +89,7 @@ async def test_poll_page_never_renders(monkeypatch):
 @pytest.mark.asyncio
 async def test_poll_status_already_visible(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(M, "_bridge_call", AsyncMock(return_value={}))
     payload = json.dumps({"status": "Αναμονή", "proto": "123", "kpa": "9"})
@@ -104,6 +111,7 @@ async def test_poll_status_already_visible(monkeypatch):
 @pytest.mark.asyncio
 async def test_poll_identify_fails(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(M, "_bridge_call", AsyncMock(return_value={}))
 
@@ -121,6 +129,7 @@ async def test_poll_identify_fails(monkeypatch):
 @pytest.mark.asyncio
 async def test_poll_identify_then_extract(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     monkeypatch.setattr(M, "_bridge_call", AsyncMock(return_value={}))
     payload = json.dumps({"status": "Επεξεργασία", "proto": "55", "kpa": "1"})
@@ -140,6 +149,7 @@ async def test_poll_identify_then_extract(monkeypatch):
 @pytest.mark.asyncio
 async def test_poll_close_error_swallowed(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     calls = {"n": 0}
 
@@ -165,6 +175,7 @@ async def test_poll_close_error_swallowed(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_no_status(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "_poll", AsyncMock(return_value={}))
     assert await M._run() == "no-status-extracted"
 
@@ -172,6 +183,7 @@ async def test_run_no_status(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_unchanged(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "_poll", AsyncMock(return_value={"status": "S1"}))
     row = MagicMock(value="S1")
     monkeypatch.setattr(M, "task_session", lambda: _db(row))
@@ -181,6 +193,7 @@ async def test_run_unchanged(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_changed_existing_row(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "_poll", AsyncMock(return_value={"status": "S2", "proto": "7"}))
     row = MagicMock(value="S1")
     db = _db(row)
@@ -193,6 +206,7 @@ async def test_run_changed_existing_row(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_changed_new_row(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "_poll", AsyncMock(return_value={"status": "S3"}))
     db = _db(None)
     monkeypatch.setattr(M, "task_session", lambda: db)
@@ -204,6 +218,7 @@ async def test_run_changed_new_row(monkeypatch):
 @pytest.mark.asyncio
 async def test_notify_no_account(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "task_session", lambda: _db(None))
     await M._notify("s", "p")  # early return, no send
 
@@ -211,6 +226,7 @@ async def test_notify_no_account(monkeypatch):
 @pytest.mark.asyncio
 async def test_notify_sends_via_bot_token(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     acc = MagicMock(meta_data={"bot_token_enc": "enc"}, access_token_enc=b"x")
     monkeypatch.setattr(M, "task_session", lambda: _db(acc))
     monkeypatch.setattr(M, "decrypt_token", lambda b: "tok")
@@ -225,6 +241,7 @@ async def test_notify_sends_via_bot_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_notify_falls_back_to_access_token(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     acc = MagicMock(meta_data={}, access_token_enc=b"enc2")
     monkeypatch.setattr(M, "task_session", lambda: _db(acc))
     monkeypatch.setattr(M, "decrypt_token", lambda b: "tok2")
@@ -237,11 +254,13 @@ async def test_notify_falls_back_to_access_token(monkeypatch):
 
 def test_wrapper_ok(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "run_async", lambda c: "unchanged")
     assert M.poll_synigoros() == "unchanged"
 
 
 def test_wrapper_error(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+
     monkeypatch.setattr(M, "run_async", MagicMock(side_effect=RuntimeError("boom")))
     assert M.poll_synigoros() == "error: boom"

@@ -48,8 +48,7 @@ async def llm_call(
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
-            resp = await dmr.call_dmr_chat(
-                prompt, system=system or None, model_override=model)
+            resp = await dmr.call_dmr_chat(prompt, system=system or None, model_override=model)
             text = resp.get("text") if isinstance(resp, dict) else str(resp)
         except Exception as e:
             last_err = e

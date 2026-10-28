@@ -58,8 +58,7 @@ def _poll() -> dict:
     time.sleep(4)
     _bridge("/session/navigate", {"url": TRACK_URL})
     for _ in range(10):
-        if _ev("!!document.getElementById('webMail')") or \
-           _ev("document.body.innerText.includes('Κατάσταση')"):
+        if _ev("!!document.getElementById('webMail')") or _ev("document.body.innerText.includes('Κατάσταση')"):
             break
         time.sleep(3)
     else:
@@ -98,19 +97,16 @@ async def _run() -> dict:
     status = result.get("status", "")
     async with task_session() as db:
         last = (
-            await db.execute(
-                select(AnalyticsEvent)
-                .where(AnalyticsEvent.event_type == EVENT_TYPE)
-                .order_by(AnalyticsEvent.occurred_at.desc())
-                .limit(1)
-            )
+            await db.execute(select(AnalyticsEvent).where(AnalyticsEvent.event_type == EVENT_TYPE).order_by(AnalyticsEvent.occurred_at.desc()).limit(1))
         ).scalar_one_or_none()
         acc = (
             await db.execute(
-                select(SocialAccount).where(
+                select(SocialAccount)
+                .where(
                     SocialAccount.platform == "telegram",
                     SocialAccount.status == "active",
-                ).limit(1)
+                )
+                .limit(1)
             )
         ).scalar_one()
         team_id = last.team_id if last else acc.team_id
@@ -126,13 +122,7 @@ async def _run() -> dict:
         )
         if changed:
             enc = acc.meta_data.get("bot_token_enc")
-            tok = (
-                decrypt_token(enc.encode() if isinstance(enc, str) else enc)
-                if enc
-                else decrypt_token(acc.access_token_enc)
-            )
-            await TelegramAPIClient(tok).send_message(
-                TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{status}"
-            )
+            tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
+            await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{status}")
             result["telegram_notified"] = True
     return result
