@@ -64,8 +64,18 @@ def main() -> int:
                "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
                % (json.dumps(MAIL), json.dumps(KPA)))
             call("/session/click", {"selector": "button"})
-            time.sleep(14)
-            if ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
+            # bounded poll: wait for the status view or the explicit
+            # failure text — a fixed sleep returns empty success on slow
+            # identification
+            failed = False
+            for _ in range(10):
+                time.sleep(3)
+                if ev("document.body.innerText.includes('Κατάσταση')"):
+                    break
+                if ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
+                    failed = True
+                    break
+            if failed or ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
                 print("IDENTIFY FAILED — wrong mail/ΚΠΑ pair")
                 return 1
         out = ev("""(()=>{const t=document.body.innerText;
