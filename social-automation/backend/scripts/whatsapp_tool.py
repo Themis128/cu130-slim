@@ -94,6 +94,20 @@ def cmd_verify_code(code: str) -> None:
     print(json.dumps(out, indent=2))
 
 
+def cmd_register() -> None:
+    """POST /{phone_number_id}/register — non-migration registration path.
+
+    Meta 2388091 ("not being migrated") means request_code is wrong —
+    the standard flow is /register (fires the SMS) then /verify_code.
+    """
+    out = _graph_post(
+        f"{_need('WHATSAPP_PHONE_NUMBER_ID')}/register",
+        messaging_product="whatsapp",
+        pin=os.environ.get("WA_REGISTRATION_PIN", "123456"),
+    )
+    print(json.dumps(out, indent=2))
+
+
 def cmd_status() -> None:
     info = _graph_get(
         _need("WHATSAPP_PHONE_NUMBER_ID"),
@@ -157,7 +171,7 @@ def cmd_webhook() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("status", "templates", "waba", "webhook", "request_code"):
+    for name in ("status", "templates", "waba", "webhook", "request_code", "register"):
         sub.add_parser(name)
     vp = sub.add_parser("verify_code")
     vp.add_argument("code")
@@ -169,6 +183,7 @@ def main() -> None:
         "waba": cmd_waba,
         "webhook": cmd_webhook,
         "request_code": cmd_request_code,
+        "register": cmd_register,
         "verify_code": lambda: cmd_verify_code(args.code),
     }
     dispatch[args.cmd]()
