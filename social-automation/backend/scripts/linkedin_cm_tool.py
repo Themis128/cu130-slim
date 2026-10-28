@@ -8,7 +8,6 @@ via the versioned REST API (app 264925843, Development Tier).
     python scripts/linkedin_cm_tool.py scopes <account_id>
 """
 import asyncio
-import json
 import sys
 import uuid as uuid_mod
 
