@@ -15,7 +15,14 @@ cd "$(dirname "$0")/.."
 
 REPOS="Themis128/cu130-slim Themis128/cloudless.gr"
 
-TOKEN=$(printf 'protocol=https\nhost=github.com\n' | git credential fill 2>/dev/null | grep ^password= | cut -d= -f2)
+# vsock flakes are transient (WSL interop) — retry the credential fetch,
+# it's the first call in the script and the one that dies hardest.
+TOKEN=""
+for _try in 1 2 3; do
+  TOKEN=$(printf 'protocol=https\nhost=github.com\n' | timeout 15 git credential fill 2>/dev/null | grep ^password= | cut -d= -f2)
+  [ -n "$TOKEN" ] && break
+  sleep 5
+done
 if [ -z "$TOKEN" ]; then
   echo "[pr-watchdog] no github credential — skipping"
   exit 0
@@ -25,7 +32,9 @@ ALERT() {  # Slack via social-api → raw webhook fallback; throttled 6h/key
   local key="$1" msg="$2"
   local f="/tmp/pw-$(echo "$key" | md5sum | cut -c1-8)"
   [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f" 2>/dev/null || echo 0) )) -lt 21600 ] && return
-  docker compose exec -T social-api python -c "
+  # timeout bounds the docker call — a WSL/docker flake must NOT kill the
+  # whole watchdog run (observed 2026-10-28: WSAETIMEDOUT aborting mid-loop)
+  timeout 20 docker compose exec -T social-api python -c "
 import asyncio
 from app.services.slack_notifications import post_alert_to_slack
 asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" && return

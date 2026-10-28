@@ -30,7 +30,7 @@ ALERT() {  # post to the ops Slack channel, throttled to once/30min per key
   local key="$1" msg="$2"
   local f="/tmp/wd-$(echo "$key" | md5sum | cut -c1-8)"
   [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f") )) -lt 1800 ] && return
-  docker compose exec -T social-api python -c "
+  timeout 20 docker compose exec -T social-api python -c "
 import asyncio
 from app.services.slack_notifications import post_alert_to_slack
 asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
