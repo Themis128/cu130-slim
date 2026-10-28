@@ -1,8 +1,0 @@
-{
-  "email": "you@example.com",
-  "kpa": "YOUR_TRACKING_CODE",
-  "adminEmail": "social-api admin email",
-  "adminPassword": "social-api admin password",
-  "accountId": "telegram social_account UUID",
-  "chatId": "-100xxxxxxxxx"
-}
