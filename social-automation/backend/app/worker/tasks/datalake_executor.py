@@ -81,6 +81,7 @@ async def _exec_content_topic(db, team_id, action) -> dict:
         },
     )
     db.add(post)
+    await db.flush()
     return {"post_id": str(post.id), "platform": platform}
 
 
