@@ -61,9 +61,7 @@ async def test_cloudless_leads_webhook_posts_when_url_set():
 
     payload = {"event": "lead.upserted", "operation": "created", "lead": leads_service._lead_payload(lead)}
 
-    with patch.object(leads_service, "get_settings", return_value=settings), patch.object(
-        leads_service.httpx, "AsyncClient", return_value=fake
-    ):
+    with patch.object(leads_service, "get_settings", return_value=settings), patch.object(leads_service.httpx, "AsyncClient", return_value=fake):
         await leads_service._post_cloudless_leads_webhook(payload)
 
     assert len(fake.calls) == 1
@@ -84,8 +82,9 @@ async def test_cloudless_leads_webhook_skips_when_url_unset():
     def _should_not_be_called(*args, **kwargs):
         raise AssertionError("httpx.AsyncClient should not be constructed when URL is unset")
 
-    with patch.object(leads_service, "get_settings", return_value=settings), patch.object(
-        leads_service.httpx, "AsyncClient", side_effect=_should_not_be_called
+    with (
+        patch.object(leads_service, "get_settings", return_value=settings),
+        patch.object(leads_service.httpx, "AsyncClient", side_effect=_should_not_be_called),
     ):
         await leads_service._post_cloudless_leads_webhook({"event": "lead.upserted", "operation": "created", "lead": {}})
 
@@ -201,4 +200,3 @@ async def test_record_espo_lead_id_merges_metadata():
 
     assert committed == [True]
     assert lead.meta_data == {"utm": {"source": "ig"}, "espocrm_lead_id": "espo-xyz"}
-

@@ -4,6 +4,7 @@ Exercises the real service end-to-end; only the true external boundaries
 are stubbed: the embedding call (DMR/CF) and the HTTP transport shared by
 Chroma + Nextcloud Notes.
 """
+
 import json
 import uuid
 from datetime import UTC, date, datetime
@@ -35,9 +36,7 @@ def _wire_http(monkeypatch, handler):
     """Route every httpx.AsyncClient in the module through a MockTransport."""
     transport = httpx.MockTransport(handler)
     real = httpx.AsyncClient
-    monkeypatch.setattr(
-        httpx, "AsyncClient", lambda *a, **kw: real(transport=transport)
-    )
+    monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: real(transport=transport))
 
 
 class _PostsResult:
@@ -76,10 +75,7 @@ class _FakeDB:
 
 
 def _post(status, platforms, failure=None, when=None):
-    targets = [
-        SimpleNamespace(social_account=SimpleNamespace(platform=p))
-        for p in platforms
-    ]
+    targets = [SimpleNamespace(social_account=SimpleNamespace(platform=p)) for p in platforms]
     return SimpleNamespace(
         id=uuid.uuid4(),
         status=status,
@@ -163,9 +159,7 @@ async def test_write_daily_journal_updates_existing_note(brain_on, monkeypatch):
             return httpx.Response(200, json={"id": "col-1"})
         if "/apps/notes/" in path:
             if request.method == "GET":
-                return httpx.Response(
-                    200, json=[{"id": 42, "title": "Company Brain — 2026-10-18"}]
-                )
+                return httpx.Response(200, json=[{"id": 42, "title": "Company Brain — 2026-10-18"}])
             if request.method == "PUT":
                 puts.append(json.loads(request.content))
                 return httpx.Response(200, json={"id": 42})
@@ -239,11 +233,14 @@ async def test_recall_cited_returns_hits_with_provenance(brain_on, monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
         if path.endswith("/query"):
-            return httpx.Response(200, json={
-                "documents": [["journal A", "journal B"]],
-                "metadatas": [[{"kind": "daily-journal", "day": "2026-10-21"}, {}]],
-                "distances": [[0.12, 0.44]],
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "documents": [["journal A", "journal B"]],
+                    "metadatas": [[{"kind": "daily-journal", "day": "2026-10-21"}, {}]],
+                    "distances": [[0.12, 0.44]],
+                },
+            )
         return httpx.Response(200, json={"id": "col-1"})
 
     _wire_http(monkeypatch, handler)
@@ -329,9 +326,7 @@ def test_journal_text_skips_none_follower_snapshot():
 @pytest.mark.asyncio
 async def test_nextcloud_note_dav_fallback_and_not_configured(brain_on, monkeypatch):
     monkeypatch.setattr(cb.settings, "NEXTCLOUD_BASE_URL", "")
-    monkeypatch.setattr(
-        cb.settings, "NEXTCLOUD_DAV_URL", "https://dav.test/remote.php/dav/files/t/"
-    )
+    monkeypatch.setattr(cb.settings, "NEXTCLOUD_DAV_URL", "https://dav.test/remote.php/dav/files/t/")
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

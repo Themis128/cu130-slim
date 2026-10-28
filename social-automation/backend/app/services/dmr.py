@@ -81,6 +81,7 @@ class _Mutable:
 
 _state = _Mutable()
 
+
 # ── Connection pool (improvement #3) ─────────────────────────────────────────
 # Shared httpx.AsyncClient with keep-alive.  Created lazily on first use.
 # The client AND its pooled connections are bound to the event loop that
@@ -91,11 +92,7 @@ _state = _Mutable()
 async def _get_client() -> httpx.AsyncClient:
     """Return the shared httpx.AsyncClient, creating it if needed."""
     loop = asyncio.get_running_loop()
-    if (
-        _state.client is not None
-        and not _state.client.is_closed
-        and _state.client_loop is loop
-    ):
+    if _state.client is not None and not _state.client.is_closed and _state.client_loop is loop:
         return _state.client
     # The lock binds to the first loop that contends for it — recreate it
     # alongside the client so cross-loop use can't deadlock/raise.
@@ -103,11 +100,7 @@ async def _get_client() -> httpx.AsyncClient:
         _state.client_lock = asyncio.Lock()
     async with _state.client_lock:
         loop = asyncio.get_running_loop()
-        if (
-            _state.client is None
-            or _state.client.is_closed
-            or _state.client_loop is not loop
-        ):
+        if _state.client is None or _state.client.is_closed or _state.client_loop is not loop:
             old = _state.client
             _state.client = httpx.AsyncClient(
                 timeout=httpx.Timeout(300.0, connect=5.0),
@@ -187,9 +180,7 @@ def _get_semaphore() -> asyncio.Semaphore:
     except RuntimeError:
         loop = None
     if _state.sem is None or _state.sem_loop is not loop:
-        _state.sem = asyncio.Semaphore(
-            max(1, getattr(settings, "DMR_MAX_CONCURRENCY", 4))
-        )
+        _state.sem = asyncio.Semaphore(max(1, getattr(settings, "DMR_MAX_CONCURRENCY", 4)))
         _state.sem_loop = loop
     return _state.sem
 
@@ -240,16 +231,14 @@ async def validate_dmr_models() -> dict[str, Any]:
             return {"online": False, "expected": sorted(expected), "present": [], "missing": sorted(expected)}
         data = resp.json()
         present_ids = {m.get("id", "") for m in data.get("data", [])}
+
         # Runner reports full refs like "docker.io/ai/llama3.2:latest" and
         # lowercases hf.co → huggingface.co — normalize before suffix-matching.
         def _norm(ref: str) -> str:
             return ref.lower().replace("hf.co/", "huggingface.co/")
 
         norm_ids = {_norm(p) for p in present_ids}
-        present = {
-            e for e in expected
-            if any(p.endswith(_norm(e).split("ai/")[-1]) or _norm(e) in p for p in norm_ids)
-        }
+        present = {e for e in expected if any(p.endswith(_norm(e).split("ai/")[-1]) or _norm(e) in p for p in norm_ids)}
         missing = expected - present
         return {
             "online": True,
@@ -543,9 +532,17 @@ async def _free_gpu_memory() -> None:
 # Sub-200-char prompts on any platform still take the tiny model (smollm3),
 # and schema requests always take the 8B regardless of platform.
 LONG_FORM_PLATFORMS = frozenset({"linkedin", "facebook", "blog", "article"})
-SHORT_FORM_PLATFORMS = frozenset({
-    "instagram", "tiktok", "twitter", "x", "threads", "youtube", "pinterest",
-})
+SHORT_FORM_PLATFORMS = frozenset(
+    {
+        "instagram",
+        "tiktok",
+        "twitter",
+        "x",
+        "threads",
+        "youtube",
+        "pinterest",
+    }
+)
 
 
 def _select_model_by_complexity(
@@ -775,9 +772,7 @@ async def _post_configure(model: str, body: dict[str, Any]) -> int | None:
     """POST a full config body to /engines/_configure; returns HTTP status."""
     try:
         client = await _get_client()
-        resp = await client.post(
-            f"{_dmr_base_url()}/engines/_configure", json=body, timeout=5.0
-        )
+        resp = await client.post(f"{_dmr_base_url()}/engines/_configure", json=body, timeout=5.0)
     except Exception as exc:
         logger.debug("DMR _configure %s failed (%s)", sanitize_log_text(model, 120), type(exc).__name__)
         return None
@@ -808,8 +803,7 @@ async def configure_keep_alive(model: str, keep_alive: str = "5m") -> None:
     elif status == 404 and model not in _keep_alive_endpoint_warned:
         _keep_alive_endpoint_warned.add(model)
         logger.warning(
-            "DMR: /engines/_configure returns 404 on this runner build — "
-            "keep_alive for %s is owned by dmr-watchdog configs, not this call",
+            "DMR: /engines/_configure returns 404 on this runner build — keep_alive for %s is owned by dmr-watchdog configs, not this call",
             sanitize_log_text(model, 120),
         )
 
@@ -881,9 +875,7 @@ async def _try_acquire_warmup_lock() -> bool:
     try:
         r = _redis_client()
         try:
-            acquired = bool(
-                await r.set(_WARMUP_LOCK_KEY, token, nx=True, ex=_WARMUP_LOCK_TTL)
-            )
+            acquired = bool(await r.set(_WARMUP_LOCK_KEY, token, nx=True, ex=_WARMUP_LOCK_TTL))
         finally:
             await r.aclose()
     except Exception:
@@ -992,7 +984,8 @@ async def _warm_models_locked() -> None:
         else:
             logger.info(
                 "DMR warmup: skipping %s — only %dMB free after mid model",
-                text_model, budget_mb,
+                text_model,
+                budget_mb,
             )
 
     # Vision model is large — only warm on the leftover budget
@@ -1044,10 +1037,7 @@ async def _running_dmr_models() -> set[str]:
         resp = await client.get(f"{_dmr_base_url()}/api/ps", timeout=5.0)
         if resp.status_code != 200:
             return set()
-        return {
-            str(m.get("name", "")).lower().replace("hf.co/", "huggingface.co/")
-            for m in resp.json().get("models") or []
-        }
+        return {str(m.get("name", "")).lower().replace("hf.co/", "huggingface.co/") for m in resp.json().get("models") or []}
     except Exception:
         return set()
 
@@ -1379,10 +1369,7 @@ async def _call_dmr_chat_internal(
         raise ConnectionError("DMR is offline (both API and CLI fallback failed)")
 
     # Build the system prompt
-    sys_prompt = system or (
-        "You are a helpful assistant. When asked to return JSON, "
-        "output only valid JSON — no markdown, no explanation."
-    )
+    sys_prompt = system or ("You are a helpful assistant. When asked to return JSON, output only valid JSON — no markdown, no explanation.")
     user_msg = prompt
     if schema:
         user_msg += "\n\nIMPORTANT: Return ONLY valid JSON matching the requested structure. No markdown code blocks."
@@ -1722,9 +1709,7 @@ def _flatten_alpha(img: Any) -> Any:
     """
     from PIL import Image
 
-    has_alpha = img.mode in ("RGBA", "LA", "PA", "RGBa", "La") or (
-        "transparency" in img.info
-    )
+    has_alpha = img.mode in ("RGBA", "LA", "PA", "RGBa", "La") or ("transparency" in img.info)
     if not has_alpha:
         return img if img.mode == "RGB" else img.convert("RGB")
     rgba = img.convert("RGBA")

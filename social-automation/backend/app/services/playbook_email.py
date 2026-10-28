@@ -8,6 +8,7 @@ and mirrored on the public site at ``PUBLIC_PLAYBOOK_URL`` (the default
 Access. This module sends the submitter an email linking to it through the
 standard ``send_email`` path.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -22,13 +23,9 @@ logger = logging.getLogger(__name__)
 
 PLAYBOOK_TITLE = "The Cloud Migration Playbook"
 PLAYBOOK_TASK_NAME = "app.worker.tasks.lead_emails.send_playbook_email"
-_BUTTON_STYLE = (
-    "display:inline-block;background:#0891b2;color:#fff;padding:10px 18px;"
-    "border-radius:6px;text-decoration:none;font-weight:600"
-)
+_BUTTON_STYLE = "display:inline-block;background:#0891b2;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600"
 _OUTLINE_BUTTON_STYLE = (
-    "display:inline-block;background:#fff;color:#0891b2;padding:10px 18px;"
-    "border:2px solid #0891b2;border-radius:6px;text-decoration:none;font-weight:600"
+    "display:inline-block;background:#fff;color:#0891b2;padding:10px 18px;border:2px solid #0891b2;border-radius:6px;text-decoration:none;font-weight:600"
 )
 
 
@@ -54,10 +51,7 @@ def email_sender_configured(settings=None) -> bool:
         return False
     provider = (settings.EMAIL_PROVIDER or "local").strip().lower()
     if provider in {"cloudflare", "cf"}:
-        return bool(
-            (settings.CLOUDFLARE_EMAIL_API_TOKEN or "").strip()
-            or (getattr(settings, "CLOUDFLARE_API_TOKEN", "") or "").strip()
-        )
+        return bool((settings.CLOUDFLARE_EMAIL_API_TOKEN or "").strip() or (getattr(settings, "CLOUDFLARE_API_TOKEN", "") or "").strip())
     if not (settings.SMTP_HOST or "").strip():
         return False
     # An authenticated relay (e.g. Resend) is useless without its password;
@@ -69,20 +63,13 @@ def email_sender_configured(settings=None) -> bool:
 
 def playbook_delivery_enabled(settings=None) -> bool:
     settings = settings or get_settings()
-    return bool(
-        getattr(settings, "PLAYBOOK_EMAIL_ENABLED", True)
-        and playbook_url(settings)
-        and email_sender_configured(settings)
-    )
+    return bool(getattr(settings, "PLAYBOOK_EMAIL_ENABLED", True) and playbook_url(settings) and email_sender_configured(settings))
 
 
 def _utm(url: str, content: str) -> str:
     """Tag an outbound link for funnel attribution in web analytics."""
     sep = "&" if "?" in url else "?"
-    return (
-        f"{url}{sep}utm_source=playbook-email&utm_medium=email"
-        f"&utm_campaign=cloud-migration-playbook&utm_content={content}"
-    )
+    return f"{url}{sep}utm_source=playbook-email&utm_medium=email&utm_campaign=cloud-migration-playbook&utm_content={content}"
 
 
 def _first_name(name: str | None) -> str:
@@ -118,9 +105,7 @@ def build_playbook_email(url: str, name: str | None = None) -> tuple[str, str, s
     )
     u = _html_escape(download_url)
     au = _html_escape(audit_url)
-    preheader = _html_escape(
-        "Your Cloud Migration Playbook is attached — plus a free 30-minute audit offer."
-    )
+    preheader = _html_escape("Your Cloud Migration Playbook is attached — plus a free 30-minute audit offer.")
     html = f"""<!DOCTYPE html>
 <html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#111;max-width:560px">
   <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">{preheader}</div>
@@ -150,10 +135,7 @@ def playbook_unsubscribe_mailto() -> str:
     """mailto: unsubscribe for the List-Unsubscribe header and footer link."""
     from urllib.parse import quote
 
-    return (
-        "mailto:tbaltzakis@cloudless.gr"
-        f"?subject={quote('unsubscribe playbook list')}"
-    )
+    return f"mailto:tbaltzakis@cloudless.gr?subject={quote('unsubscribe playbook list')}"
 
 
 async def send_playbook_email(to_addr: str, name: str | None = None) -> None:

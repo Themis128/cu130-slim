@@ -47,9 +47,7 @@ async def init_db() -> None:
     # which caused "Failed to connect" when linking social accounts.
     if settings.SOCIAL_ADMIN_EMAIL and settings.SOCIAL_ADMIN_PASSWORD:
         async with async_session_maker() as session:
-            result = await session.execute(
-                select(User).where(User.email == settings.SOCIAL_ADMIN_EMAIL)
-            )
+            result = await session.execute(select(User).where(User.email == settings.SOCIAL_ADMIN_EMAIL))
             admin_user = result.scalar_one_or_none()
             if not admin_user:
                 try:
@@ -65,9 +63,7 @@ async def init_db() -> None:
                     logger.info(f"Seeded admin user: {settings.SOCIAL_ADMIN_EMAIL}")
                 except IntegrityError:
                     await session.rollback()
-                    result = await session.execute(
-                        select(User).where(User.email == settings.SOCIAL_ADMIN_EMAIL)
-                    )
+                    result = await session.execute(select(User).where(User.email == settings.SOCIAL_ADMIN_EMAIL))
                     admin_user = result.scalar_one_or_none()
 
             if admin_user is None:
@@ -79,25 +75,17 @@ async def init_db() -> None:
             # these credentials are always accepted: re-hash the password and refresh
             # name/timezone on every startup (e.g. after .env rotation or a DB re-import).
             try:
-                password_matches = verify_password(
-                    settings.SOCIAL_ADMIN_PASSWORD, admin_user.password_hash
-                )
+                password_matches = verify_password(settings.SOCIAL_ADMIN_PASSWORD, admin_user.password_hash)
             except Exception:
                 password_matches = False
             desired_name = settings.SOCIAL_ADMIN_NAME or "Admin User"
-            if (
-                not password_matches
-                or admin_user.name != desired_name
-                or admin_user.timezone != settings.APP_TIMEZONE
-            ):
+            if not password_matches or admin_user.name != desired_name or admin_user.timezone != settings.APP_TIMEZONE:
                 admin_user.password_hash = hash_password(settings.SOCIAL_ADMIN_PASSWORD)
                 admin_user.name = desired_name
                 admin_user.timezone = settings.APP_TIMEZONE
                 logger.info(f"Synced env admin credentials for {settings.SOCIAL_ADMIN_EMAIL}")
 
-            membership = await session.execute(
-                select(TeamMember).where(TeamMember.user_id == admin_user.id).limit(1)
-            )
+            membership = await session.execute(select(TeamMember).where(TeamMember.user_id == admin_user.id).limit(1))
             if not membership.scalar_one_or_none():
                 try:
                     team = Team(
@@ -107,18 +95,14 @@ async def init_db() -> None:
                     )
                     session.add(team)
                     await session.flush()
-                    session.add(
-                        TeamMember(team_id=team.id, user_id=admin_user.id, role=UserRole.OWNER)
-                    )
+                    session.add(TeamMember(team_id=team.id, user_id=admin_user.id, role=UserRole.OWNER))
                     logger.info(f"Seeded default team for admin: {settings.SOCIAL_ADMIN_EMAIL}")
                     await session.commit()
                 except IntegrityError:
                     await session.rollback()
 
             # Ensure all teams owned by the admin are enterprise tier.
-            admin_teams = (await session.execute(
-                select(Team).where(Team.owner_id == admin_user.id)
-            )).scalars().all()
+            admin_teams = (await session.execute(select(Team).where(Team.owner_id == admin_user.id))).scalars().all()
             for t in admin_teams:
                 if t.plan_tier != "enterprise":
                     t.plan_tier = "enterprise"

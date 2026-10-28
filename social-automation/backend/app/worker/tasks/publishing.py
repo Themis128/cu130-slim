@@ -46,8 +46,8 @@ logger = logging.getLogger(__name__)
 # target still fits in the remaining budget. Unstarted rows go back to
 # PENDING for the next 30s beat instead of being stranded in PROCESSING.
 _QUEUE_BATCH_SIZE = 5
-_RUN_BUDGET_S = 900 - 60          # soft_time_limit minus a safety margin
-_WORST_CASE_TARGET_S = 420        # longest single-target publish observed
+_RUN_BUDGET_S = 900 - 60  # soft_time_limit minus a safety margin
+_WORST_CASE_TARGET_S = 420  # longest single-target publish observed
 # Stale-lock reclaim must exceed the task's *hard* time_limit (1200s) so a
 # run that is still alive never has its rows reclaimed by a parallel run
 # (that race can double-post: the idempotency guard only sees "published"
@@ -127,9 +127,7 @@ def _apply_capacity_deferral(
     item.locked_by = None
     if target is not None:
         target.status = "pending"
-        target.error_message = (
-            f"Deferred #{count + 1} until {when:%Y-%m-%d %H:%M} UTC: {detail}"
-        )[:1000]
+        target.error_message = (f"Deferred #{count + 1} until {when:%Y-%m-%d %H:%M} UTC: {detail}")[:1000]
     return None
 
 
@@ -190,10 +188,12 @@ async def _rollup_post_status(post: Post, db: AsyncSession) -> None:
     statuses = [t.status for t in targets]
 
     inflight_result = await db.execute(
-        select(PublishQueue).where(
+        select(PublishQueue)
+        .where(
             PublishQueue.post_id == post.id,
             PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
-        ).limit(1)
+        )
+        .limit(1)
     )
     in_flight = inflight_result.scalar_one_or_none() is not None
 
@@ -253,9 +253,7 @@ async def _notify_publish_failure(
     ]
     if preview:
         lines.append(f"> {preview}")
-    lines.append(
-        "• What to do next: open SocialAuto → Posts → Failed, then retry (or reconnect the account if needed)."
-    )
+    lines.append("• What to do next: open SocialAuto → Posts → Failed, then retry (or reconnect the account if needed).")
     lines.append(f"• What happened: {reason_clean[:300] or 'Unknown error'}")
     if targets_summary:
         lines.append(f"• Other platforms: {targets_summary}")
@@ -375,9 +373,7 @@ async def _enforce_publish_quality(post: Post, account: SocialAccount, db: Async
     return gate
 
 
-async def _post_publish_summary_to_slack(
-    post: Post, results: list[tuple[str, str | None]]
-) -> None:
+async def _post_publish_summary_to_slack(post: Post, results: list[tuple[str, str | None]]) -> None:
     """One aggregated Slack message per post — platforms + links on one line
     each — instead of a fan-out of one message per platform target."""
     try:
@@ -436,9 +432,7 @@ async def _maybe_send_publish_summary(db: AsyncSession, post: Post) -> None:
         ).all()
         if not rows:
             return
-        claim = hashlib.sha1(
-            ",".join(sorted(str(r.id) for r in rows)).encode()
-        ).hexdigest()[:16]
+        claim = hashlib.sha1(",".join(sorted(str(r.id) for r in rows)).encode()).hexdigest()[:16]
         claimed = (
             await db.execute(
                 text(
@@ -455,31 +449,21 @@ async def _maybe_send_publish_summary(db: AsyncSession, post: Post) -> None:
         await db.commit()
         if not claimed:
             return  # another worker already sent this exact summary
-        await _post_publish_summary_to_slack(
-            post, [(r.platform, r.platform_url) for r in rows]
-        )
+        await _post_publish_summary_to_slack(post, [(r.platform, r.platform_url) for r in rows])
     except Exception:
-        logger.warning(
-            "publish summary skipped for post %s", post.id, exc_info=True
-        )
+        logger.warning("publish summary skipped for post %s", post.id, exc_info=True)
 
 
 async def _target_status_line(post: Post, db: AsyncSession) -> str | None:
     """Summarise the post's other targets for failure alerts — shows a partial
     success ('published on linkedin, threads') instead of looking fully dead."""
     try:
-        result = await db.execute(
-            select(PostTarget).where(PostTarget.post_id == post.id)
-        )
+        result = await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
         targets = result.scalars().all()
     except Exception:
         return None
     buckets: dict[str, list[str]] = {}
-    acct_result = await db.execute(
-        select(SocialAccount).where(
-            SocialAccount.id.in_([t.social_account_id for t in targets])
-        )
-    )
+    acct_result = await db.execute(select(SocialAccount).where(SocialAccount.id.in_([t.social_account_id for t in targets])))
     accts = {a.id: a.platform for a in acct_result.scalars().all()}
     for t in targets:
         buckets.setdefault(t.status, []).append(accts.get(t.social_account_id, "?"))
@@ -490,6 +474,7 @@ async def _target_status_line(post: Post, db: AsyncSession) -> str | None:
             parts.append(f"{status}: {', '.join(sorted(set(names)))}")
     return " · ".join(parts) if parts else None
 
+
 # Bind shared tasks in this process to the Redis-backed app (not default AMQP).
 celery_app.set_default()
 celery_app.set_current()
@@ -499,6 +484,7 @@ _worker_db = task_session
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
+
 
 async def _process_publish_queue_async() -> None:
     async with _worker_db() as db:
@@ -574,9 +560,9 @@ async def _process_publish_queue_async() -> None:
                     rest.locked_by = None
                 await db.commit()
                 logger.warning(
-                    "[publishing] run budget reached after %.0fs — released %d "
-                    "unstarted queue row(s) for the next beat",
-                    elapsed, len(remaining),
+                    "[publishing] run budget reached after %.0fs — released %d unstarted queue row(s) for the next beat",
+                    elapsed,
+                    len(remaining),
                 )
                 break
 
@@ -594,9 +580,7 @@ async def _process_publish_queue_async() -> None:
                     )
                     continue
 
-                account_result = await db.execute(
-                    select(SocialAccount).where(SocialAccount.id == item.social_account_id)
-                )
+                account_result = await db.execute(select(SocialAccount).where(SocialAccount.id == item.social_account_id))
                 account = account_result.scalar_one_or_none()
                 if not account:
                     item.status = QueueStatus.FAILED
@@ -634,28 +618,26 @@ async def _process_publish_queue_async() -> None:
                 # Recurring posts are exempt — republishing is their point.
                 if not post.is_recurring:
                     recent_texts = (
-                        await db.execute(
-                            select(Post.content_text)
-                            .join(PostTarget, PostTarget.post_id == Post.id)
-                            .where(
-                                PostTarget.social_account_id == account.id,
-                                PostTarget.status == "published",
-                                PostTarget.published_at >= now - timedelta(hours=24),
-                                Post.id != post.id,
+                        (
+                            await db.execute(
+                                select(Post.content_text)
+                                .join(PostTarget, PostTarget.post_id == Post.id)
+                                .where(
+                                    PostTarget.social_account_id == account.id,
+                                    PostTarget.status == "published",
+                                    PostTarget.published_at >= now - timedelta(hours=24),
+                                    Post.id != post.id,
+                                )
                             )
                         )
-                    ).scalars().all()
-                    if any(
-                        is_duplicate(post.content_text or "", t or "", threshold=0.9)
-                        for t in recent_texts
-                    ):
+                        .scalars()
+                        .all()
+                    )
+                    if any(is_duplicate(post.content_text or "", t or "", threshold=0.9) for t in recent_texts):
                         item.status = QueueStatus.COMPLETED
                         if target:
                             target.status = "skipped"
-                            target.error_message = (
-                                "Skipped: identical content already published to "
-                                "this account within the last 24h"
-                            )
+                            target.error_message = "Skipped: identical content already published to this account within the last 24h"
                         await db.flush()
                         await _rollup_post_status(post, db)
                         await db.commit()
@@ -684,16 +666,12 @@ async def _process_publish_queue_async() -> None:
                 # media-only posts publish with no caption (post f6255dd9).
                 # Empty content_text is only allowed when the post is
                 # explicitly flagged platform_specific.media_only == true.
-                if not (post.content_text or "").strip() and not (
-                    (post.platform_specific or {}).get("media_only")
-                ):
+                if not (post.content_text or "").strip() and not ((post.platform_specific or {}).get("media_only")):
                     item.status = QueueStatus.COMPLETED
                     if target:
                         target.status = "skipped"
                         target.error_message = (
-                            "Empty content_text — posts need real copy; set "
-                            "platform_specific.media_only=true to ship media "
-                            "without a caption"
+                            "Empty content_text — posts need real copy; set platform_specific.media_only=true to ship media without a caption"
                         )
                     await db.flush()
                     await _rollup_post_status(post, db)
@@ -732,9 +710,7 @@ async def _process_publish_queue_async() -> None:
                 # Per-platform deadline — TikTok status-polls up to ~10min,
                 # so a blanket 120s would cancel mid-publish and re-upload.
                 _item_deadline = 660.0 if account.platform == "tiktok" else 120.0
-                pub = await asyncio.wait_for(
-                    publish_to_platform(account, post, db), timeout=_item_deadline
-                )
+                pub = await asyncio.wait_for(publish_to_platform(account, post, db), timeout=_item_deadline)
 
                 deferred = False
                 if not pub.success and getattr(pub, "retry_after", None) is not None:
@@ -757,13 +733,26 @@ async def _process_publish_queue_async() -> None:
                         deferred = True
                         logger.info(
                             "[publishing] deferred %s target of post %s until %s: %s",
-                            account.platform, post.id, item.scheduled_at, (pub.error or "")[:200],
+                            account.platform,
+                            post.id,
+                            item.scheduled_at,
+                            (pub.error or "")[:200],
                         )
                     else:
-                        pub = dataclasses.replace(
-                            pub, error=gave_up, permanent=True, retry_after=None, skipped=False,
-                        ) if isinstance(pub, PublishResult) else PublishResult(
-                            success=False, error=gave_up, permanent=True,
+                        pub = (
+                            dataclasses.replace(
+                                pub,
+                                error=gave_up,
+                                permanent=True,
+                                retry_after=None,
+                                skipped=False,
+                            )
+                            if isinstance(pub, PublishResult)
+                            else PublishResult(
+                                success=False,
+                                error=gave_up,
+                                permanent=True,
+                            )
                         )
 
                 if deferred:
@@ -794,9 +783,7 @@ async def _process_publish_queue_async() -> None:
                     item.status = QueueStatus.COMPLETED
                     if target:
                         target.status = "skipped"
-                        target.error_message = (
-                            pub.error or "skipped by platform pre-flight (no detail recorded)"
-                        )
+                        target.error_message = pub.error or "skipped by platform pre-flight (no detail recorded)"
                 else:
                     if getattr(pub, "permanent", False):
                         # Deterministic failure (invalid media, tripped
@@ -871,9 +858,7 @@ async def _process_publish_queue_async() -> None:
                     try:
                         post_result = await db.execute(select(Post).where(Post.id == item.post_id))
                         err_post = post_result.scalar_one_or_none()
-                        acct_result = await db.execute(
-                            select(SocialAccount).where(SocialAccount.id == item.social_account_id)
-                        )
+                        acct_result = await db.execute(select(SocialAccount).where(SocialAccount.id == item.social_account_id))
                         err_account = acct_result.scalar_one_or_none()
                         if err_post and err_account:
                             tgt_result = await db.execute(
@@ -897,19 +882,14 @@ async def _process_publish_queue_async() -> None:
                     await _rollup_post_status(err_post, db)
                 await db.commit()
 
-                if item.status == QueueStatus.FAILED and (
-                    "Unhandled exception while publishing (see worker logs)" != err_prev_error
-                ):
+                if item.status == QueueStatus.FAILED and ("Unhandled exception while publishing (see worker logs)" != err_prev_error):
                     await _notify_publish_failure(
                         post=err_post,
                         account=err_account,
                         queue_item=item,
                         reason="Unhandled exception while publishing (see worker logs)",
-                        targets_summary=(
-                            await _target_status_line(err_post, db) if err_post else None
-                        ),
+                        targets_summary=(await _target_status_line(err_post, db) if err_post else None),
                     )
-
 
 
 async def _check_scheduled_posts_async() -> None:
@@ -926,9 +906,7 @@ async def _check_scheduled_posts_async() -> None:
         posts = result.scalars().all()
 
         for post in posts:
-            post_targets_result = await db.execute(
-                select(PostTarget).where(PostTarget.post_id == post.id)
-            )
+            post_targets_result = await db.execute(select(PostTarget).where(PostTarget.post_id == post.id))
             targets = post_targets_result.scalars().all()
 
             # If there are no targets, fail the post immediately instead of
@@ -937,12 +915,12 @@ async def _check_scheduled_posts_async() -> None:
             # directly, without PostTarget rows).
             if not targets:
                 queued = await db.execute(
-                    select(PublishQueue).where(
+                    select(PublishQueue)
+                    .where(
                         PublishQueue.post_id == post.id,
-                        PublishQueue.status.in_(
-                            [QueueStatus.PENDING, QueueStatus.PROCESSING]
-                        ),
-                    ).limit(1)
+                        PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
+                    )
+                    .limit(1)
                 )
                 # .first(): a multi-platform post has several queue rows,
                 # so scalar_one_or_none() would raise MultipleResultsFound.
@@ -990,9 +968,7 @@ async def _publish_post_now_async(post_id: str, account_ids: list[str]) -> dict:
 
         results = []
         for account_id in account_ids:
-            acct_result = await db.execute(
-                select(SocialAccount).where(SocialAccount.id == account_id)
-            )
+            acct_result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
             account = acct_result.scalar_one_or_none()
             if not account:
                 results.append({"account_id": account_id, "success": False, "error": "Account not found"})
@@ -1107,33 +1083,29 @@ async def _requeue_capacity_stuck_x_async(hours: float = 72.0, limit: int = 20) 
                 PublishQueue.social_account_id == account.id,
             )
             active = await db.scalar(
-                select(func.count()).select_from(PublishQueue).where(
+                select(func.count())
+                .select_from(PublishQueue)
+                .where(
                     *pair,
                     PublishQueue.status.in_([QueueStatus.PENDING, QueueStatus.PROCESSING]),
                 )
             )
             if active:
                 continue
-            last_row = await db.scalar(
-                select(func.max(PublishQueue.created_at)).where(*pair)
-            )
+            last_row = await db.scalar(select(func.max(PublishQueue.created_at)).where(*pair))
             last_at = _aware(last_row)
             if last_at is None or last_at < cutoff:
                 continue
             media_ids = list(dict.fromkeys(post.media_ids or []))
             if media_ids:
-                found = await db.scalar(
-                    select(func.count()).select_from(MediaAsset).where(MediaAsset.id.in_(media_ids))
-                )
+                found = await db.scalar(select(func.count()).select_from(MediaAsset).where(MediaAsset.id.in_(media_ids)))
                 if int(found or 0) != len(media_ids):
                     continue
             swept[key] = {"at": now.isoformat(), "error": (target.error_message or "")[:300]}
             ps[_SWEEP_STATE_KEY] = swept
             _set_platform_specific(post, ps)
             target.status = "pending"
-            target.error_message = (
-                f"Re-queued by X capacity sweep (was: {target.error_message or ''})"
-            )[:1000]
+            target.error_message = (f"Re-queued by X capacity sweep (was: {target.error_message or ''})")[:1000]
             db.add(
                 PublishQueue(
                     post_id=post.id,
@@ -1167,6 +1139,7 @@ async def _cleanup_publish_queue_async(days: int = 3) -> dict:
 
 
 # ── Celery tasks (sync wrappers) ─────────────────────────────────────────────
+
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def process_publish_queue(self) -> None:
@@ -1230,12 +1203,8 @@ def reconcile_instagram_publish(self, post_id: str, social_account_id: str) -> d
 
 async def _reconcile_instagram_publish_async(post_id: str, social_account_id: str) -> dict:
     async with _worker_db() as db:
-        post = (
-            await db.execute(select(Post).where(Post.id == post_id))
-        ).scalar_one_or_none()
-        account = (
-            await db.execute(select(SocialAccount).where(SocialAccount.id == social_account_id))
-        ).scalar_one_or_none()
+        post = (await db.execute(select(Post).where(Post.id == post_id))).scalar_one_or_none()
+        account = (await db.execute(select(SocialAccount).where(SocialAccount.id == social_account_id))).scalar_one_or_none()
         if not post or not account or account.platform != "instagram":
             return {"recovered": False, "reason": "post or instagram account not found"}
         target = (
@@ -1251,17 +1220,13 @@ async def _reconcile_instagram_publish_async(post_id: str, social_account_id: st
 
         meta = account.meta_data or {}
         try:
-            token = await _resolve_ig_user_token(
-                decrypt_token(account.access_token_enc), account, db
-            )
+            token = await _resolve_ig_user_token(decrypt_token(account.access_token_enc), account, db)
             client = InstagramAPIClient(
                 access_token=token,
                 ig_user_id=account.account_id,
                 use_business_login_api=(meta.get("login_type") == "business_login"),
             )
-            live = await _instagram_find_live(
-                client, post.content_text or "", within_minutes=60
-            )
+            live = await _instagram_find_live(client, post.content_text or "", within_minutes=60)
         except Exception as exc:
             logger.warning("Instagram reconcile probe failed for post %s: %s", post_id, exc)
             live = None
@@ -1278,20 +1243,25 @@ async def _reconcile_instagram_publish_async(post_id: str, social_account_id: st
         # A queue row left in terminal FAILED would keep the post flagged —
         # the publish actually landed, so close it out too.
         q = (
-            await db.execute(
-                select(PublishQueue).where(
-                    PublishQueue.post_id == post.id,
-                    PublishQueue.social_account_id == account.id,
-                    PublishQueue.status == QueueStatus.FAILED,
+            (
+                await db.execute(
+                    select(PublishQueue).where(
+                        PublishQueue.post_id == post.id,
+                        PublishQueue.social_account_id == account.id,
+                        PublishQueue.status == QueueStatus.FAILED,
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if q:
             q.status = QueueStatus.COMPLETED
         await _rollup_post_status(post, db)
         await db.commit()
         logger.info(
             "Instagram reconcile recovered post %s → media %s",
-            post_id, live.get("id"),
+            post_id,
+            live.get("id"),
         )
         return {"recovered": True, "media_id": live.get("id")}

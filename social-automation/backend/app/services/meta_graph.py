@@ -33,4 +33,3 @@ def facebook_graph_url(path: str, *, version: str = FACEBOOK_GRAPH_VERSION) -> s
     if not v:
         raise ValueError("Graph API version is empty")
     return f"{FACEBOOK_GRAPH_BASE}/{v}/{clean}"
-

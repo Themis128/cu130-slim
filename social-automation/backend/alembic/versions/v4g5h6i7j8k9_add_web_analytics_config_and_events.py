@@ -5,6 +5,7 @@ Revises: u3e6f7a8b9c0
 Create Date: 2026-09-15 07:00:00.000000
 
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 

@@ -9,6 +9,7 @@
 
 Reuses the fakes from test_media_api_router.py; storage backends and
 Celery are faked."""
+
 from __future__ import annotations
 
 import uuid

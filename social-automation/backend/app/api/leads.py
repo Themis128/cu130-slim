@@ -69,7 +69,8 @@ async def list_leads(
 
 @router.post("", response_model=LeadOut)
 async def create_lead_manual(
-    body: LeadCreateRequest, team_id: TeamId,
+    body: LeadCreateRequest,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> LeadOut:
@@ -190,14 +191,18 @@ async def create_lead_public(
     # unique per email). The atomic Redis claim in deliver_playbook is what
     # actually guarantees one email per address under concurrency.
     prior = (
-        await db.execute(
-            select(Lead.meta_data).where(
-                Lead.team_id == team_id,
-                Lead.source == LeadSource.website,
-                Lead.email == email,
+        (
+            await db.execute(
+                select(Lead.meta_data).where(
+                    Lead.team_id == team_id,
+                    Lead.source == LeadSource.website,
+                    Lead.email == email,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     already_sent = any((md or {}).get("playbook_email_queued_at") for md in prior)
 
     lead = await create_lead(
@@ -207,8 +212,7 @@ async def create_lead_public(
         name=(body.name or email.split("@", 1)[0])[:200],
         email=email,
         interest=LeadInterest.cloud,
-        notes=f"{meta['form']} — Free Cloud Migration Playbook"
-        + (f" (via {meta['site']})" if meta.get("site") else ""),
+        notes=f"{meta['form']} — Free Cloud Migration Playbook" + (f" (via {meta['site']})" if meta.get("site") else ""),
         meta_data=meta,
     )
 
@@ -279,8 +283,7 @@ async def create_audit_public(
         name=(body.name or email.split("@", 1)[0])[:200],
         email=email,
         notes=f"free-audit — score {audit.get('score')}/100 for {body.url}",
-        meta_data={"form": "free-audit", "audit_url": body.url,
-                   "audit_score": audit.get("score")},
+        meta_data={"form": "free-audit", "audit_url": body.url, "audit_score": audit.get("score")},
     )
     await db.flush()
 
@@ -304,8 +307,7 @@ async def create_audit_public(
         "ok": True,
         "score": audit.get("score"),
         "issues": len(findings),
-        "teaser": (findings[0].get("detail") if findings else
-                   "Your site looks healthy — details in your inbox."),
+        "teaser": (findings[0].get("detail") if findings else "Your site looks healthy — details in your inbox."),
     }
 
 
@@ -315,6 +317,7 @@ _PHONE_RE = re.compile(r"^\+[0-9][0-9\s().-]{6,19}$")
 class PublicSurveyRequest(BaseModel):
     """Short funnel survey — the gated-exchange capture that trades a
     deliverable for richer lead data than the bare email box."""
+
     email: str = Field(..., max_length=320)
     name: str | None = Field(None, max_length=200)
     phone: str | None = Field(None, max_length=30)
@@ -358,8 +361,7 @@ async def create_survey_public(
     if phone and not _PHONE_RE.match(phone):
         raise HTTPException(status_code=400, detail="Invalid phone — use +<country><number>")
     if phone and body.consent is False:
-        raise HTTPException(status_code=400,
-                            detail="Phone consent required — we'll only call about the survey")
+        raise HTTPException(status_code=400, detail="Phone consent required — we'll only call about the survey")
     team_id_raw = settings.CLOUDLESS_WEB_ANALYTICS_TEAM_ID
     if not team_id_raw:
         raise HTTPException(status_code=503, detail="Survey capture not configured")
@@ -393,8 +395,7 @@ async def create_survey_public(
         source=LeadSource.website,
         name=(body.name or email.split("@", 1)[0])[:200],
         email=email,
-        notes=f"survey — {len(meta['answers'])} answers"
-              + (f", phone {phone}" if phone else ""),
+        notes=f"survey — {len(meta['answers'])} answers" + (f", phone {phone}" if phone else ""),
         meta_data=meta,
     )
     await db.commit()
@@ -402,16 +403,16 @@ async def create_survey_public(
     # EspoCRM — upsert with the richer fields the local model can't hold
     try:
         first, _, last = (body.name or "").partition(" ")
-        await upsert_lead({
-            "emailAddress": email,
-            "firstName": first or email.split("@", 1)[0],
-            "lastName": last or "(survey)",
-            "phoneNumber": phone or "",
-            "source": "Website survey",
-            "description": "\n".join(
-                [f"{k}: {v}" for k, v in meta["answers"].items()]
-                + ([f"phone: {phone}"] if phone else []))[:2000],
-        })
+        await upsert_lead(
+            {
+                "emailAddress": email,
+                "firstName": first or email.split("@", 1)[0],
+                "lastName": last or "(survey)",
+                "phoneNumber": phone or "",
+                "source": "Website survey",
+                "description": "\n".join([f"{k}: {v}" for k, v in meta["answers"].items()] + ([f"phone: {phone}"] if phone else []))[:2000],
+            }
+        )
     except Exception:  # noqa: BLE001 — Espo down mustn't fail the survey
         pass
 

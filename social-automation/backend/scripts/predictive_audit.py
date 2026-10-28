@@ -65,10 +65,7 @@ async def _hourly_sufficiency() -> dict[str, dict]:
                 )
             )
         ).all()
-    return {
-        p: {"observations": n, "days": d, "distinct_hours": h, "sufficient": n >= _MIN_HOURLY_OBS}
-        for p, n, d, h in rows
-    }
+    return {p: {"observations": n, "days": d, "distinct_hours": h, "sufficient": n >= _MIN_HOURLY_OBS} for p, n, d, h in rows}
 
 
 async def _growth_velocity() -> list[dict]:
@@ -104,14 +101,16 @@ async def _growth_velocity() -> list[dict]:
         eta = None
         if platform == "facebook" and velocity and velocity > 0 and latest < _FB_STARS_GOAL:
             eta = round((_FB_STARS_GOAL - latest) / velocity)
-        out.append({
-            "platform": platform,
-            "account": f"{platform}/@{username}" if username else platform,
-            "followers": latest,
-            "per_day": velocity,
-            "eta_fb_stars_days": eta,
-            "stalled": velocity is not None and velocity <= 0,
-        })
+        out.append(
+            {
+                "platform": platform,
+                "account": f"{platform}/@{username}" if username else platform,
+                "followers": latest,
+                "per_day": velocity,
+                "eta_fb_stars_days": eta,
+                "stalled": velocity is not None and velocity <= 0,
+            }
+        )
     return out
 
 
@@ -152,31 +151,18 @@ async def _snapshot_coverage() -> dict:
     """Do we have enough history for any model? Min days of follower +
     post-analytics history per the paper's data-quality prerequisite."""
     async with async_session_maker() as db:
-        f_days = (
-            await db.execute(
-                text("SELECT count(DISTINCT captured_at::date) FROM follower_snapshots")
-            )
-        ).scalar() or 0
-        p_days = (
-            await db.execute(
-                text("SELECT count(DISTINCT captured_at::date) FROM post_analytics_snapshots")
-            )
-        ).scalar() or 0
+        f_days = (await db.execute(text("SELECT count(DISTINCT captured_at::date) FROM follower_snapshots"))).scalar() or 0
+        p_days = (await db.execute(text("SELECT count(DISTINCT captured_at::date) FROM post_analytics_snapshots"))).scalar() or 0
     return {"follower_history_days": f_days, "analytics_history_days": p_days}
 
 
 async def audit() -> dict:
-    hourly, velocity, anomalies, coverage = await asyncio.gather(
-        _hourly_sufficiency(), _growth_velocity(), _momentum_anomalies(), _snapshot_coverage()
-    )
+    hourly, velocity, anomalies, coverage = await asyncio.gather(_hourly_sufficiency(), _growth_velocity(), _momentum_anomalies(), _snapshot_coverage())
 
     gaps = []
     for p, m in hourly.items():
         if not m["sufficient"]:
-            gaps.append(
-                f"{p}: {m['observations']} observations — best-hour estimate "
-                "shrinks to static heuristic (prediction is baseline, not learned)"
-            )
+            gaps.append(f"{p}: {m['observations']} observations — best-hour estimate shrinks to static heuristic (prediction is baseline, not learned)")
     for v in velocity:
         if v["stalled"]:
             gaps.append(f"{v['account']}: growth stalled ({v['per_day']}/day) — threshold ETA undefined")
@@ -199,8 +185,7 @@ def render(r: dict) -> str:
     lines = [
         f"Predictive readiness — {r['generated_at'][:16]}Z",
         "",
-        f"history: {r['data_coverage']['follower_history_days']}d followers, "
-        f"{r['data_coverage']['analytics_history_days']}d post analytics",
+        f"history: {r['data_coverage']['follower_history_days']}d followers, {r['data_coverage']['analytics_history_days']}d post analytics",
         "",
         "best-hour training volume (60d)",
         f"{'platform':<12} {'obs':>5} {'days':>5} {'hours':>5}  sufficient?",

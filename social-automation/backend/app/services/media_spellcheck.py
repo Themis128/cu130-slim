@@ -4,6 +4,7 @@ Runs LanguageTool over any user-facing or AI-generated text attached to a media
 asset so filenames, alt text, captions, tags, and generation prompts are clean
 before they are stored, indexed, or rendered.
 """
+
 from app.services.spellcheck import auto_correct
 
 
@@ -29,11 +30,7 @@ async def correct_tags(tags: list[str] | None, language: str = "en-US") -> list[
         tag = tag.strip()
         if not tag:
             continue
-        fixed = (
-            (await auto_correct(tag, language=language)).strip()
-            if " " in tag
-            else tag
-        )
+        fixed = (await auto_correct(tag, language=language)).strip() if " " in tag else tag
         if fixed:
             corrected.append(fixed)
     # Dedupe while preserving order

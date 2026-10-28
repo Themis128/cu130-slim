@@ -1,4 +1,5 @@
 """MCP stack endpoints: health, tools, and session status for all browser sidecars and MCP servers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -130,10 +131,7 @@ async def _mcp_initialize_and_list_tools(url: str, timeout: float = 15.0) -> dic
 
             parsed = _parse_sse_response(resp2.text)
             raw_tools = parsed.get("result", {}).get("tools", [])
-            tools = [
-                {"name": t["name"], "description": (t.get("description") or "")[:200]}
-                for t in raw_tools
-            ]
+            tools = [{"name": t["name"], "description": (t.get("description") or "")[:200]} for t in raw_tools]
 
             return {
                 "online": True,

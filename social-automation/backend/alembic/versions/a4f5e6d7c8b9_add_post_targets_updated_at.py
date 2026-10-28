@@ -11,6 +11,7 @@ Revises: h8i9j0k1l2m3
 Create Date: 2026-10-19 16:30:00.000000
 
 """
+
 import sqlalchemy as sa
 
 from alembic import op
@@ -29,10 +30,7 @@ def upgrade() -> None:
     )
     # For already-published rows the publish time IS the outcome time —
     # better than NULL for the 7-day window.
-    op.execute(
-        "UPDATE post_targets SET updated_at = published_at "
-        "WHERE published_at IS NOT NULL"
-    )
+    op.execute("UPDATE post_targets SET updated_at = published_at WHERE published_at IS NOT NULL")
 
 
 def downgrade() -> None:

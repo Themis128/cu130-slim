@@ -75,7 +75,9 @@ async def generate_on_brand_content(
             "banned_phrases": voice.banned_phrases if voice else [],
             "preferred_phrases": voice.preferred_phrases if voice else [],
             "messaging_pillars": voice.messaging_pillars if voice else [],
-        } if voice else None,
+        }
+        if voice
+        else None,
     )
 
     prompt = f"""Write a {platform} post about: {topic}
@@ -170,7 +172,9 @@ async def run_autopilot(
                     "tone_dimensions": voice.tone_dimensions if voice else {},
                     "banned_phrases": voice.banned_phrases if voice else [],
                     "preferred_phrases": voice.preferred_phrases if voice else [],
-                } if voice else None,
+                }
+                if voice
+                else None,
             )
 
             score = compliance.get("score", 0)
@@ -190,13 +194,15 @@ async def run_autopilot(
             await db.commit()
             await db.refresh(post)
 
-            drafts.append({
-                "id": str(post.id),
-                "topic": topic,
-                "scheduled_at": slot.isoformat(),
-                "compliance_score": score,
-                "content_preview": content[:100],
-            })
+            drafts.append(
+                {
+                    "id": str(post.id),
+                    "topic": topic,
+                    "scheduled_at": slot.isoformat(),
+                    "compliance_score": score,
+                    "content_preview": content[:100],
+                }
+            )
             created_count += 1
         except Exception:
             skipped_count += 1

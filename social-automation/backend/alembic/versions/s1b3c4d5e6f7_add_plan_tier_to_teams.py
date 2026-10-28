@@ -8,6 +8,7 @@ Note: This column was added out-of-band before the migration existed.
 The upgrade() is idempotent — it checks information_schema before adding
 so it works on databases that already have the column.
 """
+
 import sqlalchemy as sa
 
 from alembic import op

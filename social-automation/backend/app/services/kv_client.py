@@ -3,6 +3,7 @@
 Used as the primary cache layer with Redis as local failover.
 Free tier: 100K reads/day, 1K writes/day, 1GB storage.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,7 +26,8 @@ class KVClient:
         self.cache_ns = (settings.KV_CACHE_NAMESPACE or "").strip()
         # Token fallback chain: API token → AI token → Email token
         self._tokens = [
-            t for t in [
+            t
+            for t in [
                 (settings.CLOUDFLARE_API_TOKEN or "").strip(),
                 (settings.CLOUDFLARE_AI_API_TOKEN or "").strip(),
                 (getattr(settings, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
@@ -46,10 +48,7 @@ class KVClient:
     @property
     def base_url(self) -> str:
         if self._base_url is None:
-            self._base_url = (
-                f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}"
-                f"/storage/kv/namespaces/{self.cache_ns}"
-            )
+            self._base_url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/storage/kv/namespaces/{self.cache_ns}"
         return self._base_url
 
     def _headers(self) -> dict[str, str]:

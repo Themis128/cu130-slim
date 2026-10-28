@@ -84,12 +84,8 @@ def _age_days(lead: dict[str, Any], now: datetime) -> float | None:
 
 async def _mark_dead(lead: dict[str, Any], reason: str) -> bool:
     try:
-        await espocrm_client.espo_patch(
-            f"/Lead/{lead['id']}", {"status": "Dead"}
-        )
-        await espocrm_client.add_lead_note(
-            lead["id"], f"[crm-hygiene] marked Dead: {reason}"
-        )
+        await espocrm_client.espo_patch(f"/Lead/{lead['id']}", {"status": "Dead"})
+        await espocrm_client.add_lead_note(lead["id"], f"[crm-hygiene] marked Dead: {reason}")
         return True
     except Exception as exc:  # noqa: BLE001
         logger.warning("crm hygiene: dead-mark failed for %s: %s", lead.get("id"), exc)
@@ -143,9 +139,7 @@ async def run_crm_hygiene(*, alert: bool = True) -> dict[str, Any]:
         # to escalate when the stale SLA fires.
         if assignee and not lead.get("assignedUserId"):
             try:
-                await espocrm_client.espo_patch(
-                    f"/Lead/{lead['id']}", {"assignedUserId": assignee}
-                )
+                await espocrm_client.espo_patch(f"/Lead/{lead['id']}", {"assignedUserId": assignee})
                 stats["assigned"] += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning("crm hygiene: assign failed for %s: %s", lead.get("id"), exc)
@@ -161,9 +155,7 @@ async def run_crm_hygiene(*, alert: bool = True) -> dict[str, Any]:
         dupes.sort(key=lambda ld: str(ld.get("createdAt") or ""), reverse=True)
         keeper = dupes[0]
         for dup in dupes[1:]:
-            if await _mark_dead(
-                dup, f"duplicate of {keeper['id']} ({email}) — merged note"
-            ):
+            if await _mark_dead(dup, f"duplicate of {keeper['id']} ({email}) — merged note"):
                 stats["deduped"] += 1
             else:
                 stats["errors"] += 1
@@ -201,10 +193,8 @@ async def _slack_report(stats: dict[str, Any]) -> None:
             f"Leads: {stats['total']} · quarantined {stats['quarantined']}"
             f" · deduped {stats['deduped']} · assigned {stats['assigned']}"
             f" · errors {stats['errors']}",
-            "By status: "
-            + ", ".join(f"{k}={v}" for k, v in sorted(stats["by_status"].items())),
-            "By source: "
-            + ", ".join(f"{k}={v}" for k, v in sorted(stats["by_source"].items())),
+            "By status: " + ", ".join(f"{k}={v}" for k, v in sorted(stats["by_status"].items())),
+            "By source: " + ", ".join(f"{k}={v}" for k, v in sorted(stats["by_source"].items())),
         ]
         if stats["stale_new"]:
             lines.append(f":warning: {len(stats['stale_new'])} New leads past {STALE_DAYS}d SLA:")

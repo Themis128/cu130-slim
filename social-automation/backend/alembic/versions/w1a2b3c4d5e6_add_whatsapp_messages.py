@@ -9,6 +9,7 @@ Revises: z9k0l1m2n3o4
 Create Date: 2026-09-22 20:00:00.000000
 
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 

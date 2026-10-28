@@ -19,10 +19,7 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.execute(
-        "UPDATE users SET timezone = 'Europe/Athens' "
-        "WHERE timezone IS NULL OR timezone = '' OR timezone = 'UTC'"
-    )
+    op.execute("UPDATE users SET timezone = 'Europe/Athens' WHERE timezone IS NULL OR timezone = '' OR timezone = 'UTC'")
     op.alter_column(
         "users",
         "timezone",

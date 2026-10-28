@@ -6,6 +6,7 @@ definition (labels, options, ids), campaign name/subject, validation
 errors that can echo answer keys, and the token taken from the URL path.
 Each must be HTML-escaped for its context.
 """
+
 from __future__ import annotations
 
 import json
@@ -57,8 +58,7 @@ class TestUnsubscribeEscaping:
 
 class TestSurveyEscaping:
     Q = [
-        {"id": 'q1" onfocus="alert(1)', "label": "<b>Pick</b> " + EVIL, "type": "choice",
-         "options": ['a" onclick="x', "<i>b</i>"]},
+        {"id": 'q1" onfocus="alert(1)', "label": "<b>Pick</b> " + EVIL, "type": "choice", "options": ['a" onclick="x', "<i>b</i>"]},
         {"id": "note", "label": "Tell us & more"},
     ]
 
@@ -77,8 +77,7 @@ class TestSurveyEscaping:
     @pytest.mark.asyncio
     async def test_form_escapes_campaign_name_subject_and_token(self):
         rec = _recipient(token=EVIL)
-        camp = _campaign(kind=CampaignKind.survey, name="<script>n()</script>",
-                         subject="Hi <img src=x onerror=s()>", meta_data={"questions": self.Q})
+        camp = _campaign(kind=CampaignKind.survey, name="<script>n()</script>", subject="Hi <img src=x onerror=s()>", meta_data={"questions": self.Q})
         resp = await api.survey_form(EVIL, _DB([_Res([rec]), _Res([]), _Res([camp])]))
         assert resp.status_code == 200
         _assert_no_raw(resp.body, "<script>", "<img src=x")
@@ -89,8 +88,7 @@ class TestSurveyEscaping:
     @pytest.mark.asyncio
     async def test_form_with_empty_subject(self):
         rec = _recipient()
-        camp = _campaign(kind=CampaignKind.survey, name="Feedback", subject=None,
-                         meta_data={"questions": self.Q[1:]})
+        camp = _campaign(kind=CampaignKind.survey, name="Feedback", subject=None, meta_data={"questions": self.Q[1:]})
         resp = await api.survey_form(rec.token, _DB([_Res([rec]), _Res([]), _Res([camp])]))
         assert resp.status_code == 200 and b"Feedback" in resp.body
 

@@ -8,6 +8,7 @@ account as ``expired`` and sends an alert email to the team owner.
 
 The task is non-fatal — failures are logged but do not abort the loop.
 """
+
 import logging
 from datetime import UTC, datetime
 
@@ -66,8 +67,7 @@ async def _send_alert(owner: User, reason: str) -> None:
         )[:2000]
         await post_alert_to_slack(
             alert_text,
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}]
-            + session_heal_buttons(),
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}] + session_heal_buttons(),
         )
 
         from app.services.email_templates import send_linkedin_session_alert_email
@@ -149,9 +149,7 @@ async def _run_check() -> dict:
             await db.commit()
     else:
         async with _worker_db() as db:
-            result = await db.execute(
-                select(SocialAccount).where(SocialAccount.platform == "linkedin")
-            )
+            result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin"))
             accounts = result.scalars().all()
             for account in accounts:
                 if account.status != "expired":
@@ -159,9 +157,7 @@ async def _run_check() -> dict:
                     summary["accounts_marked"] += 1
 
                     # Alert the team owner.
-                    owner_result = await db.execute(
-                        select(User).join(Team, Team.owner_id == User.id).where(Team.id == account.team_id)
-                    )
+                    owner_result = await db.execute(select(User).join(Team, Team.owner_id == User.id).where(Team.id == account.team_id))
                     owner = owner_result.scalar_one_or_none()
                     if owner is not None:
                         await _send_alert(owner, "LinkedIn browser session expired — re-capture required")

@@ -151,7 +151,8 @@ def require_team_role(min_role: UserRole):
     """
 
     async def _check(
-        current_user: CurrentUser, team_id: TeamId,
+        current_user: CurrentUser,
+        team_id: TeamId,
         db: DbSession,
     ) -> User:
         role = await get_user_role_in_team(current_user, team_id, db)
@@ -184,27 +185,18 @@ async def check_plan_feature(feature: str, team_id: uuid.UUID, db: AsyncSession)
     settings = get_settings()
     admin_email = getattr(settings, "SOCIAL_ADMIN_EMAIL", None)
     if admin_email:
-        owner_id = (
-            await db.execute(select(Team.owner_id).where(Team.id == team_id))
-        ).scalar_one_or_none()
+        owner_id = (await db.execute(select(Team.owner_id).where(Team.id == team_id))).scalar_one_or_none()
         if owner_id:
-            owner_email = (
-                await db.execute(select(User.email).where(User.id == owner_id))
-            ).scalar_one_or_none()
+            owner_email = (await db.execute(select(User.email).where(User.id == owner_id))).scalar_one_or_none()
             if owner_email == admin_email:
                 return  # Admin is exempt from feature gating
 
-    tier = (
-        await db.execute(select(Team.plan_tier).where(Team.id == team_id))
-    ).scalar_one_or_none() or "free"
+    tier = (await db.execute(select(Team.plan_tier).where(Team.id == team_id))).scalar_one_or_none() or "free"
     if not plan_has_feature(tier, feature):
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=f"'{feature}' requires a paid plan — upgrade to enable it.",
         )
-
-
-
 
 
 async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> None:
@@ -230,14 +222,10 @@ async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> No
     settings = get_settings()
     admin_email = getattr(settings, "SOCIAL_ADMIN_EMAIL", None)
     if admin_email:
-        result = await db.execute(
-            select(Team.owner_id).where(Team.id == team_id)
-        )
+        result = await db.execute(select(Team.owner_id).where(Team.id == team_id))
         owner_id = result.scalar_one_or_none()
         if owner_id:
-            result = await db.execute(
-                select(User.email).where(User.id == owner_id)
-            )
+            result = await db.execute(select(User.email).where(User.id == owner_id))
             owner_email = result.scalar_one_or_none()
             if owner_email and owner_email == admin_email:
                 return  # Admin is exempt from all quotas
@@ -272,9 +260,7 @@ async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> No
         )
         usage = result.scalar_one()
     elif resource == "social_accounts":
-        result = await db.execute(
-            select(func.count(SocialAccount.id)).where(SocialAccount.team_id == team_id)
-        )
+        result = await db.execute(select(func.count(SocialAccount.id)).where(SocialAccount.team_id == team_id))
         usage = result.scalar_one()
     else:
         return
@@ -308,9 +294,7 @@ async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> No
             )
             if existing.scalar_one() == 0:
                 # Find the team owner to email.
-                owner_result = await db.execute(
-                    select(User).join(Team, Team.owner_id == User.id).where(Team.id == team_id)
-                )
+                owner_result = await db.execute(select(User).join(Team, Team.owner_id == User.id).where(Team.id == team_id))
                 owner = owner_result.scalar_one_or_none()
                 if owner is not None:
                     # Respect notification preferences — default to True if unset.
@@ -321,8 +305,6 @@ async def check_quota(resource: str, team_id: uuid.UUID, db: AsyncSession) -> No
 
                     from app.services.email_templates import send_quota_warning_email
 
-                    asyncio.create_task(
-                        send_quota_warning_email(owner, resource, usage_int, limit)
-                    )
+                    asyncio.create_task(send_quota_warning_email(owner, resource, usage_int, limit))
     except Exception:
         pass  # non-fatal — quota check must never fail on email issues

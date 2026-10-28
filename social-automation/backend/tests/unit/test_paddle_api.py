@@ -1,4 +1,5 @@
 """Tests for app/services/paddle_api.py — Paddle Billing v2 client."""
+
 from __future__ import annotations
 
 import hashlib
@@ -65,6 +66,7 @@ def test_settings_passthrough(monkeypatch):
     # undo the autouse patch to exercise the real get_settings passthrough
     monkeypatch.undo()
     import app.services.paddle_api as m
+
     assert m._settings() is not None
 
 
@@ -113,7 +115,7 @@ def test_verify_signature(monkeypatch):
     assert pa.verify_webhook_signature(body, _sig(ts, body)) is True
 
     # wrong h1
-    assert pa.verify_webhook_signature(body, f"ts={ts};h1={'0'*64}") is False
+    assert pa.verify_webhook_signature(body, f"ts={ts};h1={'0' * 64}") is False
     # stale ts (>5min)
     assert pa.verify_webhook_signature(body, _sig(ts - 400, body)) is False
     # malformed header
@@ -134,8 +136,7 @@ async def test_get_or_create_customer(monkeypatch):
     async def fake_req(method, path, **kw):
         calls.append((method, path))
         if method == "GET":
-            return {"data": [{"id": "c1", "custom_data": {"team_id": "other"}},
-                             {"id": "c2", "custom_data": {"team_id": "t1"}}]}
+            return {"data": [{"id": "c1", "custom_data": {"team_id": "other"}}, {"id": "c2", "custom_data": {"team_id": "t1"}}]}
         return {"data": {"id": "c_new"}}
 
     monkeypatch.setattr(pa, "_request", fake_req)
@@ -160,16 +161,14 @@ async def test_create_checkout_transaction(monkeypatch):
         return {"data": {"id": "txn1", "checkout": {"url": "https://checkout"}}}
 
     monkeypatch.setattr(pa, "_request", fake_req)
-    out = await pa.create_checkout_transaction(
-        price_id="p1", team_id="t1", customer_id="c1")
+    out = await pa.create_checkout_transaction(price_id="p1", team_id="t1", customer_id="c1")
     assert out == {"id": "txn1", "checkout_url": "https://checkout"}
     assert captured["customer_id"] == "c1"
     assert captured["custom_data"] == {"team_id": "t1"}
     assert "checkout=success" in captured["checkout"]["url"]
 
     captured.clear()
-    await pa.create_checkout_transaction(
-        price_id="p1", team_id="t1", customer_email="e@x")
+    await pa.create_checkout_transaction(price_id="p1", team_id="t1", customer_email="e@x")
     assert captured["customer"] == {"email": "e@x"}
 
     captured.clear()
@@ -203,8 +202,7 @@ async def test_subscription_and_portal(monkeypatch):
 @pytest.mark.asyncio
 async def test_portal_subscription_fallback_url(monkeypatch):
     async def fake_req(method, path, **kw):
-        return {"data": {"urls": {"subscriptions": [
-            {"update_subscription_payment_method": "https://sub-url"}]}}}
+        return {"data": {"urls": {"subscriptions": [{"update_subscription_payment_method": "https://sub-url"}]}}}
 
     monkeypatch.setattr(pa, "_request", fake_req)
     assert await pa.create_portal_session("c1", "s9") == "https://sub-url"

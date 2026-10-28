@@ -2167,9 +2167,7 @@ async def test_telegram_sync_skips_without_channel():
 async def test_telegram_sync_records_member_count(monkeypatch):
     """Managed channel → getChatMemberCount lands in follower_snapshots."""
     client = SimpleNamespace(get_chat_member_count=AsyncMock(return_value=42))
-    monkeypatch.setattr(
-        "app.api.telegram._client_for", lambda account: client
-    )
+    monkeypatch.setattr("app.api.telegram._client_for", lambda account: client)
     acc = _account(
         platform="telegram",
         username="tg-bot",
@@ -2187,9 +2185,7 @@ async def test_telegram_sync_records_member_count(monkeypatch):
 async def test_telegram_sync_skips_unchanged_count(monkeypatch):
     """Same count inside the 7-day heartbeat → no duplicate row."""
     client = SimpleNamespace(get_chat_member_count=AsyncMock(return_value=42))
-    monkeypatch.setattr(
-        "app.api.telegram._client_for", lambda account: client
-    )
+    monkeypatch.setattr("app.api.telegram._client_for", lambda account: client)
     prev = SimpleNamespace(followers=42, captured_at=datetime.now(UTC))
     acc = _account(
         platform="telegram",
@@ -2206,14 +2202,8 @@ async def test_telegram_sync_api_error_is_reported_not_raised(monkeypatch):
     """Bot API failure → error string in result, never raises."""
     from app.services.telegram_api import TelegramAPIError
 
-    client = SimpleNamespace(
-        get_chat_member_count=AsyncMock(
-            side_effect=TelegramAPIError(400, "chat not found")
-        )
-    )
-    monkeypatch.setattr(
-        "app.api.telegram._client_for", lambda account: client
-    )
+    client = SimpleNamespace(get_chat_member_count=AsyncMock(side_effect=TelegramAPIError(400, "chat not found")))
+    monkeypatch.setattr("app.api.telegram._client_for", lambda account: client)
     acc = _account(
         platform="telegram",
         username="tg-bot",
@@ -2262,11 +2252,7 @@ async def test_meta_insights_get_unparseable_error_body():
 @pytest.mark.asyncio
 async def test_meta_insights_get_single_metric_100_returns():
     """(#100) with a single metric left → give up, return the 400."""
-    cli = _Cli(
-        lambda url: _resp(
-            400, {"error": {"message": "(#100) The value must be a valid insights metric"}}
-        )
-    )
+    cli = _Cli(lambda url: _resp(400, {"error": {"message": "(#100) The value must be a valid insights metric"}}))
     r = await A._meta_insights_get(cli, "http://m", ["m1"])
     assert r.status_code == 400 and len(cli.urls) == 1
 
@@ -2321,9 +2307,7 @@ async def test_li_org_stats_unknown_urn_soft_failures():
         r.text = "not_found"
         return r
 
-    out = await A._fetch_linkedin_org_stats(
-        _Cli(fn), "t", "urn:li:organization:1", ["mystery-urn"]
-    )
+    out = await A._fetch_linkedin_org_stats(_Cli(fn), "t", "urn:li:organization:1", ["mystery-urn"])
     assert out["mystery-urn"].notes == "stats_unavailable"
 
 
@@ -2341,9 +2325,7 @@ async def test_li_org_stats_unknown_urn_no_stats_element():
 
 @pytest.mark.asyncio
 async def test_li_follower_stats_all_http_errors():
-    out = await A._fetch_linkedin_follower_stats(
-        _Cli(lambda url: _resp(500)), "t", "urn:li:organization:1"
-    )
+    out = await A._fetch_linkedin_follower_stats(_Cli(lambda url: _resp(500)), "t", "urn:li:organization:1")
     assert "demographics_error" in out
     assert "gains_error" in out
     assert "total_error" in out
@@ -2363,9 +2345,7 @@ async def test_li_page_stats_mixed_results():
 @pytest.mark.asyncio
 async def test_li_member_post_analytics_all_500():
     """Per-query-type ≥400 (non-auth) → HTTP string recorded, loop continues."""
-    out = await A._fetch_member_post_analytics(
-        _Cli(lambda url: _resp(500)), "t", "urn:li:share:1"
-    )
+    out = await A._fetch_member_post_analytics(_Cli(lambda url: _resp(500)), "t", "urn:li:share:1")
     for qt in A._MEMBER_POST_QUERY_TYPES:
         assert out["data"][qt] == "HTTP 500"
 
@@ -2381,16 +2361,12 @@ async def test_li_org_post_urns_empty_page_breaks():
         return _resp(
             200,
             {
-                "elements": [
-                    {"id": "urn:li:share:9", "publishedAt": now_ms, "commentary": "hi"}
-                ],
+                "elements": [{"id": "urn:li:share:9", "publishedAt": now_ms, "commentary": "hi"}],
                 "paging": {"total": 40},
             },
         )
 
-    out = await A._list_org_post_urns(
-        _Cli(fn), "t", "urn:li:organization:1", since=datetime.now(UTC) - timedelta(days=7)
-    )
+    out = await A._list_org_post_urns(_Cli(fn), "t", "urn:li:organization:1", since=datetime.now(UTC) - timedelta(days=7))
     assert len(out) == 1 and out[0]["urn"] == "urn:li:share:9"
 
 
@@ -2402,11 +2378,7 @@ async def test_sync_linkedin_member_creator_analytics_merge(_li_patches, monkeyp
     monkeypatch.setattr(
         lsc,
         "LinkedInSidecarClient",
-        lambda: SimpleNamespace(
-            get_profile_activity=AsyncMock(
-                return_value={"profile_url": "p", "followers": 0, "posts": [{"no_urn": 1}]}
-            )
-        ),
+        lambda: SimpleNamespace(get_profile_activity=AsyncMock(return_value={"profile_url": "p", "followers": 0, "posts": [{"no_urn": 1}]})),
     )
     monkeypatch.setattr(
         A,
@@ -2575,11 +2547,7 @@ async def test_fb_post_metrics_no_activity_breakdown(monkeypatch):
     monkeypatch.setattr(
         A,
         "_meta_insights_get",
-        AsyncMock(
-            return_value=_resp(
-                200, {"data": [{"name": "post_media_view", "values": [{"value": 5}]}]}
-            )
-        ),
+        AsyncMock(return_value=_resp(200, {"data": [{"name": "post_media_view", "values": [{"value": 5}]}]})),
     )
     monkeypatch.setattr(
         A,
@@ -2629,12 +2597,8 @@ async def test_sync_facebook_discovery_item_edges(_fb_patches):
 @pytest.mark.asyncio
 async def test_sync_facebook_all_excepts(_fb_patches, monkeypatch):
     """Discovery, page-insights, and attribution failures all captured."""
-    _Client.get = AsyncMock(
-        side_effect=[RuntimeError("disc down"), RuntimeError("attr down")]
-    )
-    monkeypatch.setattr(
-        A, "_meta_insights_get", AsyncMock(side_effect=RuntimeError("insights down"))
-    )
+    _Client.get = AsyncMock(side_effect=[RuntimeError("disc down"), RuntimeError("attr down")])
+    monkeypatch.setattr(A, "_meta_insights_get", AsyncMock(side_effect=RuntimeError("insights down")))
     r = await A.sync_facebook_account(_DB(results=[[]]), _fb_page())
     assert any("post discovery: RuntimeError: disc down" in e for e in r.errors)
     assert any("page insights: RuntimeError: insights down" in e for e in r.errors)
@@ -2716,9 +2680,7 @@ async def test_sync_threads_item_edges(_th_patches):
             },
         )
     )
-    r = await A.sync_threads_account(
-        _DB(results=[[_target("m1"), _target("")]]), _th_acc()
-    )
+    r = await A.sync_threads_account(_DB(results=[[_target("m1"), _target("")]]), _th_acc())
     assert r.synced == 3  # m1 + th_bad (created=None keeps it) + th_new
 
 
@@ -2734,9 +2696,7 @@ async def test_sync_threads_avatar_from_profile(_th_patches, monkeypatch):
     monkeypatch.setattr(
         A,
         "_fetch_threads_profile",
-        AsyncMock(
-            return_value={"username": "cu", "threads_profile_picture_url": "https://pic"}
-        ),
+        AsyncMock(return_value={"username": "cu", "threads_profile_picture_url": "https://pic"}),
     )
     acc = _th_acc()
     await A.sync_threads_account(_DB(results=[[]]), acc)
@@ -2775,12 +2735,8 @@ def test_scrape_tiktok_cookie_cleanup_error(monkeypatch):
 @pytest.mark.asyncio
 async def test_sync_tiktok_platform_specific_id_map(_tt_patches, monkeypatch):
     """platform_specific video ids map scraped vids back to local posts."""
-    t = _target(
-        "7312345", post_ps={"tiktok": {"video_id": "99", "public_post_id": "98"}}
-    )
-    monkeypatch.setattr(
-        A, "_fetch_tiktok_video_stats", AsyncMock(return_value=A.MetricBundle(likes=1))
-    )
+    t = _target("7312345", post_ps={"tiktok": {"video_id": "99", "public_post_id": "98"}})
+    monkeypatch.setattr(A, "_fetch_tiktok_video_stats", AsyncMock(return_value=A.MetricBundle(likes=1)))
     monkeypatch.setattr(
         A,
         "_scrape_tiktok_profile",
@@ -2799,19 +2755,14 @@ async def test_sync_tiktok_platform_specific_id_map(_tt_patches, monkeypatch):
     )
     await A.sync_tiktok_account(_DB(results=[[t]]), acc)
     calls = A._persist_snapshot.await_args_list
-    assert any(
-        c.kwargs.get("post_id") == t.post_id and c.kwargs.get("platform_post_id") == "99"
-        for c in calls
-    )
+    assert any(c.kwargs.get("post_id") == t.post_id and c.kwargs.get("platform_post_id") == "99" for c in calls)
 
 
 @pytest.mark.asyncio
 async def test_sync_tiktok_scrape_skips_api_covered(_tt_patches, monkeypatch):
     """Videos already persisted via Display API are skipped in the scrape loop."""
     t = _target("7312345")
-    monkeypatch.setattr(
-        A, "_fetch_tiktok_video_stats", AsyncMock(return_value=A.MetricBundle(likes=1))
-    )
+    monkeypatch.setattr(A, "_fetch_tiktok_video_stats", AsyncMock(return_value=A.MetricBundle(likes=1)))
     monkeypatch.setattr(
         A,
         "_scrape_tiktok_profile",
@@ -2898,12 +2849,8 @@ async def test_sync_team_analytics_platform_filter(monkeypatch):
     tw = _account(platform="twitter")
     ig = _account(platform="instagram")
     tg = _account(platform="telegram")
-    monkeypatch.setattr(
-        A, "sync_twitter_account", AsyncMock(return_value=A.SyncResult(synced=1))
-    )
-    monkeypatch.setattr(
-        A, "sync_instagram_account", AsyncMock(return_value=A.SyncResult(synced=2))
-    )
+    monkeypatch.setattr(A, "sync_twitter_account", AsyncMock(return_value=A.SyncResult(synced=1)))
+    monkeypatch.setattr(A, "sync_instagram_account", AsyncMock(return_value=A.SyncResult(synced=2)))
     monkeypatch.setattr(
         A,
         "sync_telegram_channel_metrics",
@@ -2911,9 +2858,7 @@ async def test_sync_team_analytics_platform_filter(monkeypatch):
     )
     monkeypatch.setattr(A, "_persist_follower_snapshot", AsyncMock())
     db = _DB(results=[[tw, ig, tg]])
-    out = await A.sync_team_analytics(
-        db, uuid.uuid4(), platforms=["twitter", "instagram", "telegram"]
-    )
+    out = await A.sync_team_analytics(db, uuid.uuid4(), platforms=["twitter", "instagram", "telegram"])
     assert out.synced == 6
 
 
@@ -2924,13 +2869,21 @@ async def test_persist_x_web_analytics_notes_appended(monkeypatch):
     monkeypatch.setattr(A, "_persist_account_event", lambda *a, **k: None)
     monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
     web = SimpleNamespace(
-        tweets={}, followers=0, source="x_web", errors=[],
+        tweets={},
+        followers=0,
+        source="x_web",
+        errors=[],
         notes=["n1", "n2", "n3", "n4"],
     )
     result = A.SyncResult()
     result.notes = "seed"
     await A._persist_x_web_analytics(
-        _DB(), _account(platform="twitter"), web, {},
-        datetime.now(UTC), datetime.now(UTC), result,
+        _DB(),
+        _account(platform="twitter"),
+        web,
+        {},
+        datetime.now(UTC),
+        datetime.now(UTC),
+        result,
     )
     assert result.notes == "seed twitter x_web: n1 twitter x_web: n2 twitter x_web: n3"

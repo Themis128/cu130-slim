@@ -117,9 +117,7 @@ async def test_generate_image_public_url(monkeypatch):
         AsyncMock(return_value={"image_base64": base64.b64encode(b"png").decode()}),
     )
     asset = SimpleNamespace(id=uuid.uuid4(), public_url="https://cdn/x.png", storage_path=None)
-    monkeypatch.setattr(
-        "app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset)
-    )
+    monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))
     db = _DB()
     out = await TA._generate_image(db, _account(meta={"telegram_channel": _managed()}), "p")
     assert out == "https://cdn/x.png"
@@ -133,12 +131,8 @@ async def test_generate_image_storage_path_fallback(monkeypatch):
         AsyncMock(return_value={"image_base64": base64.b64encode(b"png").decode()}),
     )
     asset = SimpleNamespace(id=uuid.uuid4(), public_url=None, storage_path="media/x.png")
-    monkeypatch.setattr(
-        "app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset)
-    )
-    monkeypatch.setattr(
-        "app.services.publishing._media_public_url", lambda p: f"https://pub/{p}"
-    )
+    monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))
+    monkeypatch.setattr("app.services.publishing._media_public_url", lambda p: f"https://pub/{p}")
     out = await TA._generate_image(_DB(), _account(meta={"telegram_channel": _managed()}), "p")
     assert out == "https://pub/media/x.png"
 
@@ -165,9 +159,7 @@ async def test_generate_image_no_b64_and_exception(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_copy_pipeline(monkeypatch):
-    monkeypatch.setattr(
-        TA, "call_inference", AsyncMock(return_value={"content": "draft"})
-    )
+    monkeypatch.setattr(TA, "call_inference", AsyncMock(return_value={"content": "draft"}))
     quality = SimpleNamespace(content="polished")
     monkeypatch.setattr(
         "app.services.quality_pipeline.apply_quality_pipeline",
@@ -224,7 +216,8 @@ def _monday(monkeypatch):
     """Pin run_channel_agent's clock to a non-Sunday (poll day returns
     before the publish path)."""
     monkeypatch.setattr(
-        TA, "datetime",
+        TA,
+        "datetime",
         SimpleNamespace(now=lambda tz: datetime(2026, 10, 12, 11, tzinfo=UTC)),
     )
 
@@ -234,11 +227,17 @@ async def test_long_copy_sends_followup_message(monkeypatch):
     acc = _account(meta={"telegram_channel": _managed()})
     _monday(monkeypatch)
     monkeypatch.setattr(
-        TA, "plan_post",
+        TA,
+        "plan_post",
         lambda now, stats=None: {
-            "pillar": "authority", "key": None, "series_tag": "[Playbook]",
-            "prompt": "p", "image_prompt": "ip", "buttons": None,
-            "document": None, "pin": False,
+            "pillar": "authority",
+            "key": None,
+            "series_tag": "[Playbook]",
+            "prompt": "p",
+            "image_prompt": "ip",
+            "buttons": None,
+            "document": None,
+            "pin": False,
         },
     )
     monkeypatch.setattr(TA, "_generate_copy", AsyncMock(return_value="x" * 1500))
@@ -254,11 +253,17 @@ async def test_pin_failure_is_tolerated(monkeypatch):
     acc = _account(meta={"telegram_channel": _managed()})
     _monday(monkeypatch)
     monkeypatch.setattr(
-        TA, "plan_post",
+        TA,
+        "plan_post",
         lambda now, stats=None: {
-            "pillar": "offer", "key": "audit", "series_tag": "[Deal]",
-            "prompt": "p", "image_prompt": "ip", "buttons": None,
-            "document": None, "pin": True,
+            "pillar": "offer",
+            "key": "audit",
+            "series_tag": "[Deal]",
+            "prompt": "p",
+            "image_prompt": "ip",
+            "buttons": None,
+            "document": None,
+            "pin": True,
         },
     )
     monkeypatch.setattr(TA, "_generate_copy", AsyncMock(return_value="short copy"))
@@ -331,13 +336,12 @@ async def test_sweep_account_error_alerts_slack(monkeypatch):
     db = _DB(results=[SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [acc]))])
 
     import app.worker._async as wa
+
     monkeypatch.setattr(wa, "task_session", lambda: _Ctx(db))
     monkeypatch.setattr(TA, "refresh_pillar_stats", AsyncMock(side_effect=RuntimeError("db gone")))
 
     slack = AsyncMock()
-    monkeypatch.setattr(
-        "app.services.slack_notifications.post_alert_to_slack", slack
-    )
+    monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", slack)
     out = await TA.run_agent_sweep()
     assert out["accounts"] == 1 and out["published"] == 0
     assert "error" in out["results"][0]
@@ -350,6 +354,7 @@ async def test_sweep_slack_alert_failure_tolerated(monkeypatch):
     db = _DB(results=[SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [acc]))])
 
     import app.worker._async as wa
+
     monkeypatch.setattr(wa, "task_session", lambda: _Ctx(db))
     monkeypatch.setattr(TA, "refresh_pillar_stats", AsyncMock(side_effect=RuntimeError("x")))
     monkeypatch.setattr(

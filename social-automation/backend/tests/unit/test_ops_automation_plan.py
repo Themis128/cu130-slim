@@ -1,4 +1,5 @@
 """GET /ops/automation-plan (#674) — team lookup, date parsing, delegation."""
+
 import uuid
 from datetime import date
 from types import SimpleNamespace

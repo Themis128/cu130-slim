@@ -1,4 +1,5 @@
 """Tests for app/api/media_enhance.py — image enhancement endpoints."""
+
 from __future__ import annotations
 
 import uuid
@@ -30,8 +31,10 @@ class _DB:
 
 def _asset(**kw):
     base = dict(
-        id=uuid.uuid4(), storage_backend=StorageBackend.local,
-        storage_path="a/img.png", team_id=uuid.uuid4(),
+        id=uuid.uuid4(),
+        storage_backend=StorageBackend.local,
+        storage_path="a/img.png",
+        team_id=uuid.uuid4(),
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -67,6 +70,7 @@ async def test_load_asset_bytes_backends(monkeypatch):
     assert await me._load_asset_bytes(_asset(storage_backend=StorageBackend.minio)) == b"minio"
 
     import app.core.path_utils as pu
+
     fake_path = SimpleNamespace(read_bytes=lambda: b"local")
     monkeypatch.setattr(pu, "safe_resolve", lambda base, p: fake_path)
     assert await me._load_asset_bytes(_asset()) == b"local"
@@ -205,11 +209,9 @@ async def test_smart_crop_ai_and_plain(monkeypatch):
     _wire(monkeypatch)
     monkeypatch.setattr(me, "smart_crop_async", AsyncMock(return_value=(b"ai", "image/png", 5, 5)))
     monkeypatch.setattr(me, "smart_crop", Mock(return_value=(b"plain", "image/jpeg", 5, 5)))
-    resp = await me.smart_crop_asset(
-        uuid.uuid4(), me.SmartCropRequest(target_width=5, target_height=5, use_ai=True), _user(), _DB(None))
+    resp = await me.smart_crop_asset(uuid.uuid4(), me.SmartCropRequest(target_width=5, target_height=5, use_ai=True), _user(), _DB(None))
     assert resp.media_type == "image/png"
-    resp2 = await me.smart_crop_asset(
-        uuid.uuid4(), me.SmartCropRequest(target_width=5, target_height=5, use_ai=False), _user(), _DB(None))
+    resp2 = await me.smart_crop_asset(uuid.uuid4(), me.SmartCropRequest(target_width=5, target_height=5, use_ai=False), _user(), _DB(None))
     assert resp2.media_type == "image/jpeg"
 
 
@@ -218,6 +220,7 @@ async def test_alt_text_paths(monkeypatch):
     _wire(monkeypatch)
     monkeypatch.setattr(me, "generate_alt_text", AsyncMock(return_value="a photo of a dogg"))
     import app.services.media_spellcheck as msc
+
     monkeypatch.setattr(msc, "correct_text", AsyncMock(return_value="a photo of a dog"))
     out = await me.generate_alt_text_endpoint(uuid.uuid4(), _user(), _DB(None))
     assert out["alt_text"] == "a photo of a dog"
@@ -240,6 +243,7 @@ async def test_alt_text_paths(monkeypatch):
 @pytest.mark.asyncio
 async def test_batch_enhance(monkeypatch):
     import app.worker.tasks.media_enhance as wme
+
     delay = Mock(return_value=SimpleNamespace(id="task-1"))
     monkeypatch.setattr(wme, "batch_enhance_task", SimpleNamespace(delay=delay))
 
@@ -253,8 +257,7 @@ async def test_batch_enhance(monkeypatch):
     assert e.value.status_code == 400
 
     ids = [uuid.uuid4(), uuid.uuid4()]
-    out = await me.batch_enhance(
-        me.BatchEnhanceRequest(asset_ids=ids, operation="upscale", params={"scale": 2}), _user())
+    out = await me.batch_enhance(me.BatchEnhanceRequest(asset_ids=ids, operation="upscale", params={"scale": 2}), _user())
     assert out == {"task_id": "task-1", "status": "queued", "asset_count": 2}
     assert delay.call_args[0][0] == [str(i) for i in ids]
     assert delay.call_args[0][1] == "upscale"

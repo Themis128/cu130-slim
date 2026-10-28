@@ -4,6 +4,7 @@ Revision ID: 21e4c2d4daf5
 Revises: d9a5a234d4d7
 Create Date: 2026-08-31 02:30:00.000000
 """
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -15,9 +16,7 @@ depends_on = None
 
 def upgrade() -> None:
     """Add 'minio' to the storage_backend enum type."""
-    op.execute(
-        "ALTER TYPE storagebackend ADD VALUE IF NOT EXISTS 'minio'"
-    )
+    op.execute("ALTER TYPE storagebackend ADD VALUE IF NOT EXISTS 'minio'")
 
 
 def downgrade() -> None:

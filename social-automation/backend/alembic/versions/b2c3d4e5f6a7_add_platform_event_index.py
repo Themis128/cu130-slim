@@ -7,6 +7,7 @@ Create Date: 2026-08-31 06:00:00.000000
 Adds the platform_event_id index that was declared in the ORM model
 but missing from the initial migration.
 """
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -21,11 +22,7 @@ def upgrade() -> None:
 
     # Check if index already exists (may have been created manually)
     conn = op.get_bind()
-    result = conn.execute(
-        sa_text(
-            "SELECT 1 FROM pg_indexes WHERE indexname = 'ix_analytics_events_platform_event'"
-        )
-    )
+    result = conn.execute(sa_text("SELECT 1 FROM pg_indexes WHERE indexname = 'ix_analytics_events_platform_event'"))
     if not result.fetchone():
         op.create_index(
             "ix_analytics_events_platform_event",

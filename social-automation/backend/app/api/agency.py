@@ -39,9 +39,7 @@ router = APIRouter()
 
 
 async def _team_id(db: AsyncSession, user: User) -> uuid.UUID:
-    result = await db.execute(
-        select(TeamMember.team_id).where(TeamMember.user_id == user.id).limit(1)
-    )
+    result = await db.execute(select(TeamMember.team_id).where(TeamMember.user_id == user.id).limit(1))
     team_id = result.scalars().first()
     if not team_id:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -49,37 +47,21 @@ async def _team_id(db: AsyncSession, user: User) -> uuid.UUID:
 
 
 async def _team_audit(db: AsyncSession, team_id: uuid.UUID, audit_id: uuid.UUID) -> AgencyAudit:
-    row = (
-        await db.execute(
-            select(AgencyAudit).where(AgencyAudit.id == audit_id, AgencyAudit.team_id == team_id)
-        )
-    ).scalar_one_or_none()
+    row = (await db.execute(select(AgencyAudit).where(AgencyAudit.id == audit_id, AgencyAudit.team_id == team_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Audit not found")
     return row
 
 
 async def _team_proposal(db: AsyncSession, team_id: uuid.UUID, proposal_id: uuid.UUID) -> AgencyProposal:
-    row = (
-        await db.execute(
-            select(AgencyProposal).where(
-                AgencyProposal.id == proposal_id, AgencyProposal.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    row = (await db.execute(select(AgencyProposal).where(AgencyProposal.id == proposal_id, AgencyProposal.team_id == team_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Proposal not found")
     return row
 
 
 async def _team_project(db: AsyncSession, team_id: uuid.UUID, project_id: uuid.UUID) -> AgencyProject:
-    row = (
-        await db.execute(
-            select(AgencyProject).where(
-                AgencyProject.id == project_id, AgencyProject.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    row = (await db.execute(select(AgencyProject).where(AgencyProject.id == project_id, AgencyProject.team_id == team_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Project not found")
     return row
@@ -200,8 +182,11 @@ async def run_audit_now(
     """Manual Architect run — audit a URL synchronously and store the result."""
     team_id = await _team_id(db, current_user)
     audit = AgencyAudit(
-        team_id=team_id, lead_id=body.lead_id, espo_lead_id=body.espo_lead_id,
-        url=body.url, status=AgencyAuditStatus.running,
+        team_id=team_id,
+        lead_id=body.lead_id,
+        espo_lead_id=body.espo_lead_id,
+        url=body.url,
+        status=AgencyAuditStatus.running,
     )
     db.add(audit)
     await db.flush()
@@ -376,9 +361,7 @@ async def service_catalog(
     """The fixed-scope service catalog + pricing the agents quote."""
     return {
         "services": [
-            {"slug": s.slug, "name": s.name,
-             "price_low_eur": s.price_low_eur, "price_high_eur": s.price_high_eur,
-             "summary": s.summary}
+            {"slug": s.slug, "name": s.name, "price_low_eur": s.price_low_eur, "price_high_eur": s.price_high_eur, "summary": s.summary}
             for s in SERVICES.values()
         ],
         "delivery_days": DELIVERY_DAYS,
@@ -387,6 +370,7 @@ async def service_catalog(
 
 
 # ── Operational control board — 6-20 client metrics ───────────────────────
+
 
 @router.get("/metrics")
 async def agency_metrics(
@@ -423,21 +407,9 @@ async def agency_metrics(
     ).scalar_one()
 
     # TSR — publish target success rate over 30d
-    pub = (
-        await db.execute(
-            select(func.count()).select_from(
-                select(PostTarget.status)
-                .where(PostTarget.updated_at >= thirty_d)
-                .subquery()
-            )
-        )
-    ).scalar_one() or 1
+    pub = (await db.execute(select(func.count()).select_from(select(PostTarget.status).where(PostTarget.updated_at >= thirty_d).subquery()))).scalar_one() or 1
     failed = (
-        await db.execute(
-            select(func.count())
-            .select_from(PostTarget)
-            .where(PostTarget.updated_at >= thirty_d, PostTarget.status == "failed")
-        )
+        await db.execute(select(func.count()).select_from(PostTarget).where(PostTarget.updated_at >= thirty_d, PostTarget.status == "failed"))
     ).scalar_one()
     tsr = round(100.0 * (pub - failed) / max(pub, 1), 1)
 
@@ -445,6 +417,7 @@ async def agency_metrics(
     ppl = 0
     try:
         from app.worker.celery_app import celery_app
+
         active = celery_app.control.inspect().active() or {}
         ppl = sum(len(v) for v in active.values())
     except Exception:

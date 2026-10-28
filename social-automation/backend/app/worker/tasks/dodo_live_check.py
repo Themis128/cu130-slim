@@ -28,6 +28,7 @@ def _run_async(coro):
     except RuntimeError:
         return run_async(coro)
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(run_async, coro).result()
 
@@ -36,6 +37,7 @@ async def _redis():
     import redis.asyncio as aioredis
 
     from app.core.config import get_settings
+
     return aioredis.from_url(get_settings().REDIS_URL)
 
 

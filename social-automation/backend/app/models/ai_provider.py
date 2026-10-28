@@ -10,13 +10,11 @@ from app.db.base import Base
 
 class AIProvider(Base):
     __tablename__ = "ai_providers"
-    __table_args__ = (
-        UniqueConstraint("team_id", "name", name="uq_ai_provider_team_name"),
-    )
+    __table_args__ = (UniqueConstraint("team_id", "name", name="uq_ai_provider_team_name"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
-    name: Mapped[str] = mapped_column(String(50), nullable=False)           # nvidia | huggingface | openai | groq | together | dmr
+    name: Mapped[str] = mapped_column(String(50), nullable=False)  # nvidia | huggingface | openai | groq | together | dmr
     display_name: Mapped[str] = mapped_column(String(100), nullable=False)
     api_key_enc: Mapped[bytes | None] = mapped_column(BYTEA, nullable=True)  # null for local dmr
     base_url: Mapped[str] = mapped_column(String(300), nullable=False)

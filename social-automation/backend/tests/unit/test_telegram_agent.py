@@ -145,7 +145,7 @@ def test_pillar_stats_attribution():
 
     events = [
         (t0, {"_event": "channel_post", "tag": "authority"}),
-        (t0 + timedelta(hours=2), {"_event": "member_joined"}),   # inside 24h
+        (t0 + timedelta(hours=2), {"_event": "member_joined"}),  # inside 24h
         (t0 + timedelta(hours=30), {"_event": "member_joined"}),  # outside
         (t0 + timedelta(days=2), {"_event": "channel_post", "tag": "authority"}),
     ]
@@ -273,9 +273,7 @@ async def test_sunday_poll_dmr_generated(monkeypatch):
     monkeypatch.setattr(TA, "TelegramAPIClient", factory)
     monkeypatch.setattr(TA, "_bot_token", lambda a: "tok")
     monkeypatch.setattr(TA, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 10, 18, 11, tzinfo=UTC)))
-    monkeypatch.setattr(
-        TA, "_generate_poll", AsyncMock(return_value=("AI question?", ["Yes", "No", "Maybe"]))
-    )
+    monkeypatch.setattr(TA, "_generate_poll", AsyncMock(return_value=("AI question?", ["Yes", "No", "Maybe"])))
     acct = _account(meta={"telegram_channel": _managed()})
     out = await TA.run_channel_agent(acct, _DB())
     kind, _, question, options = holder["client"].sent[0]
@@ -293,8 +291,7 @@ async def test_sunday_poll_dmr_disabled_uses_rotation(monkeypatch):
     monkeypatch.setattr(TA, "datetime", SimpleNamespace(now=lambda tz: datetime(2026, 10, 18, 11, tzinfo=UTC)))
     gen = AsyncMock(return_value=("unused", ["a", "b"]))
     monkeypatch.setattr(TA, "_generate_poll", gen)
-    acct = _account(meta={"telegram_channel": _managed(),
-                          "telegram_agent": {"polls_ai": False}})
+    acct = _account(meta={"telegram_channel": _managed(), "telegram_agent": {"polls_ai": False}})
     out = await TA.run_channel_agent(acct, _DB())
     assert "poll" in out
     gen.assert_not_called()
@@ -314,7 +311,8 @@ async def test_generate_poll_validates_payload():
         mp.setattr(TA, "call_inference", AsyncMock(side_effect=RuntimeError("dmr down")))
         assert await TA._generate_poll(_DB(), acct) is None
         mp.setattr(
-            TA, "call_inference",
+            TA,
+            "call_inference",
             AsyncMock(return_value={"question": " Q? ", "options": [" a ", "", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]}),
         )
         q, opts = await TA._generate_poll(_DB(), acct)
@@ -367,9 +365,7 @@ async def test_checklist_offer_sends_pdf_and_pins(monkeypatch):
     assert out["published"]["pillar"] == "offer"
     kinds = [s[0] for s in holder["client"].sent]
     assert kinds[0] == "document"
-    assert holder["client"].sent[0][2].startswith(
-        "https://cloudless.gr/automation-checklist.pdf"
-    )
+    assert holder["client"].sent[0][2].startswith("https://cloudless.gr/automation-checklist.pdf")
     assert "utm_content=checklist" in holder["client"].sent[0][2]
     assert "pin" in kinds  # offers get pinned
     gen_image.assert_not_called()  # document posts skip the FLUX call
@@ -521,9 +517,7 @@ async def test_offer_markup_carries_utm(monkeypatch):
     assert "utm_content=" in site_btn
     assert dm_btn.startswith("https://t.me/cloudlessbot?start=audit")
     # analytics event records the campaign for funnel joins
-    evt = next(
-        e for e in db.added if getattr(e, "event_type", None) == "channel_post"
-    )
+    evt = next(e for e in db.added if getattr(e, "event_type", None) == "channel_post")
     assert evt.meta_data["utm_campaign"] == "cloudless-channel-agent"
 
 

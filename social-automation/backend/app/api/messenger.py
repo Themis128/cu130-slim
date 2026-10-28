@@ -49,15 +49,14 @@ router = APIRouter()
 # Helpers
 # ------------------------------------------------------------------
 
+
 async def _get_facebook_page_account(
     db: AsyncSession,
     account_id: uuid.UUID,
     user: User,
 ) -> SocialAccount:
     """Load a Facebook Page account and verify ownership."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -179,6 +178,7 @@ async def _upsert_icebreaker_lead(
 # Pydantic schemas
 # ------------------------------------------------------------------
 
+
 class MessengerSetupRequest(BaseModel):
     greeting_text: str | None = Field(None, description="Custom greeting text. {page_name} is replaced.")
     enable_persistent_menu: bool = True
@@ -254,6 +254,7 @@ class WebhookVerifyRequest(BaseModel):
 # Setup & Profile endpoints
 # ------------------------------------------------------------------
 
+
 @router.post("/{account_id}/setup", response_model=dict)
 async def setup_messenger(
     account_id: uuid.UUID,
@@ -308,8 +309,7 @@ async def setup_messenger(
             # Return partial success so the caller knows to retry profile later.
             profile_result = {
                 "result": "rate_limited",
-                "detail": "Messenger Profile API rate limit (10 calls/10 min). "
-                          "Subscription succeeded; retry profile setup later.",
+                "detail": "Messenger Profile API rate limit (10 calls/10 min). Subscription succeeded; retry profile setup later.",
             }
             logger.warning("Messenger Profile rate limited for page_id=%s", account.account_id)
         else:
@@ -462,6 +462,7 @@ async def unsubscribe_messenger(
 # Send API
 # ------------------------------------------------------------------
 
+
 @router.post("/{account_id}/send", response_model=dict)
 async def send_message(
     account_id: uuid.UUID,
@@ -517,6 +518,7 @@ async def send_quick_replies(
 # ------------------------------------------------------------------
 # Conversations API
 # ------------------------------------------------------------------
+
 
 @router.get("/{account_id}/conversations", response_model=list[ConversationResponse])
 async def list_conversations(
@@ -582,6 +584,7 @@ async def get_conversation_messages(
 # User Profile API
 # ------------------------------------------------------------------
 
+
 @router.get("/{account_id}/user/{psid}", response_model=dict)
 async def get_user_profile(
     account_id: uuid.UUID,
@@ -607,6 +610,7 @@ async def get_user_profile(
 # Auto-reply configuration
 # ------------------------------------------------------------------
 
+
 @router.get("/{account_id}/auto-reply", response_model=AutoReplyConfig)
 async def get_auto_reply_config(
     account_id: uuid.UUID,
@@ -631,6 +635,7 @@ async def update_auto_reply_config(
     account = await _get_facebook_page_account(db, account_id, user)
     if body.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["messenger_auto_reply"] = body.model_dump()
@@ -643,6 +648,7 @@ async def update_auto_reply_config(
 # ------------------------------------------------------------------
 # Webhook endpoints
 # ------------------------------------------------------------------
+
 
 # The verify token is used to verify the webhook endpoint with Meta.
 # It should be set in the MESSENGER_VERIFY_TOKEN env var.
@@ -751,6 +757,7 @@ async def receive_webhook(
             if sidecar_url:
                 try:
                     import httpx
+
                     async with httpx.AsyncClient(timeout=5) as client:
                         await client.post(
                             f"{sidecar_url}/process",
@@ -789,10 +796,7 @@ async def receive_webhook(
     }
 
 
-_META_LEADGEN_FIELDS = (
-    "id,created_time,form_id,ad_id,ad_name,adset_id,adset_name,"
-    "campaign_id,campaign_name,platform,is_organic,field_data"
-)
+_META_LEADGEN_FIELDS = "id,created_time,form_id,ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,platform,is_organic,field_data"
 _META_LEAD_TARGET_LIST = "Meta lead ads"
 _META_KNOWN_FIELDS = {
     "email",
@@ -874,17 +878,10 @@ async def _ingest_meta_leadgen(value: dict) -> bool:
         extras = [
             f"{f['name']}: {f['values'][0]}"
             for f in field_data
-            if f.get("name")
-            and str(f["name"]).lower() not in _META_KNOWN_FIELDS
-            and (f.get("values") or [None])[0]
+            if f.get("name") and str(f["name"]).lower() not in _META_KNOWN_FIELDS and (f.get("values") or [None])[0]
         ]
         platform = "instagram" if lead.get("platform") == "ig" else "facebook"
-        campaign_ref = (
-            lead.get("campaign_name")
-            or lead.get("campaign_id")
-            or value.get("campaign_id")
-            or "meta-lead-ads"
-        )
+        campaign_ref = lead.get("campaign_name") or lead.get("campaign_id") or value.get("campaign_id") or "meta-lead-ads"
         form_ref = lead.get("form_id") or value.get("form_id")
         ad_ref = lead.get("ad_name") or lead.get("ad_id") or value.get("ad_id")
         phone = _meta_field_first(field_data, "phone_number", "phone")
@@ -1023,9 +1020,7 @@ async def _generate_and_send_auto_reply(
         fallback_text = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
 
         # Use Cloudflare Workers AI (free, open-source-first)
-        reply_text = await _generate_ai_response(
-            system_prompt, incoming_text, model, max_tokens, fallback_text
-        )
+        reply_text = await _generate_ai_response(system_prompt, incoming_text, model, max_tokens, fallback_text)
     except Exception as e:
         logger.error("AI response generation failed: %s", e)
         reply_text = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
@@ -1152,6 +1147,7 @@ async def sidecar_status(current_user: User = Depends(get_current_user)) -> dict
 # Personal Facebook Messenger (browser bridge)
 # ------------------------------------------------------------------
 
+
 def _get_browser_bridge_url() -> str:
     return os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
 
@@ -1162,9 +1158,7 @@ async def _get_facebook_user_account(
     user: User,
 ) -> SocialAccount:
     """Load a Facebook personal (user) account and verify ownership."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -1209,7 +1203,7 @@ async def get_personal_conversations(
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
-    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform='facebook')
+    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform="facebook")
 
     # Check session and auto-restart if needed
     session = await bridge.ensure_session("facebook")
@@ -1244,7 +1238,7 @@ async def get_personal_messages(
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
-    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform='facebook')
+    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform="facebook")
 
     # Check session and auto-restart if needed
     session = await bridge.ensure_session("facebook")
@@ -1278,7 +1272,7 @@ async def send_personal_message(
 
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
 
-    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform='facebook')
+    bridge = BrowserBridgeClient(_get_browser_bridge_url(), platform="facebook")
 
     # Check session and auto-restart if needed
     session = await bridge.ensure_session("facebook")
@@ -1302,6 +1296,7 @@ async def send_personal_message(
 
 class PersonalAutoReplyConfig(BaseModel):
     """Auto-reply configuration for personal Messenger (browser bridge)."""
+
     enabled: bool = False
     system_prompt: str = "You are a helpful assistant for {page_name}. Reply concisely and professionally."
     model: str = "ai/qwen3:8b-q4_K_M"
@@ -1347,12 +1342,14 @@ async def update_personal_auto_reply(
     account = await _get_facebook_user_account(db, account_id, current_user)
     if config.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["personal_messenger_auto_reply"] = config.model_dump()
     account.meta_data = meta
     # Force SQLAlchemy to detect the JSONB mutation
     from sqlalchemy.orm.attributes import flag_modified
+
     flag_modified(account, "meta_data")
     await db.commit()
     return {"status": "ok", "config": config.model_dump()}
@@ -1385,6 +1382,7 @@ async def pause_thread(
     """Pause the chatbot for a specific conversation (human handoff)."""
     await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import pause_thread as _pause
+
     await _pause(str(account_id), thread_id, req.reason)
     return {"status": "ok", "message": f"Thread {thread_id} paused"}
 
@@ -1399,6 +1397,7 @@ async def resume_thread(
     """Resume the chatbot for a specific conversation."""
     await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import resume_thread as _resume
+
     await _resume(str(account_id), thread_id)
     return {"status": "ok", "message": f"Thread {thread_id} resumed"}
 
@@ -1413,6 +1412,7 @@ async def get_thread_config(
     """Get per-conversation chatbot config overrides."""
     await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import get_thread_config as _get_config
+
     config = await _get_config(str(account_id), thread_id)
     return {"config": config}
 
@@ -1428,6 +1428,7 @@ async def set_thread_config(
     """Set per-conversation chatbot config overrides."""
     await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import set_thread_config as _set_config
+
     config = {k: v for k, v in req.model_dump().items() if v is not None and k != "thread_id"}
     await _set_config(str(account_id), thread_id, config)
     return {"status": "ok", "config": config}
@@ -1443,6 +1444,7 @@ async def get_thread_memory(
     """Get conversation memory for a specific thread."""
     await _get_facebook_user_account(db, account_id, current_user)
     from app.services.messenger_chatbot import get_conversation_memory
+
     memory = await get_conversation_memory(str(account_id), thread_id)
     return {"messages": memory, "count": len(memory)}
 
@@ -1458,9 +1460,7 @@ async def index_brand(
     from app.services.messenger_chatbot import index_brand_knowledge
 
     account = await _get_facebook_user_account(db, account_id, current_user)
-    result = await db.execute(
-        select(Brand).where(Brand.team_id == account.team_id)
-    )
+    result = await db.execute(select(Brand).where(Brand.team_id == account.team_id))
     brand = result.scalars().first()
     if not brand:
         return {"status": "error", "message": "No brand found for this team"}
@@ -1501,13 +1501,11 @@ async def index_brand(
 
 class BotConfig(BaseModel):
     """Configuration for a Messenger bot."""
+
     name: str = Field(default="Cloudless Assistant", description="Bot display name")
     enabled: bool = Field(default=False, description="Whether the bot is active")
     system_prompt: str = Field(
-        default=(
-            "You are a helpful assistant for {page_name}. Reply concisely and professionally "
-            "in the same language as the incoming message."
-        ),
+        default=("You are a helpful assistant for {page_name}. Reply concisely and professionally in the same language as the incoming message."),
         description="System prompt for AI reply generation",
     )
     model: str = Field(default="ai/qwen3:8b-q4_K_M", description="AI model (DMR-first)")
@@ -1539,6 +1537,7 @@ class BotConfig(BaseModel):
 
 class BotCreateRequest(BaseModel):
     """Request to create a new bot for an account."""
+
     name: str = Field("Cloudless Assistant", description="Bot display name")
     personality: str = Field(
         "professional_friendly",
@@ -1593,9 +1592,7 @@ async def _get_messenger_account(
 
     Admin (SOCIAL_ADMIN_EMAIL) bypasses the team check.
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -1612,7 +1609,8 @@ async def _get_messenger_account(
 @router.post("/{account_id}/bot/create")
 async def create_bot(
     account_id: uuid.UUID,
-    req: BotCreateRequest, team_id: TeamId,
+    req: BotCreateRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1631,6 +1629,7 @@ async def create_bot(
     account = await _get_messenger_account(db, account_id, team_id, current_user)
 
     from app.api.deps import check_plan_feature
+
     await check_plan_feature("dm_auto_reply", account.team_id, db)
     is_page = account.account_type == "page"
     page_name = account.display_name or "Cloudless"
@@ -1721,9 +1720,7 @@ async def create_bot(
         from app.models.brand import Brand
         from app.services.messenger_chatbot import index_brand_knowledge
 
-        brand_result = await db.execute(
-            select(Brand).where(Brand.team_id == account.team_id)
-        )
+        brand_result = await db.execute(select(Brand).where(Brand.team_id == account.team_id))
         brand = brand_result.scalars().first()
         if brand:
             brand_data = {
@@ -1751,7 +1748,8 @@ async def create_bot(
 
 @router.get("/{account_id}/bot")
 async def get_bot(
-    account_id: uuid.UUID, team_id: TeamId,
+    account_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1768,6 +1766,7 @@ async def get_bot(
     for thread_id in bot_config.get("paused_threads", []):
         try:
             from app.services.messenger_chatbot import is_thread_paused
+
             paused_status[thread_id] = await is_thread_paused(str(account_id), thread_id)
         except Exception:
             paused_status[thread_id] = False
@@ -1783,7 +1782,8 @@ async def get_bot(
 @router.put("/{account_id}/bot")
 async def update_bot(
     account_id: uuid.UUID,
-    config: BotConfig, team_id: TeamId,
+    config: BotConfig,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1813,7 +1813,8 @@ async def update_bot(
 
 @router.post("/{account_id}/bot/activate")
 async def activate_bot(
-    account_id: uuid.UUID, team_id: TeamId,
+    account_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1826,6 +1827,7 @@ async def activate_bot(
         raise HTTPException(status_code=400, detail="No bot found — create one first")
 
     from app.api.deps import check_plan_feature
+
     await check_plan_feature("dm_auto_reply", account.team_id, db)
     bot_config["enabled"] = True
     meta["messenger_bot"] = bot_config
@@ -1843,7 +1845,8 @@ async def activate_bot(
 
 @router.post("/{account_id}/bot/deactivate")
 async def deactivate_bot(
-    account_id: uuid.UUID, team_id: TeamId,
+    account_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1872,7 +1875,8 @@ async def deactivate_bot(
 @router.post("/{account_id}/bot/pause-thread/{thread_id}")
 async def bot_pause_thread(
     account_id: uuid.UUID,
-    thread_id: str, team_id: TeamId,
+    thread_id: str,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1892,6 +1896,7 @@ async def bot_pause_thread(
 
     # Also set Redis pause for the polling task
     from app.services.messenger_chatbot import pause_thread as _pause
+
     await _pause(str(account_id), thread_id, "bot_paused")
 
     return {"status": "ok", "thread_id": thread_id, "paused": True}
@@ -1900,7 +1905,8 @@ async def bot_pause_thread(
 @router.post("/{account_id}/bot/resume-thread/{thread_id}")
 async def bot_resume_thread(
     account_id: uuid.UUID,
-    thread_id: str, team_id: TeamId,
+    thread_id: str,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -1919,6 +1925,7 @@ async def bot_resume_thread(
         await db.commit()
 
     from app.services.messenger_chatbot import resume_thread as _resume
+
     await _resume(str(account_id), thread_id)
 
     return {"status": "ok", "thread_id": thread_id, "paused": False}

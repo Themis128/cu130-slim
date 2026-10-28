@@ -11,6 +11,7 @@ Pre-processing order (per LanguageTool docs and NLP best practices):
 For text going onto rendered images use `preprocess_for_render()` which additionally
 strips emoji and other codepoints PIL fonts cannot display.
 """
+
 import logging
 import re
 import unicodedata
@@ -83,11 +84,7 @@ _PROTECTED_PATTERNS = (
 def _protected_word_pattern() -> re.Pattern[str] | None:
     """Whole-word alternation for configured vocabulary LanguageTool
     must not touch — proper nouns it otherwise "corrects" (Redis→Regis)."""
-    words = [
-        w.strip()
-        for w in get_settings().LANGUAGETOOL_PROTECTED_WORDS.split(",")
-        if w.strip()
-    ]
+    words = [w.strip() for w in get_settings().LANGUAGETOOL_PROTECTED_WORDS.split(",") if w.strip()]
     if not words:
         return None
     return re.compile(r"(?<![\w])(?:" + "|".join(re.escape(w) for w in words) + r")(?![\w])")
@@ -127,19 +124,11 @@ def _skip_categories() -> frozenset[str]:
     intended voice (STYLE shortens punchy copy, TYPOGRAPHY injects curly
     quotes/em-dashes Sofia scoring penalizes, REDUNDANCY strips deliberate
     emphasis)."""
-    return frozenset(
-        c.strip()
-        for c in get_settings().LANGUAGETOOL_SKIP_CATEGORIES.split(",")
-        if c.strip()
-    )
+    return frozenset(c.strip() for c in get_settings().LANGUAGETOOL_SKIP_CATEGORIES.split(",") if c.strip())
 
 
 def _skip_rule_prefixes() -> tuple[str, ...]:
-    return tuple(
-        p.strip()
-        for p in get_settings().LANGUAGETOOL_SKIP_RULE_PREFIXES.split(",")
-        if p.strip()
-    )
+    return tuple(p.strip() for p in get_settings().LANGUAGETOOL_SKIP_RULE_PREFIXES.split(",") if p.strip())
 
 
 def _match_skippable(match: dict, skip_cats: frozenset[str], skip_prefixes: tuple[str, ...]) -> bool:
@@ -221,12 +210,14 @@ async def auto_correct_detailed(text: str, language: str = "en-US") -> tuple[str
 
     corrected = normalized
     for m in accepted:
-        corrected = corrected[: m["offset"]] + m["replacement"] + corrected[m["offset"] + m["length"]:]
+        corrected = corrected[: m["offset"]] + m["replacement"] + corrected[m["offset"] + m["length"] :]
 
     if accepted:
         logger.info(
             "Auto-corrected %d issue(s) in %d-char text (%d rule(s) skipped as style hints)",
-            len(accepted), len(text), len(matches) - len(accepted),
+            len(accepted),
+            len(text),
+            len(matches) - len(accepted),
         )
 
     return corrected, accepted
@@ -315,7 +306,7 @@ async def detect_gibberish(text: str, language: str = "en-US") -> list[str]:
         for m in resp.json().get("matches", []):
             if m.get("rule", {}).get("issueType") != "misspelling":
                 continue
-            token = normalized[m.get("offset", 0): m.get("offset", 0) + m.get("length", 0)]
+            token = normalized[m.get("offset", 0) : m.get("offset", 0) + m.get("length", 0)]
             if len(token) >= _MISSPELLING_MIN_LEN and _ASCII_WORD.fullmatch(token):
                 flagged.append(token)
     except Exception as exc:

@@ -1,4 +1,5 @@
 """Unit tests for image_transform.py."""
+
 from __future__ import annotations
 
 import io

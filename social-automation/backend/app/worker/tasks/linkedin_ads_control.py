@@ -1,4 +1,5 @@
 """Celery task: LinkedIn ads pause/resume/status, triggered from Slack."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -32,16 +33,11 @@ async def _run(action: str, response_url: str | None, user: str) -> dict[str, An
         icon = ":pause_button:" if action == "pause" else ":arrow_forward:"
         text = f"{icon} LinkedIn campaign {verb}d by @{user} — {result['detail']}"
     else:
-        text = (
-            f":warning: Couldn't {verb} the LinkedIn campaign (requested by @{user}): "
-            f"{result['detail']}"
-        )
+        text = f":warning: Couldn't {verb} the LinkedIn campaign (requested by @{user}): {result['detail']}"
     await notify_slack(text, response_url)
     return result
 
 
 @shared_task(name="app.worker.tasks.linkedin_ads_control.linkedin_ads_control")
-def linkedin_ads_control(
-    action: str, response_url: str | None = None, user: str = "someone"
-) -> dict[str, Any]:
+def linkedin_ads_control(action: str, response_url: str | None = None, user: str = "someone") -> dict[str, Any]:
     return run_async(_run(action, response_url, user))

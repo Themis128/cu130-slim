@@ -5,6 +5,7 @@ Revises:
 Create Date: 2026-08-20 20:51:42.692763
 
 """
+
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -20,8 +21,12 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.execute("DO $$ BEGIN CREATE TYPE userrole AS ENUM ('owner', 'admin', 'editor', 'viewer'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")  # noqa: E501
-    op.execute("DO $$ BEGIN CREATE TYPE poststatus AS ENUM ('draft', 'scheduled', 'publishing', 'published', 'failed', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")  # noqa: E501
-    op.execute("DO $$ BEGIN CREATE TYPE queuestatus AS ENUM ('pending', 'processing', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$")  # noqa: E501
+    op.execute(
+        "DO $$ BEGIN CREATE TYPE poststatus AS ENUM ('draft', 'scheduled', 'publishing', 'published', 'failed', 'archived'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+    )  # noqa: E501
+    op.execute(
+        "DO $$ BEGIN CREATE TYPE queuestatus AS ENUM ('pending', 'processing', 'completed', 'failed'); EXCEPTION WHEN duplicate_object THEN NULL; END $$"
+    )  # noqa: E501
 
     op.create_table(
         "users",

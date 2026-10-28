@@ -34,9 +34,7 @@ def _settings(token: str = "s3cret", team_id: str = ""):
     return patch.object(
         feed_api,
         "get_settings",
-        return_value=SimpleNamespace(
-            INTRANET_FEED_TOKEN=token, INTRANET_FEED_TEAM_ID=team_id
-        ),
+        return_value=SimpleNamespace(INTRANET_FEED_TOKEN=token, INTRANET_FEED_TEAM_ID=team_id),
     )
 
 
@@ -62,8 +60,7 @@ class _Result:
         return self._rows[0] if self._rows else None
 
 
-def _fake_db(*, team=None, team_counts=None, targets=None, media=None,
-             queue=None, attention=None, leads=None):
+def _fake_db(*, team=None, team_counts=None, targets=None, media=None, queue=None, attention=None, leads=None):
     """AsyncSession stand-in dispatching on the selected entities."""
     team = team if team is not None else SimpleNamespace(id=TEAM_ID, name="T")
 
@@ -139,9 +136,7 @@ def _post_target_row(status="published", error=None, platform="linkedin"):
         platform_url="https://linkedin.com/feed/x" if status == "published" else None,
         published_at=datetime(2026, 10, 15, 12, 0, tzinfo=UTC),
     )
-    account = SimpleNamespace(
-        platform=platform, username="cloudless", display_name="cloudless.gr"
-    )
+    account = SimpleNamespace(platform=platform, username="cloudless", display_name="cloudless.gr")
     return target, post, account
 
 
@@ -189,8 +184,10 @@ async def test_status_maps_queue_and_unhealthy_accounts():
         queue=[("pending", 2), ("failed", 1)],
         attention=[
             SimpleNamespace(
-                platform="linkedin", username="tbaltzakis",
-                display_name=None, status="expired",
+                platform="linkedin",
+                username="tbaltzakis",
+                display_name=None,
+                status="expired",
             )
         ],
     )
@@ -216,24 +213,24 @@ async def test_digest_reshapes_real_report(monkeypatch):
         team_name="Baltzakis Themistoklis's Team",
         days=1,
         overview={
-            "total_posts": 18, "published_posts": 16, "scheduled_posts": 0,
-            "draft_posts": 1, "failed_posts": 1, "connected_accounts": 10,
+            "total_posts": 18,
+            "published_posts": 16,
+            "scheduled_posts": 0,
+            "draft_posts": 1,
+            "failed_posts": 1,
+            "connected_accounts": 10,
         },
         impressions_24h=2083,
         engagement_24h=250,
-        top_posts=[{"snippet": "Managed cloud hosting", "engagement": 239,
-                    "impressions": 1331, "url": "https://x"}],
-        issues=[DigestIssue(severity="error", title="A post didn't publish",
-                            detail="attempts 3/3")],
+        top_posts=[{"snippet": "Managed cloud hosting", "engagement": 239, "impressions": 1331, "url": "https://x"}],
+        issues=[DigestIssue(severity="error", title="A post didn't publish", detail="attempts 3/3")],
     )
 
     async def fake_build(db, *, team, days):
         assert team.id == TEAM_ID
         return report
 
-    monkeypatch.setattr(
-        "app.services.slack_digest.build_daily_digest", fake_build
-    )
+    monkeypatch.setattr("app.services.slack_digest.build_daily_digest", fake_build)
     db = _fake_db(team_counts=[(TEAM_ID, 11)])
     with _settings():
         out = await feed_api.feed_digest(_request(), response=Response(), db=db)

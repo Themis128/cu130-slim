@@ -53,12 +53,7 @@ class LinkedInNewsletterBridgeError(Exception):
 
 def _js_str(value: str) -> str:
     """Escape a Python string for embedding in a JS double-quoted literal."""
-    return (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("\n", "\\n")
-        .replace("\r", "")
-    )
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "")
 
 
 class LinkedInNewsletterBridge:
@@ -83,10 +78,7 @@ class LinkedInNewsletterBridge:
         while time.monotonic() < deadline:
             try:
                 state = json.loads(
-                    await self._eval(
-                        'JSON.stringify({u:location.href.slice(0,70),'
-                        'pm:!!document.querySelector("div.ProseMirror[contenteditable=true]")})'
-                    )
+                    await self._eval('JSON.stringify({u:location.href.slice(0,70),pm:!!document.querySelector("div.ProseMirror[contenteditable=true]")})')
                 )
                 if state.get("pm"):
                     return True
@@ -103,8 +95,8 @@ class LinkedInNewsletterBridge:
         await self._eval(
             '(()=>{const pm=document.querySelector("div.ProseMirror[contenteditable=true]");'
             'if(!pm)return "NO-PM";pm.focus();'
-            'const sel=document.getSelection();const r=document.createRange();'
-            'r.selectNodeContents(pm);sel.removeAllRanges();sel.addRange(r);'
+            "const sel=document.getSelection();const r=document.createRange();"
+            "r.selectNodeContents(pm);sel.removeAllRanges();sel.addRange(r);"
             'document.execCommand("delete");return "cleared"})()'
         )
         await asyncio.sleep(0.5)
@@ -114,18 +106,18 @@ class LinkedInNewsletterBridge:
             'if(!pm)return JSON.stringify({err:"NO-PM"});pm.focus();'
             f'const bytes=Uint8Array.from(atob("{b64}"),c=>c.charCodeAt(0));'
             'const html=new TextDecoder("utf-8").decode(bytes);'
-            'const dt=new DataTransfer();'
+            "const dt=new DataTransfer();"
             'dt.setData("text/html",html);'
             'pm.dispatchEvent(new ClipboardEvent("paste",'
-            '{clipboardData:dt,bubbles:true,cancelable:true}));'
+            "{clipboardData:dt,bubbles:true,cancelable:true}));"
             'return "ok"})()'
         )
         verify_expr = (
             '(()=>{const pm=document.querySelector("div.ProseMirror[contenteditable=true]");'
             'if(!pm)return JSON.stringify({err:"NO-PM"});'
             'const t=(pm.innerText||"").trim();'
-            'return JSON.stringify({words:t.split(/\\s+/).filter(Boolean).length,'
-            'sample:t.slice(0,400)});})()'
+            "return JSON.stringify({words:t.split(/\\s+/).filter(Boolean).length,"
+            "sample:t.slice(0,400)});})()"
         )
         for attempt in range(2):
             await self._eval(paste_expr)
@@ -139,9 +131,7 @@ class LinkedInNewsletterBridge:
         if result.get("err") or not result.get("words"):
             raise LinkedInNewsletterBridgeError(f"body paste failed: {result}")
         if _MOJIBAKE_RE.search(result.get("sample") or ""):
-            raise LinkedInNewsletterBridgeError(
-                "pasted body shows Latin-1 mojibake — refusing to publish"
-            )
+            raise LinkedInNewsletterBridgeError("pasted body shows Latin-1 mojibake — refusing to publish")
         return int(result["words"])
 
     async def _set_seo(self, seo_title: str, seo_description: str) -> None:
@@ -150,14 +140,13 @@ class LinkedInNewsletterBridge:
         # Items are <li> holding div[role=button] inside a <ul> with no
         # role=menu, so match by exact text within the manage-menu subtree.
         await self._eval(
-            '(()=>{const btn=document.querySelector(".article-editor-manage-menu button");'
-            'if(!btn)return "no-manage";btn.click();return "clicked"})()'
+            '(()=>{const btn=document.querySelector(".article-editor-manage-menu button");if(!btn)return "no-manage";btn.click();return "clicked"})()'
         )
         clicked = "notfound"
         for _ in range(6):
             await asyncio.sleep(1.5)
             clicked = await self._eval(
-                '(()=>{const li=[...document.querySelectorAll('
+                "(()=>{const li=[...document.querySelectorAll("
                 '".article-editor-manage-menu li")]'
                 '.find(e=>(e.innerText||"").trim()==="Settings");'
                 'if(!li)return "notfound";'
@@ -174,7 +163,7 @@ class LinkedInNewsletterBridge:
                 '(()=>{const dlg=document.querySelector("[role=dialog],.artdeco-modal");'
                 'if(!dlg)return "[]";'
                 'const ins=[...dlg.querySelectorAll("input,textarea")].map(e=>e.id);'
-                'return JSON.stringify(ins)})()'
+                "return JSON.stringify(ins)})()"
             )
         )
         if len(ids) < 2:
@@ -190,7 +179,7 @@ class LinkedInNewsletterBridge:
                 'const s=Object.getOwnPropertyDescriptor(proto.prototype,"value").set;'
                 f's.call(el,"{_js_str(value)}");'
                 'el.dispatchEvent(new Event("input",{bubbles:true}));'
-                'return el.value.length})()'
+                "return el.value.length})()"
             )
         # JS click inside the modal + verify it closes — a Playwright
         # force-click on "Save" can land on a stale match and leave the
@@ -204,15 +193,10 @@ class LinkedInNewsletterBridge:
         )
         for _ in range(6):
             await asyncio.sleep(1.5)
-            open_dlgs = await self._eval(
-                'JSON.stringify([...document.querySelectorAll("[role=dialog],'
-                '.artdeco-modal")].filter(d=>d.offsetParent).length)'
-            )
+            open_dlgs = await self._eval('JSON.stringify([...document.querySelectorAll("[role=dialog],.artdeco-modal")].filter(d=>d.offsetParent).length)')
             if not int(open_dlgs):
                 return
-        raise LinkedInNewsletterBridgeError(
-            "SEO dialog did not close after Save — check field validation"
-        )
+        raise LinkedInNewsletterBridgeError("SEO dialog did not close after Save — check field validation")
 
     async def _set_schedule(self, schedule_iso: str) -> None:
         """Drive the publish dialog's "Schedule post" picker.
@@ -231,9 +215,7 @@ class LinkedInNewsletterBridge:
         try:
             dt = datetime.fromisoformat(schedule_iso)
         except ValueError as exc:
-            raise LinkedInNewsletterBridgeError(
-                f"invalid schedule_iso: {schedule_iso}"
-            ) from exc
+            raise LinkedInNewsletterBridgeError(f"invalid schedule_iso: {schedule_iso}") from exc
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=ZoneInfo("Europe/Athens"))
         local = dt.astimezone(ZoneInfo("Europe/Athens"))
@@ -250,14 +232,10 @@ class LinkedInNewsletterBridge:
             'if(!btn)return "no-schedule";btn.click();return "clicked"})()'
         )
         if clicked != "clicked":
-            raise LinkedInNewsletterBridgeError(
-                f"Schedule post button: {clicked}"
-            )
+            raise LinkedInNewsletterBridgeError(f"Schedule post button: {clicked}")
         for _ in range(8):
             await asyncio.sleep(1)
-            ready = await self._eval(
-                '!!document.getElementById("share-post__scheduled-date")'
-            )
+            ready = await self._eval('!!document.getElementById("share-post__scheduled-date")')
             if ready:
                 break
         else:
@@ -272,9 +250,9 @@ class LinkedInNewsletterBridge:
             'const b=[...dlg.querySelectorAll("button[data-calendar-day]")]'
             '.find(b=>(b.getAttribute("aria-label")||"").startsWith(lbl));'
             'if(!b)return "no-day";'
-            'const rc=b.getBoundingClientRect();'
-            'const o={bubbles:true,cancelable:true,composed:true,view:window,'
-            'clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,'
+            "const rc=b.getBoundingClientRect();"
+            "const o={bubbles:true,cancelable:true,composed:true,view:window,"
+            "clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,"
             'pointerId:1,isPrimary:true,pointerType:"mouse"};'
             'b.dispatchEvent(new PointerEvent("pointerdown",o));'
             'b.dispatchEvent(new MouseEvent("mousedown",o));'
@@ -284,18 +262,12 @@ class LinkedInNewsletterBridge:
             'return "ok"})()'
         )
         if day_hit != "ok":
-            raise LinkedInNewsletterBridgeError(
-                f"calendar day not found for {day_label}: {day_hit}"
-            )
+            raise LinkedInNewsletterBridgeError(f"calendar day not found for {day_label}: {day_hit}")
         await asyncio.sleep(1)
-        got = await self._eval(
-            'document.getElementById("share-post__scheduled-date").value'
-        )
+        got = await self._eval('document.getElementById("share-post__scheduled-date").value')
         expected_date = local.strftime("%m/%d/%Y")
         if got != expected_date:
-            raise LinkedInNewsletterBridgeError(
-                f"calendar pick failed: expected {expected_date}, got {got}"
-            )
+            raise LinkedInNewsletterBridgeError(f"calendar pick failed: expected {expected_date}, got {got}")
 
         # Timepicker — expand, scroll target option into view, pointer-click.
         await self._eval(
@@ -304,7 +276,7 @@ class LinkedInNewsletterBridge:
             'const b=[...dlg.querySelectorAll("button")]'
             '.find(b=>/Expand timepicker/i.test((b.innerText||"")'
             '+(b.getAttribute("aria-label")||"")));'
-            'if(b)b.click();return !!b})()'
+            "if(b)b.click();return !!b})()"
         )
         await asyncio.sleep(1.5)
         time_hit = await self._eval(
@@ -313,9 +285,9 @@ class LinkedInNewsletterBridge:
             f'const t=opts.find(e=>(e.innerText||"").trim()==="{time_label}");'
             'if(!t)return "no-option";'
             't.scrollIntoView({block:"center"});'
-            'const rc=t.getBoundingClientRect();'
-            'const o={bubbles:true,cancelable:true,composed:true,view:window,'
-            'clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,'
+            "const rc=t.getBoundingClientRect();"
+            "const o={bubbles:true,cancelable:true,composed:true,view:window,"
+            "clientX:rc.x+rc.width/2,clientY:rc.y+rc.height/2,button:0,"
             'pointerId:1,isPrimary:true,pointerType:"mouse"};'
             't.dispatchEvent(new PointerEvent("pointerdown",o));'
             't.dispatchEvent(new MouseEvent("mousedown",o));'
@@ -325,17 +297,11 @@ class LinkedInNewsletterBridge:
             'return "ok"})()'
         )
         if time_hit != "ok":
-            raise LinkedInNewsletterBridgeError(
-                f"time option {time_label} not found: {time_hit}"
-            )
+            raise LinkedInNewsletterBridgeError(f"time option {time_label} not found: {time_hit}")
         await asyncio.sleep(1)
-        got_time = await self._eval(
-            'document.getElementById("share-post__scheduled-time").value'
-        )
+        got_time = await self._eval('document.getElementById("share-post__scheduled-time").value')
         if got_time != time_label:
-            raise LinkedInNewsletterBridgeError(
-                f"timepick failed: expected {time_label}, got {got_time}"
-            )
+            raise LinkedInNewsletterBridgeError(f"timepick failed: expected {time_label}, got {got_time}")
 
         # "Next" commits the picked date/time back to the publish dialog.
         clicked = await self._eval(
@@ -350,13 +316,11 @@ class LinkedInNewsletterBridge:
         await asyncio.sleep(3)
         confirm = await self._eval(
             '(()=>{const dlg=[...document.querySelectorAll("[role=dialog]")]'
-            '.filter(d=>d.offsetParent).pop();'
+            ".filter(d=>d.offsetParent).pop();"
             'return dlg?(dlg.innerText||"").slice(0,300):"none"})()'
         )
         if "Posting" not in str(confirm):
-            raise LinkedInNewsletterBridgeError(
-                f"schedule not committed: {confirm}"
-            )
+            raise LinkedInNewsletterBridgeError(f"schedule not committed: {confirm}")
 
     async def publish_issue(
         self,
@@ -376,9 +340,7 @@ class LinkedInNewsletterBridge:
 
         # interactive=True → 900s busy-hold so hourly pollers cannot preempt
         # mid-publish; force=True recovers wedged sessions (manual recovery).
-        await self._client.start_session(
-            "linkedin", force=True, interactive=True, contention_retries=6
-        )
+        await self._client.start_session("linkedin", force=True, interactive=True, contention_retries=6)
         steps.append("bridge session claimed")
         await asyncio.sleep(6)
 
@@ -397,9 +359,7 @@ class LinkedInNewsletterBridge:
                 break
             steps.append(f"editor not mounted after attempt {attempt + 1} — retrying warm")
         if not mounted:
-            raise LinkedInNewsletterBridgeError(
-                "article editor did not mount after warm retry"
-            )
+            raise LinkedInNewsletterBridgeError("article editor did not mount after warm retry")
         steps.append("editor mounted")
 
         await self._client.fill(".article-editor-headline__textarea", title)
@@ -419,7 +379,7 @@ class LinkedInNewsletterBridge:
             # The upload leaves the media-editor modal open — its own "Next"
             # confirms the cover; leaving it up swallows the Manage click.
             await self._eval(
-                '(()=>{const m=document.querySelector('
+                "(()=>{const m=document.querySelector("
                 '".article-editor__media-editor-modal");if(!m)return "absent";'
                 'const btn=[...m.querySelectorAll("button")]'
                 '.find(b=>(b.innerText||"").trim()==="Next");'
@@ -446,23 +406,10 @@ class LinkedInNewsletterBridge:
             dialogs: list[str] = []
             for _ in range(10):
                 await asyncio.sleep(1.5)
-                dialogs = json.loads(
-                    await self._eval(
-                        'JSON.stringify([...document.querySelectorAll("[role=dialog]")]'
-                        '.map(d=>d.innerText.slice(0,500)))'
-                    )
-                )
-                if any(
-                    "edition of your newsletter" in d
-                    or "Post to Anyone + Subscribers" in d
-                    for d in dialogs
-                ):
+                dialogs = json.loads(await self._eval('JSON.stringify([...document.querySelectorAll("[role=dialog]")].map(d=>d.innerText.slice(0,500)))'))
+                if any("edition of your newsletter" in d or "Post to Anyone + Subscribers" in d for d in dialogs):
                     break
-            if any(
-                "edition of your newsletter" in d
-                or "Post to Anyone + Subscribers" in d
-                for d in dialogs
-            ):
+            if any("edition of your newsletter" in d or "Post to Anyone + Subscribers" in d for d in dialogs):
                 break
             # Ember's click listener can wedge after earlier modal churn —
             # the draft is auto-saved, so reload once and retry Next.
@@ -470,9 +417,7 @@ class LinkedInNewsletterBridge:
                 steps.append("no publish dialog — reloading editor")
                 await self._client.navigate(edit_url)
                 if not await self._wait_editor(90):
-                    raise LinkedInNewsletterBridgeError(
-                        "editor did not remount after reload"
-                    )
+                    raise LinkedInNewsletterBridgeError("editor did not remount after reload")
                 continue
             raise LinkedInNewsletterBridgeError(f"publish dialog not found: {dialogs}")
         steps.append("publish dialog open")
@@ -510,9 +455,7 @@ class LinkedInNewsletterBridge:
             '.filter(d=>d.offsetParent).pop();if(!dlg)return "no-dialog";'
             'const btn=[...dlg.querySelectorAll("button")]'
             f'.find(b=>(b.innerText||"").trim()==="{wanted}");'
-            'if(!btn)return "no-"+("'
-            + wanted.lower()
-            + '");btn.click();return "clicked"})()'
+            'if(!btn)return "no-"+("' + wanted.lower() + '");btn.click();return "clicked"})()'
         )
         if clicked != "clicked":
             raise LinkedInNewsletterBridgeError(f"{wanted} button: {clicked}")

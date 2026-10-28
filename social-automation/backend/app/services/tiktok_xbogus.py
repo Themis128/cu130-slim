@@ -133,25 +133,25 @@ def generate_xbogus(
 
     # Step 4: Build 19-byte payload
     payload = bytearray()
-    payload.append(LEADING_BYTE)                    # 1 byte: 0x40
-    payload.extend(UA_RC4_KEY)                       # 3 bytes: [0x00, 0x01, 0x0E]
-    payload.extend(params_md5[14:16])                # 2 bytes from params double-MD5
-    payload.extend(body_md5[14:16])                  # 2 bytes from body double-MD5
-    payload.extend(ua_md5[14:16])                    # 2 bytes from UA MD5
-    payload.extend(struct.pack(">I", timestamp))     # 4 bytes timestamp (big-endian)
+    payload.append(LEADING_BYTE)  # 1 byte: 0x40
+    payload.extend(UA_RC4_KEY)  # 3 bytes: [0x00, 0x01, 0x0E]
+    payload.extend(params_md5[14:16])  # 2 bytes from params double-MD5
+    payload.extend(body_md5[14:16])  # 2 bytes from body double-MD5
+    payload.extend(ua_md5[14:16])  # 2 bytes from UA MD5
+    payload.extend(struct.pack(">I", timestamp))  # 4 bytes timestamp (big-endian)
     payload.extend(struct.pack(">I", MAGIC_CONSTANT))  # 4 bytes magic (big-endian)
 
     # XOR checksum of all 18 bytes
     xor_check = 0
     for b in payload:
         xor_check ^= b
-    payload.append(xor_check & 0xFF)                 # 1 byte checksum -> total 19 bytes
+    payload.append(xor_check & 0xFF)  # 1 byte checksum -> total 19 bytes
 
     # Step 5: RC4 encrypt with key [0xFF]
     encrypted = _rc4(PAYLOAD_RC4_KEY, bytes(payload))
 
     # Step 6: Prepend [0x02, 0xFF]
-    final = bytes([0x02, 0xFF]) + encrypted          # 21 bytes total
+    final = bytes([0x02, 0xFF]) + encrypted  # 21 bytes total
 
     # Step 7: Custom Base64 encode
     xbogus = _custom_base64_encode(final)

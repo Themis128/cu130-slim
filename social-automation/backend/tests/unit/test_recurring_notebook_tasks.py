@@ -87,14 +87,27 @@ class _DB:
 
 
 def _parent(**kw):
-    base = dict(id=uuid.uuid4(), team_id=uuid.uuid4(), user_id=uuid.uuid4(),
-                status=None, content_text="hi", media_ids=["m1"],
-                platform_specific={}, hashtags=["a"], mention_accounts=[],
-                link_url=None, music_asset_id=None, pillar_id=None,
-                content_brief_id=None, is_recurring=True,
-                recurrence_pattern=RecurrencePattern.WEEKLY,
-                recurrence_interval=1, recurrence_count=0, recurrence_max=0,
-                next_recurrence_at=datetime.now(UTC))
+    base = dict(
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        status=None,
+        content_text="hi",
+        media_ids=["m1"],
+        platform_specific={},
+        hashtags=["a"],
+        mention_accounts=[],
+        link_url=None,
+        music_asset_id=None,
+        pillar_id=None,
+        content_brief_id=None,
+        is_recurring=True,
+        recurrence_pattern=RecurrencePattern.WEEKLY,
+        recurrence_interval=1,
+        recurrence_count=0,
+        recurrence_max=0,
+        next_recurrence_at=datetime.now(UTC),
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -169,9 +182,7 @@ def test_notebook_report_success_send_off(monkeypatch, tmp_path):
     man, _ = _manifest(tmp_path)
     mp = tmp_path / "manifest.json"
     mp.write_text(json.dumps(man))
-    monkeypatch.setattr(runner, "run_report_notebook",
-                        lambda nb, p: {"manifest": man, "manifest_path": str(mp),
-                                       "duration_s": 1.5, "notebook": "nb.ipynb"})
+    monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1.5, "notebook": "nb.ipynb"})
     out = NR.run_notebook_report("nb", send=False)
     assert out["executed"] and out["emailed"] == 0 and out["duration_s"] == 1.5
 
@@ -183,9 +194,7 @@ def test_notebook_report_success_send_on(monkeypatch, tmp_path):
     man, _ = _manifest(tmp_path)
     mp = tmp_path / "manifest.json"
     mp.write_text("{}")
-    monkeypatch.setattr(runner, "run_report_notebook",
-                        lambda nb, p: {"manifest": man, "manifest_path": str(mp),
-                                       "duration_s": 1, "notebook": "n"})
+    monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: {"manifest": man, "manifest_path": str(mp), "duration_s": 1, "notebook": "n"})
     sent = AsyncMock(return_value=True)
     monkeypatch.setattr(ed, "send_email", sent)
     out = NR.run_notebook_report("nb", send=True)
@@ -202,10 +211,11 @@ def test_notebook_report_multi_manifest(monkeypatch, tmp_path):
     m2 = {"subject": "no files"}  # missing html/text → delivery error path
     mp = tmp_path / "m.json"
     mp.write_text("{}")
-    monkeypatch.setattr(runner, "run_report_notebook",
-                        lambda nb, p: {"manifest": {"reports": [m1, m2]},
-                                       "manifest_path": str(tmp_path / "a" / "x"),
-                                       "duration_s": 1, "notebook": "n"})
+    monkeypatch.setattr(
+        runner,
+        "run_report_notebook",
+        lambda nb, p: {"manifest": {"reports": [m1, m2]}, "manifest_path": str(tmp_path / "a" / "x"), "duration_s": 1, "notebook": "n"},
+    )
     monkeypatch.setattr(ed, "send_email", AsyncMock(return_value=True))
     out = NR.run_notebook_report("nb", send=True)
     assert out["emailed"] == 1 and "missing html_file" in out["email_error"]
@@ -214,8 +224,7 @@ def test_notebook_report_multi_manifest(monkeypatch, tmp_path):
 def test_notebook_report_failure_fallback(monkeypatch):
     import app.services.notebook_runner as runner
 
-    monkeypatch.setattr(runner, "run_report_notebook",
-                        lambda nb, p: (_ for _ in ()).throw(RuntimeError("kernel died")))
+    monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: (_ for _ in ()).throw(RuntimeError("kernel died")))
     monkeypatch.setattr(NR, "run_async", lambda c: (c.close(), {"sent": 1})[1])
     out = NR.run_notebook_report("nb", fallback_to_code=True)
     assert out["executed"] is False and "kernel died" in out["error"]
@@ -224,8 +233,8 @@ def test_notebook_report_failure_fallback(monkeypatch):
 
 def test_notebook_report_failure_no_fallback(monkeypatch):
     import app.services.notebook_runner as runner
-    monkeypatch.setattr(runner, "run_report_notebook",
-                        lambda nb, p: (_ for _ in ()).throw(RuntimeError("x")))
+
+    monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: (_ for _ in ()).throw(RuntimeError("x")))
     with pytest.raises(RuntimeError):
         NR.run_notebook_report("nb", fallback_to_code=False)
 
@@ -235,8 +244,7 @@ async def test_deliver_manifest_send_error(monkeypatch, tmp_path):
     import app.services.email_digest as ed
 
     man, base = _manifest(tmp_path)
-    monkeypatch.setattr(ed, "send_email",
-                        AsyncMock(side_effect=RuntimeError("smtp")))
+    monkeypatch.setattr(ed, "send_email", AsyncMock(side_effect=RuntimeError("smtp")))
     ok, err = await NR._deliver_manifest(man, base)
     assert ok is False and "smtp" in err
 
@@ -247,8 +255,7 @@ async def test_deliver_manifest_attachments(monkeypatch, tmp_path):
 
     att = tmp_path / "chart.png"
     att.write_bytes(b"png")
-    man, base = _manifest(tmp_path,
-                          attachments=[{"file": "chart.png", "cid": "c1", "mime": "image/png"}])
+    man, base = _manifest(tmp_path, attachments=[{"file": "chart.png", "cid": "c1", "mime": "image/png"}])
     sent = AsyncMock(return_value=True)
     monkeypatch.setattr(ed, "send_email", sent)
     ok, err = await NR._deliver_manifest(man, base)
@@ -268,8 +275,7 @@ def test_notebook_fallback_mapping_uses_monetization_code_path():
 def test_notebook_report_monetization_fallback(monkeypatch):
     import app.services.notebook_runner as runner
 
-    monkeypatch.setattr(runner, "run_report_notebook",
-                        lambda nb, p: (_ for _ in ()).throw(RuntimeError("kernel died")))
+    monkeypatch.setattr(runner, "run_report_notebook", lambda nb, p: (_ for _ in ()).throw(RuntimeError("kernel died")))
     seen = {}
 
     def _fake_run_async(coro):

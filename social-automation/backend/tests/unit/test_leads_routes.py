@@ -35,11 +35,21 @@ class _DB:
 
 
 def _lead_row(**kw):
-    base = dict(id=uuid.uuid4(), team_id=uuid.uuid4(), source=LeadSource.website,
-                social_account_id=None, thread_id=None, name="N",
-                email="n@x.co", company_size=LeadCompanySize.solo,
-                interest=LeadInterest.cloud, notes=None, meta_data={},
-                created_at=datetime.now(UTC), updated_at=datetime.now(UTC))
+    base = dict(
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        source=LeadSource.website,
+        social_account_id=None,
+        thread_id=None,
+        name="N",
+        email="n@x.co",
+        company_size=LeadCompanySize.solo,
+        interest=LeadInterest.cloud,
+        notes=None,
+        meta_data={},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -48,9 +58,7 @@ def _lead_row(**kw):
 async def test_list_leads_returns_validated_rows():
     rows = [_lead_row(), _lead_row()]
     db = _DB([_Res(rows)])
-    out = await LD.list_leads(team_id=uuid.uuid4(), limit=50, offset=0,
-                              source=LeadSource.website, db=db,
-                              _user=SimpleNamespace())
+    out = await LD.list_leads(team_id=uuid.uuid4(), limit=50, offset=0, source=LeadSource.website, db=db, _user=SimpleNamespace())
     assert len(out) == 2 and out[0].source == LeadSource.website
 
 
@@ -58,28 +66,21 @@ async def test_list_leads_returns_validated_rows():
 async def test_create_lead_manual_success(monkeypatch):
     created = _lead_row()
     monkeypatch.setattr(LD, "create_lead", AsyncMock(return_value=created))
-    body = LD.LeadCreateRequest(source=LeadSource.website, name="N",
-                                email="n@x.co", company_size="solo",
-                                interest="cloud")
-    out = await LD.create_lead_manual(body=body, team_id=uuid.uuid4(),
-                                      db=_DB(), _user=SimpleNamespace())
+    body = LD.LeadCreateRequest(source=LeadSource.website, name="N", email="n@x.co", company_size="solo", interest="cloud")
+    out = await LD.create_lead_manual(body=body, team_id=uuid.uuid4(), db=_DB(), _user=SimpleNamespace())
     assert out.email == "n@x.co"
 
 
 @pytest.mark.asyncio
 async def test_create_lead_manual_bad_enums_400():
-    body = LD.LeadCreateRequest(source=LeadSource.website, name="N",
-                                email="n@x.co", company_size="hugeco")
+    body = LD.LeadCreateRequest(source=LeadSource.website, name="N", email="n@x.co", company_size="hugeco")
     with pytest.raises(HTTPException) as e:
-        await LD.create_lead_manual(body=body, team_id=uuid.uuid4(),
-                                    db=_DB(), _user=SimpleNamespace())
+        await LD.create_lead_manual(body=body, team_id=uuid.uuid4(), db=_DB(), _user=SimpleNamespace())
     assert e.value.status_code == 400 and "company_size" in e.value.detail
 
-    body = LD.LeadCreateRequest(source=LeadSource.website, name="N",
-                                email="n@x.co", interest="everything")
+    body = LD.LeadCreateRequest(source=LeadSource.website, name="N", email="n@x.co", interest="everything")
     with pytest.raises(HTTPException) as e:
-        await LD.create_lead_manual(body=body, team_id=uuid.uuid4(),
-                                    db=_DB(), _user=SimpleNamespace())
+        await LD.create_lead_manual(body=body, team_id=uuid.uuid4(), db=_DB(), _user=SimpleNamespace())
     assert e.value.status_code == 400 and "interest" in e.value.detail
 
 
@@ -87,8 +88,7 @@ async def test_create_lead_manual_bad_enums_400():
 
 
 def _settings(**kw):
-    base = {"CLOUDLESS_WEB_ANALYTICS_TEAM_ID": str(uuid.uuid4()),
-            "PLAYBOOK_URL": "https://x/playbook.pdf"}
+    base = {"CLOUDLESS_WEB_ANALYTICS_TEAM_ID": str(uuid.uuid4()), "PLAYBOOK_URL": "https://x/playbook.pdf"}
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -96,11 +96,17 @@ def _settings(**kw):
 def _req():
     from starlette.requests import Request
 
-    return Request({
-        "type": "http", "method": "POST", "path": "/api/v1/leads/public",
-        "headers": [], "client": ("1.1.1.1", 1234), "server": ("t", 443),
-        "scheme": "https",
-    })
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/leads/public",
+            "headers": [],
+            "client": ("1.1.1.1", 1234),
+            "server": ("t", 443),
+            "scheme": "https",
+        }
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -134,9 +140,7 @@ async def test_public_honeypot_silent_accept(monkeypatch, pub_env):
 async def test_public_bad_email_400(monkeypatch, pub_env):
     monkeypatch.setattr(LD, "get_settings", lambda: _settings())
     with pytest.raises(HTTPException) as e:
-        await LD.create_lead_public(
-            body=LD.PublicLeadRequest(email="not-an-email"),
-            request=_req(), db=_DB())
+        await LD.create_lead_public(body=LD.PublicLeadRequest(email="not-an-email"), request=_req(), db=_DB())
     assert e.value.status_code == 400
 
 
@@ -144,20 +148,15 @@ async def test_public_bad_email_400(monkeypatch, pub_env):
 async def test_public_explicit_no_consent_400(monkeypatch, pub_env):
     monkeypatch.setattr(LD, "get_settings", lambda: _settings())
     with pytest.raises(HTTPException) as e:
-        await LD.create_lead_public(
-            body=LD.PublicLeadRequest(email="a@b.co", consent=False),
-            request=_req(), db=_DB())
+        await LD.create_lead_public(body=LD.PublicLeadRequest(email="a@b.co", consent=False), request=_req(), db=_DB())
     assert e.value.status_code == 400 and "Consent" in e.value.detail
 
 
 @pytest.mark.asyncio
 async def test_public_no_team_configured_503(monkeypatch, pub_env):
-    monkeypatch.setattr(LD, "get_settings",
-                        lambda: _settings(CLOUDLESS_WEB_ANALYTICS_TEAM_ID=""))
+    monkeypatch.setattr(LD, "get_settings", lambda: _settings(CLOUDLESS_WEB_ANALYTICS_TEAM_ID=""))
     with pytest.raises(HTTPException) as e:
-        await LD.create_lead_public(
-            body=LD.PublicLeadRequest(email="a@b.co"),
-            request=_req(), db=_DB())
+        await LD.create_lead_public(body=LD.PublicLeadRequest(email="a@b.co"), request=_req(), db=_DB())
     assert e.value.status_code == 503
 
 
@@ -167,12 +166,11 @@ async def test_public_new_lead_sends_playbook(monkeypatch, pub_env):
     LD.deliver_playbook.return_value = "email"
     db = _DB([_Res([])])  # no prior website lead rows
     out = await LD.create_lead_public(
-        body=LD.PublicLeadRequest(email="New@B.co", name="New Person",
-                                  site="cloudless.gr", form="playbook"),
-        request=_req(), db=db)
+        body=LD.PublicLeadRequest(email="New@B.co", name="New Person", site="cloudless.gr", form="playbook"), request=_req(), db=db
+    )
     assert out["playbook_delivery"] == "email"
     kwargs = LD.create_lead.await_args.kwargs
-    assert kwargs["email"] == "new@b.co"           # lowercased
+    assert kwargs["email"] == "new@b.co"  # lowercased
     assert kwargs["source"] == LeadSource.website
     assert "playbook" in kwargs["notes"]
     assert "via cloudless.gr" in kwargs["notes"]
@@ -184,8 +182,7 @@ async def test_public_already_sent_skips_resend(monkeypatch, pub_env):
     LD.deliver_playbook.return_value = "already_sent"
     prior_meta = [{"playbook_email_queued_at": "2026-01-01T00:00:00"}]
     db = _DB([_Res(prior_meta)])
-    out = await LD.create_lead_public(
-        body=LD.PublicLeadRequest(email="a@b.co"), request=_req(), db=db)
+    out = await LD.create_lead_public(body=LD.PublicLeadRequest(email="a@b.co"), request=_req(), db=db)
     assert out["playbook_delivery"] == "already_sent"
     # already_sent=True passed through to deliver_playbook
     assert LD.deliver_playbook.await_args.kwargs["already_sent"] is True

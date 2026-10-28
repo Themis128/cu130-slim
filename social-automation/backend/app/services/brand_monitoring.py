@@ -50,8 +50,7 @@ async def search_twitter_mentions(
                     "author": t.get("author_id", ""),
                     "content": t.get("text", ""),
                     "url": f"https://twitter.com/i/web/status/{t.get('id', '')}",
-                    "engagement": t.get("public_metrics", {}).get("like_count", 0)
-                    + t.get("public_metrics", {}).get("retweet_count", 0),
+                    "engagement": t.get("public_metrics", {}).get("like_count", 0) + t.get("public_metrics", {}).get("retweet_count", 0),
                     "mentioned_at": t.get("created_at"),
                     "extra_data": t.get("public_metrics", {}),
                 }
@@ -78,14 +77,10 @@ async def search_reddit_mentions(brand_name: str, max_results: int = 10) -> list
                 {
                     "platform": "reddit",
                     "author": c.get("data", {}).get("author", ""),
-                    "content": c.get("data", {}).get("title", "")
-                    + " "
-                    + c.get("data", {}).get("selftext", "")[:500],
+                    "content": c.get("data", {}).get("title", "") + " " + c.get("data", {}).get("selftext", "")[:500],
                     "url": f"https://reddit.com{c.get('data', {}).get('permalink', '')}",
                     "engagement": c.get("data", {}).get("score", 0),
-                    "mentioned_at": datetime.fromtimestamp(
-                        c.get("data", {}).get("created_utc", 0), tz=UTC
-                    ).isoformat()
+                    "mentioned_at": datetime.fromtimestamp(c.get("data", {}).get("created_utc", 0), tz=UTC).isoformat()
                     if c.get("data", {}).get("created_utc")
                     else None,
                     "extra_data": {"subreddit": c.get("data", {}).get("subreddit", "")},
@@ -141,10 +136,13 @@ async def analyze_sentiment(text: str, db: AsyncSession | None = None) -> dict[s
             prompt=f'Analyze the sentiment of this text. Return JSON with "sentiment" (positive/negative/neutral) and "score" (-1.0 to 1.0):\n\n"{text[:500]}"',
             provider_name="dmr",
             db=db,
-            schema={"type": "object", "properties": {
-                "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},
-                "score": {"type": "number", "minimum": -1, "maximum": 1},
-            }},
+            schema={
+                "type": "object",
+                "properties": {
+                    "sentiment": {"type": "string", "enum": ["positive", "negative", "neutral"]},
+                    "score": {"type": "number", "minimum": -1, "maximum": 1},
+                },
+            },
         )
         if "response" in result:
             parsed = json.loads(result["response"]) if isinstance(result["response"], str) else result["response"]
@@ -199,9 +197,7 @@ async def collect_mentions(
             )
             if m.get("mentioned_at"):
                 try:
-                    mention.mentioned_at = datetime.fromisoformat(
-                        m["mentioned_at"].replace("Z", "+00:00")
-                    )
+                    mention.mentioned_at = datetime.fromisoformat(m["mentioned_at"].replace("Z", "+00:00"))
                 except (ValueError, TypeError):
                     pass
             mentions.append(mention)
@@ -228,9 +224,7 @@ async def _twitter_access_token(db: AsyncSession, brand: Brand) -> str | None:
         return None
 
 
-async def _fetch_twitter_competitor(
-    db: AsyncSession, brand: Brand, username: str
-) -> dict[str, Any] | None:
+async def _fetch_twitter_competitor(db: AsyncSession, brand: Brand, username: str) -> dict[str, Any] | None:
     """Fetch real public metrics for a competitor on X via the v2 API."""
     token = await _twitter_access_token(db, brand)
     if not token:
@@ -272,23 +266,14 @@ async def _fetch_twitter_competitor(
                 if tweets_resp.status_code == 200:
                     for t in tweets_resp.json().get("data", []):
                         m = t.get("public_metrics") or {}
-                        eng = (
-                            m.get("like_count", 0)
-                            + m.get("retweet_count", 0)
-                            + m.get("reply_count", 0)
-                            + m.get("quote_count", 0)
-                        )
+                        eng = m.get("like_count", 0) + m.get("retweet_count", 0) + m.get("reply_count", 0) + m.get("quote_count", 0)
                         total_engagement += eng
                         sampled += 1
                         if eng > top_post_engagement:
                             top_post_engagement = eng
                             top_post_content = t.get("text")
 
-            engagement_rate = (
-                (total_engagement / sampled) / followers * 100
-                if sampled and followers
-                else 0.0
-            )
+            engagement_rate = (total_engagement / sampled) / followers * 100 if sampled and followers else 0.0
             return {
                 "follower_count": followers,
                 "engagement_rate": round(engagement_rate, 4),
@@ -366,9 +351,7 @@ def calculate_health_score(
 
     # Share of voice: vs competitors
     if competitor_snapshots:
-        competitor_engagement = sum(
-            s.top_post_engagement or 0 for s in competitor_snapshots
-        )
+        competitor_engagement = sum(s.top_post_engagement or 0 for s in competitor_snapshots)
         if total_engagement + competitor_engagement > 0:
             sov_score = total_engagement / (total_engagement + competitor_engagement) * 100
         else:
@@ -383,13 +366,7 @@ def calculate_health_score(
     consistency_score = min(post_count_30d / 15 * 100, 100)
 
     # Weighted overall score
-    overall = (
-        sentiment_score * 0.25
-        + reach_score * 0.20
-        + sov_score * 0.20
-        + engagement_score * 0.20
-        + consistency_score * 0.15
-    )
+    overall = sentiment_score * 0.25 + reach_score * 0.20 + sov_score * 0.20 + engagement_score * 0.20 + consistency_score * 0.15
 
     return {
         "overall": round(overall, 1),

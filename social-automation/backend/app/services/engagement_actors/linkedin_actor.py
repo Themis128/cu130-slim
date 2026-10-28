@@ -3,6 +3,7 @@
 Personal engagement has no public API — actions run through the logged-in
 browser session via voyager fetch() inside the page context.
 """
+
 import json
 import logging
 
@@ -47,14 +48,11 @@ async def act(action, db) -> dict:
 
         if action.action == "like":
             pid = action.target_post_id.split(":")[-1]
-            r = await c.post("/debug/eval",
-                             json={"expr": LIKE_JS.replace("{PID}", pid)})
+            r = await c.post("/debug/eval", json={"expr": LIKE_JS.replace("{PID}", pid)})
         elif action.action == "comment":
             if not action.comment_draft:
                 return {"error": "empty comment draft"}
-            expr = (COMMENT_JS
-                    .replace("{TEXT}", json.dumps(action.comment_draft))
-                    .replace("{URN}", action.target_post_id))
+            expr = COMMENT_JS.replace("{TEXT}", json.dumps(action.comment_draft)).replace("{URN}", action.target_post_id)
             r = await c.post("/debug/eval", json={"expr": expr})
         else:  # repost — needs UI flow, defer
             return {"error": "repost not implemented for linkedin", "skip": True}

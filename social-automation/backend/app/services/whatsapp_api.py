@@ -14,6 +14,7 @@ API reference:
 - https://developers.facebook.com/docs/whatsapp/cloud-api
 - https://developers.facebook.com/docs/whatsapp/cloud-api/get-started
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,6 +40,7 @@ DEFAULT_API_VERSION = WHATSAPP_CLOUD_API_VERSION
 DEFAULT_TIMEOUT = 60.0
 
 logger = logging.getLogger(__name__)
+
 
 def _validate_phone(value: str) -> str:
     """Validate a phone number (E.164 or local format)."""
@@ -532,6 +534,7 @@ class WhatsAppAPIClient:
 # Webhook event helpers
 # ------------------------------------------------------------------
 
+
 def parse_webhook_event(body: dict) -> list[dict]:
     """Parse a WhatsApp webhook payload and return normalized events.
 
@@ -639,13 +642,15 @@ def parse_webhook_event(body: dict) -> list[dict]:
                     status_ts_int = int(status_ts) if status_ts else 0
                 except (ValueError, TypeError):
                     status_ts_int = 0
-                events.append({
-                    "phone_number_id": phone_number_id,
-                    "sender_phone": status.get("recipient_id", ""),
-                    "message_type": "status",
-                    "message_id": status.get("id", ""),
-                    "status": status.get("status", ""),
-                    "timestamp": status_ts_int,
-                })
+                events.append(
+                    {
+                        "phone_number_id": phone_number_id,
+                        "sender_phone": status.get("recipient_id", ""),
+                        "message_type": "status",
+                        "message_id": status.get("id", ""),
+                        "status": status.get("status", ""),
+                        "timestamp": status_ts_int,
+                    }
+                )
 
     return events

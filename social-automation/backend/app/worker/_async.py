@@ -141,12 +141,8 @@ def get_session_factory():
 
                 from app.core.config import get_settings
 
-                _engine = create_async_engine(
-                    get_settings().DATABASE_URL, pool_size=4, max_overflow=4
-                )
-                _session_factory = async_sessionmaker(
-                    _engine, class_=AsyncSession, expire_on_commit=False
-                )
+                _engine = create_async_engine(get_settings().DATABASE_URL, pool_size=4, max_overflow=4)
+                _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)
     return _session_factory
 
 

@@ -11,6 +11,7 @@ API reference:
 - https://developers.facebook.com/docs/whatsapp/flows
 - https://developers.facebook.com/docs/whatsapp/flows/reference/flowsapi
 """
+
 from __future__ import annotations
 
 import logging
@@ -44,6 +45,7 @@ router = APIRouter()
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _get_flows_client(account: SocialAccount) -> WhatsAppFlowsClient:
     """Build a WhatsAppFlowsClient from a SocialAccount."""
     meta = account.meta_data or {}
@@ -57,6 +59,7 @@ def _get_flows_client(account: SocialAccount) -> WhatsAppFlowsClient:
         )
     # access_token is stored encrypted
     from app.core.security import decrypt_token
+
     if isinstance(access_token, str) and not access_token.startswith("EA"):
         try:
             access_token = decrypt_token(access_token)
@@ -73,20 +76,19 @@ def _get_flows_client(account: SocialAccount) -> WhatsAppFlowsClient:
 # Pydantic schemas
 # ------------------------------------------------------------------
 
+
 class FlowCreateRequest(BaseModel):
     """Request to create a new Flow."""
+
     name: str = Field(..., description="Flow name (unique within the WABA)")
-    categories: list[str] = Field(
-        ..., description=f"Flow categories. Valid: {sorted(VALID_FLOW_CATEGORIES)}"
-    )
-    endpoint_uri: str | None = Field(
-        None, description="URL of the Flow Data Endpoint (for endpoint-powered Flows)"
-    )
+    categories: list[str] = Field(..., description=f"Flow categories. Valid: {sorted(VALID_FLOW_CATEGORIES)}")
+    endpoint_uri: str | None = Field(None, description="URL of the Flow Data Endpoint (for endpoint-powered Flows)")
     clone_flow_id: str | None = Field(None, description="ID of a source Flow to clone")
 
 
 class FlowUpdateRequest(BaseModel):
     """Request to update a Flow's metadata."""
+
     name: str | None = None
     categories: list[str] | None = None
     endpoint_uri: str | None = None
@@ -94,11 +96,13 @@ class FlowUpdateRequest(BaseModel):
 
 class FlowJSONUpdateRequest(BaseModel):
     """Request to update a Flow's JSON content."""
+
     flow_json: dict = Field(..., description="The Flow JSON content")
 
 
 class FlowSendRequest(BaseModel):
     """Request to send a Flow message to a customer."""
+
     to: str = Field(..., description="Recipient phone number (E.164)")
     flow_id: str = Field(..., description="The Flow ID to send")
     flow_token: str = Field(..., description="Unique token for tracking this Flow message")
@@ -120,6 +124,7 @@ class FlowSendRequest(BaseModel):
 
 class FlowFromTemplateRequest(BaseModel):
     """Request to create a Flow from a pre-built template."""
+
     template_id: str = Field(
         ...,
         description=f"Template ID. Valid: {list(FLOW_TEMPLATES.keys())}",
@@ -138,6 +143,7 @@ class FlowFromTemplateRequest(BaseModel):
 # ------------------------------------------------------------------
 # Flow CRUD endpoints
 # ------------------------------------------------------------------
+
 
 @router.post("/{account_id}/flows", response_model=dict)
 async def create_flow(
@@ -321,6 +327,7 @@ async def delete_flow(
 # Send Flow message
 # ------------------------------------------------------------------
 
+
 @router.post("/{account_id}/flows/send", response_model=dict)
 async def send_flow(
     account_id: uuid.UUID,
@@ -357,6 +364,7 @@ async def send_flow(
 # ------------------------------------------------------------------
 # Flow templates
 # ------------------------------------------------------------------
+
 
 @router.get("/{account_id}/flows/templates/list", response_model=list)
 async def list_flow_templates(
@@ -470,6 +478,7 @@ async def create_flow_from_template(
 # Flow Data Endpoint (for endpoint-powered Flows)
 # ------------------------------------------------------------------
 
+
 @router.post("/flows/endpoint", response_model=dict)
 async def flow_data_endpoint(
     request: Request,
@@ -548,6 +557,7 @@ async def _handle_flow_request(parsed: dict) -> dict:
 # Flow response webhook (called from the main WhatsApp webhook)
 # ------------------------------------------------------------------
 
+
 async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
     """Process Flow response messages from a webhook payload.
 
@@ -563,10 +573,7 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
             "Flow response received: flow_token=%s sender=%s response_keys=%s",
             sanitize_log_text(str(event.get("flow_token", ""))[:20]),
             sanitize_log_text(str(event.get("sender_phone", ""))),
-            sanitize_log_text(
-                ",".join(str(k) for k in response.keys())
-                if isinstance(response, dict) else ""
-            ),
+            sanitize_log_text(",".join(str(k) for k in response.keys()) if isinstance(response, dict) else ""),
         )
         # Persist a lead when the response matches our lead-capture schema.
         try:
@@ -589,13 +596,19 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
             from sqlalchemy import select
 
             account = (
-                await db.execute(
-                    select(SocialAccount).where(
-                        SocialAccount.platform == "whatsapp",
-                        SocialAccount.meta_data["phone_number_id"].astext == phone_number_id,
-                    ).limit(1)
+                (
+                    await db.execute(
+                        select(SocialAccount)
+                        .where(
+                            SocialAccount.platform == "whatsapp",
+                            SocialAccount.meta_data["phone_number_id"].astext == phone_number_id,
+                        )
+                        .limit(1)
+                    )
                 )
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if not account:
                 continue
 
@@ -604,7 +617,7 @@ async def process_flow_responses(body: dict, db: AsyncSession) -> list[dict]:
 
             company_size = coerce_company_size(response.get("company_size"))
             interest = coerce_interest(response.get("interest"))
-            notes = (response.get("notes") or response.get("message") or None)
+            notes = response.get("notes") or response.get("message") or None
 
             await create_lead(
                 db,

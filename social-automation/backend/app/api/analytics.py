@@ -1,4 +1,5 @@
 """Analytics API — metrics from self-hosted Postgres (AnalyticsEvent), no cloud analytics APIs."""
+
 from __future__ import annotations
 
 import asyncio
@@ -34,17 +35,15 @@ router = APIRouter()
 
 ENGAGEMENT_TYPES = ("like", "comment", "share", "click")
 
+
 def _event_count_expr():
     """Prefer meta_data.count (platform sync); else each row counts as 1."""
     return func.coalesce(cast(AnalyticsEvent.meta_data["count"].astext, Integer), 1)
 
 
-
-
 async def _team_for_user(db: AsyncSession, team_id: uuid.UUID) -> Team | None:
     """Resolve the request's active team (JWT ``team_id`` claim via ``TeamId`` dep)."""
     return await db.get(Team, team_id)
-
 
 
 def _athens_day_expr(column=None):
@@ -55,8 +54,10 @@ def _athens_day_expr(column=None):
         func.timezone(settings.APP_TIMEZONE, col),
     )
 
+
 def _engagement_sum(event_counts: dict[str, int]) -> int:
     return sum(event_counts.get(e, 0) for e in ENGAGEMENT_TYPES)
+
 
 def _engagement_rate(engagement: int, impressions: int, reach: int = 0) -> float:
     """ERR convention: prefer impressions; fall back to reach when the
@@ -64,6 +65,7 @@ def _engagement_rate(engagement: int, impressions: int, reach: int = 0) -> float
     Zero denominator → 0.0, never a fabricated percentage."""
     denominator = impressions if impressions > 0 else reach
     return engagement / denominator if denominator > 0 else 0.0
+
 
 _SCRAPE_POSTED_RE = re.compile(r"^\d+\s*(?:mo|[smhdwy])\b.*•", re.IGNORECASE)
 _SCRAPE_CHROME_RE = re.compile(
@@ -94,7 +96,7 @@ def _strip_feed_card_chrome(text: str) -> str:
     lines = [line.strip() for line in text.splitlines()]
     for i, line in enumerate(lines):
         if _SCRAPE_POSTED_RE.match(line):
-            rest = [line for line in lines[i + 1:] if line]
+            rest = [line for line in lines[i + 1 :] if line]
             if rest and rest[0].lower() == "follow":
                 rest = rest[1:]
             body = " ".join(rest).strip()
@@ -114,13 +116,7 @@ def _snapshot_content_text(raw: dict | None) -> str:
     """
     raw = raw or {}
     discovery = raw.get("discovery") or {}
-    text = (
-        discovery.get("commentary")
-        or (discovery.get("post") or {}).get("commentary")
-        or discovery.get("caption")
-        or raw.get("text")
-        or ""
-    )
+    text = discovery.get("commentary") or (discovery.get("post") or {}).get("commentary") or discovery.get("caption") or raw.get("text") or ""
     if isinstance(text, str) and text.strip():
         return text.strip()
     scrape_text = (raw.get("scrape") or {}).get("text")
@@ -156,6 +152,7 @@ def _org_urn(account: SocialAccount) -> str:
     if meta.get("author_urn") and str(meta["author_urn"]).startswith("urn:li:organization:"):
         return str(meta["author_urn"])
     return f"urn:li:organization:{account.account_id}"
+
 
 async def _linkedin_follower_count(account: SocialAccount) -> int:
     """Fetch live follower count for a LinkedIn Company Page account.
@@ -195,6 +192,7 @@ async def _twitter_follower_count(account: SocialAccount) -> int:
         return 0
     try:
         import httpx
+
         token = decrypt_token(account.access_token_enc)
         headers = {"Authorization": f"Bearer {token}"}
         # Use the account_id (Twitter user ID) to fetch user info
@@ -227,9 +225,7 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
         try:
             from app.services.facebook_sidecar import FacebookSidecarClient
 
-            stats = await FacebookSidecarClient(timeout=90).get_profile_stats(
-                expected_name=account.username
-            )
+            stats = await FacebookSidecarClient(timeout=90).get_profile_stats(expected_name=account.username)
             if stats.get("followers"):
                 return int(stats["followers"])
         except Exception:
@@ -237,6 +233,7 @@ async def _facebook_follower_count(account: SocialAccount) -> int:
         return -1
     try:
         import httpx
+
         token = meta.get("page_token") or decrypt_token(account.access_token_enc)
         page_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -265,13 +262,10 @@ async def _instagram_follower_count(account: SocialAccount) -> int:
         return 0
     try:
         import httpx
+
         token = decrypt_token(account.access_token_enc)
         ig_user_id = account.account_id
-        url = (
-            f"https://graph.instagram.com/v26.0/{ig_user_id}"
-            if token.startswith("IGAAU")
-            else facebook_graph_url(str(ig_user_id))
-        )
+        url = f"https://graph.instagram.com/v26.0/{ig_user_id}" if token.startswith("IGAAU") else facebook_graph_url(str(ig_user_id))
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
                 url,
@@ -297,6 +291,7 @@ async def _threads_follower_count(account: SocialAccount) -> int:
         return 0
     try:
         import httpx
+
         token = decrypt_token(account.access_token_enc)
         threads_user_id = account.account_id
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -330,6 +325,7 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
         return -1
     try:
         import httpx
+
         token = decrypt_token(account.access_token_enc)
         async with httpx.AsyncClient(timeout=15.0) as client:
             resp = await client.get(
@@ -403,9 +399,7 @@ def _latest_snapshot_ids_subq(
         filters.append(PostAnalyticsSnapshot.platform_post_id.isnot(None))
         # Repost/reshare cards carry the ORIGINAL author's counters —
         # flagged raw.is_repost by the sync pre-processing gate.
-        filters.append(
-            PostAnalyticsSnapshot.raw["is_repost"].astext.is_distinct_from("true")
-        )
+        filters.append(PostAnalyticsSnapshot.raw["is_repost"].astext.is_distinct_from("true"))
         # X scrapes persisted before author detection carry foreign
         # timeline stats with no attribution — only post-fix rows (which
         # always store raw.author) are trustworthy.
@@ -569,21 +563,16 @@ class PublishPipelineOut(BaseModel):
 
 
 @router.get("/overview", response_model=OverviewMetrics)
-async def get_overview(team_id: TeamId,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_overview(
+    team_id: TeamId, days: int = Query(30, ge=1, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
 
     since = datetime.now(UTC) - timedelta(days=days)
 
-    post_counts = await db.execute(
-        select(Post.status, func.count(Post.id))
-        .where(Post.team_id == team.id, Post.created_at >= since)
-        .group_by(Post.status)
-    )
+    post_counts = await db.execute(select(Post.status, func.count(Post.id)).where(Post.team_id == team.id, Post.created_at >= since).group_by(Post.status))
     counts = {status: count for status, count in post_counts.all()}
 
     # Scheduled posts are forward-looking (calendar), not "created in the last N days".
@@ -633,34 +622,21 @@ async def get_overview(team_id: TeamId,
         .where(FollowerSnapshot.team_id == team.id)
         .subquery()
     )
-    snap_rows = await db.execute(
-        select(latest_followers.c.social_account_id, latest_followers.c.followers).where(
-            latest_followers.c.rn == 1
-        )
-    )
+    snap_rows = await db.execute(select(latest_followers.c.social_account_id, latest_followers.c.followers).where(latest_followers.c.rn == 1))
     followers_by_account = {row.social_account_id: row.followers for row in snap_rows.all()}
 
     unsynced = [a for a in accounts if a.id not in followers_by_account]
     live_counts: dict = {}
     if unsynced:
-        results = await asyncio.gather(
-            *(_follower_count(a) for a in unsynced), return_exceptions=True
-        )
-        live_counts = {
-            a.id: max(0, c) for a, c in zip(unsynced, results) if isinstance(c, int)
-        }
+        results = await asyncio.gather(*(_follower_count(a) for a in unsynced), return_exceptions=True)
+        live_counts = {a.id: max(0, c) for a, c in zip(unsynced, results) if isinstance(c, int)}
 
-    total_followers = sum(
-        max(0, followers_by_account.get(a.id, live_counts.get(a.id, 0)))
-        for a in accounts
-    )
+    total_followers = sum(max(0, followers_by_account.get(a.id, live_counts.get(a.id, 0))) for a in accounts)
 
     # Prefer latest snapshots when present; else event counters (with meta_data.count)
     snap_eng = await db.execute(
         select(func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0)).where(
-            PostAnalyticsSnapshot.id.in_(
-                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
-            ),
+            PostAnalyticsSnapshot.id.in_(_latest_snapshot_ids_subq(team.id, since, posts_only=True)),
         )
     )
     total_from_snaps = int(snap_eng.scalar() or 0)
@@ -679,19 +655,13 @@ async def get_overview(team_id: TeamId,
     # Total impressions from latest snapshots
     snap_imp = await db.execute(
         select(func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0)).where(
-            PostAnalyticsSnapshot.id.in_(
-                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
-            ),
+            PostAnalyticsSnapshot.id.in_(_latest_snapshot_ids_subq(team.id, since, posts_only=True)),
         )
     )
     total_impressions = int(snap_imp.scalar() or 0)
 
     # Data freshness: most recent snapshot capture time
-    last_sync_row = await db.execute(
-        select(func.max(PostAnalyticsSnapshot.captured_at)).where(
-            PostAnalyticsSnapshot.team_id == team.id
-        )
-    )
+    last_sync_row = await db.execute(select(func.max(PostAnalyticsSnapshot.captured_at)).where(PostAnalyticsSnapshot.team_id == team.id))
     last_sync_at = last_sync_row.scalar()
 
     return OverviewMetrics(
@@ -769,12 +739,7 @@ async def get_account_metrics(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(SocialAccount)
-        .join(Team)
-        .join(TeamMember)
-        .where(SocialAccount.id == account_id, TeamMember.user_id == current_user.id)
-    )
+    result = await db.execute(select(SocialAccount).join(Team).join(TeamMember).where(SocialAccount.id == account_id, TeamMember.user_id == current_user.id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -804,9 +769,7 @@ async def get_account_metrics(
                 func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0),
                 func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0),
             ).where(
-                PostAnalyticsSnapshot.id.in_(
-                    _latest_snapshot_ids_subq(account.team_id, since, posts_only=True)
-                ),
+                PostAnalyticsSnapshot.id.in_(_latest_snapshot_ids_subq(account.team_id, since, posts_only=True)),
                 PostAnalyticsSnapshot.social_account_id == account.id,
             )
         )
@@ -818,11 +781,7 @@ async def get_account_metrics(
                 func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0),
                 func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0),
             ).where(
-                PostAnalyticsSnapshot.id.in_(
-                    _latest_snapshot_ids_subq(
-                        account.team_id, prev_start, posts_only=True, until=since
-                    )
-                ),
+                PostAnalyticsSnapshot.id.in_(_latest_snapshot_ids_subq(account.team_id, prev_start, posts_only=True, until=since)),
                 PostAnalyticsSnapshot.social_account_id == account.id,
             )
         )
@@ -856,16 +815,8 @@ async def get_account_metrics(
         prev_impressions = prev_counts.get("impression", 0)
         prev_engagement = _engagement_sum(prev_counts)
 
-    impressions_change_pct = (
-        round((impressions - prev_impressions) / prev_impressions * 100, 1)
-        if prev_impressions > 0
-        else 0.0
-    )
-    engagement_change_pct = (
-        round((engagement - prev_engagement) / prev_engagement * 100, 1)
-        if prev_engagement > 0
-        else 0.0
-    )
+    impressions_change_pct = round((impressions - prev_impressions) / prev_impressions * 100, 1) if prev_impressions > 0 else 0.0
+    engagement_change_pct = round((engagement - prev_engagement) / prev_engagement * 100, 1) if prev_engagement > 0 else 0.0
 
     # Followers from the latest FollowerSnapshot (populated by the periodic
     # sync — same source /overview uses). Live platform call only when the
@@ -909,12 +860,7 @@ async def get_account_insights(
 ):
     """Account-level insights: latest insights/demographics/profile events
     collected by analytics sync, plus the follower trend for the window."""
-    result = await db.execute(
-        select(SocialAccount)
-        .join(Team)
-        .join(TeamMember)
-        .where(SocialAccount.id == account_id, TeamMember.user_id == current_user.id)
-    )
+    result = await db.execute(select(SocialAccount).join(Team).join(TeamMember).where(SocialAccount.id == account_id, TeamMember.user_id == current_user.id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -924,10 +870,7 @@ async def get_account_insights(
         select(AnalyticsEvent)
         .where(
             AnalyticsEvent.social_account_id == account_id,
-            AnalyticsEvent.event_type.in_(
-                ["account_insights", "audience_demographics", "profile_sync",
-                 "profile_dashboard"]
-            ),
+            AnalyticsEvent.event_type.in_(["account_insights", "audience_demographics", "profile_sync", "profile_dashboard"]),
             AnalyticsEvent.occurred_at >= since,
         )
         .order_by(AnalyticsEvent.occurred_at.desc())
@@ -950,9 +893,7 @@ async def get_account_insights(
         )
         .order_by(FollowerSnapshot.captured_at)
     )
-    follower_series = [
-        {"date": ts.isoformat(), "followers": int(n)} for ts, n in followers.all()
-    ]
+    follower_series = [{"date": ts.isoformat(), "followers": int(n)} for ts, n in followers.all()]
 
     return {
         "account_id": str(account_id),
@@ -966,10 +907,9 @@ async def get_account_insights(
 
 
 @router.get("/insights")
-async def get_team_insights(team_id: TeamId,
-    days: int = Query(90, ge=7, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_team_insights(
+    team_id: TeamId, days: int = Query(90, ge=7, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Cross-platform insights engine: per-platform performance, best posting
     windows, content-type performance, follower trends, momentum — plus
     rule-based recommendations (where/when/what to post, ads guidance)
@@ -981,12 +921,14 @@ async def get_team_insights(team_id: TeamId,
 
 
 @router.get("/top-posts", response_model=list[TopPost])
-async def get_top_posts(team_id: TeamId,
+async def get_top_posts(
+    team_id: TeamId,
     limit: int = Query(10, ge=1, le=50),
     platform: str | None = None,
     days: int = Query(30, ge=1, le=365),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
@@ -997,11 +939,7 @@ async def get_top_posts(team_id: TeamId,
     snap_q = (
         select(PostAnalyticsSnapshot, Post.content_text)
         .outerjoin(Post, Post.id == PostAnalyticsSnapshot.post_id)
-        .where(
-            PostAnalyticsSnapshot.id.in_(
-                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
-            )
-        )
+        .where(PostAnalyticsSnapshot.id.in_(_latest_snapshot_ids_subq(team.id, since, posts_only=True)))
         .order_by(PostAnalyticsSnapshot.engagement.desc())
         .limit(limit)
     )
@@ -1016,21 +954,15 @@ async def get_top_posts(team_id: TeamId,
                 platform=snap.platform,
                 impressions=snap.impressions,
                 engagement=snap.engagement,
-                engagement_rate=_engagement_rate(
-                    snap.engagement, snap.impressions, snap.reach or 0
-                ),
+                engagement_rate=_engagement_rate(snap.engagement, snap.impressions, snap.reach or 0),
                 published_at=None,
-                external_url=None
-                if snap.post_id
-                else _snapshot_external_url(snap.platform, snap.raw, snap.platform_post_id),
+                external_url=None if snap.post_id else _snapshot_external_url(snap.platform, snap.raw, snap.platform_post_id),
             )
             for snap, content_text in snap_rows
             if snap.source != "linkedin_org_lifetime"
         ]
 
-    impressions_col = func.sum(
-        case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0)
-    ).label("impressions")
+    impressions_col = func.sum(case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0)).label("impressions")
     engagement_col = func.sum(
         case(
             (AnalyticsEvent.event_type.in_(list(ENGAGEMENT_TYPES)), _event_count_expr()),
@@ -1051,9 +983,7 @@ async def get_top_posts(team_id: TeamId,
         .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
         .outerjoin(
             AnalyticsEvent,
-            (AnalyticsEvent.post_id == Post.id)
-            & (AnalyticsEvent.social_account_id == PostTarget.social_account_id)
-            & (AnalyticsEvent.occurred_at >= since),
+            (AnalyticsEvent.post_id == Post.id) & (AnalyticsEvent.social_account_id == PostTarget.social_account_id) & (AnalyticsEvent.occurred_at >= since),
         )
         .where(
             Post.team_id == team.id,
@@ -1087,11 +1017,13 @@ async def get_top_posts(team_id: TeamId,
 
 
 @router.get("/engagement", response_model=list[EngagementPoint])
-async def get_engagement_trends(team_id: TeamId,
+async def get_engagement_trends(
+    team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     platform: str | None = None,
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     team = await _team_for_user(db, team_id)
     if not team:
         return []
@@ -1106,9 +1038,7 @@ async def get_engagement_trends(team_id: TeamId,
     ).where(AnalyticsEvent.team_id == team.id, AnalyticsEvent.occurred_at >= since)
 
     if platform:
-        query = query.join(
-            SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id
-        ).where(SocialAccount.platform == platform)
+        query = query.join(SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id).where(SocialAccount.platform == platform)
 
     query = query.group_by("day", AnalyticsEvent.event_type).order_by("day")
 
@@ -1164,10 +1094,9 @@ async def get_engagement_trends(team_id: TeamId,
 
 
 @router.get("/followers", response_model=list[FollowerSeries])
-async def get_follower_counts(team_id: TeamId,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_follower_counts(
+    team_id: TeamId, days: int = Query(30, ge=1, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Return follower-growth time series per platform from persisted snapshots.
 
     Each platform gets: current count, net change over the period, and a
@@ -1180,11 +1109,7 @@ async def get_follower_counts(team_id: TeamId,
     if not team:
         return []
 
-    accounts_result = await db.execute(
-        select(SocialAccount).where(
-            SocialAccount.team_id == team.id, SocialAccount.status == "active"
-        )
-    )
+    accounts_result = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team.id, SocialAccount.status == "active"))
     accounts = accounts_result.scalars().all()
     since = datetime.now(UTC) - timedelta(days=days)
 
@@ -1229,27 +1154,16 @@ async def get_follower_counts(team_id: TeamId,
         )
         .subquery()
     )
-    baseline_rows = await db.execute(
-        select(pre_window.c.social_account_id, pre_window.c.followers).where(
-            pre_window.c.rn == 1
-        )
-    )
-    baselines: dict[uuid.UUID, int] = {
-        account_id: followers for account_id, followers in baseline_rows.all()
-    }
+    baseline_rows = await db.execute(select(pre_window.c.social_account_id, pre_window.c.followers).where(pre_window.c.rn == 1))
+    baselines: dict[uuid.UUID, int] = {account_id: followers for account_id, followers in baseline_rows.all()}
 
     # Live platform calls only for accounts that have never been synced
     # (no snapshot at all, in or before the window) — in parallel, like
     # get_overview.
-    unsynced = [
-        a for a in accounts
-        if not snaps_by_account.get(a.id) and a.id not in baselines
-    ]
+    unsynced = [a for a in accounts if not snaps_by_account.get(a.id) and a.id not in baselines]
     live_counts: dict[uuid.UUID, int] = {}
     if unsynced:
-        results = await asyncio.gather(
-            *(_follower_count(a) for a in unsynced), return_exceptions=True
-        )
+        results = await asyncio.gather(*(_follower_count(a) for a in unsynced), return_exceptions=True)
         for a, r in zip(unsynced, results, strict=False):
             live_counts[a.id] = r if isinstance(r, int) else -1
 
@@ -1269,19 +1183,23 @@ async def get_follower_counts(team_id: TeamId,
             if live < 0:
                 live = 0
             current = live
-            series = [FollowerSeriesPoint(
-                date=now.strftime("%Y-%m-%d"),
-                followers=live,
-            )]
+            series = [
+                FollowerSeriesPoint(
+                    date=now.strftime("%Y-%m-%d"),
+                    followers=live,
+                )
+            ]
             change = 0
 
-        result.append(FollowerSeries(
-            platform=account.platform,
-            account=account.username or "",
-            current=current,
-            change=change,
-            series=series,
-        ))
+        result.append(
+            FollowerSeries(
+                platform=account.platform,
+                account=account.username or "",
+                current=current,
+                change=change,
+                series=series,
+            )
+        )
     return result
 
 
@@ -1314,9 +1232,7 @@ def _build_follower_series(
             ts = ts.replace(tzinfo=UTC)
         return ts.astimezone(UTC).strftime("%Y-%m-%d")
 
-    series = [
-        FollowerSeriesPoint(date=_day(ts), followers=count) for ts, count in points
-    ]
+    series = [FollowerSeriesPoint(date=_day(ts), followers=count) for ts, count in points]
     today = _day(now)
     if series[-1].date != today:
         series.append(FollowerSeriesPoint(date=today, followers=current))
@@ -1324,10 +1240,9 @@ def _build_follower_series(
 
 
 @router.get("/platforms", response_model=list[PlatformMetrics])
-async def get_platform_metrics(team_id: TeamId,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_platform_metrics(
+    team_id: TeamId, days: int = Query(30, ge=1, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     team = await _team_for_user(db, team_id)
     if not team:
         return []
@@ -1390,11 +1305,11 @@ async def get_platform_metrics(team_id: TeamId,
             func.sum(PostAnalyticsSnapshot.impressions).label("imp"),
             func.sum(PostAnalyticsSnapshot.reach).label("reach"),
             func.sum(PostAnalyticsSnapshot.engagement).label("eng"),
-        ).where(
-            PostAnalyticsSnapshot.id.in_(
-                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
-            ),
-        ).group_by(PostAnalyticsSnapshot.platform)
+        )
+        .where(
+            PostAnalyticsSnapshot.id.in_(_latest_snapshot_ids_subq(team.id, since, posts_only=True)),
+        )
+        .group_by(PostAnalyticsSnapshot.platform)
     )
     snap_by_platform: dict[str, dict[str, int]] = {}
     for plat, imp, reach, eng in snap_rows.all():
@@ -1422,21 +1337,16 @@ async def get_platform_metrics(team_id: TeamId,
                 total_impressions=impressions,
                 # Null when no platform denominator exists — the UI shows
                 # "—" rather than a fabricated 0%.
-                engagement_rate=(
-                    _engagement_rate(engagement, impressions, snaps.get("reach", 0))
-                    if impressions > 0 or snaps.get("reach", 0) > 0
-                    else None
-                ),
+                engagement_rate=(_engagement_rate(engagement, impressions, snaps.get("reach", 0)) if impressions > 0 or snaps.get("reach", 0) > 0 else None),
             )
         )
     return metrics
 
 
 @router.get("/pipeline", response_model=PublishPipelineOut)
-async def get_publish_pipeline(team_id: TeamId,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_publish_pipeline(
+    team_id: TeamId, days: int = Query(30, ge=1, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Live publishing-pipeline health: queue depth, per-platform delivery
     stats, daily publish volume, account/token health, upcoming schedule.
 
@@ -1556,11 +1466,7 @@ async def get_publish_pipeline(team_id: TeamId,
         .group_by(day_expr, SocialAccount.platform)
         .order_by(day_expr)
     )
-    daily = [
-        PipelineDayPoint(date=day.date().isoformat(), platform=platform, published=int(cnt))
-        for day, platform, cnt in daily_rows.all()
-        if day is not None
-    ]
+    daily = [PipelineDayPoint(date=day.date().isoformat(), platform=platform, published=int(cnt)) for day, platform, cnt in daily_rows.all() if day is not None]
 
     # ── Connected-account health ───────────────────────────────────────
     acct_rows = await db.execute(
@@ -1569,18 +1475,14 @@ async def get_publish_pipeline(team_id: TeamId,
             SocialAccount.username,
             SocialAccount.status,
             SocialAccount.token_expires_at,
-        ).where(
+        )
+        .where(
             SocialAccount.team_id == team.id,
             SocialAccount.status != "revoked",
         )
         .order_by(SocialAccount.platform)
     )
-    accounts = [
-        PipelineAccountHealth(
-            platform=p, username=u, status=s, token_expires_at=exp
-        )
-        for p, u, s, exp in acct_rows.all()
-    ]
+    accounts = [PipelineAccountHealth(platform=p, username=u, status=s, token_expires_at=exp) for p, u, s, exp in acct_rows.all()]
 
     # ── Upcoming scheduled posts ───────────────────────────────────────
     upcoming_rows = await db.execute(
@@ -1623,7 +1525,8 @@ async def get_publish_pipeline(team_id: TeamId,
 
 
 @router.get("/reports/export")
-async def export_report(team_id: TeamId,
+async def export_report(
+    team_id: TeamId,
     format: str = Query("csv", pattern="^(csv|json)$"),
     days: int = Query(30, ge=1, le=365),
     platform: str | None = Query(None, description="Filter by platform (linkedin, twitter, etc.)"),
@@ -1632,7 +1535,8 @@ async def export_report(team_id: TeamId,
     start_date: datetime | None = Query(None, description="ISO start date (overrides days)"),
     end_date: datetime | None = Query(None, description="ISO end date (overrides days)"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     team = await _team_for_user(db, team_id)
     if not team:
         raise HTTPException(status_code=400, detail="No team found")
@@ -1644,9 +1548,7 @@ async def export_report(team_id: TeamId,
         since = datetime.now(UTC) - timedelta(days=days)
         until = datetime.now(UTC)
 
-    impressions_col = func.sum(
-        case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0)
-    )
+    impressions_col = func.sum(case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0))
     likes_col = func.sum(case((AnalyticsEvent.event_type == "like", _event_count_expr()), else_=0))
     comments_col = func.sum(case((AnalyticsEvent.event_type == "comment", _event_count_expr()), else_=0))
     shares_col = func.sum(case((AnalyticsEvent.event_type == "share", _event_count_expr()), else_=0))
@@ -1722,9 +1624,7 @@ async def export_report(team_id: TeamId,
                 "comments": comment_n,
                 "shares": share_n,
                 "clicks": click_n,
-                "engagement_rate": _engagement_rate(
-                    like_n + comment_n + share_n + click_n, imp
-                ),
+                "engagement_rate": _engagement_rate(like_n + comment_n + share_n + click_n, imp),
             }
         )
 
@@ -1791,10 +1691,9 @@ class SnapshotOut(BaseModel):
 
 
 @router.post("/sync", response_model=SyncAnalyticsResponse)
-async def trigger_analytics_sync(team_id: TeamId,
-    body: SyncAnalyticsRequest | None = None,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def trigger_analytics_sync(
+    team_id: TeamId, body: SyncAnalyticsRequest | None = None, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Pull LinkedIn (and future platforms) post metrics into Postgres snapshots."""
     body = body or SyncAnalyticsRequest()
     team = await _team_for_user(db, team_id)
@@ -1816,12 +1715,14 @@ async def trigger_analytics_sync(team_id: TeamId,
 
 
 @router.get("/snapshots", response_model=list[SnapshotOut])
-async def list_analytics_snapshots(team_id: TeamId,
+async def list_analytics_snapshots(
+    team_id: TeamId,
     days: int = Query(30, ge=1, le=365),
     post_id: uuid.UUID | None = None,
     limit: int = Query(100, ge=1, le=500),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """List stored post metric snapshots for further processing / export."""
     team = await _team_for_user(db, team_id)
     if not team:
@@ -1847,6 +1748,7 @@ async def list_analytics_snapshots(team_id: TeamId,
 
 class TikTokVideoOut(BaseModel):
     """A single TikTok video with engagement metrics from the Display API."""
+
     id: str
     create_time: int | None = None
     title: str | None = None
@@ -1864,12 +1766,14 @@ class TikTokVideoListOut(BaseModel):
 
 
 @router.get("/tiktok/videos", response_model=TikTokVideoListOut)
-async def list_tiktok_videos(team_id: TeamId,
+async def list_tiktok_videos(
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="TikTok social account ID"),
     cursor: int = Query(0, ge=0),
     max_count: int = Query(20, ge=1, le=20),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     """List the TikTok creator's videos with engagement metrics via Display API.
 
     Requires the ``video.list`` scope on the connected TikTok account.
@@ -1958,10 +1862,9 @@ class CloudflareOverview(BaseModel):
 
 
 @router.get("/bots/summary", response_model=BotAnalyticsSummary)
-async def get_bot_analytics_summary(team_id: TeamId,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_bot_analytics_summary(
+    team_id: TeamId, days: int = Query(30, ge=1, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Bot reply analytics from local PostgreSQL (AnalyticsEvent).
 
     Tracks: total replies, success/failure rate, guardrail triggers,
@@ -1982,9 +1885,7 @@ async def get_bot_analytics_summary(team_id: TeamId,
             AnalyticsEvent.meta_data["success"].astext.label("success"),
             AnalyticsEvent.meta_data["latency_ms"].astext.cast(Integer).label("latency_ms"),
             AnalyticsEvent.social_account_id,
-            func.date_trunc(
-                "day", func.timezone(settings.APP_TIMEZONE, AnalyticsEvent.occurred_at)
-            ).label("day"),
+            func.date_trunc("day", func.timezone(settings.APP_TIMEZONE, AnalyticsEvent.occurred_at)).label("day"),
             func.count().label("reply_count"),
         )
         .where(
@@ -1993,8 +1894,13 @@ async def get_bot_analytics_summary(team_id: TeamId,
             AnalyticsEvent.occurred_at >= since,
         )
         .group_by(
-            "provider", "language", "guardrail", "success", "latency_ms",
-            AnalyticsEvent.social_account_id, "day",
+            "provider",
+            "language",
+            "guardrail",
+            "success",
+            "latency_ms",
+            AnalyticsEvent.social_account_id,
+            "day",
         )
     )
 
@@ -2039,14 +1945,18 @@ async def get_bot_analytics_summary(team_id: TeamId,
 
         if provider not in by_provider:
             by_provider[provider] = {
-                "provider": provider, "replies": 0, "errors": 0,
+                "provider": provider,
+                "replies": 0,
+                "errors": 0,
             }
         by_provider[provider]["replies"] += reply_count if success else 0
         by_provider[provider]["errors"] += reply_count if not success else 0
 
         if acct not in by_account:
             by_account[acct] = {
-                "account_id": acct, "replies": 0, "errors": 0,
+                "account_id": acct,
+                "replies": 0,
+                "errors": 0,
             }
         by_account[acct]["replies"] += reply_count if success else 0
         by_account[acct]["errors"] += reply_count if not success else 0
@@ -2054,15 +1964,16 @@ async def get_bot_analytics_summary(team_id: TeamId,
         if day:
             if day not in by_day:
                 by_day[day] = {
-                    "date": day, "replies": 0, "errors": 0, "guardrails": 0,
+                    "date": day,
+                    "replies": 0,
+                    "errors": 0,
+                    "guardrails": 0,
                 }
             by_day[day]["replies"] += reply_count if success else 0
             by_day[day]["errors"] += reply_count if not success else 0
             by_day[day]["guardrails"] += reply_count if guardrail else 0
 
-    avg_latency = (
-        int(sum(latencies) / len(latencies)) if latencies else None
-    )
+    avg_latency = int(sum(latencies) / len(latencies)) if latencies else None
 
     return BotAnalyticsSummary(
         total_replies=total_replies,
@@ -2073,12 +1984,8 @@ async def get_bot_analytics_summary(team_id: TeamId,
         greek_replies=greek,
         english_replies=english,
         avg_latency_ms=avg_latency,
-        by_provider=sorted(
-            by_provider.values(), key=lambda x: x["replies"], reverse=True
-        ),
-        by_account=sorted(
-            by_account.values(), key=lambda x: x["replies"], reverse=True
-        ),
+        by_provider=sorted(by_provider.values(), key=lambda x: x["replies"], reverse=True),
+        by_account=sorted(by_account.values(), key=lambda x: x["replies"], reverse=True),
         by_day=sorted(by_day.values(), key=lambda x: x["date"]),
     )
 
@@ -2163,10 +2070,9 @@ class AdCampaignsOut(BaseModel):
 
 
 @router.get("/ad-campaigns", response_model=AdCampaignsOut)
-async def get_ad_campaigns(team_id: TeamId,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_ad_campaigns(
+    team_id: TeamId, days: int = Query(30, ge=1, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Ad campaign metrics from ``ad_campaign_snapshots`` (LinkedIn Campaign
     Manager daily scrape). Returns latest metrics + full time series per
     campaign so the dashboard can chart spend/CTR/CPC over time."""
@@ -2178,15 +2084,19 @@ async def get_ad_campaigns(team_id: TeamId,
 
     since = datetime.now(UTC) - timedelta(days=days)
     rows = (
-        await db.execute(
-            select(AdCampaignSnapshot)
-            .where(
-                AdCampaignSnapshot.team_id == team.id,
-                AdCampaignSnapshot.captured_at >= since,
+        (
+            await db.execute(
+                select(AdCampaignSnapshot)
+                .where(
+                    AdCampaignSnapshot.team_id == team.id,
+                    AdCampaignSnapshot.captured_at >= since,
+                )
+                .order_by(AdCampaignSnapshot.campaign_id, AdCampaignSnapshot.captured_at)
             )
-            .order_by(AdCampaignSnapshot.campaign_id, AdCampaignSnapshot.captured_at)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     grouped: dict[str, list[AdCampaignSnapshot]] = {}
     for s in rows:
@@ -2228,7 +2138,7 @@ async def get_ad_campaigns(team_id: TeamId,
         tot_clicks += max(s.clicks for s in snaps)
         tot_eng += max(s.engagements for s in snaps)
 
-    campaigns.sort(key=lambda c: (c.latest.captured_at if c.latest else datetime.min.replace(tzinfo=UTC)), reverse=True)
+    campaigns.sort(key=lambda c: c.latest.captured_at if c.latest else datetime.min.replace(tzinfo=UTC), reverse=True)
     totals = AdCampaignTotals(
         campaigns=len(campaigns),
         spend_eur=round(tot_spend, 2),
@@ -2278,10 +2188,7 @@ class InitiativeOut(BaseModel):
 
 
 @router.post("/initiative-events", response_model=InitiativeOut)
-async def record_initiative_event(
-    body: InitiativeEventIn, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def record_initiative_event(body: InitiativeEventIn, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Record a growth-initiative action (e.g. "sent 40 LinkedIn page
     invites"). Events land in ``analytics_events`` with ``post_id=NULL`` so
     they export to the datalake as account-events automatically."""
@@ -2348,10 +2255,9 @@ async def record_initiative_event(
 
 
 @router.get("/initiatives", response_model=list[InitiativeOut])
-async def list_initiatives(team_id: TeamId,
-    days: int = Query(30, ge=1, le=365),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def list_initiatives(
+    team_id: TeamId, days: int = Query(30, ge=1, le=365), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Growth-initiative rollup: units sent and follower delta on the
     linked account since the initiative started."""
     from app.services.growth_initiatives import initiative_summary

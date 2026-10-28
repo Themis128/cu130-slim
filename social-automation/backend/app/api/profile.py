@@ -62,6 +62,7 @@ router = APIRouter()
 
 class WorkEntry(BaseModel):
     """A single work experience entry."""
+
     employer: str
     position: str
     start_date: str | None = None
@@ -71,6 +72,7 @@ class WorkEntry(BaseModel):
 
 class EducationEntry(BaseModel):
     """A single education entry."""
+
     school: str
     degree: str | None = None
     start_year: str | None = None
@@ -84,21 +86,23 @@ class ProfileUpdateRequest(BaseModel):
     all fields — the service layer will ignore unsupported fields per
     platform and return a list of ignored/unsupported fields.
     """
+
     about: str | None = None
-    headline: str | None = None       # LinkedIn headline
-    biography: str | None = None      # Instagram bio
-    full_name: str | None = None      # Display name
+    headline: str | None = None  # LinkedIn headline
+    biography: str | None = None  # Instagram bio
+    full_name: str | None = None  # Display name
     website: str | None = None
     location: str | None = None
     phone: str | None = None
     email: str | None = None
-    quotes: str | None = None         # Facebook quotes
+    quotes: str | None = None  # Facebook quotes
     work: list[WorkEntry] | None = None
     education: list[EducationEntry] | None = None
 
 
 class ProfileResponse(BaseModel):
     """Unified profile response."""
+
     platform: str
     account_id: str
     username: str | None = None
@@ -121,6 +125,7 @@ class ProfileResponse(BaseModel):
 
 class ProfileUpdateResponse(BaseModel):
     """Result of a profile update."""
+
     success: bool
     updated_fields: list[str] = []
     ignored_fields: list[str] = []
@@ -133,6 +138,7 @@ class InstagramLoginRequest(BaseModel):
     If username/password are omitted, the SecretStore is consulted
     (INSTAGRAM_USERNAME / INSTAGRAM_PASSWORD).
     """
+
     username: str | None = None
     password: str | None = None
     verification_code: str | None = None
@@ -144,6 +150,7 @@ class BrowserLoginRequest(BaseModel):
     If username/password are omitted, the SecretStore is consulted
     (FACEBOOK_USERNAME / FACEBOOK_PASSWORD or LINKEDIN_USERNAME / LINKEDIN_PASSWORD).
     """
+
     username: str | None = None
     password: str | None = None
     verification_code: str | None = None
@@ -155,6 +162,7 @@ class LoginResponse(BaseModel):
     Session credentials (session_id, storage_state) are stored server-side
     and intentionally never returned to the client.
     """
+
     logged_in: bool
     two_factor_required: bool = False
     challenge_required: bool = False
@@ -171,7 +179,9 @@ async def _get_account(
 ) -> SocialAccount:
     """Fetch any social account owned by the current user's team."""
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -356,16 +366,8 @@ async def platform_login(
     account = await _get_account(account_id, current_user, db)
 
     if account.platform == "instagram":
-        username = (
-            req.username
-            or await secret_store.get(f"INSTAGRAM_USERNAME_{account.id}")
-            or await secret_store.get("INSTAGRAM_USERNAME")
-        )
-        password = (
-            req.password
-            or await secret_store.get(f"INSTAGRAM_PASSWORD_{account.id}")
-            or await secret_store.get("INSTAGRAM_PASSWORD")
-        )
+        username = req.username or await secret_store.get(f"INSTAGRAM_USERNAME_{account.id}") or await secret_store.get("INSTAGRAM_USERNAME")
+        password = req.password or await secret_store.get(f"INSTAGRAM_PASSWORD_{account.id}") or await secret_store.get("INSTAGRAM_PASSWORD")
         if not username or not password:
             raise HTTPException(
                 status_code=401,
@@ -413,35 +415,17 @@ async def platform_login(
             two_factor_required=two_factor,
             message=result.get(
                 "message",
-                "Login successful" if session_id
-                else "Challenge required" if challenge
-                else "Login failed",
+                "Login successful" if session_id else "Challenge required" if challenge else "Login failed",
             ),
         )
 
     if account.platform in ("facebook", "linkedin"):
         if account.platform == "facebook":
-            username = (
-                req.username
-                or await secret_store.get(f"FACEBOOK_USERNAME_{account.id}")
-                or await secret_store.get("FACEBOOK_USERNAME")
-            )
-            password = (
-                req.password
-                or await secret_store.get(f"FACEBOOK_PASSWORD_{account.id}")
-                or await secret_store.get("FACEBOOK_PASSWORD")
-            )
+            username = req.username or await secret_store.get(f"FACEBOOK_USERNAME_{account.id}") or await secret_store.get("FACEBOOK_USERNAME")
+            password = req.password or await secret_store.get(f"FACEBOOK_PASSWORD_{account.id}") or await secret_store.get("FACEBOOK_PASSWORD")
         else:
-            username = (
-                req.username
-                or await secret_store.get(f"LINKEDIN_USERNAME_{account.id}")
-                or await secret_store.get("LINKEDIN_USERNAME")
-            )
-            password = (
-                req.password
-                or await secret_store.get(f"LINKEDIN_PASSWORD_{account.id}")
-                or await secret_store.get("LINKEDIN_PASSWORD")
-            )
+            username = req.username or await secret_store.get(f"LINKEDIN_USERNAME_{account.id}") or await secret_store.get("LINKEDIN_USERNAME")
+            password = req.password or await secret_store.get(f"LINKEDIN_PASSWORD_{account.id}") or await secret_store.get("LINKEDIN_PASSWORD")
 
         if not username or not password:
             raise HTTPException(
@@ -462,14 +446,10 @@ async def platform_login(
         try:
             if account.platform == "facebook":
                 fb_client = FacebookSidecarClient()
-                result = await fb_client.login(
-                    username, password, verification_code=getattr(req, "verification_code", None)
-                )
+                result = await fb_client.login(username, password, verification_code=getattr(req, "verification_code", None))
             else:
                 li_client = LinkedInSidecarClient()
-                result = await li_client.login(
-                    username, password, verification_code=getattr(req, "verification_code", None)
-                )
+                result = await li_client.login(username, password, verification_code=getattr(req, "verification_code", None))
         except (FacebookSidecarError, LinkedInSidecarError) as e:
             raise HTTPException(status_code=e.status_code, detail=e.detail)
 
@@ -503,12 +483,14 @@ async def platform_login(
 
 class ThreadsSettingsResponse(BaseModel):
     """Threads profile settings read from the Edit profile page."""
+
     show_instagram_badge: bool | None = None
     show_recent_views: bool | None = None
 
 
 class ThreadsSettingsUpdateRequest(BaseModel):
     """Toggle Threads profile settings."""
+
     show_instagram_badge: bool | None = None
     show_recent_views: bool | None = None
 
@@ -649,8 +631,7 @@ async def _get_instagram_profile(account: SocialAccount) -> ProfileResponse:
 
     raise HTTPException(
         status_code=503,
-        detail="All Instagram profile methods failed (sidecar, browser bridge, free scraper). "
-        "Connect an account via OAuth or import a sessionid cookie.",
+        detail="All Instagram profile methods failed (sidecar, browser bridge, free scraper). Connect an account via OAuth or import a sessionid cookie.",
     )
 
 
@@ -1514,28 +1495,33 @@ def _get_tiktok_browser_service() -> TikTokBrowserService:
 
 class TikTokSessionRequest(BaseModel):
     """Inject a TikTok session cookie into the browser sidecar."""
+
     session_id: str
     user_id: str | None = None
 
 
 class TikTokToggleRequest(BaseModel):
     """Toggle a boolean setting."""
+
     enabled: bool
 
 
 class TikTokCommentsRequest(BaseModel):
     """Set comments permission."""
+
     permission: str  # "Everyone" or "Friends"
 
 
 class TikTokDirectMessagesRequest(BaseModel):
     """Set direct messages permission."""
+
     potential_connections: str | None = None
     others: str | None = None
 
 
 class TikTokInteractionNotificationsRequest(BaseModel):
     """Set interaction notification preferences."""
+
     likes: bool | None = None
     comments: bool | None = None
     new_followers: bool | None = None
@@ -1544,6 +1530,7 @@ class TikTokInteractionNotificationsRequest(BaseModel):
 
 class TikTokBusinessVerificationRequest(BaseModel):
     """Fill the business verification form."""
+
     company_name: str | None = None
     website: str | None = None
     country: str | None = None
@@ -1640,7 +1627,8 @@ async def set_tiktok_direct_messages(
     svc = _get_tiktok_browser_service()
     try:
         result = await svc.set_direct_messages(
-            req.potential_connections, req.others,
+            req.potential_connections,
+            req.others,
         )
         await svc.close()
         return result
@@ -1776,11 +1764,13 @@ _BROWSER_BRIDGE_URL = os.environ.get("BROWSER_BRIDGE_URL", "http://browser-novnc
 
 class BrowserSessionRequest(BaseModel):
     """Request to start a visual browser login session."""
+
     platform: str
 
 
 class BrowserSessionResponse(BaseModel):
     """Response from starting a browser session."""
+
     platform: str
     status: str
     message: str
@@ -2021,9 +2011,7 @@ async def import_instagram_session_from_browser(
             raise HTTPException(status_code=503, detail="Instagram sidecar not reachable.")
 
     # 3. Save to database
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "instagram")
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "instagram"))
     account = result.scalars().first()
     if account:
         _set_instagram_session_id(account, sidecar_session_id)
@@ -2071,9 +2059,7 @@ async def set_instagram_web_session(
     The sessionid is invalidated by Instagram after each API upload, so this
     endpoint should be called before each publishing session.
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "instagram")
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "instagram"))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=404, detail="No Instagram account found.")
@@ -2107,9 +2093,7 @@ async def get_instagram_web_session_status(
     """
     import httpx
 
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "instagram")
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "instagram"))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=404, detail="No Instagram account found.")
@@ -2128,11 +2112,7 @@ async def get_instagram_web_session_status(
 
     # Validate the session by hitting a lightweight endpoint
     headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
         "X-IG-App-ID": "1217981644879628",
         "x-csrftoken": csrftoken,
         "Cookie": f"sessionid={sessionid}; csrftoken={csrftoken}; ds_user_id={ds_user_id}",

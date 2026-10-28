@@ -7,6 +7,7 @@ private API client.
 Usage:
     docker compose exec -T social-api python -m app.scripts.sync_linkedin_to_instagram
 """
+
 import asyncio
 import logging
 

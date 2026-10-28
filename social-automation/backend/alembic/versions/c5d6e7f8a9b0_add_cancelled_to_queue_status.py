@@ -4,6 +4,7 @@ Revision ID: c5d6e7f8a9b0
 Revises: h4c5d6e7f8a9
 Create Date: 2026-08-31 09:30:00.000000
 """
+
 from alembic import op
 
 # revision identifiers, used by Alembic.
@@ -15,9 +16,7 @@ depends_on = None
 
 def upgrade() -> None:
     """Add 'cancelled' to the queue_status enum."""
-    op.execute(
-        "ALTER TYPE queuestatus ADD VALUE IF NOT EXISTS 'cancelled'"
-    )
+    op.execute("ALTER TYPE queuestatus ADD VALUE IF NOT EXISTS 'cancelled'")
 
 
 def downgrade() -> None:

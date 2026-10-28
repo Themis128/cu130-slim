@@ -3,6 +3,7 @@
 Provides CRUD for service and account credentials, with local PostgreSQL
 and .env failover.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -98,8 +99,5 @@ async def delete_secret(key: str, current_user: User = Depends(get_current_user)
     if not any(sources.values()):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"Secret {key} could not be deleted from any store "
-                "(env-sourced secrets must be removed from the environment)"
-            ),
+            detail=(f"Secret {key} could not be deleted from any store (env-sourced secrets must be removed from the environment)"),
         )

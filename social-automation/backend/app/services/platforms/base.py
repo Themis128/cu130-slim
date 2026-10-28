@@ -9,6 +9,7 @@ The drivers are thin wrappers — they delegate to the existing functions
 so we don't duplicate any platform logic.  The registry lets callers
 resolve a driver by platform name without knowing the concrete class.
 """
+
 from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
@@ -59,6 +60,7 @@ class _BaseDriver:
 
     async def publish(self, account: SocialAccount, post: Post, db: Any) -> PublishResult:
         from app.services.publishing import publish_to_platform
+
         return await publish_to_platform(account, post, db)
 
     async def delete(self, account: SocialAccount, platform_post_id: str) -> bool:
@@ -74,6 +76,7 @@ class TwitterDriver(_BaseDriver):
     async def delete(self, account: SocialAccount, platform_post_id: str) -> bool:
         from app.core.security import decrypt_token
         from app.services.twitter_api import TwitterAPIClient
+
         token = decrypt_token(bytes(account.access_token_enc))
         client = TwitterAPIClient(access_token=token)
         await client.delete_tweet(platform_post_id)
@@ -81,6 +84,7 @@ class TwitterDriver(_BaseDriver):
 
     async def get_follower_count(self, account: SocialAccount) -> int:
         from app.api.analytics import _twitter_follower_count
+
         return await _twitter_follower_count(account)
 
 
@@ -90,6 +94,7 @@ class LinkedInDriver(_BaseDriver):
     async def delete(self, account: SocialAccount, platform_post_id: str) -> bool:
         from app.core.security import decrypt_token
         from app.services.linkedin_api import LinkedInAPIClient
+
         token = decrypt_token(bytes(account.access_token_enc))
         client = LinkedInAPIClient(access_token=token)
         await client.delete_post(platform_post_id)
@@ -97,6 +102,7 @@ class LinkedInDriver(_BaseDriver):
 
     async def get_follower_count(self, account: SocialAccount) -> int:
         from app.api.analytics import _linkedin_follower_count
+
         return await _linkedin_follower_count(account)
 
 
@@ -106,6 +112,7 @@ class FacebookDriver(_BaseDriver):
     async def delete(self, account: SocialAccount, platform_post_id: str) -> bool:
         from app.core.security import decrypt_token
         from app.services.facebook_api import FacebookAPIClient
+
         token = decrypt_token(bytes(account.access_token_enc))
         client = FacebookAPIClient(access_token=token, page_id=account.account_id)
         await client.delete_post(platform_post_id)
@@ -113,6 +120,7 @@ class FacebookDriver(_BaseDriver):
 
     async def get_follower_count(self, account: SocialAccount) -> int:
         from app.api.analytics import _facebook_follower_count
+
         return await _facebook_follower_count(account)
 
 
@@ -121,6 +129,7 @@ class InstagramDriver(_BaseDriver):
 
     async def get_follower_count(self, account: SocialAccount) -> int:
         from app.api.analytics import _instagram_follower_count
+
         return await _instagram_follower_count(account)
 
 
@@ -130,6 +139,7 @@ class ThreadsDriver(_BaseDriver):
     async def delete(self, account: SocialAccount, platform_post_id: str) -> bool:
         from app.core.security import decrypt_token
         from app.services.threads_api import ThreadsAPIClient
+
         token = decrypt_token(bytes(account.access_token_enc))
         client = ThreadsAPIClient(access_token=token, user_id=account.account_id)
         await client.delete_post(platform_post_id)
@@ -137,6 +147,7 @@ class ThreadsDriver(_BaseDriver):
 
     async def get_follower_count(self, account: SocialAccount) -> int:
         from app.api.analytics import _threads_follower_count
+
         return await _threads_follower_count(account)
 
 
@@ -145,6 +156,7 @@ class TikTokDriver(_BaseDriver):
 
     async def get_follower_count(self, account: SocialAccount) -> int:
         from app.api.analytics import _tiktok_follower_count
+
         return await _tiktok_follower_count(account)
 
 

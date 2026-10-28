@@ -7,6 +7,7 @@ Create Date: 2026-09-07 22:51:00.000000
 Note: This table was created out-of-band before the migration existed.
 The upgrade() is idempotent — it checks information_schema before creating.
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 

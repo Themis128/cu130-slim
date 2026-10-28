@@ -34,10 +34,32 @@ _ITALIC_LOWER_START = 0x1D44E  # 𝑎
 _ITALIC_UPPER_START = 0x1D434  # 𝐴
 
 _SMALL_CAPS = {
-    "a": "ᴀ", "b": "ʙ", "c": "ᴄ", "d": "ᴅ", "e": "ᴇ", "f": "ꜰ", "g": "ɢ",
-    "h": "ʜ", "i": "ɪ", "j": "ᴊ", "k": "ᴋ", "l": "ʟ", "m": "ᴍ", "n": "ɴ",
-    "o": "ᴏ", "p": "ᴘ", "q": "ǫ", "r": "ʀ", "s": "s", "t": "ᴛ", "u": "ᴜ",
-    "v": "ᴠ", "w": "ᴡ", "x": "x", "y": "ʏ", "z": "ᴢ",
+    "a": "ᴀ",
+    "b": "ʙ",
+    "c": "ᴄ",
+    "d": "ᴅ",
+    "e": "ᴇ",
+    "f": "ꜰ",
+    "g": "ɢ",
+    "h": "ʜ",
+    "i": "ɪ",
+    "j": "ᴊ",
+    "k": "ᴋ",
+    "l": "ʟ",
+    "m": "ᴍ",
+    "n": "ɴ",
+    "o": "ᴏ",
+    "p": "ᴘ",
+    "q": "ǫ",
+    "r": "ʀ",
+    "s": "s",
+    "t": "ᴛ",
+    "u": "ᴜ",
+    "v": "ᴠ",
+    "w": "ᴡ",
+    "x": "x",
+    "y": "ʏ",
+    "z": "ᴢ",
 }
 
 
@@ -77,63 +99,27 @@ def to_small_caps(text: str) -> str:
 STYLES = {
     "bold-brand": {
         "description": "Brand name in Sans Bold Unicode, plain text details",
-        "template": (
-            "🚀 {title_prefix}{name_sans_bold}\n"
-            "☁️ {skills}\n"
-            "💡 {experience}\n"
-            "📍 {location_arrow}\n"
-            "↓ {links}"
-        ),
+        "template": ("🚀 {title_prefix}{name_sans_bold}\n☁️ {skills}\n💡 {experience}\n📍 {location_arrow}\n↓ {links}"),
     },
     "small-caps": {
         "description": "Brand name in Small Caps, aesthetic dividers",
-        "template": (
-            "🚀 {title_prefix}{name_small_caps}\n"
-            "☁️ {skills}\n"
-            "💡 {experience}\n"
-            "📍 {location}\n"
-            "↓ {links}"
-        ),
+        "template": ("🚀 {title_prefix}{name_small_caps}\n☁️ {skills}\n💡 {experience}\n📍 {location}\n↓ {links}"),
     },
     "italic-tagline": {
         "description": "Italic tagline, clean structure with arrows",
-        "template": (
-            "🚀 {title_prefix}{name_italic}\n"
-            "☁️ {skills}\n"
-            "💡 {experience}\n"
-            "📍 {location_arrow}\n"
-            "↓ {links}"
-        ),
+        "template": ("🚀 {title_prefix}{name_italic}\n☁️ {skills}\n💡 {experience}\n📍 {location_arrow}\n↓ {links}"),
     },
     "aesthetic-divider": {
         "description": "Aesthetic divider line with star symbol",
-        "template": (
-            "🚀 {title_prefix}{name}\n"
-            "─── ✦ ───\n"
-            "☁️ {skills}\n"
-            "💡 {experience}\n"
-            "↓ {links}"
-        ),
+        "template": ("🚀 {title_prefix}{name}\n─── ✦ ───\n☁️ {skills}\n💡 {experience}\n↓ {links}"),
     },
     "clean-arrows": {
         "description": "Plain text with directional arrows (most readable)",
-        "template": (
-            "🚀 {title_prefix}{name}\n"
-            "☁️ {skills}\n"
-            "💡 {experience}\n"
-            "📍 {location_arrow}\n"
-            "↓ {links}"
-        ),
+        "template": ("🚀 {title_prefix}{name}\n☁️ {skills}\n💡 {experience}\n📍 {location_arrow}\n↓ {links}"),
     },
     "minimal-bullets": {
         "description": "Bullet points with aesthetic dot dividers",
-        "template": (
-            "🚀 {title_prefix}{name}\n"
-            "• {skills}\n"
-            "• {experience}\n"
-            "• {location}\n"
-            "↓ {links}"
-        ),
+        "template": ("🚀 {title_prefix}{name}\n• {skills}\n• {experience}\n• {location}\n↓ {links}"),
     },
 }
 
@@ -189,8 +175,7 @@ def generate_bio(
                     bio = bio.replace(" · ", " ")
                     if len(bio) > 150:
                         print(
-                            f"⚠️  Warning: bio is {len(bio)} chars (limit 150). "
-                            "Consider shortening fields.",
+                            f"⚠️  Warning: bio is {len(bio)} chars (limit 150). Consider shortening fields.",
                             file=sys.stderr,
                         )
 
@@ -224,9 +209,7 @@ def check_bio(bio: str) -> dict:
         from app.services.plain_english import check_plain_english
 
         issues = check_plain_english(bio, "bio")
-        result["nlp_issues"] = [
-            {"reason": i.reason, "snippet": i.snippet} for i in issues
-        ]
+        result["nlp_issues"] = [{"reason": i.reason, "snippet": i.snippet} for i in issues]
     except ImportError:
         pass  # Not running inside the app container
 
@@ -274,7 +257,7 @@ def main() -> None:
         if result["nlp_issues"]:
             print("NLP issues:")
             for issue in result["nlp_issues"]:
-                print(f"  {issue['reason']}: \"{issue['snippet']}\"")
+                print(f'  {issue["reason"]}: "{issue["snippet"]}"')
         else:
             print("NLP: Clean")
         return

@@ -53,8 +53,11 @@ def test_canonical_headers():
 
 def test_presign_url_structure():
     url = s3.presign_url(
-        "PUT", "https://acct.r2.cloudflarestorage.com/bucket/key.bin",
-        "AKID", "SECRET", expires=600,
+        "PUT",
+        "https://acct.r2.cloudflarestorage.com/bucket/key.bin",
+        "AKID",
+        "SECRET",
+        expires=600,
     )
     parts = urlsplit(url)
     assert parts.path == "/bucket/key.bin"
@@ -69,7 +72,10 @@ def test_presign_url_structure():
 
 def test_presign_url_signed_headers_with_extra():
     url = s3.presign_url(
-        "GET", "https://h/b/k", "A", "S",
+        "GET",
+        "https://h/b/k",
+        "A",
+        "S",
         headers={"Content-Type": "text/plain"},
     )
     q = parse_qs(urlsplit(url).query)
@@ -112,9 +118,7 @@ def test_request_rejects_unsafe_names():
 def test_request_success_signs_and_sends():
     c = _client()
     with patch.object(s3, "urlopen", return_value=_FakeResp(200, {"ETag": '"abc"'}, b"data")) as uo:
-        status, headers, body = c.request("PUT", "bkt", "k", body=b"payload",
-                                          content_type="text/plain",
-                                          metadata={"Author": "x"})
+        status, headers, body = c.request("PUT", "bkt", "k", body=b"payload", content_type="text/plain", metadata={"Author": "x"})
     assert status == 200 and body == b"data"
     req = uo.call_args.args[0]
     assert "Authorization" in req.headers

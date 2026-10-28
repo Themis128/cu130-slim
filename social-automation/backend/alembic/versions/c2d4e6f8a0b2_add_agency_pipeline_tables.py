@@ -9,6 +9,7 @@ Revises: a4f5e6d7c8b9
 Create Date: 2026-10-25 12:00:00.000000
 
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 
@@ -132,7 +133,8 @@ def upgrade() -> None:
         sa.Column(
             "lead_id",
             UUID(as_uuid=True),
-            sa.ForeignKey("leads.id", ondelete="SET NULL"), nullable=True,
+            sa.ForeignKey("leads.id", ondelete="SET NULL"),
+            nullable=True,
         ),
         sa.Column("espo_lead_id", sa.String(40), nullable=True),
         sa.Column("name", sa.String(300), nullable=False),

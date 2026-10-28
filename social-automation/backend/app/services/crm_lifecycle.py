@@ -35,9 +35,20 @@ HOT_THRESHOLD = 65  # same band cut-offs as cloudless.gr lead-scoring.ts
 WARM_THRESHOLD = 35
 
 _FREE_MAIL_DOMAINS = {
-    "gmail.com", "yahoo.com", "yahoo.gr", "hotmail.com", "outlook.com",
-    "icloud.com", "proton.me", "protonmail.com", "aol.com", "live.com",
-    "msn.com", "mail.com", "gmx.com", "yandex.com",
+    "gmail.com",
+    "yahoo.com",
+    "yahoo.gr",
+    "hotmail.com",
+    "outlook.com",
+    "icloud.com",
+    "proton.me",
+    "protonmail.com",
+    "aol.com",
+    "live.com",
+    "msn.com",
+    "mail.com",
+    "gmx.com",
+    "yandex.com",
 }
 _SYNTHETIC_DOMAINS = {"messenger.local", "cloudless.gr", "example.com", "example.invalid"}
 _TEST_MARKERS = ("ci-test+", "test@test", "@example.invalid", "@example.com")
@@ -45,9 +56,7 @@ _TEST_MARKERS = ("ci-test+", "test@test", "@example.invalid", "@example.com")
 _PROJECT_SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(budget|invest|spend)\b", re.I), "mentions budget"),
     (
-        re.compile(
-            r"\b(timeline|deadline|asap|urgent)\b", re.I
-        ),
+        re.compile(r"\b(timeline|deadline|asap|urgent)\b", re.I),
         "mentions timeline",
     ),
     (re.compile(r"\b(migrate|migration|launch|rebuild|redesign|scale|grow)\b", re.I), "concrete project verb"),
@@ -56,8 +65,18 @@ _PROJECT_SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
 _PAID_MEDIUMS = {"cpc", "ppc", "paid", "paid_social", "paidsocial"}
 
 _SELECT = [
-    "id", "name", "firstName", "lastName", "emailAddress", "accountName",
-    "status", "source", "website", "title", "description", "assignedUserId",
+    "id",
+    "name",
+    "firstName",
+    "lastName",
+    "emailAddress",
+    "accountName",
+    "status",
+    "source",
+    "website",
+    "title",
+    "description",
+    "assignedUserId",
     "createdAt",
 ]
 
@@ -69,10 +88,7 @@ def _email(lead: dict[str, Any]) -> str:
 def is_test_lead(lead: dict[str, Any]) -> bool:
     email = _email(lead)
     name = str(lead.get("name") or "").lower()
-    return (
-        any(m in email or m in name for m in _TEST_MARKERS)
-        or email.rsplit("@", 1)[-1] in {"cloudless.gr", "example.com", "example.invalid"}
-    )
+    return any(m in email or m in name for m in _TEST_MARKERS) or email.rsplit("@", 1)[-1] in {"cloudless.gr", "example.com", "example.invalid"}
 
 
 def _is_synthetic(lead: dict[str, Any]) -> bool:
@@ -206,9 +222,7 @@ async def _convert(lead: dict[str, Any]) -> dict[str, Any]:
         }
     if lead.get("accountName"):
         records["Account"] = (
-            attrs.get("Account")
-            if isinstance(attrs.get("Account"), dict)
-            else {"name": lead["accountName"], "website": lead.get("website") or ""}
+            attrs.get("Account") if isinstance(attrs.get("Account"), dict) else {"name": lead["accountName"], "website": lead.get("website") or ""}
         )
     records["Opportunity"] = (
         attrs.get("Opportunity")
@@ -218,9 +232,7 @@ async def _convert(lead: dict[str, Any]) -> dict[str, Any]:
             "stage": "Prospecting",
         }
     )
-    return await espo.espo_post(
-        "/Lead/action/convert", {"id": lid, "records": records}
-    )
+    return await espo.espo_post("/Lead/action/convert", {"id": lid, "records": records})
 
 
 def _live_lead(lead: dict[str, Any]) -> bool:
@@ -261,12 +273,7 @@ async def run_crm_lifecycle_sweep(*, dry_run: bool = False) -> dict[str, Any]:
                 await espo.add_lead_note(lid, _score_note(lead, score, band, reasons))
             stats["scored" if first_score else "rescored"] += 1
 
-            convertible = (
-                band == "hot"
-                and convert_on
-                and not _is_synthetic(lead)
-                and lead.get("assignedUserId")
-            )
+            convertible = band == "hot" and convert_on and not _is_synthetic(lead) and lead.get("assignedUserId")
             if convertible:
                 if dry_run:
                     entry["converted"] = "would-convert"
@@ -278,9 +285,7 @@ async def run_crm_lifecycle_sweep(*, dry_run: bool = False) -> dict[str, Any]:
                     stats["converted"] += 1
                     await espo.add_lead_note(
                         lid,
-                        "Converted by lifecycle sweep → "
-                        f"Contact {contact or '?'}, Opportunity {opp or '?'} "
-                        f"(score {score}/{band})",
+                        f"Converted by lifecycle sweep → Contact {contact or '?'}, Opportunity {opp or '?'} (score {score}/{band})",
                     )
             stats["details"].append(entry)
         except Exception:  # noqa: BLE001 — one bad lead must not stall the sweep
@@ -300,8 +305,7 @@ async def _slack_report(stats: dict[str, Any]) -> None:
     lines = [
         "*CRM lifecycle sweep* — "
         f"{stats['scored']} scored, {stats['rescored']} rescored, "
-        f"{stats['converted']} converted, {stats['errors']} errors"
-        + (" (dry run)" if stats["dry_run"] else "")
+        f"{stats['converted']} converted, {stats['errors']} errors" + (" (dry run)" if stats["dry_run"] else "")
     ]
     for d in (hot or stats["details"])[:5]:
         conv = " → converted" if d["converted"] is True else ""

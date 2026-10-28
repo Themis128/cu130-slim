@@ -4,6 +4,7 @@ Comment drafts for TikTok get rewritten short (<10 words) by the 3C
 variant prompt upstream. Viral candidates route to the gate as
 duet/stitch suggestions (manual phone action — never automated).
 """
+
 import asyncio
 import json
 import logging
@@ -20,17 +21,13 @@ async def act(action, db) -> dict:
         return {"error": "tiktok: duet/stitch are manual — gate flagged", "skip": True}
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=90) as c:
         try:
-            await c.post("/session/start",
-                         json={"platform": "tiktok", "force": True})
+            await c.post("/session/start", json={"platform": "tiktok", "force": True})
         except Exception:
             return {"error": "browser busy", "skip": True}
-        await c.post("/session/navigate",
-                     json={"url": f"https://www.tiktok.com/video/{action.target_post_id}"})
+        await c.post("/session/navigate", json={"url": f"https://www.tiktok.com/video/{action.target_post_id}"})
         await asyncio.sleep(6)
         if action.action == "like":
-            expr = ("(() => {const b=document.querySelector("
-                    "'[data-e2e=like-icon],[data-e2e*=like] button');"
-                    "if(!b)return 'no-btn';b.click();return 'liked'})()")
+            expr = "(() => {const b=document.querySelector('[data-e2e=like-icon],[data-e2e*=like] button');if(!b)return 'no-btn';b.click();return 'liked'})()"
             r = await c.post("/session/evaluate", json={"expression": expr})
             res = r.json().get("result", "")
             return {"ok": True} if res == "liked" else {"error": res, "skip": True}

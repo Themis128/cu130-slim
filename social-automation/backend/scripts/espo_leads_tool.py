@@ -5,6 +5,7 @@ Usage:
   python scripts/espo_leads_tool.py by-status New
   python scripts/espo_leads_tool.py search <text>   # description contains
 """
+
 from __future__ import annotations
 
 import asyncio

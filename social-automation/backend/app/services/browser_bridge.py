@@ -93,9 +93,7 @@ class BrowserBridgeClient:
 
             r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
             try:
-                await r.set(
-                    f"{self._DEAD_PREFIX}{platform}", "1", ex=self._DEAD_TTL_SECONDS
-                )
+                await r.set(f"{self._DEAD_PREFIX}{platform}", "1", ex=self._DEAD_TTL_SECONDS)
             finally:
                 await r.aclose()
         except Exception:  # noqa: BLE001 — marker is best-effort
@@ -114,13 +112,9 @@ class BrowserBridgeClient:
         on 409 when another platform's busy-hold was active — even a stale
         one. Retry long enough to outlive a stale hold (~200s > 180s).
         """
-        retries = (
-            self._CONTENTION_RETRIES if contention_retries is None else contention_retries
-        )
+        retries = self._CONTENTION_RETRIES if contention_retries is None else contention_retries
         for attempt in range(retries + 1):
-            async with httpx.AsyncClient(
-                timeout=self._timeout, headers=self._headers()
-            ) as client:
+            async with httpx.AsyncClient(timeout=self._timeout, headers=self._headers()) as client:
                 resp = await client.request(method, f"{self._base_url}{path}", json=json)
                 if resp.status_code == 409 and attempt < retries:
                     await asyncio.sleep(self._CONTENTION_BACKOFF)
@@ -200,10 +194,7 @@ class BrowserBridgeClient:
         # A session for this platform is mid-login — give the bridge's
         # detection loop time to observe the authenticated URL/cookies
         # instead of erroring instantly.
-        if (
-            status.get("status") in ("waiting", "extracting")
-            and status.get("platform") == platform
-        ):
+        if status.get("status") in ("waiting", "extracting") and status.get("platform") == platform:
             for _ in range(90):
                 await asyncio.sleep(1)
                 try:
@@ -218,11 +209,7 @@ class BrowserBridgeClient:
         # must belong to the requested platform — a logged-in Facebook session
         # must not satisfy a Twitter check (the cookie jar is platform-scoped
         # at extraction time, and the browser may be parked on a login page).
-        if (
-            status.get("status") in ("active", "done")
-            and status.get("platform") == platform
-            and status.get("cookies_found")
-        ):
+        if status.get("status") in ("active", "done") and status.get("platform") == platform and status.get("cookies_found"):
             return {"status": "active", "message": "Session active"}
 
         # Try extracting cookies — the browser may be logged in but the
@@ -245,10 +232,7 @@ class BrowserBridgeClient:
         if await self._dead_marker_get(platform):
             return {
                 "status": "waiting",
-                "message": (
-                    f"Browser session not logged in (verified recently — "
-                    f"rechecking periodically). Open noVNC and log in to {platform}."
-                ),
+                "message": (f"Browser session not logged in (verified recently — rechecking periodically). Open noVNC and log in to {platform}."),
                 "novnc_url": "/novnc/vnc.html?autoconnect=1&resize=scale",
             }
         verified_dead = False
@@ -372,9 +356,7 @@ class BrowserBridgeClient:
         await self.mouse_click(res["x"], res["y"])
         return True
 
-    async def twitter_login(
-        self, username: str, password: str, timeout_s: float = 90.0
-    ) -> dict[str, Any]:
+    async def twitter_login(self, username: str, password: str, timeout_s: float = 90.0) -> dict[str, Any]:
         """Drive X's two-step onboarding login flow with stored credentials.
 
         Flow quirks discovered empirically (Sept 2026):
@@ -509,21 +491,15 @@ class BrowserBridgeClient:
 
     async def click(self, selector: str, text: str | None = None) -> dict[str, Any]:
         """Click an element via the bridge."""
-        return await self._request(
-            "POST", "/session/click", {"selector": selector, "text": text}
-        )
+        return await self._request("POST", "/session/click", {"selector": selector, "text": text})
 
     async def fill(self, selector: str, value: str) -> dict[str, Any]:
         """Fill an input/textarea via the bridge."""
-        return await self._request(
-            "POST", "/session/fill", {"selector": selector, "value": value}
-        )
+        return await self._request("POST", "/session/fill", {"selector": selector, "value": value})
 
     async def evaluate(self, expression: str) -> dict[str, Any]:
         """Evaluate JS in the browser and return the result."""
-        return await self._request(
-            "POST", "/session/evaluate", {"expression": expression}
-        )
+        return await self._request("POST", "/session/evaluate", {"expression": expression})
 
     async def upload_file(
         self,
@@ -1003,19 +979,14 @@ class BrowserBridgeClient:
                 await asyncio.sleep(0.5)
                 # Click the submit/continue button
                 submit_selector = (
-                    'div[role="dialog"] button[type="submit"], '
-                    'div[role="dialog"] button:has-text("Continue"), '
-                    'div[role="dialog"] button:has-text("Submit")'
+                    'div[role="dialog"] button[type="submit"], div[role="dialog"] button:has-text("Continue"), div[role="dialog"] button:has-text("Submit")'
                 )
                 await self.click(submit_selector)
                 await asyncio.sleep(2)
                 logger.info("E2EE PIN entered successfully")
                 return True
             elif data.get("hasPinPrompt") and not pin:
-                logger.warning(
-                    "E2EE PIN dialog detected but no PIN provided — "
-                    "set MESSENGER_E2EE_PIN env var or pass pin parameter"
-                )
+                logger.warning("E2EE PIN dialog detected but no PIN provided — set MESSENGER_E2EE_PIN env var or pass pin parameter")
                 return True  # Dialog found but can't enter PIN
             return False
         except Exception as exc:
@@ -1517,6 +1488,7 @@ class BrowserBridgeClient:
         # Find the message input (contenteditable or textarea)
         # Escape the text for safe JS embedding
         import json as _json
+
         escaped_text = _json.dumps(text)
         type_response = await self.evaluate(f"""() => {{
             const editor = document.querySelector(
@@ -1706,6 +1678,7 @@ class BrowserBridgeClient:
         await asyncio.sleep(4)
 
         import json as _json
+
         escaped_text = _json.dumps(text)
         type_response = await self.evaluate(f"""() => {{
             const editor = document.querySelector(
@@ -1760,9 +1733,7 @@ class BrowserBridgeClient:
 
         return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
 
-    async def post_tweet(
-        self, text: str, image_paths: list[str] | None = None
-    ) -> dict[str, Any]:
+    async def post_tweet(self, text: str, image_paths: list[str] | None = None) -> dict[str, Any]:
         """Post a tweet via the x.com web composer (free fallback for the
         paid X API — used when POST /2/tweets returns 402 credits-depleted).
 
@@ -2031,6 +2002,7 @@ class BrowserBridgeClient:
         await asyncio.sleep(4)
 
         import json as _json
+
         conv_id = _json.dumps(thread_id)
         opened = await self.evaluate(f"""() => {{
             const row = document.querySelector('[data-e2e="dm-new-conversation-item"][data-conv-id={conv_id}]');
@@ -2089,6 +2061,7 @@ class BrowserBridgeClient:
         await asyncio.sleep(4)
 
         import json as _json
+
         conv_id = _json.dumps(thread_id)
         opened = await self.evaluate(f"""() => {{
             const row = document.querySelector('[data-e2e="dm-new-conversation-item"][data-conv-id={conv_id}]');
@@ -2155,7 +2128,6 @@ class BrowserBridgeClient:
         await asyncio.sleep(2)
 
         return {"status": "ok", "sent": True, "thread_id": thread_id, "text": text}
-
 
     # ── Instagram DM (direct messages) ──────────────────────────────────
     # Instagram's Graph API requires App Review for instagram_business_manage_messages.

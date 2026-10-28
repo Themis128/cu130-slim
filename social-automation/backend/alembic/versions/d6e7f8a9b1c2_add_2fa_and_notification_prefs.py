@@ -4,6 +4,7 @@ Revision ID: d6e7f8a9b1c2
 Revises: c5d6e7f8a9b0
 Create Date: 2026-08-31 10:00:00.000000
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -24,7 +25,7 @@ def upgrade() -> None:
         sa.Column(
             "notification_preferences",
             JSONB(),
-            server_default='{}',
+            server_default="{}",
             nullable=False,
         ),
     )

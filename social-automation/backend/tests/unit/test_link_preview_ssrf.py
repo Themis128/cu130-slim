@@ -234,9 +234,7 @@ async def test_rendered_preview_no_bridge_url_returns_none(monkeypatch):
 
     import app.core.config as cfg
 
-    monkeypatch.setattr(
-        cfg, "get_settings", lambda: SimpleNamespace(BROWSER_BRIDGE_URL="")
-    )
+    monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(BROWSER_BRIDGE_URL=""))
     assert await lp._rendered_preview("https://public.example/x") is None
 
 
@@ -245,7 +243,7 @@ class _BridgeNoHtml:
         pass
 
     async def evaluate(self, _expr):
-        return {"result": "{\"url\": \"https://public.example/x\"}"}  # no html
+        return {"result": '{"url": "https://public.example/x"}'}  # no html
 
 
 class _BridgeEmptyPreview:

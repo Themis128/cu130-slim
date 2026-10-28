@@ -3,6 +3,7 @@ attach-audio/mute/extract and their app/api/media_enhance.py endpoints.
 
 ffmpeg is stubbed at the ``V._run`` seam, so no binary is needed in CI.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -25,6 +26,7 @@ def _ok_run(seen: list):
         seen.append(cmd)
         Path(cmd[-1]).write_bytes(b"OUT:" + Path(cmd[-1]).suffix.encode())
         return subprocess.CompletedProcess(cmd, 0, b"", b"")
+
     return _run
 
 
@@ -36,12 +38,14 @@ async def _fail_run(cmd, timeout=0):
 async def test_run_op_maps_missing_binary_and_timeout(monkeypatch):
     async def missing(cmd, timeout=0):
         raise FileNotFoundError("ffmpeg")
+
     monkeypatch.setattr(V, "_run", missing)
     r = await V._run_op(["ffmpeg"], timeout=1)
     assert r.returncode == 127
 
     async def slow(cmd, timeout=0):
         raise subprocess.TimeoutExpired(cmd, timeout)
+
     monkeypatch.setattr(V, "_run", slow)
     r = await V._run_op(["ffmpeg"], timeout=1)
     assert r.returncode == 124
@@ -66,9 +70,14 @@ async def test_trim_video(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("fmt,codec,faststart", [
-    ("mp4", "libx264", True), (".MOV", "libx264", False), ("webm", "libvpx-vp9", False),
-])
+@pytest.mark.parametrize(
+    "fmt,codec,faststart",
+    [
+        ("mp4", "libx264", True),
+        (".MOV", "libx264", False),
+        ("webm", "libvpx-vp9", False),
+    ],
+)
 async def test_convert_video(monkeypatch, fmt, codec, faststart):
     seen: list = []
     monkeypatch.setattr(V, "_run", _ok_run(seen))

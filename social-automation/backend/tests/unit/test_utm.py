@@ -37,19 +37,14 @@ def test_tracked_url_is_idempotent():
 
 
 def test_tag_owned_links_rewrites_only_owned_urls():
-    text = (
-        "Book a free audit: https://cloudless.gr/contact — "
-        "or see https://example.com for details."
-    )
+    text = "Book a free audit: https://cloudless.gr/contact — or see https://example.com for details."
     out = tag_owned_links(text, platform="instagram", campaign="c", content="p9")
     assert "utm_source=instagram" in out
     assert "example.com?" not in out  # external link untouched
 
 
 def test_tag_owned_links_strips_trailing_punctuation():
-    out = tag_owned_links(
-        "Visit https://cloudless.gr/pricing.", platform="x", campaign="c", content="p"
-    )
+    out = tag_owned_links("Visit https://cloudless.gr/pricing.", platform="x", campaign="c", content="p")
     assert out.endswith(".")
     assert "%3Futm" not in out.split(".")[-1]
     assert "pricing?utm_" in out

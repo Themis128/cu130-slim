@@ -30,9 +30,7 @@ class SocialAccount(Base):
     #   - Twitter/Threads/TikTok: person (no business distinction in posting API)
     account_type: Mapped[str] = mapped_column(String(30), default="person", server_default="person", nullable=False)
     is_business: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
-    parent_account_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True
-    )
+    parent_account_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("social_accounts.id", ondelete="SET NULL"), nullable=True)
     access_token_enc: Mapped[bytes] = mapped_column(BYTEA, nullable=False)
     refresh_token_enc: Mapped[bytes | None] = mapped_column(BYTEA, nullable=True)
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

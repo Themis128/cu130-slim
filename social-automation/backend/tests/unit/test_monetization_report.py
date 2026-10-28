@@ -20,7 +20,8 @@ def _gate(platform="facebook", account_type="user", followers=66):
         gain_per_day=0.5,
         followers_live=False,
         program=evaluate_program(
-            platform, {"followers": followers, "days_held": 0},
+            platform,
+            {"followers": followers, "days_held": 0},
             account_type=account_type,
         ),
         funnel_note="funnel" if platform in ("linkedin", "threads") else "",
@@ -31,9 +32,7 @@ def _gate(platform="facebook", account_type="user", followers=66):
 
 
 def test_twitter_program_is_original_content_rewards():
-    rep = evaluate_program(
-        "twitter", {"followers": 600, "impressions_90d": 600_000}
-    )
+    rep = evaluate_program("twitter", {"followers": 600, "impressions_90d": 600_000})
     assert rep is not None
     assert rep.program == "X Original Content Rewards"
     assert any("verified followers" in c.name for c in rep.criteria)
@@ -66,16 +65,14 @@ async def test_llm_strategy_parses_structured_actions(monkeypatch):
             ],
         }
 
-    monkeypatch.setattr(
-        "app.services.inference.call_inference", AsyncMock(side_effect=fake_infer)
-    )
+    monkeypatch.setattr("app.services.inference.call_inference", AsyncMock(side_effect=fake_infer))
     sections, actions = await R._llm_strategy(None, None, [], {}, {})
     assert len(sections) == 1
     assert [a.platform for a in actions] == ["twitter", "linkedin"]
     assert actions[0].time_athens == "09:30"
     assert actions[0].format == "image"
-    assert actions[1].time_athens == ""   # invalid time rejected
-    assert actions[1].format == ""        # unknown format rejected
+    assert actions[1].time_athens == ""  # invalid time rejected
+    assert actions[1].format == ""  # unknown format rejected
 
 
 @pytest.mark.asyncio
@@ -129,8 +126,7 @@ def test_report_renders_text_and_html():
         telegram_members=42,
         telegram_leads_7d=3,
         actions=[R.MonetizationAction("facebook", "post build log", "12:00", "image")],
-        scheduled=[{"platform": "facebook", "status": "scheduled",
-                    "scheduled_at": "2026-10-14 12:00 EEST", "instruction": "post build log"}],
+        scheduled=[{"platform": "facebook", "status": "scheduled", "scheduled_at": "2026-10-14 12:00 EEST", "instruction": "post build log"}],
         llm_used=True,
     )
     text = rep.to_text()

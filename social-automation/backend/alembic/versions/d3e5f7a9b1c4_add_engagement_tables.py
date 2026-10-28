@@ -2,6 +2,7 @@
 
 Revision ID: d3e5f7a9b1c4
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 

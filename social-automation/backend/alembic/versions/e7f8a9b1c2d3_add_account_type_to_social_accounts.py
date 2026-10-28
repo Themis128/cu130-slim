@@ -4,6 +4,7 @@ Revision ID: e7f8a9b1c2d3
 Revises: d6e7f8a9b1c2
 Create Date: 2026-08-31 12:00:00.000000
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID
 

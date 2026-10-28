@@ -25,6 +25,5 @@ def send_campaign(self, campaign_id: str) -> dict:
     try:
         return run_async(_send(uuid.UUID(campaign_id)))
     except Exception as exc:  # noqa: BLE001
-        logger.warning("campaign %s send failed (attempt %s): %s",
-                       campaign_id, self.request.retries + 1, exc)
+        logger.warning("campaign %s send failed (attempt %s): %s", campaign_id, self.request.retries + 1, exc)
         raise self.retry(exc=exc) from exc

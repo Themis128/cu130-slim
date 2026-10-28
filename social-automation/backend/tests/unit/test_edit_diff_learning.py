@@ -1,4 +1,5 @@
 """Unit tests for edit_diff_learning — kept-vs-drafted deltas → voice suggestions."""
+
 import uuid
 from types import SimpleNamespace
 
@@ -103,8 +104,8 @@ def test_distill_pattern_threshold():
 async def test_collect_skips_unchanged_and_missing_baseline():
     rows = [
         _post_row("draft A", "edited A"),
-        _post_row("same", "same"),          # baseline captured, edit never landed
-        _post_row("", "edited"),            # empty baseline → unusable
+        _post_row("same", "same"),  # baseline captured, edit never landed
+        _post_row("", "edited"),  # empty baseline → unusable
         (uuid.uuid4(), "x", {"other": 1}),  # no original_text → defensive skip
     ]
     db = _DB([_Rows(rows)])
@@ -121,6 +122,7 @@ async def test_sweep_persists_artifact_and_slacks(monkeypatch):
     rows = [_post_row("o" * 100, "short")] * 3
     db = _DB([_Rows(rows)])
     slack = []
+
     async def _post(text, **kw):
         slack.append(text)
 

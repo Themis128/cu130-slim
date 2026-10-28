@@ -1,4 +1,5 @@
 """Digital Business Cards API — CRUD, vCard 4.0 generation, public share, WhatsApp/Messenger send."""
+
 import os
 import re
 import secrets
@@ -57,7 +58,7 @@ def _build_vcard(card: DigitalCard) -> str:
         lines.append(f"ADR;TYPE=work:;;{card.address};;;;")
     if card.tagline:
         lines.append(f"NOTE:{card.tagline}")
-    for s in (card.social_links or []):
+    for s in card.social_links or []:
         url = s.get("url")
         platform = s.get("platform", "social")
         if url:
@@ -82,10 +83,7 @@ _WA_ERROR_HINTS: dict[int, str] = {
     190: "WhatsApp access token expired — reconnect the WhatsApp account in Accounts.",
     133010: "Recipient number is not registered on WhatsApp.",
     131026: "This recipient cannot be messaged (number may be blocked or restricted).",
-    131047: (
-        "Recipient is outside the 24-hour messaging window — WhatsApp requires an "
-        "approved template message to start a new conversation."
-    ),
+    131047: ("Recipient is outside the 24-hour messaging window — WhatsApp requires an approved template message to start a new conversation."),
     131051: "Recipient is not an allowed test recipient on this WhatsApp app.",
     132000: "Too many recipients — reduce batch size.",
     132001: "Template does not exist for this language — check template name/language.",
@@ -189,6 +187,7 @@ class DigitalCardOut(BaseModel):
 
 class DigitalCardPublicOut(BaseModel):
     """Public card data — no auth, no sensitive fields."""
+
     name: str
     title: str | None = None
     company: str | None = None
@@ -210,6 +209,7 @@ class DigitalCardPublicOut(BaseModel):
 
 class SendCardRequest(BaseModel):
     """Send card link via WhatsApp or Messenger."""
+
     to_phone: str | None = None  # E.164 for WhatsApp
     platform: str = "whatsapp"  # whatsapp | messenger
     message: str | None = None
@@ -252,11 +252,7 @@ async def _send_card_template(
             )
         if resp.status_code != 200:
             return None
-        approved = [
-            t
-            for t in (resp.json().get("data") or [])
-            if t.get("name") == _CARD_TEMPLATE_NAME and t.get("status") == "APPROVED"
-        ]
+        approved = [t for t in (resp.json().get("data") or []) if t.get("name") == _CARD_TEMPLATE_NAME and t.get("status") == "APPROVED"]
         if not approved:
             return None
         lang = approved[0].get("language") or "en"
@@ -269,9 +265,7 @@ async def _send_card_template(
                 ],
             }
         ]
-        rdata = await client.send_template(
-            to_phone, _CARD_TEMPLATE_NAME, language_code=lang, components=components
-        )
+        rdata = await client.send_template(to_phone, _CARD_TEMPLATE_NAME, language_code=lang, components=components)
         msg_id = (rdata.get("messages") or [{}])[0].get("id")
         return SendCardResult(success=True, platform="whatsapp", message_id=msg_id)
     except Exception:
@@ -282,15 +276,9 @@ async def _send_card_template(
 
 
 @router.get("", response_model=list[DigitalCardOut])
-async def list_cards(team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def list_cards(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(DigitalCard)
-        .where(DigitalCard.team_id == team.id)
-        .order_by(DigitalCard.created_at.desc())
-    )
+    result = await db.execute(select(DigitalCard).where(DigitalCard.team_id == team.id).order_by(DigitalCard.created_at.desc()))
     cards = result.scalars().all()
     out = []
     for c in cards:
@@ -302,10 +290,7 @@ async def list_cards(team_id: TeamId,
 
 
 @router.post("", response_model=DigitalCardOut, status_code=201)
-async def create_card(
-    data: DigitalCardCreate,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def create_card(data: DigitalCardCreate, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
     card = DigitalCard(
         team_id=team.id,
@@ -337,14 +322,9 @@ async def create_card(
 
 
 @router.get("/{card_id}", response_model=DigitalCardOut)
-async def get_card(
-    card_id: uuid.UUID,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_card(card_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
-    )
+    result = await db.execute(select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id))
     card = result.scalars().first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -356,26 +336,18 @@ async def get_card(
 
 @router.patch("/{card_id}", response_model=DigitalCardOut)
 async def update_card(
-    card_id: uuid.UUID,
-    data: DigitalCardUpdate,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    card_id: uuid.UUID, data: DigitalCardUpdate, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
-    )
+    result = await db.execute(select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id))
     card = result.scalars().first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
     updates = data.model_dump(exclude_unset=True)
     if "social_links" in updates and data.social_links is not None:
-        updates["social_links"] = [
-            s.model_dump() if hasattr(s, "model_dump") else s for s in data.social_links
-        ]
+        updates["social_links"] = [s.model_dump() if hasattr(s, "model_dump") else s for s in data.social_links]
     if "services" in updates and data.services is not None:
-        updates["services"] = [
-            s.model_dump() if hasattr(s, "model_dump") else s for s in data.services
-        ]
+        updates["services"] = [s.model_dump() if hasattr(s, "model_dump") else s for s in data.services]
     for k, v in updates.items():
         setattr(card, k, v)
     await db.commit()
@@ -387,14 +359,9 @@ async def update_card(
 
 
 @router.delete("/{card_id}", status_code=204)
-async def delete_card(
-    card_id: uuid.UUID,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def delete_card(card_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
-    )
+    result = await db.execute(select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id))
     card = result.scalars().first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -406,14 +373,9 @@ async def delete_card(
 
 
 @router.get("/{card_id}/vcard", response_class=PlainTextResponse)
-async def download_vcard(
-    card_id: uuid.UUID,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def download_vcard(card_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
-    )
+    result = await db.execute(select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id))
     card = result.scalars().first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -470,9 +432,7 @@ async def track_card_action(
     action: str = Query(..., pattern="^(save|share)$"),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(DigitalCard).where(DigitalCard.share_token == token)
-    )
+    result = await db.execute(select(DigitalCard).where(DigitalCard.share_token == token))
     card = result.scalars().first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -489,10 +449,8 @@ async def track_card_action(
 
 @router.post("/{card_id}/send", response_model=SendCardResult)
 async def send_card(
-    card_id: uuid.UUID,
-    data: SendCardRequest,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    card_id: uuid.UUID, data: SendCardRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Send the card link via WhatsApp Cloud API or Facebook Messenger.
 
     For WhatsApp: uses the WhatsApp Cloud API (Graph API) to send a text
@@ -505,9 +463,7 @@ async def send_card(
     team = await _get_team(team_id, db)
     from app.core.security import decrypt_token
 
-    result = await db.execute(
-        select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id)
-    )
+    result = await db.execute(select(DigitalCard).where(DigitalCard.id == card_id, DigitalCard.team_id == team.id))
     card = result.scalars().first()
     if not card:
         raise HTTPException(status_code=404, detail="Card not found")
@@ -577,8 +533,7 @@ async def send_card(
                     success=False,
                     platform="whatsapp",
                     error=(
-                        _WA_ERROR_HINTS[131047]
-                        + " No approved 'card_share' template exists on the "
+                        _WA_ERROR_HINTS[131047] + " No approved 'card_share' template exists on the "
                         "WhatsApp Business account yet — create/approve one in "
                         "Meta Business Suite, or have the recipient message the "
                         "business first to open the 24-hour window."
@@ -650,9 +605,7 @@ async def send_card(
 
 
 @router.post("/from-brand", response_model=DigitalCardOut, status_code=201)
-async def create_card_from_brand(team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def create_card_from_brand(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Auto-create a digital card from the team's brand identity and social accounts."""
     from sqlalchemy.orm import selectinload
 
@@ -661,11 +614,7 @@ async def create_card_from_brand(team_id: TeamId,
     team = await _get_team(team_id, db)
 
     # Get brand with voice eagerly loaded
-    result = await db.execute(
-        select(Brand)
-        .options(selectinload(Brand.voice), selectinload(Brand.visual))
-        .where(Brand.team_id == team.id)
-    )
+    result = await db.execute(select(Brand).options(selectinload(Brand.voice), selectinload(Brand.visual)).where(Brand.team_id == team.id))
     brand = result.scalars().first()
     if not brand:
         raise HTTPException(status_code=400, detail="No brand found. Create a brand first.")
@@ -673,9 +622,7 @@ async def create_card_from_brand(team_id: TeamId,
     visual = brand.visual
 
     # Get social accounts
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.team_id == team.id, SocialAccount.status == "active")
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team.id, SocialAccount.status == "active"))
     accounts = result.scalars().all()
 
     def _build_social_url(platform: str, account_type: str | None, handle: str) -> str | None:
@@ -725,12 +672,14 @@ async def create_card_from_brand(team_id: TeamId,
     for acc in accounts:
         handle = acc.username or acc.display_name or ""
         url = _build_social_url(acc.platform, acc.account_type, handle)
-        social_links.append({
-            "platform": acc.platform,
-            "handle": handle,
-            "url": url,
-            "display_name": acc.display_name or handle,
-        })
+        social_links.append(
+            {
+                "platform": acc.platform,
+                "handle": handle,
+                "url": url,
+                "display_name": acc.display_name or handle,
+            }
+        )
 
     # Get messaging pillars as services
     services = []

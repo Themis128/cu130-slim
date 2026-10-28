@@ -8,6 +8,7 @@ Revises: f6e5d4c3b2a1
 Create Date: 2026-10-13 09:00:00.000000
 
 """
+
 from alembic import op
 
 revision = "g7f8e9d0c1b2"

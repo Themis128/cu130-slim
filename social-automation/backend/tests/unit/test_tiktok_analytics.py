@@ -121,18 +121,21 @@ async def test_tiktok_profile_only_grant_keeps_scraped_followers(monkeypatch):
     or suppress the scraper event — the false-drop regression."""
     account = _tt_account(["user.info.basic", "user.info.profile", "video.list"])
     db = _mock_db()
-    _mock_http(monkeypatch, {
-        "username": "cloudless.gr",
-        "bio_description": "bio",
-        "is_verified": False,
-        # no follower_count — stats scope absent
-    })
+    _mock_http(
+        monkeypatch,
+        {
+            "username": "cloudless.gr",
+            "bio_description": "bio",
+            "is_verified": False,
+            # no follower_count — stats scope absent
+        },
+    )
     monkeypatch.setattr(sync, "decrypt_token", lambda _e: "tok")
     monkeypatch.setattr(sync, "_persist_snapshot", AsyncMock())
     monkeypatch.setattr(
-        sync, "_scrape_tiktok_profile",
-        lambda _u, _c: {"followers": 40, "channel_id": "c1",
-                        "videos": {"v1": sync.MetricBundle(impressions=1)}},
+        sync,
+        "_scrape_tiktok_profile",
+        lambda _u, _c: {"followers": 40, "channel_id": "c1", "videos": {"v1": sync.MetricBundle(impressions=1)}},
     )
 
     await sync.sync_tiktok_account(db, account)
@@ -151,19 +154,22 @@ async def test_tiktok_stats_grant_writes_authoritative_event(monkeypatch):
     event is suppressed."""
     account = _tt_account(["user.info.basic", "user.info.stats", "video.list"])
     db = _mock_db()
-    _mock_http(monkeypatch, {
-        "username": "cloudless.gr",
-        "follower_count": 25,
-        "following_count": 13,
-        "likes_count": 3,
-        "video_count": 1,
-    })
+    _mock_http(
+        monkeypatch,
+        {
+            "username": "cloudless.gr",
+            "follower_count": 25,
+            "following_count": 13,
+            "likes_count": 3,
+            "video_count": 1,
+        },
+    )
     monkeypatch.setattr(sync, "decrypt_token", lambda _e: "tok")
     monkeypatch.setattr(sync, "_persist_snapshot", AsyncMock())
     monkeypatch.setattr(
-        sync, "_scrape_tiktok_profile",
-        lambda _u, _c: {"followers": 40, "channel_id": "c1",
-                        "videos": {"v1": sync.MetricBundle(impressions=1)}},
+        sync,
+        "_scrape_tiktok_profile",
+        lambda _u, _c: {"followers": 40, "channel_id": "c1", "videos": {"v1": sync.MetricBundle(impressions=1)}},
     )
 
     await sync.sync_tiktok_account(db, account)

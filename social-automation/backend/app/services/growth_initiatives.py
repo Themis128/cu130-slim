@@ -14,6 +14,7 @@ Usage:
         note="batch 1 — warm connections")
     summary = await initiative_summary(db, team_id)
 """
+
 from __future__ import annotations
 
 import logging
@@ -94,9 +95,7 @@ async def record_initiative_event(
     return event
 
 
-async def _followers_at_or_before(
-    db: AsyncSession, account_id: UUID, when: datetime
-) -> int | None:
+async def _followers_at_or_before(db: AsyncSession, account_id: UUID, when: datetime) -> int | None:
     row = (
         await db.execute(
             select(FollowerSnapshot.followers)
@@ -114,18 +113,13 @@ async def _followers_at_or_before(
 async def _followers_latest(db: AsyncSession, account_id: UUID) -> int | None:
     row = (
         await db.execute(
-            select(FollowerSnapshot.followers)
-            .where(FollowerSnapshot.social_account_id == account_id)
-            .order_by(FollowerSnapshot.captured_at.desc())
-            .limit(1)
+            select(FollowerSnapshot.followers).where(FollowerSnapshot.social_account_id == account_id).order_by(FollowerSnapshot.captured_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
     return row
 
 
-async def initiative_summary(
-    db: AsyncSession, team_id: UUID, *, days: int = 30
-) -> list[dict[str, Any]]:
+async def initiative_summary(db: AsyncSession, team_id: UUID, *, days: int = 30) -> list[dict[str, Any]]:
     """Per-initiative rollup: units sent, events, follower start→now delta.
 
     Follower baseline is the snapshot nearest (at or before) the first
@@ -225,9 +219,7 @@ async def initiative_summary(
         monthly_cap = meta.get("monthly_cap") or DEFAULT_MONTHLY_CREDIT_CAP
         followers_start = followers_now = delta = conv = None
         if r.social_account_id:
-            followers_start = await _followers_at_or_before(
-                db, r.social_account_id, r.first_at
-            )
+            followers_start = await _followers_at_or_before(db, r.social_account_id, r.first_at)
             followers_now = await _followers_latest(db, r.social_account_id)
             if followers_start is not None and followers_now is not None:
                 delta = followers_now - followers_start
@@ -239,9 +231,7 @@ async def initiative_summary(
         declined = int(r.declined or 0)
         accepted = min(delta, units) if delta is not None else None
         conv = round(accepted / units * 100, 1) if accepted is not None and units else None
-        pending = (
-            max(0, units - (accepted or 0) - declined) if accepted is not None else None
-        )
+        pending = max(0, units - (accepted or 0) - declined) if accepted is not None else None
         credits_left = meta.get("credits_left")
         if credits_left is None and r.event_type == "linkedin_page_invite":
             spent_net = int(r.units_this_month or 0) - (accepted or 0)
@@ -251,9 +241,7 @@ async def initiative_summary(
                 "event_type": r.event_type,
                 "initiative": INITIATIVE_TYPES.get(r.event_type, r.event_type),
                 "platform": r.platform,
-                "social_account_id": str(r.social_account_id)
-                if r.social_account_id
-                else None,
+                "social_account_id": str(r.social_account_id) if r.social_account_id else None,
                 "events": r.events,
                 "units": units,
                 "units_this_month": int(r.units_this_month or 0),

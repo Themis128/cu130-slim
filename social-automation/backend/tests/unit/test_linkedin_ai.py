@@ -61,10 +61,8 @@ def mock_inference(monkeypatch):
             ],
             "takeaways": ["Keep it simple", "Ship fast"],
             "cta": "Try cloudless.gr",
-            "quote": {"text": "Ship small, ship often.", "attribution": "Jane Dev, CTO — Wired",
-                      "source_url": "https://wired.com/example"},
-            "sources": [{"title": "The Small-Batch Advantage", "publisher": "HBR",
-                          "url": "https://hbr.org/example"}],
+            "quote": {"text": "Ship small, ship often.", "attribution": "Jane Dev, CTO — Wired", "source_url": "https://wired.com/example"},
+            "sources": [{"title": "The Small-Batch Advantage", "publisher": "HBR", "url": "https://hbr.org/example"}],
             "cover_prompt": "minimalist neon grid, server racks",
             "comment": "Great post!",
             "improved_content": "This is improved content.",
@@ -135,8 +133,17 @@ async def test_generate_linkedin_article_quote_and_sources(mock_inference, mock_
 @pytest.mark.asyncio
 async def test_generate_linkedin_article_no_quote(mock_plain_english, monkeypatch):
     async def fake(*a, **k):
-        return {"title": "T", "subtitle": "S", "sections": [{"heading": "H", "body": "B"}],
-                "takeaways": [], "cta": "", "quote": {}, "sources": [], "cover_prompt": ""}
+        return {
+            "title": "T",
+            "subtitle": "S",
+            "sections": [{"heading": "H", "body": "B"}],
+            "takeaways": [],
+            "cta": "",
+            "quote": {},
+            "sources": [],
+            "cover_prompt": "",
+        }
+
     monkeypatch.setattr(linkedin_ai, "_call_text", fake)
     result = await linkedin_ai.generate_linkedin_article("x")
     assert result["quote"] == {} and result["sources"] == []

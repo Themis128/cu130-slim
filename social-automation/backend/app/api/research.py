@@ -1,4 +1,5 @@
 """Research workspace API — Papers-AI-style full-context research."""
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 

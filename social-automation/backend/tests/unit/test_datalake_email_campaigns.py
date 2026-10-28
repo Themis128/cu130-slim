@@ -1,4 +1,5 @@
 """Datalake export of email campaigns — PII-minimized shape."""
+
 from __future__ import annotations
 
 import json
@@ -17,23 +18,39 @@ from tests.unit.test_email_campaigns import _DB, _Res
 async def test_export_email_campaigns_hashes_recipients_and_respondents():
     when = datetime(2026, 10, 10, 9, 0, tzinfo=UTC)
     camp = SimpleNamespace(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), name="Survey", kind=CampaignKind.survey,
-        status=CampaignStatus.sent, survey_url=None, sent_at=when, created_at=when,
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="Survey",
+        kind=CampaignKind.survey,
+        status=CampaignStatus.sent,
+        survey_url=None,
+        sent_at=when,
+        created_at=when,
     )
     draft = SimpleNamespace(
-        id=uuid.uuid4(), team_id=camp.team_id, name="Draft", kind=CampaignKind.marketing,
-        status=CampaignStatus.draft, survey_url="https://forms.example/x", sent_at=None, created_at=when,
+        id=uuid.uuid4(),
+        team_id=camp.team_id,
+        name="Draft",
+        kind=CampaignKind.marketing,
+        status=CampaignStatus.draft,
+        survey_url="https://forms.example/x",
+        sent_at=None,
+        created_at=when,
     )
     lid = uuid.uuid4()
     r1 = SimpleNamespace(email="Ann@Example.com", lead_id=lid, status=RecipientStatus.sent, sent_at=when)
     r2 = SimpleNamespace(email="bob@example.com", lead_id=None, status=RecipientStatus.pending, sent_at=None)
     resp1 = SimpleNamespace(lead_id=lid, answers={"q": 5}, espocrm_noted=True, submitted_at=when)
     resp2 = SimpleNamespace(lead_id=None, answers={}, espocrm_noted=False, submitted_at=when)
-    db = _DB([
-        _Res([camp, draft]),
-        _Res([r1, r2]), _Res([(resp1, "ann@example.com"), (resp2, None)]),
-        _Res([]), _Res([]),
-    ])
+    db = _DB(
+        [
+            _Res([camp, draft]),
+            _Res([r1, r2]),
+            _Res([(resp1, "ann@example.com"), (resp2, None)]),
+            _Res([]),
+            _Res([]),
+        ]
+    )
 
     out = await de._export_email_campaigns(db)
 
@@ -43,8 +60,10 @@ async def test_export_email_campaigns_hashes_recipients_and_respondents():
     assert survey["survey_url"] is False and out[1]["survey_url"] is True
     assert survey["sent_at"] == when.isoformat() and out[1]["sent_at"] is None
     assert survey["recipients"][0] == {
-        "email_hash": de._email_hash("ann@example.com"), "lead_id": str(lid),
-        "status": str(RecipientStatus.sent), "sent_at": when.isoformat(),
+        "email_hash": de._email_hash("ann@example.com"),
+        "lead_id": str(lid),
+        "status": str(RecipientStatus.sent),
+        "sent_at": when.isoformat(),
     }
     assert survey["recipients"][1]["lead_id"] is None and survey["recipients"][1]["sent_at"] is None
     assert survey["responses"][0]["email_hash"] == de._email_hash("Ann@Example.com")

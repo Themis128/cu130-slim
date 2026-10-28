@@ -100,19 +100,11 @@ async def _conversion_30d() -> dict:
     conversion-rate KPI (audience → customer action, not vanity reach)."""
     async with async_session_maker() as db:
         attributed = (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM web_analytics_events"
-                    " WHERE occurred_at > now() - interval '30 days'"
-                    "   AND payload ? 'utm_source'"
-                )
-            )
+            await db.execute(text("SELECT count(*) FROM web_analytics_events WHERE occurred_at > now() - interval '30 days'   AND payload ? 'utm_source'"))
         ).scalar() or 0
     from app.services import espocrm_client as espo
 
-    leads = await espo.list_all(
-        "Lead", select=["id", "createdAt", "source"], max_items=25000
-    )
+    leads = await espo.list_all("Lead", select=["id", "createdAt", "source"], max_items=25000)
     cutoff = datetime.now(UTC).timestamp() - 30 * 86400
     fresh = [
         lead
@@ -179,10 +171,7 @@ async def _published_cadence() -> dict[str, dict]:
                 )
             )
         ).all()
-    out = {
-        r[0]: {"posts_28d": r[1], "per_week": round(r[1] / 4, 1), "last": str(r[2])[:10]}
-        for r in rows
-    }
+    out = {r[0]: {"posts_28d": r[1], "per_week": round(r[1] / 4, 1), "last": str(r[2])[:10]} for r in rows}
     for platform, n, last_send in sends:
         out[f"{platform} (sends)"] = {"posts_28d": n, "per_week": round(n / 4, 1), "last": str(last_send)[:10]}
     out["_silent_accounts"] = [r[0] for r in silent]
@@ -195,12 +184,7 @@ async def _interactivity_30d() -> dict:
     async with async_session_maker() as db:
         rows = (
             await db.execute(
-                text(
-                    "SELECT content_text FROM posts"
-                    " WHERE status = 'published'"
-                    "   AND published_at > now() - interval '30 days'"
-                    "   AND content_text IS NOT NULL"
-                )
+                text("SELECT content_text FROM posts WHERE status = 'published'   AND published_at > now() - interval '30 days'   AND content_text IS NOT NULL")
             )
         ).all()
     total = len(rows)
@@ -217,21 +201,9 @@ async def _paid_eval_freshness() -> dict:
     periodically' lever. The daily linkedin-ads-report beat should keep the
     newest snapshot under ~48h; staleness means paid spend flies blind."""
     async with async_session_maker() as db:
-        row = (
-            await db.execute(
-                text(
-                    "SELECT max(captured_at), count(*) FROM ad_campaign_snapshots"
-                    " WHERE captured_at > now() - interval '30 days'"
-                )
-            )
-        ).first()
+        row = (await db.execute(text("SELECT max(captured_at), count(*) FROM ad_campaign_snapshots WHERE captured_at > now() - interval '30 days'"))).first()
         campaigns = (
-            await db.execute(
-                text(
-                    "SELECT count(DISTINCT campaign_id) FROM ad_campaign_snapshots"
-                    " WHERE captured_at > now() - interval '30 days'"
-                )
-            )
+            await db.execute(text("SELECT count(DISTINCT campaign_id) FROM ad_campaign_snapshots WHERE captured_at > now() - interval '30 days'"))
         ).scalar() or 0
     if not row or not row[0]:
         return {"snapshots_30d": 0, "campaigns": 0, "age_hours": None, "fresh": False}
@@ -260,10 +232,7 @@ async def audit() -> dict:
     for platform in cadence.pop("_silent_accounts"):
         gaps.append(f"silent platform: {platform} has an active account, zero publishes in 28d")
     if interactivity["posts_30d"] and (interactivity["pct"] or 0) < 40:
-        gaps.append(
-            f"interactivity {interactivity['pct']}% — the paper's top fix is "
-            "response-inviting formats (polls/Q&A/comment prompts)"
-        )
+        gaps.append(f"interactivity {interactivity['pct']}% — the paper's top fix is response-inviting formats (polls/Q&A/comment prompts)")
     if not paid["fresh"]:
         gaps.append(
             f"paid-ads evaluation stale ({paid['age_hours']}h since last snapshot)"
@@ -278,10 +247,7 @@ async def audit() -> dict:
         "kpis": {
             "engagement_rate": engagement,
             "conversion": conversion,
-            "feedback": {
-                p: {"comments": m["comments"], "shares": m["shares"]}
-                for p, m in engagement.items()
-            },
+            "feedback": {p: {"comments": m["comments"], "shares": m["shares"]} for p, m in engagement.items()},
         },
         "levers": {
             "interactivity_30d": interactivity,
@@ -302,34 +268,22 @@ def render(r: dict) -> str:
     ]
     for platform, m in sorted(r["kpis"]["engagement_rate"].items()):
         er = "-" if m["er_pct"] is None else f"{m['er_pct']}"
-        lines.append(
-            f"{platform:<12} {m['posts']:>5} {m['impressions']:>8} "
-            f"{m['engagements']:>6} {er:>6} {m['comments']:>8} {m['shares']:>6}"
-        )
+        lines.append(f"{platform:<12} {m['posts']:>5} {m['impressions']:>8} {m['engagements']:>6} {er:>6} {m['comments']:>8} {m['shares']:>6}")
     conv = r["kpis"]["conversion"]
     lines += [
         "",
-        f"KPI: conversion — {conv['attributed_events_30d']} UTM events, "
-        f"{conv['leads_30d']} new leads (30d)",
+        f"KPI: conversion — {conv['attributed_events_30d']} UTM events, {conv['leads_30d']} new leads (30d)",
         "",
         "Levers",
         "-" * 60,
     ]
     inter = r["levers"]["interactivity_30d"]
-    lines.append(
-        f"interactivity: {inter['interactive']}/{inter['posts_30d']} posts "
-        f"({inter['pct']}%) invite a response"
-    )
+    lines.append(f"interactivity: {inter['interactive']}/{inter['posts_30d']} posts ({inter['pct']}%) invite a response")
     for platform, m in sorted(r["levers"]["publish_cadence"].items()):
-        lines.append(
-            f"cadence {platform:<12} {m['posts_28d']:>3}/28d "
-            f"({m['per_week']}/wk) last {m['last']}"
-        )
+        lines.append(f"cadence {platform:<12} {m['posts_28d']:>3}/28d ({m['per_week']}/wk) last {m['last']}")
     paid = r["levers"]["paid_eval"]
     lines.append(
-        f"paid-eval: {'fresh' if paid['fresh'] else 'STALE'} "
-        f"({paid['snapshots_30d']} snapshots, {paid['campaigns']} campaigns, "
-        f"age {paid['age_hours']}h)"
+        f"paid-eval: {'fresh' if paid['fresh'] else 'STALE'} ({paid['snapshots_30d']} snapshots, {paid['campaigns']} campaigns, age {paid['age_hours']}h)"
     )
     lines.append("")
     if r["gaps"]:

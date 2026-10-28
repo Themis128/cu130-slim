@@ -5,6 +5,7 @@ Revises: a6b7c8d9e0f1
 Create Date: 2026-09-26 16:30:00.000000
 
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
@@ -51,8 +52,13 @@ def upgrade() -> None:
         sa.Column("raw", postgresql.JSONB, nullable=False, server_default="{}"),
         sa.Column("captured_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint(
-            "account_id", "report_type", "campaign_id", "ad_set_id",
-            "ad_id", "placement", "day",
+            "account_id",
+            "report_type",
+            "campaign_id",
+            "ad_set_id",
+            "ad_id",
+            "placement",
+            "day",
             name="uq_ad_daily_metrics_grain",
         ),
     )
@@ -79,8 +85,11 @@ def upgrade() -> None:
         sa.Column("source", sa.String(40), nullable=False, server_default="report_csv"),
         sa.Column("captured_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.UniqueConstraint(
-            "account_id", "segment_type", "segment_value",
-            "window_start", "window_end",
+            "account_id",
+            "segment_type",
+            "segment_value",
+            "window_start",
+            "window_end",
             name="uq_ad_demo_segments_grain",
         ),
     )

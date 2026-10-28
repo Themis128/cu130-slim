@@ -3,6 +3,7 @@
 Covers verdict persistence, streak-based graduation/demotion proposals,
 and their surfacing in render()/push_slack().
 """
+
 import uuid
 
 import pytest
@@ -137,13 +138,15 @@ def test_render_includes_proposals():
         "inspect_ok": True,
         "workers": [
             {
-                "name": "publisher", "runs_seen": 5, "status": "ok",
-                "evidence": [], "escalations": [], "presence": True,
+                "name": "publisher",
+                "runs_seen": 5,
+                "status": "ok",
+                "evidence": [],
+                "escalations": [],
+                "presence": True,
             }
         ],
-        "autonomy_proposals": [
-            {"worker": "voice-learner", "direction": "graduate", "from": "review", "to": "auto", "why": "10 clean"}
-        ],
+        "autonomy_proposals": [{"worker": "voice-learner", "direction": "graduate", "from": "review", "to": "auto", "why": "10 clean"}],
     }
     out = wa.render(report)
     assert "autonomy proposals" in out and "voice-learner" in out and "review → auto" in out
@@ -156,16 +159,10 @@ async def test_push_slack_sends_proposals_when_all_clean(monkeypatch):
     async def _post(text, **kw):
         sent.append(text)
 
-    monkeypatch.setattr(
-        "app.services.slack_notifications.post_alert_to_slack", _post
-    )
+    monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", _post)
     report = {
-        "workers": [
-            {"name": "publisher", "status": "ok", "evidence": [], "escalations": []}
-        ],
-        "autonomy_proposals": [
-            {"worker": "voice-learner", "direction": "graduate", "from": "review", "to": "auto", "why": "streak"}
-        ],
+        "workers": [{"name": "publisher", "status": "ok", "evidence": [], "escalations": []}],
+        "autonomy_proposals": [{"worker": "voice-learner", "direction": "graduate", "from": "review", "to": "auto", "why": "streak"}],
     }
     await wa.push_slack(report)
     assert sent and "Autonomy ladder" in sent[0]

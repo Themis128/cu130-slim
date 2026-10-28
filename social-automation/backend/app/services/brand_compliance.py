@@ -55,11 +55,13 @@ async def score_brand_compliance(
     for phrase in banned_phrases:
         if phrase.lower() in content_lower:
             banned_found.append(phrase)
-            issues.append({
-                "type": "banned_phrase",
-                "message": f'Banned phrase "{phrase}" found in content',
-                "suggestion": f'Replace "{phrase}" with an alternative that fits your brand voice',
-            })
+            issues.append(
+                {
+                    "type": "banned_phrase",
+                    "message": f'Banned phrase "{phrase}" found in content',
+                    "suggestion": f'Replace "{phrase}" with an alternative that fits your brand voice',
+                }
+            )
 
     # 2. Check preferred phrases (presence bonus)
     preferred_phrases = voice.get("preferred_phrases", [])
@@ -68,9 +70,7 @@ async def score_brand_compliance(
             preferred_found.append(phrase)
 
     # 3. AI tone/voice match scoring
-    tone_match = await _ai_tone_match(
-        content, brand, voice, platform, provider_name=provider_name, db=db, team_id=team_id
-    )
+    tone_match = await _ai_tone_match(content, brand, voice, platform, provider_name=provider_name, db=db, team_id=team_id)
 
     # 4. Calculate overall score
     score = _calculate_score(banned_found, preferred_found, tone_match, banned_phrases, preferred_phrases)
@@ -197,9 +197,7 @@ async def load_brand_context(db, team_id) -> tuple[dict | None, dict | None, str
 
     if not team_id:
         return None, None, ""
-    result = await db.execute(
-        select(Brand).options(selectinload(Brand.voice)).where(Brand.team_id == team_id)
-    )
+    result = await db.execute(select(Brand).options(selectinload(Brand.voice)).where(Brand.team_id == team_id))
     brand = result.scalars().first()
     if not brand:
         return None, None, ""

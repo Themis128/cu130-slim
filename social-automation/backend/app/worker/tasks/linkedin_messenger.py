@@ -24,6 +24,7 @@ State tracking:
 
 The task runs every 3 minutes via Celery beat.
 """
+
 import asyncio
 import logging
 import re
@@ -63,6 +64,7 @@ def _run_async(coro):
             import threading
 
             result = {}
+
             def _runner():
                 new_loop = asyncio.new_event_loop()
                 try:
@@ -71,6 +73,7 @@ def _run_async(coro):
                     result["error"] = exc
                 finally:
                     new_loop.close()
+
             t = threading.Thread(target=_runner)
             t.start()
             t.join()
@@ -119,8 +122,13 @@ async def _poll_linkedin_messenger_async() -> dict:
 
             try:
                 replies = await _process_account(
-                    account, auto_reply, seen, sidecar_url,
-                    cf_token, cf_account, dmr_url,
+                    account,
+                    auto_reply,
+                    seen,
+                    sidecar_url,
+                    cf_token,
+                    cf_account,
+                    dmr_url,
                 )
                 stats["replies_sent"] += replies
 
@@ -129,23 +137,24 @@ async def _poll_linkedin_messenger_async() -> dict:
                 meta["linkedin_messenger_last_checked"] = datetime.now(UTC).isoformat()
                 account.meta_data = meta
                 from sqlalchemy.orm.attributes import flag_modified
+
                 flag_modified(account, "meta_data")
                 await db.commit()
             except Exception as exc:
                 stats["errors"] += 1
                 logger.error(
                     "LinkedIn DM poll failed for account %s: %s",
-                    account.id, exc, exc_info=True,
+                    account.id,
+                    exc,
+                    exc_info=True,
                 )
 
     logger.info("LinkedIn DM poll complete: %s", stats)
     return stats
 
 
-_EMAIL_IN_TEXT = re.compile(
-    r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,}")
-_PHONE_IN_TEXT = re.compile(
-    r"\+[0-9][0-9\s().-]{7,19}")
+_EMAIL_IN_TEXT = re.compile(r"[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,255}\.[A-Za-z]{2,}")
+_PHONE_IN_TEXT = re.compile(r"\+[0-9][0-9\s().-]{7,19}")
 
 
 async def _capture_contact(account, convo_name: str, text: str) -> str | None:
@@ -161,36 +170,39 @@ async def _capture_contact(account, convo_name: str, text: str) -> str | None:
         from app.db.session import async_session_maker
         from app.models.lead import LeadSource
         from app.services.leads import create_lead
+
         if email:
             async with async_session_maker() as db:
                 await create_lead(
-                    db, team_id=account.team_id, source=LeadSource.dm,
-                    name=convo_name, email=email,
-                    notes=f"LinkedIn DM capture — {convo_name}"
-                          + (f" · {phone}" if phone else ""),
-                    meta_data={"channel": "linkedin_dm", "phone": phone,
-                               "thread_origin": "newsletter"},
+                    db,
+                    team_id=account.team_id,
+                    source=LeadSource.dm,
+                    name=convo_name,
+                    email=email,
+                    notes=f"LinkedIn DM capture — {convo_name}" + (f" · {phone}" if phone else ""),
+                    meta_data={"channel": "linkedin_dm", "phone": phone, "thread_origin": "newsletter"},
                 )
         # EspoCRM — phoneNumber field carries it
         try:
             from app.services.espocrm_client import upsert_lead
+
             first, _, last = convo_name.partition(" ")
-            await upsert_lead({
-                "emailAddress": email or "",
-                "firstName": first or convo_name,
-                "lastName": last or "(LinkedIn)",
-                "phoneNumber": phone or "",
-                "source": "LinkedIn DM",
-                "description": f"Captured in DM thread\n{phone or ''}",
-            })
+            await upsert_lead(
+                {
+                    "emailAddress": email or "",
+                    "firstName": first or convo_name,
+                    "lastName": last or "(LinkedIn)",
+                    "phoneNumber": phone or "",
+                    "source": "LinkedIn DM",
+                    "description": f"Captured in DM thread\n{phone or ''}",
+                }
+            )
         except Exception:
             pass
         first = convo_name.split()[0] if convo_name else "there"
         if email:
-            return (f"Done, {first} — sending the details to {email} "
-                    f"shortly. ")
-        return (f"Noted, {first} — I'll reach out on the number you "
-                f"shared. ")
+            return f"Done, {first} — sending the details to {email} shortly. "
+        return f"Noted, {first} — I'll reach out on the number you shared. "
     except Exception as exc:
         logger.warning("DM contact capture failed: %s", exc)
         return None
@@ -326,11 +338,17 @@ async def _process_account(
 
             # 8. Generate AI reply (CF Workers AI)
             reply_text = await generate_contextual_reply(
-                config, last_text, account_name,
-                account.id, thread_id,
-                cf_token, cf_account, dmr_url,
+                config,
+                last_text,
+                account_name,
+                account.id,
+                thread_id,
+                cf_token,
+                cf_account,
+                dmr_url,
                 intent=intent,
-                brand_context=brand_context, team_id=account.team_id,
+                brand_context=brand_context,
+                team_id=account.team_id,
             )
 
             if not reply_text:
@@ -344,12 +362,18 @@ async def _process_account(
 
             # 9. Store both messages in conversation memory (ChromaDB)
             await store_message_memory(
-                account.team_id, account.id, thread_id,
-                "them", last_text,
+                account.team_id,
+                account.id,
+                thread_id,
+                "them",
+                last_text,
             )
             await store_message_memory(
-                account.team_id, account.id, thread_id,
-                "me", reply_text,
+                account.team_id,
+                account.id,
+                thread_id,
+                "me",
+                reply_text,
             )
 
             # 10. Mark as seen + set cooldown
@@ -358,19 +382,17 @@ async def _process_account(
             replies_sent += 1
             logger.info(
                 "LinkedIn auto-reply sent to '%s' (thread %s) for account %s",
-                convo_name, thread_id, account.id,
+                convo_name,
+                thread_id,
+                account.id,
             )
 
             # Be gentle — wait between replies
             await asyncio.sleep(3)
 
         except LinkedInSidecarError as exc:
-            logger.warning(
-                "LinkedIn sidecar error in thread %s: %s", thread_id, exc
-            )
+            logger.warning("LinkedIn sidecar error in thread %s: %s", thread_id, exc)
         except Exception as exc:
-            logger.error(
-                "Error processing LinkedIn thread %s: %s", thread_id, exc, exc_info=True
-            )
+            logger.error("Error processing LinkedIn thread %s: %s", thread_id, exc, exc_info=True)
 
     return replies_sent

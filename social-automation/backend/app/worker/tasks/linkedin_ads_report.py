@@ -1,4 +1,5 @@
 """Celery task: LinkedIn Ads daily report → Slack ads channel + email."""
+
 from __future__ import annotations
 
 from typing import Any

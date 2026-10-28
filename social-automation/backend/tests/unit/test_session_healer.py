@@ -579,6 +579,7 @@ async def test_bridge_platform_contended_when_other_busy(monkeypatch):
 @pytest.mark.asyncio
 async def test_bridge_platform_error_records_exception_type(monkeypatch):
     """Empty str(exc) (ReadTimeout etc.) must not produce an empty error."""
+
     async def timeout_call(path, platform, body=None, timeout=60.0):
         raise TimeoutError  # str() is "" — same shape as httpx.ReadTimeout
 

@@ -108,9 +108,7 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
     from app.services.email_digest import send_email
 
     stats = {"scanned": 0, "sent": 0, "skipped": 0}
-    leads = (await db.execute(
-        select(Lead).where(Lead.team_id == team_id, Lead.email.isnot(None))
-    )).scalars().all()
+    leads = (await db.execute(select(Lead).where(Lead.team_id == team_id, Lead.email.isnot(None)))).scalars().all()
 
     for lead in leads:
         meta = lead.meta_data or {}

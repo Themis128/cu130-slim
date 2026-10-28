@@ -8,6 +8,7 @@ Usage in API routes:
     rows = await db_router.query("SELECT * FROM users WHERE id = ?", [user_id])
     await db_router.execute("INSERT INTO users ...", [params])
 """
+
 from __future__ import annotations
 
 import logging
@@ -62,9 +63,7 @@ class DualWriteRouter:
         if self._failure_count >= self._CIRCUIT_THRESHOLD:
             self._circuit_open = True
             self._circuit_opened_at = datetime.now(UTC)
-            logger.warning(
-                "D1 circuit breaker opened after %d failures", self._failure_count
-            )
+            logger.warning("D1 circuit breaker opened after %d failures", self._failure_count)
 
     def _record_success(self) -> None:
         """Record a D1 success and reset failure count."""
@@ -131,16 +130,16 @@ class DualWriteRouter:
 
         # If D1 failed or was unavailable, queue for replay
         # Queue when D1 is enabled but failed, OR when circuit breaker is open
-        should_queue = (not d1_success) and (
-            d1_client.enabled or self._circuit_open
-        )
+        should_queue = (not d1_success) and (d1_client.enabled or self._circuit_open)
         if should_queue:
-            self._replay_queue.append({
-                "sql": sql,
-                "params": params,
-                "table": table,
-                "queued_at": datetime.now(UTC).isoformat(),
-            })
+            self._replay_queue.append(
+                {
+                    "sql": sql,
+                    "params": params,
+                    "table": table,
+                    "queued_at": datetime.now(UTC).isoformat(),
+                }
+            )
             logger.info("Queued write for D1 replay (queue: %d)", len(self._replay_queue))
 
         return d1_result if d1_success else pg_result
@@ -155,6 +154,7 @@ class DualWriteRouter:
         # Convert INSERT OR REPLACE INTO table (cols) VALUES (?)
         # to INSERT INTO table (cols) VALUES (?) ON CONFLICT (id) DO UPDATE SET ...
         import re
+
         match = re.match(
             r"INSERT OR REPLACE INTO (\w+) \(([^)]+)\) VALUES \(([^)]+)\)",
             pg_sql,
@@ -167,11 +167,7 @@ class DualWriteRouter:
             conflict_col = "id" if "id" in cols else cols[0]
             update_cols = [c for c in cols if c != conflict_col]
             update_str = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
-            pg_sql = (
-                f"INSERT INTO {table} ({', '.join(cols)}) "
-                f"VALUES ({placeholders}) "
-                f"ON CONFLICT ({conflict_col}) DO UPDATE SET {update_str}"
-            )
+            pg_sql = f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({placeholders}) ON CONFLICT ({conflict_col}) DO UPDATE SET {update_str}"
 
         return pg_sql
 
@@ -272,6 +268,7 @@ class DualWriteRouter:
             return params
         # Find boolean column patterns in the SQL
         import re
+
         bool_patterns = [
             r"\bis_\w+\b",
             r"\bsuccess\b",

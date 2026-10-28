@@ -7,6 +7,7 @@ only needed when the session expires or is explicitly cleared.
 All blocking instagrapi calls are dispatched via asyncio.to_thread so the
 async event loop is never blocked.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -42,11 +43,9 @@ except Exception:
     class _DummyException(Exception):
         pass
 
-    ChallengeRequired = (
-        ClientThrottledError
-    ) = (
-        FeedbackRequired
-    ) = LoginRequired = PleaseWaitFewMinutes = ProxyAddressIsBlocked = RateLimitError = _DummyException
+    ChallengeRequired = ClientThrottledError = FeedbackRequired = LoginRequired = PleaseWaitFewMinutes = ProxyAddressIsBlocked = RateLimitError = (
+        _DummyException
+    )
 
 
 class InstagrapiError(Exception):
@@ -299,9 +298,7 @@ class InstagrapiClient:
                 try:
                     return await hiker_client.get_user_by_username(self._username)
                 except HikerAPIError as hiker_exc:
-                    raise InstagrapiError(
-                        f"All fallbacks failed: instagrapi={exc}, free=exhausted, hiker={hiker_exc}"
-                    ) from hiker_exc
+                    raise InstagrapiError(f"All fallbacks failed: instagrapi={exc}, free=exhausted, hiker={hiker_exc}") from hiker_exc
 
     def _is_throttle_error(self, exc: Exception) -> bool:
         msg = str(exc).lower()

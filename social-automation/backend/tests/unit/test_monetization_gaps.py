@@ -142,9 +142,7 @@ async def test_gather_metrics_instagram_live(monkeypatch):
         async def get_profile(self):
             return {"followers_count": 777}
 
-    monkeypatch.setattr(
-        "app.services.instagram_api.InstagramAPIClient", _IG
-    )
+    monkeypatch.setattr("app.services.instagram_api.InstagramAPIClient", _IG)
     out = await M.gather_account_metrics(_Db(results=[_Rows([])]), acc)
     assert out["followers"] == 777
     assert out["followers_live"] is True
@@ -211,8 +209,10 @@ async def test_gather_metrics_facebook_days_held(monkeypatch):
     # Live call fails (no FB client branch) → snapshot path + days_held calc
     acc.access_token_enc = b"not-fernet"
     today = datetime.now(UTC).date()
+
     def day(d):
         return datetime(today.year, today.month, today.day, tzinfo=UTC) - timedelta(days=d)
+
     # oldest-first: day-4 below gate (breaks the streak), then 3 days ≥500
     snaps = [(day(4), 400), (day(2), 600), (day(1), 600), (day(0), 600)]
     out = await M.gather_account_metrics(_Db(results=[_Rows(snaps)]), acc)
@@ -302,9 +302,7 @@ async def test_generate_copy_real_chain(monkeypatch):
         "app.services.quality_pipeline.apply_quality_pipeline",
         AsyncMock(return_value=quality),
     )
-    content, tags, seo = await X._generate_copy(
-        _Db(), SimpleNamespace(id=uuid.uuid4()), MonetizationAction("linkedin", "post", "12:00", "image"), "brand"
-    )
+    content, tags, seo = await X._generate_copy(_Db(), SimpleNamespace(id=uuid.uuid4()), MonetizationAction("linkedin", "post", "12:00", "image"), "brand")
     assert content == "polished copy" and tags == ["#y"] and seo == 95
 
 
@@ -318,12 +316,8 @@ class _ACtx:
 
 @pytest.mark.asyncio
 async def test_generate_media_comfyui_path(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p")
-    )
-    monkeypatch.setattr(
-        "app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx()
-    )
+    monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p"))
+    monkeypatch.setattr("app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx())
     monkeypatch.setattr(
         "app.services.comfyui_image.generate_image",
         AsyncMock(return_value=(b"png-bytes", {})),
@@ -331,17 +325,13 @@ async def test_generate_media_comfyui_path(monkeypatch):
     asset = SimpleNamespace(id=uuid.uuid4())
     persist = AsyncMock(return_value=asset)
     monkeypatch.setattr("app.services.media_storage.persist_generated_image", persist)
-    out = await X._generate_media(
-        _Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image")
-    )
+    out = await X._generate_media(_Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image"))
     assert out == asset.id
 
 
 @pytest.mark.asyncio
 async def test_generate_media_cf_fallback(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p")
-    )
+    monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p"))
     monkeypatch.setattr("app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx())
     monkeypatch.setattr(
         "app.services.comfyui_image.generate_image",
@@ -352,20 +342,14 @@ async def test_generate_media_cf_fallback(monkeypatch):
         AsyncMock(return_value={"image_base64": base64.b64encode(b"cf-png").decode()}),
     )
     asset = SimpleNamespace(id=uuid.uuid4())
-    monkeypatch.setattr(
-        "app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset)
-    )
-    out = await X._generate_media(
-        _Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image")
-    )
+    monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))
+    out = await X._generate_media(_Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image"))
     assert out == asset.id
 
 
 @pytest.mark.asyncio
 async def test_generate_media_brand_banner_last_resort(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p")
-    )
+    monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p"))
     monkeypatch.setattr("app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx())
     monkeypatch.setattr(
         "app.services.comfyui_image.generate_image",
@@ -375,24 +359,16 @@ async def test_generate_media_brand_banner_last_resort(monkeypatch):
         "app.services.inference._call_workers_ai_image",
         AsyncMock(side_effect=RuntimeError("cf down")),
     )
-    monkeypatch.setattr(
-        "app.services.brand_assets.generate_og_image", lambda *a, **kw: b"banner"
-    )
+    monkeypatch.setattr("app.services.brand_assets.generate_og_image", lambda *a, **kw: b"banner")
     asset = SimpleNamespace(id=uuid.uuid4())
-    monkeypatch.setattr(
-        "app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset)
-    )
-    out = await X._generate_media(
-        _Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image")
-    )
+    monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))
+    out = await X._generate_media(_Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image"))
     assert out == asset.id
 
 
 @pytest.mark.asyncio
 async def test_generate_media_all_paths_fail_returns_none(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p")
-    )
+    monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(return_value="p"))
     monkeypatch.setattr("app.services.gpu_arbiter.media_gpu_lock", lambda: _ACtx())
     monkeypatch.setattr(
         "app.services.comfyui_image.generate_image",
@@ -406,9 +382,7 @@ async def test_generate_media_all_paths_fail_returns_none(monkeypatch):
         "app.services.brand_assets.generate_og_image",
         lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("x")),
     )
-    out = await X._generate_media(
-        _Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image")
-    )
+    out = await X._generate_media(_Db(), SimpleNamespace(id=uuid.uuid4()), uuid.uuid4(), MonetizationAction("linkedin", "i", "12:00", "image"))
     assert out is None
 
 
@@ -426,7 +400,8 @@ async def test_schedule_slot_conflict_hops(monkeypatch):
     calls = iter([True, False])
     monkeypatch.setattr(X, "_slot_taken", AsyncMock(side_effect=lambda *a: next(calls)))
     out = await X.schedule_report_actions(
-        db, SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
         [MonetizationAction("linkedin", "post", "23:00", "image")],
         "2026-10-14",
     )
@@ -436,14 +411,17 @@ async def test_schedule_slot_conflict_hops(monkeypatch):
 @pytest.mark.asyncio
 async def test_schedule_copy_gen_failure_and_empty(monkeypatch):
     acc = _account("linkedin")
-    db = _Db(results=[
-        _Rows([SimpleNamespace(id=uuid.uuid4())]),  # owner
-        _Rows([acc]),                                # action1 account
-        _Rows([acc]),                                # action2 account
-    ])
+    db = _Db(
+        results=[
+            _Rows([SimpleNamespace(id=uuid.uuid4())]),  # owner
+            _Rows([acc]),  # action1 account
+            _Rows([acc]),  # action2 account
+        ]
+    )
     monkeypatch.setattr(X, "_slot_taken", AsyncMock(return_value=False))
     monkeypatch.setattr(
-        X, "_generate_copy",
+        X,
+        "_generate_copy",
         AsyncMock(side_effect=[RuntimeError("infer down"), ("  ", [], 0)]),
     )
     monkeypatch.setattr(
@@ -451,9 +429,9 @@ async def test_schedule_copy_gen_failure_and_empty(monkeypatch):
         AsyncMock(return_value=(None, None, "")),
     )
     out = await X.schedule_report_actions(
-        db, SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
-        [MonetizationAction("linkedin", "p1", "23:00", "image"),
-         MonetizationAction("linkedin", "p2", "23:00", "image")],
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        [MonetizationAction("linkedin", "p1", "23:00", "image"), MonetizationAction("linkedin", "p2", "23:00", "image")],
         "2026-10-14",
     )
     assert out[0]["status"] == "failed" and "content generation" in out[0]["reason"]
@@ -475,7 +453,8 @@ async def test_schedule_low_compliance_drafts(monkeypatch):
         AsyncMock(return_value={"score": 1.0}),
     )
     out = await X.schedule_report_actions(
-        db, SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
         [MonetizationAction("linkedin", "off-brand post", "23:00", "image")],
         "2026-10-14",
     )
@@ -499,7 +478,8 @@ async def test_schedule_compliance_exception_still_schedules(monkeypatch):
         AsyncMock(side_effect=RuntimeError("scorer down")),
     )
     out = await X.schedule_report_actions(
-        db, SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
+        db,
+        SimpleNamespace(id=uuid.uuid4(), owner_id=uuid.uuid4(), name="T"),
         [MonetizationAction("linkedin", "post", "23:00", "image")],
         "2026-10-14",
     )
@@ -547,8 +527,7 @@ def test_text_render_eta_funnel_sections_scheduled():
         gates=[fb, li],
         telegram_members=None,
         sections=[{"platform": "facebook", "headline": "Grow", "strategy": "Post daily"}],
-        scheduled=[{"platform": "facebook", "status": "scheduled",
-                    "scheduled_at": "2026-10-14 12:00 EEST", "instruction": "x"}],
+        scheduled=[{"platform": "facebook", "status": "scheduled", "scheduled_at": "2026-10-14 12:00 EEST", "instruction": "x"}],
     )
     text = rep.to_text()
     assert "~200d to next gate" in text
@@ -564,8 +543,7 @@ def test_html_render_eta_funnel_sections_scheduled():
     rep = _report(
         gates=[fb, li],
         sections=[{"platform": "x", "headline": "h", "strategy": "s"}],
-        scheduled=[{"platform": "x", "status": "drafted", "scheduled_at": None,
-                    "instruction": "i"}],
+        scheduled=[{"platform": "x", "status": "drafted", "scheduled_at": None, "instruction": "i"}],
     )
     html = rep.to_html()
     assert "~200d to next gate" in html
@@ -650,9 +628,7 @@ async def test_llm_strategy_nested_shape_fallback(monkeypatch):
             }
         }
 
-    monkeypatch.setattr(
-        "app.services.inference.call_inference", AsyncMock(side_effect=fake)
-    )
+    monkeypatch.setattr("app.services.inference.call_inference", AsyncMock(side_effect=fake))
     sections, actions = await R._llm_strategy(None, None, [], {}, {})
     assert sections == [{"platform": "facebook", "headline": "h", "strategy": "s"}]
     assert len(actions) == 1 and actions[0].platform == "facebook"
@@ -667,9 +643,7 @@ async def test_llm_strategy_includes_platform_pulse(monkeypatch):
         captured["prompt"] = prompt
         return {"sections": [], "actions": []}
 
-    monkeypatch.setattr(
-        "app.services.inference.call_inference", AsyncMock(side_effect=fake)
-    )
+    monkeypatch.setattr("app.services.inference.call_inference", AsyncMock(side_effect=fake))
     insights = {
         "platforms": {
             "linkedin": {
@@ -694,19 +668,20 @@ async def test_llm_strategy_includes_platform_pulse(monkeypatch):
 async def test_build_monetization_report_full(monkeypatch):
     monkeypatch.setattr(R, "_gather_gates", AsyncMock(return_value=[_gate()]))
     monkeypatch.setattr(R, "_telegram_stats", AsyncMock(return_value=(10, 2, 8)))
-    monkeypatch.setattr(
-        R, "build_team_insights", AsyncMock(return_value={"platforms": {}})
-    )
+    monkeypatch.setattr(R, "build_team_insights", AsyncMock(return_value={"platforms": {}}))
     monkeypatch.setattr(
         "app.services.growth_initiatives.initiative_summary",
         AsyncMock(return_value=[{"name": "x"}]),
     )
     monkeypatch.setattr(
-        R, "_llm_strategy",
-        AsyncMock(return_value=(
-            [{"platform": "fb", "headline": "h", "strategy": "s"}],
-            [MonetizationAction("facebook", "i", "12:00", "image")],
-        )),
+        R,
+        "_llm_strategy",
+        AsyncMock(
+            return_value=(
+                [{"platform": "fb", "headline": "h", "strategy": "s"}],
+                [MonetizationAction("facebook", "i", "12:00", "image")],
+            )
+        ),
     )
     team = SimpleNamespace(id=uuid.uuid4(), name="Cloudless")
     rep = await R.build_monetization_report(_Db(), team=team)
@@ -720,13 +695,9 @@ async def test_build_monetization_report_rule_fallback(monkeypatch):
     monkeypatch.setattr(R, "_gather_gates", AsyncMock(return_value=[_gate()]))
     monkeypatch.setattr(R, "_telegram_stats", AsyncMock(return_value=(None, 0, 0)))
     monkeypatch.setattr(R, "build_team_insights", AsyncMock(return_value={}))
-    monkeypatch.setattr(
-        "app.services.growth_initiatives.initiative_summary", AsyncMock(return_value=[])
-    )
+    monkeypatch.setattr("app.services.growth_initiatives.initiative_summary", AsyncMock(return_value=[]))
     monkeypatch.setattr(R, "_llm_strategy", AsyncMock(return_value=([], [])))
-    rep = await R.build_monetization_report(
-        _Db(), team=SimpleNamespace(id=uuid.uuid4(), name="T")
-    )
+    rep = await R.build_monetization_report(_Db(), team=SimpleNamespace(id=uuid.uuid4(), name="T"))
     assert rep.llm_used is False
     assert rep.actions  # _rule_actions fired — facebook gate → fb action
 
@@ -752,9 +723,7 @@ async def test_email_report_no_recipient_and_success(monkeypatch):
     out2 = await R.email_monetization_report(rep2)
     assert out2.emailed is True
 
-    monkeypatch.setattr(
-        rmod, "send_email", AsyncMock(side_effect=RuntimeError("smtp down"))
-    )
+    monkeypatch.setattr(rmod, "send_email", AsyncMock(side_effect=RuntimeError("smtp down")))
     rep3 = _report()
     out3 = await R.email_monetization_report(rep3)
     assert out3.emailed is False and "smtp down" in out3.email_error
@@ -770,9 +739,7 @@ async def test_execute_report_actions_empty_and_with_learned(monkeypatch):
         insights={"platforms": {"tiktok": {"best_hour_athens": [20]}}},
     )
     sched = AsyncMock(return_value=[{"status": "scheduled"}])
-    monkeypatch.setattr(
-        "app.services.monetization_executor.schedule_report_actions", sched
-    )
+    monkeypatch.setattr("app.services.monetization_executor.schedule_report_actions", sched)
     out = await R.execute_report_actions(_Db(), SimpleNamespace(id=uuid.uuid4()), rep2)
     assert out == [{"status": "scheduled"}]
     assert sched.call_args.kwargs["learned_hours"] == {"tiktok": 20}

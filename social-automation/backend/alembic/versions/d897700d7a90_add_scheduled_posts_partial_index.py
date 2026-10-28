@@ -5,13 +5,14 @@ Revises: d90da9214372
 Create Date: 2026-08-20 20:53:29.379830
 
 """
+
 from collections.abc import Sequence
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'd897700d7a90'
-down_revision: str | None = 'd90da9214372'
+revision: str = "d897700d7a90"
+down_revision: str | None = "d90da9214372"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

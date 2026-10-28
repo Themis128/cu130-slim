@@ -1,4 +1,5 @@
 """Tests for app/scripts/sync_linkedin_to_instagram.py — LinkedIn→IG profile sync."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -47,6 +48,7 @@ async def test_read_linkedin_company_scrape_fallback(monkeypatch):
     text = "Overview\n☁️ Tagline here\nmore\nhttps://cloudless.gr"
     fake = _FakeHTTP(eval_result=text)
     import httpx
+
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: fake)
     monkeypatch.setattr(sync.asyncio, "sleep", AsyncMock())
     out = await sync.read_linkedin_company(client)
@@ -60,6 +62,7 @@ async def test_read_linkedin_company_scrape_no_markers(monkeypatch):
     client = _FakeSidecar({"company": {"name": "X"}})
     fake = _FakeHTTP(eval_result="nothing useful")
     import httpx
+
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: fake)
     monkeypatch.setattr(sync.asyncio, "sleep", AsyncMock())
     out = await sync.read_linkedin_company(client)

@@ -9,6 +9,7 @@ Revises: g7f8e9d0c1b2
 Create Date: 2026-10-16 12:00:00.000000
 
 """
+
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
@@ -85,7 +86,11 @@ def upgrade() -> None:
         sa.Column(
             "status",
             sa.Enum(
-                "pending", "sent", "failed", "skipped_suppressed", "unsubscribed",
+                "pending",
+                "sent",
+                "failed",
+                "skipped_suppressed",
+                "unsubscribed",
                 name="recipientstatus",
             ),
             nullable=False,

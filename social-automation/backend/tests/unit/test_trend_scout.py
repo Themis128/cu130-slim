@@ -1,4 +1,5 @@
 """Tests for app/services/trend_scout.py — trend discovery sources."""
+
 from __future__ import annotations
 
 import uuid
@@ -73,8 +74,7 @@ async def test_reddit_hot_ok(monkeypatch):
     data = {
         "data": {
             "children": [
-                {"data": {"title": "T", "permalink": "/r/m/1", "score": 5,
-                          "num_comments": 3, "subreddit": "marketing"}},
+                {"data": {"title": "T", "permalink": "/r/m/1", "score": 5, "num_comments": 3, "subreddit": "marketing"}},
             ]
         }
     }
@@ -103,12 +103,14 @@ async def test_top_performing_posts():
     db = AsyncMock()
     db.execute = AsyncMock(return_value=SimpleNamespace(all=lambda: [(post, snap)]))
     out = await ts.get_top_performing_posts(db, uuid.uuid4())
-    assert out == [{
-        "title": "hello world",
-        "impressions": 100,
-        "engagement": 6,
-        "platform": "linkedin",
-    }]
+    assert out == [
+        {
+            "title": "hello world",
+            "impressions": 100,
+            "engagement": 6,
+            "platform": "linkedin",
+        }
+    ]
 
 
 @pytest.mark.asyncio
@@ -140,9 +142,7 @@ async def test_scout_trends(monkeypatch):
         "get_reddit_hot",
         AsyncMock(side_effect=[["a"], RuntimeError("x"), ["b"]]),
     )
-    monkeypatch.setattr(
-        ts, "get_top_performing_posts", AsyncMock(return_value=[{"title": "p"}])
-    )
+    monkeypatch.setattr(ts, "get_top_performing_posts", AsyncMock(return_value=[{"title": "p"}]))
     out = await ts.scout_trends(AsyncMock(), uuid.uuid4(), "tok")
     assert out["twitter_trends"] == [{"name": "t"}]
     assert out["reddit_hot"] == ["a", "b"]  # exception result filtered

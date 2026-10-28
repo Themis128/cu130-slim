@@ -59,6 +59,7 @@ def _factory(custom=None):
 
     return get_session_factory()
 
+
 logger = logging.getLogger(__name__)
 
 TRIAGE_MARKER = "Agency triage:"
@@ -104,11 +105,7 @@ def _services_line(services: list[str]) -> str:
 
 async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
     """Local ``leads`` rows that have not been triaged yet."""
-    rows = (
-        await db.execute(
-            select(Lead).where(Lead.team_id == team_id).order_by(Lead.created_at.desc()).limit(200)
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(Lead).where(Lead.team_id == team_id).order_by(Lead.created_at.desc()).limit(200))).scalars().all()
     stats: dict[str, Any] = {"triaged": 0, "audits": 0, "skipped": 0}
     for lead in rows:
         md = dict(lead.meta_data or {})
@@ -134,10 +131,12 @@ async def _triage_local_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str,
         if domain:
             exists = (
                 await db.execute(
-                    select(AgencyAudit.id).where(
+                    select(AgencyAudit.id)
+                    .where(
                         AgencyAudit.team_id == team_id,
                         AgencyAudit.url.contains(domain),
-                    ).limit(1)
+                    )
+                    .limit(1)
                 )
             ).first()
             if not exists:
@@ -171,11 +170,7 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
         if not lid:
             continue
         # Dedupe: triage note already attached, or an audit row already exists.
-        exists = (
-            await db.execute(
-                select(AgencyAudit.id).where(AgencyAudit.espo_lead_id == lid).limit(1)
-            )
-        ).first()
+        exists = (await db.execute(select(AgencyAudit.id).where(AgencyAudit.espo_lead_id == lid).limit(1))).first()
         if exists:
             stats["skipped"] += 1
             continue
@@ -198,10 +193,21 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
         domain = extract_domain(lead.get("website"), lead.get("description"))
         email_domain = (lead.get("emailAddress") or "").split("@")[-1]
         if not domain and email_domain and "." in email_domain:
-            domain = email_domain if email_domain not in {
-                "gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com",
-                "proton.me", "aol.com", "gmx.com",
-            } else None
+            domain = (
+                email_domain
+                if email_domain
+                not in {
+                    "gmail.com",
+                    "yahoo.com",
+                    "hotmail.com",
+                    "outlook.com",
+                    "icloud.com",
+                    "proton.me",
+                    "aol.com",
+                    "gmx.com",
+                }
+                else None
+            )
 
         hits = "; ".join(f"{s} ({', '.join(h[:3])})" for s, _sc, h in ranked[:4])
         note = f"{TRIAGE_MARKER} services={_services_line(services)}; domain={domain or 'n/a'}; signals: {hits or 'none'}"
@@ -215,17 +221,23 @@ async def _triage_espo_leads(db: AsyncSession, team_id: uuid.UUID) -> dict[str, 
             # queue a duplicate row per lead.
             dup = (
                 await db.execute(
-                    select(AgencyAudit.id).where(
+                    select(AgencyAudit.id)
+                    .where(
                         AgencyAudit.team_id == team_id,
                         AgencyAudit.url.contains(domain),
-                    ).limit(1)
+                    )
+                    .limit(1)
                 )
             ).first()
             if not dup:
-                db.add(AgencyAudit(
-                    team_id=team_id, espo_lead_id=lid, url=f"https://{domain}",
-                    meta_data={"lead_name": lead.get("name"), "lead_email": lead.get("emailAddress")},
-                ))
+                db.add(
+                    AgencyAudit(
+                        team_id=team_id,
+                        espo_lead_id=lid,
+                        url=f"https://{domain}",
+                        meta_data={"lead_name": lead.get("name"), "lead_email": lead.get("emailAddress")},
+                    )
+                )
                 stats["audits"] += 1
     return stats
 
@@ -240,11 +252,7 @@ async def triage_sweep(*, session_factory=None) -> dict[str, Any]:
         if not team_id:
             return {"status": "skipped", "reason": "no_team"}
         local = await _triage_local_leads(db, team_id)
-        espo_stats = (
-            await _triage_espo_leads(db, team_id)
-            if espo.configured()
-            else {"triaged": 0, "audits": 0, "skipped": 0}
-        )
+        espo_stats = await _triage_espo_leads(db, team_id) if espo.configured() else {"triaged": 0, "audits": 0, "skipped": 0}
         await db.commit()
     stats: dict[str, Any] = {"status": "ok", "local": local, "espo": espo_stats}
     logger.info("agency triage sweep: %s", stats)
@@ -265,13 +273,10 @@ async def audit_sweep(*, session_factory=None) -> dict[str, Any]:
     stats: dict[str, Any] = {"status": "ok", "completed": 0, "failed": 0}
     async with factory() as db:
         rows = (
-            await db.execute(
-                select(AgencyAudit)
-                .where(AgencyAudit.status == AgencyAuditStatus.pending)
-                .order_by(AgencyAudit.created_at.asc())
-                .limit(limit)
-            )
-        ).scalars().all()
+            (await db.execute(select(AgencyAudit).where(AgencyAudit.status == AgencyAuditStatus.pending).order_by(AgencyAudit.created_at.asc()).limit(limit)))
+            .scalars()
+            .all()
+        )
         for audit in rows:
             audit.status = AgencyAuditStatus.running
             await db.flush()
@@ -296,12 +301,14 @@ async def audit_sweep(*, session_factory=None) -> dict[str, Any]:
             audit.completed_at = datetime.now(UTC)
             audit.error = None
             md = dict(audit.meta_data or {})
-            md.update({
-                "ttfb_ms": result["ttfb_ms"],
-                "http_status": result["http_status"],
-                "tech": result["tech"],
-                "analytics": result["analytics"],
-            })
+            md.update(
+                {
+                    "ttfb_ms": result["ttfb_ms"],
+                    "http_status": result["http_status"],
+                    "tech": result["tech"],
+                    "analytics": result["analytics"],
+                }
+            )
             audit.meta_data = md
             stats["completed"] += 1
 
@@ -374,24 +381,18 @@ async def _post_proposal_alert(proposal: AgencyProposal, audit: AgencyAudit | No
 
         who = proposal.recipient_name or proposal.recipient_email or "lead"
         url = audit.url if audit else "n/a"
-        price = (
-            f"€{proposal.price_low_eur}–€{proposal.price_high_eur}"
-            if proposal.price_low_eur and proposal.price_high_eur
-            else "n/a"
-        )
+        price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}" if proposal.price_low_eur and proposal.price_high_eur else "n/a"
         text = f":memo: *Proposal drafted* — {who} ({url}), {price}, {len(proposal.services)} services"
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
             {
                 "type": "actions",
                 "elements": [
-                    _button("Approve & send", "socialauto_proposal_approve",
-                            value=str(proposal.id), style="primary",
-                            confirm="Email this proposal to the lead?"),
-                    _button("Reject", "socialauto_proposal_reject",
-                            value=str(proposal.id), style="danger"),
-                    _button("Review in admin", "open_socialauto_admin",
-                            url="https://social.cloudless.gr/admin"),
+                    _button(
+                        "Approve & send", "socialauto_proposal_approve", value=str(proposal.id), style="primary", confirm="Email this proposal to the lead?"
+                    ),
+                    _button("Reject", "socialauto_proposal_reject", value=str(proposal.id), style="danger"),
+                    _button("Review in admin", "open_socialauto_admin", url="https://social.cloudless.gr/admin"),
                 ],
             },
         ]
@@ -408,19 +409,12 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
     stats: dict[str, Any] = {"status": "ok", "drafted": 0}
     async with factory() as db:
         audits = (
-            await db.execute(
-                select(AgencyAudit)
-                .where(AgencyAudit.status == AgencyAuditStatus.completed)
-                .order_by(AgencyAudit.created_at.asc())
-                .limit(50)
-            )
-        ).scalars().all()
+            (await db.execute(select(AgencyAudit).where(AgencyAudit.status == AgencyAuditStatus.completed).order_by(AgencyAudit.created_at.asc()).limit(50)))
+            .scalars()
+            .all()
+        )
         for audit in audits:
-            has_proposal = (
-                await db.execute(
-                    select(AgencyProposal.id).where(AgencyProposal.audit_id == audit.id).limit(1)
-                )
-            ).first()
+            has_proposal = (await db.execute(select(AgencyProposal.id).where(AgencyProposal.audit_id == audit.id).limit(1))).first()
             if has_proposal:
                 continue
             services = [s for s in (audit.recommended_services or []) if s in SERVICES]
@@ -432,9 +426,7 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
             recipient_email: str | None = md.get("lead_email")
             recipient_name: str | None = md.get("lead_name")
             if audit.lead_id:
-                lead = (
-                    await db.execute(select(Lead).where(Lead.id == audit.lead_id).limit(1))
-                ).scalar_one_or_none()
+                lead = (await db.execute(select(Lead).where(Lead.id == audit.lead_id).limit(1))).scalar_one_or_none()
                 if lead:
                     recipient_email = recipient_email or lead.email
                     recipient_name = recipient_name or lead.name
@@ -489,8 +481,7 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
     if proposal.espo_lead_id:
         await espo.add_lead_note(
             proposal.espo_lead_id,
-            f"Proposal sent ({len(proposal.services)} services, "
-            f"€{proposal.price_low_eur}–€{proposal.price_high_eur})",
+            f"Proposal sent ({len(proposal.services)} services, €{proposal.price_low_eur}–€{proposal.price_high_eur})",
         )
     return {"ok": True, "sent_to": proposal.recipient_email}
 
@@ -501,8 +492,7 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
 
 
 def project_milestones() -> list[dict[str, Any]]:
-    return [{"day": d, "key": k, "label": lbl, "done": False, "done_at": None}
-            for d, k, lbl in MILESTONES]
+    return [{"day": d, "key": k, "label": lbl, "done": False, "done_at": None} for d, k, lbl in MILESTONES]
 
 
 def _days_in(project: AgencyProject, now: datetime) -> int:
@@ -532,15 +522,13 @@ def _render_handoff(project: AgencyProject) -> str:
     return (
         f"# Handoff — {project.name}\n\n"
         f"Kickoff: {project.kickoff_at:%Y-%m-%d} · Delivered: {datetime.now(UTC):%Y-%m-%d}\n\n"
-        "## Milestones completed\n"
-        + "\n".join(f"- {m}" for m in done)
-        + "\n\n## What you own\n- Full source — your repository\n"
-          "- Infrastructure definitions and deploy scripts\n"
-          "- This documentation set\n\n"
-          "## Verify it yourself\n"
-          "- Re-run the handoff checklist against the live environment\n"
-          "- Audit trail: every milestone above cites its artifact\n\n"
-          "*Generated by the Cloudless delivery pipeline.*"
+        "## Milestones completed\n" + "\n".join(f"- {m}" for m in done) + "\n\n## What you own\n- Full source — your repository\n"
+        "- Infrastructure definitions and deploy scripts\n"
+        "- This documentation set\n\n"
+        "## Verify it yourself\n"
+        "- Re-run the handoff checklist against the live environment\n"
+        "- Audit trail: every milestone above cites its artifact\n\n"
+        "*Generated by the Cloudless delivery pipeline.*"
     )
 
 
@@ -553,11 +541,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
     stats: dict[str, Any] = {"status": "ok", "updates": 0, "delivered": 0, "overdue": 0}
     drafts: list[str] = []
     async with factory() as db:
-        projects = (
-            await db.execute(
-                select(AgencyProject).where(AgencyProject.status == AgencyProjectStatus.active)
-            )
-        ).scalars().all()
+        projects = (await db.execute(select(AgencyProject).where(AgencyProject.status == AgencyProjectStatus.active))).scalars().all()
         for project in projects:
             day = _days_in(project, now)
             milestones = [dict(m) for m in (project.milestones or project_milestones())]
@@ -572,9 +556,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 drafts.append(draft)
                 stats["updates"] += 1
                 md = dict(project.meta_data or {})
-                md.setdefault("client_updates", []).append(
-                    {"day": day, "milestone": m["key"], "draft": draft, "drafted_at": now.isoformat()}
-                )
+                md.setdefault("client_updates", []).append({"day": day, "milestone": m["key"], "draft": draft, "drafted_at": now.isoformat()})
                 project.meta_data = md
                 project.last_client_update_at = now
             if changed:
@@ -626,7 +608,7 @@ def render_engineering_plan(proposal: AgencyProposal, audit: AgencyAudit | None)
     services = [s for s in (proposal.services or []) if s in SERVICES]
     names = ", ".join(SERVICES[s].name for s in services) or "custom scope"
     findings = [f["finding"] for f in (audit.findings or [])][:6] if audit else []
-    slug = (proposal.recipient_name or proposal.recipient_email or "client")
+    slug = proposal.recipient_name or proposal.recipient_email or "client"
     slug = "".join(c if c.isalnum() else "-" for c in slug.lower()).strip("-")[:30] or "client"
     return (
         f"# Engineering plan — {proposal.recipient_name or 'client'} ({names})\n\n"
@@ -635,9 +617,9 @@ def render_engineering_plan(proposal: AgencyProposal, audit: AgencyAudit | None)
         + "\n".join(f"- `{s}/` — {SERVICES[s].name}" for s in services)
         + ("\n\n## Findings to address\n" + "\n".join(f"- {f}" for f in findings) if findings else "")
         + "\n\n## Gates\n- `pytest` + `ruff` on changed paths (CI must pass before merge)\n"
-          "- Human review on every PR — agents never self-merge\n"
-          "- Deploy via existing pipeline; rollback = `git revert` + redeploy\n\n"
-          "*Plan only — codegen agents require `review` autonomy graduation.*"
+        "- Human review on every PR — agents never self-merge\n"
+        "- Deploy via existing pipeline; rollback = `git revert` + redeploy\n\n"
+        "*Plan only — codegen agents require `review` autonomy graduation.*"
     )
 
 
@@ -649,22 +631,21 @@ async def engineer_sweep(*, session_factory=None) -> dict[str, Any]:
     stats: dict[str, Any] = {"status": "ok", "planned": 0}
     async with factory() as db:
         sent = (
-            await db.execute(
-                select(AgencyProposal)
-                .where(AgencyProposal.status == AgencyProposalStatus.sent)
-                .order_by(AgencyProposal.created_at.asc())
-                .limit(20)
+            (
+                await db.execute(
+                    select(AgencyProposal).where(AgencyProposal.status == AgencyProposalStatus.sent).order_by(AgencyProposal.created_at.asc()).limit(20)
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for proposal in sent:
             md = dict(proposal.meta_data or {})
             if md.get(_ENGINEER_MARKER):
                 continue
             audit = None
             if proposal.audit_id:
-                audit = (
-                    await db.execute(select(AgencyAudit).where(AgencyAudit.id == proposal.audit_id))
-                ).scalar_one_or_none()
+                audit = (await db.execute(select(AgencyAudit).where(AgencyAudit.id == proposal.audit_id))).scalar_one_or_none()
             md[_ENGINEER_MARKER] = {
                 "plan_md": render_engineering_plan(proposal, audit),
                 "drafted_at": datetime.now(UTC).isoformat(),
@@ -676,10 +657,7 @@ async def engineer_sweep(*, session_factory=None) -> dict[str, Any]:
         try:
             from app.services.slack_notifications import post_digest_text_to_slack
 
-            await post_digest_text_to_slack(
-                f":wrench: *Agency engineer* drafted {stats['planned']} PR manifest(s) — "
-                "plans only, human picks up implementation"
-            )
+            await post_digest_text_to_slack(f":wrench: *Agency engineer* drafted {stats['planned']} PR manifest(s) — plans only, human picks up implementation")
         except Exception:  # noqa: BLE001
             logger.exception("engineer sweep slack report failed")
     logger.info("agency engineer sweep: %s", stats)

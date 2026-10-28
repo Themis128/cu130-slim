@@ -5,6 +5,7 @@ routed by a distinctive fragment of the JS expression to a per-test answer,
 so each editor step (mount, paste, SEO, schedule, publish) and its failure
 branches run without a browser, LinkedIn, or real sleeps.
 """
+
 import base64
 import json
 from types import SimpleNamespace
@@ -166,12 +167,14 @@ class TestHelpers:
 class TestWaitEditor:
     @pytest.mark.asyncio
     async def test_polls_through_errors_until_mounted(self):
-        b, c = _bridge(editor_state=[
-            BrowserBridgeError(500, "context destroyed"),
-            "not-json",
-            json.dumps({"pm": False}),
-            json.dumps({"pm": True}),
-        ])
+        b, c = _bridge(
+            editor_state=[
+                BrowserBridgeError(500, "context destroyed"),
+                "not-json",
+                json.dumps({"pm": False}),
+                json.dumps({"pm": True}),
+            ]
+        )
         assert await b._wait_editor(60) is True
         assert c.keys().count("editor_state") == 4
 
@@ -214,7 +217,7 @@ class TestPasteBody:
 
     @pytest.mark.asyncio
     async def test_mojibake_refused(self):
-        b, _ = _bridge(verify=json.dumps({"words": 3, "sample": "Hello â€\" world"}))
+        b, _ = _bridge(verify=json.dumps({"words": 3, "sample": 'Hello â€" world'}))
         with pytest.raises(L.LinkedInNewsletterBridgeError, match="mojibake"):
             await b._paste_body("x")
 
@@ -280,16 +283,19 @@ class TestSchedule:
         assert '==="12:00 AM"' in next(e for k, e in c.evals if k == "time")
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("overrides,match", [
-        ({"sched_btn": "no-schedule"}, "Schedule post button"),
-        ({"picker": False}, "picker did not open"),
-        ({"day": "no-day"}, "calendar day not found"),
-        ({"date_val": "10/20/2026"}, "calendar pick failed"),
-        ({"time": "no-option"}, "time option 9:05 AM not found"),
-        ({"time_val": "9:00 AM"}, "timepick failed"),
-        ({"sched_next": "no-next"}, "schedule Next"),
-        ({"confirm": "none"}, "schedule not committed"),
-    ])
+    @pytest.mark.parametrize(
+        "overrides,match",
+        [
+            ({"sched_btn": "no-schedule"}, "Schedule post button"),
+            ({"picker": False}, "picker did not open"),
+            ({"day": "no-day"}, "calendar day not found"),
+            ({"date_val": "10/20/2026"}, "calendar pick failed"),
+            ({"time": "no-option"}, "time option 9:05 AM not found"),
+            ({"time_val": "9:00 AM"}, "timepick failed"),
+            ({"sched_next": "no-next"}, "schedule Next"),
+            ({"confirm": "none"}, "schedule not committed"),
+        ],
+    )
     async def test_failures(self, overrides, match):
         b, _ = _bridge(**overrides)
         with pytest.raises(L.LinkedInNewsletterBridgeError, match=match):
@@ -313,13 +319,19 @@ class TestPublishIssue:
     async def test_full_publish_with_cover_seo_and_announcement(self):
         b, c = _bridge(href="https://www.linkedin.com/pulse/issue-3/")
         out = await b.publish_issue(
-            title="Build Log #3", html_body="<p>Body</p>", cover_base64="Zm9v",
-            seo_title="SEO", seo_description="Desc", post_description="Line one\nLine two",
+            title="Build Log #3",
+            html_body="<p>Body</p>",
+            cover_base64="Zm9v",
+            seo_title="SEO",
+            seo_description="Desc",
+            post_description="Line one\nLine two",
         )
         assert out == {
-            "published": True, "scheduled": False,
+            "published": True,
+            "scheduled": False,
             "article_url": "https://www.linkedin.com/pulse/issue-3/",
-            "steps": out["steps"], "via": "browser-bridge",
+            "steps": out["steps"],
+            "via": "browser-bridge",
         }
         assert c.sessions == [{"platform": "linkedin", "force": True, "interactive": True, "contention_retries": 6}]
         assert c.navigations == [L.FEED_URL, L.EDITOR_URL]  # feed warmed first
@@ -328,8 +340,7 @@ class TestPublishIssue:
         announce = next(e for k, e in c.evals if k == "announce")
         assert "Line one Line two" in announce  # Quill gets plain one-line text
         assert '==="Publish"' in next(e for k, e in c.evals if k == "final")
-        for step in ("feed warmed", "editor mounted", "cover uploaded", "seo set",
-                     "publish dialog open", "announcement text set", "published"):
+        for step in ("feed warmed", "editor mounted", "cover uploaded", "seo set", "publish dialog open", "announcement text set", "published"):
             assert step in out["steps"]
 
     @pytest.mark.asyncio

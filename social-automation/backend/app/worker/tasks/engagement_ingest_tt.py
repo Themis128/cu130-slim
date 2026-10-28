@@ -4,6 +4,7 @@ Scrapes hashtag feeds (#serverless etc.) for videos; viral-breakout
 candidates (>5k views) get flagged for the human gate as duet/stitch
 suggestions. Tags from TIKTOK_TARGET_TAGS; hourly :15/:45 sweep.
 """
+
 import asyncio
 import json as js
 import logging
@@ -37,10 +38,10 @@ EXTRACT_JS = """(async () => {
 })()"""
 
 
-@shared_task(name="app.worker.tasks.engagement_ingest_tt.ingest_tiktok_tags",
-             bind=True, max_retries=0)
+@shared_task(name="app.worker.tasks.engagement_ingest_tt.ingest_tiktok_tags", bind=True, max_retries=0)
 def ingest_tiktok_tags(self):
     from app.worker._async import run_async
+
     return run_async(_run())
 
 
@@ -65,21 +66,17 @@ async def _run():
     from app.db.session import async_session_maker
     from app.models.engagement import EngagementCandidate
 
-    tags = [t.strip().lstrip("#") for t in
-            os.environ.get("TIKTOK_TARGET_TAGS", DEFAULT_TAGS).split(",")
-            if t.strip()]
+    tags = [t.strip().lstrip("#") for t in os.environ.get("TIKTOK_TARGET_TAGS", DEFAULT_TAGS).split(",") if t.strip()]
 
     new = 0
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=90) as c:
         try:
-            await c.post("/session/start",
-                         json={"platform": "tiktok", "force": True})
+            await c.post("/session/start", json={"platform": "tiktok", "force": True})
         except Exception:
             return {"skipped": "browser busy"}
         async with async_session_maker() as db:
             for tag in tags[:3]:
-                await c.post("/session/navigate",
-                             json={"url": f"https://www.tiktok.com/tag/{tag}"})
+                await c.post("/session/navigate", json={"url": f"https://www.tiktok.com/tag/{tag}"})
                 await asyncio.sleep(8)
                 raw = await _ev(c, EXTRACT_JS)
                 posts = js.loads(raw or "[]")
@@ -89,8 +86,7 @@ async def _run():
                     pid = m.group(1) if m else ""
                     if not pid:
                         continue
-                    if (await db.execute(select(EngagementCandidate).where(
-                            EngagementCandidate.post_id == pid))).scalars().first():
+                    if (await db.execute(select(EngagementCandidate).where(EngagementCandidate.post_id == pid))).scalars().first():
                         continue
                     views = _views(p.get("views", ""))
                     cand = EngagementCandidate(
@@ -100,10 +96,10 @@ async def _run():
                         post_id=pid,
                         post_text=p.get("txt", "")[:1200],
                         posted_at=dt.datetime.now(dt.UTC),
-                        is_followed=False, is_connection=False,
-                        meta_data={"views": views,
-                                   "viral": views >= 5000,
-                                   "source_tag": tag})
+                        is_followed=False,
+                        is_connection=False,
+                        meta_data={"views": views, "viral": views >= 5000, "source_tag": tag},
+                    )
                     db.add(cand)
                     new += 1
             await db.commit()

@@ -6,6 +6,7 @@ OAuth 2.0 user-context). Free tier is read-only; Basic ($200/mo) allows sends.
 TikTok: Uses the Business Messaging API (Open Beta in select regions, not EU).
 Only for inbound messages (users must message first).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -33,7 +34,9 @@ async def _get_account(
 ) -> SocialAccount:
     """Fetch a social account owned by the current user's team."""
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             SocialAccount.platform == platform,
@@ -91,11 +94,13 @@ async def update_twitter_dm_auto_reply(
     account = await _get_account(account_id, current_user, db, "twitter")
     if body.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["twitter_auto_reply"] = body.model_dump()
     account.meta_data = meta
     from sqlalchemy.orm.attributes import flag_modified
+
     flag_modified(account, "meta_data")
     await db.commit()
     return body
@@ -112,9 +117,7 @@ def _twitter_bridge() -> Any:
     from app.services.browser_bridge import BrowserBridgeClient
     from app.services.browser_orchestrator import browser_session
 
-    return browser_session(
-        "twitter", BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL, platform='twitter')
-    )
+    return browser_session("twitter", BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL, platform="twitter"))
 
 
 @router.get("/twitter/{account_id}/dm/events")
@@ -225,11 +228,13 @@ async def update_tiktok_dm_auto_reply(
     account = await _get_account(account_id, current_user, db, "tiktok")
     if body.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["tiktok_auto_reply"] = body.model_dump()
     account.meta_data = meta
     from sqlalchemy.orm.attributes import flag_modified
+
     flag_modified(account, "meta_data")
     await db.commit()
     return body

@@ -15,6 +15,7 @@ API reference:
 - https://developers.facebook.com/docs/whatsapp/flows/reference/flowsapi
 - https://developers.facebook.com/docs/whatsapp/flows/reference/flowjson
 """
+
 from __future__ import annotations
 
 import json
@@ -34,25 +35,29 @@ from app.services.whatsapp_api import DEFAULT_API_VERSION, DEFAULT_TIMEOUT, _val
 logger = logging.getLogger(__name__)
 
 # Valid Flow categories per Meta documentation
-VALID_FLOW_CATEGORIES = frozenset({
-    "SIGN_UP",
-    "SIGN_IN",
-    "APPOINTMENT_BOOKING",
-    "LEAD_GENERATION",
-    "CONTACT_US",
-    "CUSTOMER_SUPPORT",
-    "SURVEY",
-    "OTHER",
-})
+VALID_FLOW_CATEGORIES = frozenset(
+    {
+        "SIGN_UP",
+        "SIGN_IN",
+        "APPOINTMENT_BOOKING",
+        "LEAD_GENERATION",
+        "CONTACT_US",
+        "CUSTOMER_SUPPORT",
+        "SURVEY",
+        "OTHER",
+    }
+)
 
 # Valid Flow statuses
-VALID_FLOW_STATUSES = frozenset({
-    "DRAFT",
-    "PUBLISHED",
-    "BLOCKED",
-    "DEPRECATED",
-    "UNPUBLISHED",
-})
+VALID_FLOW_STATUSES = frozenset(
+    {
+        "DRAFT",
+        "PUBLISHED",
+        "BLOCKED",
+        "DEPRECATED",
+        "UNPUBLISHED",
+    }
+)
 
 
 class WhatsAppFlowsClient:
@@ -129,9 +134,7 @@ class WhatsAppFlowsClient:
             raise ValueError("At least one category is required")
         for cat in categories:
             if cat not in VALID_FLOW_CATEGORIES:
-                raise ValueError(
-                    f"Invalid category '{cat}'. Valid: {sorted(VALID_FLOW_CATEGORIES)}"
-                )
+                raise ValueError(f"Invalid category '{cat}'. Valid: {sorted(VALID_FLOW_CATEGORIES)}")
 
         body: dict[str, Any] = {
             "name": name,
@@ -184,8 +187,14 @@ class WhatsAppFlowsClient:
         """
         fid = _validate_id(flow_id, "flow_id")
         default_fields = [
-            "id", "name", "status", "categories", "validation_errors",
-            "endpoint_uri", "flow_validation_version", "data_api_version",
+            "id",
+            "name",
+            "status",
+            "categories",
+            "validation_errors",
+            "endpoint_uri",
+            "flow_validation_version",
+            "data_api_version",
         ]
         req_fields = fields or default_fields
         url = self._url(fid)
@@ -223,9 +232,7 @@ class WhatsAppFlowsClient:
         if categories:
             for cat in categories:
                 if cat not in VALID_FLOW_CATEGORIES:
-                    raise ValueError(
-                        f"Invalid category '{cat}'. Valid: {sorted(VALID_FLOW_CATEGORIES)}"
-                    )
+                    raise ValueError(f"Invalid category '{cat}'. Valid: {sorted(VALID_FLOW_CATEGORIES)}")
             body["categories"] = categories
         if endpoint_uri is not None:
             body["endpoint_uri"] = endpoint_uri
@@ -445,6 +452,7 @@ class WhatsAppFlowsClient:
 # ------------------------------------------------------------------
 # Flow JSON templates
 # ------------------------------------------------------------------
+
 
 def lead_generation_flow_json(business_name: str = "Cloudless") -> dict:
     """Generate a Lead Generation Flow JSON for Cloudless.
@@ -998,6 +1006,7 @@ FLOW_TEMPLATES: dict[str, FlowTemplate] = {
 # Flow webhook response parsing
 # ------------------------------------------------------------------
 
+
 def parse_flow_response(body: dict) -> list[dict]:
     """Parse Flow response messages from a WhatsApp webhook payload.
 
@@ -1045,15 +1054,17 @@ def parse_flow_response(body: dict) -> list[dict]:
                 except (ValueError, TypeError):
                     ts_int = 0
 
-                events.append({
-                    "phone_number_id": phone_number_id,
-                    "sender_phone": msg.get("from", ""),
-                    "flow_token": flow_token,
-                    "flow_id": nfm.get("flow_id", ""),
-                    "response_json": response_data,
-                    "message_id": msg.get("id", ""),
-                    "timestamp": ts_int,
-                })
+                events.append(
+                    {
+                        "phone_number_id": phone_number_id,
+                        "sender_phone": msg.get("from", ""),
+                        "flow_token": flow_token,
+                        "flow_id": nfm.get("flow_id", ""),
+                        "response_json": response_data,
+                        "message_id": msg.get("id", ""),
+                        "timestamp": ts_int,
+                    }
+                )
 
     return events
 
@@ -1061,6 +1072,7 @@ def parse_flow_response(body: dict) -> list[dict]:
 # ------------------------------------------------------------------
 # Flow Data Endpoint handler
 # ------------------------------------------------------------------
+
 
 def build_flow_endpoint_response(
     screen: str,

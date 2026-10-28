@@ -10,8 +10,7 @@ import app.services.messenger_api as M
 
 
 def _resp(status=200, body=None, text=""):
-    return SimpleNamespace(status_code=status, text=text,
-                           json=lambda: body if body is not None else {})
+    return SimpleNamespace(status_code=status, text=text, json=lambda: body if body is not None else {})
 
 
 class _Http:
@@ -81,6 +80,7 @@ def test_raise_for_status():
     c = M.MessengerAPIClient("tok", "12345")
     c._raise_for_status(_resp(200), "u")  # no raise
     from app.services.facebook_api import FacebookAPIError
+
     with pytest.raises(FacebookAPIError):
         c._raise_for_status(_resp(400, text="bad"), "u")
     # 5xx → status normalized
@@ -111,8 +111,7 @@ async def test_subscription_and_profile(monkeypatch):
     assert await c2.get_subscribed_apps() == [{"app": 1}]
 
     # get profile — data[0] unwrapped; empty → {}
-    c2 = _client(monkeypatch, _Http(_resp(
-        200, {"data": [{"greeting": [{"g": 1}]}]})))
+    c2 = _client(monkeypatch, _Http(_resp(200, {"data": [{"greeting": [{"g": 1}]}]})))
     assert await c2.get_messenger_profile() == {"greeting": [{"g": 1}]}
     assert "greeting" in c2._http.calls[-1][2]["params"]["fields"]
     c2 = _client(monkeypatch, _Http(_resp(200, {"data": []})))
@@ -128,8 +127,7 @@ async def test_subscription_and_profile(monkeypatch):
 
     # setup_default_profile — interpolation + whitelisted domain
     c = _client(monkeypatch)
-    await c.setup_default_profile(page_name="MyPage",
-                                  page_url="https://cloudless.gr/x")
+    await c.setup_default_profile(page_name="MyPage", page_url="https://cloudless.gr/x")
     profile = c._http.calls[-1][2]["json"]
     assert "MyPage" in profile["greeting"][0]["text"]
     assert profile["whitelisted_domains"] == ["https://cloudless.gr"]
@@ -185,8 +183,7 @@ async def test_conversations_and_misc(monkeypatch):
     assert out == [{"id": "c1"}]
     assert c._http.calls[-1][2]["params"]["limit"] == 5
 
-    c = _client(monkeypatch, _Http(_resp(
-        200, {"messages": {"data": [{"id": "m1"}]}})))
+    c = _client(monkeypatch, _Http(_resp(200, {"messages": {"data": [{"id": "m1"}]}})))
     assert await c.get_conversation_messages("999888") == [{"id": "m1"}]
     with pytest.raises(ValueError):
         await c.get_conversation_messages("bad/id")
@@ -205,6 +202,7 @@ async def test_conversations_and_misc(monkeypatch):
 
     # 400 → FacebookAPIError
     from app.services.facebook_api import FacebookAPIError
+
     c = _client(monkeypatch, _Http(_resp(400, text="x")))
     with pytest.raises(FacebookAPIError):
         await c.get_page_info()
@@ -221,28 +219,32 @@ def test_interpolate_and_parser():
     # parse_webhook_event — non-page object → []
     assert M.parse_webhook_event({"object": "user"}) == []
 
-    body = {"object": "page", "entry": [{"id": "pg", "messaging": [
-        # text + quick_reply → type text + payload
-        {"sender": {"id": "s1"}, "recipient": {"id": "pg"},
-         "timestamp": 1,
-         "message": {"mid": "m1", "text": "hi",
-                     "quick_reply": {"payload": "QR"}}},
-        # attachment
-        {"sender": {"id": "s2"}, "recipient": {"id": "pg"},
-         "message": {"mid": "m2",
-                     "attachments": [{"type": "image"}]}},
-        # postback
-        {"sender": {"id": "s3"}, "recipient": {"id": "pg"},
-         "postback": {"payload": "PB"}},
-        # delivery + read
-        {"sender": {"id": "s4"}, "recipient": {"id": "pg"},
-         "delivery": {"mids": []}},
-        {"sender": {"id": "s5"}, "recipient": {"id": "pg"},
-         "read": {"watermark": 1}},
-        # unknown shape → dropped
-        {"sender": {"id": "s6"}, "recipient": {"id": "pg"},
-         "reaction": {"emoji": "x"}},
-    ]}]}
+    body = {
+        "object": "page",
+        "entry": [
+            {
+                "id": "pg",
+                "messaging": [
+                    # text + quick_reply → type text + payload
+                    {
+                        "sender": {"id": "s1"},
+                        "recipient": {"id": "pg"},
+                        "timestamp": 1,
+                        "message": {"mid": "m1", "text": "hi", "quick_reply": {"payload": "QR"}},
+                    },
+                    # attachment
+                    {"sender": {"id": "s2"}, "recipient": {"id": "pg"}, "message": {"mid": "m2", "attachments": [{"type": "image"}]}},
+                    # postback
+                    {"sender": {"id": "s3"}, "recipient": {"id": "pg"}, "postback": {"payload": "PB"}},
+                    # delivery + read
+                    {"sender": {"id": "s4"}, "recipient": {"id": "pg"}, "delivery": {"mids": []}},
+                    {"sender": {"id": "s5"}, "recipient": {"id": "pg"}, "read": {"watermark": 1}},
+                    # unknown shape → dropped
+                    {"sender": {"id": "s6"}, "recipient": {"id": "pg"}, "reaction": {"emoji": "x"}},
+                ],
+            }
+        ],
+    }
     events = M.parse_webhook_event(body)
     assert len(events) == 5
     assert events[0]["message_type"] == "text"

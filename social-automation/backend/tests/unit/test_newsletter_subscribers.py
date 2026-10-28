@@ -53,18 +53,19 @@ def client(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fetch_subscribers_parses_rows(client):
-    client.eval_payload = {"value": {"subs": [
-        {"name": "Ann Lee", "urn": "ann-lee", "headline": "CTO at X"},
-        {"name": "Bob", "urn": "bob"},
-    ]}}
+    client.eval_payload = {
+        "value": {
+            "subs": [
+                {"name": "Ann Lee", "urn": "ann-lee", "headline": "CTO at X"},
+                {"name": "Bob", "urn": "bob"},
+            ]
+        }
+    }
     out = await N.fetch_subscribers("urn:li:fsd_contentSeries:123")
-    assert client.calls[0] == ("/debug/navigate", {
-        "url": "https://www.linkedin.com/analytics/newsletter/urn:li:fsd_contentSeries:123/"})
+    assert client.calls[0] == ("/debug/navigate", {"url": "https://www.linkedin.com/analytics/newsletter/urn:li:fsd_contentSeries:123/"})
     assert out == [
-        {"name": "Ann Lee", "headline": "CTO at X", "urn": "urn:li:in:ann-lee",
-         "profile_url": "https://www.linkedin.com/in/ann-lee/"},
-        {"name": "Bob", "headline": "", "urn": "urn:li:in:bob",
-         "profile_url": "https://www.linkedin.com/in/bob/"},
+        {"name": "Ann Lee", "headline": "CTO at X", "urn": "urn:li:in:ann-lee", "profile_url": "https://www.linkedin.com/in/ann-lee/"},
+        {"name": "Bob", "headline": "", "urn": "urn:li:in:bob", "profile_url": "https://www.linkedin.com/in/bob/"},
     ]
 
 
@@ -93,8 +94,7 @@ def _install_espo(monkeypatch, found):
     return posts
 
 
-SUB = {"name": "Ann Lee", "headline": "CTO at X", "urn": "urn:li:in:ann",
-       "profile_url": "https://www.linkedin.com/in/ann/"}
+SUB = {"name": "Ann Lee", "headline": "CTO at X", "urn": "urn:li:in:ann", "profile_url": "https://www.linkedin.com/in/ann/"}
 
 
 @pytest.mark.asyncio
@@ -162,8 +162,7 @@ def _patch_redis(monkeypatch, redis_obj):
 
 @pytest.mark.asyncio
 async def test_sync_no_series():
-    assert await N.sync_newsletter_subscribers("") == {
-        "skipped": "no LINKEDIN_NEWSLETTER_SERIES_URN configured"}
+    assert await N.sync_newsletter_subscribers("") == {"skipped": "no LINKEDIN_NEWSLETTER_SERIES_URN configured"}
 
 
 @pytest.mark.asyncio

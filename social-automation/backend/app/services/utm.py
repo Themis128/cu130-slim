@@ -12,6 +12,7 @@ Every site hit carries the tags through AttributionCapture -> the contact
 form -> EspoCRM + web_analytics_events, closing the post -> lead loop.
 Existing utm_* params are never overwritten (setdefault semantics).
 """
+
 from __future__ import annotations
 
 import re
@@ -24,9 +25,7 @@ _URL_RE = re.compile(r"https?://[^\s<>'\"()\[\]]+")
 _TRAILING_STRIP = ".,;:!?)]}"
 
 
-def tracked_url(
-    url: str, *, source: str, medium: str, campaign: str, content: str
-) -> str:
+def tracked_url(url: str, *, source: str, medium: str, campaign: str, content: str) -> str:
     """Tag an owned-domain URL with UTM attribution; pass through the rest."""
     try:
         parts = urlsplit(url)
@@ -42,9 +41,7 @@ def tracked_url(
     return urlunsplit(parts._replace(query=urlencode(q)))
 
 
-def tag_owned_links(
-    text: str, *, platform: str, campaign: str, content: str
-) -> str:
+def tag_owned_links(text: str, *, platform: str, campaign: str, content: str) -> str:
     """Rewrite every cloudless.gr URL in ``text`` with platform-scoped UTMs.
 
     Non-owned URLs, mailto:, and bare domains are untouched. Idempotent —

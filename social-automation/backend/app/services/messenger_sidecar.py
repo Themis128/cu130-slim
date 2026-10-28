@@ -119,13 +119,15 @@ async def process_event(event: WebhookEvent) -> JSONResponse:
     if event.message_mid:
         _seen_message_ids.append(event.message_mid)
 
-    _recent_events.append({
-        "page_id": event.page_id,
-        "sender_psid": event.sender_psid,
-        "type": event.message_type,
-        "text": event.message_text[:100],
-        "ts": time.time(),
-    })
+    _recent_events.append(
+        {
+            "page_id": event.page_id,
+            "sender_psid": event.sender_psid,
+            "type": event.message_type,
+            "text": event.message_text[:100],
+            "ts": time.time(),
+        }
+    )
 
     # Only process text and postback messages for auto-reply
     if event.message_type not in ("text", "postback") or not event.sender_psid:
@@ -158,9 +160,7 @@ async def _handle_message(event: WebhookEvent) -> None:
         await _send_sender_action(page_token, event.page_id, event.sender_psid, "typing_on")
 
         # Generate AI response
-        reply_text = await _generate_ai_response(
-            auto_reply_config, event.message_text, page_name
-        )
+        reply_text = await _generate_ai_response(auto_reply_config, event.message_text, page_name)
 
         # Send the reply
         await _send_text_message(page_token, event.page_id, event.sender_psid, reply_text)
@@ -282,9 +282,7 @@ async def _send_text_message(page_token: str, page_id: str, psid: str, text: str
 
 async def _generate_ai_response(config: dict, user_message: str, page_name: str) -> str:
     """Generate an AI response using DMR (local GPU) with Cloudflare Workers AI fallback."""
-    system_prompt = config.get(
-        "system_prompt", "You are a helpful assistant. Reply concisely and professionally."
-    ).replace("{page_name}", page_name or "us")
+    system_prompt = config.get("system_prompt", "You are a helpful assistant. Reply concisely and professionally.").replace("{page_name}", page_name or "us")
     model = config.get("model", DEFAULT_MODEL)
     max_tokens = config.get("max_tokens", 200)
     fallback = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
