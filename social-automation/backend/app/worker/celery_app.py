@@ -41,6 +41,7 @@ celery_app = Celery(
         "app.worker.tasks.telegram_agent",
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.auto_gates",
+        "app.worker.tasks.consent_healers",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.datalake_insights",
@@ -587,6 +588,11 @@ celery_app.conf.update(
         "survey-autosend": {
             "task": "app.worker.tasks.auto_gates.survey_autosend",
             "schedule": 900.0,  # every 15 min — fires flagged survey campaigns
+            "options": {"queue": "default"},
+        },
+        "consent-healers": {
+            "task": "app.worker.tasks.consent_healers.heal_consents",
+            "schedule": 3600.0,  # hourly — finish the chain when consent lands
             "options": {"queue": "default"},
         },
         "post-autoapprove": {
