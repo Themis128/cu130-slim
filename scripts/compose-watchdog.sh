@@ -128,4 +128,16 @@ UPDATE publish_queue SET status='pending', locked_at=NULL, locked_by=NULL
 WHERE status='processing' AND locked_at < now() - interval '15 minutes'
 RETURNING 1" 2>/dev/null | grep -c 1)
 [ "${STALE:-0}" -gt 0 ] && ALERT "stale-qlock" ":warning: released $STALE stale publish_queue lock(s) — retry will pick them up"
+# 9. Publish-verify — a queue slot that fired >2h ago whose target is still
+#    'pending' means the platform-side path rejected/dropped it silently.
+#    Alert fast; don't wait for tomorrow's digest. Recurring signatures get
+#    a remediation note per the proactivity principle.
+LATE=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
+SELECT string_agg(DISTINCT sa.platform, ', ')
+FROM publish_queue pq
+JOIN post_targets t ON t.post_id=pq.post_id AND t.social_account_id=pq.social_account_id
+JOIN social_accounts sa ON sa.id=pq.social_account_id
+WHERE pq.status='completed' AND pq.scheduled_at < now() - interval '2 hours'
+  AND t.status='pending'" 2>/dev/null)
+[ -n "${LATE:-}" ] && ALERT "publish-verify" ":warning: platform(s) ${LATE} show pending >2h after queue completed — check publish errors in UI"
 exit 0
