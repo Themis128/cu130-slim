@@ -22,6 +22,8 @@ dependencies = [
     "cryptography>=43.0.0",
     "msgpack>=1.2.1",
     "httpx-oauth==0.17.0",
+    # CVE-2026-49272 — device_code grant skipped validation (fixed in 4.0.0)
+    "oauthlib>=4.0.0",
     "pgvector==0.2.3",
     "structlog==24.1.0",
     "aiofiles==24.1.0",
