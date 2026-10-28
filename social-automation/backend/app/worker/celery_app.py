@@ -110,8 +110,12 @@ celery_app.conf.update(
         # force-preempt + compose), so the soft limit must exceed that or
         # the batch dies mid-row and strands the rest in "processing".
         "app.worker.tasks.publishing.process_publish_queue": {
-            "soft_time_limit": 900,
-            "time_limit": 1200,
+            # LinkedIn org image publishes legitimately take ~15-25min
+            # (quality gate → LanguageTool wake → image init/PUT/poll →
+            # post create → D1 sync). 900s was killing them mid-publish
+            # and stranding the row in 'processing' — observed 2026-10-28.
+            "soft_time_limit": 2700,
+            "time_limit": 3000,
         },
         "app.worker.tasks.publishing.check_scheduled_posts": {
             "soft_time_limit": 120,

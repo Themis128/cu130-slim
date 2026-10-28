@@ -226,3 +226,7 @@
 - #785: leads_retrieval review submission if still needed
 - #793/#794/#795: owner replies; X login (no creds anywhere); LinkedIn org
   re-auth approve click (li_at fingerprint-bound — do NOT transplant)
+
+## Session 2026-10-28 (cont.) — publish-kill root cause: task soft_time_limit
+
+- LinkedIn test publish kept dying mid-flight: `process_publish_queue` had `soft_time_limit: 900` but a LinkedIn org image publish legitimately takes ~15-25min (quality gate → LanguageTool wake → image init/PUT/poll → post → D1 sync). SoftTimeLimitExceeded killed it mid-flow, stranding the row 'processing' — the "wedge" was self-inflicted. 18 kills in logs. Bumped to 2700/3000s, synced to all workers+beat, restarted. Watchdog stale-lock 15→45min to match.
