@@ -82,8 +82,12 @@ def _notify(payload: str) -> None:
     """Alert on status change via the telegram bot — skipped if unchanged."""
     try:
         cur = json.loads(payload).get("status", "")
-        last = json.load(open(STATE)).get("status") if os.path.exists(STATE) else None
-        json.dump({"status": cur}, open(STATE, "w"))
+        last = None
+        if os.path.exists(STATE):
+            with open(STATE) as _f:
+                last = json.load(_f).get("status")
+        with open(STATE, "w") as _f:
+            json.dump({"status": cur}, _f)
         if not cur or cur == last:
             return
         import asyncio

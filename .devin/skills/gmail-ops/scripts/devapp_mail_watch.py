@@ -68,7 +68,10 @@ def main():
         print("no hits")
         return 0
     os.makedirs(os.path.dirname(STATE), exist_ok=True)
-    seen = set(json.load(open(STATE))) if os.path.exists(STATE) else set()
+    seen = set()
+    if os.path.exists(STATE):
+        with open(STATE) as _f:
+            seen = set(json.load(_f))
     new = [h for h in hits
            if (h["subject"] + "|" + h["date"]) not in seen]
     if not new:
@@ -112,7 +115,8 @@ def main():
         input=script, capture_output=True, text=True, timeout=60)
     print("telegram:", "sent" if r.returncode == 0 else r.stderr[:200])
     seen.update(h["subject"] + "|" + h["date"] for h in new)
-    json.dump(sorted(seen), open(STATE, "w"))
+    with open(STATE, "w") as _f:
+        json.dump(sorted(seen), _f)
     return 0
 
 

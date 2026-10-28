@@ -25,6 +25,7 @@ def call(path, data, tries=3):
             if e.code in (409,) or (e.code == 500 and b"context was destroyed" in e.read()):
                 time.sleep(15); continue
             raise SystemExit(f"bridge {e.code}: {e.read()[:120]}")
+    raise SystemExit(f"bridge {path}: all {tries} tries failed (409/context-destroyed)")
 
 def ev(expr):
     return call("/session/evaluate", {"expression": expr}).get("result")
@@ -61,7 +62,8 @@ def main():
         if x == "--bridge": BRIDGE = a[i+1]
     if not url or not answers_file:
         raise SystemExit("need --url + --answers")
-    answers = json.load(open(answers_file))
+    with open(answers_file) as _f:
+        answers = json.load(_f)
     try: call("/session/close", {})
     except SystemExit: pass
     call("/session/start", {"platform":"reddit","interactive":False,"force":True})

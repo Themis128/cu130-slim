@@ -9,7 +9,7 @@ Supported: instagram (INSTAGRAM_USERNAME/PASSWORD). X/FB have no stored
 passwords — they stay physical (reports that explicitly).
 """
 from __future__ import annotations
-import json, sys, time, urllib.request, urllib.error
+import json, sys, time, urllib.request, urllib.error, urllib.parse
 
 BRIDGE = "http://localhost:9223"
 
@@ -71,7 +71,8 @@ def ig_login(bridge: str) -> str:
     loc = ev("location.href", bridge).get("result", "")
     if "login" in loc or "challenge" in loc:
         return f"login-wall-persists ({loc[:60]}) — 2FA/checkpoint needs human"
-    if "instagram.com" in loc:
+    host = urllib.parse.urlparse(loc).hostname or ""
+    if host == "instagram.com" or host.endswith(".instagram.com"):
         return f"logged-in ({loc[:60]})"
     return f"unclear ({loc[:80]})"
 
