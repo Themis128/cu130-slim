@@ -191,3 +191,38 @@
 - **WA**: `wa_verify_daemon.py` running — fully unattended.
 - **FB**: live session confirmed on bridge (c_user/xs).
 - **rfb.py** gotcha: hardcodes `engagement-browser` — clicks sent to adhoc browser (9232) silently do nothing.
+
+## Session 2026-10-28b — sidecar gate push (verified wins)
+
+- **#784 CLOSED** — Meta e2e verified live: test post published+deleted on
+  cloudless.gr page (116436681562585); subscribed_apps shows messaging webhook
+  fields active on app cloudless_gr (1936126137016578).
+- **#785** — Graph API: business `cloudless.gr` (1558125105019725) is APPROVED,
+  WABA 1073707258453499 ACTIVE. Only leads_retrieval App Review remains
+  (console-only, possibly out of scope).
+- **#786** — WA console explored end-to-end via FB session on adhoc browser:
+  phone Offline/NOT_VERIFIED, username @cloudless.gr RESERVED, dev console has
+  0 required actions, WhatsApp Manager shows payment-method alert (no payment
+  ever per policy). Cloud-API-terms accept not visible — likely bound to the
+  app's WhatsApp product onboarding (app only shows FB-Login-for-Business +
+  Instagram use cases) or WABA-owner identity.
+- **#791** — TikTok inbox readable via cookie-injected adhoc browser:
+  1 pending video share "Cloudless | Managed Cloud" (10/15) + 5 unsupported
+  app-only messages (9/26). Profile view counts allow dup-check before upload.
+- **#788** — DEFINITIVE: all stored IG sessionids dead (login_required /
+  redirect-loop via aiograpi + direct web API); IG session transplants are
+  fingerprint-bound. Only paths: password rotation (stale) or app login.
+- **Bridge fixes**: cleared stale 409 lock via pkill browser-bridge;
+  adhoc browser (9224) accepts /session/cookies injection + free navigate —
+  session transplant works for facebook + tiktok, NOT instagram.
+- **instagram-private-api**: socksio installed (httpx[socks]) + WARP routing
+  via socks5://stack-ops:1080 (warp-proxy needs stack-ops wake path).
+- **mail-code-fetch skill landed** (#1078) — dovecot OTP fetcher + shlex fix.
+
+### Still physical
+- #786: Cloud-API-terms accept (owner, WABA-owner identity) then register+verify_code
+- #788: IG password rotation or mobile-app website edit
+- #789: ΓΕΜΗ cert upload on business.tiktok.com (logged in on adhoc)
+- #785: leads_retrieval review submission if still needed
+- #793/#794/#795: owner replies; X login (no creds anywhere); LinkedIn org
+  re-auth approve click (li_at fingerprint-bound — do NOT transplant)
