@@ -39,6 +39,7 @@ celery_app = Celery(
         "app.worker.tasks.whatsapp_verify",
         "app.worker.tasks.telegram_digest",
         "app.worker.tasks.synigoros_status",
+        "app.worker.tasks.owner_gates",
         "app.worker.tasks.mastersheet_watch",
         "app.worker.tasks.datalake_executor",
         "app.worker.tasks.telegram_agent",
@@ -235,6 +236,7 @@ celery_app.conf.update(
         "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
         "app.worker.tasks.synigoros_status.poll_synigoros": {"queue": "default"},
+        "app.worker.tasks.owner_gates.poll_owner_gates": {"queue": "default"},
         "app.worker.tasks.mastersheet_watch.watch_mastersheet": {"queue": "default"},
         "app.worker.tasks.datalake_executor.execute_actions": {"queue": "default"},
         "app.worker.tasks.telegram_agent.run_channel_agent_daily": {"queue": "default"},
@@ -556,6 +558,11 @@ celery_app.conf.update(
         "synigoros-status": {
             "task": "app.worker.tasks.synigoros_status.poll_synigoros",
             "schedule": crontab(hour=7, minute=30),
+        },
+        # Owner-gate approval loop — consume issue replies + digest on change
+        "owner-gates": {
+            "task": "app.worker.tasks.owner_gates.poll_owner_gates",
+            "schedule": crontab(hour="*/6", minute=45),
         },
         # Founders' Circle mastersheet watcher — Telegram + datalake on change
         "mastersheet-watch": {
