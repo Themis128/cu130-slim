@@ -156,3 +156,4 @@ storage-models/**/*.pt
 storage-models/**/*.pth
 storage-models/**/*.bin
 metabase-mcp.env
+promtail-data/
