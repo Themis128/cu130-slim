@@ -15,7 +15,7 @@ Wraps dmr.chat in a structured control loop:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
