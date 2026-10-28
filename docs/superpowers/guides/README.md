@@ -26,6 +26,7 @@ Step-by-step guides for everyday SocialAuto workflows.
 20. [Meta organic growth](20-meta-organic-growth.md) — free, media-backed cross-publishing to connected Facebook, Instagram, and Threads accounts.
 21. [Sales-funnel audit](21-funnel-audit.md) — live stage counts, weakest-transition detection, and the auction warning (fix conversion before buying traffic).
 22. [Lead-gen readiness audit](22-leadgen-audit.md) — capture surfaces, DM lead lanes, UTM discipline, and 30d lead volume checked live.
+23. [Synigoros complaint status](23-synigoros-complaint-status.md) — poll the Ombudsman tracking page via the adhoc bridge; failure states and change alerts.
 
 ## Product plans
 
