@@ -19,8 +19,8 @@ jobs:
       - name: Auto-fix lint on master
         run: |
           pip install -q ruff
-          ruff check --fix social-automation/backend/ || true
-          ruff format social-automation/backend/ || true
+          ruff check --fix social-automation/backend/app/ social-automation/backend/scripts/ social-automation/backend/tests/ || true
+          ruff format social-automation/backend/app/ social-automation/backend/scripts/ social-automation/backend/tests/ || true
       - name: Regenerate route inventory
         run: |
           cd social-automation/backend
