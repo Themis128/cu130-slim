@@ -143,3 +143,8 @@
 ## Session 2026-10-28 (cont.) — chronic Docker wedge escalation
 
 - 3rd daemon wedge in ~1h observed; watchdog already self-healed one at 08:57 (proven by /tmp/wd-dd-restart). Check #0 hardened: per-day restart counter → 3rd+ wedge triggers CHRONIC Slack alert (root cause = WSL mem/GPU-P, needs human); post-restart 90s engine-verify → 'restart failed' alert if still down. Fixed ALERT defined-after-use ordering.
+
+## Session 2026-10-28 (cont.) — governed-agent pilot deployed
+
+- `n8n-workflows/governed-health-agent.json` live in n8n (id `governed-health-agent`, published, daily 08:30 Athens + webhook `governed-health-agent`). AX Pass pilot: Intent Contract node declares goal/scope/forbidden-actions per run; read-only probes (stack-ops /status + social-api /health); deterministic Evaluate (rules before LLM — loop-engineering discipline); Slack human-gate on DEGRADED/ACTION_NEEDED — agent takes no action itself. Dry-run verified: verdict HEALTHY, 21 services checked.
+- Docker Desktop wedged 3x in ~1h — watchdog self-healed 1, manual restart for 2nd. Chronic-escalation counter added to check #0.
