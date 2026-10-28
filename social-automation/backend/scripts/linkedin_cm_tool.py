@@ -69,10 +69,19 @@ def cmd_posts(account_id: str) -> None:
                 f"{API}/posts?q=author&author={q}&count=10",
                 headers=_headers(_token(acc)),
             )
+            if r.status_code in (403, 426):  # Dev Tier: no /rest — legacy v2
+                a = "List(" + urllib.parse.quote(urn, safe="") + ")"
+                r = await c.get(
+                    f"https://api.linkedin.com/v2/ugcPosts?q=authors&authors={a}&count=10",
+                    headers=_headers(_token(acc)),
+                )
         print(r.status_code)
         d = r.json() if r.status_code == 200 else {"err": r.text[:300]}
         for p in (d.get("elements") or []):
-            body = (p.get("commentary") or "")[:80].replace("\n", " ")
+            body = (p.get("commentary")
+                    or (p.get("specificContent", {})
+                        .get("com.linkedin.ugc.ShareContent", {})
+                        .get("shareCommentary", {}).get("text")) or "")[:80].replace("\n", " ")
             print(f"{p.get('id')}\t{body}")
         if "err" in d:
             print(d)
@@ -91,6 +100,11 @@ def cmd_comments(account_id: str, post_urn: str) -> None:
                 f"{API}/socialActions/{q}/comments",
                 headers=_headers(_token(acc)),
             )
+            if r.status_code in (403, 426):  # Dev Tier: no /rest — legacy v2
+                r = await c.get(
+                    f"https://api.linkedin.com/v2/socialActions/{q}/comments",
+                    headers=_headers(_token(acc)),
+                )
         print(r.status_code, r.text[:500])
 
     asyncio.run(_run())
