@@ -39,3 +39,13 @@ bridge_sessions.py eval <js>   # raw /session/evaluate
 409 "busy with <platform> session" is normal — the bridge is shared.
 All scripts here and in `human-gate-bridges` retry; if a platform's
 session persistently holds it, its healer flow is running — that's good.
+
+## form_fill.py — generic web-form driver
+
+    form_fill.py '<url>' '{"#email":"me@x.com","[name=company]":"Cloudless"}' [submit_sel]
+
+Pins keepawake → navigates → waits for first field → fills each
+selector via input+change events → clicks submit when all fields land.
+Use for Qualtrics verification forms, dev-portal request forms, or any
+unauthenticated web form — the field-map is a JSON object of
+selector->value pairs.
