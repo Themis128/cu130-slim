@@ -126,3 +126,11 @@
 - compose-watchdog check #6: drafts >24h with empty media_ids → Slack alert (no auto-attach — correct-media rule needs judgment).
 - PR #1058 merged to master. PR #2312 blocked on a real Sentry catch (single-asterisk italics don't render) — fixed to `**`, thread resolved, auto-merge re-armed.
 - feat/gmail-ops-v2 reconciled with origin (picked up li_member_snapshot). 4 recap drafts now carry brand media; needs_media flags cleared.
+
+## Session 2026-10-28 (cont.) — recap drafts reviewed + scheduled
+
+- Reviewed all 4 shift-forward drafts: on-brand, no invented metrics, business accounts only.
+- Added UTM links (one campaign slug `shift-forward-2026`, utm_medium=social, per-platform source → /contact audit CTA) — closes the UTM coverage gap on these posts.
+- Scheduled staggered by tier: LinkedIn Thu 07:00Z, FB Thu 11:00Z (its peak window), IG Fri 08:00Z, Threads Fri 12:00Z.
+- GOTCHA learned: posts.scheduled_at alone does NOT publish — publisher scans `publish_queue` rows (process_publish_queue). Enqueued all 4 (priority 5, pending).
+- Watchdog bug found+fixed on first live run: `local key=... f=...$key` unbound under set -u in both watchdog scripts.
