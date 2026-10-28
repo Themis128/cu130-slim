@@ -22,7 +22,8 @@ if [ -z "$TOKEN" ]; then
 fi
 
 ALERT() {  # Slack via social-api → raw webhook fallback; throttled 6h/key
-  local key="$1" msg="$2" f="/tmp/pw-$(echo "$key" | md5sum | cut -c1-8)"
+  local key="$1" msg="$2"
+  local f="/tmp/pw-$(echo "$key" | md5sum | cut -c1-8)"
   [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f" 2>/dev/null || echo 0) )) -lt 21600 ] && return
   docker compose exec -T social-api python -c "
 import asyncio

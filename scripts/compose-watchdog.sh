@@ -27,7 +27,8 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 ALERT() {  # post to the ops Slack channel, throttled to once/30min per key
-  local key="$1" msg="$2" f="/tmp/wd-$(echo "$key" | md5sum | cut -c1-8)"
+  local key="$1" msg="$2"
+  local f="/tmp/wd-$(echo "$key" | md5sum | cut -c1-8)"
   [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f") )) -lt 1800 ] && return
   docker compose exec -T social-api python -c "
 import asyncio
