@@ -1,4 +1,5 @@
 """Unit tests for rate_limiter service."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -161,8 +162,7 @@ class TestSafePublish:
         exc = httpx.HTTPStatusError("429", request=MagicMock(), response=response)
         func = AsyncMock(side_effect=exc)
 
-        with patch.object(rate_limiter, "acquire", new=AsyncMock()), \
-             patch.object(rate_limiter, "cooldown", new=AsyncMock()) as mock_cooldown:
+        with patch.object(rate_limiter, "acquire", new=AsyncMock()), patch.object(rate_limiter, "cooldown", new=AsyncMock()) as mock_cooldown:
             with pytest.raises(httpx.HTTPStatusError):
                 await safe_publish(func, "acc1", "linkedin")
             assert mock_cooldown.call_count == 1

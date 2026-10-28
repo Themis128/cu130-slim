@@ -1,4 +1,5 @@
 """Coverage for app/services/brand_monitoring.py."""
+
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -56,11 +57,17 @@ class TestTwitterMentions:
 
     @pytest.mark.asyncio
     async def test_happy(self, monkeypatch):
-        body = {"data": [{
-            "id": "t1", "author_id": "u1", "text": "love cloudless",
-            "created_at": "2026-01-01T00:00:00Z",
-            "public_metrics": {"like_count": 3, "retweet_count": 2},
-        }]}
+        body = {
+            "data": [
+                {
+                    "id": "t1",
+                    "author_id": "u1",
+                    "text": "love cloudless",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "public_metrics": {"like_count": 3, "retweet_count": 2},
+                }
+            ]
+        }
         c = _HTTP(_Resp(200, body))
         _wire(monkeypatch, c)
         out = await BM.search_twitter_mentions("cloudless", "tok")
@@ -80,11 +87,24 @@ class TestTwitterMentions:
 class TestRedditMentions:
     @pytest.mark.asyncio
     async def test_happy(self, monkeypatch):
-        body = {"data": {"children": [{
-            "data": {"author": "u", "title": "T", "selftext": "body",
-                     "permalink": "/r/x/1", "score": 9,
-                     "created_utc": 1700000000, "subreddit": "s"},
-        }, {"data": {"author": "v", "title": "T2"}}]}}
+        body = {
+            "data": {
+                "children": [
+                    {
+                        "data": {
+                            "author": "u",
+                            "title": "T",
+                            "selftext": "body",
+                            "permalink": "/r/x/1",
+                            "score": 9,
+                            "created_utc": 1700000000,
+                            "subreddit": "s",
+                        },
+                    },
+                    {"data": {"author": "v", "title": "T2"}},
+                ]
+            }
+        }
         _wire(monkeypatch, _HTTP(_Resp(200, body)))
         out = await BM.search_reddit_mentions("cloudless")
         assert len(out) == 2
@@ -132,24 +152,24 @@ class TestAnalyzeSentiment:
     @pytest.mark.asyncio
     async def test_llm_json_string(self, monkeypatch):
         import app.services.inference as inf
-        monkeypatch.setattr(inf, "call_inference", AsyncMock(
-            return_value={"response": '{"sentiment": "positive", "score": 0.8}'}))
+
+        monkeypatch.setattr(inf, "call_inference", AsyncMock(return_value={"response": '{"sentiment": "positive", "score": 0.8}'}))
         out = await BM.analyze_sentiment("great product")
         assert out == {"sentiment": "positive", "score": 0.8}
 
     @pytest.mark.asyncio
     async def test_llm_dict_response(self, monkeypatch):
         import app.services.inference as inf
-        monkeypatch.setattr(inf, "call_inference", AsyncMock(
-            return_value={"response": {"sentiment": "negative", "score": -0.4}}))
+
+        monkeypatch.setattr(inf, "call_inference", AsyncMock(return_value={"response": {"sentiment": "negative", "score": -0.4}}))
         out = await BM.analyze_sentiment("awful")
         assert out["sentiment"] == "negative"
 
     @pytest.mark.asyncio
     async def test_llm_failure_keyword_fallback(self, monkeypatch):
         import app.services.inference as inf
-        monkeypatch.setattr(inf, "call_inference",
-                            AsyncMock(side_effect=RuntimeError()))
+
+        monkeypatch.setattr(inf, "call_inference", AsyncMock(side_effect=RuntimeError()))
         assert (await BM.analyze_sentiment("good great awesome"))["sentiment"] == "positive"
         assert (await BM.analyze_sentiment("bad terrible"))["sentiment"] == "negative"
         assert (await BM.analyze_sentiment("the sky"))["sentiment"] == "neutral"
@@ -170,37 +190,42 @@ class _DB:
         self.commits += 1
 
     async def execute(self, stmt, *a):
-        return self._q.pop(0) if self._q else SimpleNamespace(
-            scalar_one_or_none=lambda: None)
+        return self._q.pop(0) if self._q else SimpleNamespace(scalar_one_or_none=lambda: None)
 
 
 def _brand():
-    return SimpleNamespace(id=uuid.uuid4(), team_id=uuid.uuid4(),
-                           name="cloudless")
+    return SimpleNamespace(id=uuid.uuid4(), team_id=uuid.uuid4(), name="cloudless")
 
 
 class TestCollectMentions:
     @pytest.mark.asyncio
     async def test_collect(self, monkeypatch):
-        monkeypatch.setattr(BM, "search_twitter_mentions",
-                            AsyncMock(return_value=[{
-                                "platform": "twitter", "author": "a",
-                                "content": "great stuff", "url": "http://u",
-                                "engagement": 4,
-                                "mentioned_at": "2026-01-01T00:00:00Z",
-                                "extra_data": {}}]))
-        monkeypatch.setattr(BM, "search_reddit_mentions",
-                            AsyncMock(return_value=[{
-                                "platform": "reddit", "author": "b",
-                                "content": "bad stuff", "url": "http://v",
-                                "engagement": 1,
-                                "mentioned_at": "not-a-date"}]))
-        monkeypatch.setattr(BM, "search_google_news_mentions",
-                            AsyncMock(side_effect=RuntimeError("rss")))
-        monkeypatch.setattr(BM, "analyze_sentiment",
-                            AsyncMock(side_effect=[
-                                {"sentiment": "positive", "score": 0.5},
-                                {"sentiment": "negative", "score": -0.5}]))
+        monkeypatch.setattr(
+            BM,
+            "search_twitter_mentions",
+            AsyncMock(
+                return_value=[
+                    {
+                        "platform": "twitter",
+                        "author": "a",
+                        "content": "great stuff",
+                        "url": "http://u",
+                        "engagement": 4,
+                        "mentioned_at": "2026-01-01T00:00:00Z",
+                        "extra_data": {},
+                    }
+                ]
+            ),
+        )
+        monkeypatch.setattr(
+            BM,
+            "search_reddit_mentions",
+            AsyncMock(
+                return_value=[{"platform": "reddit", "author": "b", "content": "bad stuff", "url": "http://v", "engagement": 1, "mentioned_at": "not-a-date"}]
+            ),
+        )
+        monkeypatch.setattr(BM, "search_google_news_mentions", AsyncMock(side_effect=RuntimeError("rss")))
+        monkeypatch.setattr(BM, "analyze_sentiment", AsyncMock(side_effect=[{"sentiment": "positive", "score": 0.5}, {"sentiment": "negative", "score": -0.5}]))
         db = _DB()
         mentions = await BM.collect_mentions(db, _brand())
         assert len(mentions) == 2
@@ -212,8 +237,7 @@ class TestCollectMentions:
 
     @pytest.mark.asyncio
     async def test_empty_sources(self, monkeypatch):
-        for fn in ("search_twitter_mentions", "search_reddit_mentions",
-                   "search_google_news_mentions"):
+        for fn in ("search_twitter_mentions", "search_reddit_mentions", "search_google_news_mentions"):
             monkeypatch.setattr(BM, fn, AsyncMock(return_value=[]))
         db = _DB()
         assert await BM.collect_mentions(db, _brand()) == []
@@ -232,8 +256,7 @@ class TestTwitterAccessToken:
         db = _DB([SimpleNamespace(scalar_one_or_none=lambda: "enc-str")])
         assert await BM._twitter_access_token(db, _brand()) == "plain"
 
-        monkeypatch.setattr(BM, "decrypt_token",
-                            lambda b: (_ for _ in ()).throw(ValueError()))
+        monkeypatch.setattr(BM, "decrypt_token", lambda b: (_ for _ in ()).throw(ValueError()))
         db = _DB([SimpleNamespace(scalar_one_or_none=lambda: b"enc")])
         assert await BM._twitter_access_token(db, _brand()) is None
 
@@ -241,42 +264,38 @@ class TestTwitterAccessToken:
 class TestFetchTwitterCompetitor:
     @pytest.mark.asyncio
     async def test_no_token(self, monkeypatch):
-        monkeypatch.setattr(BM, "_twitter_access_token",
-                            AsyncMock(return_value=None))
+        monkeypatch.setattr(BM, "_twitter_access_token", AsyncMock(return_value=None))
         assert await BM._fetch_twitter_competitor(None, _brand(), "x") is None
 
     @pytest.mark.asyncio
     async def test_bad_username(self, monkeypatch):
-        monkeypatch.setattr(BM, "_twitter_access_token",
-                            AsyncMock(return_value="tok"))
+        monkeypatch.setattr(BM, "_twitter_access_token", AsyncMock(return_value="tok"))
         out = await BM._fetch_twitter_competitor(None, _brand(), "bad/handle!")
         assert out is None
 
     @pytest.mark.asyncio
     async def test_user_lookup_fails(self, monkeypatch):
-        monkeypatch.setattr(BM, "_twitter_access_token",
-                            AsyncMock(return_value="tok"))
+        monkeypatch.setattr(BM, "_twitter_access_token", AsyncMock(return_value="tok"))
         _wire(monkeypatch, _HTTP(_Resp(404)))
         out = await BM._fetch_twitter_competitor(None, _brand(), "@valid_name")
         assert out is None
 
     @pytest.mark.asyncio
     async def test_happy_with_tweets(self, monkeypatch):
-        monkeypatch.setattr(BM, "_twitter_access_token",
-                            AsyncMock(return_value="tok"))
+        monkeypatch.setattr(BM, "_twitter_access_token", AsyncMock(return_value="tok"))
 
         def route(url):
             if "users/by/username" in url:
-                return _Resp(200, {"data": {
-                    "id": "42",
-                    "public_metrics": {"followers_count": 100,
-                                       "tweet_count": 50}}})
-            return _Resp(200, {"data": [
-                {"text": "top", "public_metrics": {
-                    "like_count": 10, "retweet_count": 5,
-                    "reply_count": 3, "quote_count": 2}},
-                {"text": "low", "public_metrics": {"like_count": 1}},
-            ]})
+                return _Resp(200, {"data": {"id": "42", "public_metrics": {"followers_count": 100, "tweet_count": 50}}})
+            return _Resp(
+                200,
+                {
+                    "data": [
+                        {"text": "top", "public_metrics": {"like_count": 10, "retweet_count": 5, "reply_count": 3, "quote_count": 2}},
+                        {"text": "low", "public_metrics": {"like_count": 1}},
+                    ]
+                },
+            )
 
         _wire(monkeypatch, _HTTP(route))
         out = await BM._fetch_twitter_competitor(None, _brand(), "valid_name")
@@ -288,11 +307,9 @@ class TestFetchTwitterCompetitor:
 
     @pytest.mark.asyncio
     async def test_tweets_fail_and_no_id(self, monkeypatch):
-        monkeypatch.setattr(BM, "_twitter_access_token",
-                            AsyncMock(return_value="tok"))
+        monkeypatch.setattr(BM, "_twitter_access_token", AsyncMock(return_value="tok"))
         # user has no id → skip tweets call entirely
-        _wire(monkeypatch, _HTTP(_Resp(200, {"data": {
-            "public_metrics": {"followers_count": 0}}})))
+        _wire(monkeypatch, _HTTP(_Resp(200, {"data": {"public_metrics": {"followers_count": 0}}})))
         out = await BM._fetch_twitter_competitor(None, _brand(), "x")
         assert out["engagement_rate"] == 0.0
         assert out["top_post_content"] is None
@@ -302,14 +319,14 @@ class TestFetchTwitterCompetitor:
             if "tweets" in url:
                 return _Resp(500)
             return _Resp(200, {"data": {"id": "9", "public_metrics": {}}})
+
         _wire(monkeypatch, _HTTP(route))
         out = await BM._fetch_twitter_competitor(None, _brand(), "x")
         assert out["top_post_engagement"] == 0
 
     @pytest.mark.asyncio
     async def test_exception(self, monkeypatch):
-        monkeypatch.setattr(BM, "_twitter_access_token",
-                            AsyncMock(return_value="tok"))
+        monkeypatch.setattr(BM, "_twitter_access_token", AsyncMock(return_value="tok"))
         _wire(monkeypatch, _HTTP(exc=RuntimeError()))
         assert await BM._fetch_twitter_competitor(None, _brand(), "x") is None
 
@@ -317,8 +334,7 @@ class TestFetchTwitterCompetitor:
 class TestSnapshotCompetitor:
     @pytest.mark.asyncio
     async def test_twitter_with_real(self, monkeypatch):
-        monkeypatch.setattr(BM, "_fetch_twitter_competitor", AsyncMock(
-            return_value={"follower_count": 99, "engagement_rate": 1.5}))
+        monkeypatch.setattr(BM, "_fetch_twitter_competitor", AsyncMock(return_value={"follower_count": 99, "engagement_rate": 1.5}))
         db = _DB()
         snap = await BM.snapshot_competitor(db, _brand(), "rival")
         assert isinstance(snap, CompetitorSnapshot)
@@ -329,8 +345,7 @@ class TestSnapshotCompetitor:
     @pytest.mark.asyncio
     async def test_other_platform_defaults(self, monkeypatch):
         db = _DB()
-        snap = await BM.snapshot_competitor(db, _brand(), "rival",
-                                            platform="instagram")
+        snap = await BM.snapshot_competitor(db, _brand(), "rival", platform="instagram")
         assert snap.follower_count == 0
         assert snap.platform == "instagram"
 
@@ -352,9 +367,7 @@ class TestHealthScore:
     def test_full_inputs(self):
         mentions = [self._mention(0.5, 10), self._mention(-0.5, 30)]
         snaps = [self._snap(20)]
-        out = BM.calculate_health_score(mentions, snaps,
-                                        post_count_30d=30,
-                                        avg_engagement_rate=5.0)
+        out = BM.calculate_health_score(mentions, snaps, post_count_30d=30, avg_engagement_rate=5.0)
         assert out["sentiment"] == 50.0  # avg 0 → 50
         assert out["reach"] == min(2 * 5 + 40 * 0.5, 100)  # 30
         # sov: 40/(40+20)*100
@@ -365,7 +378,6 @@ class TestHealthScore:
         assert out["total_engagement"] == 40
 
     def test_zero_engagement_sov(self):
-        out = BM.calculate_health_score([self._mention(1.0, 0)],
-                                        [self._snap(0)])
+        out = BM.calculate_health_score([self._mention(1.0, 0)], [self._snap(0)])
         assert out["share_of_voice"] == 50.0
         assert out["sentiment"] == 100.0

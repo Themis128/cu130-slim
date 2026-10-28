@@ -1,4 +1,5 @@
 """Paddle Billing usage and revenue digest for Slack (#paddle)."""
+
 from __future__ import annotations
 
 import logging

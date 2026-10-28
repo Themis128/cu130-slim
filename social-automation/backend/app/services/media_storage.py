@@ -5,6 +5,7 @@ R2 is the preferred, free storage target when ``R2_BUCKET_NAME`` and
 self-hosted/offline deployments.  Every media text field is spell-checked on
 save.
 """
+
 from __future__ import annotations
 
 import io
@@ -68,11 +69,13 @@ _MIME_BY_EXT = {
 
 
 def _r2_enabled() -> bool:
-    return all([
-        (settings.R2_BUCKET_NAME or "").strip(),
-        (settings.CLOUDFLARE_ACCOUNT_ID or "").strip(),
-        (settings.CLOUDFLARE_API_TOKEN or "").strip(),
-    ])
+    return all(
+        [
+            (settings.R2_BUCKET_NAME or "").strip(),
+            (settings.CLOUDFLARE_ACCOUNT_ID or "").strip(),
+            (settings.CLOUDFLARE_API_TOKEN or "").strip(),
+        ]
+    )
 
 
 def _minio_enabled() -> bool:
@@ -195,9 +198,7 @@ async def save_uploaded_media(
     now = datetime.now(UTC)
     date_folder = now.strftime("%Y/%m/%d")
 
-    backend, storage_path, public_url = await _store_bytes(
-        content, original_filename, mime_type, date_folder
-    )
+    backend, storage_path, public_url = await _store_bytes(content, original_filename, mime_type, date_folder)
 
     corrected_alt = await correct_text(alt_text)
     corrected_tags = await correct_tags(tags)
@@ -301,6 +302,7 @@ async def persist_generated_image(
     # Brand every generated post image with the Cloudless footer (skipped for
     # logos, favicons, and already-branded carousel/ad assets).
     from app.services.brand_footer import maybe_apply_brand_footer
+
     image_bytes = await maybe_apply_brand_footer(db, team_id, image_bytes, source)
 
     # Social platforms universally accept JPEG. When the caller requests JPEG,
@@ -315,13 +317,9 @@ async def persist_generated_image(
             actual_mime = "image/jpeg"
         else:
             # Conversion failed — don't mislabel a non-JPEG payload as JPEG.
-            actual_ext, actual_mime = _detect_image_format(
-                image_bytes, actual_ext, actual_mime
-            )
+            actual_ext, actual_mime = _detect_image_format(image_bytes, actual_ext, actual_mime)
     else:
-        actual_ext, actual_mime = _detect_image_format(
-            image_bytes, actual_ext, actual_mime
-        )
+        actual_ext, actual_mime = _detect_image_format(image_bytes, actual_ext, actual_mime)
 
     now = datetime.now(UTC)
     date_part = now.strftime("%Y/%m/%d")
@@ -336,9 +334,7 @@ async def persist_generated_image(
     safe_ext = f".{safe_ext}" if safe_ext else ".bin"
     filename = f"{safe_source}_{uuid.uuid4().hex[:8]}{safe_ext}"
 
-    backend, storage_path, public_url = await _store_bytes(
-        image_bytes, filename, actual_mime, date_folder
-    )
+    backend, storage_path, public_url = await _store_bytes(image_bytes, filename, actual_mime, date_folder)
 
     if width is None or height is None:
         try:

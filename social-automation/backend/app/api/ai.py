@@ -81,12 +81,8 @@ class GenerateContentRequest(BaseModel):
     provider: str = "dmr"  # DMR primary (local, free); CF Workers AI fallback
     model: str | None = None
     template_id: uuid.UUID | None = None
-    pillar: str | None = (
-        None  # pillar UUID or name; "auto" = the pillar posted least in 14d
-    )
-    web_search: bool = (
-        False  # ground the post in live web results via self-hosted SearXNG
-    )
+    pillar: str | None = None  # pillar UUID or name; "auto" = the pillar posted least in 14d
+    web_search: bool = False  # ground the post in live web results via self-hosted SearXNG
 
 
 class GenerateContentResponse(BaseModel):
@@ -101,9 +97,7 @@ class GenerateContentResponse(BaseModel):
     quality: dict | None = None
     pillar_id: str | None = None  # resolved pillar — persist as Post.pillar_id
     pillar_name: str | None = None
-    web_sources: list[dict] | None = (
-        None  # SearXNG results used for grounding when web_search=true
-    )
+    web_sources: list[dict] | None = None  # SearXNG results used for grounding when web_search=true
 
 
 class SuggestHashtagsRequest(BaseModel):
@@ -123,6 +117,7 @@ class SuggestHashtagsResponse(BaseModel):
 
 class HashtagTier(BaseModel):
     """A single hashtag with its tier classification."""
+
     tag: str
     tier: str  # safe, rising, niche
     estimated_reach: str  # broad, mid, low
@@ -130,6 +125,7 @@ class HashtagTier(BaseModel):
 
 class SuggestHashtagsTieredResponse(BaseModel):
     """Three-tier hashtag strategy response (safe/rising/niche)."""
+
     hashtags: list[str]  # flat list for backwards compatibility
     tiers: dict[str, list[HashtagTier]]  # {"safe": [...], "rising": [...], "niche": [...]}
     strategy: str  # description of the strategy used
@@ -233,20 +229,15 @@ async def transcribe_audio(
             detail="Model returned empty transcription — no speech detected. Try clearer audio or another model.",
         )
 
-    extra = {
-        k: v
-        for k, v in result.items()
-        if k not in ("text", "language", "detected_language", "speech_language", "duration", "duration_seconds")
-    }
+    extra = {k: v for k, v in result.items() if k not in ("text", "language", "detected_language", "speech_language", "duration", "duration_seconds")}
     return TranscribeResponse(
         text=result["text"],
-        language=result.get("language")
-        or result.get("detected_language")
-        or result.get("speech_language"),
-        duration=result.get("duration")
-        or result.get("duration_seconds"),
+        language=result.get("language") or result.get("detected_language") or result.get("speech_language"),
+        duration=result.get("duration") or result.get("duration_seconds"),
         detections=extra or None,
     )
+
+
 # ---------------------------------------------------------------------------
 # Workers AI Batch Inference
 # ---------------------------------------------------------------------------
@@ -287,10 +278,7 @@ async def submit_batch_inference(
     Returns a ``request_id`` — poll ``POST /ai/workers-ai/batch/retrieve`` with it
     to fetch the results once processing completes.
     """
-    items = [
-        {k: v for k, v in item.model_dump(exclude_none=True).items()}
-        for item in payload.requests
-    ]
+    items = [{k: v for k, v in item.model_dump(exclude_none=True).items()} for item in payload.requests]
     try:
         result = await submit_workers_ai_batch(payload.model, items)
     except HTTPException:
@@ -523,16 +511,17 @@ async def auto_configure(
 
 
 @router.post("/analyze-content", response_model=AnalyzeContentResponse)
-async def analyze_content(
-    request: AnalyzeContentRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def analyze_content(request: AnalyzeContentRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     hashtag_count = request.content.count("#")
     char_count = len(request.content)
 
     platform_limits = {
-        "twitter": 280, "linkedin": 3000, "instagram": 2200,
-        "facebook": 63206, "threads": 500, "tiktok": 2200,
+        "twitter": 280,
+        "linkedin": 3000,
+        "instagram": 2200,
+        "facebook": 63206,
+        "threads": 500,
+        "tiktok": 2200,
     }
     limit = platform_limits.get(request.platform, 3000)
 
@@ -585,11 +574,7 @@ Return JSON with:
     ]
 
     sentences = [s for s in re.split(r"[.!?]+", request.content) if s.strip()]
-    avg_sentence_words = (
-        sum(len(s.split()) for s in sentences) / max(1, len(sentences))
-        if sentences
-        else 0.0
-    )
+    avg_sentence_words = sum(len(s.split()) for s in sentences) / max(1, len(sentences)) if sentences else 0.0
 
     # ── SEO scoring + spellcheck issues ────────────────────────────────
     from app.services import seo as _seo_service
@@ -612,6 +597,7 @@ Return JSON with:
         import httpx as _httpx
 
         from app.core.config import get_settings as _get_settings
+
         _settings = _get_settings()
         async with _httpx.AsyncClient(timeout=8.0) as _client:
             _resp = await _client.post(
@@ -639,10 +625,7 @@ Return JSON with:
 
 
 @router.post("/seo", response_model=SeoResponse)
-async def analyze_seo_endpoint(
-    request: SeoRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def analyze_seo_endpoint(request: SeoRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Analyze content for SEO: keywords, score, meta title/description, and recommendations."""
     team = await db.get(Team, team_id)
     team_id = team.id if team else None
@@ -774,10 +757,7 @@ class GenerateImageResponse(BaseModel):
 
 
 @router.post("/generate-image", response_model=GenerateImageResponse)
-async def generate_image(
-    request: GenerateImageRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def generate_image(request: GenerateImageRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Generate an image via a text-to-image provider (local Diffusers, Cloudflare, or NVIDIA FLUX)."""
     import base64
 
@@ -798,6 +778,7 @@ async def generate_image(
     try:
         from app.models.brand import Brand, BrandVisual, BrandVoice
         from app.services.brand_assets import build_brand_image_prompt
+
         brand_result = await db.execute(select(Brand).where(Brand.team_id == team_id))
         brand = brand_result.scalars().first()
         if brand:
@@ -952,8 +933,7 @@ async def generate_image(
         base_url, model, api_key = await _get_provider_config(provider_name, team_id, db)
         if not api_key:
             raise HTTPException(
-                status_code=400,
-                detail=f"No API key configured for {provider_name}. Add NVIDIA_API_KEY in .env or configure in Settings → AI Providers."
+                status_code=400, detail=f"No API key configured for {provider_name}. Add NVIDIA_API_KEY in .env or configure in Settings → AI Providers."
             )
         image_bytes = await _call_nvidia_flux_dev(
             prompt=request.prompt,
@@ -964,7 +944,7 @@ async def generate_image(
             seed=request.seed,
             steps=request.steps,
         )
-        image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+        image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
     # ── Infographic text overlay: composite correctly-spelled text via PIL.
     if is_infographic and infographic_content:
@@ -1052,6 +1032,7 @@ async def generate_image(
 
 class GenerateImagePipelineRequest(BaseModel):
     """Request for FLUX pipeline: text-to-image -> image-to-image enhancement."""
+
     prompt: str
     negative_prompt: str = ""
     enhance_prompt: str = "Enhance image quality, improve details, fix artifacts, professional photography"
@@ -1066,6 +1047,7 @@ class GenerateImagePipelineRequest(BaseModel):
 
 class GenerateImagePipelineResponse(BaseModel):
     """Response for FLUX pipeline generation."""
+
     image_base64: str
     format: str = "base64"
     prompt: str
@@ -1078,9 +1060,8 @@ class GenerateImagePipelineResponse(BaseModel):
 
 @router.post("/generate-image-pipeline", response_model=GenerateImagePipelineResponse)
 async def generate_image_pipeline(
-    request: GenerateImagePipelineRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GenerateImagePipelineRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Full pipeline: FLUX.1-dev (text-to-image) -> FLUX.1-Kontext-dev (image-to-image enhancement)."""
     import base64
 
@@ -1096,18 +1077,17 @@ async def generate_image_pipeline(
 
     # Get provider configs for both models
     from app.services.inference import _get_provider_config
+
     flux_dev_url, _, flux_dev_key = await _get_provider_config("nvidia-flux-dev", team_id, db)
     flux_kontext_url, _, flux_kontext_key = await _get_provider_config("nvidia-flux", team_id, db)
 
     if not flux_dev_key:
         raise HTTPException(
-            status_code=400,
-            detail="No API key configured for NVIDIA FLUX.1-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux-dev')."
+            status_code=400, detail="No API key configured for NVIDIA FLUX.1-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux-dev')."
         )
     if not flux_kontext_key:
         raise HTTPException(
-            status_code=400,
-            detail="No API key configured for NVIDIA FLUX.1-Kontext-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux')."
+            status_code=400, detail="No API key configured for NVIDIA FLUX.1-Kontext-dev. Add it in Settings → AI Providers (provider name: 'nvidia-flux')."
         )
 
     # Call full pipeline
@@ -1129,7 +1109,7 @@ async def generate_image_pipeline(
     )
 
     # Convert to base64 for response
-    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
     # Save as draft
     draft_id = None
@@ -1184,6 +1164,7 @@ async def generate_image_pipeline(
 
 class SaveDraftRequest(BaseModel):
     """Save generated image as draft."""
+
     prompt: str
     image_base64: str
     enhanced_prompt: str | None = None
@@ -1198,10 +1179,7 @@ class SaveDraftResponse(BaseModel):
 
 
 @router.post("/save-draft", response_model=SaveDraftResponse)
-async def save_draft(
-    request: SaveDraftRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def save_draft(request: SaveDraftRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Save generated image as draft for later posting."""
     team = await db.get(Team, team_id)
 
@@ -1246,9 +1224,7 @@ class ListDraftsResponse(BaseModel):
 
 
 @router.get("/drafts", response_model=ListDraftsResponse)
-async def list_drafts(team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def list_drafts(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """List all saved drafts for the current user's team."""
     team = await db.get(Team, team_id)
 
@@ -1262,18 +1238,21 @@ async def list_drafts(team_id: TeamId,
     for result in results:
         if result.startswith("DRAFT:"):
             import json
+
             try:
                 draft_data = json.loads(result[6:])  # Remove "DRAFT:" prefix
-                drafts.append(DraftItem(
-                    draft_id="",  # We don't have the ID easily from chroma query
-                    prompt=draft_data.get("prompt", ""),
-                    image_base64=draft_data.get("image_base64", ""),
-                    enhanced_prompt=draft_data.get("enhanced_prompt"),
-                    platform=draft_data.get("platform"),
-                    caption=draft_data.get("caption"),
-                    hashtags=draft_data.get("hashtags", []),
-                    created_at=draft_data.get("created_at", ""),
-                ))
+                drafts.append(
+                    DraftItem(
+                        draft_id="",  # We don't have the ID easily from chroma query
+                        prompt=draft_data.get("prompt", ""),
+                        image_base64=draft_data.get("image_base64", ""),
+                        enhanced_prompt=draft_data.get("enhanced_prompt"),
+                        platform=draft_data.get("platform"),
+                        caption=draft_data.get("caption"),
+                        hashtags=draft_data.get("hashtags", []),
+                        created_at=draft_data.get("created_at", ""),
+                    )
+                )
             except Exception:
                 pass
 
@@ -1295,10 +1274,7 @@ class PostDraftResponse(BaseModel):
 
 
 @router.post("/post-draft", response_model=PostDraftResponse)
-async def post_draft(
-    request: PostDraftRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def post_draft(request: PostDraftRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Post a saved draft to the selected social platform."""
     from app.models.social_account import SocialAccount
 
@@ -1316,11 +1292,13 @@ async def post_draft(
         )
     else:
         account_result = await db.execute(
-            select(SocialAccount).where(
+            select(SocialAccount)
+            .where(
                 SocialAccount.team_id == team.id,
                 SocialAccount.platform == request.platform,
                 SocialAccount.status == "active",
-            ).limit(1)
+            )
+            .limit(1)
         )
     account = account_result.scalar_one_or_none()
     if not account:
@@ -1408,10 +1386,7 @@ def _validate_comfyui_job_id(job_id: str) -> str:
 
 
 @router.get("/generate-image/{job_id}")
-async def get_image_status(
-    job_id: str, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_image_status(job_id: str, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     safe_job_id = _validate_comfyui_job_id(job_id)
 
     try:
@@ -1434,11 +1409,7 @@ async def get_image_status(
                             storage_path = None
                             team = await db.get(Team, team_id)
                             if team:
-                                existing = await db.execute(
-                                    select(MediaAsset).where(
-                                        MediaAsset.generation_prompt == f"comfyui:{safe_job_id}"
-                                    )
-                                )
+                                existing = await db.execute(select(MediaAsset).where(MediaAsset.generation_prompt == f"comfyui:{safe_job_id}"))
                                 if existing.scalars().first() is None:
                                     img_resp = await client.get(
                                         f"{settings.COMFYUI_URL}/view",
@@ -1484,6 +1455,7 @@ async def get_image_status(
 
 class GenerateImageFluxRequest(BaseModel):
     """Request for NVIDIA FLUX.1-Kontext-dev text-to-image generation."""
+
     prompt: str
     negative_prompt: str = ""
     cfg_scale: float = 3.5
@@ -1493,6 +1465,7 @@ class GenerateImageFluxRequest(BaseModel):
 
 class GenerateImageFluxResponse(BaseModel):
     """Response for NVIDIA FLUX text-to-image generation."""
+
     image_base64: str
     format: str = "base64"
     prompt: str
@@ -1503,9 +1476,8 @@ class GenerateImageFluxResponse(BaseModel):
 
 @router.post("/generate-image-flux")
 async def generate_image_flux(
-    request: GenerateImageFluxRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GenerateImageFluxRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Generate image using NVIDIA's hosted FLUX.1-Kontext-dev API."""
     import base64
 
@@ -1516,13 +1488,11 @@ async def generate_image_flux(
 
     # Get provider config
     from app.services.inference import _get_provider_config
+
     base_url, model, api_key = await _get_provider_config("nvidia-flux", team_id, db)
 
     if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="No API key configured for NVIDIA FLUX. Add it in Settings → AI Providers (provider name: 'nvidia-flux')."
-        )
+        raise HTTPException(status_code=400, detail="No API key configured for NVIDIA FLUX. Add it in Settings → AI Providers (provider name: 'nvidia-flux').")
 
     # Call NVIDIA FLUX API - returns binary image data
     image_bytes = await _call_nvidia_flux(
@@ -1535,7 +1505,7 @@ async def generate_image_flux(
     )
 
     # Convert to base64 for response
-    image_base64 = base64.b64encode(image_bytes).decode('utf-8')
+    image_base64 = base64.b64encode(image_bytes).decode("utf-8")
 
     # Store prompt in chroma for deduplication
     if team and request.prompt:
@@ -1602,24 +1572,21 @@ def _schedule_chroma_index(coro) -> None:
 
 @router.post("/generate-content", response_model=GenerateContentResponse)
 async def generate_content(
-    request: GenerateContentRequest, team_id: TeamId,
+    request: GenerateContentRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     original_prompt = request.prompt  # chroma may append similar content below
     # Check chroma for similar existing content before generating
-    team_result = await db.execute(
-        select(Team).where(Team.id == team_id)
-    )
+    team_result = await db.execute(select(Team).where(Team.id == team_id))
     team = team_result.scalars().first()
     if team:
         await check_quota("ai_calls_per_month", team.id, db)
         similar = await chroma_client.query_similar(str(team.id), request.prompt, n_results=3)
         if similar:
             # Surface similar content in prompt so Ollama can differentiate
-            request = request.model_copy(
-                update={"prompt": f"{request.prompt}\n\n[Note: avoid repeating these similar posts: {similar[:2]}]"}
-            )
+            request = request.model_copy(update={"prompt": f"{request.prompt}\n\n[Note: avoid repeating these similar posts: {similar[:2]}]"})
 
     # Load brand context for on-brand generation
     brand_dict: dict | None = None
@@ -1627,12 +1594,14 @@ async def generate_content(
     brand_context_str = ""
     if team:
         from app.services.brand_compliance import load_brand_context
+
         brand_dict, voice_dict, brand_context_str = await load_brand_context(db, team.id)
 
     # Load saved content prompt template if provided
     saved_template = None
     if request.template_id and team:
         from app.models.workflow import ContentPromptTemplate
+
         tpl_result = await db.execute(
             select(ContentPromptTemplate).where(
                 ContentPromptTemplate.id == request.template_id,
@@ -1686,9 +1655,7 @@ async def generate_content(
     if team:
         from app.services.kakkava import doctrine_context
 
-        doctrine_section = await doctrine_context(
-            team.id, request.prompt, n_results=3
-        )
+        doctrine_section = await doctrine_context(team.id, request.prompt, n_results=3)
 
     # Build prompt — use saved template if available, otherwise default
     brand_section = f"\n\nBRAND CONTEXT:\n{brand_context_str}\n" if brand_context_str else ""
@@ -1724,9 +1691,7 @@ async def generate_content(
         else ""
     )
     json_contract = (
-        "subject, content, suggested_media (string or null)"
-        if request.platform == "email"
-        else "content, hashtags (array), suggested_media (string or null)"
+        "subject, content, suggested_media (string or null)" if request.platform == "email" else "content, hashtags (array), suggested_media (string or null)"
     )
     if saved_template:
         # Replace variables in the user prompt template
@@ -1777,8 +1742,13 @@ Return JSON with: {json_contract}"""
 
     team_id_for_gen = team.id if team else None
     result = await call_inference(
-        prompt, provider_name=request.provider, db=db, team_id=team_id_for_gen,
-        schema=schema, model_override=request.model, platform=request.platform,
+        prompt,
+        provider_name=request.provider,
+        db=db,
+        team_id=team_id_for_gen,
+        schema=schema,
+        model_override=request.model,
+        platform=request.platform,
     )
     content = result.get("content", "")
     content = await rewrite_plain_english(
@@ -1795,6 +1765,7 @@ Return JSON with: {json_contract}"""
     if team and brand_context_str and content:
         try:
             from app.services.brand_compliance import score_brand_compliance
+
             brand_compliance = await score_brand_compliance(
                 content=content,
                 brand=brand_dict,
@@ -1848,16 +1819,10 @@ Return JSON with: {json_contract}"""
     subject_text = result.get("subject") or ""
     if request.platform == "email":
         brief_numbers = set(re.findall(r"\d+", original_prompt))
-        scrubbed = re.sub(
-            r"https?://\S+|\{\{[^}]+\}\}", "", subject_text + "\n" + quality.content
-        )
+        scrubbed = re.sub(r"https?://\S+|\{\{[^}]+\}\}", "", subject_text + "\n" + quality.content)
         invented = sorted(set(re.findall(r"\d+", scrubbed)) - brief_numbers)
         if invented:
-            warnings.append(
-                "AI-invented numbers not in your brief: "
-                + ", ".join(invented)
-                + " — review or remove before sending"
-            )
+            warnings.append("AI-invented numbers not in your brief: " + ", ".join(invented) + " — review or remove before sending")
 
     return GenerateContentResponse(
         content=quality.content,
@@ -2068,7 +2033,8 @@ Return JSON with:
 
 @router.post("/best-time-to-post", response_model=BestTimeResponse)
 async def best_time_to_post(
-    request: BestTimeRequest, team_id: TeamId,
+    request: BestTimeRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
@@ -2107,11 +2073,7 @@ async def best_time_to_post(
         )
         .group_by(Post.id, Post.published_at)
     )
-    samples = [
-        (published_at, rate)
-        for published_at, rate in samples_result.all()
-        if published_at is not None
-    ]
+    samples = [(published_at, rate) for published_at, rate in samples_result.all() if published_at is not None]
 
     # Platform defaults (used when insufficient data)
     platform_defaults = {
@@ -2160,10 +2122,7 @@ async def best_time_to_post(
 
 
 @router.post("/improve-content", response_model=ImproveContentResponse)
-async def improve_content(
-    request: ImproveContentRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def improve_content(request: ImproveContentRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     prompt = f"""Improve this {request.platform} post for {request.resolved_goal()}:
 
 Original: "{request.content}"
@@ -2185,10 +2144,14 @@ Return JSON with: improved_content (string), changes (array of strings describin
     team = await db.get(Team, team_id)
 
     from app.services.brand_compliance import load_brand_context
+
     _, _, brand_context = await load_brand_context(db, team.id if team else None)
 
     result = await call_inference(
-        prompt, provider_name="dmr", schema=schema, platform=request.platform,
+        prompt,
+        provider_name="dmr",
+        schema=schema,
+        platform=request.platform,
         brand_context=brand_context or None,
     )
     improved = result.get("improved_content", request.content)
@@ -2217,10 +2180,7 @@ Return JSON with: improved_content (string), changes (array of strings describin
 
 
 @router.post("/generate-workflow", response_model=GenerateWorkflowResponse)
-async def generate_workflow(
-    request: GenerateWorkflowRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db=Depends(get_db)):
+async def generate_workflow(request: GenerateWorkflowRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db=Depends(get_db)):
     # Parse intent from prompt using Ollama
     intent_prompt = f"""Analyze this prompt and extract the workflow intent:
 
@@ -2268,11 +2228,7 @@ Return JSON with:
         template = result.scalar_one_or_none()
     else:
         # Search for template by category
-        result = await db.execute(
-            select(PromptTemplate)
-            .where(PromptTemplate.category == intent.get("intent"), PromptTemplate.is_public)
-            .limit(1)
-        )
+        result = await db.execute(select(PromptTemplate).where(PromptTemplate.category == intent.get("intent"), PromptTemplate.is_public).limit(1))
         template = result.scalar_one_or_none()
 
     # Build n8n workflow based on intent
@@ -2281,6 +2237,7 @@ Return JSON with:
     variables_used = {}
     if template:
         import re
+
         vars_found = re.findall(r"{{(\w+)}}", template.prompt_template)
         for var in vars_found:
             variables_used[var] = f"<{var}>"
@@ -2327,88 +2284,98 @@ async def _build_workflow_from_intent(intent: dict, template: PromptTemplate | N
     # Add data source node if needed
     if "github" in intent.get("data_sources", []):
         node_y += 100
-        nodes.append({
-            "name": "GitHub Trigger",
-            "type": "n8n-nodes-base.github",
-            "typeVersion": 1,
-            "position": [250, node_y],
-            "parameters": {
-                "event": "push",
-                "repository": "={{$workflow.variables.github_repo}}",
-            },
-        })
+        nodes.append(
+            {
+                "name": "GitHub Trigger",
+                "type": "n8n-nodes-base.github",
+                "typeVersion": 1,
+                "position": [250, node_y],
+                "parameters": {
+                    "event": "push",
+                    "repository": "={{$workflow.variables.github_repo}}",
+                },
+            }
+        )
 
     # Add LLM processing node (always needed — content generation is core)
     node_y += 100
-    nodes.append({
-        "name": "Process Content",
-        "type": "n8n-nodes-base.httpRequest",
-        "typeVersion": 1,
-        "position": [250, node_y],
-        "parameters": {
-            "url": f"{settings.DMR_URL}/chat/completions",
-            "method": "POST",
-            "jsonParameters": True,
-            "options": {
-                "model": settings.DMR_TEXT_MODEL,
-                "prompt": "Process: {{ $json.content }}",
-                "format": "json",
-            },
-        },
-    })
-
-    # Add image generation if needed (via social-api Cloudflare Workers AI)
-    if intent.get("needs_image"):
-        node_y += 100
-        nodes.append({
-            "name": "Generate Image",
+    nodes.append(
+        {
+            "name": "Process Content",
             "type": "n8n-nodes-base.httpRequest",
             "typeVersion": 1,
             "position": [250, node_y],
             "parameters": {
-                "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
+                "url": f"{settings.DMR_URL}/chat/completions",
                 "method": "POST",
                 "jsonParameters": True,
                 "options": {
-                    "prompt": "{{ $json.prompt || $json.content }}",
-                    "provider": "cloudflare",
+                    "model": settings.DMR_TEXT_MODEL,
+                    "prompt": "Process: {{ $json.content }}",
+                    "format": "json",
                 },
             },
-        })
+        }
+    )
+
+    # Add image generation if needed (via social-api Cloudflare Workers AI)
+    if intent.get("needs_image"):
+        node_y += 100
+        nodes.append(
+            {
+                "name": "Generate Image",
+                "type": "n8n-nodes-base.httpRequest",
+                "typeVersion": 1,
+                "position": [250, node_y],
+                "parameters": {
+                    "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
+                    "method": "POST",
+                    "jsonParameters": True,
+                    "options": {
+                        "prompt": "{{ $json.prompt || $json.content }}",
+                        "provider": "cloudflare",
+                    },
+                },
+            }
+        )
 
     # Add platform posting nodes
     for i, platform in enumerate(intent.get("platforms", ["linkedin"])):
         node_y += 100
-        nodes.append({
-            "name": f"Post to {platform.title()}",
-            "type": f"n8n-nodes-base.{platform}",
-            "typeVersion": 1,
-            "position": [500 + i * 200, node_y],
-            "parameters": {
-                "operation": "post",
-                "text": "={{$json.content}}",
-            },
-        })
+        nodes.append(
+            {
+                "name": f"Post to {platform.title()}",
+                "type": f"n8n-nodes-base.{platform}",
+                "typeVersion": 1,
+                "position": [500 + i * 200, node_y],
+                "parameters": {
+                    "operation": "post",
+                    "text": "={{$json.content}}",
+                },
+            }
+        )
 
     # Add scheduling if needed
     if intent.get("needs_scheduling"):
         node_y += 100
-        nodes.append({
-            "name": "Schedule",
-            "type": "n8n-nodes-base.cron",
-            "typeVersion": 1,
-            "position": [250, node_y],
-            "parameters": {
-                "triggerTimes": {
-                    "item": [
-                        {
-                            "hour": 9,
-                            "minute": 0,
-                        }
-                    ]
+        nodes.append(
+            {
+                "name": "Schedule",
+                "type": "n8n-nodes-base.cron",
+                "typeVersion": 1,
+                "position": [250, node_y],
+                "parameters": {
+                    "triggerTimes": {
+                        "item": [
+                            {
+                                "hour": 9,
+                                "minute": 0,
+                            }
+                        ]
+                    },
                 },
-            },
-        })
+            }
+        )
 
     return {
         "name": f"AI Generated: {intent.get('intent', 'custom')}",
@@ -2418,37 +2385,38 @@ async def _build_workflow_from_intent(intent: dict, template: PromptTemplate | N
     }
 
 
-async def _recent_published_captions(
-    db: AsyncSession, team_id: uuid.UUID, platform: str, *, limit: int = 15
-) -> list[str]:
+async def _recent_published_captions(db: AsyncSession, team_id: uuid.UUID, platform: str, *, limit: int = 15) -> list[str]:
     """Full publish-text of the team's most recent published posts on a
     platform — used both to steer generation away from already-told
     stories and as the comparison set for the duplicate gate."""
     from app.services.publishing import _build_post_text
 
     rows = (
-        await db.execute(
-            select(Post)
-            .join(PostTarget, PostTarget.post_id == Post.id)
-            .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
-            .where(
-                Post.team_id == team_id,
-                Post.status == PostStatus.PUBLISHED,
-                PostTarget.status == "published",
-                SocialAccount.platform == platform,
+        (
+            await db.execute(
+                select(Post)
+                .join(PostTarget, PostTarget.post_id == Post.id)
+                .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+                .where(
+                    Post.team_id == team_id,
+                    Post.status == PostStatus.PUBLISHED,
+                    PostTarget.status == "published",
+                    SocialAccount.platform == platform,
+                )
+                .order_by(Post.published_at.desc())
+                .limit(limit)
             )
-            .order_by(Post.published_at.desc())
-            .limit(limit)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [_build_post_text(p, platform) for p in rows]
 
 
 @router.post("/generate-carousel", response_model=GenerateCarouselResponse)
 async def generate_carousel(
-    request: GenerateCarouselRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GenerateCarouselRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     # Check chroma for similar existing carousel content before generating
     team = await db.get(Team, team_id)
     if team:
@@ -2456,9 +2424,7 @@ async def generate_carousel(
         similar = await chroma_client.query_similar(str(team.id), request.topic, n_results=3)
         if similar:
             # Surface similar content in prompt so AI can differentiate
-            request = request.model_copy(
-                update={"topic": f"{request.topic}\n\n[Note: avoid repeating these similar carousels: {similar[:2]}]"}
-            )
+            request = request.model_copy(update={"topic": f"{request.topic}\n\n[Note: avoid repeating these similar carousels: {similar[:2]}]"})
         # Steer away from stories already published on this platform —
         # the publish worker refuses near-identical captions anyway, so
         # generating them just burns a full FLUX render batch before the
@@ -2467,12 +2433,7 @@ async def generate_carousel(
         if recent:
             avoid = "; ".join((c or "").strip().split("\n", 1)[0][:80] for c in recent[:15] if c)
             request = request.model_copy(
-                update={
-                    "topic": (
-                        f"{request.topic}\n\n[Do NOT retell or repackage these "
-                        f"recently published stories — pick a fresh angle: {avoid}]"
-                    )
-                }
+                update={"topic": (f"{request.topic}\n\n[Do NOT retell or repackage these recently published stories — pick a fresh angle: {avoid}]")}
             )
 
     platform_guides = {
@@ -2530,12 +2491,18 @@ Return JSON with:
     import httpx as _httpx
 
     from app.services.brand_compliance import load_brand_context
+
     _, _, brand_context_str = await load_brand_context(db, team.id if team else None)
 
     try:
         result = await call_inference(
-            prompt, provider_name=request.provider, db=db, team_id=team_id,
-            schema=schema, model_override=request.model, platform=request.platform,
+            prompt,
+            provider_name=request.provider,
+            db=db,
+            team_id=team_id,
+            schema=schema,
+            model_override=request.model,
+            platform=request.platform,
             brand_context=brand_context_str or None,
         )
     except HTTPException:
@@ -2650,9 +2617,8 @@ class GenerateCarouselPipelineResponse(BaseModel):
 
 @router.post("/generate-carousel-pipeline", response_model=GenerateCarouselPipelineResponse)
 async def generate_carousel_pipeline(
-    request: GenerateCarouselPipelineRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GenerateCarouselPipelineRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """CF-only carousel pipeline:
 
     1. LLM slide copy
@@ -2718,21 +2684,22 @@ async def generate_carousel_pipeline(
     cleaned_slides = cleaned_caption = nlp_report = copy = None
     for attempt in range(2):
         copy, cleaned_slides, cleaned_caption, nlp_report = await _produce_copy(
-            extra_note="" if attempt == 0 else (
-                "\n\n[STRICT: your previous caption was refused as a duplicate "
-                "of a recently published post — choose a DIFFERENT story/angle.]"
-            )
+            extra_note=""
+            if attempt == 0
+            else ("\n\n[STRICT: your previous caption was refused as a duplicate of a recently published post — choose a DIFFERENT story/angle.]")
         )
         logger.info(f"[carousel-pipeline] nlp {nlp_report.to_dict()}")
         if not any(_is_dup(cleaned_caption, c, threshold=0.48) for c in recent_caps):
             break
-        logger.warning("[carousel-pipeline] generated caption duplicates a published post — retrying" if attempt == 0
-                       else "[carousel-pipeline] caption still duplicates a published post — refusing")
+        logger.warning(
+            "[carousel-pipeline] generated caption duplicates a published post — retrying"
+            if attempt == 0
+            else "[carousel-pipeline] caption still duplicates a published post — refusing"
+        )
     else:
         raise HTTPException(
             status_code=409,
-            detail="Generated caption duplicates a recently published post — "
-            "refusing before media render. Change the topic or wait.",
+            detail="Generated caption duplicates a recently published post — refusing before media render. Change the topic or wait.",
         )
 
     media_ids: list[uuid.UUID] = []
@@ -2874,9 +2841,7 @@ async def generate_carousel_pipeline(
 
 
 class RunCarouselAndPublishRequest(BaseModel):
-    topic: str = (
-        "How cloudless.gr helps teams ship serverless apps without managing servers"
-    )
+    topic: str = "How cloudless.gr helps teams ship serverless apps without managing servers"
     num_slides: int = 7
     tone: str = "clear and friendly"
     include_cta: bool = True
@@ -2893,9 +2858,8 @@ class RunCarouselAndPublishRequest(BaseModel):
 
 @router.post("/run-carousel-and-publish")
 async def run_carousel_and_publish(
-    request: RunCarouselAndPublishRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: RunCarouselAndPublishRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """n8n-friendly full pipeline: copy → NLP → CF images → brand → post → LinkedIn org.
 
     Intended for the Cloudless n8n schedule/webhook workflow.
@@ -2951,6 +2915,7 @@ async def run_carousel_and_publish(
 
 
 # ── Generation template helpers ───────────────────────────────────────────────
+
 
 class SaveGenerationTemplateRequest(BaseModel):
     name: str
@@ -3013,9 +2978,8 @@ async def _save_generation_template(
 
 @router.post("/save-generation-template", response_model=SaveGenerationTemplateResponse)
 async def save_generation_template(
-    request: SaveGenerationTemplateRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: SaveGenerationTemplateRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Save a successful generation run as a reusable template in the Workflows page."""
     team = await db.get(Team, team_id)
     if not team:
@@ -3098,22 +3062,22 @@ async def spellcheck(
     data = resp.json()
     matches = []
     for m in data.get("matches", []):
-        matches.append(SpellcheckMatch(
-            message=m.get("message", ""),
-            offset=m.get("offset", 0),
-            length=m.get("length", 0),
-            replacements=[r["value"] for r in m.get("replacements", [])[:5]],
-            rule_id=m.get("rule", {}).get("id", ""),
-            context=m.get("context", {}).get("text", ""),
-        ))
+        matches.append(
+            SpellcheckMatch(
+                message=m.get("message", ""),
+                offset=m.get("offset", 0),
+                length=m.get("length", 0),
+                replacements=[r["value"] for r in m.get("replacements", [])[:5]],
+                rule_id=m.get("rule", {}).get("id", ""),
+                context=m.get("context", {}).get("text", ""),
+            )
+        )
 
     return SpellcheckResponse(matches=matches, language=request.language)
 
 
 @router.post("/seed-default-workflows")
-async def seed_default_workflows(team_id: TeamId,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)):
+async def seed_default_workflows(team_id: TeamId, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Upsert one default PromptTemplate per content type so Workflows page shows them."""
     team = await db.get(Team, team_id)
     if not team:
@@ -3138,17 +3102,19 @@ async def seed_default_workflows(team_id: TeamId,
             f"Primary model: {primary_model}. "
             f"Fallback: {config.get('hf_text_fallback') or config.get('hf_txt2img_fallback', 'HF free tier')}."
         )
-        db.add(PromptTemplate(
-            id=str(uuid.uuid4()),
-            name=template_name,
-            description=config["description"],
-            prompt_template=prompt_text,
-            category=content_type,
-            tags=[content_type, "default", "auto"],
-            is_public=False,
-            team_id=team.id,
-            n8n_workflow_json=config,
-        ))
+        db.add(
+            PromptTemplate(
+                id=str(uuid.uuid4()),
+                name=template_name,
+                description=config["description"],
+                prompt_template=prompt_text,
+                category=content_type,
+                tags=[content_type, "default", "auto"],
+                is_public=False,
+                team_id=team.id,
+                n8n_workflow_json=config,
+            )
+        )
         seeded.append(template_name)
 
     await db.commit()
@@ -3164,6 +3130,7 @@ async def seed_default_workflows(team_id: TeamId,
 
 class DmrStatusResponse(BaseModel):
     """DMR health and status response."""
+
     online: bool
     url: str
     text_model: str
@@ -3210,6 +3177,7 @@ async def dmr_status(
 
 class DmrChatRequest(BaseModel):
     """DMR chat request with streaming and tool calling support."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     prompt: str
@@ -3262,6 +3230,7 @@ async def dmr_chat(
 
 class DmrVisionRequest(BaseModel):
     """DMR vision (multimodal) request."""
+
     image_base64: str
     prompt: str
     max_tokens: int = 60
@@ -3270,6 +3239,7 @@ class DmrVisionRequest(BaseModel):
 
 class DmrVisionResponse(BaseModel):
     """DMR vision response."""
+
     text: str | None = None
     error: str | None = None
 
@@ -3302,6 +3272,7 @@ async def dmr_vision(
 
 class DmrBenchmarkRequest(BaseModel):
     """DMR benchmark request."""
+
     model: str
     force: bool = False
 
@@ -3354,6 +3325,7 @@ async def dmr_warmup(
 
 class DmrKeepAliveRequest(BaseModel):
     """DMR keep-alive configuration request."""
+
     model: str
     keep_alive: str = "5m"
 
@@ -3374,6 +3346,7 @@ async def dmr_keep_alive(
 
 class DmrSpeculativeDecodingRequest(BaseModel):
     """DMR speculative decoding configuration request."""
+
     model: str
     draft_model: str = "hf.co/Qwen/Qwen3-0.6B-GGUF"
 
@@ -3531,10 +3504,8 @@ async def _remove_background_white(image_b64: str, tolerance: int = 30) -> str:
 @router.post("/emoji/generate", response_model=EmojiGenerateResponse)
 @limiter.limit("10/minute")
 async def generate_emoji(
-    request: Request,
-    payload: EmojiGenerateRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: Request, payload: EmojiGenerateRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Generate an emoji or icon for social media content.
 
     Pipeline:
@@ -3608,9 +3579,7 @@ Keep it under 100 words. Start directly with the subject description."""
             # Fall back to raw concept
 
     # Step 2: Build full SD prompt with style preset
-    positive_prompt, style_negative = _build_emoji_prompt(
-        concept, payload.style, payload.background, payload.bg_color
-    )
+    positive_prompt, style_negative = _build_emoji_prompt(concept, payload.style, payload.background, payload.bg_color)
     negative_prompt = f"{payload.negative_prompt}, {style_negative}".strip(", ")
 
     # Step 3: Generate the image
@@ -3734,10 +3703,8 @@ class EmojiBatchResponse(BaseModel):
 @router.post("/emoji/batch", response_model=EmojiBatchResponse)
 @limiter.limit("5/minute")
 async def generate_emoji_batch(
-    request: Request,
-    payload: EmojiBatchRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: Request, payload: EmojiBatchRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Generate multiple emojis/icons in a single request.
 
     Useful for creating a full sticker pack or icon set.
@@ -3771,22 +3738,24 @@ async def generate_emoji_batch(
                 remove_bg=payload.remove_bg,
             )
             # Call the internal logic directly (not the HTTP endpoint)
-            result = await generate_emoji(
-                request, single_req, team_id, current_user=current_user, db=db
+            result = await generate_emoji(request, single_req, team_id, current_user=current_user, db=db)
+            emojis.append(
+                {
+                    "concept": concept,
+                    "image_base64": result.image_base64,
+                    "success": True,
+                    "provider": result.provider,
+                    "quality_check": result.quality_check,
+                }
             )
-            emojis.append({
-                "concept": concept,
-                "image_base64": result.image_base64,
-                "success": True,
-                "provider": result.provider,
-                "quality_check": result.quality_check,
-            })
         except Exception as exc:
-            emojis.append({
-                "concept": concept,
-                "success": False,
-                "error": str(exc)[:200],
-            })
+            emojis.append(
+                {
+                    "concept": concept,
+                    "success": False,
+                    "error": str(exc)[:200],
+                }
+            )
 
     return EmojiBatchResponse(emojis=emojis)
 
@@ -3811,8 +3780,6 @@ async def list_emoji_styles(
         "backgrounds": ["transparent", "white", "colored"],
         "providers": ["local-diffusers", "cloudflare"],
     }
-
-
 
 
 class GenerateBlogArticleRequest(BaseModel):
@@ -3840,10 +3807,8 @@ class GenerateBlogArticleResponse(BaseModel):
 @router.post("/generate-blog-article", response_model=GenerateBlogArticleResponse)
 @limiter.limit("10/minute")
 async def generate_blog_article(
-    request: Request,
-    body: GenerateBlogArticleRequest, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: Request, body: GenerateBlogArticleRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Generate a full blog article via DMR and publish it to the
     cloudless.gr datalake so it appears at https://cloudless.gr/blog.
 
@@ -3873,6 +3838,7 @@ async def generate_blog_article(
     brand_context_str = ""
     if team:
         from app.services.brand_compliance import load_brand_context
+
         _, _, brand_context_str = await load_brand_context(db, team.id)
 
     prompt = blog_articles.build_article_prompt(body.topic, body.extra_context)

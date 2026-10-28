@@ -43,9 +43,7 @@ def instrument_app(app: FastAPI) -> None:
     provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
     trace.set_tracer_provider(provider)
 
-    FastAPIInstrumentor.instrument_app(
-        app, excluded_urls="metrics|favicon|health|ready|live"
-    )
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="metrics|favicon|health|ready|live")
     HTTPXClientInstrumentor().instrument()
     logger.info(
         "OpenTelemetry tracing enabled, exporting to %s",

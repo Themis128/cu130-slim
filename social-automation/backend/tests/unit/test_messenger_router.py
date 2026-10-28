@@ -7,6 +7,7 @@ thread controls, and the bot builder. Route functions are invoked directly
 with fake sessions; MessengerAPIClient, browser bridge, httpx and the
 messenger_chatbot service are monkeypatched. No network, no database.
 """
+
 import hashlib
 import hmac
 import json
@@ -25,6 +26,7 @@ from app.models.user import TeamMember, User
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
 
 class _Scalars:
     def __init__(self, items):
@@ -78,10 +80,7 @@ class FakeDB:
                 res = [a for a in res if a.account_type in types]
             return _Result(res)
         if entity is TeamMember:
-            return _Result([
-                m for m in self.memberships
-                if m.user_id in _vals("user_id") or m.team_id in _vals("team_id")
-            ])
+            return _Result([m for m in self.memberships if m.user_id in _vals("user_id") or m.team_id in _vals("team_id")])
         # Brand or other models — match on team_id when present
         teams = _vals("team_id")
         res = [b for b in self.brands if not teams or getattr(b, "team_id", None) in teams]
@@ -108,9 +107,13 @@ def _page(**kw) -> SocialAccount:
         team_id=kw.get("team_id", uuid.uuid4()),
         platform="facebook",
         account_id=kw.get("account_id", "pg-1"),
-        username="pg", display_name="Page",
-        status="active", is_business=True, account_type="page",
-        access_token_enc=encrypt_token("at"), scopes=[],
+        username="pg",
+        display_name="Page",
+        status="active",
+        is_business=True,
+        account_type="page",
+        access_token_enc=encrypt_token("at"),
+        scopes=[],
         meta_data=meta,
     )
 
@@ -124,14 +127,13 @@ def _fb_user(**kw) -> SocialAccount:
 
 class _MsgClient:
     """Fake MessengerAPIClient — records calls, configurable results."""
+
     calls = []
     page_info = {"name": "Cloudless", "website": "https://cloudless.gr"}
     profile = {"greeting": [{"locale": "default"}], "get_started": {"payload": "GO"}}
     subscribed_apps = [{"id": "app"}]
-    conversations = [{"id": "t1", "snippet": "hi", "updated_time": "now",
-                      "participants": {"data": [{"id": "u1"}]}}]
-    messages = [{"id": "m1", "message": "hello", "from": {"id": "u1"},
-                 "created_time": "t"}]
+    conversations = [{"id": "t1", "snippet": "hi", "updated_time": "now", "participants": {"data": [{"id": "u1"}]}}]
+    messages = [{"id": "m1", "message": "hello", "from": {"id": "u1"}, "created_time": "t"}]
     error: Exception | None = None
     fail_methods: set = set()
 
@@ -220,6 +222,7 @@ def _patch_client(monkeypatch):
 # Authz helpers + client builder
 # ---------------------------------------------------------------------------
 
+
 class TestPageAccountLookup:
     pytestmark = pytest.mark.asyncio
 
@@ -238,7 +241,9 @@ class TestPageAccountLookup:
         a = _page()
         with pytest.raises(HTTPException) as e:
             await messenger._get_facebook_page_account(
-                FakeDB(accounts=[a]), a.id, _user(),
+                FakeDB(accounts=[a]),
+                a.id,
+                _user(),
             )
         assert e.value.status_code == 403
 
@@ -247,14 +252,18 @@ class TestPageAccountLookup:
         u = _user()
         m = TeamMember(team_id=a.team_id, user_id=u.id)
         out = await messenger._get_facebook_page_account(
-            FakeDB(accounts=[a], memberships=[m]), a.id, u,
+            FakeDB(accounts=[a], memberships=[m]),
+            a.id,
+            u,
         )
         assert out is a
 
     async def test_admin_bypass(self):
         a = _page()
         out = await messenger._get_facebook_page_account(
-            FakeDB(accounts=[a]), a.id, _admin(),
+            FakeDB(accounts=[a]),
+            a.id,
+            _admin(),
         )
         assert out is a
 
@@ -292,6 +301,7 @@ class TestIcebreakerInterest:
 # Setup / profile / unsubscribe
 # ---------------------------------------------------------------------------
 
+
 class TestSetup:
     pytestmark = pytest.mark.asyncio
 
@@ -326,6 +336,7 @@ class TestSetup:
     async def test_setup_rate_limited_partial_success(self, monkeypatch):
         async def rl(self, **kw):
             raise RuntimeError("(#613) rate limit exceeded")
+
         monkeypatch.setattr(_MsgClient, "setup_default_profile", rl)
         a = _page()
         out = await messenger.setup_messenger(a.id, None, FakeDB(accounts=[a]), _admin())
@@ -348,7 +359,10 @@ class TestSetup:
         a = _page()
         with pytest.raises(HTTPException) as e:
             await messenger.update_messenger_profile(
-                a.id, messenger.MessengerProfileUpdate(), FakeDB(accounts=[a]), _admin(),
+                a.id,
+                messenger.MessengerProfileUpdate(),
+                FakeDB(accounts=[a]),
+                _admin(),
             )
         assert e.value.status_code == 400
 
@@ -357,20 +371,23 @@ class TestSetup:
         out = await messenger.update_messenger_profile(
             a.id,
             messenger.MessengerProfileUpdate(greeting=[{"locale": "en"}]),
-            FakeDB(accounts=[a]), _admin(),
+            FakeDB(accounts=[a]),
+            _admin(),
         )
         assert out["fields"] == ["greeting"]
 
     async def test_delete_profile_fields(self):
         a = _page()
         out = await messenger.delete_messenger_profile_fields(
-            a.id, ["persistent_menu"], FakeDB(accounts=[a]), _admin(),
+            a.id,
+            ["persistent_menu"],
+            FakeDB(accounts=[a]),
+            _admin(),
         )
         assert out["result"] == "deleted"
 
     async def test_unsubscribe_clears_meta(self):
-        a = _page(meta_data={"page_token": "EAApg",
-                             "messenger_setup": {"subscribed": True}})
+        a = _page(meta_data={"page_token": "EAApg", "messenger_setup": {"subscribed": True}})
         db = FakeDB(accounts=[a])
         out = await messenger.unsubscribe_messenger(a.id, db, _admin())
         assert out["success"] is True
@@ -381,6 +398,7 @@ class TestSetup:
 # Send + conversations
 # ---------------------------------------------------------------------------
 
+
 class TestSendAndConversations:
     pytestmark = pytest.mark.asyncio
 
@@ -388,25 +406,30 @@ class TestSendAndConversations:
         a = _page()
         with pytest.raises(HTTPException) as e:
             await messenger.send_message(
-                a.id, messenger.SendMessageRequest(recipient_psid="p1"),
-                FakeDB(accounts=[a]), _admin(),
+                a.id,
+                messenger.SendMessageRequest(recipient_psid="p1"),
+                FakeDB(accounts=[a]),
+                _admin(),
             )
         assert e.value.status_code == 400
 
     async def test_send_text(self):
         a = _page()
         out = await messenger.send_message(
-            a.id, messenger.SendMessageRequest(recipient_psid="p1", text="hi"),
-            FakeDB(accounts=[a]), _admin(),
+            a.id,
+            messenger.SendMessageRequest(recipient_psid="p1", text="hi"),
+            FakeDB(accounts=[a]),
+            _admin(),
         )
         assert out["message_id"] == "mid" and "send_text" in _MsgClient.calls
 
     async def test_send_image(self):
         a = _page()
         await messenger.send_message(
-            a.id, messenger.SendMessageRequest(recipient_psid="p1",
-                                               image_url="https://x/i.png"),
-            FakeDB(accounts=[a]), _admin(),
+            a.id,
+            messenger.SendMessageRequest(recipient_psid="p1", image_url="https://x/i.png"),
+            FakeDB(accounts=[a]),
+            _admin(),
         )
         assert "send_image_url" in _MsgClient.calls
 
@@ -415,35 +438,41 @@ class TestSendAndConversations:
         out = await messenger.send_quick_replies(
             a.id,
             messenger.SendQuickRepliesRequest(
-                recipient_psid="p1", text="pick", quick_replies=[{"title": "A"}],
+                recipient_psid="p1",
+                text="pick",
+                quick_replies=[{"title": "A"}],
             ),
-            FakeDB(accounts=[a]), _admin(),
+            FakeDB(accounts=[a]),
+            _admin(),
         )
         assert out["recipient_id"] == "p1"
 
     async def test_list_conversations_shape(self):
         a = _page()
-        out = await messenger.list_conversations(a.id, 25, "messenger",
-                                                 FakeDB(accounts=[a]), _admin())
+        out = await messenger.list_conversations(a.id, 25, "messenger", FakeDB(accounts=[a]), _admin())
         assert out[0].id == "t1" and out[0].participants == [{"id": "u1"}]
 
     async def test_conversation_messages_shape(self):
         a = _page()
         out = await messenger.get_conversation_messages(
-            a.id, "t1", 20, FakeDB(accounts=[a]), _admin(),
+            a.id,
+            "t1",
+            20,
+            FakeDB(accounts=[a]),
+            _admin(),
         )
         assert out[0].message == "hello" and out[0].from_id == "u1"
 
     async def test_get_user_profile(self):
         a = _page()
-        out = await messenger.get_user_profile(a.id, "psid-9",
-                                               FakeDB(accounts=[a]), _admin())
+        out = await messenger.get_user_profile(a.id, "psid-9", FakeDB(accounts=[a]), _admin())
         assert out["first_name"] == "F"
 
 
 # ---------------------------------------------------------------------------
 # Auto-reply config
 # ---------------------------------------------------------------------------
+
 
 class TestAutoReplyConfig:
     pytestmark = pytest.mark.asyncio
@@ -478,6 +507,7 @@ class TestAutoReplyConfig:
 # ---------------------------------------------------------------------------
 # Webhook: signature + verify + receive
 # ---------------------------------------------------------------------------
+
 
 class TestWebhookVerify:
     def test_signature_valid(self):
@@ -520,6 +550,7 @@ class _H:
 def _request(body: bytes, headers: dict | None = None):
     async def body_fn():
         return body
+
     return SimpleNamespace(body=body_fn, headers=_H(headers or {}))
 
 
@@ -542,7 +573,8 @@ class TestReceiveWebhook:
         sig = hmac.new(b"sec", body, hashlib.sha256).hexdigest()
         monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [])
         out = await messenger.receive_webhook(
-            _request(body, {"X-Hub-Signature-256": f"sha256={sig}"}), FakeDB(),
+            _request(body, {"X-Hub-Signature-256": f"sha256={sig}"}),
+            FakeDB(),
         )
         assert out["status"] == "ok" and out["events_received"] == 0
 
@@ -555,10 +587,13 @@ class TestReceiveWebhook:
             seen.append(kw["payload"])
 
         monkeypatch.setattr(messenger, "_upsert_icebreaker_lead", upsert)
-        monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [
-            {"page_id": "pg-1", "sender_psid": "u1", "message_type": "postback",
-             "postback_payload": "LEAD_AUDIT", "message_id": "m1", "timestamp": 1},
-        ])
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "postback", "postback_payload": "LEAD_AUDIT", "message_id": "m1", "timestamp": 1},
+            ],
+        )
         monkeypatch.setattr(messenger, "_process_inline", lambda *a, **k: _async(None))
         monkeypatch.setenv("MESSENGER_SIDECAR_URL", "")
         monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "")
@@ -570,10 +605,13 @@ class TestReceiveWebhook:
         monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
         monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "")
         monkeypatch.setenv("MESSENGER_SIDECAR_URL", "")
-        monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [
-            {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text",
-             "message_text": "hi", "postback_payload": "", "timestamp": 1},
-        ])
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "timestamp": 1},
+            ],
+        )
         calls = []
 
         async def proc(db, page_id, psid, text, mtype, payload):
@@ -587,10 +625,13 @@ class TestReceiveWebhook:
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
         monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
         monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "http://sc:9")
-        monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [
-            {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text",
-             "message_text": "hi", "postback_payload": "", "timestamp": 1},
-        ])
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "timestamp": 1},
+            ],
+        )
         posts = []
 
         class FakeHTTP:
@@ -612,10 +653,13 @@ class TestReceiveWebhook:
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
         monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
         monkeypatch.setattr(messenger.settings, "MESSENGER_SIDECAR_URL", "http://sc:9")
-        monkeypatch.setattr(messenger, "parse_webhook_event", lambda b: [
-            {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text",
-             "message_text": "hi", "postback_payload": "", "timestamp": 1},
-        ])
+        monkeypatch.setattr(
+            messenger,
+            "parse_webhook_event",
+            lambda b: [
+                {"page_id": "pg-1", "sender_psid": "u1", "message_type": "text", "message_text": "hi", "postback_payload": "", "timestamp": 1},
+            ],
+        )
 
         class FakeHTTP:
             async def __aenter__(self):
@@ -642,6 +686,7 @@ class TestReceiveWebhook:
 # Inline processing + AI generation
 # ---------------------------------------------------------------------------
 
+
 class TestProcessInline:
     pytestmark = pytest.mark.asyncio
 
@@ -651,22 +696,33 @@ class TestProcessInline:
     async def test_auto_reply_disabled_returns(self):
         a = _page(meta_data={"page_token": "EAApg"})
         await messenger._process_inline(
-            FakeDB(accounts=[a]), "pg-1", "u1", "hi", "text",
+            FakeDB(accounts=[a]),
+            "pg-1",
+            "u1",
+            "hi",
+            "text",
         )
         assert not _MsgClient.calls  # lead capture produced nothing, no bot
 
     async def test_auto_reply_enabled_sends(self, monkeypatch):
-        a = _page(meta_data={
-            "page_token": "EAApg",
-            "messenger_auto_reply": {"enabled": True},
-        })
+        a = _page(
+            meta_data={
+                "page_token": "EAApg",
+                "messenger_auto_reply": {"enabled": True},
+            }
+        )
 
         monkeypatch.setattr(
-            messenger, "_generate_and_send_auto_reply",
+            messenger,
+            "_generate_and_send_auto_reply",
             lambda *a: _async(_MsgClient.calls.append("auto_reply")),
         )
         await messenger._process_inline(
-            FakeDB(accounts=[a]), "pg-1", "u1", "hi", "text",
+            FakeDB(accounts=[a]),
+            "pg-1",
+            "u1",
+            "hi",
+            "text",
         )
         assert "auto_reply" in _MsgClient.calls
 
@@ -752,8 +808,7 @@ class TestGenerateAndSend:
 
     async def test_sends_typing_and_reply(self, monkeypatch):
         a = _page(meta_data={"page_token": "EAApg"})
-        monkeypatch.setattr(messenger, "_generate_ai_response",
-                            lambda *a: _async("bot says"))
+        monkeypatch.setattr(messenger, "_generate_ai_response", lambda *a: _async("bot says"))
         await messenger._generate_and_send_auto_reply(a, "u1", "hi", {})
         assert "sender_action:typing_on" in _MsgClient.calls
         assert "send_text" in _MsgClient.calls
@@ -766,7 +821,10 @@ class TestGenerateAndSend:
         monkeypatch.setattr(messenger, "_generate_ai_response", boom)
         a = _page(meta_data={"page_token": "EAApg"})
         await messenger._generate_and_send_auto_reply(
-            a, "u1", "hi", {"fallback_text": "sorry"},
+            a,
+            "u1",
+            "hi",
+            {"fallback_text": "sorry"},
         )
         assert "send_text" in _MsgClient.calls
 
@@ -774,6 +832,7 @@ class TestGenerateAndSend:
 # ---------------------------------------------------------------------------
 # Sidecar status
 # ---------------------------------------------------------------------------
+
 
 class TestSidecarStatus:
     pytestmark = pytest.mark.asyncio
@@ -851,6 +910,7 @@ class TestSidecarStatus:
 # Personal (browser-bridge) endpoints
 # ---------------------------------------------------------------------------
 
+
 class _FakeBridge:
     session_status = "active"
     session_message = ""
@@ -864,9 +924,7 @@ class _FakeBridge:
         self.url = url
 
     async def ensure_session(self, platform):
-        return {"status": type(self).session_status,
-                "message": type(self).session_message,
-                "novnc_url": type(self).novnc_url}
+        return {"status": type(self).session_status, "message": type(self).session_message, "novnc_url": type(self).novnc_url}
 
     async def get_personal_messenger_conversations(self):
         if type(self).error:
@@ -889,6 +947,7 @@ class TestPersonalEndpoints:
 
     def _patch(self, monkeypatch):
         import app.services.browser_bridge as bb
+
         monkeypatch.setattr(bb, "BrowserBridgeClient", _FakeBridge)
         _FakeBridge.session_status = "active"
         _FakeBridge.error = None
@@ -897,7 +956,9 @@ class TestPersonalEndpoints:
         a = _page()  # page, not user
         with pytest.raises(HTTPException) as e:
             await messenger.get_personal_conversations(
-                a.id, _admin(), FakeDB(accounts=[a]),
+                a.id,
+                _admin(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 400
 
@@ -908,7 +969,9 @@ class TestPersonalEndpoints:
         a = _fb_user()
         with pytest.raises(HTTPException) as e:
             await messenger.get_personal_conversations(
-                a.id, _admin(), FakeDB(accounts=[a]),
+                a.id,
+                _admin(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 503 and "log in first" in e.value.detail
 
@@ -916,7 +979,9 @@ class TestPersonalEndpoints:
         self._patch(monkeypatch)
         a = _fb_user()
         out = await messenger.get_personal_conversations(
-            a.id, _admin(), FakeDB(accounts=[a]),
+            a.id,
+            _admin(),
+            FakeDB(accounts=[a]),
         )
         assert out["threads"][0]["id"] == "t1"
 
@@ -924,7 +989,11 @@ class TestPersonalEndpoints:
         self._patch(monkeypatch)
         a = _fb_user()
         out = await messenger.get_personal_messages(
-            a.id, "t1", True, _admin(), FakeDB(accounts=[a]),
+            a.id,
+            "t1",
+            True,
+            _admin(),
+            FakeDB(accounts=[a]),
         )
         assert out["messages"][0]["text"] == "hi"
 
@@ -933,26 +1002,35 @@ class TestPersonalEndpoints:
         a = _fb_user()
         req = messenger.PersonalMessageSendRequest(thread_id="t1", text="yo")
         out = await messenger.send_personal_message(
-            a.id, req, _admin(), FakeDB(accounts=[a]),
+            a.id,
+            req,
+            _admin(),
+            FakeDB(accounts=[a]),
         )
         assert out["sent"] is True
 
     async def test_personal_auto_reply_get_defaults(self):
         a = _fb_user()
         out = await messenger.get_personal_auto_reply(
-            a.id, _admin(), FakeDB(accounts=[a]),
+            a.id,
+            _admin(),
+            FakeDB(accounts=[a]),
         )
         assert out["enabled"] is False and out["max_tokens"] == 300
 
     async def test_personal_auto_reply_update(self, monkeypatch):
         async def chk(*a, **k):
             return None
+
         monkeypatch.setattr("app.api.deps.check_plan_feature", chk)
         a = _fb_user()
         db = FakeDB(accounts=[a])
         cfg = messenger.PersonalAutoReplyConfig(enabled=True, model="ai/x")
         out = await messenger.update_personal_auto_reply(
-            a.id, cfg, _admin(), db,
+            a.id,
+            cfg,
+            _admin(),
+            db,
         )
         assert out["status"] == "ok"
         assert a.meta_data["personal_messenger_auto_reply"]["model"] == "ai/x"
@@ -970,8 +1048,11 @@ class TestThreadControls:
         monkeypatch.setattr("app.services.messenger_chatbot.pause_thread", pause)
         a = _fb_user()
         out = await messenger.pause_thread(
-            a.id, "t1", messenger.ThreadPauseRequest(thread_id="t1"),
-            _admin(), FakeDB(accounts=[a]),
+            a.id,
+            "t1",
+            messenger.ThreadPauseRequest(thread_id="t1"),
+            _admin(),
+            FakeDB(accounts=[a]),
         )
         assert out["status"] == "ok" and seen[0][1] == "t1"
 
@@ -987,8 +1068,7 @@ class TestThreadControls:
         assert seen == ["t1"] and out["status"] == "ok"
 
     async def test_get_set_thread_config(self, monkeypatch):
-        monkeypatch.setattr("app.services.messenger_chatbot.get_thread_config",
-                            lambda *a: _async({"model": "ai/x"}))
+        monkeypatch.setattr("app.services.messenger_chatbot.get_thread_config", lambda *a: _async({"model": "ai/x"}))
         set_calls = []
 
         async def set_cfg(acct, tid, cfg):
@@ -999,14 +1079,16 @@ class TestThreadControls:
         got = await messenger.get_thread_config(a.id, "t1", _admin(), FakeDB(accounts=[a]))
         assert got["config"]["model"] == "ai/x"
         await messenger.set_thread_config(
-            a.id, "t1", messenger.ThreadConfigRequest(thread_id="t1", model="ai/y"),
-            _admin(), FakeDB(accounts=[a]),
+            a.id,
+            "t1",
+            messenger.ThreadConfigRequest(thread_id="t1", model="ai/y"),
+            _admin(),
+            FakeDB(accounts=[a]),
         )
         assert set_calls == [{"model": "ai/y"}]
 
     async def test_thread_memory(self, monkeypatch):
-        monkeypatch.setattr("app.services.messenger_chatbot.get_conversation_memory",
-                            lambda *a: _async([{"role": "user", "content": "hi"}]))
+        monkeypatch.setattr("app.services.messenger_chatbot.get_conversation_memory", lambda *a: _async([{"role": "user", "content": "hi"}]))
         a = _fb_user()
         out = await messenger.get_thread_memory(a.id, "t1", _admin(), FakeDB(accounts=[a]))
         assert out["count"] == 1
@@ -1039,13 +1121,17 @@ class TestThreadControls:
 # Bot builder
 # ---------------------------------------------------------------------------
 
+
 class TestBotBuilder:
     pytestmark = pytest.mark.asyncio
 
     async def test_messenger_account_404(self):
         with pytest.raises(HTTPException) as e:
             await messenger._get_messenger_account(
-                FakeDB(), uuid.uuid4(), uuid.uuid4(), _user(),
+                FakeDB(),
+                uuid.uuid4(),
+                uuid.uuid4(),
+                _user(),
             )
         assert e.value.status_code == 404
 
@@ -1054,7 +1140,10 @@ class TestBotBuilder:
         a.platform = "twitter"
         with pytest.raises(HTTPException) as e:
             await messenger._get_messenger_account(
-                FakeDB(accounts=[a]), a.id, a.team_id, _user(),
+                FakeDB(accounts=[a]),
+                a.id,
+                a.team_id,
+                _user(),
             )
         assert e.value.status_code == 400
 
@@ -1062,13 +1151,17 @@ class TestBotBuilder:
         a = _page()
         with pytest.raises(HTTPException) as e:
             await messenger._get_messenger_account(
-                FakeDB(accounts=[a]), a.id, uuid.uuid4(), _user(),
+                FakeDB(accounts=[a]),
+                a.id,
+                uuid.uuid4(),
+                _user(),
             )
         assert e.value.status_code == 403
 
     async def test_create_bot_user_account(self, monkeypatch):
         async def chk(*a, **k):
             return None
+
         monkeypatch.setattr("app.api.deps.check_plan_feature", chk)
         idx = []
 
@@ -1079,8 +1172,7 @@ class TestBotBuilder:
         monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge", index)
         a = _fb_user()
         db = FakeDB(accounts=[a])
-        req = messenger.BotCreateRequest(name="Helper", personality="casual",
-                                       language="el")
+        req = messenger.BotCreateRequest(name="Helper", personality="casual", language="el")
         out = await messenger.create_bot(a.id, req, a.team_id, _admin(), db)
         assert out["account_type"] == "user"
         bot = a.meta_data["messenger_bot"]
@@ -1092,9 +1184,9 @@ class TestBotBuilder:
     async def test_create_bot_page_subscribes(self, monkeypatch):
         async def chk(*a, **k):
             return None
+
         monkeypatch.setattr("app.api.deps.check_plan_feature", chk)
-        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge",
-                            lambda *a: _async(0))
+        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge", lambda *a: _async(0))
         a = _page()
         req = messenger.BotCreateRequest(name="B", custom_prompt="Custom for {page_name}")
         out = await messenger.create_bot(a.id, req, a.team_id, _admin(), FakeDB(accounts=[a]))
@@ -1111,11 +1203,8 @@ class TestBotBuilder:
         assert out["exists"] is False
 
     async def test_get_bot_present(self, monkeypatch):
-        monkeypatch.setattr("app.services.messenger_chatbot.is_thread_paused",
-                            lambda *a: _async(True))
-        a = _page(meta_data={"page_token": "EA",
-                             "messenger_bot": {"name": "B", "enabled": True,
-                                               "paused_threads": ["t1"]}})
+        monkeypatch.setattr("app.services.messenger_chatbot.is_thread_paused", lambda *a: _async(True))
+        a = _page(meta_data={"page_token": "EA", "messenger_bot": {"name": "B", "enabled": True, "paused_threads": ["t1"]}})
         out = await messenger.get_bot(a.id, a.team_id, _admin(), FakeDB(accounts=[a]))
         assert out["exists"] is True
         assert out["paused_threads_status"] == {"t1": True}
@@ -1138,9 +1227,9 @@ class TestBotBuilder:
     async def test_activate_deactivate_cycle(self, monkeypatch):
         async def chk(*a, **k):
             return None
+
         monkeypatch.setattr("app.api.deps.check_plan_feature", chk)
-        a = _page(meta_data={"page_token": "EA",
-                             "messenger_bot": {"name": "B", "enabled": False}})
+        a = _page(meta_data={"page_token": "EA", "messenger_bot": {"name": "B", "enabled": False}})
         db = FakeDB(accounts=[a])
         out = await messenger.activate_bot(a.id, a.team_id, _admin(), db)
         assert out["enabled"] is True
@@ -1181,53 +1270,43 @@ class TestBotBuilder:
 # bot brand-index + paused-thread + activate/deactivate edges.
 # ---------------------------------------------------------------------------
 
+
 class TestCoverageTails:
     pytestmark = pytest.mark.asyncio
 
     async def test_client_decrypt_fallback(self, monkeypatch):
         acct = _page(meta_data={"page_token": "notEA"})
-        monkeypatch.setattr(messenger, "decrypt_token",
-                            Mock(side_effect=ValueError("not encrypted")))
+        monkeypatch.setattr(messenger, "decrypt_token", Mock(side_effect=ValueError("not encrypted")))
         c = messenger._get_messenger_client(acct)
         assert c.kw["access_token"] == "notEA" and c.kw["page_id"] == "pg-1"
 
     async def test_upsert_icebreaker_early_returns(self):
         db = FakeDB()
         # unmappable payload → returns before the account lookup
-        await messenger._upsert_icebreaker_lead(
-            db, page_id="pg-1", sender_psid="s1", payload="NOPE",
-            message_mid="m", timestamp_ms=1)
+        await messenger._upsert_icebreaker_lead(db, page_id="pg-1", sender_psid="s1", payload="NOPE", message_mid="m", timestamp_ms=1)
         # valid payload but no account → returns
-        await messenger._upsert_icebreaker_lead(
-            db, page_id="pg-1", sender_psid="s1", payload="LEAD_CLOUD",
-            message_mid="m", timestamp_ms=1)
+        await messenger._upsert_icebreaker_lead(db, page_id="pg-1", sender_psid="s1", payload="LEAD_CLOUD", message_mid="m", timestamp_ms=1)
 
     async def test_upsert_icebreaker_inner_failure(self, monkeypatch):
         acct = _page()
         db = FakeDB(accounts=[acct])
-        monkeypatch.setattr("app.services.leads.upsert_lead",
-                            AsyncMock(side_effect=RuntimeError("db down")))
+        monkeypatch.setattr("app.services.leads.upsert_lead", AsyncMock(side_effect=RuntimeError("db down")))
         # swallowed — non-fatal by design
-        await messenger._upsert_icebreaker_lead(
-            db, page_id="pg-1", sender_psid="s1", payload="LEAD_AUDIT",
-            message_mid="m", timestamp_ms=1)
+        await messenger._upsert_icebreaker_lead(db, page_id="pg-1", sender_psid="s1", payload="LEAD_AUDIT", message_mid="m", timestamp_ms=1)
 
     async def test_setup_messenger_edges(self):
         acct = _page()
         db = FakeDB(accounts=[acct])
         # page_url without scheme → https prepended
         _MsgClient.page_info = {"name": "P", "website": "cloudless.gr, x"}
-        out = await messenger.setup_messenger(acct.id, None,
-                                              db=db, user=_admin())
+        out = await messenger.setup_messenger(acct.id, None, db=db, user=_admin())
         assert out["page_url"] == "https://cloudless.gr"
 
         # setup_default_profile raises non-rate-limit → 502
         _MsgClient.fail_methods = {"setup_default_profile"}
         _MsgClient.fail_methods_msg = "exploded"
         with pytest.raises(HTTPException) as e:
-            await messenger.setup_messenger(acct.id, None,
-                                            db=FakeDB(accounts=[acct]),
-                                            user=_admin())
+            await messenger.setup_messenger(acct.id, None, db=FakeDB(accounts=[acct]), user=_admin())
         assert e.value.status_code == 502
 
     async def test_get_profile_error_paths(self):
@@ -1235,13 +1314,11 @@ class TestCoverageTails:
         # profile fetch fails → 502
         _MsgClient.fail_methods = {"get_messenger_profile"}
         with pytest.raises(HTTPException) as e:
-            await messenger.get_messenger_profile(
-                acct.id, db=FakeDB(accounts=[acct]), user=_admin())
+            await messenger.get_messenger_profile(acct.id, db=FakeDB(accounts=[acct]), user=_admin())
         assert e.value.status_code == 502
         # subscribed_apps + page_info fail → subscribed False, name fallback
         _MsgClient.fail_methods = {"get_subscribed_apps", "get_page_info"}
-        out = await messenger.get_messenger_profile(
-            acct.id, db=FakeDB(accounts=[acct]), user=_admin())
+        out = await messenger.get_messenger_profile(acct.id, db=FakeDB(accounts=[acct]), user=_admin())
         assert out.subscribed is False and out.page_name == acct.display_name
 
     async def test_update_profile_all_fields_and_502(self):
@@ -1252,32 +1329,26 @@ class TestCoverageTails:
             get_started={"payload": "GO"},
             persistent_menu=[{"type": "web_url"}],
             whitelisted_domains=["https://x.io"],
-            ice_breakers=[{"question": "q"}])
+            ice_breakers=[{"question": "q"}],
+        )
         _MsgClient.fail_methods = set()
-        out = await messenger.update_messenger_profile(
-            acct.id, body, db=db, user=_admin())
-        assert set(out["fields"]) == {"greeting", "get_started",
-                                      "persistent_menu", "whitelisted_domains",
-                                      "ice_breakers"}
+        out = await messenger.update_messenger_profile(acct.id, body, db=db, user=_admin())
+        assert set(out["fields"]) == {"greeting", "get_started", "persistent_menu", "whitelisted_domains", "ice_breakers"}
         _MsgClient.fail_methods = {"set_messenger_profile"}
         with pytest.raises(HTTPException) as e:
-            await messenger.update_messenger_profile(
-                acct.id, body, db=FakeDB(accounts=[acct]), user=_admin())
+            await messenger.update_messenger_profile(acct.id, body, db=FakeDB(accounts=[acct]), user=_admin())
         assert e.value.status_code == 502
 
     async def test_delete_fields_unsubscribe_502(self):
         acct = _page()
         _MsgClient.fail_methods = {"delete_messenger_profile_fields"}
         with pytest.raises(HTTPException) as e:
-            await messenger.delete_messenger_profile_fields(
-                acct.id, ["greeting"], db=FakeDB(accounts=[acct]),
-                user=_admin())
+            await messenger.delete_messenger_profile_fields(acct.id, ["greeting"], db=FakeDB(accounts=[acct]), user=_admin())
         assert e.value.status_code == 502
 
         _MsgClient.fail_methods = {"unsubscribe_page"}
         with pytest.raises(HTTPException) as e:
-            await messenger.unsubscribe_messenger(
-                acct.id, db=FakeDB(accounts=[acct]), user=_admin())
+            await messenger.unsubscribe_messenger(acct.id, db=FakeDB(accounts=[acct]), user=_admin())
         assert e.value.status_code == 502
 
     async def test_send_and_read_endpoints_502(self):
@@ -1286,25 +1357,17 @@ class TestCoverageTails:
         async def expect_502(fn, fail, *args):
             _MsgClient.fail_methods = {fail}
             with pytest.raises(HTTPException) as e:
-                await fn(acct.id, *args, db=FakeDB(accounts=[acct]),
-                         user=_admin())
+                await fn(acct.id, *args, db=FakeDB(accounts=[acct]), user=_admin())
             assert e.value.status_code == 502
 
-        await expect_502(messenger.send_message, "send_text",
-                         messenger.SendMessageRequest(recipient_psid="p",
-                                                      text="hi"))
-        await expect_502(messenger.send_message, "send_image_url",
-                         messenger.SendMessageRequest(recipient_psid="p",
-                                                      image_url="https://i"))
-        await expect_502(messenger.send_quick_replies, "send_quick_replies",
-                         messenger.SendQuickRepliesRequest(
-                             recipient_psid="p", text="t",
-                             quick_replies=[{"a": 1}]))
+        await expect_502(messenger.send_message, "send_text", messenger.SendMessageRequest(recipient_psid="p", text="hi"))
+        await expect_502(messenger.send_message, "send_image_url", messenger.SendMessageRequest(recipient_psid="p", image_url="https://i"))
+        await expect_502(
+            messenger.send_quick_replies, "send_quick_replies", messenger.SendQuickRepliesRequest(recipient_psid="p", text="t", quick_replies=[{"a": 1}])
+        )
         await expect_502(messenger.list_conversations, "get_conversations")
-        await expect_502(messenger.get_conversation_messages,
-                         "get_conversation_messages", "conv-1")
-        await expect_502(messenger.get_user_profile, "get_user_profile",
-                         "psid-1")
+        await expect_502(messenger.get_conversation_messages, "get_conversation_messages", "conv-1")
+        await expect_502(messenger.get_user_profile, "get_user_profile", "psid-1")
 
     async def test_process_inline_lead_reply_and_autoreply_fail(self, monkeypatch):
         acct = _page()
@@ -1312,52 +1375,44 @@ class TestCoverageTails:
         capture = "app.services.lead_capture.handle_lead_capture_message"
 
         # lead reply with quick replies → send_quick_replies then return
-        monkeypatch.setattr(capture, AsyncMock(return_value=SimpleNamespace(
-            text="pick one", quick_replies=[{"q": 1}])))
+        monkeypatch.setattr(capture, AsyncMock(return_value=SimpleNamespace(text="pick one", quick_replies=[{"q": 1}])))
         await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
         assert "send_quick_replies" in _MsgClient.calls
 
         # lead reply without quick replies → send_text
-        monkeypatch.setattr(capture, AsyncMock(return_value=SimpleNamespace(
-            text="plain", quick_replies=None)))
+        monkeypatch.setattr(capture, AsyncMock(return_value=SimpleNamespace(text="plain", quick_replies=None)))
         await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
         assert "send_text" in _MsgClient.calls
 
         # auto-reply enabled + generator raises → logged, no raise
         acct.meta_data["messenger_auto_reply"] = {"enabled": True}
         monkeypatch.setattr(capture, AsyncMock(return_value=None))
-        monkeypatch.setattr(messenger, "_generate_and_send_auto_reply",
-                            AsyncMock(side_effect=RuntimeError("ai down")))
+        monkeypatch.setattr(messenger, "_generate_and_send_auto_reply", AsyncMock(side_effect=RuntimeError("ai down")))
         await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
 
     async def test_auto_reply_typing_action_fails(self, monkeypatch):
         acct = _page()
         _MsgClient.fail_methods = {"sender_action:typing_on"}
-        monkeypatch.setattr(messenger, "_generate_ai_response",
-                            AsyncMock(return_value="reply text"))
-        await messenger._generate_and_send_auto_reply(
-            acct, "psid", "hello", {"enabled": True})
+        monkeypatch.setattr(messenger, "_generate_ai_response", AsyncMock(return_value="reply text"))
+        await messenger._generate_and_send_auto_reply(acct, "psid", "hello", {"enabled": True})
         # typing failure swallowed; reply still sent
         assert "send_text" in _MsgClient.calls
 
     async def test_personal_account_authz(self):
         # missing → 404
         with pytest.raises(HTTPException) as e:
-            await messenger._get_facebook_user_account(
-                FakeDB(), uuid.uuid4(), _user())
+            await messenger._get_facebook_user_account(FakeDB(), uuid.uuid4(), _user())
         assert e.value.status_code == 404
 
         # non-admin without membership → 403
         acct = _fb_user()
         with pytest.raises(HTTPException) as e:
-            await messenger._get_facebook_user_account(
-                FakeDB(accounts=[acct], memberships=[]), acct.id, _user())
+            await messenger._get_facebook_user_account(FakeDB(accounts=[acct], memberships=[]), acct.id, _user())
         assert e.value.status_code == 403
 
     async def test_create_bot_page_setup_failures(self, monkeypatch):
         monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
-        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge",
-                            AsyncMock(return_value=3))
+        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge", AsyncMock(return_value=3))
         acct = _page()
         req = messenger.BotCreateRequest(name="B")
         db = FakeDB(accounts=[acct])
@@ -1365,39 +1420,27 @@ class TestCoverageTails:
         # page_url without scheme + subscribe/profile failures → partial
         _MsgClient.page_info = {"name": "P", "website": "cloudless.gr"}
         _MsgClient.fail_methods = {"subscribe_page", "setup_default_profile"}
-        out = await messenger.create_bot(acct.id, req, acct.team_id,
-                                         _admin(), db)
+        out = await messenger.create_bot(acct.id, req, acct.team_id, _admin(), db)
         assert out["page_setup"]["result"] == "partial"
 
         # get_page_info raises → outer except → error
         _MsgClient.fail_methods = {"get_page_info"}
-        out = await messenger.create_bot(acct.id, req, acct.team_id,
-                                         _admin(), FakeDB(accounts=[acct]))
+        out = await messenger.create_bot(acct.id, req, acct.team_id, _admin(), FakeDB(accounts=[acct]))
         assert out["page_setup"]["result"] == "error"
 
         # brand present → indexed; index raising → warning swallowed
         _MsgClient.fail_methods = set()
-        brand = SimpleNamespace(team_id=acct.team_id, name="B", tagline="t",
-                                mission="m", industry="i")
-        out = await messenger.create_bot(
-            acct.id, req, acct.team_id, _admin(),
-            FakeDB(accounts=[acct], brands=[brand]))
+        brand = SimpleNamespace(team_id=acct.team_id, name="B", tagline="t", mission="m", industry="i")
+        out = await messenger.create_bot(acct.id, req, acct.team_id, _admin(), FakeDB(accounts=[acct], brands=[brand]))
         assert out["brand_indexed"] == 3
-        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge",
-                            AsyncMock(side_effect=RuntimeError("rag down")))
-        out = await messenger.create_bot(
-            acct.id, req, acct.team_id, _admin(),
-            FakeDB(accounts=[acct], brands=[brand]))
+        monkeypatch.setattr("app.services.messenger_chatbot.index_brand_knowledge", AsyncMock(side_effect=RuntimeError("rag down")))
+        out = await messenger.create_bot(acct.id, req, acct.team_id, _admin(), FakeDB(accounts=[acct], brands=[brand]))
         assert out["brand_indexed"] == 0
 
     async def test_get_bot_paused_thread_error(self, monkeypatch):
-        acct = _page(meta_data={"page_token": "EA",
-                                "messenger_bot": {"name": "b",
-                                                  "paused_threads": ["t9"]}})
-        monkeypatch.setattr("app.services.messenger_chatbot.is_thread_paused",
-                            AsyncMock(side_effect=RuntimeError("redis")))
-        out = await messenger.get_bot(acct.id, acct.team_id, _admin(),
-                                      FakeDB(accounts=[acct]))
+        acct = _page(meta_data={"page_token": "EA", "messenger_bot": {"name": "b", "paused_threads": ["t9"]}})
+        monkeypatch.setattr("app.services.messenger_chatbot.is_thread_paused", AsyncMock(side_effect=RuntimeError("redis")))
+        out = await messenger.get_bot(acct.id, acct.team_id, _admin(), FakeDB(accounts=[acct]))
         assert out["paused_threads_status"]["t9"] is False
 
     async def test_activate_deactivate_user_account(self, monkeypatch):
@@ -1406,21 +1449,16 @@ class TestCoverageTails:
         # deactivate with no bot → 400
         acct = _fb_user(meta_data={})
         with pytest.raises(HTTPException) as e:
-            await messenger.deactivate_bot(acct.id, acct.team_id, _admin(),
-                                           FakeDB(accounts=[acct]))
+            await messenger.deactivate_bot(acct.id, acct.team_id, _admin(), FakeDB(accounts=[acct]))
         assert e.value.status_code == 400
 
         # activate on personal account → personal auto-reply enabled
-        acct = _fb_user(meta_data={
-            "messenger_bot": {"name": "b", "enabled": False},
-            "personal_messenger_auto_reply": {"enabled": False}})
-        await messenger.activate_bot(acct.id, acct.team_id, _admin(),
-                                     FakeDB(accounts=[acct]))
+        acct = _fb_user(meta_data={"messenger_bot": {"name": "b", "enabled": False}, "personal_messenger_auto_reply": {"enabled": False}})
+        await messenger.activate_bot(acct.id, acct.team_id, _admin(), FakeDB(accounts=[acct]))
         assert acct.meta_data["personal_messenger_auto_reply"]["enabled"] is True
 
         # deactivate → personal auto-reply disabled
-        await messenger.deactivate_bot(acct.id, acct.team_id, _admin(),
-                                       FakeDB(accounts=[acct]))
+        await messenger.deactivate_bot(acct.id, acct.team_id, _admin(), FakeDB(accounts=[acct]))
         assert acct.meta_data["personal_messenger_auto_reply"]["enabled"] is False
 
 
@@ -1430,19 +1468,15 @@ class TestCoverageTails2:
     async def test_lead_capture_handler_raises(self, monkeypatch):
         acct = _page()
         db = FakeDB(accounts=[acct])
-        monkeypatch.setattr(
-            "app.services.lead_capture.handle_lead_capture_message",
-            AsyncMock(side_effect=RuntimeError("lead db down")))
+        monkeypatch.setattr("app.services.lead_capture.handle_lead_capture_message", AsyncMock(side_effect=RuntimeError("lead db down")))
         # swallowed by design — no raise
         await messenger._process_inline(db, "pg-1", "psid", "hi", "text")
 
     async def test_typing_off_failure_swallowed(self, monkeypatch):
         acct = _page()
         _MsgClient.fail_methods = {"sender_action:typing_off"}
-        monkeypatch.setattr(messenger, "_generate_ai_response",
-                            AsyncMock(return_value="reply"))
-        await messenger._generate_and_send_auto_reply(
-            acct, "psid", "hello", {"enabled": True})
+        monkeypatch.setattr(messenger, "_generate_ai_response", AsyncMock(return_value="reply"))
+        await messenger._generate_and_send_auto_reply(acct, "psid", "hello", {"enabled": True})
         assert "send_text" in _MsgClient.calls
 
     async def test_generate_ai_cf_fails_dmr_succeeds(self, monkeypatch):
@@ -1459,9 +1493,7 @@ class TestCoverageTails2:
             async def post(self, url, **kw):
                 if "cloudflare" in url:
                     raise ConnectionError("cf down")
-                return SimpleNamespace(
-                    status_code=200,
-                    json=lambda: {"choices": [{"message": {"content": "dmr reply"}}]})
+                return SimpleNamespace(status_code=200, json=lambda: {"choices": [{"message": {"content": "dmr reply"}}]})
 
         monkeypatch.setattr("httpx.AsyncClient", lambda *a, **kw: _C())
         out = await messenger._generate_ai_response("sys", "hi", "m", 50, "fb")
@@ -1469,6 +1501,7 @@ class TestCoverageTails2:
 
     def _bridge_patch(self, monkeypatch):
         import app.services.browser_bridge as bb
+
         monkeypatch.setattr(bb, "BrowserBridgeClient", _FakeBridge)
         _FakeBridge.session_status = "active"
         _FakeBridge.error = None
@@ -1512,11 +1545,10 @@ class TestCoverageTails2:
 # Webhook: Meta leadgen ingestion → EspoCRM
 # ---------------------------------------------------------------------------
 
+
 def _leadgen_body(**value_over):
     value = {"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9", **value_over}
-    return json.dumps(
-        {"object": "page", "entry": [{"id": "pg-1", "changes": [{"field": "leadgen", "value": value}]}]}
-    ).encode()
+    return json.dumps({"object": "page", "entry": [{"id": "pg-1", "changes": [{"field": "leadgen", "value": value}]}]}).encode()
 
 
 class TestLeadgenWebhook:
@@ -1530,9 +1562,7 @@ class TestLeadgenWebhook:
         monkeypatch.setattr(messenger, "_ingest_meta_leadgen", ingest)
         out = await messenger.receive_webhook(_request(_leadgen_body()), FakeDB())
         assert out["leadgen_received"] == 1 and out["events_received"] == 0
-        ingest.assert_awaited_once_with(
-            {"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9"}
-        )
+        ingest.assert_awaited_once_with({"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9"})
 
     async def test_leadgen_failure_500s_so_meta_retries(self, monkeypatch):
         monkeypatch.setattr(messenger.settings, "FACEBOOK_APP_SECRET", "")
@@ -1550,9 +1580,12 @@ class TestLeadgenWebhook:
         ingest = AsyncMock(return_value=True)
         monkeypatch.setattr(messenger, "_ingest_meta_leadgen", ingest)
         body = json.dumps(
-            {"object": "page", "entry": [{"changes": [{"field": "feed", "value": {"x": 1}},
-                                                       {"field": "leadgen", "value": {}},
-                                                       {"field": "leadgen", "value": {"leadgen_id": "abc"}}]}]}
+            {
+                "object": "page",
+                "entry": [
+                    {"changes": [{"field": "feed", "value": {"x": 1}}, {"field": "leadgen", "value": {}}, {"field": "leadgen", "value": {"leadgen_id": "abc"}}]}
+                ],
+            }
         ).encode()
         out = await messenger.receive_webhook(_request(body), FakeDB())
         assert out["leadgen_received"] == 0 and ingest.await_count == 0
@@ -1592,15 +1625,20 @@ class _FakeHTTP:
 
 def _page_account(token="EApagetoken"):
     return SimpleNamespace(
-        platform="facebook", account_type="page", account_id="pg-1",
+        platform="facebook",
+        account_type="page",
+        account_id="pg-1",
         meta_data={"page_token": token},
     )
 
 
 def _graph_lead(**over):
     base = {
-        "id": "8800112233", "form_id": "f9", "ad_id": "ad-3",
-        "campaign_name": "Checklist Q4", "platform": "fb",
+        "id": "8800112233",
+        "form_id": "f9",
+        "ad_id": "ad-3",
+        "campaign_name": "Checklist Q4",
+        "platform": "fb",
         "field_data": [
             {"name": "email", "values": ["Ada@Example.COM"]},
             {"name": "full_name", "values": ["Ada Lovelace"]},
@@ -1613,11 +1651,10 @@ def _graph_lead(**over):
 
 
 def _wire_ingest(monkeypatch, account, http_resp, espo=None):
-    monkeypatch.setattr(
-        "app.db.session.async_session_maker", lambda: _FakeSessionMaker(account)
-    )
+    monkeypatch.setattr("app.db.session.async_session_maker", lambda: _FakeSessionMaker(account))
     http = _FakeHTTP(http_resp)
     import httpx as _httpx
+
     monkeypatch.setattr(_httpx, "AsyncClient", lambda *a, **k: http)
     fake = espo or SimpleNamespace(
         target_list_id=AsyncMock(return_value="tl-9"),
@@ -1634,9 +1671,7 @@ class TestIngestMetaLeadgen:
     async def test_full_flow_writes_meta_lead_ad(self, monkeypatch):
         resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())
         http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
-        ok = await messenger._ingest_meta_leadgen(
-            {"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9"}
-        )
+        ok = await messenger._ingest_meta_leadgen({"leadgen_id": "8800112233", "page_id": "pg-1", "form_id": "f9"})
         assert ok is True
         assert any("/8800112233" in u for u in http.urls)
         payload = fake.upsert_lead.await_args.args[0]
@@ -1671,15 +1706,19 @@ class TestIngestMetaLeadgen:
         assert ok is True and fake.upsert_lead.await_count == 0
 
     async def test_explicit_names_ig_platform_and_organic(self, monkeypatch):
-        resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead(
-            platform="ig", is_organic=True,
-            field_data=[
-                {"name": "email", "values": ["g@h.gr"]},
-                {"name": "first_name", "values": ["Grace"]},
-                {"name": "last_name", "values": ["Hopper"]},
-                {"name": "full_name", "values": ["Dr Grace Hopper"]},
-            ],
-        ))
+        resp = SimpleNamespace(
+            status_code=200,
+            json=lambda: _graph_lead(
+                platform="ig",
+                is_organic=True,
+                field_data=[
+                    {"name": "email", "values": ["g@h.gr"]},
+                    {"name": "first_name", "values": ["Grace"]},
+                    {"name": "last_name", "values": ["Hopper"]},
+                    {"name": "full_name", "values": ["Dr Grace Hopper"]},
+                ],
+            ),
+        )
         http, fake = _wire_ingest(monkeypatch, _page_account(), resp)
         ok = await messenger._ingest_meta_leadgen({"leadgen_id": "8800112255", "page_id": "pg-1"})
         assert ok is True
@@ -1703,7 +1742,8 @@ class TestIngestMetaLeadgen:
 async def test_ingest_decrypt_failure_uses_plaintext_token(monkeypatch):
     """Non-EA token whose decrypt blows up → kept as-is, Graph still fetched."""
     monkeypatch.setattr(
-        messenger, "decrypt_token",
+        messenger,
+        "decrypt_token",
         lambda t: (_ for _ in ()).throw(ValueError("not ciphertext")),
     )
     resp = SimpleNamespace(status_code=200, json=lambda: _graph_lead())

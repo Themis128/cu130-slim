@@ -7,6 +7,7 @@ Self-hosted, no external API: a direct httpx fetch + meta-tag parse,
 with a stealth-browser render fallback (cloak-fallback pattern on the
 shared browser bridge) for pages behind anti-bot or client-side JS.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -44,7 +45,7 @@ _CHALLENGE_MARKERS = (
     "perimeterx",
 )
 _RENDERED_HTML_CAP = 900_000  # outerHTML budget passed through the bridge
-_RENDER_SETTLE_S = 2.0        # give client-rendered meta tags a beat to mount
+_RENDER_SETTLE_S = 2.0  # give client-rendered meta tags a beat to mount
 
 
 def _resolve_public_ip(host: str) -> str:
@@ -95,9 +96,7 @@ def _validate_url(url: str):
     # ValueError (urlparse only accepts ``host:port`` netloc for v6 when the
     # host part is bracketed).
     port_suffix = f":{parsed.port}" if parsed.port else ""
-    clean_netloc = (
-        f"[{hostname}]{port_suffix}" if ":" in hostname else f"{hostname}{port_suffix}"
-    )
+    clean_netloc = f"[{hostname}]{port_suffix}" if ":" in hostname else f"{hostname}{port_suffix}"
     clean = parsed._replace(scheme=scheme, netloc=clean_netloc)
     return clean, ip
 
@@ -164,9 +163,7 @@ async def _rendered_preview(url: str) -> dict | None:
             await b.navigate(url)
             await asyncio.sleep(_RENDER_SETTLE_S)
             result = await b.evaluate(
-                "JSON.stringify({html: document.documentElement.outerHTML.slice(0, "
-                + str(_RENDERED_HTML_CAP)
-                + "), url: location.href})"
+                "JSON.stringify({html: document.documentElement.outerHTML.slice(0, " + str(_RENDERED_HTML_CAP) + "), url: location.href})"
             )
         payload = result.get("result") if isinstance(result, dict) else result
         if isinstance(payload, str):
@@ -218,15 +215,9 @@ async def fetch_link_preview(url: str) -> dict:
             netloc = ip_host + (f":{parsed.port}" if parsed.port else "")
             pinned = parsed._replace(netloc=netloc).geturl()
             host_header = (parsed.hostname or "") + (f":{parsed.port}" if parsed.port else "")
-            ext = (
-                {"sni_hostname": parsed.hostname}
-                if parsed.scheme == "https"
-                else {}
-            )
+            ext = {"sni_hostname": parsed.hostname} if parsed.scheme == "https" else {}
             req_headers = {"Host": host_header, **signature_headers("GET", parsed.geturl())}
-            async with client.stream(
-                "GET", pinned, headers=req_headers, extensions=ext
-            ) as resp:
+            async with client.stream("GET", pinned, headers=req_headers, extensions=ext) as resp:
                 if resp.is_redirect:
                     location = resp.headers.get("location")
                     if not location:

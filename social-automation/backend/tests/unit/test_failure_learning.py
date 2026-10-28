@@ -3,6 +3,7 @@
 Exercises the real service; only external boundaries are faked (the DB
 result sets and the Slack HTTP post).
 """
+
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -101,7 +102,7 @@ async def test_collect_signatures_aggregates_and_samples():
 async def test_collect_signatures_tracks_newest_regardless_of_order():
     rows = [
         _fail_row("tiktok", "url_ownership_unverified", 50),  # older first
-        _fail_row("tiktok", "url_ownership_unverified", 1),   # newer second
+        _fail_row("tiktok", "url_ownership_unverified", 1),  # newer second
     ]
     db = _DB([_Rows(rows)])
     sigs = await fl.collect_signatures(db)
@@ -125,6 +126,7 @@ async def test_run_emits_proposals_and_sweep_artifact(monkeypatch):
     # call order: _recent_failures → dedup check (none) → done
     db = _DB([_Rows(rows), _Rows([])])
     slack = []
+
     async def _post(text, **kw):
         slack.append(text)
 
@@ -146,6 +148,7 @@ async def test_run_dedupes_inside_cooldown(monkeypatch):
     # dedup query returns a prior proposal → no new proposal
     db = _DB([_Rows(rows), _Rows([("exists",)])])
     slack = []
+
     async def _post(text, **kw):
         slack.append(text)
 

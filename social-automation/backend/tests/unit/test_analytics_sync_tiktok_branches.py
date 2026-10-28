@@ -37,28 +37,20 @@ def _tt_patches(monkeypatch):
     monkeypatch.setattr(A, "_resolve_stale_note", AsyncMock())
 
 
-
-
 _COOKIES = {"tiktok_web_cookies": {"sessionid": "x"}}
 
 
 def _scraped(videos: dict[str, int | None]) -> dict:
     """Scraped grid: video id -> unix publish timestamp (None = missing)."""
     return {
-        "videos": {
-            vid: A.MetricBundle(likes=1, raw={"timestamp": ts})
-            for vid, ts in videos.items()
-        },
+        "videos": {vid: A.MetricBundle(likes=1, raw={"timestamp": ts}) for vid, ts in videos.items()},
         "followers": 7,
         "channel_id": "ch",
     }
 
 
 def _snapshots_by_vid() -> dict[str, uuid.UUID | None]:
-    return {
-        c.kwargs["platform_post_id"]: c.kwargs["post_id"]
-        for c in A._persist_snapshot.await_args_list
-    }
+    return {c.kwargs["platform_post_id"]: c.kwargs["post_id"] for c in A._persist_snapshot.await_args_list}
 
 
 # ── inbox self-heal ───────────────────────────────────────────────────
@@ -105,7 +97,8 @@ async def test_two_inbox_posts_never_claim_the_same_video(_tt_patches, monkeypat
     first.published_at = second.published_at = now - timedelta(hours=1)
     monkeypatch.setattr(A, "decrypt_token", lambda _t: None)
     monkeypatch.setattr(
-        A, "_scrape_tiktok_profile",
+        A,
+        "_scrape_tiktok_profile",
         lambda _u, _c: _scraped({"only": int(first.published_at.timestamp())}),
     )
     acc = _account(platform="tiktok", username="cu", meta_data=dict(_COOKIES), scopes=[])
@@ -123,13 +116,15 @@ async def test_inbox_target_without_loaded_post(_tt_patches, monkeypatch):
     target's post_id. There is just nowhere to write the id back."""
     pub = datetime.now(UTC) - timedelta(days=1)
     t = SimpleNamespace(
-        post_id=uuid.uuid4(), platform_post_id="v_inbox_x", published_at=pub,
-        error_message=None, status="published", post=None,
+        post_id=uuid.uuid4(),
+        platform_post_id="v_inbox_x",
+        published_at=pub,
+        error_message=None,
+        status="published",
+        post=None,
     )
     monkeypatch.setattr(A, "decrypt_token", lambda _t: None)
-    monkeypatch.setattr(
-        A, "_scrape_tiktok_profile", lambda _u, _c: _scraped({"v1": int(pub.timestamp()) + 60})
-    )
+    monkeypatch.setattr(A, "_scrape_tiktok_profile", lambda _u, _c: _scraped({"v1": int(pub.timestamp()) + 60}))
     acc = _account(platform="tiktok", username="cu", meta_data=dict(_COOKIES), scopes=[])
 
     await A.sync_tiktok_account(_DB(results=[[t]]), acc)
@@ -143,7 +138,8 @@ async def test_inbox_post_with_no_candidate_in_window_stays_unmapped(_tt_patches
     inbox = _target("v_inbox_file~v2.9")
     monkeypatch.setattr(A, "decrypt_token", lambda _t: None)
     monkeypatch.setattr(
-        A, "_scrape_tiktok_profile",
+        A,
+        "_scrape_tiktok_profile",
         lambda _u, _c: _scraped({"stale": int((inbox.published_at - timedelta(days=30)).timestamp())}),
     )
     acc = _account(platform="tiktok", username="cu", meta_data=dict(_COOKIES), scopes=[])
@@ -163,7 +159,8 @@ async def test_single_not_found_is_persisted_not_retired(_tt_patches, monkeypatc
     the target is only retired after two misses in a row."""
     t = _target("7312345")
     monkeypatch.setattr(
-        A, "_fetch_tiktok_video_stats",
+        A,
+        "_fetch_tiktok_video_stats",
         AsyncMock(return_value=A.MetricBundle(notes="tiktok_video_not_found")),
     )
     monkeypatch.setattr(A, "_tiktok_consecutive_misses", AsyncMock(return_value=1))
@@ -184,8 +181,12 @@ async def test_user_info_empty_user_changes_nothing(_tt_patches, monkeypatch):
     events = []
     monkeypatch.setattr(A, "_persist_account_event", lambda *a: events.append(a))
     acc = _account(
-        platform="tiktok", access_token_enc="enc", username="keep", display_name="Keep",
-        meta_data={}, scopes=["user.info.stats"],
+        platform="tiktok",
+        access_token_enc="enc",
+        username="keep",
+        display_name="Keep",
+        meta_data={},
+        scopes=["user.info.stats"],
     )
 
     r = await A.sync_tiktok_account(_DB(results=[[]]), acc)
@@ -203,29 +204,44 @@ async def test_user_info_sparse_user_keeps_record_and_zero_fills_event(_tt_patch
     events = []
     monkeypatch.setattr(A, "_persist_account_event", lambda db, acc, ts, et, m: events.append((et, m)))
     acc = _account(
-        platform="tiktok", access_token_enc="enc", username="keep", display_name="Keep",
-        avatar_url="https://old", meta_data={"x": 1}, scopes=["user.info.stats"],
+        platform="tiktok",
+        access_token_enc="enc",
+        username="keep",
+        display_name="Keep",
+        avatar_url="https://old",
+        meta_data={"x": 1},
+        scopes=["user.info.stats"],
     )
 
     await A.sync_tiktok_account(_DB(results=[[]]), acc)
 
     assert (acc.username, acc.display_name, acc.avatar_url) == ("keep", "Keep", "https://old")
     assert acc.meta_data == {"x": 1}
-    assert events == [("profile_sync", {
-        "followers_count": 0, "following_count": None, "likes_count": None,
-        "video_count": None, "is_verified": None, "profile_deep_link": None,
-        "api_source": "user.info",
-    })]
+    assert events == [
+        (
+            "profile_sync",
+            {
+                "followers_count": 0,
+                "following_count": None,
+                "likes_count": None,
+                "video_count": None,
+                "is_verified": None,
+                "profile_deep_link": None,
+                "api_source": "user.info",
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("sidecar", [
-    _resp(200, {"logged_in": True}),
-    _resp(503, {}),
-])
-async def test_empty_scrape_with_live_or_unreachable_sidecar_reports_nothing(
-    _tt_patches, monkeypatch, sidecar
-):
+@pytest.mark.parametrize(
+    "sidecar",
+    [
+        _resp(200, {"logged_in": True}),
+        _resp(503, {}),
+    ],
+)
+async def test_empty_scrape_with_live_or_unreachable_sidecar_reports_nothing(_tt_patches, monkeypatch, sidecar):
     """An empty grid only means "session expired" when the sidecar says it is
     logged out. A logged-in or unavailable sidecar gives no error."""
     monkeypatch.setattr(A, "decrypt_token", lambda _t: None)
@@ -245,10 +261,15 @@ async def test_empty_scrape_with_live_or_unreachable_sidecar_reports_nothing(
 
 @pytest.mark.asyncio
 async def test_video_stats_picks_the_requested_id_from_the_batch():
-    body = {"error": {"code": "ok"}, "data": {"videos": [
-        {"id": "111", "view_count": 999, "like_count": 9},
-        {"id": 222, "view_count": 40, "like_count": 4, "comment_count": 2, "share_count": 1},
-    ]}}
+    body = {
+        "error": {"code": "ok"},
+        "data": {
+            "videos": [
+                {"id": "111", "view_count": 999, "like_count": 9},
+                {"id": 222, "view_count": 40, "like_count": 4, "comment_count": 2, "share_count": 1},
+            ]
+        },
+    }
     client = SimpleNamespace(post=AsyncMock(return_value=_resp(200, body)))
 
     out = await A._fetch_tiktok_video_stats(client, "tok", "222")
@@ -257,11 +278,14 @@ async def test_video_stats_picks_the_requested_id_from_the_batch():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("notes", "expected"), [
-    (["tiktok_video_not_found", "tiktok_video_not_found"], 2),  # whole history is misses
-    (["tiktok_video_not_found", None, "tiktok_video_not_found"], 1),  # streak broken
-    ([], 0),
-])
+@pytest.mark.parametrize(
+    ("notes", "expected"),
+    [
+        (["tiktok_video_not_found", "tiktok_video_not_found"], 2),  # whole history is misses
+        (["tiktok_video_not_found", None, "tiktok_video_not_found"], 1),  # streak broken
+        ([], 0),
+    ],
+)
 async def test_consecutive_misses_counts_trailing_streak(notes, expected):
     assert await A._tiktok_consecutive_misses(_DB(results=[notes]), uuid.uuid4(), "v") == expected
 

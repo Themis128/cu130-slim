@@ -195,38 +195,30 @@ def test_normalize_group_watch_config():
     assert cfg["enabled"] is False and cfg["keywords"] == gw.DEFAULT_KEYWORDS
 
     # unknown keys dropped, watched_chats/keywords coerced, owner str-ified
-    cfg = gw.normalize_group_watch_config({
-        "enabled": True, "bogus_key": 1,
-        "watched_chats": "notalist", "keywords": [1, " x ", ""],
-        "owner_chat_id": 42})
+    cfg = gw.normalize_group_watch_config({"enabled": True, "bogus_key": 1, "watched_chats": "notalist", "keywords": [1, " x ", ""], "owner_chat_id": 42})
     assert cfg["enabled"] is True and "bogus_key" not in cfg
     assert cfg["watched_chats"] == [] and cfg["keywords"] == ["1", "x"]
     assert cfg["owner_chat_id"] == "42"
 
-    assert gw.get_group_watch_from_meta(
-        {gw.META_KEY: {"enabled": True}})["enabled"] is True
+    assert gw.get_group_watch_from_meta({gw.META_KEY: {"enabled": True}})["enabled"] is True
     assert gw.get_group_watch_from_meta(None)["enabled"] is False
 
 
 def test_watched_chat_ids_and_is_watched():
-    cfg = {"enabled": True, "watch_all_groups": False,
-           "watched_chats": [{"chat_id": -100, "title": "g"},
-                             555, {"no_id": 1}]}
+    cfg = {"enabled": True, "watch_all_groups": False, "watched_chats": [{"chat_id": -100, "title": "g"}, 555, {"no_id": 1}]}
     assert gw._watched_chat_ids(cfg) == {"-100", "555"}
 
     assert not gw.is_chat_watched({"enabled": False}, 1, "group")
     assert not gw.is_chat_watched(cfg, 1, "private")  # not a group
     # watch_all → any group ok
-    assert gw.is_chat_watched({"enabled": True, "watch_all_groups": True},
-                              999, "supergroup")
+    assert gw.is_chat_watched({"enabled": True, "watch_all_groups": True}, 999, "supergroup")
     # explicit list
     assert gw.is_chat_watched(cfg, -100, "group")
     assert not gw.is_chat_watched(cfg, -777, "group")
 
 
 def test_upsert_watched_chat():
-    cfg = gw.upsert_watched_chat({}, chat_id=-100, title="G",
-                                 chat_type="group")
+    cfg = gw.upsert_watched_chat({}, chat_id=-100, title="G", chat_type="group")
     assert cfg["watched_chats"][0]["chat_id"] == "-100"
     assert cfg["watched_chats"][0]["title"] == "G"
 
@@ -239,9 +231,7 @@ def test_upsert_watched_chat():
 
 def test_bot_mentioned_and_keywords():
     # entity types
-    assert gw.bot_mentioned("x", [{"type": "text_mention",
-                                   "user": {"username": "Cloudless_newbot"}}],
-                            "cloudless_newbot")
+    assert gw.bot_mentioned("x", [{"type": "text_mention", "user": {"username": "Cloudless_newbot"}}], "cloudless_newbot")
     assert gw.bot_mentioned("x", [{"type": "other"}], "b") is False
     assert gw.bot_mentioned("x", "notalist", "b") is False or True  # iterates
     # @uname in text
@@ -300,11 +290,9 @@ async def test_alert_cooldown_and_notify(monkeypatch):
         async def set(self, *a, **kw):
             return self.created
 
-    monkeypatch.setattr(gw, "_redis",
-                        AsyncMock(return_value=_R(created=True)))
+    monkeypatch.setattr(gw, "_redis", AsyncMock(return_value=_R(created=True)))
     assert await gw._alert_cooldown_ok("a", "c", "fp") is True
-    monkeypatch.setattr(gw, "_redis",
-                        AsyncMock(return_value=_R(created=None)))
+    monkeypatch.setattr(gw, "_redis", AsyncMock(return_value=_R(created=None)))
     assert await gw._alert_cooldown_ok("a", "c", "fp") is False
     # redis down → fail-open True
     monkeypatch.setattr(gw, "_redis", AsyncMock(side_effect=Exception()))
@@ -314,6 +302,7 @@ async def test_alert_cooldown_and_notify(monkeypatch):
     client = SimpleNamespace(send_message=AsyncMock())
     assert await gw.notify_owner(client, "o", "t") is True
     from app.services.telegram_api import TelegramAPIError
+
     client.send_message = AsyncMock(side_effect=TelegramAPIError(500, "x"))
     assert await gw.notify_owner(client, "o", "t") is False
 
@@ -325,89 +314,63 @@ async def test_alert_cooldown_and_notify(monkeypatch):
 async def test_process_group_message_watch(monkeypatch):
     monkeypatch.setattr(gw, "buffer_group_message", AsyncMock())
     monkeypatch.setattr(gw, "_alert_cooldown_ok", AsyncMock(return_value=True))
-    cfg = {"enabled": True, "watch_all_groups": True,
-           "owner_chat_id": "999", "alert_on_keywords": True,
-           "keywords": ["price"], "alert_on_bot_mention": False}
-    inbound = {"chat_id": -100, "chat_type": "group", "message_id": 5,
-               "sender_name": "Ada", "chat_title": "G",
-               "text": "what price?"}
+    cfg = {"enabled": True, "watch_all_groups": True, "owner_chat_id": "999", "alert_on_keywords": True, "keywords": ["price"], "alert_on_bot_mention": False}
+    inbound = {"chat_id": -100, "chat_type": "group", "message_id": 5, "sender_name": "Ada", "chat_title": "G", "text": "what price?"}
 
     # not watched
-    out = await gw.process_group_message_watch(
-        client=None, account_id="a",
-        cfg={"enabled": False}, inbound=inbound, bot_username=None)
+    out = await gw.process_group_message_watch(client=None, account_id="a", cfg={"enabled": False}, inbound=inbound, bot_username=None)
     assert out["reason"] == "not_watched"
 
     # buffered, no owner
-    out = await gw.process_group_message_watch(
-        client=None, account_id="a",
-        cfg={**cfg, "owner_chat_id": None},
-        inbound=inbound, bot_username=None)
+    out = await gw.process_group_message_watch(client=None, account_id="a", cfg={**cfg, "owner_chat_id": None}, inbound=inbound, bot_username=None)
     assert out["buffered"] and out["reason"] == "no_owner"
 
     # no keyword/mention match
-    out = await gw.process_group_message_watch(
-        client=None, account_id="a", cfg=cfg,
-        inbound={**inbound, "text": "hello"}, bot_username=None)
+    out = await gw.process_group_message_watch(client=None, account_id="a", cfg=cfg, inbound={**inbound, "text": "hello"}, bot_username=None)
     assert out["reason"] == "no_alert_match"
 
     # cooldown blocks
-    monkeypatch.setattr(gw, "_alert_cooldown_ok",
-                        AsyncMock(return_value=False))
-    out = await gw.process_group_message_watch(
-        client=None, account_id="a", cfg=cfg,
-        inbound=inbound, bot_username=None)
+    monkeypatch.setattr(gw, "_alert_cooldown_ok", AsyncMock(return_value=False))
+    out = await gw.process_group_message_watch(client=None, account_id="a", cfg=cfg, inbound=inbound, bot_username=None)
     assert out["reason"] == "alert_cooldown"
     monkeypatch.setattr(gw, "_alert_cooldown_ok", AsyncMock(return_value=True))
 
     # keyword hit → owner DM
     client = SimpleNamespace(send_message=AsyncMock())
-    out = await gw.process_group_message_watch(
-        client=client, account_id="a", cfg=cfg,
-        inbound=inbound, bot_username=None)
+    out = await gw.process_group_message_watch(client=client, account_id="a", cfg=cfg, inbound=inbound, bot_username=None)
     assert out["alerted"] and out["reason"] == "dm_sent"
     txt = client.send_message.await_args.args[1]
     assert "Visibility group alert" in txt and "price" in txt
 
     # forward path — success short-circuits
-    client = SimpleNamespace(send_message=AsyncMock(),
-                             forward_message=AsyncMock())
-    out = await gw.process_group_message_watch(
-        client=client, account_id="a",
-        cfg={**cfg, "forward_alert_messages": True},
-        inbound=inbound, bot_username=None)
+    client = SimpleNamespace(send_message=AsyncMock(), forward_message=AsyncMock())
+    out = await gw.process_group_message_watch(client=client, account_id="a", cfg={**cfg, "forward_alert_messages": True}, inbound=inbound, bot_username=None)
     assert out["reason"] == "forwarded"
     client.send_message.assert_not_awaited()
 
     # forward fails → falls back to DM
     from app.services.telegram_api import TelegramAPIError
+
     client.forward_message = AsyncMock(side_effect=TelegramAPIError(500, "x"))
-    out = await gw.process_group_message_watch(
-        client=client, account_id="a",
-        cfg={**cfg, "forward_alert_messages": True},
-        inbound=inbound, bot_username=None)
+    out = await gw.process_group_message_watch(client=client, account_id="a", cfg={**cfg, "forward_alert_messages": True}, inbound=inbound, bot_username=None)
     assert out["reason"] == "dm_sent"
 
     # mention path via entities
     client2 = SimpleNamespace(send_message=AsyncMock())
     out = await gw.process_group_message_watch(
-        client=client2, account_id="a",
-        cfg={**cfg, "alert_on_bot_mention": True,
-             "alert_on_keywords": False},
-        inbound={**inbound, "text": "@mybot hi",
-                 "entities": [{"type": "mention", "offset": 0,
-                               "length": 6}]},
-        bot_username="mybot")
-    assert out["alerted"] and "bot mention" in \
-        client2.send_message.await_args.args[1]
+        client=client2,
+        account_id="a",
+        cfg={**cfg, "alert_on_bot_mention": True, "alert_on_keywords": False},
+        inbound={**inbound, "text": "@mybot hi", "entities": [{"type": "mention", "offset": 0, "length": 6}]},
+        bot_username="mybot",
+    )
+    assert out["alerted"] and "bot mention" in client2.send_message.await_args.args[1]
 
     # DM send fails → dm_failed
     from app.services.telegram_api import TelegramAPIError
-    client3 = SimpleNamespace(
-        send_message=AsyncMock(side_effect=TelegramAPIError(500, "x")))
-    out = await gw.process_group_message_watch(
-        client=client3, account_id="a", cfg=cfg,
-        inbound=inbound, bot_username=None)
+
+    client3 = SimpleNamespace(send_message=AsyncMock(side_effect=TelegramAPIError(500, "x")))
+    out = await gw.process_group_message_watch(client=client3, account_id="a", cfg=cfg, inbound=inbound, bot_username=None)
     assert out["reason"] == "dm_failed"
 
 
@@ -419,31 +382,22 @@ async def test_owner_link_command():
     client = SimpleNamespace(send_message=AsyncMock())
 
     # non-private / empty / non-link → not handled
-    cfg, ok = await gw.handle_owner_link_command(
-        client=client, inbound={"chat_type": "group"}, cfg={})
+    cfg, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "group"}, cfg={})
     assert ok is False
-    cfg, ok = await gw.handle_owner_link_command(
-        client=client, inbound={"chat_type": "private", "text": ""}, cfg={})
+    cfg, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "private", "text": ""}, cfg={})
     assert ok is False
-    cfg, ok = await gw.handle_owner_link_command(
-        client=client, inbound={"chat_type": "private", "text": "/help"},
-        cfg={})
+    cfg, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "private", "text": "/help"}, cfg={})
     assert ok is False
 
     # fresh link → owner bound + onboarding DM
     cfg, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 777,
-                 "text": "/start", "sender_username": "u"},
-        cfg={}, bot_username="mybot")
+        client=client, inbound={"chat_type": "private", "chat_id": 777, "text": "/start", "sender_username": "u"}, cfg={}, bot_username="mybot"
+    )
     assert ok and cfg["owner_chat_id"] == "777" and cfg["enabled"]
     assert "Linked" in client.send_message.await_args.args[1]
 
     # already linked → "Already linked" DM
-    cfg2, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 777,
-                 "text": "/linkowner@mybot"}, cfg=cfg)
+    cfg2, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "private", "chat_id": 777, "text": "/linkowner@mybot"}, cfg=cfg)
     assert ok and "Already linked" in client.send_message.await_args.args[1]
 
 
@@ -455,45 +409,31 @@ async def test_owner_link_hijack_protection():
     owner_cfg = {"owner_chat_id": "777", "enabled": True}
 
     # /start with a funnel payload → never a link command
-    cfg, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 999, "text": "/start audit"},
-        cfg=owner_cfg)
+    cfg, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "private", "chat_id": 999, "text": "/start audit"}, cfg=owner_cfg)
     assert ok is False and cfg["owner_chat_id"] == "777"
 
     # /start with any other payload → not a link either
-    cfg, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 999, "text": "/start foo"},
-        cfg={})
+    cfg, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "private", "chat_id": 999, "text": "/start foo"}, cfg={})
     assert ok is False and "owner_chat_id" not in cfg
 
     # Bare /start while owner is linked to a different chat → ignored
-    cfg, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 999, "text": "/start"},
-        cfg=owner_cfg)
+    cfg, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "private", "chat_id": 999, "text": "/start"}, cfg=owner_cfg)
     assert ok is False and cfg["owner_chat_id"] == "777"
 
     # Bare /start while unlinked → still binds (owner onboarding)
-    cfg, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 999, "text": "/start"},
-        cfg={})
+    cfg, ok = await gw.handle_owner_link_command(client=client, inbound={"chat_type": "private", "chat_id": 999, "text": "/start"}, cfg={})
     assert ok and cfg["owner_chat_id"] == "999"
 
     # Explicit /start linkowner relinks even when an owner exists
     cfg, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 555, "text": "/start linkowner"},
-        cfg=owner_cfg, bot_username="b")
+        client=client, inbound={"chat_type": "private", "chat_id": 555, "text": "/start linkowner"}, cfg=owner_cfg, bot_username="b"
+    )
     assert ok and cfg["owner_chat_id"] == "555"
 
     # Same-owner bare /start → idempotent "Already linked" path
     cfg, ok = await gw.handle_owner_link_command(
-        client=client,
-        inbound={"chat_type": "private", "chat_id": 777, "text": "/start"},
-        cfg=owner_cfg, bot_username="b")
+        client=client, inbound={"chat_type": "private", "chat_id": 777, "text": "/start"}, cfg=owner_cfg, bot_username="b"
+    )
     assert ok and cfg["owner_chat_id"] == "777"
 
 
@@ -501,18 +441,11 @@ async def test_owner_link_hijack_protection():
 async def test_mistaken_botfather_command():
     client = SimpleNamespace(send_message=AsyncMock())
     # non-private / non-cmd / non-botfather cmd → False
-    assert await gw.handle_mistaken_botfather_command(
-        client=client, inbound={"chat_type": "group"}) is False
-    assert await gw.handle_mistaken_botfather_command(
-        client=client, inbound={"chat_type": "private",
-                                "text": "hello"}) is False
-    assert await gw.handle_mistaken_botfather_command(
-        client=client, inbound={"chat_type": "private",
-                                "text": "/random"}) is False
+    assert await gw.handle_mistaken_botfather_command(client=client, inbound={"chat_type": "group"}) is False
+    assert await gw.handle_mistaken_botfather_command(client=client, inbound={"chat_type": "private", "text": "hello"}) is False
+    assert await gw.handle_mistaken_botfather_command(client=client, inbound={"chat_type": "private", "text": "/random"}) is False
     # botfather cmd → redirect DM
-    assert await gw.handle_mistaken_botfather_command(
-        client=client, inbound={"chat_type": "private", "chat_id": 1,
-                                "text": "/setprivacy"}) is True
+    assert await gw.handle_mistaken_botfather_command(client=client, inbound={"chat_type": "private", "chat_id": 1, "text": "/setprivacy"}) is True
     assert "BotFather" in client.send_message.await_args.args[1]
 
 
@@ -530,6 +463,7 @@ async def test_ensure_bot_commands():
     cmds = client.set_my_commands.await_args.args[0]
     assert any(c["command"] == "linkowner" for c in cmds)
     from app.services.telegram_api import TelegramAPIError
+
     client.set_my_commands = AsyncMock(side_effect=TelegramAPIError(500, "x"))
     assert await gw.ensure_bot_commands(client) is False
 
@@ -539,38 +473,33 @@ async def test_bot_membership_change():
     client = SimpleNamespace(send_message=AsyncMock())
 
     # non-group → no-op
-    cfg, info = await gw.handle_bot_membership_change(
-        client=client, cfg={}, event={"chat_type": "private"})
+    cfg, info = await gw.handle_bot_membership_change(client=client, cfg={}, event={"chat_type": "private"})
     assert info == {"registered": False, "notified": False}
 
     # status not member/admin → no-op
-    cfg, info = await gw.handle_bot_membership_change(
-        client=client, cfg={},
-        event={"chat_type": "group", "new_status": "left"})
+    cfg, info = await gw.handle_bot_membership_change(client=client, cfg={}, event={"chat_type": "group", "new_status": "left"})
     assert not info["registered"]
 
     # joined → registers + notifies owner
     cfg, info = await gw.handle_bot_membership_change(
-        client=client, cfg={"owner_chat_id": "999"},
-        event={"chat_type": "supergroup", "chat_id": -100,
-               "chat_title": "VE", "new_status": "member",
-               "old_status": "left"})
+        client=client,
+        cfg={"owner_chat_id": "999"},
+        event={"chat_type": "supergroup", "chat_id": -100, "chat_title": "VE", "new_status": "member", "old_status": "left"},
+    )
     assert info["registered"] and info["notified"]
     assert cfg["watched_chats"][0]["chat_id"] == "-100"
     assert "Now watching" in client.send_message.await_args.args[1]
 
     # promoted member→admin → also notifies
     cfg, info = await gw.handle_bot_membership_change(
-        client=client, cfg={"owner_chat_id": "999"},
-        event={"chat_type": "group", "chat_id": -1,
-               "new_status": "administrator", "old_status": "member"})
+        client=client, cfg={"owner_chat_id": "999"}, event={"chat_type": "group", "chat_id": -1, "new_status": "administrator", "old_status": "member"}
+    )
     assert info["notified"]
 
     # no owner → registered but not notified
     cfg, info = await gw.handle_bot_membership_change(
-        client=client, cfg={},
-        event={"chat_type": "group", "chat_id": -1,
-               "new_status": "member", "old_status": "left"})
+        client=client, cfg={}, event={"chat_type": "group", "chat_id": -1, "new_status": "member", "old_status": "left"}
+    )
     assert info["registered"] and not info["notified"]
 
 
@@ -578,14 +507,10 @@ def test_should_auto_reply_in_group():
     # private → always
     assert gw.should_auto_reply_in_group({}, {"chat_type": "private"}, "b")
     # group + flag off → always
-    assert gw.should_auto_reply_in_group(
-        {"auto_reply_groups_only_when_mentioned": False},
-        {"chat_type": "group"}, "b")
+    assert gw.should_auto_reply_in_group({"auto_reply_groups_only_when_mentioned": False}, {"chat_type": "group"}, "b")
     # group + flag on → only when mentioned
-    assert not gw.should_auto_reply_in_group(
-        {}, {"chat_type": "group", "text": "hi", "entities": []}, "b")
-    assert gw.should_auto_reply_in_group(
-        {}, {"chat_type": "group", "text": "@b hi"}, "b")
+    assert not gw.should_auto_reply_in_group({}, {"chat_type": "group", "text": "hi", "entities": []}, "b")
+    assert gw.should_auto_reply_in_group({}, {"chat_type": "group", "text": "@b hi"}, "b")
 
 
 # ── digest ────────────────────────────────────────────────────────────
@@ -596,17 +521,11 @@ async def test_send_digest_for_account(monkeypatch):
     client = SimpleNamespace(send_message=AsyncMock())
 
     # disabled / no owner
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a", cfg={"enabled": False}, force=True)
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg={"enabled": False}, force=True)
     assert out["reason"] == "digest_disabled"
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a",
-        cfg={"enabled": True, "digest_enabled": False}, force=True)
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg={"enabled": True, "digest_enabled": False}, force=True)
     assert out["reason"] == "digest_disabled"
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a",
-        cfg={"enabled": True, "digest_enabled": True,
-             "owner_chat_id": None}, force=True)
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg={"enabled": True, "digest_enabled": True, "owner_chat_id": None}, force=True)
     assert out["reason"] == "no_owner"
 
     import datetime as dt
@@ -618,14 +537,10 @@ async def test_send_digest_for_account(monkeypatch):
 
     monkeypatch.setattr(gw, "datetime", _FixedDT)
     now_hour = 9
-    cfg = {"enabled": True, "digest_enabled": True,
-           "owner_chat_id": "999", "digest_hour": now_hour,
-           "watched_chats": [{"chat_id": -100, "title": "G"}]}
+    cfg = {"enabled": True, "digest_enabled": True, "owner_chat_id": "999", "digest_hour": now_hour, "watched_chats": [{"chat_id": -100, "title": "G"}]}
 
     # wrong hour (non-force)
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a", cfg=cfg,
-        hour_filter=(now_hour + 6) % 24)
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg, hour_filter=(now_hour + 6) % 24)
     assert out["skipped"] and out["reason"] == "wrong_hour"
 
     # already sent today (redis nx=False)
@@ -634,24 +549,17 @@ async def test_send_digest_for_account(monkeypatch):
             return None
 
     monkeypatch.setattr(gw, "_redis", AsyncMock(return_value=_R()))
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a", cfg=cfg,
-        hour_filter=now_hour)
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg, hour_filter=now_hour)
     assert out["reason"] == "already_sent_today"
 
     # force → skips the dedup; empty buffer → chat skipped
-    monkeypatch.setattr(gw, "list_buffered_messages",
-                        AsyncMock(return_value=[]))
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a", cfg=cfg, force=True)
+    monkeypatch.setattr(gw, "list_buffered_messages", AsyncMock(return_value=[]))
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg, force=True)
     assert out["sent"] == 0 and out["chats"][0]["reason"] == "empty"
 
     # happy — digest built and sent
-    monkeypatch.setattr(gw, "list_buffered_messages",
-                        AsyncMock(return_value=[
-                            {"sender_name": "Ada", "text": "hi"}]))
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a", cfg=cfg, force=True)
+    monkeypatch.setattr(gw, "list_buffered_messages", AsyncMock(return_value=[{"sender_name": "Ada", "text": "hi"}]))
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg, force=True)
     assert out["sent"] == 1 and out["chats"][0]["sent"] is True
     assert "Group digest" in client.send_message.await_args.args[1]
 
@@ -663,15 +571,9 @@ def test_normalize_keywords_non_list_resets_defaults():
 
 def test_bot_mentioned_offset_entity():
     # mention entity uses offset/length to slice the handle out of text
-    assert gw.bot_mentioned(
-        "hello @mybot tail",
-        [{"type": "mention", "offset": 6, "length": 6}],
-        "mybot")
+    assert gw.bot_mentioned("hello @mybot tail", [{"type": "mention", "offset": 6, "length": 6}], "mybot")
     # offset points at a different handle → no match
-    assert not gw.bot_mentioned(
-        "hello @other tail",
-        [{"type": "mention", "offset": 6, "length": 6}],
-        "mybot")
+    assert not gw.bot_mentioned("hello @other tail", [{"type": "mention", "offset": 6, "length": 6}], "mybot")
     # non-dict entities are skipped
     assert not gw.bot_mentioned("hi", ["x", 3], "mybot")
 
@@ -679,13 +581,11 @@ def test_bot_mentioned_offset_entity():
 def test_build_digest_text_line_and_body_truncation():
     long_text = "x" * 300
     msgs = [{"sender_name": "A", "text": long_text}]
-    body = gw.build_digest_text(chat_title="G", chat_id="-1",
-                                messages=msgs, max_messages=10)
+    body = gw.build_digest_text(chat_title="G", chat_id="-1", messages=msgs, max_messages=10)
     assert "…" in body  # per-line truncation at 180
 
     many = [{"sender_name": "A", "text": "y" * 500} for _ in range(200)]
-    body = gw.build_digest_text(chat_title="G", chat_id="-1",
-                                messages=many, max_messages=400)
+    body = gw.build_digest_text(chat_title="G", chat_id="-1", messages=many, max_messages=400)
     assert len(body) <= gw.MAX_MESSAGE_CHARS
     assert body.endswith("…(truncated)")
 
@@ -704,10 +604,8 @@ async def test_send_digest_bad_timezone_and_redis_down(monkeypatch):
     monkeypatch.setattr(gw.settings, "APP_TIMEZONE", "Not/AZone")
     monkeypatch.setattr(gw, "_redis", AsyncMock(side_effect=RuntimeError("down")))
     monkeypatch.setattr(gw, "list_buffered_messages", AsyncMock(return_value=[]))
-    cfg = {"enabled": True, "digest_enabled": True, "owner_chat_id": "9",
-           "digest_hour": 9, "watched_chats": [{"chat_id": -1, "title": ""}]}
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a", cfg=cfg, hour_filter=9)
+    cfg = {"enabled": True, "digest_enabled": True, "owner_chat_id": "9", "digest_hour": 9, "watched_chats": [{"chat_id": -1, "title": ""}]}
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg, hour_filter=9)
     # ZoneInfo fallback + redis exception → continues, digest attempted
     assert out["chats"][0]["reason"] == "empty"
 
@@ -723,13 +621,10 @@ async def test_send_digest_send_failure_counted(monkeypatch):
             return cls(2026, 1, 5, 9, 0, tzinfo=tz)
 
     monkeypatch.setattr(gw, "datetime", _FixedDT)
-    monkeypatch.setattr(gw, "list_buffered_messages",
-                        AsyncMock(return_value=[{"sender_name": "A", "text": "m"}]))
+    monkeypatch.setattr(gw, "list_buffered_messages", AsyncMock(return_value=[{"sender_name": "A", "text": "m"}]))
     monkeypatch.setattr(gw, "notify_owner", AsyncMock(return_value=False))
-    cfg = {"enabled": True, "digest_enabled": True, "owner_chat_id": "9",
-           "digest_hour": 9, "watched_chats": [{"chat_id": -1}]}
-    out = await gw.send_digest_for_account(
-        client=client, account_id="a", cfg=cfg, force=True)
+    cfg = {"enabled": True, "digest_enabled": True, "owner_chat_id": "9", "digest_hour": 9, "watched_chats": [{"chat_id": -1}]}
+    out = await gw.send_digest_for_account(client=client, account_id="a", cfg=cfg, force=True)
     assert out["sent"] == 0 and out["chats"][0]["sent"] is False
 
 

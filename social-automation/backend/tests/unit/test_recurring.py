@@ -1,4 +1,5 @@
 """Unit tests for recurring post scheduling logic."""
+
 from datetime import UTC, datetime, timedelta
 
 from app.models.content import RecurrencePattern

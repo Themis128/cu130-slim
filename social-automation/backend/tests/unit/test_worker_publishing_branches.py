@@ -6,6 +6,7 @@ the duplicate guards, the repeated-error alert dedup, the error-path
 re-fetch misses, and the empty-result arms of the sync wrappers and
 small helpers. They reuse that suite's fake DB and builders.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -99,9 +100,7 @@ async def test_success_without_target_and_no_meta(monkeypatch):
     post = _post(id=item.post_id)
     db = _queue_db(item, post, _acct(id=item.social_account_id), None)
     _patch_db(monkeypatch, db)
-    monkeypatch.setattr(
-        W, "publish_to_platform", AsyncMock(return_value=W.PublishResult(success=True))
-    )
+    monkeypatch.setattr(W, "publish_to_platform", AsyncMock(return_value=W.PublishResult(success=True)))
     await W._process_publish_queue_async()
     assert item.status == QueueStatus.COMPLETED
     # no platform_meta → nothing merged beyond the quality-gate record
@@ -134,20 +133,14 @@ async def test_final_failure_without_target_merges_meta(monkeypatch):
     monkeypatch.setattr(
         W,
         "publish_to_platform",
-        AsyncMock(
-            return_value=W.PublishResult(
-                success=False, error=None, platform_meta={"ig": {"b": 2}, "flag": True}
-            )
-        ),
+        AsyncMock(return_value=W.PublishResult(success=False, error=None, platform_meta={"ig": {"b": 2}, "flag": True})),
     )
     await W._process_publish_queue_async()
     assert item.status == QueueStatus.FAILED
     assert post.platform_specific["ig"] == {"a": 1, "b": 2}
     assert post.platform_specific["flag"] is True
     # error None → generic reason forwarded to the alert
-    assert (
-        W._notify_publish_failure.await_args.kwargs["reason"] == "unknown publish error"
-    )
+    assert W._notify_publish_failure.await_args.kwargs["reason"] == "unknown publish error"
 
 
 @pytest.mark.asyncio
@@ -159,11 +152,7 @@ async def test_final_failure_same_error_is_not_realerted(monkeypatch):
     monkeypatch.setattr(
         W,
         "publish_to_platform",
-        AsyncMock(
-            return_value=W.PublishResult(
-                success=False, error="token expired", platform_post_id="half-1"
-            )
-        ),
+        AsyncMock(return_value=W.PublishResult(success=False, error="token expired", platform_post_id="half-1")),
     )
     await W._process_publish_queue_async()
     assert item.status == QueueStatus.FAILED
@@ -174,9 +163,7 @@ async def test_final_failure_same_error_is_not_realerted(monkeypatch):
 @pytest.mark.asyncio
 async def test_ambiguous_non_instagram_does_not_reconcile(monkeypatch):
     item = _qitem(attempts=2, max_attempts=3)
-    db = _queue_db(
-        item, _post(id=item.post_id), _acct(id=item.social_account_id), _target()
-    )
+    db = _queue_db(item, _post(id=item.post_id), _acct(id=item.social_account_id), _target())
     _patch_db(monkeypatch, db)
     monkeypatch.setattr(W, "_target_status_line", AsyncMock(return_value="x"))
     monkeypatch.setattr(
@@ -200,9 +187,7 @@ async def test_recurring_post_skips_duplicate_guards(monkeypatch):
     _patch_db(monkeypatch, db)
     media = AsyncMock(return_value="would block")
     monkeypatch.setattr(W, "media_duplicate_reason", media)
-    monkeypatch.setattr(
-        W, "publish_to_platform", AsyncMock(return_value=W.PublishResult(success=True))
-    )
+    monkeypatch.setattr(W, "publish_to_platform", AsyncMock(return_value=W.PublishResult(success=True)))
     await W._process_publish_queue_async()
     assert item.status == QueueStatus.COMPLETED
     media.assert_not_awaited()
@@ -214,9 +199,7 @@ async def test_recurring_post_skips_duplicate_guards(monkeypatch):
 @pytest.mark.asyncio
 async def test_exception_not_final_requeues_without_alert(monkeypatch):
     item = _qitem(attempts=0, max_attempts=3)
-    db = _queue_db(
-        item, _post(id=item.post_id), _acct(id=item.social_account_id), _target()
-    )
+    db = _queue_db(item, _post(id=item.post_id), _acct(id=item.social_account_id), _target())
     _patch_db(monkeypatch, db)
     monkeypatch.setattr(W, "publish_to_platform", AsyncMock(side_effect=RuntimeError("x")))
     await W._process_publish_queue_async()
@@ -253,9 +236,7 @@ async def test_exception_final_target_gone_on_refetch(monkeypatch):
     item = _qitem(attempts=2, max_attempts=3)
     post = _post(id=item.post_id)
     acct = _acct(id=item.social_account_id)
-    db = _queue_db(
-        item, post, acct, _target(), extra=[_res(one=post), _res(one=acct), _res(one=None)]
-    )
+    db = _queue_db(item, post, acct, _target(), extra=[_res(one=post), _res(one=acct), _res(one=None)])
     _patch_db(monkeypatch, db)
     monkeypatch.setattr(W, "_target_status_line", AsyncMock(return_value="x"))
     monkeypatch.setattr(W, "publish_to_platform", AsyncMock(side_effect=RuntimeError("x")))
@@ -267,9 +248,7 @@ async def test_exception_final_target_gone_on_refetch(monkeypatch):
 @pytest.mark.asyncio
 async def test_exception_final_refetch_raises_and_no_post(monkeypatch):
     item = _qitem(attempts=2, max_attempts=3)
-    db = _queue_db(
-        item, _post(id=item.post_id), _acct(id=item.social_account_id), _target()
-    )  # refetch hits an empty deque → IndexError → swallowed
+    db = _queue_db(item, _post(id=item.post_id), _acct(id=item.social_account_id), _target())  # refetch hits an empty deque → IndexError → swallowed
     _patch_db(monkeypatch, db)
     status_line = AsyncMock()
     monkeypatch.setattr(W, "_target_status_line", status_line)
@@ -345,9 +324,7 @@ async def test_reconcile_recovered_without_failed_queue_row(monkeypatch):
     monkeypatch.setattr(W, "_resolve_ig_user_token", AsyncMock(return_value="t"))
     monkeypatch.setattr(W, "decrypt_token", lambda v: "t")
     monkeypatch.setattr(W, "InstagramAPIClient", lambda **kw: object())
-    monkeypatch.setattr(
-        W, "_instagram_find_live", AsyncMock(return_value={"id": "m1", "permalink": "u"})
-    )
+    monkeypatch.setattr(W, "_instagram_find_live", AsyncMock(return_value={"id": "m1", "permalink": "u"}))
     r = await W._reconcile_instagram_publish_async("p", "a")
     assert r == {"recovered": True, "media_id": "m1"}
     assert target.status == "published"

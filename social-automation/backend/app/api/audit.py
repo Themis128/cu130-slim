@@ -1,4 +1,5 @@
 """Audit log API — list and filter audit entries."""
+
 from __future__ import annotations
 
 import uuid
@@ -49,9 +50,7 @@ async def list_audit_logs(
 ):
     """List audit log entries (admin/owner only)."""
     # User may belong to multiple teams — use the first membership
-    result = await db.execute(
-        select(TeamMember.team_id).where(TeamMember.user_id == current_user.id).limit(1)
-    )
+    result = await db.execute(select(TeamMember.team_id).where(TeamMember.user_id == current_user.id).limit(1))
     team_id = result.scalars().first()
     if not team_id:
         raise HTTPException(status_code=404, detail="Team not found")
@@ -73,6 +72,7 @@ async def list_audit_logs(
         count_q = count_q.where(AuditLog.created_at <= end_date)
 
     from sqlalchemy import func
+
     total_result = await db.execute(select(func.count()).select_from(count_q.subquery()))
     total = total_result.scalar() or 0
 

@@ -18,6 +18,7 @@ Design:
 
 The host-side manual equivalent is ``scripts/gpu_serial.py``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -122,9 +123,7 @@ async def media_gpu_lock(
             await asyncio.sleep(_LOCK_POLL_S)
             waited += _LOCK_POLL_S
         if not acquired:
-            raise TimeoutError(
-                f"gpu media lock not acquired within {acquire_timeout_s:.0f}s"
-            )
+            raise TimeoutError(f"gpu media lock not acquired within {acquire_timeout_s:.0f}s")
         await r.set(_BUSY_KEY, "1", ex=ttl_s)
         # Evict resident DMR models so the renderer sees a free card.
         # Imported here to avoid a module cycle (dmr imports this module
@@ -151,9 +150,7 @@ async def media_gpu_lock(
                     base = get_settings().COMFYUI_URL.rstrip("/")
                     async with httpx.AsyncClient(timeout=10.0) as client:
                         q = await client.get(f"{base}/queue", timeout=3.0)
-                        running = (
-                            len((q.json() if q.status_code == 200 else {}).get("queue_running") or []) > 0
-                        )
+                        running = len((q.json() if q.status_code == 200 else {}).get("queue_running") or []) > 0
                         if not running:
                             await client.post(
                                 f"{base}/free",
@@ -233,9 +230,7 @@ async def dmr_slot(
                 # Callers with a fast fallback (embeddings → CF BGE-M3) are
                 # better served failing now than stalling then running
                 # unserialized into a contended scheduler anyway.
-                raise ConnectionError(
-                    f"DMR slot not acquired in {acquire_s:.0f}s — use cloud fallback"
-                )
+                raise ConnectionError(f"DMR slot not acquired in {acquire_s:.0f}s — use cloud fallback")
             logger.warning(
                 "[gpu-arbiter] DMR slot not acquired in %.0fs — proceeding unserialized",
                 acquire_s,

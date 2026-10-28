@@ -55,12 +55,7 @@ class TelegramAPIClient:
     def __init__(self, bot_token: str, *, timeout: float = 30.0):
         token = (bot_token or "").strip()
         bot_id, sep, secret = token.partition(":")
-        if not (
-            sep
-            and bot_id.isdigit()
-            and secret
-            and all(c.isascii() and (c.isalnum() or c in "_-") for c in secret)
-        ):
+        if not (sep and bot_id.isdigit() and secret and all(c.isascii() and (c.isalnum() or c in "_-") for c in secret)):
             raise ValueError("Invalid Telegram bot token format")
         self.bot_token = token
         self.timeout = timeout
@@ -117,9 +112,7 @@ class TelegramAPIClient:
         }
         if secret_token is not None:
             if not _SECRET_TOKEN_RE.match(secret_token):
-                raise ValueError(
-                    "secret_token must be 1-256 chars of A-Z, a-z, 0-9, _ or -"
-                )
+                raise ValueError("secret_token must be 1-256 chars of A-Z, a-z, 0-9, _ or -")
             payload["secret_token"] = secret_token
         if allowed_updates is not None:
             payload["allowed_updates"] = allowed_updates
@@ -435,9 +428,7 @@ class TelegramAPIClient:
         )
         return bool(result)
 
-    async def unpin_chat_message(
-        self, chat_id: int | str, message_id: int | None = None
-    ) -> bool:
+    async def unpin_chat_message(self, chat_id: int | str, message_id: int | None = None) -> bool:
         payload: dict[str, Any] = {"chat_id": chat_id}
         if message_id is not None:
             payload["message_id"] = message_id
@@ -469,9 +460,7 @@ class TelegramAPIClient:
         return result if isinstance(result, dict) else {}
 
     async def delete_message(self, chat_id: int | str, message_id: int) -> bool:
-        result = await self._call(
-            "deleteMessage", {"chat_id": chat_id, "message_id": message_id}
-        )
+        result = await self._call("deleteMessage", {"chat_id": chat_id, "message_id": message_id})
         return bool(result)
 
     async def get_chat_member_count(self, chat_id: int | str) -> int:
@@ -516,37 +505,33 @@ class TelegramAPIClient:
         result = await self._call("getChatAdministrators", {"chat_id": chat_id})
         return result if isinstance(result, list) else []
 
-    async def send_chat_action(
-        self, chat_id: int | str, action: str = "typing"
-    ) -> bool:
+    async def send_chat_action(self, chat_id: int | str, action: str = "typing") -> bool:
         """Official ``sendChatAction`` — typing/upload indicator."""
         if action not in {
-            "typing", "upload_photo", "upload_video", "upload_document",
-            "choose_sticker", "find_location", "record_voice", "upload_voice",
-            "record_video", "upload_video_note", "record_video_note",
+            "typing",
+            "upload_photo",
+            "upload_video",
+            "upload_document",
+            "choose_sticker",
+            "find_location",
+            "record_voice",
+            "upload_voice",
+            "record_video",
+            "upload_video_note",
+            "record_video_note",
         }:
             raise ValueError(f"unknown chat action: {action}")
-        result = await self._call(
-            "sendChatAction", {"chat_id": chat_id, "action": action}
-        )
+        result = await self._call("sendChatAction", {"chat_id": chat_id, "action": action})
         return bool(result)
 
-    async def approve_chat_join_request(
-        self, chat_id: int | str, user_id: int
-    ) -> bool:
+    async def approve_chat_join_request(self, chat_id: int | str, user_id: int) -> bool:
         """Official ``approveChatJoinRequest`` — admit a pending join request."""
-        result = await self._call(
-            "approveChatJoinRequest", {"chat_id": chat_id, "user_id": user_id}
-        )
+        result = await self._call("approveChatJoinRequest", {"chat_id": chat_id, "user_id": user_id})
         return bool(result)
 
-    async def decline_chat_join_request(
-        self, chat_id: int | str, user_id: int
-    ) -> bool:
+    async def decline_chat_join_request(self, chat_id: int | str, user_id: int) -> bool:
         """Official ``declineChatJoinRequest``."""
-        result = await self._call(
-            "declineChatJoinRequest", {"chat_id": chat_id, "user_id": user_id}
-        )
+        result = await self._call("declineChatJoinRequest", {"chat_id": chat_id, "user_id": user_id})
         return bool(result)
 
 
@@ -620,11 +605,7 @@ def extract_inbound_text_update(update: dict[str, Any]) -> dict[str, Any] | None
         "entities": entities if isinstance(entities, list) else [],
         "sender_id": from_user.get("id"),
         "sender_username": from_user.get("username"),
-        "sender_name": " ".join(
-            p for p in (from_user.get("first_name"), from_user.get("last_name")) if p
-        ).strip()
-        or from_user.get("username")
-        or "",
+        "sender_name": " ".join(p for p in (from_user.get("first_name"), from_user.get("last_name")) if p).strip() or from_user.get("username") or "",
         "is_bot": bool(from_user.get("is_bot")),
     }
 

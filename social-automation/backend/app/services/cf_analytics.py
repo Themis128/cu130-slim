@@ -5,6 +5,7 @@ Free — uses existing CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
 
 Docs: https://developers.cloudflare.com/analytics/graphql-api/
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,9 +23,7 @@ settings = get_settings()
 _GRAPHQL_URL = "https://api.cloudflare.com/client/v4/graphql"
 
 
-async def _graphql_query(
-    query: str, variables: dict[str, Any]
-) -> dict | None:
+async def _graphql_query(query: str, variables: dict[str, Any]) -> dict | None:
     """Execute a GraphQL query against the Cloudflare Analytics API."""
     if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ACCOUNT_ID:
         logger.debug("Cloudflare credentials not configured for analytics")
@@ -40,15 +39,11 @@ async def _graphql_query(
                 json={"query": query, "variables": variables},
             )
             if resp.status_code != 200:
-                logger.warning(
-                    "CF Analytics API returned %d", resp.status_code
-                )
+                logger.warning("CF Analytics API returned %d", resp.status_code)
                 return None
             data = resp.json()
             if data.get("errors"):
-                logger.warning(
-                    "CF Analytics GraphQL errors: %s", data["errors"]
-                )
+                logger.warning("CF Analytics GraphQL errors: %s", data["errors"])
                 return None
             return data.get("data")
     except Exception as exc:
@@ -80,22 +75,31 @@ async def get_workers_ai_usage(days: int = 7) -> dict[str, Any]:
       }
     }
     """
-    data = await _graphql_query(query, {
-        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
-        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-    })
+    data = await _graphql_query(
+        query,
+        {
+            "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+            "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        },
+    )
     if not data:
         return {
-            "total_requests": 0, "total_neurons": 0,
-            "total_errors": 0, "by_model": [], "by_day": [],
+            "total_requests": 0,
+            "total_neurons": 0,
+            "total_errors": 0,
+            "by_model": [],
+            "by_day": [],
         }
 
     accounts = data.get("viewer", {}).get("accounts", [])
     if not accounts:
         return {
-            "total_requests": 0, "total_neurons": 0,
-            "total_errors": 0, "by_model": [], "by_day": [],
+            "total_requests": 0,
+            "total_neurons": 0,
+            "total_errors": 0,
+            "by_model": [],
+            "by_day": [],
         }
 
     rows = accounts[0].get("aiInferenceAdaptiveGroups", [])
@@ -120,8 +124,10 @@ async def get_workers_ai_usage(days: int = 7) -> dict[str, Any]:
 
         if model not in by_model:
             by_model[model] = {
-                "model": model, "requests": 0,
-                "neurons": 0, "errors": 0,
+                "model": model,
+                "requests": 0,
+                "neurons": 0,
+                "errors": 0,
             }
         by_model[model]["requests"] += count
         by_model[model]["neurons"] += neurons
@@ -136,9 +142,7 @@ async def get_workers_ai_usage(days: int = 7) -> dict[str, Any]:
         "total_requests": total_requests,
         "total_neurons": total_neurons,
         "total_errors": 0,
-        "by_model": sorted(
-            by_model.values(), key=lambda x: x["neurons"], reverse=True
-        ),
+        "by_model": sorted(by_model.values(), key=lambda x: x["neurons"], reverse=True),
         "by_day": sorted(by_day.values(), key=lambda x: x["date"]),
     }
 
@@ -166,20 +170,27 @@ async def get_workers_invocations(days: int = 7) -> dict[str, Any]:
       }
     }
     """
-    data = await _graphql_query(query, {
-        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
-        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-    })
+    data = await _graphql_query(
+        query,
+        {
+            "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+            "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        },
+    )
     if not data:
         return {
-            "total_requests": 0, "total_errors": 0, "by_script": [],
+            "total_requests": 0,
+            "total_errors": 0,
+            "by_script": [],
         }
 
     accounts = data.get("viewer", {}).get("accounts", [])
     if not accounts:
         return {
-            "total_requests": 0, "total_errors": 0, "by_script": [],
+            "total_requests": 0,
+            "total_errors": 0,
+            "by_script": [],
         }
 
     rows = accounts[0].get("workersInvocationsAdaptive", [])
@@ -202,24 +213,21 @@ async def get_workers_invocations(days: int = 7) -> dict[str, Any]:
 
         if script not in by_script:
             by_script[script] = {
-                "script": script, "requests": 0, "errors": 0,
-                "cpu_time_p50": 0, "cpu_time_p99": 0,
+                "script": script,
+                "requests": 0,
+                "errors": 0,
+                "cpu_time_p50": 0,
+                "cpu_time_p99": 0,
             }
         by_script[script]["requests"] += req
         by_script[script]["errors"] += err
-        by_script[script]["cpu_time_p50"] = max(
-            by_script[script]["cpu_time_p50"], cpu50
-        )
-        by_script[script]["cpu_time_p99"] = max(
-            by_script[script]["cpu_time_p99"], cpu99
-        )
+        by_script[script]["cpu_time_p50"] = max(by_script[script]["cpu_time_p50"], cpu50)
+        by_script[script]["cpu_time_p99"] = max(by_script[script]["cpu_time_p99"], cpu99)
 
     return {
         "total_requests": total_requests,
         "total_errors": total_errors,
-        "by_script": sorted(
-            by_script.values(), key=lambda x: x["requests"], reverse=True
-        ),
+        "by_script": sorted(by_script.values(), key=lambda x: x["requests"], reverse=True),
     }
 
 
@@ -250,22 +258,29 @@ async def get_r2_usage(days: int = 7) -> dict[str, Any]:
       }
     }
     """
-    data = await _graphql_query(query, {
-        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
-        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-    })
+    data = await _graphql_query(
+        query,
+        {
+            "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+            "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        },
+    )
     if not data:
         return {
-            "total_operations": 0, "by_action": [],
-            "by_bucket": [], "total_storage_bytes": 0,
+            "total_operations": 0,
+            "by_action": [],
+            "by_bucket": [],
+            "total_storage_bytes": 0,
         }
 
     accounts = data.get("viewer", {}).get("accounts", [])
     if not accounts:
         return {
-            "total_operations": 0, "by_action": [],
-            "by_bucket": [], "total_storage_bytes": 0,
+            "total_operations": 0,
+            "by_action": [],
+            "by_bucket": [],
+            "total_storage_bytes": 0,
         }
 
     op_rows = accounts[0].get("r2OperationsAdaptiveGroups", [])
@@ -286,13 +301,15 @@ async def get_r2_usage(days: int = 7) -> dict[str, Any]:
 
         if action not in by_action:
             by_action[action] = {
-                "action": action, "requests": 0,
+                "action": action,
+                "requests": 0,
             }
         by_action[action]["requests"] += req
 
         if bucket not in by_bucket:
             by_bucket[bucket] = {
-                "bucket": bucket, "operations": 0,
+                "bucket": bucket,
+                "operations": 0,
                 "storage_bytes": 0,
             }
         by_bucket[bucket]["operations"] += req
@@ -340,11 +357,14 @@ async def get_d1_usage(days: int = 7) -> dict[str, Any]:
       }
     }
     """
-    data = await _graphql_query(query, {
-        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
-        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-    })
+    data = await _graphql_query(
+        query,
+        {
+            "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+            "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        },
+    )
     if not data:
         return {"total_queries": 0, "by_database": []}
 
@@ -365,7 +385,8 @@ async def get_d1_usage(days: int = 7) -> dict[str, Any]:
 
         if db not in by_db:
             by_db[db] = {
-                "database": db, "queries": 0,
+                "database": db,
+                "queries": 0,
             }
         by_db[db]["queries"] += count
 
@@ -406,11 +427,14 @@ async def get_kv_usage(days: int = 7) -> dict[str, Any]:
       }
     }
     """
-    data = await _graphql_query(query, {
-        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
-        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-    })
+    data = await _graphql_query(
+        query,
+        {
+            "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+            "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        },
+    )
     if not data:
         return {"total_operations": 0, "by_action": []}
 
@@ -470,22 +494,29 @@ async def get_vectorize_usage(days: int = 7) -> dict[str, Any]:
       }
     }
     """
-    data = await _graphql_query(query, {
-        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
-        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-    })
+    data = await _graphql_query(
+        query,
+        {
+            "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+            "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        },
+    )
     if not data:
         return {
-            "total_queries": 0, "total_vectors_queried": 0,
-            "total_vectors_inserted": 0, "by_index": [],
+            "total_queries": 0,
+            "total_vectors_queried": 0,
+            "total_vectors_inserted": 0,
+            "by_index": [],
         }
 
     accounts = data.get("viewer", {}).get("accounts", [])
     if not accounts:
         return {
-            "total_queries": 0, "total_vectors_queried": 0,
-            "total_vectors_inserted": 0, "by_index": [],
+            "total_queries": 0,
+            "total_vectors_queried": 0,
+            "total_vectors_inserted": 0,
+            "by_index": [],
         }
 
     rows = accounts[0].get("vectorizeQueriesAdaptiveGroups", [])
@@ -507,8 +538,10 @@ async def get_vectorize_usage(days: int = 7) -> dict[str, Any]:
 
         if index not in by_index:
             by_index[index] = {
-                "index": index, "queries": 0,
-                "vectors_queried": 0, "vectors_inserted": 0,
+                "index": index,
+                "queries": 0,
+                "vectors_queried": 0,
+                "vectors_inserted": 0,
             }
         by_index[index]["queries"] += vq + vi
         by_index[index]["vectors_queried"] += vq
@@ -557,11 +590,14 @@ async def get_ai_gateway_usage(days: int = 7) -> dict[str, Any]:
       }
     }
     """
-    data = await _graphql_query(query, {
-        "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
-        "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-        "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
-    })
+    data = await _graphql_query(
+        query,
+        {
+            "accountTag": settings.CLOUDFLARE_ACCOUNT_ID,
+            "datetimeStart": start.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "datetimeEnd": end.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+        },
+    )
     empty = {"total_requests": 0, "by_gateway": [], "by_provider": []}
     if not data:
         return empty
@@ -580,10 +616,16 @@ async def get_ai_gateway_usage(days: int = 7) -> dict[str, Any]:
         prov = dims.get("provider") or "unknown"
         model = dims.get("model") or "unknown"
         total += cnt
-        g = by_gateway.setdefault(gw, {
-            "gateway": gw, "requests": 0, "models": {},
-            "cached_tokens": 0, "uncached_tokens": 0,
-        })
+        g = by_gateway.setdefault(
+            gw,
+            {
+                "gateway": gw,
+                "requests": 0,
+                "models": {},
+                "cached_tokens": 0,
+                "uncached_tokens": 0,
+            },
+        )
         g["requests"] += cnt
         g["models"][model] = g["models"].get(model, 0) + cnt
         s = row.get("sum", {})
@@ -591,17 +633,11 @@ async def get_ai_gateway_usage(days: int = 7) -> dict[str, Any]:
         g["uncached_tokens"] += int(s.get("uncachedTokensIn") or 0) + int(s.get("uncachedTokensOut") or 0)
         by_provider[prov] = by_provider.get(prov, 0) + cnt
     for g in by_gateway.values():
-        g["models"] = [
-            {"model": m, "requests": c}
-            for m, c in sorted(g["models"].items(), key=lambda x: -x[1])
-        ]
+        g["models"] = [{"model": m, "requests": c} for m, c in sorted(g["models"].items(), key=lambda x: -x[1])]
     return {
         "total_requests": total,
         "by_gateway": sorted(by_gateway.values(), key=lambda x: -x["requests"]),
-        "by_provider": [
-            {"provider": p, "requests": c}
-            for p, c in sorted(by_provider.items(), key=lambda x: -x[1])
-        ],
+        "by_provider": [{"provider": p, "requests": c} for p, c in sorted(by_provider.items(), key=lambda x: -x[1])],
     }
 
 
@@ -629,9 +665,7 @@ async def get_cf_overview(days: int = 7) -> dict[str, Any]:
             "total_requests": ai["total_requests"],
             "total_neurons": ai["total_neurons"],
             "free_tier_limit": free_ai_limit,
-            "free_tier_remaining": max(
-                0, free_ai_limit - ai["total_neurons"]
-            ),
+            "free_tier_remaining": max(0, free_ai_limit - ai["total_neurons"]),
             "by_model": ai["by_model"],
             "by_day": ai["by_day"],
         },

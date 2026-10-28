@@ -1,4 +1,5 @@
 """Unit tests for Cloudflare Workers AI Batch inference (queueRequest=true)."""
+
 import pytest
 from fastapi import HTTPException
 
@@ -53,10 +54,7 @@ class _FakeAsyncClient:
         return self._resp
 
 
-BATCH_URL = (
-    "https://api.cloudflare.com/client/v4/accounts/account-123"
-    "/ai/run/@cf/baai/bge-m3?queueRequest=true"
-)
+BATCH_URL = "https://api.cloudflare.com/client/v4/accounts/account-123/ai/run/@cf/baai/bge-m3?queueRequest=true"
 
 
 @pytest.mark.asyncio
@@ -155,9 +153,7 @@ async def test_retrieve_batch_success(monkeypatch, cf_settings):
     )
     monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=120.0: fake)
 
-    result = await inference.retrieve_workers_ai_batch(
-        "@cf/baai/bge-m3", request_id="768f15b7-4fd6-4498-906e-ad94ffc7f8d2"
-    )
+    result = await inference.retrieve_workers_ai_batch("@cf/baai/bge-m3", request_id="768f15b7-4fd6-4498-906e-ad94ffc7f8d2")
 
     # Same endpoint as submission — only the body differs.
     assert fake.last_url == BATCH_URL
@@ -231,9 +227,7 @@ async def test_retrieve_batch_handles_new_direct_format(monkeypatch, cf_settings
     )
     monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=120.0: fake)
 
-    result = await inference.retrieve_workers_ai_batch(
-        "@cf/baai/bge-m3", request_id="direct-req-123"
-    )
+    result = await inference.retrieve_workers_ai_batch("@cf/baai/bge-m3", request_id="direct-req-123")
 
     assert result["status"] == "completed"
     assert len(result["responses"]) == 1

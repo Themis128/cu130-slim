@@ -3,6 +3,7 @@
 Every 30 min: pull Loki errors/warnings → loop-engineered triage →
 Slack digest. The syslog→vector→LLM pattern on existing infra.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,7 +23,7 @@ def digest() -> dict:
     async def _go():
         r = await triage_logs(minutes=30)
         if r["lines"]:
-            await post_alert_to_slack(
-                f":mag: *log triage* ({r['lines']} lines/30m)\n{r['summary']}")
+            await post_alert_to_slack(f":mag: *log triage* ({r['lines']} lines/30m)\n{r['summary']}")
         return r
+
     return run_async(_go())

@@ -21,6 +21,7 @@ Commands:
 Options: -a/--account ACCOUNT_UUID (defaults to first viber account).
 Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -43,9 +44,7 @@ async def _accounts() -> list:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "viber")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "viber"))
         return list(result.scalars().all())
 
 

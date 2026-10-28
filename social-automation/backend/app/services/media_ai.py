@@ -12,6 +12,7 @@ Cloudflare failover:
 
 The service is best-effort: failures are logged and do not block uploads.
 """
+
 from __future__ import annotations
 
 import base64
@@ -184,14 +185,7 @@ def _extract_caption(result: dict) -> str | None:
     if text:
         return text
     # moondream: result.result.caption
-    return (
-        inner.get("caption")
-        or data.get("caption")
-        or inner.get("description")
-        or data.get("description")
-        or inner.get("text")
-        or data.get("text")
-    )
+    return inner.get("caption") or data.get("caption") or inner.get("description") or data.get("description") or inner.get("text") or data.get("text")
 
 
 def _extract_query_text(result: dict) -> str | None:
@@ -207,14 +201,7 @@ def _extract_query_text(result: dict) -> str | None:
     if text:
         return text
     # moondream: result.result.answer
-    return (
-        inner.get("answer")
-        or data.get("answer")
-        or inner.get("description")
-        or data.get("description")
-        or inner.get("text")
-        or data.get("text")
-    )
+    return inner.get("answer") or data.get("answer") or inner.get("description") or data.get("description") or inner.get("text") or data.get("text")
 
 
 async def _call_dmr_vision(image_b64: str, prompt: str, max_tokens: int = 512) -> str | None:
@@ -250,10 +237,7 @@ async def _caption_image(image_b64: str) -> str | None:
 
 async def _tag_image(image_b64: str) -> list[str]:
     """Generate a comma-separated list of keywords/tags. DMR first, then CF."""
-    prompt = (
-        "List 5 to 10 relevant keywords for this image as a comma-separated list. "
-        "Use only single words or short phrases."
-    )
+    prompt = "List 5 to 10 relevant keywords for this image as a comma-separated list. Use only single words or short phrases."
 
     # --- DMR (local, free) ---
     text = ""
@@ -377,9 +361,7 @@ async def auto_tag_asset(asset_id: uuid.UUID | str, session_factory=None) -> Non
 async def get_similar_assets(team_id: uuid.UUID | str, asset_id: uuid.UUID | str, n_results: int = 5) -> list[dict]:
     """Return IDs and captions of similar assets from Chroma."""
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id)
-        )
+        result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id))
         asset = result.scalar_one_or_none()
         if not asset:
             return []
@@ -390,11 +372,7 @@ async def get_similar_assets(team_id: uuid.UUID | str, asset_id: uuid.UUID | str
 
         docs = await chroma_client.query_similar(str(team_id), text, n_results=n_results + 1)
         # Filter out the asset itself
-        return [
-            {"embedding_id": doc_id}
-            for doc_id in docs
-            if doc_id and doc_id != str(asset_id)
-        ][:n_results]
+        return [{"embedding_id": doc_id} for doc_id in docs if doc_id and doc_id != str(asset_id)][:n_results]
 
 
 async def expand_visual_prompt(prompt: str, *, media_type: str = "image") -> str:
@@ -420,23 +398,22 @@ async def expand_visual_prompt(prompt: str, *, media_type: str = "image") -> str
             + "; no text/letters/watermarks; no meta-commentary; output the prompt only."
         )
         result = await call_dmr_chat(
-            prompt, system=system,
+            prompt,
+            system=system,
             model_override=settings.DMR_MEDIA_MODEL or settings.DMR_MID_MODEL,
             # Qwen3-4B-Instruct-2507 recommended sampling (HF model card):
             # temp 0.7, top_p 0.8, top_k 20 — tighter tail than llama.cpp
             # defaults (top_p 1.0), guards against degenerate fragments.
-            max_tokens=160, temperature=0.7, top_p=0.8, top_k=20,
+            max_tokens=160,
+            temperature=0.7,
+            top_p=0.8,
+            top_k=20,
         )
         expanded = (result.get("text") or "").strip().strip('"')
         # Guard: reject empty, absurdly long, echoed-instruction, or
         # protocol-leak outputs (tool_call/chat-markup fragments) — never
         # hand corrupted text to the diffusion backend.
-        if (
-            not expanded
-            or len(expanded) > 1200
-            or expanded.lower() == prompt.lower()
-            or "<" in expanded
-        ):
+        if not expanded or len(expanded) > 1200 or expanded.lower() == prompt.lower() or "<" in expanded:
             return prompt
         return expanded
     except Exception as exc:  # noqa: BLE001
@@ -472,7 +449,7 @@ async def verify_media_semantics(
         judge = await _call_dmr_vision(
             b64,
             (
-                f"The intended subject was: \"{intent[:300]}\". "
+                f'The intended subject was: "{intent[:300]}". '
                 "Does this " + media_type + " plausibly depict that subject? "
                 "Answer with exactly YES or NO then a short reason."
             ),

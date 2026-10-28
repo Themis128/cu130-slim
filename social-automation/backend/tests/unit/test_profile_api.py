@@ -4,6 +4,7 @@ Threads settings, and the Instagram/Threads profile chains.
 Route functions and platform helpers are invoked directly with fakes;
 service clients are monkeypatched. No network, no database.
 """
+
 import uuid
 
 import pytest
@@ -21,6 +22,7 @@ from app.services.linkedin_sidecar import LinkedInSidecarError
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
 
 class _Result:
     def __init__(self, value):
@@ -99,6 +101,7 @@ def secrets(monkeypatch):
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 class TestHelpers:
     @pytest.mark.asyncio
     async def test_get_account_found(self):
@@ -143,16 +146,25 @@ class TestHelpers:
 # Dispatch — every platform branch + error paths
 # ---------------------------------------------------------------------------
 
+
 class TestDispatch:
     pytestmark = pytest.mark.asyncio
 
     async def test_get_profile_dispatches(self, monkeypatch):
         sentinels = {}
-        for name in ("_get_instagram_profile", "_get_facebook_page_profile",
-                     "_get_facebook_user_profile", "_get_linkedin_profile",
-                     "_get_twitter_profile", "_get_tiktok_profile", "_get_threads_profile"):
+        for name in (
+            "_get_instagram_profile",
+            "_get_facebook_page_profile",
+            "_get_facebook_user_profile",
+            "_get_linkedin_profile",
+            "_get_twitter_profile",
+            "_get_tiktok_profile",
+            "_get_threads_profile",
+        ):
+
             async def fake(account, _n=name):
                 return f"called:{_n}"
+
             monkeypatch.setattr(profile, name, fake)
             sentinels[name] = f"called:{name}"
 
@@ -177,12 +189,19 @@ class TestDispatch:
         assert e.value.status_code == 400
 
     async def test_update_profile_dispatches(self, monkeypatch):
-        for name in ("_update_instagram_profile", "_update_facebook_page_profile",
-                     "_update_facebook_user_profile", "_update_linkedin_profile",
-                     "_update_twitter_profile", "_update_tiktok_profile",
-                     "_update_threads_profile"):
+        for name in (
+            "_update_instagram_profile",
+            "_update_facebook_page_profile",
+            "_update_facebook_user_profile",
+            "_update_linkedin_profile",
+            "_update_twitter_profile",
+            "_update_tiktok_profile",
+            "_update_threads_profile",
+        ):
+
             async def fake(*a, _n=name):
                 return f"called:{_n}"
+
             monkeypatch.setattr(profile, name, fake)
 
         req = profile.ProfileUpdateRequest(biography="bio")
@@ -203,7 +222,10 @@ class TestDispatch:
         a = _account(platform="whatsapp")
         with pytest.raises(HTTPException) as e:
             await profile.update_profile(
-                a.id, profile.ProfileUpdateRequest(), _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.ProfileUpdateRequest(),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 400
 
@@ -211,16 +233,26 @@ class TestDispatch:
         a = _account()
         with pytest.raises(HTTPException) as e:
             await profile.upload_profile_picture(
-                a.id, _user(), FakeDB(accounts=[a]), file=FakeUploadFile(b""),
+                a.id,
+                _user(),
+                FakeDB(accounts=[a]),
+                file=FakeUploadFile(b""),
             )
         assert e.value.status_code == 400
 
     async def test_picture_dispatches(self, monkeypatch):
-        for name in ("_upload_instagram_picture", "_upload_facebook_page_picture",
-                     "_upload_facebook_user_picture", "_upload_linkedin_picture",
-                     "_upload_twitter_picture", "_upload_tiktok_picture"):
+        for name in (
+            "_upload_instagram_picture",
+            "_upload_facebook_page_picture",
+            "_upload_facebook_user_picture",
+            "_upload_linkedin_picture",
+            "_upload_twitter_picture",
+            "_upload_tiktok_picture",
+        ):
+
             async def fake(*a, _n=name):
                 return f"called:{_n}"
+
             monkeypatch.setattr(profile, name, fake)
         for platform_name, is_biz, fn in [
             ("instagram", False, "_upload_instagram_picture"),
@@ -232,7 +264,10 @@ class TestDispatch:
         ]:
             a = _account(platform=platform_name, is_business=is_biz)
             out = await profile.upload_profile_picture(
-                a.id, _user(), FakeDB(accounts=[a]), file=FakeUploadFile(b"img"),
+                a.id,
+                _user(),
+                FakeDB(accounts=[a]),
+                file=FakeUploadFile(b"img"),
             )
             assert out == f"called:{fn}"
 
@@ -240,15 +275,19 @@ class TestDispatch:
         a = _account()
         with pytest.raises(HTTPException) as e:
             await profile.upload_cover_photo(
-                a.id, _user(), FakeDB(accounts=[a]), file=FakeUploadFile(b""),
+                a.id,
+                _user(),
+                FakeDB(accounts=[a]),
+                file=FakeUploadFile(b""),
             )
         assert e.value.status_code == 400
 
     async def test_cover_dispatches(self, monkeypatch):
-        for name in ("_upload_facebook_page_cover", "_upload_facebook_user_cover",
-                     "_upload_linkedin_cover", "_upload_twitter_banner"):
+        for name in ("_upload_facebook_page_cover", "_upload_facebook_user_cover", "_upload_linkedin_cover", "_upload_twitter_banner"):
+
             async def fake(*a, _n=name):
                 return f"called:{_n}"
+
             monkeypatch.setattr(profile, name, fake)
         for platform_name, is_biz, fn in [
             ("facebook", True, "_upload_facebook_page_cover"),
@@ -258,7 +297,10 @@ class TestDispatch:
         ]:
             a = _account(platform=platform_name, is_business=is_biz)
             out = await profile.upload_cover_photo(
-                a.id, _user(), FakeDB(accounts=[a]), file=FakeUploadFile(b"img"),
+                a.id,
+                _user(),
+                FakeDB(accounts=[a]),
+                file=FakeUploadFile(b"img"),
             )
             assert out == f"called:{fn}"
 
@@ -266,7 +308,10 @@ class TestDispatch:
         a = _account(platform="instagram")
         with pytest.raises(HTTPException) as e:
             await profile.upload_cover_photo(
-                a.id, _user(), FakeDB(accounts=[a]), file=FakeUploadFile(b"img"),
+                a.id,
+                _user(),
+                FakeDB(accounts=[a]),
+                file=FakeUploadFile(b"img"),
             )
         assert e.value.status_code == 400
 
@@ -274,6 +319,7 @@ class TestDispatch:
 # ---------------------------------------------------------------------------
 # platform_login
 # ---------------------------------------------------------------------------
+
 
 class _FakeIGClient:
     def __init__(self, result=None, error=None, settings=None):
@@ -299,7 +345,10 @@ class TestPlatformLogin:
         a = _account("instagram")
         with pytest.raises(HTTPException) as e:
             await profile.platform_login(
-                a.id, profile.InstagramLoginRequest(), _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.InstagramLoginRequest(),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 401
 
@@ -311,7 +360,8 @@ class TestPlatformLogin:
         out = await profile.platform_login(
             a.id,
             profile.InstagramLoginRequest(username="u", password="p"),
-            _user(), db,
+            _user(),
+            db,
         )
         assert out.logged_in is True
         meta = profile._get_meta(a)
@@ -321,12 +371,13 @@ class TestPlatformLogin:
 
     async def test_instagram_2fa_not_logged_in(self, monkeypatch, secrets):
         a = _account("instagram", meta_data={})
-        client = _FakeIGClient(result={"session_id": "s", "two_factor_required": True,
-                                       "message": "code sent"})
+        client = _FakeIGClient(result={"session_id": "s", "two_factor_required": True, "message": "code sent"})
         monkeypatch.setattr(profile, "_get_instagram_private_client", lambda: client)
         out = await profile.platform_login(
-            a.id, profile.InstagramLoginRequest(username="u", password="p"),
-            _user(), FakeDB(accounts=[a]),
+            a.id,
+            profile.InstagramLoginRequest(username="u", password="p"),
+            _user(),
+            FakeDB(accounts=[a]),
         )
         assert out.logged_in is False and out.two_factor_required is True
         assert profile._get_instagram_session_id(a) is None
@@ -339,7 +390,10 @@ class TestPlatformLogin:
         a = _account("instagram")
         with pytest.raises(HTTPException) as e:
             await profile.platform_login(
-                a.id, profile.InstagramLoginRequest(), _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.InstagramLoginRequest(),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 429
 
@@ -347,7 +401,10 @@ class TestPlatformLogin:
         a = _account("facebook")
         with pytest.raises(HTTPException) as e:
             await profile.platform_login(
-                a.id, profile.BrowserLoginRequest(), _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.BrowserLoginRequest(),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 401
 
@@ -360,8 +417,10 @@ class TestPlatformLogin:
         a = _account("facebook", meta_data={})
         db = FakeDB(accounts=[a])
         out = await profile.platform_login(
-            a.id, profile.BrowserLoginRequest(username="u", password="p"),
-            _user(), db,
+            a.id,
+            profile.BrowserLoginRequest(username="u", password="p"),
+            _user(),
+            db,
         )
         assert out.logged_in is True
         assert profile._get_meta(a)["browser_storage_state"] == {"cookies": []}
@@ -376,8 +435,10 @@ class TestPlatformLogin:
         a = _account("facebook")
         with pytest.raises(HTTPException) as e:
             await profile.platform_login(
-                a.id, profile.BrowserLoginRequest(username="u", password="p"),
-                _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.BrowserLoginRequest(username="u", password="p"),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 503
 
@@ -389,8 +450,10 @@ class TestPlatformLogin:
         monkeypatch.setattr(profile, "LinkedInSidecarClient", lambda *a, **kw: FakeLI())
         a = _account("linkedin", meta_data={})
         out = await profile.platform_login(
-            a.id, profile.BrowserLoginRequest(username="u", password="p"),
-            _user(), FakeDB(accounts=[a]),
+            a.id,
+            profile.BrowserLoginRequest(username="u", password="p"),
+            _user(),
+            FakeDB(accounts=[a]),
         )
         assert out.logged_in is True
         assert profile._get_meta(a)["browser_storage_state"] == {"s": 1}
@@ -404,8 +467,10 @@ class TestPlatformLogin:
         a = _account("linkedin")
         with pytest.raises(HTTPException) as e:
             await profile.platform_login(
-                a.id, profile.BrowserLoginRequest(username="u", password="p"),
-                _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.BrowserLoginRequest(username="u", password="p"),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 500
 
@@ -413,8 +478,10 @@ class TestPlatformLogin:
         a = _account("tiktok")
         with pytest.raises(HTTPException) as e:
             await profile.platform_login(
-                a.id, profile.BrowserLoginRequest(username="u", password="p"),
-                _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.BrowserLoginRequest(username="u", password="p"),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 400
 
@@ -422,6 +489,7 @@ class TestPlatformLogin:
 # ---------------------------------------------------------------------------
 # Threads settings endpoints
 # ---------------------------------------------------------------------------
+
 
 class _FakeBridge:
     def __init__(self, get_result=None, update_result=None, error=None):
@@ -493,8 +561,10 @@ class TestThreadsSettings:
         monkeypatch.setattr(profile, "_get_browser_bridge_client", lambda p: bridge)
         a = _account("threads")
         out = await profile.update_threads_settings(
-            a.id, profile.ThreadsSettingsUpdateRequest(show_instagram_badge=True),
-            _user(), FakeDB(accounts=[a]),
+            a.id,
+            profile.ThreadsSettingsUpdateRequest(show_instagram_badge=True),
+            _user(),
+            FakeDB(accounts=[a]),
         )
         assert out.success is True and out.updated_fields == ["badge"]
         assert bridge.update_calls[0]["show_instagram_badge"] is True
@@ -505,7 +575,10 @@ class TestThreadsSettings:
         a = _account("threads")
         with pytest.raises(HTTPException) as e:
             await profile.update_threads_settings(
-                a.id, profile.ThreadsSettingsUpdateRequest(), _user(), FakeDB(accounts=[a]),
+                a.id,
+                profile.ThreadsSettingsUpdateRequest(),
+                _user(),
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 503
 
@@ -513,6 +586,7 @@ class TestThreadsSettings:
 # ---------------------------------------------------------------------------
 # Platform impls: Instagram + Threads chains
 # ---------------------------------------------------------------------------
+
 
 class TestInstagramProfile:
     pytestmark = pytest.mark.asyncio
@@ -548,6 +622,7 @@ class TestInstagramProfile:
         class FreeClient:
             async def get_user_by_username(self, u):
                 from app.services.free_instagram_client import FreeInstagramError
+
                 raise FreeInstagramError("nope")
 
         monkeypatch.setattr(profile, "free_instagram_client", FreeClient())
@@ -571,6 +646,7 @@ class TestThreadsProfile:
                 return {"username": "th", "name": "TH", "threads_biography": "bio"}
 
         import app.services.threads_api as ta
+
         monkeypatch.setattr(ta, "ThreadsAPIClient", API)
         a = _account("threads", access_token_enc=encrypt_token("tok"))
         out = await profile._get_threads_profile(a)
@@ -598,12 +674,12 @@ class TestThreadsProfile:
         assert e.value.status_code == 503
 
     async def test_update_marks_unsupported_fields_ignored(self, monkeypatch):
-        bridge = _FakeBridge(update_result={"status": "updated", "updated_fields": ["bio"],
-                                            "ignored_fields": []})
+        bridge = _FakeBridge(update_result={"status": "updated", "updated_fields": ["bio"], "ignored_fields": []})
         monkeypatch.setattr(profile, "_get_browser_bridge_client", lambda p: bridge)
         a = _account("threads")
         out = await profile._update_threads_profile(
-            a, profile.ProfileUpdateRequest(biography="b", website="https://x"),
+            a,
+            profile.ProfileUpdateRequest(biography="b", website="https://x"),
         )
         assert out.success is True
         assert "website" in out.ignored_fields  # Threads API can't set website

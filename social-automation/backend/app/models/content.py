@@ -23,10 +23,11 @@ class PostStatus(enum.StrEnum):
 
 class RecurrencePattern(enum.StrEnum):
     """How a recurring post repeats after each successful publish."""
-    NONE = "none"          # one-off post (default)
-    DAILY = "daily"        # repeat every N days
-    WEEKLY = "weekly"      # repeat every N weeks
-    MONTHLY = "monthly"    # repeat every N months
+
+    NONE = "none"  # one-off post (default)
+    DAILY = "daily"  # repeat every N days
+    WEEKLY = "weekly"  # repeat every N weeks
+    MONTHLY = "monthly"  # repeat every N months
 
 
 class Post(Base):
@@ -60,10 +61,10 @@ class Post(Base):
     workflow_run_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     meta_data: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
     music_asset_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("media_assets.id", ondelete="SET NULL"), nullable=True)
-    pillar_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("pillars.id", ondelete="SET NULL"), nullable=True, index=True)
+    pillar_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("pillars.id", ondelete="SET NULL"), nullable=True, index=True)
     content_brief_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("content_briefs.id", ondelete="SET NULL"), nullable=True, index=True)
+        UUID(as_uuid=True), ForeignKey("content_briefs.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # ── Recurring post support ────────────────────────────────────────────
     is_recurring: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recurrence_pattern: Mapped[RecurrencePattern] = mapped_column(
@@ -74,8 +75,7 @@ class Post(Base):
     recurrence_interval: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # N days/weeks/months
     recurrence_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # how many times repeated so far
     recurrence_max: Mapped[int] = mapped_column(Integer, default=0, nullable=False)  # 0 = unlimited
-    recurrence_parent_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("posts.id", ondelete="SET NULL"), nullable=True, index=True)
+    recurrence_parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="SET NULL"), nullable=True, index=True)
     next_recurrence_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC), nullable=False)
@@ -88,9 +88,7 @@ class Post(Base):
 
 class MediaCollection(Base):
     __tablename__ = "media_collections"
-    __table_args__ = (
-        Index("ix_media_collections_team", "team_id"),
-    )
+    __table_args__ = (Index("ix_media_collections_team", "team_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -182,9 +180,7 @@ class PostComment(Base):
     """Approval workflow comments — preserved through status transitions."""
 
     __tablename__ = "post_comments"
-    __table_args__ = (
-        Index("ix_post_comments_post", "post_id", "created_at"),
-    )
+    __table_args__ = (Index("ix_post_comments_post", "post_id", "created_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     post_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -201,9 +197,7 @@ class Pillar(Base):
     """Content pillar — one of the strategic themes posts are organized around."""
 
     __tablename__ = "pillars"
-    __table_args__ = (
-        Index("ix_pillars_team", "team_id"),
-    )
+    __table_args__ = (Index("ix_pillars_team", "team_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -221,9 +215,7 @@ class ContentBrief(Base):
     """Content brief — a structured prompt/outline linked to a pillar."""
 
     __tablename__ = "content_briefs"
-    __table_args__ = (
-        Index("ix_content_briefs_team_pillar", "team_id", "pillar_id"),
-    )
+    __table_args__ = (Index("ix_content_briefs_team_pillar", "team_id", "pillar_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)

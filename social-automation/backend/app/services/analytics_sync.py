@@ -4,6 +4,7 @@ Primary: LinkedIn organization share statistics (Company Page posts).
 All metrics are persisted as PostAnalyticsSnapshot rows (+ upserted
 AnalyticsEvent counters with meta_data.count for dashboard aggregates).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -248,9 +249,7 @@ async def _meta_insights_get(
             merged: dict[str, Any] = {"data": []}
             last_err = resp
             for metric in remaining:
-                probe = await client.get(
-                    url, headers=headers, params={**base, "metric": metric}
-                )
+                probe = await client.get(url, headers=headers, params={**base, "metric": metric})
                 if probe.status_code == 200:
                     merged["data"].extend((probe.json() or {}).get("data", []))
                 else:
@@ -260,9 +259,7 @@ async def _meta_insights_get(
             return last_err
 
         return resp
-    return resp if resp is not None else await client.get(
-        url, headers=headers, params=base
-    )
+    return resp if resp is not None else await client.get(url, headers=headers, params=base)
 
 
 def _meta_error_message(resp: httpx.Response) -> str:
@@ -299,11 +296,7 @@ async def _resolve_stale_note(
         )
     ).first()
     if row and row.notes and row.notes != "platform_deleted":
-        await db.execute(
-            update(PostAnalyticsSnapshot)
-            .where(PostAnalyticsSnapshot.id == row.id)
-            .values(notes="platform_deleted")
-        )
+        await db.execute(update(PostAnalyticsSnapshot).where(PostAnalyticsSnapshot.id == row.id).values(notes="platform_deleted"))
 
 
 def _persist_account_event(
@@ -319,14 +312,16 @@ def _persist_account_event(
     (page views, reach, follower demographics, org lifetime totals) lives
     here so dashboards can chart growth/audience independent of posts.
     """
-    db.add(AnalyticsEvent(
-        team_id=account.team_id,
-        social_account_id=account.id,
-        platform=account.platform,
-        event_type=event_type,
-        occurred_at=captured_at,
-        meta_data={"captured_at": captured_at.isoformat(), **metrics},
-    ))
+    db.add(
+        AnalyticsEvent(
+            team_id=account.team_id,
+            social_account_id=account.id,
+            platform=account.platform,
+            event_type=event_type,
+            occurred_at=captured_at,
+            meta_data={"captured_at": captured_at.isoformat(), **metrics},
+        )
+    )
 
 
 async def _fetch_linkedin_org_stats(
@@ -347,10 +342,7 @@ async def _fetch_linkedin_org_stats(
     async def _request(param_name: str, urns: list[str]) -> httpx.Response | None:
         if not urns:  # pragma: no cover — callers always pass a non-empty list
             return None
-        url = (
-            f"{base}?q=organizationalEntity&organizationalEntity={org_q}"
-            f"&{param_name}={_restli_list(urns)}"
-        )
+        url = f"{base}?q=organizationalEntity&organizationalEntity={org_q}&{param_name}={_restli_list(urns)}"
         return await client.get(url, headers=headers)
 
     async def _stats_one(urn: str) -> MetricBundle:
@@ -431,6 +423,7 @@ async def _fetch_linkedin_org_stats(
 
     return out
 
+
 async def _fetch_linkedin_ad_stats(
     client: httpx.AsyncClient,
     token: str,
@@ -449,10 +442,7 @@ async def _fetch_linkedin_ad_stats(
         return {}
     headers = _linkedin_headers(token)
     end = datetime.now(UTC)
-    date_range = (
-        f"(start:(year:{since.year},month:{since.month},day:{since.day}),"
-        f"end:(year:{end.year},month:{end.month},day:{end.day}))"
-    )
+    date_range = f"(start:(year:{since.year},month:{since.month},day:{since.day}),end:(year:{end.year},month:{end.month},day:{end.day}))"
     fields = (
         "impressions,clicks,landingPageClicks,reactions,comments,shares,"
         "totalEngagements,approximateUniqueImpressions,"
@@ -485,13 +475,15 @@ async def _fetch_linkedin_ad_stats(
         bundle.reach += int(el.get("approximateUniqueImpressions") or 0)
         bundle.raw["costLocal"] = round(bundle.raw["costLocal"] + float(el.get("costInLocalCurrency") or 0), 2)
         bundle.raw["costUsd"] = round(bundle.raw["costUsd"] + float(el.get("costInUsd") or 0), 2)
-        bundle.raw["daily"].append({
-            "dateRange": el.get("dateRange"),
-            "impressions": el.get("impressions"),
-            "clicks": el.get("clicks"),
-            "totalEngagements": el.get("totalEngagements"),
-            "costInLocalCurrency": el.get("costInLocalCurrency"),
-        })
+        bundle.raw["daily"].append(
+            {
+                "dateRange": el.get("dateRange"),
+                "impressions": el.get("impressions"),
+                "clicks": el.get("clicks"),
+                "totalEngagements": el.get("totalEngagements"),
+                "costInLocalCurrency": el.get("costInLocalCurrency"),
+            }
+        )
     return out
 
 
@@ -519,9 +511,7 @@ async def _fetch_linkedin_follower_stats(
     )
     if resp.status_code < 400:
         el = ((resp.json() or {}).get("elements") or [{}])[0]
-        out["demographics"] = {
-            k: v for k, v in el.items() if k.startswith("followerCountsBy")
-        }
+        out["demographics"] = {k: v for k, v in el.items() if k.startswith("followerCountsBy")}
     else:
         out["demographics_error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
 
@@ -544,11 +534,13 @@ async def _fetch_linkedin_follower_stats(
             p = int(fc.get("paidFollowerGain") or 0)
             organic += o
             paid += p
-            daily.append({
-                "range": el.get("timeRange"),
-                "organic": o,
-                "paid": p,
-            })
+            daily.append(
+                {
+                    "range": el.get("timeRange"),
+                    "organic": o,
+                    "paid": p,
+                }
+            )
         out["follower_gains"] = {"organic": organic, "paid": paid, "days": days}
         out["daily"] = daily
     else:
@@ -557,14 +549,11 @@ async def _fetch_linkedin_follower_stats(
     # Total follower count — networkSizes (Organization Lookup). Enum is
     # COMPANY_FOLLOWED_BY_MEMBER on API versions >= 202305.
     resp = await client.get(
-        f"https://api.linkedin.com/rest/networkSizes/{org_q}"
-        f"?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
+        f"https://api.linkedin.com/rest/networkSizes/{org_q}?edgeType=COMPANY_FOLLOWED_BY_MEMBER",
         headers=headers,
     )
     if resp.status_code < 400:
-        out["total_followers"] = int(
-            (resp.json() or {}).get("firstDegreeSize") or 0
-        )
+        out["total_followers"] = int((resp.json() or {}).get("firstDegreeSize") or 0)
     else:
         out["total_error"] = f"HTTP {resp.status_code}: {resp.text[:200]}"
     return out
@@ -583,9 +572,7 @@ async def _fetch_linkedin_page_stats(
     base = "https://api.linkedin.com/rest/organizationPageStatistics"
     out: dict[str, Any] = {}
 
-    resp = await client.get(
-        f"{base}?q=organization&organization={org_q}", headers=headers
-    )
+    resp = await client.get(f"{base}?q=organization&organization={org_q}", headers=headers)
     if resp.status_code < 400:
         out["lifetime"] = (resp.json() or {}).get("elements") or []
     else:
@@ -638,10 +625,7 @@ async def _fetch_member_post_analytics(
     as "not granted", not an outage. ``entity`` takes the bare post URN.
     """
     headers = _linkedin_headers(token)
-    base = (
-        "https://api.linkedin.com/rest/memberCreatorPostAnalytics"
-        f"?q=entity&entity={quote(post_urn, safe='')}"
-    )
+    base = f"https://api.linkedin.com/rest/memberCreatorPostAnalytics?q=entity&entity={quote(post_urn, safe='')}"
     metrics: dict[str, Any] = {}
     for query_type in _MEMBER_POST_QUERY_TYPES:
         resp = await client.get(
@@ -654,11 +638,9 @@ async def _fetch_member_post_analytics(
             metrics[query_type] = f"HTTP {resp.status_code}"
             continue
         elements = (resp.json() or {}).get("elements") or []
-        total = sum(
-            int(dp.get("metricValue") or 0)
-            for el in elements
-            for dp in (el.get("metricDataResults") or [])
-        ) or sum(int(el.get("value") or 0) for el in elements)
+        total = sum(int(dp.get("metricValue") or 0) for el in elements for dp in (el.get("metricDataResults") or [])) or sum(
+            int(el.get("value") or 0) for el in elements
+        )
         metrics[query_type] = total
         metrics[f"{query_type}_raw"] = elements
     # Daily impression trend for charts.
@@ -679,10 +661,7 @@ async def _fetch_org_lifetime_stats(
     org_urn: str,
 ) -> MetricBundle:
     headers = _linkedin_headers(token)
-    url = (
-        "https://api.linkedin.com/rest/organizationalEntityShareStatistics"
-        f"?q=organizationalEntity&organizationalEntity={quote(org_urn, safe='')}"
-    )
+    url = f"https://api.linkedin.com/rest/organizationalEntityShareStatistics?q=organizationalEntity&organizationalEntity={quote(org_urn, safe='')}"
     resp = await client.get(url, headers=headers)
     if resp.status_code >= 400:
         return MetricBundle(notes=f"org lifetime HTTP {resp.status_code}: {resp.text[:200]}")
@@ -708,11 +687,7 @@ async def _list_org_post_urns(
     start = 0
     page_size = 20
     for _ in range(max_pages):
-        url = (
-            "https://api.linkedin.com/rest/posts?q=author"
-            f"&author={quote(org_urn, safe='')}"
-            f"&count={page_size}&start={start}&sortBy=LAST_MODIFIED"
-        )
+        url = f"https://api.linkedin.com/rest/posts?q=author&author={quote(org_urn, safe='')}&count={page_size}&start={start}&sortBy=LAST_MODIFIED"
         resp = await client.get(url, headers=headers)
         if resp.status_code >= 400:
             break
@@ -763,11 +738,7 @@ async def _upsert_counter_events(
     }
     for event_type, count in mapping.items():
         key = f"sync:{platform}:{platform_post_id}:{event_type}"[:200]
-        existing = (
-            await db.execute(
-                select(AnalyticsEvent).where(AnalyticsEvent.platform_event_id == key)
-            )
-        ).scalar_one_or_none()
+        existing = (await db.execute(select(AnalyticsEvent).where(AnalyticsEvent.platform_event_id == key))).scalar_one_or_none()
         if count <= 0:
             # Metrics zeroed (e.g. repost gate) — a stale foreign count
             # must not keep scoring.
@@ -846,8 +817,14 @@ async def _persist_snapshot(
     #    foreign numbers here so nothing downstream can count them.
     if metrics.raw.get("is_repost"):
         metrics = MetricBundle(
-            impressions=0, clicks=0, likes=0, comments=0, shares=0, reach=0,
-            raw=metrics.raw, notes=metrics.notes,
+            impressions=0,
+            clicks=0,
+            likes=0,
+            comments=0,
+            shares=0,
+            reach=0,
+            raw=metrics.raw,
+            notes=metrics.notes,
         )
     # 2) No-change dedup: an identical-metric snapshot within 24h carries
     #    zero information (the x_web scrape wrote one tweet 11x in a row).
@@ -864,16 +841,18 @@ async def _persist_snapshot(
                 PostAnalyticsSnapshot.social_account_id == account.id,
                 PostAnalyticsSnapshot.platform_post_id == platform_post_id,
                 PostAnalyticsSnapshot.source == source,
-                PostAnalyticsSnapshot.captured_at
-                >= captured_at - timedelta(hours=24),
+                PostAnalyticsSnapshot.captured_at >= captured_at - timedelta(hours=24),
             )
             .order_by(PostAnalyticsSnapshot.captured_at.desc())
             .limit(1)
         )
     ).first()
     if latest_metrics and tuple(latest_metrics) == (
-        metrics.impressions, metrics.clicks, metrics.likes,
-        metrics.comments, metrics.shares,
+        metrics.impressions,
+        metrics.clicks,
+        metrics.likes,
+        metrics.comments,
+        metrics.shares,
     ):
         result.skipped += 1
         return
@@ -953,6 +932,7 @@ async def _record_follower_snapshot(
     """
     if followers < 0 or (followers == 0 and not allow_zero):
         return False
+
     def _latest(nonzero_only: bool):
         q = select(FollowerSnapshot.followers, FollowerSnapshot.captured_at).where(
             FollowerSnapshot.social_account_id == account.id,
@@ -971,18 +951,16 @@ async def _record_follower_snapshot(
     last_row = (await db.execute(_latest(False))).first() if allow_zero else nonzero_row
     prev = last_row[0] if last_row else None
     prev_at = last_row[1] if last_row else None
-    if (
-        prev == followers
-        and prev_at is not None
-        and datetime.now(UTC) - prev_at < _FOLLOWER_HEARTBEAT
-    ):
+    if prev == followers and prev_at is not None and datetime.now(UTC) - prev_at < _FOLLOWER_HEARTBEAT:
         return False
-    db.add(FollowerSnapshot(
-        team_id=account.team_id,
-        social_account_id=account.id,
-        platform=platform,
-        followers=followers,
-    ))
+    db.add(
+        FollowerSnapshot(
+            team_id=account.team_id,
+            social_account_id=account.id,
+            platform=platform,
+            followers=followers,
+        )
+    )
     return True
 
 
@@ -1099,27 +1077,17 @@ async def sync_linkedin_account(
                 if followers:
                     await _record_follower_snapshot(db, account, "linkedin", int(followers))
             except Exception as exc:  # noqa: BLE001 — scrape is best-effort
-                stats_map.update({
-                    urn: MetricBundle(notes="member_stats_not_implemented")
-                    for urn in urn_to_post_id
-                    if urn not in stats_map
-                })
-                result.errors.append(
-                    f"linkedin member scrape: {type(exc).__name__}: {exc}"
-                )
+                stats_map.update({urn: MetricBundle(notes="member_stats_not_implemented") for urn in urn_to_post_id if urn not in stats_map})
+                result.errors.append(f"linkedin member scrape: {type(exc).__name__}: {exc}")
             all_urns = list(urn_to_post_id.keys())
             for urn in all_urns:
-                stats_map.setdefault(
-                    urn, MetricBundle(notes="member_stats_not_implemented")
-                )
+                stats_map.setdefault(urn, MetricBundle(notes="member_stats_not_implemented"))
             # Creator post analytics (r_member_postAnalytics, dev-tier product).
             # The scope set on the token is authoritative — if it was recorded
             # at OAuth time and lacks the permission, every call is a
             # guaranteed 403, so skip the request entirely. An unrecorded
             # (empty) scope list still probes; a live 401/403 is the backstop.
-            scope_known_missing = _member_post_analytics_scope_missing(
-                account.scopes
-            )
+            scope_known_missing = _member_post_analytics_scope_missing(account.scopes)
             for urn in all_urns:
                 if scope_known_missing:
                     res = {"status": 403}
@@ -1184,7 +1152,11 @@ async def sync_linkedin_account(
             )
             # Mirror into AnalyticsEvent so account-level dashboards see it.
             _persist_account_event(
-                db, account, captured_at, "account_insights", {
+                db,
+                account,
+                captured_at,
+                "account_insights",
+                {
                     "impressions_lifetime": org_lifetime.impressions,
                     "clicks_lifetime": org_lifetime.clicks,
                     "likes_lifetime": org_lifetime.likes,
@@ -1199,7 +1171,9 @@ async def sync_linkedin_account(
             if total_followers:
                 await _record_follower_snapshot(db, account, "linkedin", total_followers)
             await _persist_snapshot(
-                db, account=account, post_id=None,
+                db,
+                account=account,
+                post_id=None,
                 platform_post_id=org,
                 metrics=MetricBundle(raw=follower_stats),
                 captured_at=captured_at,
@@ -1207,7 +1181,11 @@ async def sync_linkedin_account(
                 result=result,
             )
             _persist_account_event(
-                db, account, captured_at, "follower_insights", {
+                db,
+                account,
+                captured_at,
+                "follower_insights",
+                {
                     "total_followers": total_followers,
                     "follower_gains": follower_stats.get("follower_gains"),
                     "demographics": follower_stats.get("demographics"),
@@ -1216,7 +1194,9 @@ async def sync_linkedin_account(
 
             # Page view/click statistics.
             await _persist_snapshot(
-                db, account=account, post_id=None,
+                db,
+                account=account,
+                post_id=None,
                 platform_post_id=org,
                 metrics=MetricBundle(raw=page_stats),
                 captured_at=captured_at,
@@ -1224,13 +1204,15 @@ async def sync_linkedin_account(
                 result=result,
             )
             _persist_account_event(
-                db, account, captured_at, "page_insights", {
+                db,
+                account,
+                captured_at,
+                "page_insights",
+                {
                     "daily_period_days": (page_stats.get("period") or {}).get("days"),
                     "lifetime_facets": page_stats.get("lifetime"),
                 },
             )
-
-
 
     if result.synced == 0:
         result.skipped = len(targets)
@@ -1240,6 +1222,7 @@ async def sync_linkedin_account(
 
 
 # ── Twitter / X ───────────────────────────────────────────────────────────────
+
 
 async def _fetch_twitter_metrics(client: httpx.AsyncClient, token: str, tweet_id: str) -> MetricBundle:
     """Fetch public metrics for a single tweet via API v2."""
@@ -1280,9 +1263,7 @@ async def _scrape_twitter_timeline(username: str) -> dict[str, Any]:
     from app.services.browser_bridge import BrowserBridgeClient
     from app.services.browser_orchestrator import browser_session
 
-    bridge = BrowserBridgeClient(
-        get_settings().BROWSER_BRIDGE_URL, platform="twitter"
-    )
+    bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL, platform="twitter")
     session = await bridge.ensure_session("twitter")
     if session.get("status") != "active":
         return {
@@ -1371,13 +1352,22 @@ async def _persist_x_web_analytics(
             },
         )
         await _persist_snapshot(
-            db, account=account, post_id=id_to_post.get(tid), platform_post_id=tid,
-            metrics=metrics, captured_at=captured_at, source=web.source,
-            result=result, platform="twitter",
+            db,
+            account=account,
+            post_id=id_to_post.get(tid),
+            platform_post_id=tid,
+            metrics=metrics,
+            captured_at=captured_at,
+            source=web.source,
+            result=result,
+            platform="twitter",
         )
     if web.followers:
         _persist_account_event(
-            db, account, captured_at, "account_insights",
+            db,
+            account,
+            captured_at,
+            "account_insights",
             {
                 "followers_count": int(web.followers or 0),
                 "following_count": int(web.following or 0),
@@ -1474,16 +1464,28 @@ async def sync_twitter_account(
                 # 402 identically. Record one data-gap marker and move on.
                 metrics = MetricBundle(notes="quota_exhausted")
                 await _persist_snapshot(
-                    db, account=account, post_id=t.post_id, platform_post_id=tweet_id,
-                    metrics=metrics, captured_at=captured_at, source="twitter_api",
-                    result=result, platform="twitter",
+                    db,
+                    account=account,
+                    post_id=t.post_id,
+                    platform_post_id=tweet_id,
+                    metrics=metrics,
+                    captured_at=captured_at,
+                    source="twitter_api",
+                    result=result,
+                    platform="twitter",
                 )
                 result.skipped += len(targets) - len(covered)
                 break
             await _persist_snapshot(
-                db, account=account, post_id=t.post_id, platform_post_id=tweet_id,
-                metrics=metrics, captured_at=captured_at, source="twitter_api",
-                result=result, platform="twitter",
+                db,
+                account=account,
+                post_id=t.post_id,
+                platform_post_id=tweet_id,
+                metrics=metrics,
+                captured_at=captured_at,
+                source="twitter_api",
+                result=result,
+                platform="twitter",
             )
 
         # User timeline discovery — Free/Basic tiers reject with 402/403.
@@ -1504,9 +1506,7 @@ async def sync_twitter_account(
                     if not tid or tid in covered:
                         continue
                     try:
-                        created = datetime.fromisoformat(
-                            tw["created_at"].replace("Z", "+00:00")
-                        ).timestamp() if tw.get("created_at") else None
+                        created = datetime.fromisoformat(tw["created_at"].replace("Z", "+00:00")).timestamp() if tw.get("created_at") else None
                     except ValueError:
                         created = None
                     if created and created < since_ts:
@@ -1516,16 +1516,20 @@ async def sync_twitter_account(
                         impressions=int(pm.get("impression_count", 0) or 0),
                         likes=int(pm.get("like_count", 0) or 0),
                         comments=int(pm.get("reply_count", 0) or 0),
-                        shares=int(pm.get("retweet_count", 0) or 0)
-                        + int(pm.get("quote_count", 0) or 0),
+                        shares=int(pm.get("retweet_count", 0) or 0) + int(pm.get("quote_count", 0) or 0),
                         reach=int(pm.get("impression_count", 0) or 0),
                         raw=tw,
                     )
                     await _persist_snapshot(
-                        db, account=account, post_id=id_to_post.get(tid),
-                        platform_post_id=tid, metrics=metrics,
-                        captured_at=captured_at, source="twitter_api",
-                        result=result, platform="twitter",
+                        db,
+                        account=account,
+                        post_id=id_to_post.get(tid),
+                        platform_post_id=tid,
+                        metrics=metrics,
+                        captured_at=captured_at,
+                        source="twitter_api",
+                        result=result,
+                        platform="twitter",
                     )
                     discovered[tid] = id_to_post.get(tid)
             elif resp.status_code == 402:
@@ -1534,14 +1538,9 @@ async def sync_twitter_account(
                 official_quota = True
                 result.skipped += 1
             elif resp.status_code in (401, 403, 429):
-                result.errors.append(
-                    f"twitter timeline discovery HTTP {resp.status_code} "
-                    "(needs paid tier for read access)"
-                )
+                result.errors.append(f"twitter timeline discovery HTTP {resp.status_code} (needs paid tier for read access)")
             else:
-                result.errors.append(
-                    f"twitter timeline discovery HTTP {resp.status_code}"
-                )
+                result.errors.append(f"twitter timeline discovery HTTP {resp.status_code}")
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"twitter timeline discovery: {type(exc).__name__}: {exc}")
 
@@ -1557,9 +1556,7 @@ async def sync_twitter_account(
                     if not tid or tid in covered:
                         continue
                     try:
-                        created = datetime.fromisoformat(
-                            tw["posted"].replace("Z", "+00:00")
-                        ).timestamp() if tw.get("posted") else None
+                        created = datetime.fromisoformat(tw["posted"].replace("Z", "+00:00")).timestamp() if tw.get("posted") else None
                     except (ValueError, AttributeError):
                         created = None
                     if created and created < since_ts:
@@ -1573,10 +1570,15 @@ async def sync_twitter_account(
                         raw=tw,
                     )
                     await _persist_snapshot(
-                        db, account=account, post_id=id_to_post.get(tid),
-                        platform_post_id=tid, metrics=metrics,
-                        captured_at=captured_at, source="twitter_scrape",
-                        result=result, platform="twitter",
+                        db,
+                        account=account,
+                        post_id=id_to_post.get(tid),
+                        platform_post_id=tid,
+                        metrics=metrics,
+                        captured_at=captured_at,
+                        source="twitter_scrape",
+                        result=result,
+                        platform="twitter",
                     )
                     discovered[tid] = id_to_post.get(tid)
                 followers = scraped.get("followers")
@@ -1599,7 +1601,10 @@ async def sync_twitter_account(
                 pm = ((ur.json() or {}).get("data") or {}).get("public_metrics") or {}
                 if pm:
                     _persist_account_event(
-                        db, account, captured_at, "account_insights",
+                        db,
+                        account,
+                        captured_at,
+                        "account_insights",
                         {
                             "followers_count": int(pm.get("followers_count") or 0),
                             "following_count": int(pm.get("following_count") or 0),
@@ -1610,7 +1615,9 @@ async def sync_twitter_account(
                     # Verified API read — a real 0 is valid data, not a
                     # scrape failure; record it so the series isn't silent.
                     await _record_follower_snapshot(
-                        db, account, "twitter",
+                        db,
+                        account,
+                        "twitter",
                         int(pm.get("followers_count") or 0),
                         allow_zero=True,
                     )
@@ -1619,9 +1626,7 @@ async def sync_twitter_account(
                 official_quota = True
                 result.skipped += 1
             else:
-                result.errors.append(
-                    f"twitter users/me HTTP {ur.status_code}: {ur.text[:150]}"
-                )
+                result.errors.append(f"twitter users/me HTTP {ur.status_code}: {ur.text[:150]}")
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"twitter users/me: {type(exc).__name__}: {exc}")
 
@@ -1650,9 +1655,8 @@ async def sync_twitter_account(
 
 # ── Facebook ──────────────────────────────────────────────────────────────────
 
-async def _facebook_object_metrics(
-    client: httpx.AsyncClient, post_id: str, page_token: str
-) -> dict[str, int]:
+
+async def _facebook_object_metrics(client: httpx.AsyncClient, post_id: str, page_token: str) -> dict[str, int]:
     """Engagement counters straight off the post object — works even when the
     insights endpoint rejects every metric for the post's type."""
     out = {"comments": 0, "shares": 0, "likes": 0}
@@ -1660,27 +1664,22 @@ async def _facebook_object_metrics(
         facebook_graph_url(post_id),
         params={
             "access_token": page_token,
-            "fields": (
-                "shares,comments.summary(true).limit(0),"
-                "reactions.summary(true).limit(0)"
-            ),
+            "fields": ("shares,comments.summary(true).limit(0),reactions.summary(true).limit(0)"),
         },
     )
     if obj.status_code != 200:
         return out
     body = obj.json() or {}
-    out["comments"] = int(
-        (body.get("comments", {}).get("summary", {}) or {}).get("total_count", 0) or 0
-    )
+    out["comments"] = int((body.get("comments", {}).get("summary", {}) or {}).get("total_count", 0) or 0)
     out["shares"] = int((body.get("shares", {}) or {}).get("count", 0) or 0)
-    out["likes"] = int(
-        (body.get("reactions", {}).get("summary", {}) or {}).get("total_count", 0) or 0
-    )
+    out["likes"] = int((body.get("reactions", {}).get("summary", {}) or {}).get("total_count", 0) or 0)
     return out
 
 
 async def _fetch_facebook_post_metrics(
-    client: httpx.AsyncClient, page_token: str, post_id: str,
+    client: httpx.AsyncClient,
+    page_token: str,
+    post_id: str,
 ) -> MetricBundle:
     """Fetch insights for a Facebook page post via Graph API.
 
@@ -1696,8 +1695,11 @@ async def _fetch_facebook_post_metrics(
         client,
         url,
         [
-            "post_media_view", "post_clicks", "post_reactions_like_total",
-            "post_reactions_by_type_total", "post_activity_by_action_type",
+            "post_media_view",
+            "post_clicks",
+            "post_reactions_like_total",
+            "post_reactions_by_type_total",
+            "post_activity_by_action_type",
             "post_video_views",
         ],
         params={"access_token": page_token},
@@ -1779,17 +1781,13 @@ async def sync_facebook_account(
         try:
             from app.services.facebook_sidecar import FacebookSidecarClient
 
-            stats = await FacebookSidecarClient(timeout=90).get_profile_stats(
-                expected_name=account.username
-            )
+            stats = await FacebookSidecarClient(timeout=90).get_profile_stats(expected_name=account.username)
             followers = stats.get("followers")
             if followers:
                 await _record_follower_snapshot(db, account, "facebook", int(followers))
             trend = {k: v for k, v in stats.items() if isinstance(v, int)}
             if trend:
-                _persist_account_event(
-                    db, account, captured_at, "profile_dashboard", trend
-                )
+                _persist_account_event(db, account, captured_at, "profile_dashboard", trend)
             await db.commit()
         except Exception as exc:  # noqa: BLE001 — scrape is best-effort
             result.errors.append(f"facebook profile dashboard scrape: {type(exc).__name__}: {exc}")
@@ -1832,16 +1830,20 @@ async def sync_facebook_account(
             covered.add(fb_post_id)
             metrics = await _fetch_facebook_post_metrics(client, page_token, fb_post_id)
             await _persist_snapshot(
-                db, account=account, post_id=t.post_id, platform_post_id=fb_post_id,
-                metrics=metrics, captured_at=captured_at, source="facebook_api",
-                result=result, platform="facebook",
+                db,
+                account=account,
+                post_id=t.post_id,
+                platform_post_id=fb_post_id,
+                metrics=metrics,
+                captured_at=captured_at,
+                source="facebook_api",
+                result=result,
+                platform="facebook",
             )
 
         # Discover posts SocialAuto didn't publish. `published_posts` is a
         # Page-only edge — personal (user) accounts must use `feed`.
-        discovery_edge = (
-            "published_posts" if account.account_type == "page" else "feed"
-        )
+        discovery_edge = "published_posts" if account.account_type == "page" else "feed"
         try:
             resp = await client.get(
                 facebook_graph_url(f"{page_id}/{discovery_edge}"),
@@ -1857,9 +1859,7 @@ async def sync_facebook_account(
                     if not pid or pid in covered:
                         continue
                     try:
-                        created = datetime.fromisoformat(
-                            item["created_time"].replace("Z", "+00:00")
-                        ) if item.get("created_time") else None
+                        created = datetime.fromisoformat(item["created_time"].replace("Z", "+00:00")) if item.get("created_time") else None
                     except ValueError:
                         created = None
                     if created and created < since:
@@ -1867,15 +1867,18 @@ async def sync_facebook_account(
                     metrics = await _fetch_facebook_post_metrics(client, page_token, pid)
                     metrics.raw = {**(metrics.raw or {}), "discovery": item}
                     await _persist_snapshot(
-                        db, account=account, post_id=id_to_post.get(pid),
-                        platform_post_id=pid, metrics=metrics,
-                        captured_at=captured_at, source="facebook_api",
-                        result=result, platform="facebook",
+                        db,
+                        account=account,
+                        post_id=id_to_post.get(pid),
+                        platform_post_id=pid,
+                        metrics=metrics,
+                        captured_at=captured_at,
+                        source="facebook_api",
+                        result=result,
+                        platform="facebook",
                     )
             else:
-                result.errors.append(
-                    f"facebook {discovery_edge} HTTP {resp.status_code}: {_meta_error_message(resp)}"
-                )
+                result.errors.append(f"facebook {discovery_edge} HTTP {resp.status_code}: {_meta_error_message(resp)}")
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"facebook post discovery: {type(exc).__name__}: {exc}")
 
@@ -1888,10 +1891,14 @@ async def sync_facebook_account(
                     client,
                     facebook_graph_url(f"{page_id}/insights"),
                     [
-                        "page_views_total", "page_post_engagements",
-                        "page_daily_follows", "page_follows",
-                        "page_total_actions", "page_video_views",
-                        "page_media_view", "page_video_view_time",
+                        "page_views_total",
+                        "page_post_engagements",
+                        "page_daily_follows",
+                        "page_follows",
+                        "page_total_actions",
+                        "page_video_views",
+                        "page_media_view",
+                        "page_video_view_time",
                     ],
                     params={"access_token": page_token, "period": "day"},
                 )
@@ -1902,14 +1909,9 @@ async def sync_facebook_account(
                         latest = vals[-1].get("value", 0) if vals else 0
                         agg[item["name"]] = int(latest) if isinstance(latest, int | float) else 0
                     if agg:
-                        _persist_account_event(
-                            db, account, captured_at, "account_insights", agg
-                        )
+                        _persist_account_event(db, account, captured_at, "account_insights", agg)
                 else:
-                    result.errors.append(
-                        f"facebook page insights HTTP {resp.status_code}: "
-                        f"{_meta_error_message(resp)}"
-                    )
+                    result.errors.append(f"facebook page insights HTTP {resp.status_code}: {_meta_error_message(resp)}")
             except Exception as exc:  # noqa: BLE001
                 result.errors.append(f"facebook page insights: {type(exc).__name__}: {exc}")
 
@@ -1921,9 +1923,7 @@ async def sync_facebook_account(
                 # buckets and Meta intermittently 500s with "reduce the
                 # amount of data". 8 days covers the weekly digest's day-key
                 # merge; older days persist in earlier events.
-                attr_since = int(
-                    (captured_at - timedelta(days=8)).timestamp()
-                )
+                attr_since = int((captured_at - timedelta(days=8)).timestamp())
                 attr_until = int(captured_at.timestamp())
                 resp = await client.get(
                     facebook_graph_url(f"{page_id}/insights"),
@@ -1950,8 +1950,11 @@ async def sync_facebook_account(
                                 }
                     if by_day:
                         _persist_account_event(
-                            db, account, captured_at,
-                            "follower_attribution", {"by_day": by_day},
+                            db,
+                            account,
+                            captured_at,
+                            "follower_attribution",
+                            {"by_day": by_day},
                         )
             except Exception as exc:  # noqa: BLE001
                 result.errors.append(f"facebook follower attribution: {type(exc).__name__}: {exc}")
@@ -1964,8 +1967,12 @@ async def sync_facebook_account(
 
 # ── Instagram ─────────────────────────────────────────────────────────────────
 
+
 async def _fetch_instagram_media_metrics(
-    client: httpx.AsyncClient, token: str, ig_user_id: str, media_id: str,
+    client: httpx.AsyncClient,
+    token: str,
+    ig_user_id: str,
+    media_id: str,
 ) -> MetricBundle:
     """Fetch insights for an Instagram media post via Graph API.
 
@@ -1991,9 +1998,7 @@ async def _fetch_instagram_media_metrics(
         params={"access_token": token},
     )
     if resp.status_code != 200:
-        return MetricBundle(
-            notes=f"instagram stats HTTP {resp.status_code}: {_meta_error_message(resp)}"
-        )
+        return MetricBundle(notes=f"instagram stats HTTP {resp.status_code}: {_meta_error_message(resp)}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -2045,17 +2050,12 @@ async def sync_instagram_account(
         "instagram_business_manage_insights",
         "instagram_manage_insights",
     }
-    insights_allowed = (
-        not stored_scopes or bool(stored_scopes & insights_scopes)
-    )
+    insights_allowed = not stored_scopes or bool(stored_scopes & insights_scopes)
 
     def _insights_or_skip(media_id: str) -> MetricBundle | None:
         if insights_allowed:
             return None
-        return MetricBundle(
-            notes="insights_scope_missing — reconnect account with "
-                  "instagram_business_manage_insights"
-        )
+        return MetricBundle(notes="insights_scope_missing — reconnect account with instagram_business_manage_insights")
 
     targets_q = (
         select(PostTarget)
@@ -2082,21 +2082,22 @@ async def sync_instagram_account(
             if not media_id:
                 continue
             covered.add(media_id)
-            metrics = _insights_or_skip(media_id) or await _fetch_instagram_media_metrics(
-                client, token, ig_user_id, media_id
-            )
+            metrics = _insights_or_skip(media_id) or await _fetch_instagram_media_metrics(client, token, ig_user_id, media_id)
             await _persist_snapshot(
-                db, account=account, post_id=t.post_id, platform_post_id=media_id,
-                metrics=metrics, captured_at=captured_at, source="instagram_api",
-                result=result, platform="instagram",
+                db,
+                account=account,
+                post_id=t.post_id,
+                platform_post_id=media_id,
+                metrics=metrics,
+                captured_at=captured_at,
+                source="instagram_api",
+                result=result,
+                platform="instagram",
             )
 
         # Discover IG media SocialAuto didn't publish (native app posts).
         try:
-            media_url = (
-                f"{ig_host}/{ig_user_id}/media" if ig_host
-                else facebook_graph_url(f"{ig_user_id}/media")
-            )
+            media_url = f"{ig_host}/{ig_user_id}/media" if ig_host else facebook_graph_url(f"{ig_user_id}/media")
             resp = await client.get(
                 media_url,
                 params={
@@ -2111,43 +2112,38 @@ async def sync_instagram_account(
                     if not mid or mid in covered:
                         continue
                     try:
-                        created = datetime.fromisoformat(
-                            item["timestamp"].replace("Z", "+00:00")
-                        ) if item.get("timestamp") else None
+                        created = datetime.fromisoformat(item["timestamp"].replace("Z", "+00:00")) if item.get("timestamp") else None
                     except ValueError:
                         created = None
                     if created and created < since:
                         continue
-                    metrics = _insights_or_skip(mid) or await _fetch_instagram_media_metrics(
-                        client, token, ig_user_id, mid
-                    )
+                    metrics = _insights_or_skip(mid) or await _fetch_instagram_media_metrics(client, token, ig_user_id, mid)
                     metrics.raw = {**(metrics.raw or {}), "discovery": item}
                     await _persist_snapshot(
-                        db, account=account, post_id=id_to_post.get(mid),
-                        platform_post_id=mid, metrics=metrics,
-                        captured_at=captured_at, source="instagram_api",
-                        result=result, platform="instagram",
+                        db,
+                        account=account,
+                        post_id=id_to_post.get(mid),
+                        platform_post_id=mid,
+                        metrics=metrics,
+                        captured_at=captured_at,
+                        source="instagram_api",
+                        result=result,
+                        platform="instagram",
                     )
             else:
-                result.errors.append(
-                    f"instagram media discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
-                )
+                result.errors.append(f"instagram media discovery HTTP {resp.status_code}: {_meta_error_message(resp)}")
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"instagram media discovery: {type(exc).__name__}: {exc}")
 
         # Account-level insights + audience demographics — requires an
         # insights scope on the token (skip quietly when not granted).
         if insights_allowed:
-            insights_base = (
-                f"{ig_host}/{ig_user_id}/insights" if ig_host
-                else facebook_graph_url(f"{ig_user_id}/insights")
-            )
+            insights_base = f"{ig_host}/{ig_user_id}/insights" if ig_host else facebook_graph_url(f"{ig_user_id}/insights")
             try:
                 resp = await _meta_insights_get(
                     client,
                     insights_base,
-                    ["reach", "follower_count", "profile_views",
-                     "accounts_engaged", "total_interactions"],
+                    ["reach", "follower_count", "profile_views", "accounts_engaged", "total_interactions"],
                     params={"access_token": token, "period": "day"},
                 )
                 if resp.status_code == 200:
@@ -2157,14 +2153,9 @@ async def sync_instagram_account(
                         latest = vals[-1].get("value", 0) if vals else 0
                         agg[item["name"]] = int(latest) if isinstance(latest, int | float) else 0
                     if agg:
-                        _persist_account_event(
-                            db, account, captured_at, "account_insights", agg
-                        )
+                        _persist_account_event(db, account, captured_at, "account_insights", agg)
                 else:
-                    result.errors.append(
-                        f"instagram account insights HTTP {resp.status_code}: "
-                        f"{_meta_error_message(resp)}"
-                    )
+                    result.errors.append(f"instagram account insights HTTP {resp.status_code}: {_meta_error_message(resp)}")
             except Exception as exc:  # noqa: BLE001
                 result.errors.append(f"instagram account insights: {type(exc).__name__}: {exc}")
 
@@ -2192,7 +2183,10 @@ async def sync_instagram_account(
                                 by_country[key] = int(r.get("value", 0) or 0)
                     if by_country:
                         _persist_account_event(
-                            db, account, captured_at, "audience_demographics",
+                            db,
+                            account,
+                            captured_at,
+                            "audience_demographics",
                             {"breakdown": "country", "by_country": by_country},
                         )
             except Exception as exc:  # noqa: BLE001
@@ -2221,7 +2215,10 @@ async def sync_instagram_account(
                                 by_ft[key] = int(r.get("value", 0) or 0)
                     if by_ft:
                         _persist_account_event(
-                            db, account, captured_at, "audience_reach_split",
+                            db,
+                            account,
+                            captured_at,
+                            "audience_reach_split",
                             {"breakdown": "follow_type", "by_follow_type": by_ft},
                         )
             except Exception as exc:  # noqa: BLE001
@@ -2245,13 +2242,14 @@ async def sync_instagram_account(
                             val = v.get("value")
                             if isinstance(val, dict):
                                 for hour, n in val.items():
-                                    heatmap[hour] = max(
-                                        heatmap.get(hour, 0), int(n or 0)
-                                    )
+                                    heatmap[hour] = max(heatmap.get(hour, 0), int(n or 0))
                     if heatmap:
                         peak = sorted(heatmap.items(), key=lambda kv: -kv[1])[:4]
                         _persist_account_event(
-                            db, account, captured_at, "audience_activity",
+                            db,
+                            account,
+                            captured_at,
+                            "audience_activity",
                             {"by_hour": heatmap, "peak_hours": [h for h, _ in peak]},
                         )
             except Exception as exc:  # noqa: BLE001
@@ -2265,8 +2263,11 @@ async def sync_instagram_account(
 
 # ── Threads ───────────────────────────────────────────────────────────────────
 
+
 async def _fetch_threads_media_metrics(
-    client: httpx.AsyncClient, token: str, media_id: str,
+    client: httpx.AsyncClient,
+    token: str,
+    media_id: str,
 ) -> MetricBundle:
     """Fetch insights for a Threads media post via Threads API."""
     url = f"https://graph.threads.net/v1.0/{media_id}/insights"
@@ -2281,9 +2282,7 @@ async def _fetch_threads_media_metrics(
         msg = _meta_error_message(resp)
         if "does not exist" in msg:
             return MetricBundle(notes="platform_deleted")
-        return MetricBundle(
-            notes=f"threads stats HTTP {resp.status_code}: {msg}"
-        )
+        return MetricBundle(notes=f"threads stats HTTP {resp.status_code}: {msg}")
     data = resp.json() or {}
     raw_metrics = {item["name"]: item for item in data.get("data", [])}
 
@@ -2305,7 +2304,9 @@ async def _fetch_threads_media_metrics(
 
 
 async def _fetch_threads_account_insights(
-    client: httpx.AsyncClient, token: str, user_id: str,
+    client: httpx.AsyncClient,
+    token: str,
+    user_id: str,
 ) -> dict[str, Any]:
     """Fetch account-level insights from the Threads API.
 
@@ -2332,7 +2333,9 @@ async def _fetch_threads_account_insights(
 
 
 async def _fetch_threads_profile(
-    client: httpx.AsyncClient, token: str, user_id: str,
+    client: httpx.AsyncClient,
+    token: str,
+    user_id: str,
 ) -> dict[str, Any]:
     """Fetch the Threads profile.
 
@@ -2396,9 +2399,15 @@ async def sync_threads_account(
                 result.skipped += 1
                 continue
             await _persist_snapshot(
-                db, account=account, post_id=t.post_id, platform_post_id=media_id,
-                metrics=metrics, captured_at=captured_at, source="threads_api",
-                result=result, platform="threads",
+                db,
+                account=account,
+                post_id=t.post_id,
+                platform_post_id=media_id,
+                metrics=metrics,
+                captured_at=captured_at,
+                source="threads_api",
+                result=result,
+                platform="threads",
             )
 
         # Discover threads SocialAuto didn't publish (native Threads posts).
@@ -2418,10 +2427,7 @@ async def sync_threads_account(
                         continue
                     ts = item.get("timestamp")
                     try:
-                        created = (
-                            datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-                            if ts else None
-                        )
+                        created = datetime.fromisoformat(str(ts).replace("Z", "+00:00")) if ts else None
                     except (ValueError, TypeError):
                         created = None
                     if created and created < since:
@@ -2429,15 +2435,18 @@ async def sync_threads_account(
                     metrics = await _fetch_threads_media_metrics(client, token, mid)
                     metrics.raw = {**(metrics.raw or {}), "discovery": item}
                     await _persist_snapshot(
-                        db, account=account, post_id=id_to_post.get(mid),
-                        platform_post_id=mid, metrics=metrics,
-                        captured_at=captured_at, source="threads_api",
-                        result=result, platform="threads",
+                        db,
+                        account=account,
+                        post_id=id_to_post.get(mid),
+                        platform_post_id=mid,
+                        metrics=metrics,
+                        captured_at=captured_at,
+                        source="threads_api",
+                        result=result,
+                        platform="threads",
                     )
             else:
-                result.errors.append(
-                    f"threads discovery HTTP {resp.status_code}: {_meta_error_message(resp)}"
-                )
+                result.errors.append(f"threads discovery HTTP {resp.status_code}: {_meta_error_message(resp)}")
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"threads post discovery: {type(exc).__name__}: {exc}")
 
@@ -2504,6 +2513,7 @@ async def sync_threads_account(
 
 # ── TikTok ────────────────────────────────────────────────────────────────────
 
+
 def _resolve_tiktok_display_video_id(target: PostTarget) -> str | None:
     """Return a Display API video id suitable for analytics, or None to skip.
 
@@ -2529,7 +2539,9 @@ def _resolve_tiktok_display_video_id(target: PostTarget) -> str | None:
 
 
 async def _fetch_tiktok_video_stats(
-    client: httpx.AsyncClient, token: str, video_id: str,
+    client: httpx.AsyncClient,
+    token: str,
+    video_id: str,
 ) -> MetricBundle:
     """Fetch stats for a TikTok video via Display API ``POST /v2/video/query/``.
 
@@ -2554,9 +2566,7 @@ async def _fetch_tiktok_video_stats(
     data = resp.json() or {}
     error = data.get("error") or {}
     if error.get("code") not in (None, "", "ok"):
-        return MetricBundle(
-            notes=f"tiktok stats error: {error.get('code')} {error.get('message')}"
-        )
+        return MetricBundle(notes=f"tiktok stats error: {error.get('code')} {error.get('message')}")
     videos = (data.get("data") or {}).get("videos", [])
     for v in videos:
         if str(v.get("id")) == str(video_id):
@@ -2572,24 +2582,26 @@ async def _fetch_tiktok_video_stats(
     return MetricBundle(notes="tiktok_video_not_found")
 
 
-async def _tiktok_consecutive_misses(
-    db: AsyncSession, account_id: uuid.UUID, video_id: str
-) -> int:
+async def _tiktok_consecutive_misses(db: AsyncSession, account_id: uuid.UUID, video_id: str) -> int:
     """Trailing count of tiktok_video_not_found snapshots for a video —
     distinguishes a genuinely gone video (deleted, or orphaned by the
     app→organization transfer) from a one-off API gap."""
     rows = (
-        await db.execute(
-            select(PostAnalyticsSnapshot.notes)
-            .where(
-                PostAnalyticsSnapshot.social_account_id == account_id,
-                PostAnalyticsSnapshot.platform == "tiktok",
-                PostAnalyticsSnapshot.platform_post_id == video_id,
+        (
+            await db.execute(
+                select(PostAnalyticsSnapshot.notes)
+                .where(
+                    PostAnalyticsSnapshot.social_account_id == account_id,
+                    PostAnalyticsSnapshot.platform == "tiktok",
+                    PostAnalyticsSnapshot.platform_post_id == video_id,
+                )
+                .order_by(PostAnalyticsSnapshot.captured_at.desc())
+                .limit(4)
             )
-            .order_by(PostAnalyticsSnapshot.captured_at.desc())
-            .limit(4)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     streak = 0
     for note in rows:
         if note == "tiktok_video_not_found":
@@ -2634,9 +2646,7 @@ def _scrape_tiktok_profile(username: str, cookies: dict[str, str]) -> dict[str, 
         if cookie_path:
             opts["cookiefile"] = cookie_path
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(
-                f"https://www.tiktok.com/@{username}", download=False
-            ) or {}
+            info = ydl.extract_info(f"https://www.tiktok.com/@{username}", download=False) or {}
         videos: dict[str, MetricBundle] = {}
         for e in info.get("entries") or []:
             vid = str(e.get("id") or "")
@@ -2720,17 +2730,12 @@ async def sync_tiktok_account(
                     # Inbox drafts awaiting manual finish carry a documented
                     # error_message — not a sync error, so don't re-report it.
                     if "Draft delivered to TikTok app inbox" not in (t.error_message or ""):
-                        result.errors.append(
-                            f"tiktok skip post={t.post_id}: no Display video id "
-                            f"(inbox publish_id={t.platform_post_id})"
-                        )
+                        result.errors.append(f"tiktok skip post={t.post_id}: no Display video id (inbox publish_id={t.platform_post_id})")
                     continue
                 api_video_ids.add(video_id)
                 metrics = await _fetch_tiktok_video_stats(client, token, video_id)
                 if metrics.notes == "tiktok_video_not_found":
-                    misses = await _tiktok_consecutive_misses(
-                        db, account.id, video_id
-                    )
+                    misses = await _tiktok_consecutive_misses(db, account.id, video_id)
                     if misses >= 2:
                         # Persistent miss across syncs — gone from the API's
                         # view (deleted or orphaned by the org transfer).
@@ -2742,9 +2747,15 @@ async def sync_tiktok_account(
                         result.skipped += 1
                         continue
                 await _persist_snapshot(
-                    db, account=account, post_id=t.post_id, platform_post_id=video_id,
-                    metrics=metrics, captured_at=captured_at, source="tiktok_api",
-                    result=result, platform="tiktok",
+                    db,
+                    account=account,
+                    post_id=t.post_id,
+                    platform_post_id=video_id,
+                    metrics=metrics,
+                    captured_at=captured_at,
+                    source="tiktok_api",
+                    result=result,
+                    platform="tiktok",
                 )
 
     # Official User Info API — user.info.stats gives authoritative
@@ -2777,7 +2788,8 @@ async def sync_tiktok_account(
                 if ui_user.get("avatar_url"):
                     account.avatar_url = ui_user["avatar_url"]
                 _meta_extra = {
-                    k: v for k, v in {
+                    k: v
+                    for k, v in {
                         "bio_description": ui_user.get("bio_description"),
                         "profile_deep_link": ui_user.get("profile_deep_link"),
                         "is_verified": ui_user.get("is_verified"),
@@ -2785,13 +2797,17 @@ async def sync_tiktok_account(
                         "following_count": ui_user.get("following_count"),
                         "likes_count": ui_user.get("likes_count"),
                         "video_count": ui_user.get("video_count"),
-                    }.items() if v is not None
+                    }.items()
+                    if v is not None
                 }
                 if _meta_extra:
                     account.meta_data = {**(account.meta_data or {}), **_meta_extra}
                 if _has_stats_scope:
                     _persist_account_event(
-                        db, account, captured_at, "profile_sync",
+                        db,
+                        account,
+                        captured_at,
+                        "profile_sync",
                         {
                             "followers_count": ui_user.get("follower_count") or 0,
                             "following_count": ui_user.get("following_count"),
@@ -2812,9 +2828,7 @@ async def sync_tiktok_account(
     cookies = (account.meta_data or {}).get("tiktok_web_cookies") or {}
     if username and cookies:
         try:
-            scraped = await asyncio.to_thread(
-                _scrape_tiktok_profile, username, cookies
-            )
+            scraped = await asyncio.to_thread(_scrape_tiktok_profile, username, cookies)
         except Exception as exc:  # noqa: BLE001
             result.errors.append(f"tiktok scrape @{username}: {type(exc).__name__}: {exc}")
             scraped = None
@@ -2829,11 +2843,7 @@ async def sync_tiktok_account(
             for t in targets:
                 if _resolve_tiktok_display_video_id(t):
                     continue
-                pub = (
-                    t.published_at
-                    or (t.post.published_at if t.post else None)
-                    or (t.post.created_at if t.post else None)
-                )
+                pub = t.published_at or (t.post.published_at if t.post else None) or (t.post.created_at if t.post else None)
                 if not pub:
                     continue  # pragma: no cover — the since filter guarantees a pub date
                 if pub.tzinfo is None:
@@ -2845,12 +2855,8 @@ async def sync_tiktok_account(
                     ts = (m.raw or {}).get("timestamp")
                     if not ts:
                         continue
-                    delta = abs(
-                        datetime.fromtimestamp(int(ts), UTC) - pub
-                    )
-                    if delta <= timedelta(days=14) and (
-                        best_delta is None or delta < best_delta
-                    ):
+                    delta = abs(datetime.fromtimestamp(int(ts), UTC) - pub)
+                    if delta <= timedelta(days=14) and (best_delta is None or delta < best_delta):
                         best_vid, best_delta = vid, delta
                 if best_vid:
                     if t.post is not None:
@@ -2865,11 +2871,15 @@ async def sync_tiktok_account(
                 if vid in api_video_ids:
                     continue  # Display API already persisted the authoritative row
                 await _persist_snapshot(
-                    db, account=account,
+                    db,
+                    account=account,
                     post_id=id_to_post.get(vid),
                     platform_post_id=vid,
-                    metrics=metrics, captured_at=captured_at,
-                    source="tiktok_scrape", result=result, platform="tiktok",
+                    metrics=metrics,
+                    captured_at=captured_at,
+                    source="tiktok_scrape",
+                    result=result,
+                    platform="tiktok",
                 )
             # Account-level profile stats from the scrape (follower count,
             # channel id, video grid size) — persisted as an event so
@@ -2877,7 +2887,10 @@ async def sync_tiktok_account(
             # official User Info API already wrote this sync's event.
             if not api_profile_synced:
                 _persist_account_event(
-                    db, account, captured_at, "profile_sync",
+                    db,
+                    account,
+                    captured_at,
+                    "profile_sync",
                     {
                         "followers_count": scraped.get("followers") or 0,
                         "channel_id": scraped.get("channel_id") or "",
@@ -2891,14 +2904,9 @@ async def sync_tiktok_account(
                     from app.core.config import get_settings
 
                     async with httpx.AsyncClient(timeout=30.0) as sc:
-                        sess = await sc.get(
-                            f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/session"
-                        )
+                        sess = await sc.get(f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/session")
                     if sess.status_code == 200 and not sess.json().get("logged_in"):
-                        result.errors.append(
-                            f"tiktok scrape @{username}: web session expired — "
-                            f"re-run QR login (see tiktok-console-ops skill)"
-                        )
+                        result.errors.append(f"tiktok scrape @{username}: web session expired — re-run QR login (see tiktok-console-ops skill)")
                 except Exception:  # noqa: BLE001
                     pass
 
@@ -2909,6 +2917,7 @@ async def sync_tiktok_account(
 
 
 # ── Dispatch ──────────────────────────────────────────────────────────────────
+
 
 async def sync_telegram_channel_metrics(
     db: AsyncSession,
@@ -2997,16 +3006,20 @@ async def sync_team_analytics(
             # this; post-metric errors ride along in meta_data so a profile
             # event can't mask failing post insights.
             _persist_account_event(
-                db, account, datetime.now(UTC), "account_sync",
-                {"synced": r.synced, "skipped": r.skipped,
-                 "error_count": len(r.errors), "errors": r.errors[:5]},
+                db,
+                account,
+                datetime.now(UTC),
+                "account_sync",
+                {"synced": r.synced, "skipped": r.skipped, "error_count": len(r.errors), "errors": r.errors[:5]},
             )
         except Exception as exc:  # noqa: BLE001
             combined.errors.append(f"{platform}:{account.username}: {type(exc).__name__}: {exc}")
             _persist_account_event(
-                db, account, datetime.now(UTC), "account_sync",
-                {"synced": 0, "skipped": 0, "error_count": 1,
-                 "errors": [f"{type(exc).__name__}: {exc}"]},
+                db,
+                account,
+                datetime.now(UTC),
+                "account_sync",
+                {"synced": 0, "skipped": 0, "error_count": 1, "errors": [f"{type(exc).__name__}: {exc}"]},
             )
     await db.commit()
     return combined
@@ -3031,8 +3044,6 @@ async def _persist_follower_snapshot(db: AsyncSession, account: SocialAccount) -
         # and the digest flags it as stale forever.
         if followers < 0:
             return
-        await _record_follower_snapshot(
-            db, account, account.platform, followers, allow_zero=True
-        )
+        await _record_follower_snapshot(db, account, account.platform, followers, allow_zero=True)
     except Exception:
         pass  # follower tracking is best-effort

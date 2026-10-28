@@ -17,6 +17,7 @@ Safety rails (owner rules):
 - messaging-only platforms (whatsapp/messenger/viber) can't take posts and
   are skipped
 """
+
 from __future__ import annotations
 
 import base64
@@ -38,7 +39,7 @@ from app.services.monetization_report import MonetizationAction
 logger = logging.getLogger(__name__)
 
 _ATHENS = ZoneInfo("Europe/Athens")
-_MIN_COMPLIANCE = 3.0          # 5-point brand_compliance scale
+_MIN_COMPLIANCE = 3.0  # 5-point brand_compliance scale
 _MAX_ACTIONS_PER_RUN = 4
 _MAX_SLOT_HOPS = 3
 
@@ -68,27 +69,26 @@ def _action_hash(report_date: str, action: MonetizationAction) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-async def _resolve_account(
-    db: AsyncSession, team_id: uuid.UUID, platform: str, instruction: str
-) -> SocialAccount | None:
+async def _resolve_account(db: AsyncSession, team_id: uuid.UUID, platform: str, instruction: str) -> SocialAccount | None:
     accounts = (
-        await db.execute(
-            select(SocialAccount).where(
-                SocialAccount.team_id == team_id,
-                SocialAccount.platform == platform,
-                SocialAccount.status == "active",
+        (
+            await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.team_id == team_id,
+                    SocialAccount.platform == platform,
+                    SocialAccount.status == "active",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not accounts:
         return None
     if len(accounts) == 1:
         return accounts[0]
     low = instruction.lower()
-    corporate = any(
-        k in low
-        for k in ("company page", "corporate", "brand", "audit", "cloudless")
-    )
+    corporate = any(k in low for k in ("company page", "corporate", "brand", "audit", "cloudless"))
     if platform == "linkedin":
         # org page for corporate pushes, personal profile for founder voice
         org = [a for a in accounts if a.account_type in ("organization", "page")]
@@ -126,23 +126,17 @@ def _resolve_slot(
     except ValueError:
         hour, minute = (int(x) for x in _PLATFORM_BASELINE.get(action.platform, "10:00").split(":"))
     if not (0 <= hour <= 23 and 0 <= minute <= 59) or hour < 7:
-        hour, minute = (
-            int(x) for x in _PLATFORM_BASELINE.get(action.platform, "10:00").split(":")
-        )
+        hour, minute = (int(x) for x in _PLATFORM_BASELINE.get(action.platform, "10:00").split(":"))
     base = now_utc.astimezone(_ATHENS)
     if target_date:
-        base = base.replace(
-            year=target_date.year, month=target_date.month, day=target_date.day
-        )
+        base = base.replace(year=target_date.year, month=target_date.month, day=target_date.day)
     local = base.replace(hour=hour, minute=minute, second=0, microsecond=0)
     if local.astimezone(UTC) <= now_utc + timedelta(minutes=10):
         local += timedelta(days=1)  # too soon / already passed → tomorrow
     return local.astimezone(UTC)
 
 
-async def _slot_taken(
-    db: AsyncSession, team_id: uuid.UUID, account_id: uuid.UUID, when: datetime
-) -> bool:
+async def _slot_taken(db: AsyncSession, team_id: uuid.UUID, account_id: uuid.UUID, when: datetime) -> bool:
     return bool(
         (
             await db.execute(
@@ -219,9 +213,7 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
     return quality.content, quality.hashtags, getattr(quality, "seo_score", None)
 
 
-async def _generate_media(
-    db: AsyncSession, team: Team, user_id, action: MonetizationAction
-) -> uuid.UUID | None:
+async def _generate_media(db: AsyncSession, team: Team, user_id, action: MonetizationAction) -> uuid.UUID | None:
     """Branded image for the post — ComfyUI FLUX → Cloudflare Workers AI →
     brand banner (PIL, always succeeds). Returns a MediaAsset id or None."""
     from app.services.media_ai import expand_visual_prompt
@@ -243,9 +235,7 @@ async def _generate_media(
         try:  # Cloudflare free-tier fallback
             from app.services.inference import _call_workers_ai_image
 
-            result = await _call_workers_ai_image(
-                prompt, "@cf/black-forest-labs/flux-1-schnell"
-            )
+            result = await _call_workers_ai_image(prompt, "@cf/black-forest-labs/flux-1-schnell")
             b64 = result.get("image_base64")
             if b64:
                 png = base64.b64decode(b64)
@@ -301,9 +291,7 @@ async def schedule_report_actions(
 
     results: list[dict[str, Any]] = []
     now = datetime.now(UTC)
-    owner = (
-        await db.execute(select(User).where(User.id == team.owner_id))
-    ).scalars().first()
+    owner = (await db.execute(select(User).where(User.id == team.owner_id))).scalars().first()
 
     from app.services.brand_compliance import load_brand_context, score_brand_compliance
 
@@ -363,9 +351,7 @@ async def schedule_report_actions(
         if video_only:
             entry["reason"] = "video format — media pipeline produces images; left as draft"
         else:
-            media_id = await _generate_media(
-                db, team, owner.id if owner else None, action
-            )
+            media_id = await _generate_media(db, team, owner.id if owner else None, action)
             if not media_id:
                 entry["reason"] = "media generation failed — left as draft"
         status = PostStatus.SCHEDULED if media_id else PostStatus.DRAFT
@@ -373,14 +359,16 @@ async def schedule_report_actions(
         if status == PostStatus.SCHEDULED and brand_dict:
             try:
                 comp = await score_brand_compliance(
-                    content=content, brand=brand_dict, voice=voice_dict,
-                    platform=platform, db=db, team_id=team.id,
+                    content=content,
+                    brand=brand_dict,
+                    voice=voice_dict,
+                    platform=platform,
+                    db=db,
+                    team_id=team.id,
                 )
                 if (comp.get("score") or 0) < _MIN_COMPLIANCE:
                     status = PostStatus.DRAFT
-                    entry["reason"] = (
-                        f"brand compliance {comp.get('score')}/5 — left as draft"
-                    )
+                    entry["reason"] = f"brand compliance {comp.get('score')}/5 — left as draft"
             except Exception as exc:  # noqa: BLE001
                 logger.info("compliance scoring skipped: %s", str(exc)[:120])
 

@@ -61,10 +61,7 @@ WAN22_VAE = "wan2.2_vae.safetensors"
 
 VIDEO_MODELS = ("wan22",)
 
-DEFAULT_NEGATIVE = (
-    "worst quality, inconsistent motion, blurry, jittery, distorted, "
-    "watermark, text, lowres, bad anatomy"
-)
+DEFAULT_NEGATIVE = "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text, lowres, bad anatomy"
 
 # Official Wan2.2 negative prompt (English translation of the reference
 # Chinese prompt from Wan-AI/Wan2.2-TI2V-5B). Explicitly targets the
@@ -555,17 +552,27 @@ async def generate_video(
             prompt=prompt,
             image_name=image_name,
             negative_prompt=negative_prompt,
-            width=width, height=height, num_frames=num_frames,
-            frame_rate=frame_rate, steps=steps, cfg=cfg,
-            seed=seed, filename_prefix=filename_prefix,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            steps=steps,
+            cfg=cfg,
+            seed=seed,
+            filename_prefix=filename_prefix,
         )
     else:
         graph = build_wan22_prompt(
             prompt=prompt,
             negative_prompt=negative_prompt,
-            width=width, height=height, num_frames=num_frames,
-            frame_rate=frame_rate, steps=steps, cfg=cfg,
-            seed=seed, filename_prefix=filename_prefix,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            steps=steps,
+            cfg=cfg,
+            seed=seed,
+            filename_prefix=filename_prefix,
         )
 
     # Pin ComfyUI awake for the render — the stack-ops sleeper only sees
@@ -583,8 +590,7 @@ async def generate_video(
         if not prompt_id:
             raise ComfyUIVideoError(f"ComfyUI returned no prompt_id: {resp}")
 
-        logger.info("[comfyui-video] submitted prompt_id=%s (%dx%d, %df @%dfps)",
-                    prompt_id, width, height, num_frames, frame_rate)
+        logger.info("[comfyui-video] submitted prompt_id=%s (%dx%d, %df @%dfps)", prompt_id, width, height, num_frames, frame_rate)
 
         deadline = asyncio.get_event_loop().time() + timeout_s
         try:
@@ -597,8 +603,7 @@ async def generate_video(
                     continue
                 status = entry.get("status") or {}
                 if status.get("status_str") == "error":
-                    msgs = [m[1].get("exception_message", "?")
-                            for m in status.get("messages", []) if m[0] == "execution_error"]
+                    msgs = [m[1].get("exception_message", "?") for m in status.get("messages", []) if m[0] == "execution_error"]
                     raise ComfyUIVideoError(f"ComfyUI execution failed: {msgs or status}")
                 outputs = entry.get("outputs") or {}
                 vids = (outputs.get("12") or {}).get("gifs") or []
@@ -647,15 +652,23 @@ def _concat_mp4s(blobs: list[bytes], frame_rate: int) -> bytes:
         out = tmpdir / "out.mp4"
         proc = subprocess.run(
             [
-                "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                "-i", str(listfile), "-c", "copy", str(out),
+                "ffmpeg",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-i",
+                str(listfile),
+                "-c",
+                "copy",
+                str(out),
             ],
-            capture_output=True, timeout=120,
+            capture_output=True,
+            timeout=120,
         )
         if proc.returncode != 0 or not out.exists():
-            raise ComfyUIVideoError(
-                f"ffmpeg concat failed: {proc.stderr.decode(errors='replace')[-400:]}"
-            )
+            raise ComfyUIVideoError(f"ffmpeg concat failed: {proc.stderr.decode(errors='replace')[-400:]}")
         return out.read_bytes()
 
 
@@ -689,9 +702,12 @@ async def generate_video_segments(
         data, meta = await generate_video(
             prompt=scene_prompt,
             negative_prompt=negative_prompt,
-            width=width, height=height,
-            num_frames=num_frames, frame_rate=frame_rate,
-            steps=steps, cfg=cfg,
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            steps=steps,
+            cfg=cfg,
             seed=None if seed is None else seed + i,
             filename_prefix=f"{filename_prefix}_seg{i:03d}",
             model=model,
@@ -699,8 +715,7 @@ async def generate_video_segments(
         )
         blobs.append(data)
         metas.append(meta)
-        logger.info("[comfyui-video] segment %d/%d done (%s, %d bytes)",
-                    i + 1, len(prompts), meta["filename"], len(data))
+        logger.info("[comfyui-video] segment %d/%d done (%s, %d bytes)", i + 1, len(prompts), meta["filename"], len(data))
 
     if len(blobs) == 1:
         return blobs[0], metas[0]

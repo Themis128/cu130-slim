@@ -49,23 +49,15 @@ class FacebookSidecarClient:
     """HTTP client for the facebook-browser-sidecar service."""
 
     def __init__(self, base_url: str | None = None, timeout: float = 180.0) -> None:
-        self.base_url = (
-            base_url
-            or os.environ.get("FACEBOOK_BROWSER_SIDECAR_URL")
-            or "http://facebook-browser-sidecar:9226"
-        )
+        self.base_url = base_url or os.environ.get("FACEBOOK_BROWSER_SIDECAR_URL") or "http://facebook-browser-sidecar:9226"
         self._timeout = timeout
 
     @property
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=self.base_url, timeout=self._timeout)
 
-    async def _post(
-        self, path: str, json: dict[str, Any], timeout: float | None = None
-    ) -> dict[str, Any]:
-        async with httpx.AsyncClient(
-            base_url=self.base_url, timeout=timeout or self._timeout
-        ) as c:
+    async def _post(self, path: str, json: dict[str, Any], timeout: float | None = None) -> dict[str, Any]:
+        async with httpx.AsyncClient(base_url=self.base_url, timeout=timeout or self._timeout) as c:
             r = await c.post(path, json=json)
             if r.status_code >= 400:
                 raise FacebookSidecarError(r.status_code, r.text)
@@ -100,9 +92,7 @@ class FacebookSidecarClient:
     async def get_profile(self) -> dict[str, Any]:
         return await self._get("/profile")
 
-    async def get_profile_stats(
-        self, expected_name: str | None = None
-    ) -> dict[str, Any]:
+    async def get_profile_stats(self, expected_name: str | None = None) -> dict[str, Any]:
         """Scrape follower count + professional-dashboard stats for the
         logged-in personal profile.
 
@@ -122,9 +112,7 @@ class FacebookSidecarClient:
         if cached and cached[0] > time.time():
             return dict(cached[1])
 
-        nav = await self._post(
-            "/debug/navigate", {"url": "https://www.facebook.com/me"}
-        )
+        nav = await self._post("/debug/navigate", {"url": "https://www.facebook.com/me"})
         # Poll until the profile header mounts ("N followers") — the SPA
         # needs a few seconds on a cold navigate.
         prof_text = ""
@@ -144,22 +132,15 @@ class FacebookSidecarClient:
 
         # Display name sits on the line before "N followers • M following".
         profile_name = None
-        prof_lines = [
-            ln.strip() for ln in prof_text.splitlines() if ln.strip()
-        ]
+        prof_lines = [ln.strip() for ln in prof_text.splitlines() if ln.strip()]
         for i, ln in enumerate(prof_lines):
             if "followers" in ln and i > 0:
                 profile_name = prof_lines[i - 1]
                 break
-        if expected_name and (
-            not profile_name
-            or expected_name.strip().casefold() != profile_name.casefold()
-        ):
+        if expected_name and (not profile_name or expected_name.strip().casefold() != profile_name.casefold()):
             raise FacebookSidecarError(
                 409,
-                f"profile mismatch: sidecar session is "
-                f"{profile_name!r}, expected {expected_name!r} — "
-                "refusing to attribute another profile's stats",
+                f"profile mismatch: sidecar session is {profile_name!r}, expected {expected_name!r} — refusing to attribute another profile's stats",
             )
 
         await self._post(
@@ -187,9 +168,7 @@ class FacebookSidecarClient:
             "profile_url": nav.get("url"),
         }
         lines = [
-            ln.strip().replace("﻿", "").replace("​", "")
-            for ln in dash_text.splitlines()
-            if ln.strip()
+            ln.strip().replace("﻿", "").replace("​", "") for ln in dash_text.splitlines() if ln.strip()
         ]  # dashboard % lines carry a leading zero-width char (﻿895%)
         for label, key in (
             ("Views", "views_28d"),

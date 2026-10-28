@@ -22,6 +22,7 @@ Commands:
 
 Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,11 +50,7 @@ async def _get_account(account_id: str):
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        row = (
-            await db.execute(
-                select(SocialAccount).where(SocialAccount.id == uuid_mod.UUID(account_id))
-            )
-        ).scalar_one_or_none()
+        row = (await db.execute(select(SocialAccount).where(SocialAccount.id == uuid_mod.UUID(account_id)))).scalar_one_or_none()
         if row is None:
             raise SystemExit(f"no such social account: {account_id}")
         db.expunge(row)
@@ -80,18 +77,10 @@ def cmd_accounts() -> None:
         from app.models.social_account import SocialAccount
 
         async with async_session_maker() as db:
-            rows = (
-                await db.execute(
-                    select(SocialAccount).where(SocialAccount.platform == "linkedin")
-                )
-            ).scalars().all()
+            rows = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "linkedin"))).scalars().all()
             for r in rows:
                 meta = r.meta_data or {}
-                print(
-                    f"{r.id}\t{r.username or r.account_id}\t"
-                    f"type={meta.get('account_type', '?')}\t"
-                    f"expires={r.token_expires_at}\tstatus={r.status}"
-                )
+                print(f"{r.id}\t{r.username or r.account_id}\ttype={meta.get('account_type', '?')}\texpires={r.token_expires_at}\tstatus={r.status}")
 
     asyncio.run(_run())
 
@@ -201,10 +190,7 @@ def cmd_access_matrix(account_id: str) -> None:
 def cmd_ad_accounts(account_id: str) -> None:
     account = asyncio.run(_get_account(account_id))
     token = _token(account)
-    url = (
-        f"{API_BASE}/rest/adAccounts?q=search"
-        "&search=(status:(values:List(ACTIVE,DRAFT)))"
-    )
+    url = f"{API_BASE}/rest/adAccounts?q=search&search=(status:(values:List(ACTIVE,DRAFT)))"
     with httpx.Client(timeout=20) as client:
         resp = client.get(
             url,

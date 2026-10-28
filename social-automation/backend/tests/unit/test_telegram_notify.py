@@ -45,9 +45,7 @@ async def test_fanout_success(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_custom_recipients(monkeypatch):
-    monkeypatch.setattr(
-        notify, "get_settings", lambda: _settings(TELEGRAM_NOTIFY_EMAIL="a@x.com, b@x.com")
-    )
+    monkeypatch.setattr(notify, "get_settings", lambda: _settings(TELEGRAM_NOTIFY_EMAIL="a@x.com, b@x.com"))
     monkeypatch.setattr(notify, "post_telegram_to_slack", AsyncMock(return_value=(True, None)))
     email = AsyncMock()
     monkeypatch.setattr(notify, "send_email", email)
@@ -58,9 +56,7 @@ async def test_custom_recipients(monkeypatch):
 @pytest.mark.asyncio
 async def test_failures_never_raise(monkeypatch):
     monkeypatch.setattr(notify, "get_settings", lambda: _settings())
-    monkeypatch.setattr(
-        notify, "post_telegram_to_slack", AsyncMock(return_value=(False, "no webhook"))
-    )
+    monkeypatch.setattr(notify, "post_telegram_to_slack", AsyncMock(return_value=(False, "no webhook")))
     monkeypatch.setattr(notify, "send_email", AsyncMock(side_effect=RuntimeError("smtp down")))
     out = await notify.notify_channel_event(event="bot_admin", chat_title="", chat_id=-1)
     assert out == {"slack": False, "email": False}

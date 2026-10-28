@@ -110,8 +110,10 @@ def _article_html_from_generated(generated: dict) -> str:
     """Render the structured ``generate_linkedin_article`` output to the
     simple HTML the LinkedIn editor accepts (h2/p/ul/strong — same subset
     ``article_markdown_to_html`` emits)."""
+
     def esc(t: object) -> str:
         return html_mod.escape(str(t), quote=False)
+
     out: list[str] = []
     for section in generated.get("sections") or []:
         if section.get("heading"):
@@ -130,10 +132,7 @@ def _article_html_from_generated(generated: dict) -> str:
 def _text_to_html(text: str) -> str:
     """Wrap plain text paragraphs in <p> tags for the ProseMirror paste path."""
     paras = [p.strip() for p in text.split("\n\n") if p.strip()]
-    return "\n".join(
-        f"<p>{html_mod.escape(p, quote=False).replace(chr(10), '<br>')}</p>"
-        for p in paras
-    )
+    return "\n".join(f"<p>{html_mod.escape(p, quote=False).replace(chr(10), '<br>')}</p>" for p in paras)
 
 
 class LinkedInIssueRequest(BaseModel):
@@ -206,13 +205,9 @@ async def linkedin_issue(
                     detail=f"No published article for slug {body.article_slug!r}",
                 )
             title = title or (article.get("title") or "").strip()
-            html_body = html_body or blog_articles.article_markdown_to_html(
-                article.get("contentMarkdown") or ""
-            )
+            html_body = html_body or blog_articles.article_markdown_to_html(article.get("contentMarkdown") or "")
             seo_description = seo_description or (article.get("excerpt") or None)
-            post_description = post_description or blog_articles.clean_social_post(
-                article.get("socialPost") or ""
-            ) or None
+            post_description = post_description or blog_articles.clean_social_post(article.get("socialPost") or "") or None
             category = category or article.get("category")
         elif body.topic:
             source = "generated"
@@ -248,15 +243,11 @@ async def linkedin_issue(
             detail=f"Resolved body is {words} words — below min_words={body.min_words}",
         )
     if words < 800:
-        warnings.append(
-            f"Body is only {words} words — newsletter best practice is 1200+ (≥6 min read)"
-        )
+        warnings.append(f"Body is only {words} words — newsletter best practice is 1200+ (≥6 min read)")
 
     cover_b64 = body.cover_base64
     if not cover_b64 and body.render_cover:
-        png = render_newsletter_cover(
-            title, issue_number=body.issue_number, category=category
-        )
+        png = render_newsletter_cover(title, issue_number=body.issue_number, category=category)
         cover_b64 = base64.b64encode(png).decode()
 
     result: dict | None = None
@@ -309,9 +300,7 @@ async def linkedin_issue(
                 detail=f"sidecar: {sidecar_error or 'skipped'}; bridge: {detail}",
             ) from exc
         warnings.append(
-            "linkedin sidecar failed — issue handled via browser-bridge fallback"
-            if sidecar_error
-            else "published via browser bridge (browser=bridge)"
+            "linkedin sidecar failed — issue handled via browser-bridge fallback" if sidecar_error else "published via browser bridge (browser=bridge)"
         )
 
     return LinkedInIssueResponse(

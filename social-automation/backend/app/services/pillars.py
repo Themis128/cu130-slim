@@ -27,33 +27,66 @@ from app.models.content import Pillar, Post
 _PILLAR_HINTS: dict[str, list[str]] = {
     # What we're doing — experiments, numbers, before/after, incidents.
     "testing": [
-        r"\bi tried\b", r"\bi tested\b", r"\bexperiment", r"\bresults?\b",
-        r"\bhonest log\b", r"\bbroke\b", r"\bincident\b", r"\bbefore/after\b",
-        r"\bmeasured\b", r"\bbenchmark", r"\bsaved\b", r"\bcost\b", r"€\d",
-        r"\$\d", r"\d+%", r"\bthis week\b", r"\bday \d+\b", r"\bbuild log\b",
-        r"\bpostmortem\b", r"\bwhat happened\b", r"\bran for\b",
+        r"\bi tried\b",
+        r"\bi tested\b",
+        r"\bexperiment",
+        r"\bresults?\b",
+        r"\bhonest log\b",
+        r"\bbroke\b",
+        r"\bincident\b",
+        r"\bbefore/after\b",
+        r"\bmeasured\b",
+        r"\bbenchmark",
+        r"\bsaved\b",
+        r"\bcost\b",
+        r"€\d",
+        r"\$\d",
+        r"\d+%",
+        r"\bthis week\b",
+        r"\bday \d+\b",
+        r"\bbuild log\b",
+        r"\bpostmortem\b",
+        r"\bwhat happened\b",
+        r"\bran for\b",
     ],
     # What we know — how-tos, frameworks, step-by-step, playbooks.
     "proof": [
-        r"\bhow to\b", r"\bhere'?s how\b", r"\bstep.?by.?step\b",
-        r"\bframework\b", r"\bplaybook\b", r"\btutorial\b", r"\bguide\b",
-        r"\bchecklist\b", r"\bpattern[s]?\b", r"\brecipe\b",
-        r"\bthe stack\b", r"\bwalkthrough\b", r"\bmigrat", r"\bapproach\b",
+        r"\bhow to\b",
+        r"\bhere'?s how\b",
+        r"\bstep.?by.?step\b",
+        r"\bframework\b",
+        r"\bplaybook\b",
+        r"\btutorial\b",
+        r"\bguide\b",
+        r"\bchecklist\b",
+        r"\bpattern[s]?\b",
+        r"\brecipe\b",
+        r"\bthe stack\b",
+        r"\bwalkthrough\b",
+        r"\bmigrat",
+        r"\bapproach\b",
     ],
     # What we believe — opinions, standards, contrarian takes.
     "perspective": [
-        r"\bmost people\b", r"\byou don'?t need\b", r"\bi believe\b",
-        r"\bactually means\b", r"\bshouldn'?t\b", r"\bstop \b",
-        r"\bunpopular\b", r"\bmyth\b", r"\bwhat matters\b", r"\brule\b",
-        r"\bno lock.?in\b", r"\bdiscipline\b", r"\bnot a limitation\b",
-        r"\bthe point\b", r"\btrap\b",
+        r"\bmost people\b",
+        r"\byou don'?t need\b",
+        r"\bi believe\b",
+        r"\bactually means\b",
+        r"\bshouldn'?t\b",
+        r"\bstop \b",
+        r"\bunpopular\b",
+        r"\bmyth\b",
+        r"\bwhat matters\b",
+        r"\brule\b",
+        r"\bno lock.?in\b",
+        r"\bdiscipline\b",
+        r"\bnot a limitation\b",
+        r"\bthe point\b",
+        r"\btrap\b",
     ],
 }
 
-_COMPILED = {
-    pillar: [re.compile(p, re.IGNORECASE) for p in pats]
-    for pillar, pats in _PILLAR_HINTS.items()
-}
+_COMPILED = {pillar: [re.compile(p, re.IGNORECASE) for p in pats] for pillar, pats in _PILLAR_HINTS.items()}
 
 
 def classify_pillar(text: str, pillars: list[Pillar]) -> Pillar | None:
@@ -127,6 +160,4 @@ async def resolve_pillar(
         cond = Pillar.id == _uuid.UUID(pillar)
     except ValueError:
         cond = func.lower(Pillar.name) == pillar.strip().lower()
-    return (
-        await db.execute(select(Pillar).where(Pillar.team_id == team_id, cond))
-    ).scalars().first()
+    return (await db.execute(select(Pillar).where(Pillar.team_id == team_id, cond))).scalars().first()

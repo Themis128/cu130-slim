@@ -8,6 +8,7 @@ and ``rest/adAnalytics`` for spend/clicks/impressions (``r_ads`` +
 ``r_ads_reporting`` scopes on the org account token). The sidecar scrape
 remains as fallback if the ad-scoped token lapses.
 """
+
 from __future__ import annotations
 
 import json
@@ -42,19 +43,19 @@ class CampaignMetrics:
     account_id: str
     campaign_id: str
     campaign_name: str = ""
-    status: str = "unknown"          # draft | active | paused | completed
+    status: str = "unknown"  # draft | active | paused | completed
     spend_eur: float = 0.0
     clicks: int = 0
     cpc_eur: float = 0.0
     engagements: int = 0
-    engagement_rate: float = 0.0     # percent, e.g. 5.45
-    ctr: float = 0.0                 # percent, e.g. 3.06
-    impressions: int = 0             # derived from clicks/ctr when not shown
-    budget_eur: float = 0.0          # lifetime/total budget
+    engagement_rate: float = 0.0  # percent, e.g. 5.45
+    ctr: float = 0.0  # percent, e.g. 3.06
+    impressions: int = 0  # derived from clicks/ctr when not shown
+    budget_eur: float = 0.0  # lifetime/total budget
     daily_budget_eur: float = 0.0
-    account_spend_eur: float = 0.0   # all-campaign spend — promo credit is account-level
-    schedule_start: str = ""         # ISO date from runSchedule.start
-    schedule_end: str = ""           # ISO date from campaign/group runSchedule.end
+    account_spend_eur: float = 0.0  # all-campaign spend — promo credit is account-level
+    schedule_start: str = ""  # ISO date from runSchedule.start
+    schedule_end: str = ""  # ISO date from campaign/group runSchedule.end
     ad_set_statuses: dict[str, int] = field(default_factory=dict)
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -151,14 +152,20 @@ def _parse_campaign_page(text: str, campaign_id: str) -> dict[str, Any]:
 async def _linkedin_org_token(db: AsyncSession) -> str | None:
     """Access token of the LinkedIn org account (r_ads + r_ads_reporting)."""
     account = (
-        await db.execute(
-            select(SocialAccount).where(
-                SocialAccount.platform == "linkedin",
-                SocialAccount.account_type == "organization",
-                SocialAccount.status == "active",
-            ).limit(1)
+        (
+            await db.execute(
+                select(SocialAccount)
+                .where(
+                    SocialAccount.platform == "linkedin",
+                    SocialAccount.account_type == "organization",
+                    SocialAccount.status == "active",
+                )
+                .limit(1)
+            )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not account or not account.access_token_enc:
         return None
     try:
@@ -258,21 +265,13 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
         starts = [c["start_ms"] for c in m.raw.get("campaigns", []) if c.get("start_ms")]
         if rs.get("start"):
             starts.append(rs["start"])
-        since = (
-            datetime.fromtimestamp(min(starts) / 1000, UTC)
-            if starts
-            else datetime.now(UTC) - timedelta(days=365)
-        )
+        since = datetime.fromtimestamp(min(starts) / 1000, UTC) if starts else datetime.now(UTC) - timedelta(days=365)
         stats = await _fetch_linkedin_ad_stats(client, token, acct, since=since)
         if stats.get("_error"):
             raise RuntimeError(f"adAnalytics: {stats['_error'].notes}")
         # Per-campaign spend map — the credit verdict adds each resumable
         # campaign's REMAINING cap, not just its spend so far.
-        m.raw["spend_by_campaign"] = {
-            k.rsplit(":", 1)[-1]: float(b.raw.get("costLocal") or 0.0)
-            for k, b in stats.items()
-            if not k.startswith("_")
-        }
+        m.raw["spend_by_campaign"] = {k.rsplit(":", 1)[-1]: float(b.raw.get("costLocal") or 0.0) for k, b in stats.items() if not k.startswith("_")}
         m.account_spend_eur = round(sum(m.raw["spend_by_campaign"].values()), 2)
         bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
         if bundle is None:
@@ -285,10 +284,7 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
             m.spend_eur = float(bundle.raw.get("costLocal") or 0.0)
             m.clicks = bundle.clicks
             m.impressions = bundle.impressions
-            m.engagements = sum(
-                int(d.get("totalEngagements") or 0)
-                for d in (bundle.raw.get("daily") or [])
-            ) or bundle.engagement
+            m.engagements = sum(int(d.get("totalEngagements") or 0) for d in (bundle.raw.get("daily") or [])) or bundle.engagement
             m.raw["daily"] = bundle.raw.get("daily") or []
             m.raw["cost_usd"] = bundle.raw.get("costUsd")
 
@@ -315,14 +311,8 @@ async def collect_metrics(db: AsyncSession) -> CampaignMetrics:
         logger.warning("LinkedIn ads API metrics failed, trying sidecar: %s", exc)
         m.raw["api_error"] = str(exc)[:300]
 
-    overview_url = (
-        f"https://www.linkedin.com/campaignmanager/accounts/{account_id}"
-        f"/overview?businessId=personal"
-    )
-    campaign_url = (
-        f"https://www.linkedin.com/campaignmanager/accounts/{account_id}"
-        f"/campaigns/{campaign_id}?businessId=personal"
-    )
+    overview_url = f"https://www.linkedin.com/campaignmanager/accounts/{account_id}/overview?businessId=personal"
+    campaign_url = f"https://www.linkedin.com/campaignmanager/accounts/{account_id}/campaigns/{campaign_id}?businessId=personal"
 
     try:
         overview_text = await _sidecar_page_text(overview_url)
@@ -371,9 +361,7 @@ def _fmt_money(v: float) -> str:
     return f"€{v:,.2f}".rstrip("0").rstrip(".") if v else "€0"
 
 
-def build_report_text(
-    m: CampaignMetrics, prev: AdCampaignSnapshot | None, end_date: date | None
-) -> str:
+def build_report_text(m: CampaignMetrics, prev: AdCampaignSnapshot | None, end_date: date | None) -> str:
     """Human-friendly summary — plain language, no jargon."""
     today = datetime.now(ZoneInfo(get_settings().APP_TIMEZONE)).date()
     name = m.campaign_name or "Cloudless boost - Sep 2026 - coupon"
@@ -391,8 +379,7 @@ def build_report_text(
 
     if m.budget_eur:
         pct = (m.spend_eur / m.budget_eur * 100) if m.budget_eur else 0
-        budget_bits = [f"*Spend:* {_fmt_money(m.spend_eur)} of {_fmt_money(m.budget_eur)} "
-                       f"lifetime budget ({pct:.0f}% used)"]
+        budget_bits = [f"*Spend:* {_fmt_money(m.spend_eur)} of {_fmt_money(m.budget_eur)} lifetime budget ({pct:.0f}% used)"]
         if m.daily_budget_eur:
             budget_bits.append(f"daily cap {_fmt_money(m.daily_budget_eur)}")
         lines.append(" — ".join(budget_bits))
@@ -436,9 +423,7 @@ def build_report_text(
     # Pace + card safety insight
     settings = get_settings()
     credit = settings.LINKEDIN_ADS_CREDIT_EUR
-    campaign_end = (
-        date.fromisoformat(m.schedule_end) if m.schedule_end else end_date
-    )
+    campaign_end = date.fromisoformat(m.schedule_end) if m.schedule_end else end_date
     if campaign_end and m.budget_eur:
         days_left = (campaign_end - today).days
         if m.status == "active" and m.spend_eur:
@@ -470,25 +455,15 @@ def build_report_text(
                         f"(burn ~{_fmt_money(daily_avg)}/day, {days_left}d left)."
                     )
         elif m.status == "draft":
-            lines.append(
-                "*Note:* the ad set is still a draft — it isn't spending. "
-                "Launch it in Campaign Manager when the creative is approved."
-            )
+            lines.append("*Note:* the ad set is still a draft — it isn't spending. Launch it in Campaign Manager when the creative is approved.")
     if credit:
         # Credit is account-level — other campaigns share it, so charge the
         # total account spend, not just this campaign's.
         charged = m.account_spend_eur or m.spend_eur
         remaining = credit - charged
         other = charged - m.spend_eur
-        credit_note = (
-            f" ({_fmt_money(other)} spent by other campaigns in the account)"
-            if other > 0.005
-            else ""
-        )
-        lines.append(
-            f"💳 *Promo credit:* {_fmt_money(charged)} of {_fmt_money(credit)} "
-            f"used — *{_fmt_money(remaining)} left*.{credit_note}"
-        )
+        credit_note = f" ({_fmt_money(other)} spent by other campaigns in the account)" if other > 0.005 else ""
+        lines.append(f"💳 *Promo credit:* {_fmt_money(charged)} of {_fmt_money(credit)} used — *{_fmt_money(remaining)} left*.{credit_note}")
         # Worst case = charged so far + the remaining lifetime exposure of
         # EVERY campaign that can still deliver — active spends on, paused
         # resumes in one click, drafts launch. A resumable campaign without
@@ -501,11 +476,7 @@ def build_report_text(
         if m.status in exposure_statuses:
             if not m.budget_eur:
                 uncapped.append(m.campaign_name or m.campaign_id)
-        this_remaining = (
-            max(0.0, m.budget_eur - m.spend_eur)
-            if m.status in exposure_statuses and m.budget_eur
-            else 0.0
-        )
+        this_remaining = max(0.0, m.budget_eur - m.spend_eur) if m.status in exposure_statuses and m.budget_eur else 0.0
         other_remaining = 0.0
         if isinstance(camps, list):
             for oc in camps:
@@ -514,20 +485,11 @@ def build_report_text(
                 if not oc.get("budget"):
                     uncapped.append(oc.get("name") or oc["id"])
                 else:
-                    other_remaining += max(
-                        0.0, oc["budget"] - spend_by.get(oc["id"], 0.0)
-                    )
+                    other_remaining += max(0.0, oc["budget"] - spend_by.get(oc["id"], 0.0))
         worst_case = charged + this_remaining + other_remaining
         if uncapped or not isinstance(camps, list):
-            reason = (
-                f"{', '.join(uncapped)} has no lifetime cap — delivery is unbounded"
-                if uncapped
-                else "the full campaign list could not be verified"
-            )
-            lines.append(
-                f"⚠️ Card safety: unverified — {reason}. "
-                "The Visa on file could be charged; set a cap or monitor spend."
-            )
+            reason = f"{', '.join(uncapped)} has no lifetime cap — delivery is unbounded" if uncapped else "the full campaign list could not be verified"
+            lines.append(f"⚠️ Card safety: unverified — {reason}. The Visa on file could be charged; set a cap or monitor spend.")
         elif worst_case <= credit:
             lines.append(
                 "Card safety: even with every resumable campaign at its full "
@@ -535,15 +497,9 @@ def build_report_text(
                 "the Visa on file is not expected to be charged."
             )
         else:
-            lines.append(
-                "⚠️ Card safety: account spend could exceed the promo credit — "
-                "the Visa on file may be charged. Review the campaign cap."
-            )
+            lines.append("⚠️ Card safety: account spend could exceed the promo credit — the Visa on file may be charged. Review the campaign cap.")
     else:
-        lines.append(
-            "💳 *Card safety:* spend stays inside the promo credit — "
-            "the Visa on file is not expected to be charged."
-        )
+        lines.append("💳 *Card safety:* spend stays inside the promo credit — the Visa on file is not expected to be charged.")
     if campaign_end:
         lines.append(f"Campaign ends {campaign_end.isoformat()}. Report again tomorrow 10:00.")
     return "\n".join(lines)
@@ -565,8 +521,7 @@ def _control_blocks(status: str, campaign_id: str = "") -> list[dict[str, Any]]:
             "value": campaign_id,
             "confirm": {
                 "title": {"type": "plain_text", "text": "Pause campaign?"},
-                "text": {"type": "plain_text",
-                         "text": "Spending stops until you resume it."},
+                "text": {"type": "plain_text", "text": "Spending stops until you resume it."},
                 "confirm": {"type": "plain_text", "text": "Pause"},
                 "deny": {"type": "plain_text", "text": "Keep running"},
             },
@@ -622,10 +577,7 @@ async def _geo_names(db: AsyncSession, geo_ids: list[str]) -> dict[str, str]:
             )
             if r.status_code >= 400:
                 return {}
-            return {
-                gid: (v.get("defaultLocalizedName") or {}).get("value") or gid
-                for gid, v in ((r.json() or {}).get("results") or {}).items()
-            }
+            return {gid: (v.get("defaultLocalizedName") or {}).get("value") or gid for gid, v in ((r.json() or {}).get("results") or {}).items()}
     except Exception as exc:  # noqa: BLE001
         logger.warning("LinkedIn geo lookup failed: %s", exc)
         return {}
@@ -649,27 +601,35 @@ async def _latest_org_snapshot(db: AsyncSession, account_id: Any, source: str) -
 async def build_org_section(db: AsyncSession) -> str:
     """Human-friendly organic-page section from developer-app analytics."""
     account = (
-        await db.execute(
-            select(SocialAccount).where(
-                SocialAccount.platform == "linkedin",
-                SocialAccount.account_type == "organization",
+        (
+            await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "linkedin",
+                    SocialAccount.account_type == "organization",
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     if not account:
         return ""
 
     followers = (
-        await db.execute(
-            select(FollowerSnapshot.followers)
-            .where(
-                FollowerSnapshot.social_account_id == account.id,
-                FollowerSnapshot.platform == "linkedin",
+        (
+            await db.execute(
+                select(FollowerSnapshot.followers)
+                .where(
+                    FollowerSnapshot.social_account_id == account.id,
+                    FollowerSnapshot.platform == "linkedin",
+                )
+                .order_by(desc(FollowerSnapshot.captured_at))
+                .limit(2)
             )
-            .order_by(desc(FollowerSnapshot.captured_at))
-            .limit(2)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     follower_stats = await _latest_org_snapshot(db, account.id, "linkedin_follower_stats")
     page_stats = await _latest_org_snapshot(db, account.id, "linkedin_page_stats")
@@ -696,10 +656,7 @@ async def build_org_section(db: AsyncSession) -> str:
 
     gains = follower_stats.get("follower_gains") or {}
     if gains:
-        lines.append(
-            f"*New followers (30d):* {gains.get('organic', 0)} organic"
-            + (f" · {gains['paid']} paid" if gains.get("paid") else "")
-        )
+        lines.append(f"*New followers (30d):* {gains.get('organic', 0)} organic" + (f" · {gains['paid']} paid" if gains.get("paid") else ""))
 
     demo = follower_stats.get("demographics") or {}
     geo = demo.get("followerCountsByGeoCountry") or demo.get("followerCountsByGeo") or []
@@ -709,34 +666,18 @@ async def build_org_section(db: AsyncSession) -> str:
             key=lambda g: (g.get("followerCounts") or {}).get("organicFollowerCount", 0),
             reverse=True,
         )[:3]
-        ids = [
-            str(g.get("geoCountry") or g.get("geo") or "").rsplit(":", 1)[-1]
-            for g in top3
-        ]
+        ids = [str(g.get("geoCountry") or g.get("geo") or "").rsplit(":", 1)[-1] for g in top3]
         names = await _geo_names(db, ids)
-        parts = [
-            f"{names.get(gid) or gid} ({(g.get('followerCounts') or {}).get('organicFollowerCount', 0)})"
-            for g, gid in zip(top3, ids)
-        ]
+        parts = [f"{names.get(gid) or gid} ({(g.get('followerCounts') or {}).get('organicFollowerCount', 0)})" for g, gid in zip(top3, ids)]
         lines.append(f"*Top follower locations:* {', '.join(parts)}")
 
     daily = (page_stats.get("period") or {}).get("daily") or []
-    views = sum(
-        int((((el.get("totalPageStatistics") or {}).get("views") or {})
-             .get("allPageViews") or {}).get("pageViews") or 0)
-        for el in daily
-    )
-    unique = sum(
-        int((((el.get("totalPageStatistics") or {}).get("views") or {})
-             .get("allPageViews") or {}).get("uniquePageViews") or 0)
-        for el in daily
-    )
+    views = sum(int((((el.get("totalPageStatistics") or {}).get("views") or {}).get("allPageViews") or {}).get("pageViews") or 0) for el in daily)
+    unique = sum(int((((el.get("totalPageStatistics") or {}).get("views") or {}).get("allPageViews") or {}).get("uniquePageViews") or 0) for el in daily)
     if views or unique:
         lines.append(f"*Page views (30d):* {views} ({unique} unique visitors)")
 
-    stats = (lifetime.get("organizationalEntityShareStatistics") or {}).get(
-        "totalShareStatistics"
-    ) or {}
+    stats = (lifetime.get("organizationalEntityShareStatistics") or {}).get("totalShareStatistics") or {}
     if stats:
         lines.append(
             "*All-time content:* "
@@ -750,9 +691,7 @@ async def build_org_section(db: AsyncSession) -> str:
 
     if top_post:
         lines.append(
-            f"*Top post:* {top_post.impressions:,} impressions · "
-            f"{top_post.likes} reactions · {top_post.comments} comments · "
-            f"{top_post.shares} reposts"
+            f"*Top post:* {top_post.impressions:,} impressions · {top_post.likes} reactions · {top_post.comments} comments · {top_post.shares} reposts"
         )
     return "\n".join(lines) if len(lines) > 2 else ""
 
@@ -781,18 +720,13 @@ async def _get_team_id(db: AsyncSession) -> Any:
         (Team.plan_tier == "free", 1),
         else_=0,
     )
-    return (
-        await db.execute(select(Team.id).order_by(desc(tier_rank)).limit(1))
-    ).scalar_one_or_none()
+    return (await db.execute(select(Team.id).order_by(desc(tier_rank)).limit(1))).scalar_one_or_none()
 
 
 async def _latest_snapshot(db: AsyncSession, campaign_id: str) -> AdCampaignSnapshot | None:
     return (
         await db.execute(
-            select(AdCampaignSnapshot)
-            .where(AdCampaignSnapshot.campaign_id == campaign_id)
-            .order_by(desc(AdCampaignSnapshot.captured_at))
-            .limit(1)
+            select(AdCampaignSnapshot).where(AdCampaignSnapshot.campaign_id == campaign_id).order_by(desc(AdCampaignSnapshot.captured_at)).limit(1)
         )
     ).scalar_one_or_none()
 
@@ -863,12 +797,11 @@ async def _render_report_notebook(
         for a in manifest.get("attachments") or []:
             p = _res(a.get("file"))
             if p and p.exists():
-                attachments.append(
-                    {"name": p.name, "data": p.read_bytes(), "cid": a.get("cid"), "mime": a.get("mime")}
-                )
+                attachments.append({"name": p.name, "data": p.read_bytes(), "cid": a.get("cid"), "mime": a.get("mime")})
         logger.info(
             "linkedin_ads_daily notebook rendered in %ss (artifact %s)",
-            result.get("duration_s"), result.get("notebook"),
+            result.get("duration_s"),
+            result.get("notebook"),
         )
         return (
             text_f.read_text(),

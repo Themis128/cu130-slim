@@ -1,4 +1,5 @@
 """Transactional emails for inbound leads (public funnel)."""
+
 from __future__ import annotations
 
 import logging

@@ -20,9 +20,7 @@ class AIUsageLog(Base):
     __tablename__ = "ai_usage_logs"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    team_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, index=True
-    )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
     provider: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     model: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
@@ -36,6 +34,4 @@ class AIUsageLog(Base):
     success: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     meta_data: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

@@ -6,6 +6,7 @@ The app now has ``r_ads`` + ``r_ads_reporting`` (read/reporting), but NOT
 sidecar path as the daily report scraper. Triggered by Slack interactive
 buttons / slash commands via ``app.api.slack``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -129,8 +130,7 @@ async def set_campaign_status(action: str) -> dict[str, Any]:
         if current == want:
             return {"ok": True, "status": current, "detail": f"Already {want}"}
         if current in ("unknown", ""):
-            return {"ok": False, "status": "unknown",
-                    "detail": "Could not read campaign status (sidecar session may be logged out)"}
+            return {"ok": False, "status": "unknown", "detail": "Could not read campaign status (sidecar session may be logged out)"}
 
         # Select the ad set row, open "Set status", pick Pause/Activate.
         step = await _eval(_SELECT_ROW_JS % campaign_id)
@@ -155,8 +155,7 @@ async def set_campaign_status(action: str) -> dict[str, Any]:
         now = _campaign_status(text, campaign_id)
         if now == want:
             return {"ok": True, "status": now, "detail": f"Campaign is now {now}"}
-        return {"ok": False, "status": now,
-                "detail": f"Toggled but status reads '{now}' — check Campaign Manager"}
+        return {"ok": False, "status": now, "detail": f"Toggled but status reads '{now}' — check Campaign Manager"}
     except httpx.HTTPError as exc:
         logger.warning("LinkedIn ads control failed: %s", exc)
         return {"ok": False, "status": "unknown", "detail": f"Sidecar error: {exc}"}
@@ -168,10 +167,13 @@ async def notify_slack(text: str, response_url: str | None = None) -> None:
     if response_url:
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                r = await client.post(response_url, json={
-                    "response_type": "in_channel",
-                    "text": text,
-                })
+                r = await client.post(
+                    response_url,
+                    json={
+                        "response_type": "in_channel",
+                        "text": text,
+                    },
+                )
                 if r.status_code < 300:
                     return
         except httpx.HTTPError:

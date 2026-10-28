@@ -59,12 +59,7 @@ def _team_filter():
 
 
 def nextcloud_sync_enabled() -> bool:
-    return bool(
-        settings.NEXTCLOUD_SYNC_ENABLED
-        and _base_url()
-        and settings.NEXTCLOUD_USERNAME.strip()
-        and settings.NEXTCLOUD_APP_PASSWORD.strip()
-    )
+    return bool(settings.NEXTCLOUD_SYNC_ENABLED and _base_url() and settings.NEXTCLOUD_USERNAME.strip() and settings.NEXTCLOUD_APP_PASSWORD.strip())
 
 
 def _base_url() -> str:
@@ -137,9 +132,7 @@ async def sync_follower_metrics(db: AsyncSession) -> dict:
         latest_q = latest_q.where(FollowerSnapshot.team_id == team_id)
         prev_q = prev_q.where(FollowerSnapshot.team_id == team_id)
     latest = (
-        latest_q.distinct(FollowerSnapshot.social_account_id)
-        .order_by(FollowerSnapshot.social_account_id, desc(FollowerSnapshot.captured_at))
-        .cte("latest")
+        latest_q.distinct(FollowerSnapshot.social_account_id).order_by(FollowerSnapshot.social_account_id, desc(FollowerSnapshot.captured_at)).cte("latest")
     )
     prev_sub = prev_q.cte("prev")
     query = (
@@ -167,10 +160,7 @@ async def sync_follower_metrics(db: AsyncSession) -> dict:
         cols = await _table_columns(client, table_id)
         # key -> (row_id, stored follower value) so same-day changes update
         # the row instead of freezing at first insertion.
-        existing = {
-            _row_key(cols, row): (row["id"], _row_value(cols, row))
-            for row in await _table_rows(client, table_id)
-        }
+        existing = {_row_key(cols, row): (row["id"], _row_value(cols, row)) for row in await _table_rows(client, table_id)}
         inserted = skipped = updated = 0
         for platform, followers, captured_at, prev_followers, username, display_name in metrics:
             day = captured_at.date().isoformat()
@@ -232,9 +222,7 @@ def _row_key(cols: dict[str, dict], row: dict) -> str:
     raw_platform = vals.get(platform_col.get("id"), "")
     platform = raw_platform
     for opt in platform_col.get("selectionOptions") or []:
-        if str(opt.get("id")) == str(raw_platform) or str(opt.get("label", "")).lower() == str(
-            raw_platform
-        ).lower():
+        if str(opt.get("id")) == str(raw_platform) or str(opt.get("label", "")).lower() == str(raw_platform).lower():
             platform = opt.get("label", raw_platform)
             break
     return "|".join(
@@ -290,13 +278,10 @@ async def _board_stacks(client: httpx.AsyncClient, board_id: int) -> list[dict]:
     return r.json()
 
 
-async def _move_card(
-    client: httpx.AsyncClient, board_id: int, stack_id: int, card_id: int, target_stack: int
-) -> None:
+async def _move_card(client: httpx.AsyncClient, board_id: int, stack_id: int, card_id: int, target_stack: int) -> None:
     """Reorder into the target stack; the API maps body stackId → destination."""
     r = await client.put(
-        f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}"
-        f"/stacks/{stack_id}/cards/{card_id}/reorder",
+        f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks/{stack_id}/cards/{card_id}/reorder",
         json={"order": 999, "stackId": target_stack},
     )
     r.raise_for_status()
@@ -310,12 +295,9 @@ def _owner_uid(card: dict) -> str:
     return str(owner or settings.NEXTCLOUD_USERNAME)
 
 
-async def _update_card(
-    client: httpx.AsyncClient, board_id: int, stack_id: int, card: dict, post: Post
-) -> None:
+async def _update_card(client: httpx.AsyncClient, board_id: int, stack_id: int, card: dict, post: Post) -> None:
     r = await client.put(
-        f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}"
-        f"/stacks/{stack_id}/cards/{card['id']}",
+        f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks/{stack_id}/cards/{card['id']}",
         json={
             "title": _card_title(post),
             "type": "plain",
@@ -328,9 +310,7 @@ async def _update_card(
     r.raise_for_status()
 
 
-async def _create_card(
-    client: httpx.AsyncClient, board_id: int, stack_id: int, post: Post, source: dict | None = None
-) -> dict:
+async def _create_card(client: httpx.AsyncClient, board_id: int, stack_id: int, post: Post, source: dict | None = None) -> dict:
     body: dict = {
         "title": _card_title(post),
         "type": "plain",
@@ -351,8 +331,7 @@ async def _create_card(
         for label in source.get("labels") or []:
             try:
                 r = await client.put(
-                    f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}"
-                    f"/stacks/{stack_id}/cards/{new_card['id']}/assignLabel",
+                    f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks/{stack_id}/cards/{new_card['id']}/assignLabel",
                     json={"labelId": label["id"]},
                 )
                 r.raise_for_status()
@@ -364,8 +343,7 @@ async def _create_card(
                 continue
             try:
                 r = await client.put(
-                    f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}"
-                    f"/stacks/{stack_id}/cards/{new_card['id']}/assignUser",
+                    f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks/{stack_id}/cards/{new_card['id']}/assignUser",
                     json={"userId": uid},
                 )
                 r.raise_for_status()
@@ -390,10 +368,7 @@ async def sync_deck_pipeline(db: AsyncSession) -> dict:
     ]
     query = select(Post).where(
         Post.status.in_(live_statuses)
-        | (
-            Post.status.in_([PostStatus.PUBLISHED, PostStatus.FAILED])
-            & (func.coalesce(Post.published_at, Post.failed_at) >= cutoff)
-        )
+        | (Post.status.in_([PostStatus.PUBLISHED, PostStatus.FAILED]) & (func.coalesce(Post.published_at, Post.failed_at) >= cutoff))
     )
     team_id = _team_filter()
     if team_id is not None:
@@ -413,7 +388,7 @@ async def sync_deck_pipeline(db: AsyncSession) -> dict:
                 desc = card.get("description") or ""
                 for line in desc.splitlines():
                     if line.startswith(POST_MARKER_PREFIX):
-                        card_by_post[line[len(POST_MARKER_PREFIX):].strip()] = (card, stack)
+                        card_by_post[line[len(POST_MARKER_PREFIX) :].strip()] = (card, stack)
 
         # Archive cards whose post left the tracked window (aged out of
         # terminal window, archived, or deleted) — the board stays live.
@@ -421,10 +396,7 @@ async def sync_deck_pipeline(db: AsyncSession) -> dict:
         for marker, (card, stack) in card_by_post.items():
             if marker in tracked_ids:
                 continue
-            r = await client.put(
-                f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}"
-                f"/stacks/{stack['id']}/cards/{card['id']}/archive"
-            )
+            r = await client.put(f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks/{stack['id']}/cards/{card['id']}/archive")
             r.raise_for_status()
             archived += 1
 
@@ -468,26 +440,21 @@ async def sync_deck_pipeline(db: AsyncSession) -> dict:
                     desc = card.get("description") or ""
                     for line in desc.splitlines():
                         if line.startswith(POST_MARKER_PREFIX):
-                            loc[line[len(POST_MARKER_PREFIX):].strip()] = (card, stack)
+                            loc[line[len(POST_MARKER_PREFIX) :].strip()] = (card, stack)
             for post in posts:
                 marker = str(post.id)
                 if marker in card_by_post and marker in loc:
                     target = stack_by_title.get(DECK_STACK_BY_STATUS.get(post.status.value, ""))
                     card, stack = loc[marker]
                     if target and stack["id"] != target["id"]:
-                        new_card = await _create_card(
-                            client, board_id, target["id"], post, source=card
-                        )
+                        new_card = await _create_card(client, board_id, target["id"], post, source=card)
                         if not new_card.get("id"):
                             logger.warning(
                                 "nextcloud sync: recreate failed for card %s — source kept",
                                 card["id"],
                             )
                             continue
-                        r = await client.delete(
-                            f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}"
-                            f"/stacks/{stack['id']}/cards/{card['id']}"
-                        )
+                        r = await client.delete(f"{_base_url()}/index.php/apps/deck/api/v1.1/boards/{board_id}/stacks/{stack['id']}/cards/{card['id']}")
                         r.raise_for_status()
                         recreated += 1
     return {

@@ -1,4 +1,5 @@
 """Unit tests for the media storage fallback chain: R2 → MinIO → local disk."""
+
 from __future__ import annotations
 
 import io

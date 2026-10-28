@@ -1,6 +1,7 @@
 """Coverage for the autonomous-agency pipeline:
 agency_catalog (classifier/pricing), site_audit (the Architect),
 agency_pipeline (proposal render, PM milestone logic, gated send)."""
+
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
@@ -13,10 +14,9 @@ from app.services.url_safety import UnsafeUrlError
 
 # ── agency_catalog.classify_services ────────────────────────────────────────
 
+
 def test_classify_cloud_migration_lead():
-    ranked = C.classify_services(
-        "We need to migrate our on-premise servers to the cloud, hosting costs are killing us"
-    )
+    ranked = C.classify_services("We need to migrate our on-premise servers to the cloud, hosting costs are killing us")
     slugs = [s for s, _sc, _h in ranked]
     assert slugs[0] == "cloud"
     assert "serverless" not in slugs or slugs.index("cloud") < slugs.index("serverless")
@@ -50,6 +50,7 @@ def test_classify_is_explainable():
 
 # ── agency_catalog.extract_domain ───────────────────────────────────────────
 
+
 def test_extract_domain_prefers_explicit_url():
     assert C.extract_domain("Check our site https://www.acme-shop.gr/about please") == "acme-shop.gr"
 
@@ -74,6 +75,7 @@ def test_extract_domain_skips_social_profiles():
 
 
 # ── agency_catalog.price_range ──────────────────────────────────────────────
+
 
 def test_price_range_bundle():
     low, high = C.price_range(list(C.SERVICES))
@@ -246,9 +248,9 @@ async def test_audit_follows_public_redirect(monkeypatch):
 
 def _audit(**kw):
     d = dict(
-        url="https://acme.example", score=54,
-        findings=[{"check": "hdr_csp", "severity": "warning", "finding": "Missing CSP",
-                   "detail": "", "service": "cloud"}],
+        url="https://acme.example",
+        score=54,
+        findings=[{"check": "hdr_csp", "severity": "warning", "finding": "Missing CSP", "detail": "", "service": "cloud"}],
         action_plan="Detected stack: wordpress\n\nFindings & recommended actions:\n- **Missing CSP** — hdr_csp",
         recommended_services=["cloud", "marketing"],
     )
@@ -257,9 +259,7 @@ def _audit(**kw):
 
 
 def test_render_proposal_fixed_scope():
-    subject, body = P.render_proposal(
-        audit=_audit(), recipient_name="Maria", services=["cloud", "marketing"]
-    )
+    subject, body = P.render_proposal(audit=_audit(), recipient_name="Maria", services=["cloud", "marketing"])
     assert "acme.example" in subject or "audit" in subject.lower()
     assert "Maria" in body
     assert "Cloud Architecture & Migration" in body
@@ -269,9 +269,7 @@ def test_render_proposal_fixed_scope():
 
 
 def test_render_proposal_bundle_uses_flat_price():
-    _s, body = P.render_proposal(
-        audit=_audit(), recipient_name=None, services=list(C.SERVICES)
-    )
+    _s, body = P.render_proposal(audit=_audit(), recipient_name=None, services=list(C.SERVICES))
     assert f"€{C.BUNDLE_PRICE_EUR}/month" in body
 
 
@@ -294,9 +292,12 @@ def test_draft_update_names_milestone():
 
 def test_render_handoff_lists_done_milestones():
     proj = SimpleNamespace(
-        name="Acme", kickoff_at=datetime.now(UTC) - timedelta(days=14),
-        milestones=[{"day": 1, "key": "kickoff", "label": "Kickoff", "done": True, "done_at": "x"},
-                    {"day": 5, "key": "arch", "label": "Arch", "done": False, "done_at": None}],
+        name="Acme",
+        kickoff_at=datetime.now(UTC) - timedelta(days=14),
+        milestones=[
+            {"day": 1, "key": "kickoff", "label": "Kickoff", "done": True, "done_at": "x"},
+            {"day": 5, "key": "arch", "label": "Arch", "done": False, "done_at": None},
+        ],
     )
     md = P._render_handoff(proj)
     assert "Kickoff" in md and "Acme" in md
@@ -316,7 +317,10 @@ class _FakeDB:
 @pytest.mark.asyncio
 async def test_send_proposal_refuses_non_draft():
     proposal = SimpleNamespace(
-        status="sent", recipient_email="a@b.c", espo_lead_id=None, meta_data={},
+        status="sent",
+        recipient_email="a@b.c",
+        espo_lead_id=None,
+        meta_data={},
     )
     result = await P.send_proposal(_FakeDB(), proposal)
     assert result["ok"] is False and "not draft" in result["error"]
@@ -325,7 +329,10 @@ async def test_send_proposal_refuses_non_draft():
 @pytest.mark.asyncio
 async def test_send_proposal_requires_recipient():
     proposal = SimpleNamespace(
-        status="draft", recipient_email=None, espo_lead_id=None, meta_data={},
+        status="draft",
+        recipient_email=None,
+        espo_lead_id=None,
+        meta_data={},
     )
     result = await P.send_proposal(_FakeDB(), proposal)
     assert result["ok"] is False
@@ -340,10 +347,17 @@ async def test_send_proposal_marks_sent(monkeypatch):
 
     monkeypatch.setattr("app.services.email_digest.send_email", fake_send_email)
     proposal = SimpleNamespace(
-        status="draft", recipient_email="maria@acme.example",
-        subject="Audit + plan", body_md="Hi", espo_lead_id=None, meta_data={},
-        services=["cloud"], price_low_eur=1200, price_high_eur=2400,
-        approved_at=None, sent_at=None,
+        status="draft",
+        recipient_email="maria@acme.example",
+        subject="Audit + plan",
+        body_md="Hi",
+        espo_lead_id=None,
+        meta_data={},
+        services=["cloud"],
+        price_low_eur=1200,
+        price_high_eur=2400,
+        approved_at=None,
+        sent_at=None,
     )
     db = _FakeDB()
     result = await P.send_proposal(db, proposal, approver="admin@x")
@@ -355,6 +369,7 @@ async def test_send_proposal_marks_sent(monkeypatch):
 
 
 # ── celery registration ─────────────────────────────────────────────────────
+
 
 def test_agency_beat_tasks_registered():
     from app.worker.celery_app import celery_app
@@ -386,24 +401,29 @@ def test_agency_workers_have_governance_contracts():
 
 # ── Engineer agent (Joshi 2025 agentic-DevOps: plan → CI gate → human merge) ──
 
+
 def test_render_engineering_plan_has_gates_and_rollback():
     proposal = SimpleNamespace(
-        id=__import__("uuid").uuid4(), services=["cloud", "analytics"],
-        recipient_name="Acme Corp", recipient_email="ops@acme.example",
+        id=__import__("uuid").uuid4(),
+        services=["cloud", "analytics"],
+        recipient_name="Acme Corp",
+        recipient_email="ops@acme.example",
     )
-    audit = _audit(findings=[{"finding": "Missing CSP", "check": "hdr_csp",
-                              "severity": "warning", "detail": "", "service": "cloud"}])
+    audit = _audit(findings=[{"finding": "Missing CSP", "check": "hdr_csp", "severity": "warning", "detail": "", "service": "cloud"}])
     plan = P.render_engineering_plan(proposal, audit)
     assert "agency/acme-corp-" in plan
     assert "Cloud Architecture" in plan and "Data Analytics" in plan
-    assert "Missing CSP" in plan          # findings carry into the plan
+    assert "Missing CSP" in plan  # findings carry into the plan
     assert "pytest" in plan and "rollback" in plan.lower()  # CI gate + rollback mandatory
 
 
 def test_render_engineering_plan_without_audit():
     proposal = SimpleNamespace(
-        id=__import__("uuid").uuid4(), services=["marketing"],
-        recipient_name=None, recipient_email="x@y.z", audit_id=None,
+        id=__import__("uuid").uuid4(),
+        services=["marketing"],
+        recipient_name=None,
+        recipient_email="x@y.z",
+        audit_id=None,
     )
     plan = P.render_engineering_plan(proposal, None)
     assert "Digital Marketing" in plan and "Branch" in plan
@@ -411,19 +431,19 @@ def test_render_engineering_plan_without_audit():
 
 # ── SAT (Yang et al. 2025): client reports carry verifiable evidence ─────────
 
+
 def test_draft_update_carries_evidence_line():
     proj = SimpleNamespace(name="Acme migration")
-    text = P._draft_update(proj, {"day": 5, "key": "architecture",
-                                  "label": "Arch draft", "evidence": "PR #12"})
+    text = P._draft_update(proj, {"day": 5, "key": "architecture", "label": "Arch draft", "evidence": "PR #12"})
     assert "Verify: PR #12" in text
     text2 = P._draft_update(proj, {"day": 5, "key": "a", "label": "Arch"})
     assert "Verify:" in text2  # never a bare status claim
 
 
 def test_handoff_has_verify_section():
-    proj = SimpleNamespace(name="Acme", kickoff_at=datetime.now(UTC) - timedelta(days=14),
-                           milestones=[{"day": 1, "key": "k", "label": "Kickoff",
-                                        "done": True, "done_at": "x"}])
+    proj = SimpleNamespace(
+        name="Acme", kickoff_at=datetime.now(UTC) - timedelta(days=14), milestones=[{"day": 1, "key": "k", "label": "Kickoff", "done": True, "done_at": "x"}]
+    )
     assert "Verify it yourself" in P._render_handoff(proj)
 
 
@@ -440,7 +460,7 @@ def test_agency_engineer_registered_and_governed():
 def test_classify_linkedin_b2b_lead():
     r = C.classify_services("we need linkedin b2b lead generation and social selling for our sales pipeline")
     slugs = [s for s, _score, _h in r]
-    assert slugs[0] == "linkedin_growth"          # strongest signal wins
+    assert slugs[0] == "linkedin_growth"  # strongest signal wins
     assert "linkedin_growth" in slugs
 
 
@@ -451,8 +471,7 @@ def test_price_range_bundle_all_five():
 
 def test_render_proposal_linkedin_phases():
     audit = _audit(url="https://acme.example")
-    _s, body = P.render_proposal(audit=audit, recipient_name="Maria",
-                                services=["linkedin_growth"])
+    _s, body = P.render_proposal(audit=audit, recipient_name="Maria", services=["linkedin_growth"])
     assert "LinkedIn B2B Growth" in body
     assert "Crawl — organic foundation" in body
     assert "Walk — boost validation" in body
@@ -461,6 +480,7 @@ def test_render_proposal_linkedin_phases():
 
 
 # ── Cheng et al. 2024 — influencer-entrepreneurship stage model ─────────────
+
 
 def test_influence_stage_progression():
     from app.services.influence_stage import classify_stage
@@ -480,8 +500,10 @@ def test_influence_stage_progression():
 
 # ── nurture_sequence — public-lead 3-touch follow-up ────────────────────────
 
+
 def test_nurture_steps_sequential():
     from app.services.nurture_sequence import STEPS
+
     assert [s["day"] for s in STEPS] == [3, 7, 14]
     assert all(s["subject"] and "{name}" in s["body"] for s in STEPS)
 
@@ -497,8 +519,8 @@ def test_nurture_due_step_logic():
         lead.created_at = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=days_old)
         return lead
 
-    assert _due_step(mk(1)) is None                     # too early for day-3
-    assert _due_step(mk(4))["key"] == "value"           # step 1 due
+    assert _due_step(mk(1)) is None  # too early for day-3
+    assert _due_step(mk(4))["key"] == "value"  # step 1 due
     assert _due_step(mk(9, {"form": "newsletter", "nurture_step": 1}))["key"] == "audit_cta"
     assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 2}))["key"] == "offer"
     assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 3})) is None  # done
@@ -521,13 +543,22 @@ async def test_newsletter_fetch_subscribers_maps_scrape(monkeypatch):
     monkeypatch.setenv("LINKEDIN_BROWSER_SIDECAR_URL", base)
     with respx.mock(base_url=base) as mock:
         mock.post("/debug/navigate").respond(200, json={})
-        mock.post("/debug/eval").respond(200, json={"value": {"subs": [
-            {"name": "Jane Doe", "urn": "janedoe", "headline": "CTO"},
-            {"name": "No Head", "urn": "nohead"},
-        ]}})
+        mock.post("/debug/eval").respond(
+            200,
+            json={
+                "value": {
+                    "subs": [
+                        {"name": "Jane Doe", "urn": "janedoe", "headline": "CTO"},
+                        {"name": "No Head", "urn": "nohead"},
+                    ]
+                }
+            },
+        )
         subs = await NS.fetch_subscribers("urn:li:fsd_contentSeries:123")
     assert subs[0] == {
-        "name": "Jane Doe", "headline": "CTO", "urn": "urn:li:in:janedoe",
+        "name": "Jane Doe",
+        "headline": "CTO",
+        "urn": "urn:li:in:janedoe",
         "profile_url": "https://www.linkedin.com/in/janedoe/",
     }
     assert subs[1]["headline"] == ""

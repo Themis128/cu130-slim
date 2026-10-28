@@ -8,6 +8,7 @@
 Both are OFF unless opted in — the env flag / campaign meta is the recorded
 human approval (Code of Honor #2: approval is given once, as configuration).
 """
+
 from __future__ import annotations
 
 import logging
@@ -29,18 +30,13 @@ async def _survey_autosend() -> dict:
 
     sent = 0
     async with task_session() as db:
-        camps = (await db.execute(
-            select(EmailCampaign).where(EmailCampaign.kind == "survey",
-                                        EmailCampaign.status.in_(["draft", "sent"]))
-        )).scalars().all()
+        camps = (await db.execute(select(EmailCampaign).where(EmailCampaign.kind == "survey", EmailCampaign.status.in_(["draft", "sent"])))).scalars().all()
         for c in camps:
             if not (c.meta_data or {}).get("auto_send"):
                 continue
-            pending = (await db.execute(
-                select(EmailRecipient.id).where(
-                    EmailRecipient.campaign_id == c.id,
-                    EmailRecipient.status == RecipientStatus.pending)
-            )).first()
+            pending = (
+                await db.execute(select(EmailRecipient.id).where(EmailRecipient.campaign_id == c.id, EmailRecipient.status == RecipientStatus.pending))
+            ).first()
             if pending:
                 await send_campaign(c.id)
                 sent += 1
@@ -54,17 +50,14 @@ async def _post_autoapprove() -> dict:
 
     approved = 0
     async with task_session() as db:
-        posts = (await db.execute(
-            select(Post).where(Post.status == PostStatus.REVIEW)
-        )).scalars().all()
+        posts = (await db.execute(select(Post).where(Post.status == PostStatus.REVIEW))).scalars().all()
         for post in posts:
             post.status = PostStatus.APPROVED
             approved += 1
             try:
                 from app.models.content import PostComment
-                db.add(PostComment(post_id=post.id, user_id=post.user_id,
-                                   author_name="autopilot",
-                                   body="Auto-approved (autopilot)", action="approve"))
+
+                db.add(PostComment(post_id=post.id, user_id=post.user_id, author_name="autopilot", body="Auto-approved (autopilot)", action="approve"))
             except Exception:
                 logger.debug("comment skipped", exc_info=True)
         await db.commit()

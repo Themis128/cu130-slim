@@ -1,4 +1,5 @@
 """Unit tests for the website analytics ingestion and forwarding service."""
+
 from __future__ import annotations
 
 import hashlib
@@ -211,8 +212,7 @@ def test_client_info(event: WebAnalyticsEvent):
     assert _client_info(event) == {}
     event.client_ip = "1.2.3.4"
     event.user_agent = "UA"
-    assert _client_info(event) == {
-        "client_ip_address": "1.2.3.4", "client_user_agent": "UA"}
+    assert _client_info(event) == {"client_ip_address": "1.2.3.4", "client_user_agent": "UA"}
 
 
 @pytest.mark.asyncio
@@ -225,8 +225,7 @@ async def test_ga4_partial_config_and_error(config: WebAnalyticsConfig, event: W
     config.ga4_api_secret = "s"
 
     err_url = "https://www.google-analytics.com/mp/collect"
-    out = await forward_to_ga4(
-        FakeHttpxClient({err_url: FakeResponse(400, "bad")}), event, config)
+    out = await forward_to_ga4(FakeHttpxClient({err_url: FakeResponse(400, "bad")}), event, config)
     assert out["ok"] is False and out["status"] == 400
 
     class _Raise:
@@ -261,8 +260,7 @@ async def test_plausible_paths(config: WebAnalyticsConfig, event: WebAnalyticsEv
     config.plausible_domain = "cloudless.gr"
 
     url = "https://plausible.io/api/event"
-    out = await forward_to_plausible(
-        FakeHttpxClient({url: FakeResponse(500, "err")}), event, config)
+    out = await forward_to_plausible(FakeHttpxClient({url: FakeResponse(500, "err")}), event, config)
     assert out["ok"] is False and out["status"] == 500
 
     class _Raise:
@@ -304,8 +302,7 @@ async def test_meta_capi_mapping_and_user_data(config: WebAnalyticsConfig, event
     assert ud["client_ip_address"] == "9.9.9.9"
 
     url = "https://graph.facebook.com/v18.0/1234567890/events"
-    out = await forward_to_meta_capi(
-        FakeHttpxClient({url: FakeResponse(403, "denied")}), event, config)
+    out = await forward_to_meta_capi(FakeHttpxClient({url: FakeResponse(403, "denied")}), event, config)
     assert out["ok"] is False and out["status"] == 403
     assert out["body"] == "denied"
 
@@ -345,14 +342,13 @@ async def test_ingest_event_forward_exception(config: WebAnalyticsConfig):
     class _Raise:
         async def __aenter__(self):
             raise RuntimeError("client fail")
+
         async def __aexit__(self, *a):
             return False
 
     wa_module.httpx.AsyncClient = lambda **kw: _Raise()  # type: ignore[assignment]
     try:
-        event = await ingest_event(
-            team_id=config.team_id, config=config,
-            domain="d", event_name="x", payload={})
+        event = await ingest_event(team_id=config.team_id, config=config, domain="d", event_name="x", payload={})
     finally:
         wa_module.httpx.AsyncClient = original  # type: ignore[misc]
     assert "error" in event.forwarded

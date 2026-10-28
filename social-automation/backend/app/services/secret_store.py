@@ -8,6 +8,7 @@ Service credentials such as Instagram username/password, Twitter API tokens,
 TikTok private API key, and Facebook/LinkedIn browser credentials are written
 here so the SocialAuto app can log into all services.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,19 +41,21 @@ class SecretStore:
 
     # Secrets the store will fall back to .env for if not found in D1/Postgres.
     # These keys are profile / login related.
-    PROFILE_SECRET_KEYS: frozenset[str] = frozenset({
-        "INSTAGRAM_USERNAME",
-        "INSTAGRAM_PASSWORD",
-        "TWITTER_API_KEY",
-        "TWITTER_API_SECRET",
-        "TWITTER_ACCESS_TOKEN",
-        "TWITTER_ACCESS_TOKEN_SECRET",
-        "TIKTOK_PRIVATE_API_KEY",
-        "FACEBOOK_USERNAME",
-        "FACEBOOK_PASSWORD",
-        "LINKEDIN_USERNAME",
-        "LINKEDIN_PASSWORD",
-    })
+    PROFILE_SECRET_KEYS: frozenset[str] = frozenset(
+        {
+            "INSTAGRAM_USERNAME",
+            "INSTAGRAM_PASSWORD",
+            "TWITTER_API_KEY",
+            "TWITTER_API_SECRET",
+            "TWITTER_ACCESS_TOKEN",
+            "TWITTER_ACCESS_TOKEN_SECRET",
+            "TIKTOK_PRIVATE_API_KEY",
+            "FACEBOOK_USERNAME",
+            "FACEBOOK_PASSWORD",
+            "LINKEDIN_USERNAME",
+            "LINKEDIN_PASSWORD",
+        }
+    )
 
     def __init__(self) -> None:
         self._d1_table = "social_secrets"
@@ -116,9 +119,7 @@ class SecretStore:
     async def _get_from_postgres(self, key: str) -> str | None:
         try:
             async with async_session_maker() as session:
-                result = await session.execute(
-                    select(SocialSecret).where(SocialSecret.key == key)
-                )
+                result = await session.execute(select(SocialSecret).where(SocialSecret.key == key))
                 row = result.scalar_one_or_none()
                 return row.value if row else None
         except Exception as exc:
@@ -128,9 +129,7 @@ class SecretStore:
     async def _set_in_postgres(self, key: str, value: str, description: str | None = None) -> bool:
         try:
             async with async_session_maker() as session:
-                result = await session.execute(
-                    select(SocialSecret).where(SocialSecret.key == key)
-                )
+                result = await session.execute(select(SocialSecret).where(SocialSecret.key == key))
                 row = result.scalar_one_or_none()
                 now = _utc_now()
                 if row:
@@ -245,9 +244,7 @@ class SecretStore:
     async def _delete_from_postgres(self, key: str) -> bool:
         try:
             async with async_session_maker() as session:
-                result = await session.execute(
-                    sa_delete(SocialSecret).where(SocialSecret.key == key)
-                )
+                result = await session.execute(sa_delete(SocialSecret).where(SocialSecret.key == key))
                 await session.commit()
                 return bool(result.rowcount)
         except Exception as exc:

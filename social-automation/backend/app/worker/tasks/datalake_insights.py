@@ -1,5 +1,6 @@
 """Datalake-insights sweep — compute decision signals from the lake source
 tables and persist them for the next export + notify the alert channel."""
+
 from __future__ import annotations
 
 from celery import shared_task

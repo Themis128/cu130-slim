@@ -18,9 +18,7 @@ from app.services import newsletter_cover as cover_mod
 
 
 def test_render_returns_png_at_brand_dimensions():
-    png = cover_mod.render_newsletter_cover(
-        "Workers AI pipelines: shipping the weekly issue", issue_number=7
-    )
+    png = cover_mod.render_newsletter_cover("Workers AI pipelines: shipping the weekly issue", issue_number=7)
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
     img = Image.open(io.BytesIO(png))
     assert img.size == (cover_mod.WIDTH, cover_mod.HEIGHT)
@@ -34,9 +32,7 @@ def test_render_is_deterministic():
 
 
 def test_render_ascii_safe_and_long_title_clamped():
-    png = cover_mod.render_newsletter_cover(
-        "Em — dash “quotes” and a " + "very long " * 40 + "title"
-    )
+    png = cover_mod.render_newsletter_cover("Em — dash “quotes” and a " + "very long " * 40 + "title")
     img = Image.open(io.BytesIO(png))
     assert img.size == (cover_mod.WIDTH, cover_mod.HEIGHT)  # no crash, clamped
 
@@ -80,9 +76,7 @@ async def test_cover_503_when_service_token_unconfigured():
         return_value=SimpleNamespace(NEWSLETTER_SERVICE_TOKEN=""),
     ):
         with pytest.raises(HTTPException) as e:
-            await newsletter_api.newsletter_cover(
-                newsletter_api.NewsletterCoverRequest(title="x"), _request("")
-            )
+            await newsletter_api.newsletter_cover(newsletter_api.NewsletterCoverRequest(title="x"), _request(""))
     assert e.value.status_code == 503
     assert "NEWSLETTER_SERVICE_TOKEN" in e.value.detail
 
@@ -91,13 +85,9 @@ async def test_cover_503_when_service_token_unconfigured():
 async def test_cover_401_on_missing_or_wrong_token():
     with _patched_settings():
         with pytest.raises(HTTPException) as missing:
-            await newsletter_api.newsletter_cover(
-                newsletter_api.NewsletterCoverRequest(title="x"), _request("")
-            )
+            await newsletter_api.newsletter_cover(newsletter_api.NewsletterCoverRequest(title="x"), _request(""))
         with pytest.raises(HTTPException) as wrong:
-            await newsletter_api.newsletter_cover(
-                newsletter_api.NewsletterCoverRequest(title="x"), _request("wrong")
-            )
+            await newsletter_api.newsletter_cover(newsletter_api.NewsletterCoverRequest(title="x"), _request("wrong"))
     assert missing.value.status_code == 401
     assert wrong.value.status_code == 401
 
@@ -106,9 +96,7 @@ async def test_cover_401_on_missing_or_wrong_token():
 async def test_cover_200_returns_png():
     with _patched_settings():
         resp = await newsletter_api.newsletter_cover(
-            newsletter_api.NewsletterCoverRequest(
-                title="Issue title", issue_number=12, category="Cloud"
-            ),
+            newsletter_api.NewsletterCoverRequest(title="Issue title", issue_number=12, category="Cloud"),
             _request(),
         )
     assert resp.status_code == 200
@@ -146,9 +134,7 @@ async def test_cover_uses_today_when_date_omitted(monkeypatch):
 
     with _patched_settings():
         monkeypatch.setattr(newsletter_api, "render_newsletter_cover", fake_render)
-        await newsletter_api.newsletter_cover(
-            newsletter_api.NewsletterCoverRequest(title="x"), _request()
-        )
+        await newsletter_api.newsletter_cover(newsletter_api.NewsletterCoverRequest(title="x"), _request())
     assert seen["issue_date"] == sentinel
 
 

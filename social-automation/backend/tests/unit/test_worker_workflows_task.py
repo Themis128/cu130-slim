@@ -74,9 +74,7 @@ class _Client:
 
 
 def _wf(**kw):
-    base = {"id": "w1", "n8n_workflow_id": "n8n-1",
-            "n8n_workflow_json": {"nodes": []}, "status": "draft",
-            "updated_at": None}
+    base = {"id": "w1", "n8n_workflow_id": "n8n-1", "n8n_workflow_json": {"nodes": []}, "status": "draft", "updated_at": None}
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -163,8 +161,7 @@ async def test_deploy_workflow_error_marks_draft(monkeypatch):
 
 def test_celery_wrappers(monkeypatch):
     # run_async drives the coroutine; sync_after_worker_task is stubbed.
-    monkeypatch.setattr(W, "run_async", lambda c: (c.close(), {"r": 1})[1]
-                        if hasattr(c, "close") else {"r": 1})
+    monkeypatch.setattr(W, "run_async", lambda c: (c.close(), {"r": 1})[1] if hasattr(c, "close") else {"r": 1})
     monkeypatch.setattr(W, "sync_after_worker_task", lambda t: None)
     # .run attribute of shared_task — call the wrapped function directly
     out = W.deploy_workflow("w1")

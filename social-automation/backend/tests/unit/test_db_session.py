@@ -104,8 +104,7 @@ async def test_init_db_no_admin_configured(monkeypatch):
     s.SOCIAL_ADMIN_EMAIL = ""
     s.SOCIAL_ADMIN_PASSWORD = ""
     monkeypatch.setattr(dbs, "get_settings", lambda: s)
-    monkeypatch.setattr(dbs, "async_session_maker",
-                        lambda: pytest.fail("session must not open"))
+    monkeypatch.setattr(dbs, "async_session_maker", lambda: pytest.fail("session must not open"))
     await dbs.init_db()  # returns silently
 
 
@@ -116,11 +115,13 @@ async def test_init_db_seeds_new_admin_and_team(patch_session, admin_settings, m
     monkeypatch.setattr(dbs, "hash_password", lambda p: f"hash:{p}")
     monkeypatch.setattr(dbs, "verify_password", lambda p, h: True)
 
-    sess = _Session([
-        _ScalarResult(None),              # no existing admin
-        _ScalarResult(None),              # no membership
-        _ScalarResult([]),                # owned teams list
-    ])
+    sess = _Session(
+        [
+            _ScalarResult(None),  # no existing admin
+            _ScalarResult(None),  # no membership
+            _ScalarResult([]),  # owned teams list
+        ]
+    )
     patch_session["session"] = sess
 
     await dbs.init_db()
@@ -148,18 +149,20 @@ async def test_init_db_resyncs_stale_admin(patch_session, admin_settings, monkey
     monkeypatch.setattr(dbs, "hash_password", lambda p: f"hash:{p}")
     monkeypatch.setattr(dbs, "verify_password", lambda p, h: False)
 
-    sess = _Session([
-        _ScalarResult(admin),             # existing admin
-        _ScalarResult(object()),          # membership exists
-        _ScalarResult([team]),            # owned teams
-    ])
+    sess = _Session(
+        [
+            _ScalarResult(admin),  # existing admin
+            _ScalarResult(object()),  # membership exists
+            _ScalarResult([team]),  # owned teams
+        ]
+    )
     patch_session["session"] = sess
 
     await dbs.init_db()
-    assert admin.password_hash == "hash:pw"      # re-hashed
-    assert admin.name == "Boss"                   # name resynced
+    assert admin.password_hash == "hash:pw"  # re-hashed
+    assert admin.name == "Boss"  # name resynced
     assert admin.timezone == "Europe/Athens"
-    assert team.plan_tier == "enterprise"         # upgraded
+    assert team.plan_tier == "enterprise"  # upgraded
 
 
 @pytest.mark.asyncio
@@ -179,12 +182,14 @@ async def test_init_db_integrity_error_refetch(patch_session, admin_settings, mo
         async def flush(self):
             raise IntegrityError("stmt", {}, Exception("dup"))
 
-    sess = _FlushingFailSession([
-        _ScalarResult(None),              # no admin initially
-        _ScalarResult(admin),             # refetch after IntegrityError
-        _ScalarResult(object()),          # membership exists
-        _ScalarResult([]),                # owned teams
-    ])
+    sess = _FlushingFailSession(
+        [
+            _ScalarResult(None),  # no admin initially
+            _ScalarResult(admin),  # refetch after IntegrityError
+            _ScalarResult(object()),  # membership exists
+            _ScalarResult([]),  # owned teams
+        ]
+    )
     patch_session["session"] = sess
     await dbs.init_db()
     assert sess.rollbacks >= 1
@@ -200,10 +205,12 @@ async def test_init_db_unresolvable_admin_returns(patch_session, admin_settings,
         async def flush(self):
             raise IntegrityError("stmt", {}, Exception("dup"))
 
-    sess = _FlushingFailSession([
-        _ScalarResult(None),   # no admin
-        _ScalarResult(None),   # refetch still None → bail
-    ])
+    sess = _FlushingFailSession(
+        [
+            _ScalarResult(None),  # no admin
+            _ScalarResult(None),  # refetch still None → bail
+        ]
+    )
     patch_session["session"] = sess
     await dbs.init_db()
     assert sess.rollbacks >= 1

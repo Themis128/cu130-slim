@@ -9,6 +9,7 @@ Inspired by Postiz's recurring-post feature: best-performing content is
 re-posted on a configurable cadence (daily/weekly/monthly) so the social
 calendar stays full without manual copy-paste.
 """
+
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -89,9 +90,7 @@ async def _process_recurring_posts_async() -> dict[str, Any]:
                 await db.flush()  # get clone.id
 
                 # Clone targets
-                targets_result = await db.execute(
-                    select(PostTarget).where(PostTarget.post_id == parent.id)
-                )
+                targets_result = await db.execute(select(PostTarget).where(PostTarget.post_id == parent.id))
                 for target in targets_result.scalars().all():
                     db.add(
                         PostTarget(
@@ -113,14 +112,15 @@ async def _process_recurring_posts_async() -> dict[str, Any]:
 
                 # Advance the parent's recurrence
                 parent.recurrence_count += 1
-                parent.next_recurrence_at = _next_recurrence_dt(
-                    parent.recurrence_pattern, parent.recurrence_interval, now
-                )
+                parent.next_recurrence_at = _next_recurrence_dt(parent.recurrence_pattern, parent.recurrence_interval, now)
                 await db.commit()
                 summary["cloned"] += 1
                 logger.info(
                     "Recurring post %s cloned to %s (count=%d, next=%s)",
-                    parent.id, clone.id, parent.recurrence_count, parent.next_recurrence_at,
+                    parent.id,
+                    clone.id,
+                    parent.recurrence_count,
+                    parent.next_recurrence_at,
                 )
             except Exception as exc:
                 logger.error("Failed to clone recurring post %s: %s", parent.id, exc)

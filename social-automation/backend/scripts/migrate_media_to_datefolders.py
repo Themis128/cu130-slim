@@ -30,14 +30,12 @@ async def migrate():
             if os.path.exists(old_path) and old_path != new_abs:
                 os.rename(old_path, new_abs)
             # Update database
-            await db.execute(
-                update(MediaAsset)
-                .where(MediaAsset.id == asset.id)
-                .values(storage_path=new_relative)
-            )
+            await db.execute(update(MediaAsset).where(MediaAsset.id == asset.id).values(storage_path=new_relative))
         await db.commit()
         break
 
+
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(migrate())

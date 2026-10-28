@@ -6,6 +6,7 @@ is the delivery boundary so secrets stay in the worker. If the notebook run
 fails, ``fallback_to_code`` re-runs the equivalent code-path report so a
 brief is never silently skipped.
 """
+
 from __future__ import annotations
 
 import logging
@@ -22,9 +23,7 @@ logger = logging.getLogger(__name__)
 async def _fallback_strategy(parameters: dict[str, Any], *, send: bool) -> Any:
     from app.worker.tasks.digest import _send_strategy_async
 
-    return await _send_strategy_async(
-        insight_days=parameters.get("insight_days", 30), send=send
-    )
+    return await _send_strategy_async(insight_days=parameters.get("insight_days", 30), send=send)
 
 
 async def _fallback_monetization(parameters: dict[str, Any], *, send: bool) -> Any:
@@ -70,11 +69,7 @@ def run_notebook_report(
         logger.exception("Notebook report %s failed", notebook)
         if not fallback_to_code:
             raise
-        fallback = run_async(
-            _CODE_FALLBACKS.get(notebook, _fallback_strategy)(
-                parameters or {}, send=send
-            )
-        )
+        fallback = run_async(_CODE_FALLBACKS.get(notebook, _fallback_strategy)(parameters or {}, send=send))
         return {
             "notebook": notebook,
             "executed": False,
@@ -106,9 +101,7 @@ def run_notebook_report(
     }
 
 
-async def _deliver_manifest(
-    manifest: dict[str, Any], base_dir: Path
-) -> tuple[bool, str | None]:
+async def _deliver_manifest(manifest: dict[str, Any], base_dir: Path) -> tuple[bool, str | None]:
     """Send the notebook's rendered report through the standard email path."""
     from app.services.email_digest import send_email
 
@@ -126,11 +119,7 @@ async def _deliver_manifest(
         attachments = [
             {
                 "name": a["file"],
-                "data": (
-                    Path(a["file"])
-                    if Path(a["file"]).is_absolute()
-                    else base_dir / a["file"]
-                ).read_bytes(),
+                "data": (Path(a["file"]) if Path(a["file"]).is_absolute() else base_dir / a["file"]).read_bytes(),
                 "cid": a.get("cid"),
                 "mime": a.get("mime"),
             }

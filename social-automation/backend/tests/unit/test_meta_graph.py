@@ -16,4 +16,3 @@ def test_facebook_graph_url_strips_leading_slashes() -> None:
 def test_facebook_graph_url_rejects_empty_version() -> None:
     with pytest.raises(ValueError):
         facebook_graph_url("me", version="")
-

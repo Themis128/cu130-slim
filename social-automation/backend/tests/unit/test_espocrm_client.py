@@ -2,6 +2,7 @@
 
 All HTTP is mocked with respx; no real CRM is contacted.
 """
+
 import json
 from types import SimpleNamespace
 
@@ -18,9 +19,11 @@ BASE = "http://crm.test:30700"
 def cfg(monkeypatch):
     def _set(base=BASE, key="k-123"):
         monkeypatch.setattr(
-            E, "get_settings",
+            E,
+            "get_settings",
             lambda: SimpleNamespace(ESPOCRM_BASE_URL=base, ESPOCRM_API_KEY=key),
         )
+
     _set()
     return _set
 
@@ -48,9 +51,7 @@ class TestEspoGet:
     @pytest.mark.asyncio
     @respx.mock
     async def test_sends_api_key_and_returns_dict(self, cfg):
-        route = respx.get(f"{BASE}/api/v1/Lead").mock(
-            return_value=httpx.Response(200, json={"total": 3, "list": []})
-        )
+        route = respx.get(f"{BASE}/api/v1/Lead").mock(return_value=httpx.Response(200, json={"total": 3, "list": []}))
         out = await E.espo_get("/Lead", params={"a": "1"})
         assert out == {"total": 3, "list": []}
         req = route.calls.last.request
@@ -178,9 +179,7 @@ class TestEspoPost:
     @pytest.mark.asyncio
     @respx.mock
     async def test_posts_json(self, cfg):
-        route = respx.post(f"{BASE}/api/v1/Note").mock(
-            return_value=httpx.Response(200, json={"id": "n1"})
-        )
+        route = respx.post(f"{BASE}/api/v1/Note").mock(return_value=httpx.Response(200, json={"id": "n1"}))
         assert await E.espo_post("/Note", {"post": "hi"}) == {"id": "n1"}
         req = route.calls.last.request
         assert json.loads(req.content) == {"post": "hi"}

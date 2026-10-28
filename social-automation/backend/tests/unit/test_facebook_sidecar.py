@@ -25,9 +25,7 @@ class _FakeResponse:
         if self.status_code >= 400:
             import httpx
 
-            raise httpx.HTTPStatusError(
-                f"HTTP {self.status_code}", request=None, response=self
-            )
+            raise httpx.HTTPStatusError(f"HTTP {self.status_code}", request=None, response=self)
 
 
 class _FakeAsyncClient:
@@ -69,9 +67,7 @@ def client():
 
 @pytest.mark.asyncio
 async def test_health(client):
-    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(
-        _FakeResponse(200, {"status": "ok", "service": "facebook-browser-sidecar"})
-    )):
+    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(_FakeResponse(200, {"status": "ok", "service": "facebook-browser-sidecar"}))):
         result = await client.health()
         assert result["status"] == "ok"
         assert result["service"] == "facebook-browser-sidecar"
@@ -89,18 +85,14 @@ async def test_set_session(client):
 
 @pytest.mark.asyncio
 async def test_check_session(client):
-    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(
-        _FakeResponse(200, {"status": "ok", "logged_in": True})
-    )):
+    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(_FakeResponse(200, {"status": "ok", "logged_in": True}))):
         result = await client.check_session()
         assert result["logged_in"] is True
 
 
 @pytest.mark.asyncio
 async def test_get_profile(client):
-    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(
-        _FakeResponse(200, {"status": "ok", "profile": {"name": "Test User"}})
-    )):
+    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(_FakeResponse(200, {"status": "ok", "profile": {"name": "Test User"}}))):
         result = await client.get_profile()
         assert result["profile"]["name"] == "Test User"
 
@@ -178,9 +170,9 @@ async def test_post_video(client):
 
 @pytest.mark.asyncio
 async def test_list_pages(client):
-    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(
-        _FakeResponse(200, {"status": "ok", "pages": [{"name": "My Page", "page_id": "123"}]})
-    )):
+    with patch.object(
+        fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(_FakeResponse(200, {"status": "ok", "pages": [{"name": "My Page", "page_id": "123"}]}))
+    ):
         result = await client.list_pages()
         assert len(result["pages"]) == 1
         assert result["pages"][0]["page_id"] == "123"
@@ -206,9 +198,7 @@ async def test_page_post_text(client):
 
 @pytest.mark.asyncio
 async def test_error_raises(client):
-    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(
-        _FakeResponse(401, {"error": "Not logged in"})
-    )):
+    with patch.object(fb.httpx, "AsyncClient", return_value=_FakeAsyncClient(_FakeResponse(401, {"error": "Not logged in"}))):
         with pytest.raises(fb.FacebookSidecarError) as exc_info:
             await client.get_profile()
         assert exc_info.value.status_code == 401

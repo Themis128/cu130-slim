@@ -112,8 +112,11 @@ class _DB:
 
 def _asset(**kw):
     base = dict(
-        id=uuid.uuid4(), storage_backend=StorageBackend.local,
-        storage_path="a.png", mime_type="image/png", meta_data={},
+        id=uuid.uuid4(),
+        storage_backend=StorageBackend.local,
+        storage_path="a.png",
+        mime_type="image/png",
+        meta_data={},
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -132,6 +135,7 @@ async def test_load_asset_bytes_backends(monkeypatch):
     assert await load_asset_bytes(asset) == b"minio"
 
     import app.core.path_utils as pu
+
     monkeypatch.setattr(pu, "safe_resolve", lambda b, p: SimpleNamespace(read_bytes=lambda: b"loc"))
     asset = _asset()
     assert await load_asset_bytes(asset) == b"loc"
@@ -198,11 +202,13 @@ async def test_media_duplicate_reason_prior_no_phashes(monkeypatch):
     post = SimpleNamespace(media_ids=[aid], id=uuid.uuid4())
     monkeypatch.setattr(md, "ensure_asset_phash", AsyncMock(return_value="aa"))
     prior_asset = _asset(id=pid, meta_data={})  # no phash stored
-    db = _DB([
-        _Res([_asset(id=aid)]),
-        _Res([[pid]]),          # prior media_ids
-        _Res([prior_asset]),    # prior assets
-    ])
+    db = _DB(
+        [
+            _Res([_asset(id=aid)]),
+            _Res([[pid]]),  # prior media_ids
+            _Res([prior_asset]),  # prior assets
+        ]
+    )
     assert await media_duplicate_reason(db, post, uuid.uuid4()) is None
 
 

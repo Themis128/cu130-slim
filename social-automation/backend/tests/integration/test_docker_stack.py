@@ -41,6 +41,7 @@ pytestmark = [
     ),
 ]
 
+
 def _default_compose_dir() -> str:
     """Find the repo root containing docker-compose.yml.
 
@@ -72,6 +73,7 @@ def _host_url(url: str) -> str:
     for internal, mapped in _HOST_PORT_MAP.items():
         url = url.replace(internal, mapped)
     return url
+
 
 API_URL = os.environ.get("API_URL", "http://localhost:8083")
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8082")
@@ -178,8 +180,16 @@ class TestSocialWorker:
     def test_celery_ping(self):
         result = subprocess.run(
             [
-                "docker", "compose", "exec", "-T", "social-worker-publishing",
-                "celery", "-A", "app.worker.celery_app", "inspect", "ping",
+                "docker",
+                "compose",
+                "exec",
+                "-T",
+                "social-worker-publishing",
+                "celery",
+                "-A",
+                "app.worker.celery_app",
+                "inspect",
+                "ping",
             ],
             capture_output=True,
             text=True,
@@ -193,12 +203,15 @@ class TestSocialWorker:
 class TestPostgres:
     @pytest.mark.asyncio
     async def test_database_connection(self):
-        db_url = _host_url(os.environ.get("DATABASE_URL") or (
-            "postgresql+asyncpg://"
-            f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
-            f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
-            f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
-        ))
+        db_url = _host_url(
+            os.environ.get("DATABASE_URL")
+            or (
+                "postgresql+asyncpg://"
+                f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
+                f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
+                f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
+            )
+        )
         engine = create_async_engine(db_url)
         try:
             async with engine.connect() as conn:
@@ -211,21 +224,19 @@ class TestPostgres:
 
     @pytest.mark.asyncio
     async def test_tables_exist(self):
-        db_url = _host_url(os.environ.get("DATABASE_URL") or (
-            "postgresql+asyncpg://"
-            f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
-            f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
-            f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
-        ))
+        db_url = _host_url(
+            os.environ.get("DATABASE_URL")
+            or (
+                "postgresql+asyncpg://"
+                f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
+                f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
+                f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
+            )
+        )
         engine = create_async_engine(db_url)
         try:
             async with engine.connect() as conn:
-                result = await conn.execute(
-                    text(
-                        "SELECT table_name FROM information_schema.tables "
-                        "WHERE table_schema = 'public' ORDER BY table_name"
-                    )
-                )
+                result = await conn.execute(text("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"))
                 tables = [row[0] for row in result.fetchall()]
                 required = ["users", "teams", "team_members", "social_accounts", "posts"]
                 for table in required:
@@ -235,12 +246,15 @@ class TestPostgres:
 
     @pytest.mark.asyncio
     async def test_alembic_version_head(self):
-        db_url = _host_url(os.environ.get("DATABASE_URL") or (
-            "postgresql+asyncpg://"
-            f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
-            f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
-            f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
-        ))
+        db_url = _host_url(
+            os.environ.get("DATABASE_URL")
+            or (
+                "postgresql+asyncpg://"
+                f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
+                f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
+                f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
+            )
+        )
         engine = create_async_engine(db_url)
         try:
             async with engine.connect() as conn:

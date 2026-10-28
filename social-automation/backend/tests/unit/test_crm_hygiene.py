@@ -60,10 +60,12 @@ def _wire(monkeypatch, fake: _FakeEspo):
 
 @pytest.mark.asyncio
 async def test_quarantines_ci_test_leads(monkeypatch):
-    fake = _FakeEspo([
-        _lead("a", "ci-test+abc@example.invalid", name="CI Functional Test"),
-        _lead("b", "real@customer.gr"),
-    ])
+    fake = _FakeEspo(
+        [
+            _lead("a", "ci-test+abc@example.invalid", name="CI Functional Test"),
+            _lead("b", "real@customer.gr"),
+        ]
+    )
     _wire(monkeypatch, fake)
     stats = await crm_hygiene.run_crm_hygiene(alert=False)
     assert stats["quarantined"] == 1
@@ -81,10 +83,12 @@ async def test_preserves_messenger_synthetic_lead(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dedupes_same_email_keeps_newest(monkeypatch):
-    fake = _FakeEspo([
-        _lead("old", "dup@x.gr", created="2026-09-01T10:00:00Z"),
-        _lead("new", "Dup@x.gr ", created="2026-10-10T10:00:00Z"),
-    ])
+    fake = _FakeEspo(
+        [
+            _lead("old", "dup@x.gr", created="2026-09-01T10:00:00Z"),
+            _lead("new", "Dup@x.gr ", created="2026-10-10T10:00:00Z"),
+        ]
+    )
     _wire(monkeypatch, fake)
     stats = await crm_hygiene.run_crm_hygiene(alert=False)
     assert stats["deduped"] == 1
@@ -93,11 +97,13 @@ async def test_dedupes_same_email_keeps_newest(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_stale_new_leads_surfaced_but_untouched(monkeypatch):
-    fake = _FakeEspo([
-        _lead("stale", "stale@x.gr", created="2026-01-01T00:00:00Z"),
-        _lead("fresh", "fresh@x.gr", created="2999-01-01T00:00:00Z"),
-        _lead("dead", "dead@x.gr", status="Dead", created="2026-01-01T00:00:00Z"),
-    ])
+    fake = _FakeEspo(
+        [
+            _lead("stale", "stale@x.gr", created="2026-01-01T00:00:00Z"),
+            _lead("fresh", "fresh@x.gr", created="2999-01-01T00:00:00Z"),
+            _lead("dead", "dead@x.gr", status="Dead", created="2026-01-01T00:00:00Z"),
+        ]
+    )
     _wire(monkeypatch, fake)
     stats = await crm_hygiene.run_crm_hygiene(alert=False)
     assert [s["id"] for s in stats["stale_new"]] == ["stale"]
@@ -115,10 +121,12 @@ async def test_dead_leads_not_reprocessed(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_internal_self_domain_quarantined(monkeypatch):
-    fake = _FakeEspo([
-        _lead("self", "tbaltzakis@cloudless.gr"),
-        _lead("real", "real@customer.gr"),
-    ])
+    fake = _FakeEspo(
+        [
+            _lead("self", "tbaltzakis@cloudless.gr"),
+            _lead("real", "real@customer.gr"),
+        ]
+    )
     _wire(monkeypatch, fake)
     stats = await crm_hygiene.run_crm_hygiene(alert=False)
     assert stats["quarantined"] == 1
@@ -240,9 +248,7 @@ async def test_non_new_status_skipped_in_sla_loop_and_alert_sends(monkeypatch):
     import app.services.slack_notifications as SN
 
     sent: list[str] = []
-    monkeypatch.setattr(
-        SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t))
-    )
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t)))
     fake = _FakeEspo(
         [
             _lead("a", "a@x.gr", status="Assigned", created="2026-01-01T00:00:00Z"),
@@ -268,9 +274,7 @@ async def test_slack_report_includes_stale_sla_lines(monkeypatch):
     import app.services.slack_notifications as SN
 
     sent: list[str] = []
-    monkeypatch.setattr(
-        SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t))
-    )
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock(side_effect=lambda t: sent.append(t)))
     await crm_hygiene._slack_report(
         {
             "total": 2,
@@ -291,9 +295,7 @@ async def test_slack_report_includes_stale_sla_lines(monkeypatch):
 async def test_slack_report_failure_swallowed(monkeypatch):
     import app.services.slack_notifications as SN
 
-    monkeypatch.setattr(
-        SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down"))
-    )
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down")))
     await crm_hygiene._slack_report(
         {
             "total": 0,

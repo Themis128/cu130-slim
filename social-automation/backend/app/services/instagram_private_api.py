@@ -99,7 +99,7 @@ async def _call_with_retry(
                 )
                 raise
             jitter = random.uniform(0, RETRY_JITTER_FACTOR)
-            delay = min(base_delay * (2 ** attempt) + jitter, max_delay)
+            delay = min(base_delay * (2**attempt) + jitter, max_delay)
             logger.warning(
                 "Instagram Private API rate-limited (attempt %d/%d), backing off %.1fs: %s",
                 attempt + 1,
@@ -118,7 +118,7 @@ async def _call_with_retry(
                 )
                 raise
             jitter = random.uniform(0, RETRY_JITTER_FACTOR)
-            delay = min(base_delay * (2 ** attempt) + jitter, max_delay)
+            delay = min(base_delay * (2**attempt) + jitter, max_delay)
             logger.warning(
                 "Instagram Private API HTTP 429 (attempt %d/%d), backing off %.1fs",
                 attempt + 1,
@@ -407,9 +407,7 @@ class InstagramPrivateAPIClient:
             )
             return self._raise_for_status(resp)
 
-    async def update_external_url(
-        self, session_id: str, external_url: str
-    ) -> dict[str, Any]:
+    async def update_external_url(self, session_id: str, external_url: str) -> dict[str, Any]:
         """Set the bio link (external URL)."""
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             resp = await client.patch(
@@ -419,9 +417,7 @@ class InstagramPrivateAPIClient:
             )
             return self._raise_for_status(resp)
 
-    async def update_profile_picture(
-        self, session_id: str, image_bytes: bytes, filename: str = "profile.jpg"
-    ) -> dict[str, Any]:
+    async def update_profile_picture(self, session_id: str, image_bytes: bytes, filename: str = "profile.jpg") -> dict[str, Any]:
         """Upload a new profile picture.
 
         The image must be a valid JPEG or PNG.  The sidecar handles
@@ -473,6 +469,7 @@ class InstagramPrivateAPIClient:
         Returns the media dict (includes ``id``, ``pk``, ``code``).
         """
         import os
+
         filename = os.path.basename(file_path)
         data: dict[str, str] = {"caption": caption}
         if location:
@@ -512,6 +509,7 @@ class InstagramPrivateAPIClient:
     ) -> dict[str, Any]:
         """Upload a single video post."""
         import os
+
         filename = os.path.basename(file_path)
         data: dict[str, str] = {"caption": caption}
         if location:
@@ -603,6 +601,7 @@ class InstagramPrivateAPIClient:
     ) -> dict[str, Any]:
         """Upload a story post."""
         import os
+
         filename = os.path.basename(file_path)
         data: dict[str, str] = {}
         if caption:

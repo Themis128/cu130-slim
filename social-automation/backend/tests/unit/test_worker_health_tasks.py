@@ -36,8 +36,7 @@ class _Redis:
 
 
 def _dl_settings(**kw):
-    base = {"billing_provider": "dodo", "DODO_ENVIRONMENT": "live_mode",
-            "REDIS_URL": "redis://x"}
+    base = {"billing_provider": "dodo", "DODO_ENVIRONMENT": "live_mode", "REDIS_URL": "redis://x"}
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -51,8 +50,7 @@ def _patch_dl(monkeypatch, settings, redis, live, slack=None):
     monkeypatch.setattr(cfg, "get_settings", lambda: settings)
     monkeypatch.setattr(DL, "_redis", AsyncMock(return_value=redis))
     monkeypatch.setattr(dodo, "live_payments_enabled", AsyncMock(return_value=live))
-    monkeypatch.setattr(slack_mod, "post_alert_to_slack",
-                        slack or AsyncMock())
+    monkeypatch.setattr(slack_mod, "post_alert_to_slack", slack or AsyncMock())
 
 
 @pytest.mark.asyncio
@@ -95,9 +93,9 @@ async def test_dodo_goes_live(monkeypatch):
     _patch_dl(monkeypatch, _dl_settings(), r, True, slack)
     out = await DL._check()
     assert out == {"live": True}
-    assert DL._CONFIRMED_KEY in r.store   # flag set → becomes no-op
-    slack.assert_awaited_once()           # Slack alert fired
-    assert r.closed                       # redis closed
+    assert DL._CONFIRMED_KEY in r.store  # flag set → becomes no-op
+    slack.assert_awaited_once()  # Slack alert fired
+    assert r.closed  # redis closed
 
 
 @pytest.mark.asyncio
@@ -149,14 +147,15 @@ async def test_dmr_online_all_models(monkeypatch):
     import app.services.dmr as dmr
 
     monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=True))
-    monkeypatch.setattr(dmr, "validate_dmr_models",
-                        AsyncMock(return_value={"missing": []}))
+    monkeypatch.setattr(dmr, "validate_dmr_models", AsyncMock(return_value={"missing": []}))
     r = _Redis()
 
     import app.core.config as cfg
+
     monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(REDIS_URL="r"))
 
     import redis.asyncio as aioredis
+
     monkeypatch.setattr(aioredis, "from_url", lambda u: r)
 
     out = await DH._check()
@@ -169,12 +168,13 @@ async def test_dmr_offline(monkeypatch):
     import app.services.dmr as dmr
 
     monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=False))
-    monkeypatch.setattr(dmr, "validate_dmr_models", AsyncMock(
-        side_effect=AssertionError("must not be called")))
+    monkeypatch.setattr(dmr, "validate_dmr_models", AsyncMock(side_effect=AssertionError("must not be called")))
     r = _Redis()
     import app.core.config as cfg
+
     monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(REDIS_URL="r"))
     import redis.asyncio as aioredis
+
     monkeypatch.setattr(aioredis, "from_url", lambda u: r)
 
     out = await DH._check()
@@ -187,19 +187,20 @@ async def test_dmr_validation_error_and_redis_down(monkeypatch):
     import app.services.dmr as dmr
 
     monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=True))
-    monkeypatch.setattr(dmr, "validate_dmr_models",
-                        AsyncMock(side_effect=RuntimeError("broken")))
+    monkeypatch.setattr(dmr, "validate_dmr_models", AsyncMock(side_effect=RuntimeError("broken")))
     import app.core.config as cfg
-    monkeypatch.setattr(cfg, "get_settings",
-                        lambda: SimpleNamespace(REDIS_URL="redis://bad"))
+
+    monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(REDIS_URL="redis://bad"))
     # real from_url will fail on setex? — use from_url that raises
     import redis.asyncio as aioredis
 
     class _Boom:
         def __init__(self, *a):
             pass
+
         async def setex(self, *a):
             raise ConnectionError("no redis")
+
         async def aclose(self):
             raise ConnectionError("no redis")
 
@@ -215,12 +216,13 @@ async def test_dmr_missing_models(monkeypatch):
     import app.services.dmr as dmr
 
     monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=True))
-    monkeypatch.setattr(dmr, "validate_dmr_models",
-                        AsyncMock(return_value={"missing": ["llama3.2"]}))
+    monkeypatch.setattr(dmr, "validate_dmr_models", AsyncMock(return_value={"missing": ["llama3.2"]}))
     r = _Redis()
     import app.core.config as cfg
+
     monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(REDIS_URL="r"))
     import redis.asyncio as aioredis
+
     monkeypatch.setattr(aioredis, "from_url", lambda u: r)
 
     out = await DH._check()
@@ -230,8 +232,8 @@ async def test_dmr_missing_models(monkeypatch):
 @pytest.mark.asyncio
 async def test_keep_warm(monkeypatch):
     import app.services.dmr as dmr
-    monkeypatch.setattr(dmr, "keep_warm_models",
-                        AsyncMock(return_value={"warmed": 2}))
+
+    monkeypatch.setattr(dmr, "keep_warm_models", AsyncMock(return_value={"warmed": 2}))
     assert await DH._keep_warm() == {"warmed": 2}
 
 

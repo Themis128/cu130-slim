@@ -12,6 +12,7 @@ process-publish-queue beat picks them up:
   via consecutive sweeps on updated_at
 - 72h age cap — past that, permanent-fail stays failed
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,12 +41,10 @@ async def _sweep() -> dict:
     retried = skipped = 0
     async with task_session() as db:
         targets = (
-            await db.execute(
-                select(PostTarget)
-                .where(PostTarget.status == "failed")
-                .where(PostTarget.updated_at > now - timedelta(hours=_MAX_RETRY_AGE_H))
-            )
-        ).scalars().all()
+            (await db.execute(select(PostTarget).where(PostTarget.status == "failed").where(PostTarget.updated_at > now - timedelta(hours=_MAX_RETRY_AGE_H))))
+            .scalars()
+            .all()
+        )
         for tgt in targets:
             err = tgt.error_message or ""
             if any(tok in err for tok in _NON_RETRYABLE):
@@ -59,12 +58,18 @@ async def _sweep() -> dict:
             # Reactivate the actual queue row — the processor picks up
             # PublishQueue, not PostTarget status.
             from app.models.queue import PublishQueue
-            qr = (await db.execute(
-                __import__("sqlalchemy").select(PublishQueue).where(
-                    PublishQueue.post_id == tgt.post_id,
-                    PublishQueue.social_account_id == tgt.social_account_id,
-                    PublishQueue.status == "failed")
-            )).scalars().first()
+
+            qr = (
+                (
+                    await db.execute(
+                        __import__("sqlalchemy")
+                        .select(PublishQueue)
+                        .where(PublishQueue.post_id == tgt.post_id, PublishQueue.social_account_id == tgt.social_account_id, PublishQueue.status == "failed")
+                    )
+                )
+                .scalars()
+                .first()
+            )
             if qr:
                 qr.status = "pending"
                 qr.attempts = 0

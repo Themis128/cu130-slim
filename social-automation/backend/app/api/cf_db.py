@@ -7,6 +7,7 @@ Endpoints:
 - POST /api/v1/cf-db/replay     — Replay queued writes to D1
 - GET  /api/v1/cf-db/tables     — List D1 tables and row counts
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -26,13 +27,18 @@ router = APIRouter()
 async def cf_db_health() -> dict:
     """Check health of all Cloudflare database services."""
     from app.core.config import get_settings
+
     s = get_settings()
     # Count available tokens (without exposing values)
-    tokens_available = sum(1 for t in [
-        (s.CLOUDFLARE_API_TOKEN or "").strip(),
-        (s.CLOUDFLARE_AI_API_TOKEN or "").strip(),
-        (getattr(s, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
-    ] if t)
+    tokens_available = sum(
+        1
+        for t in [
+            (s.CLOUDFLARE_API_TOKEN or "").strip(),
+            (s.CLOUDFLARE_AI_API_TOKEN or "").strip(),
+            (getattr(s, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
+        ]
+        if t
+    )
     return {
         "d1": await d1_client.health(),
         "kv": await kv_client.health(),

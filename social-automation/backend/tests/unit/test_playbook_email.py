@@ -1,4 +1,5 @@
 """Public funnel: the playbook promised by LeadCapture is actually delivered."""
+
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -102,15 +103,13 @@ def test_email_links_carry_utm_attribution():
 
 def test_email_has_preheader():
     _, _, html = pb.build_playbook_email(URL)
-    assert 'display:none' in html
+    assert "display:none" in html
     assert "audit offer" in html
 
 
 @pytest.mark.asyncio
 async def test_send_playbook_email_sets_unsubscribe_and_reply_headers():
-    with patch.object(pb, "get_settings", return_value=_settings()), patch.object(
-        pb, "send_email", new=AsyncMock()
-    ) as send:
+    with patch.object(pb, "get_settings", return_value=_settings()), patch.object(pb, "send_email", new=AsyncMock()) as send:
         await pb.send_playbook_email("lead@example.com", name="Nikos")
     kwargs = send.await_args.kwargs
     headers = kwargs["extra_headers"]
@@ -143,9 +142,7 @@ def test_delivery_disabled_without_url_or_flag():
 
 @pytest.mark.asyncio
 async def test_send_playbook_email_targets_submitter_only():
-    with patch.object(pb, "get_settings", return_value=_settings()), patch.object(
-        pb, "send_email", new=AsyncMock()
-    ) as send:
+    with patch.object(pb, "get_settings", return_value=_settings()), patch.object(pb, "send_email", new=AsyncMock()) as send:
         await pb.send_playbook_email("lead@example.com")
     send.assert_awaited_once()
     kwargs = send.await_args.kwargs
@@ -186,9 +183,7 @@ async def test_deliver_playbook_never_resends(fake_redis):
 async def test_deliver_playbook_without_sender_offers_download(fake_redis):
     db, lead = _FakeDB(), SimpleNamespace(meta_data={})
     with patch.object(pb, "_enqueue_playbook_email") as enq:
-        out = await pb.deliver_playbook(
-            db, lead, "a@b.co", already_sent=False, settings=_settings(SMTP_PASSWORD="")
-        )
+        out = await pb.deliver_playbook(db, lead, "a@b.co", already_sent=False, settings=_settings(SMTP_PASSWORD=""))
     assert out == "download"
     enq.assert_not_called()
 
@@ -264,8 +259,7 @@ async def test_concurrent_submissions_queue_exactly_one_email(fake_redis):
     with patch.object(pb, "_enqueue_playbook_email") as enq:
         results = await asyncio.gather(
             *(
-                pb.deliver_playbook(db, lead, "Race@Example.com" if i % 2 else "race@example.com",
-                                    already_sent=False, settings=_settings())
+                pb.deliver_playbook(db, lead, "Race@Example.com" if i % 2 else "race@example.com", already_sent=False, settings=_settings())
                 for i, lead in enumerate(leads)
             )
         )
@@ -304,6 +298,7 @@ async def test_stamped_lead_row_short_circuits(fake_redis):
     assert out == "already_sent"
     enq.assert_not_called()
     assert fake_redis.store == {}
+
 
 def test_enqueue_playbook_email_sends_task(monkeypatch):
     from app.worker.celery_app import celery_app

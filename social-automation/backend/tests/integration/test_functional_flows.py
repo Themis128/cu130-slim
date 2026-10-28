@@ -20,17 +20,13 @@ import httpx
 import pytest
 
 _in_container = Path("/.dockerenv").exists()
-API_URL = os.environ.get(
-    "API_URL", "http://localhost:8000" if _in_container else "http://localhost:8083"
-).rstrip("/")
+API_URL = os.environ.get("API_URL", "http://localhost:8000" if _in_container else "http://localhost:8083").rstrip("/")
 
 # These flows need the configured live stack (admin creds, webhook secrets,
 # lead capture, billing provider). In bare CI the same endpoints correctly
 # return not-configured responses, so the suite is skipped there.
 IN_CI = os.environ.get("CI") == "true" or os.environ.get("GITHUB_ACTIONS") == "true"
-pytestmark = pytest.mark.skipif(
-    IN_CI, reason="functional flows target the live configured stack"
-)
+pytestmark = pytest.mark.skipif(IN_CI, reason="functional flows target the live configured stack")
 
 
 def _repo_root() -> Path | None:
@@ -88,17 +84,13 @@ def _sweep_orphaned_ci_teams():
         for team in r.json():
             name = str(team.get("name") or "")
             if name.startswith("ci-") and str(team.get("role") or "").lower() == "owner":
-                httpx.delete(
-                    f"{API_URL}/api/v1/teams/{team['id']}", headers=_h(token), timeout=15
-                )
+                httpx.delete(f"{API_URL}/api/v1/teams/{team['id']}", headers=_h(token), timeout=15)
     except Exception:
         pass  # best-effort hygiene sweep — never fail the suite over cleanup
 
 
 # 1x1 red pixel PNG
-TINY_PNG = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-)
+TINY_PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
 
 
 class TestAuthLifecycle:
@@ -276,9 +268,7 @@ class TestPresignedUpload:
         g = httpx.get(f"{API_URL}/api/v1/media/assets/{asset_id}", headers=_h(token), timeout=15)
         assert g.status_code == 200
 
-        d = httpx.delete(
-            f"{API_URL}/api/v1/media/assets/{asset_id}", headers=_h(token), timeout=15
-        )
+        d = httpx.delete(f"{API_URL}/api/v1/media/assets/{asset_id}", headers=_h(token), timeout=15)
         assert d.status_code in (200, 204), f"delete → {d.status_code}: {d.text[:200]}"
 
 
@@ -547,9 +537,7 @@ class TestAnalyticsConfigCrud:
         assert cfg_id
 
         try:
-            lst = httpx.get(
-                f"{API_URL}/api/v1/analytics/web/configs", headers=_h(token), timeout=15
-            )
+            lst = httpx.get(f"{API_URL}/api/v1/analytics/web/configs", headers=_h(token), timeout=15)
             assert lst.status_code == 200 and domain in lst.text
 
             u = httpx.put(
@@ -590,9 +578,7 @@ class TestNotificationPrefs:
 
         me2 = httpx.get(f"{API_URL}/api/v1/auth/me", headers=_h(token), timeout=15)
         if me2.status_code == 200 and me2.json().get("notification_preferences") is not None:
-            assert me2.json()["notification_preferences"].get("email_analytics") == marker[
-                "email_analytics"
-            ]
+            assert me2.json()["notification_preferences"].get("email_analytics") == marker["email_analytics"]
 
         # restore
         if original:

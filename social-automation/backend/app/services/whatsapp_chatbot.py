@@ -19,6 +19,7 @@ Services used (free/open-source-first):
     - Redis — per-conversation cooldown + paused-thread tracking + 24h window
     - Brand Voice API — banned phrases, preferred phrases, euro pricing, bilingual rules
 """
+
 from __future__ import annotations
 
 import json
@@ -71,6 +72,7 @@ CUSTOMER_SERVICE_WINDOW_HOURS = 24  # Meta 24-hour rule
 
 async def _get_redis() -> Any:
     import redis.asyncio as aioredis
+
     url = getattr(settings, "MESSENGER_REDIS_URL", None) or settings.REDIS_URL
     return aioredis.from_url(url)
 
@@ -308,10 +310,12 @@ async def get_conversation_memory(
                 messages = []
                 for i, doc in enumerate(docs):
                     meta = metas[i] if i < len(metas) else {}
-                    messages.append({
-                        "sender": meta.get("sender", "them"),
-                        "text": doc,
-                    })
+                    messages.append(
+                        {
+                            "sender": meta.get("sender", "them"),
+                            "text": doc,
+                        }
+                    )
                 return messages
         except Exception:
             pass
@@ -435,6 +439,7 @@ Reply with only the category name, nothing else."""
     # Try DMR first (local, free, primary)
     try:
         from app.services.dmr import call_dmr_chat
+
         result = await call_dmr_chat(
             prompt,
             max_tokens=10,
@@ -518,10 +523,17 @@ async def generate_contextual_reply(
     """
     # Get per-conversation config overrides
     thread_config = await get_thread_config(account_id, phone)
-    system_prompt = thread_config.get("system_prompt", config.get(
-        "system_prompt",
-        "You are a helpful assistant for {business_name}. Reply concisely and professionally.",
-    )).replace("{business_name}", account_name).replace("{page_name}", account_name)
+    system_prompt = (
+        thread_config.get(
+            "system_prompt",
+            config.get(
+                "system_prompt",
+                "You are a helpful assistant for {business_name}. Reply concisely and professionally.",
+            ),
+        )
+        .replace("{business_name}", account_name)
+        .replace("{page_name}", account_name)
+    )
 
     max_tokens = thread_config.get("max_tokens", config.get("max_tokens", 300))
     temperature = thread_config.get("temperature", config.get("temperature", 0.7))
@@ -538,7 +550,8 @@ async def generate_contextual_reply(
         lang = "greek" if _is_greek_message(user_message) else "english"
         reply = _PRICING_RESPONSES[lang]
         await track_bot_reply(
-            account_id, phone,
+            account_id,
+            phone,
             provider="deterministic",
             model="pricing-guardrail",
             user_message=user_message,
@@ -555,6 +568,7 @@ async def generate_contextual_reply(
     # Inject brand voice rules from the brand system so the WhatsApp bot
     # also enforces banned phrases, euro pricing, and bilingual matching.
     from app.services.messenger_chatbot import _get_brand_voice_block
+
     brand_voice_block = await _get_brand_voice_block()
     if brand_voice_block and brand_voice_block not in enhanced_prompt:
         enhanced_prompt += brand_voice_block
@@ -605,6 +619,7 @@ async def generate_contextual_reply(
     dmr_start = time.perf_counter()
     try:
         from app.services.dmr import call_dmr_chat
+
         result = await call_dmr_chat(
             user_message,
             system=enhanced_prompt,
@@ -618,30 +633,31 @@ async def generate_contextual_reply(
                 await mark_disclosed(account_id, phone)
             reply = f"{disclosure_prefix}{text}" if not disclosed else text
             await track_bot_reply(
-                account_id, phone,
-                provider="dmr", model=dmr_model,
-                user_message=user_message, reply_text=reply,
-                latency_ms=int(
-                    (time.perf_counter() - dmr_start) * 1000
-                ),
+                account_id,
+                phone,
+                provider="dmr",
+                model=dmr_model,
+                user_message=user_message,
+                reply_text=reply,
+                latency_ms=int((time.perf_counter() - dmr_start) * 1000),
                 intent=intent,
-                language="greek" if any(
-                    0x0370 <= ord(c) <= 0x03FF
-                    for c in user_message
-                ) else "english",
+                language="greek" if any(0x0370 <= ord(c) <= 0x03FF for c in user_message) else "english",
                 team_id=team_id,
             )
             return reply
     except Exception as exc:
         logger.warning("DMR chatbot reply failed: %s", exc)
         await track_bot_reply(
-            account_id, phone,
-            provider="dmr", model=dmr_model,
-            user_message=user_message, reply_text="",
-            latency_ms=int(
-                (time.perf_counter() - dmr_start) * 1000
-            ),
-            success=False, error=str(exc), intent=intent,
+            account_id,
+            phone,
+            provider="dmr",
+            model=dmr_model,
+            user_message=user_message,
+            reply_text="",
+            latency_ms=int((time.perf_counter() - dmr_start) * 1000),
+            success=False,
+            error=str(exc),
+            intent=intent,
             team_id=team_id,
         )
 
@@ -673,31 +689,31 @@ async def generate_contextual_reply(
                                 await mark_disclosed(account_id, phone)
                             reply = f"{disclosure_prefix}{text}" if not disclosed else text
                             await track_bot_reply(
-                                account_id, phone,
-                                provider="cloudflare", model=model,
+                                account_id,
+                                phone,
+                                provider="cloudflare",
+                                model=model,
                                 user_message=user_message,
                                 reply_text=reply,
-                                latency_ms=int(
-                                    (time.perf_counter() - cf_start) * 1000
-                                ),
+                                latency_ms=int((time.perf_counter() - cf_start) * 1000),
                                 intent=intent,
-                                language="greek" if any(
-                                    0x0370 <= ord(c) <= 0x03FF
-                                    for c in user_message
-                                ) else "english",
+                                language="greek" if any(0x0370 <= ord(c) <= 0x03FF for c in user_message) else "english",
                                 team_id=team_id,
                             )
                             return reply
         except Exception as exc:
             logger.warning("Cloudflare AI bot reply failed: %s", exc)
             await track_bot_reply(
-                account_id, phone,
-                provider="cloudflare", model=model,
-                user_message=user_message, reply_text="",
-                latency_ms=int(
-                    (time.perf_counter() - cf_start) * 1000
-                ),
-                success=False, error=str(exc), intent=intent,
+                account_id,
+                phone,
+                provider="cloudflare",
+                model=model,
+                user_message=user_message,
+                reply_text="",
+                latency_ms=int((time.perf_counter() - cf_start) * 1000),
+                success=False,
+                error=str(exc),
+                intent=intent,
                 team_id=team_id,
             )
 

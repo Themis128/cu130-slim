@@ -19,6 +19,7 @@ Contract between a report notebook and :func:`run_report_notebook`:
 - ``cid`` lets the HTML reference images inline as ``<img src="cid:pulse">``
   (renders in Gmail, unlike base64 data-URIs).
 """
+
 from __future__ import annotations
 
 import json
@@ -79,9 +80,7 @@ def run_report_notebook(
     else:
         logger.warning("Notebook %s produced no manifest at %s", name, manifest_path)
 
-    logger.info(
-        "Notebook report %s executed in %.1fs → %s", name, duration, out_nb
-    )
+    logger.info("Notebook report %s executed in %.1fs → %s", name, duration, out_nb)
     return {
         "notebook": str(out_nb),
         "manifest": manifest,

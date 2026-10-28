@@ -33,6 +33,7 @@ def _run_async(coro):
         return run_async(coro)
     # Already inside a loop (unlikely for celery) — run in a new thread
     import concurrent.futures
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
         return pool.submit(run_async, coro).result()
 
@@ -58,6 +59,7 @@ async def _check() -> dict:
         import redis.asyncio as aioredis
 
         from app.core.config import get_settings
+
         r = aioredis.from_url(get_settings().REDIS_URL)
         await r.setex(_STATUS_KEY, _STATUS_TTL, json.dumps(status))
         await r.aclose()

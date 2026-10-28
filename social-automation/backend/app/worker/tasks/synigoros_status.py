@@ -5,6 +5,7 @@ extracts Κατάσταση / Αριθμός Πρωτοκόλλου, and posts a
 Automation HQ channel when the status changes. Last status persists in the
 `social_secrets` KV table so beat restarts don't re-alert.
 """
+
 from __future__ import annotations
 
 import json
@@ -38,6 +39,7 @@ async def _bridge_call(client: httpx.AsyncClient, path: str, data: dict, tries: 
             if r.status_code == 409 or (r.status_code == 500 and "context was destroyed" in r.text):
                 if i < tries - 1:
                     import asyncio
+
                     await asyncio.sleep(15)
                     continue
             r.raise_for_status()
@@ -45,6 +47,7 @@ async def _bridge_call(client: httpx.AsyncClient, path: str, data: dict, tries: 
         except (httpx.HTTPError, ValueError):
             if i < tries - 1:
                 import asyncio
+
                 await asyncio.sleep(15)
                 continue
             raise
@@ -64,16 +67,12 @@ async def _poll() -> dict:
             await _bridge_call(client, "/session/close", {})
         except httpx.HTTPError:
             pass
-        await _bridge_call(
-            client, "/session/start", {"platform": "reddit", "interactive": False, "force": True}
-        )
+        await _bridge_call(client, "/session/start", {"platform": "reddit", "interactive": False, "force": True})
         await asyncio.sleep(4)
         await _bridge_call(client, "/session/navigate", {"url": TRACK_URL})
 
         for _ in range(10):
-            if await _ev(client, "!!document.getElementById('webMail')") or await _ev(
-                client, "document.body.innerText.includes('Κατάσταση')"
-            ):
+            if await _ev(client, "!!document.getElementById('webMail')") or await _ev(client, "document.body.innerText.includes('Κατάσταση')"):
                 break
             await asyncio.sleep(3)
         else:
@@ -108,24 +107,14 @@ async def _poll() -> dict:
 async def _notify(status: str, proto: str) -> None:
     async with task_session() as db:
         acc = (
-            await db.execute(
-                select(SocialAccount)
-                .where(SocialAccount.platform == "telegram", SocialAccount.status == "active")
-                .limit(1)
-            )
+            await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram", SocialAccount.status == "active").limit(1))
         ).scalar_one_or_none()
         if not acc:
             return
         md = acc.meta_data or {}
         enc = md.get("bot_token_enc")
-        tok = (
-            decrypt_token(enc.encode() if isinstance(enc, str) else enc)
-            if enc
-            else decrypt_token(acc.access_token_enc)
-        )
-        await TelegramAPIClient(tok).send_message(
-            CHAT_ID, f"📋 Synigoros — status changed:\n{status} (πρωτ. {proto})"
-        )
+        tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
+        await TelegramAPIClient(tok).send_message(CHAT_ID, f"📋 Synigoros — status changed:\n{status} (πρωτ. {proto})")
 
 
 async def _run() -> str:
@@ -135,9 +124,7 @@ async def _run() -> str:
         return "no-status-extracted"
 
     async with task_session() as db:
-        row = (
-            await db.execute(select(SocialSecret).where(SocialSecret.key == STATE_KEY))
-        ).scalars().first()
+        row = (await db.execute(select(SocialSecret).where(SocialSecret.key == STATE_KEY))).scalars().first()
         last = row.value if row else None
         if status == last:
             return "unchanged"

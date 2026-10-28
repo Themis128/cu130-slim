@@ -30,4 +30,3 @@ async def test_notify_publish_failure_posts_slack_alert():
     assert "post-123" in text
     assert "linkedin" in text
     assert "queue-456" in text
-

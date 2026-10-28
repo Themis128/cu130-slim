@@ -31,8 +31,7 @@ def _http(status=200, body=None):
 
 
 def test_get_oauth_client():
-    for p in ("linkedin", "twitter", "facebook", "instagram",
-              "threads", "tiktok"):
+    for p in ("linkedin", "twitter", "facebook", "instagram", "threads", "tiktok"):
         assert TR._get_oauth_client(p) is not None
     assert TR._get_oauth_client("whatsapp") is None
     assert TR._get_oauth_client("viber") is None
@@ -72,30 +71,32 @@ def test_skip_for_recent_update():
     # no expiry set → never skip (must refresh)
     assert TR._skip_for_recent_update(None, now, now) is False
     # expires within the run window → never skip (dead soon)
-    assert TR._skip_for_recent_update(
-        now + timedelta(minutes=1), now, now) is False
+    assert TR._skip_for_recent_update(now + timedelta(minutes=1), now, now) is False
     # token survives next run but no updated_at → no skip
-    assert TR._skip_for_recent_update(
-        now + timedelta(days=5), None, now) is False
+    assert TR._skip_for_recent_update(now + timedelta(days=5), None, now) is False
     # survives + recent update → skip
-    assert TR._skip_for_recent_update(
-        now + timedelta(days=5), now - timedelta(minutes=1), now) is True
+    assert TR._skip_for_recent_update(now + timedelta(days=5), now - timedelta(minutes=1), now) is True
     # survives + old update → don't skip
-    assert TR._skip_for_recent_update(
-        now + timedelta(days=5), now - timedelta(hours=2), now) is False
+    assert TR._skip_for_recent_update(now + timedelta(days=5), now - timedelta(hours=2), now) is False
     # naive updated_at handled
-    assert TR._skip_for_recent_update(
-        now + timedelta(days=5), now.replace(tzinfo=None), now) is True
+    assert TR._skip_for_recent_update(now + timedelta(days=5), now.replace(tzinfo=None), now) is True
 
 
 def _account(**kw):
     base = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="linkedin",
-        username="u", account_id="x", status="active",
-        meta_data={}, access_token_enc="enc_a",
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        platform="linkedin",
+        username="u",
+        account_id="x",
+        status="active",
+        meta_data={},
+        access_token_enc="enc_a",
         refresh_token_enc="enc_r",
         token_expires_at=datetime.now(UTC) + timedelta(hours=1),
-        updated_at=None, scopes=[])
+        updated_at=None,
+        scopes=[],
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -111,8 +112,7 @@ def _db_with(accounts):
             return False
 
         async def execute(self, *a):
-            return SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: accounts))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: accounts))
 
     return _DB
 
@@ -125,12 +125,10 @@ async def test_refresh_async_guards(monkeypatch):
     # empty → zeroed summary
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([])())
     out = await TR._refresh_expiring_tokens_async()
-    assert out == {"checked": 0, "refreshed": 0, "skipped": 0,
-                   "errors": []}
+    assert out == {"checked": 0, "refreshed": 0, "skipped": 0, "errors": []}
 
     # recent-update skip
-    acct = _account(updated_at=datetime.now(UTC),
-                    token_expires_at=datetime.now(UTC) + timedelta(days=5))
+    acct = _account(updated_at=datetime.now(UTC), token_expires_at=datetime.now(UTC) + timedelta(days=5))
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
     out = await TR._refresh_expiring_tokens_async()
     assert out["skipped"] == 1 and out["refreshed"] == 0
@@ -147,10 +145,7 @@ async def test_refresh_async_paths(monkeypatch):
     monkeypatch.setattr(TR, "decrypt_token", lambda t: f"dec-{t}")
     monkeypatch.setattr(TR, "encrypt_token", lambda t: f"enc-{t}")
 
-    fake_client = SimpleNamespace(
-        refresh_token=AsyncMock(return_value={
-            "access_token": "AT", "refresh_token": "RT",
-            "expires_in": 3600}))
+    fake_client = SimpleNamespace(refresh_token=AsyncMock(return_value={"access_token": "AT", "refresh_token": "RT", "expires_in": 3600}))
     monkeypatch.setattr(TR, "_get_oauth_client", lambda p: fake_client)
 
     # happy — enc + expiry set
@@ -166,16 +161,14 @@ async def test_refresh_async_paths(monkeypatch):
 
     # twitter — granted scopes persisted
     acct = _account(platform="twitter")
-    fake_client.refresh_token = AsyncMock(return_value={
-        "access_token": "AT", "scope": "tweet.read tweet.write users.read"})
+    fake_client.refresh_token = AsyncMock(return_value={"access_token": "AT", "scope": "tweet.read tweet.write users.read"})
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
     await TR._refresh_expiring_tokens_async()
     assert acct.scopes == ["tweet.read", "tweet.write", "users.read"]
 
     # tiktok — no expires_in → 24h default
     acct = _account(platform="tiktok")
-    fake_client.refresh_token = AsyncMock(return_value={
-        "access_token": "AT"})
+    fake_client.refresh_token = AsyncMock(return_value={"access_token": "AT"})
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
     await TR._refresh_expiring_tokens_async()
     assert acct.token_expires_at > datetime.now(UTC) + timedelta(hours=20)
@@ -209,8 +202,7 @@ async def test_refresh_meta_self_paths(monkeypatch):
     monkeypatch.setattr(TR, "_get_oauth_client", lambda p: SimpleNamespace())
 
     # IG business_login without refresh_token → ig_refresh_token grant
-    acct = _account(platform="instagram", refresh_token_enc=None,
-                    meta_data={"login_type": "business_login"})
+    acct = _account(platform="instagram", refresh_token_enc=None, meta_data={"login_type": "business_login"})
     ig = AsyncMock(return_value={"access_token": "IG", "expires_in": 60})
     monkeypatch.setattr(TR, "_refresh_instagram_business_token", ig)
     monkeypatch.setattr(TR, "_worker_db", lambda: _db_with([acct])())
@@ -245,7 +237,6 @@ def test_task_wrapper(monkeypatch):
 
     # no refresh → no D1 sync
     calls.clear()
-    monkeypatch.setattr(TR, "run_async",
-                        lambda c: (c.close(), {"refreshed": 0})[1])
+    monkeypatch.setattr(TR, "run_async", lambda c: (c.close(), {"refreshed": 0})[1])
     TR.refresh_expiring_tokens()
     assert len(calls) == 0

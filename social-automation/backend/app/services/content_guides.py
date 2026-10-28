@@ -5,6 +5,7 @@ and the autonomous executors (brand agent, monetization executor).
 Single source of truth so a platform-algorithm change (e.g. Instagram's 5-tag
 cap) lands in one place for every generation path.
 """
+
 from __future__ import annotations
 
 PLATFORM_GUIDES: dict[str, str] = {
@@ -34,10 +35,7 @@ PLATFORM_GUIDES: dict[str, str] = {
         "for the algorithm, not reach drivers — caption keywords and on-screen text matter more. "
         "Use emojis. Plain everyday English."
     ),
-    "facebook": (
-        "Community-focused, conversational for Facebook. No strict limit. "
-        "1-3 hashtags. Plain everyday English."
-    ),
+    "facebook": ("Community-focused, conversational for Facebook. No strict limit. 1-3 hashtags. Plain everyday English."),
     "threads": (
         "Casual, conversational, text-first for Threads. 500 char limit. "
         "Minimal hashtags (0-2). Threads rewards authentic, human-sounding posts "

@@ -56,9 +56,7 @@ def _campaign_text(campaign: EmailCampaign) -> str:
     return f"{campaign.subject}\n{campaign.text_body}"
 
 
-async def find_duplicate_campaign(
-    db: AsyncSession, campaign: EmailCampaign
-) -> tuple[EmailCampaign | None, float]:
+async def find_duplicate_campaign(db: AsyncSession, campaign: EmailCampaign) -> tuple[EmailCampaign | None, float]:
     """Return the recently-sent campaign this one duplicates, if any.
 
     Compares subject+body against this team's campaigns that are sending/sent
@@ -74,20 +72,22 @@ async def find_duplicate_campaign(
 
     since = datetime.now(UTC) - timedelta(days=DUP_WINDOW_DAYS)
     recent = (
-        await db.execute(
-            select(EmailCampaign)
-            .where(
-                EmailCampaign.team_id == campaign.team_id,
-                EmailCampaign.id != campaign.id,
-                EmailCampaign.status.in_(
-                    [CampaignStatus.sending, CampaignStatus.sent, CampaignStatus.partial]
-                ),
-                EmailCampaign.updated_at >= since,
+        (
+            await db.execute(
+                select(EmailCampaign)
+                .where(
+                    EmailCampaign.team_id == campaign.team_id,
+                    EmailCampaign.id != campaign.id,
+                    EmailCampaign.status.in_([CampaignStatus.sending, CampaignStatus.sent, CampaignStatus.partial]),
+                    EmailCampaign.updated_at >= since,
+                )
+                .order_by(EmailCampaign.updated_at.desc())
+                .limit(50)
             )
-            .order_by(EmailCampaign.updated_at.desc())
-            .limit(50)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     text = _campaign_text(campaign)
     best: EmailCampaign | None = None
@@ -99,6 +99,7 @@ async def find_duplicate_campaign(
     if best is not None and best_score >= DUP_THRESHOLD:
         return best, best_score
     return None, best_score
+
 
 _MERGE_TAG_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 
@@ -160,11 +161,7 @@ def _crm_ctx(record: dict[str, Any] | None) -> dict[str, str]:
 
 
 async def _suppressed_emails(db: AsyncSession, team_id: uuid.UUID) -> set[str]:
-    rows = (
-        await db.execute(
-            select(EmailSuppression.email).where(EmailSuppression.team_id == team_id)
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(EmailSuppression.email).where(EmailSuppression.team_id == team_id))).scalars().all()
     return {e.strip().lower() for e in rows}
 
 
@@ -192,8 +189,11 @@ async def add_suppression(
     if existing:
         return existing
     row = EmailSuppression(
-        id=uuid.uuid4(), team_id=team_id, email=email_n,
-        reason=reason[:40], source=source[:120],
+        id=uuid.uuid4(),
+        team_id=team_id,
+        email=email_n,
+        reason=reason[:40],
+        source=source[:120],
     )
     db.add(row)
     await db.commit()
@@ -221,9 +221,7 @@ async def resolve_audience(
         if not is_valid_email(e) or _is_synthetic_email(e) or e in seen:
             return
         seen.add(e)
-        status = (
-            RecipientStatus.skipped_suppressed if e in suppressed else RecipientStatus.pending
-        )
+        status = RecipientStatus.skipped_suppressed if e in suppressed else RecipientStatus.pending
         out.append(
             EmailRecipient(
                 id=uuid.uuid4(),
@@ -243,13 +241,17 @@ async def resolve_audience(
         wanted = {(str(i.get("email") or "").strip().lower()) for i in explicit_emails}
         wanted.discard("")
         lead_rows = (
-            await db.execute(
-                select(Lead.id, Lead.email).where(
-                    Lead.team_id == campaign.team_id,
-                    func.lower(Lead.email).in_(wanted),
+            (
+                await db.execute(
+                    select(Lead.id, Lead.email).where(
+                        Lead.team_id == campaign.team_id,
+                        func.lower(Lead.email).in_(wanted),
+                    )
                 )
-            )
-        ).all() if wanted else []
+            ).all()
+            if wanted
+            else []
+        )
         lead_by_email = {e.strip().lower(): lid for lid, e in lead_rows}
         for item in explicit_emails:
             e = str(item.get("email") or "").strip().lower()
@@ -268,9 +270,7 @@ async def resolve_audience(
     if include_espocrm and espocrm_client.configured():
         try:
             for crm_email, prof in (await espocrm_client.campaign_profiles()).items():
-                full = " ".join(
-                    p for p in (prof.get("firstName"), prof.get("lastName")) if p
-                )
+                full = " ".join(p for p in (prof.get("firstName"), prof.get("lastName")) if p)
                 _add(crm_email, full or prof.get("accountName"))
         except Exception:  # noqa: BLE001 — EspoCRM down shouldn't kill the send
             logger.exception("EspoCRM audience pull failed for campaign %s", campaign.id)
@@ -293,16 +293,10 @@ def build_bodies(
     ``crm`` is the recipient's EspoCRM record (matched by email) — its scalar
     fields become ``{{crm_*}}`` merge tags, and CRM names backfill a missing
     recipient name."""
-    survey_link = (
-        survey_url_for(campaign, recipient)
-        if campaign.kind == CampaignKind.survey
-        else (campaign.survey_url or "")
-    )
+    survey_link = survey_url_for(campaign, recipient) if campaign.kind == CampaignKind.survey else (campaign.survey_url or "")
     name = recipient.name or ""
     if not name and crm:
-        name = " ".join(
-            str(p) for p in (crm.get("firstName"), crm.get("lastName")) if p
-        ).strip()
+        name = " ".join(str(p) for p in (crm.get("firstName"), crm.get("lastName")) if p).strip()
     ctx = {
         "name": name,
         "first_name": name.split(" ")[0] if name else "",
@@ -321,16 +315,14 @@ def build_bodies(
         from app.services.email_brand import render_branded_html
 
         html = render_branded_html(
-            campaign.text_body, subject=campaign.subject or "",
+            campaign.text_body,
+            subject=campaign.subject or "",
             from_name=campaign.from_name or "Cloudless",
             hero_url=(campaign.meta_data or {}).get("hero_url"),
         )
     html = render_template(html, ctx) if html else None
     if html:
-        html += (
-            '<hr><p style="font-size:12px;color:#666">'
-            f'<a href="{unsub}">Unsubscribe</a></p>'
-        )
+        html += f'<hr><p style="font-size:12px;color:#666"><a href="{unsub}">Unsubscribe</a></p>'
     return text, html
 
 
@@ -345,9 +337,7 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
 
     stats = {"sent": 0, "failed": 0, "skipped": 0, "budget_left": DAILY_SEND_BUDGET}
     async with async_session_maker() as db:
-        campaign = (
-            await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id))
-        ).scalar_one_or_none()
+        campaign = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id))).scalar_one_or_none()
         if campaign is None:
             return {**stats, "error": "campaign_not_found"}  # type: ignore[dict-item]
 
@@ -355,7 +345,9 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
         if dup is not None:
             logger.warning(
                 "campaign %s refused: %.0f%% duplicate of sent campaign %s",
-                campaign.id, score * 100, dup.id,
+                campaign.id,
+                score * 100,
+                dup.id,
             )
             return {
                 **stats,
@@ -373,13 +365,17 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
         stats["budget_left"] = budget
 
         pending = (
-            await db.execute(
-                select(EmailRecipient).where(
-                    EmailRecipient.campaign_id == campaign_id,
-                    EmailRecipient.status == RecipientStatus.pending,
+            (
+                await db.execute(
+                    select(EmailRecipient).where(
+                        EmailRecipient.campaign_id == campaign_id,
+                        EmailRecipient.status == RecipientStatus.pending,
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         # CRM personalization — one fetch per campaign; every recipient whose
         # email exists in EspoCRM gets {{crm_*}} tags filled from their record.
@@ -388,9 +384,7 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
             try:
                 crm_profiles = await espocrm_client.campaign_profiles()
             except Exception:  # noqa: BLE001 — CRM outage must not block mail
-                logger.exception(
-                    "EspoCRM personalization pull failed for campaign %s", campaign.id
-                )
+                logger.exception("EspoCRM personalization pull failed for campaign %s", campaign.id)
 
         for rec in pending:
             if budget <= 0:
@@ -440,9 +434,7 @@ async def send_campaign(campaign_id: uuid.UUID) -> dict[str, int]:
             )
         ).scalar() or 0
         if remaining == 0:
-            campaign.status = (
-                CampaignStatus.sent if stats["failed"] == 0 else CampaignStatus.partial
-            )
+            campaign.status = CampaignStatus.sent if stats["failed"] == 0 else CampaignStatus.partial
             campaign.sent_at = datetime.now(UTC)
         await db.commit()
 
@@ -465,22 +457,14 @@ async def _sent_today(db: AsyncSession, team_id: uuid.UUID) -> int:
     ).scalar() or 0
 
 
-async def unsubscribe_by_token(
-    db: AsyncSession, token: str
-) -> tuple[EmailRecipient | None, EmailSuppression | None]:
+async def unsubscribe_by_token(db: AsyncSession, token: str) -> tuple[EmailRecipient | None, EmailSuppression | None]:
     """Public unsubscribe — marks the recipient and writes the do-not-contact
     row for the whole team."""
-    rec = (
-        await db.execute(
-            select(EmailRecipient).where(EmailRecipient.token == token)
-        )
-    ).scalar_one_or_none()
+    rec = (await db.execute(select(EmailRecipient).where(EmailRecipient.token == token))).scalar_one_or_none()
     if rec is None:
         return None, None
     rec.status = RecipientStatus.unsubscribed
-    sup = await add_suppression(
-        db, rec.team_id, rec.email, reason="unsubscribe", source="unsubscribe_link"
-    )
+    sup = await add_suppression(db, rec.team_id, rec.email, reason="unsubscribe", source="unsubscribe_link")
     await db.commit()
     return rec, sup
 
@@ -498,9 +482,7 @@ def survey_questions(campaign: EmailCampaign) -> list[dict[str, Any]]:
     return [q for q in qs if isinstance(q, dict) and q.get("id") and q.get("label")]
 
 
-def validate_answers(
-    questions: list[dict[str, Any]], answers: dict[str, Any]
-) -> tuple[dict[str, Any], list[str]]:
+def validate_answers(questions: list[dict[str, Any]], answers: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """Normalize + validate submitted answers. Returns (clean, errors)."""
     clean: dict[str, Any] = {}
     errors: list[str] = []
@@ -539,32 +521,18 @@ def validate_answers(
     return clean, errors
 
 
-async def submit_survey(
-    db: AsyncSession, token: str, answers: dict[str, Any]
-) -> tuple[SurveyResponse | None, list[str]]:
+async def submit_survey(db: AsyncSession, token: str, answers: dict[str, Any]) -> tuple[SurveyResponse | None, list[str]]:
     """Record a funnel submission: validate, persist, update the local lead,
     and attach an activity Note to the CRM record. Idempotent per recipient —
     a second submit returns the stored response."""
-    rec = (
-        await db.execute(
-            select(EmailRecipient).where(EmailRecipient.token == token)
-        )
-    ).scalar_one_or_none()
+    rec = (await db.execute(select(EmailRecipient).where(EmailRecipient.token == token))).scalar_one_or_none()
     if rec is None:
         return None, ["invalid token"]
-    campaign = (
-        await db.execute(
-            select(EmailCampaign).where(EmailCampaign.id == rec.campaign_id)
-        )
-    ).scalar_one_or_none()
+    campaign = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == rec.campaign_id))).scalar_one_or_none()
     if campaign is None or campaign.kind != CampaignKind.survey:
         return None, ["not a survey campaign"]
 
-    existing = (
-        await db.execute(
-            select(SurveyResponse).where(SurveyResponse.recipient_id == rec.id)
-        )
-    ).scalar_one_or_none()
+    existing = (await db.execute(select(SurveyResponse).where(SurveyResponse.recipient_id == rec.id))).scalar_one_or_none()
     if existing is not None:
         return existing, []
 
@@ -584,15 +552,11 @@ async def submit_survey(
 
     # Funnel write-back: mark the local lead and the CRM record.
     if rec.lead_id:
-        lead = (
-            await db.execute(select(Lead).where(Lead.id == rec.lead_id))
-        ).scalar_one_or_none()
+        lead = (await db.execute(select(Lead).where(Lead.id == rec.lead_id))).scalar_one_or_none()
         if lead is not None:
             stamp = datetime.now(UTC).isoformat(timespec="seconds")
             summary = "; ".join(f"{k}={v}" for k, v in clean.items())[:800]
-            lead.notes = (f"{lead.notes}\n" if lead.notes else "") + (
-                f"[survey {stamp}] {campaign.name}: {summary}"
-            )
+            lead.notes = (f"{lead.notes}\n" if lead.notes else "") + (f"[survey {stamp}] {campaign.name}: {summary}")
             meta = dict(lead.meta_data or {})
             meta["last_survey_campaign_id"] = str(campaign.id)
             meta["last_survey_at"] = stamp
@@ -601,8 +565,7 @@ async def submit_survey(
             if crm_id:
                 resp.espocrm_noted = await espocrm_client.add_lead_note(
                     str(crm_id),
-                    f"Survey '{campaign.name}' ({stamp} UTC)\n"
-                    + "\n".join(f"- {k}: {v}" for k, v in clean.items()),
+                    f"Survey '{campaign.name}' ({stamp} UTC)\n" + "\n".join(f"- {k}: {v}" for k, v in clean.items()),
                 )
 
     await db.commit()
@@ -611,11 +574,7 @@ async def submit_survey(
 
 async def campaign_stats(db: AsyncSession, campaign_id: uuid.UUID) -> dict[str, int]:
     rows = (
-        await db.execute(
-            select(EmailRecipient.status, func.count())
-            .where(EmailRecipient.campaign_id == campaign_id)
-            .group_by(EmailRecipient.status)
-        )
+        await db.execute(select(EmailRecipient.status, func.count()).where(EmailRecipient.campaign_id == campaign_id).group_by(EmailRecipient.status))
     ).all()
     return {str(s): int(c) for s, c in rows}
 
@@ -634,22 +593,14 @@ def campaign_payload(c: EmailCampaign) -> dict[str, Any]:
     }
 
 
-async def delete_draft_campaign(
-    db: AsyncSession, campaign_id: uuid.UUID, team_id: uuid.UUID
-) -> EmailCampaign | None:
+async def delete_draft_campaign(db: AsyncSession, campaign_id: uuid.UUID, team_id: uuid.UUID) -> EmailCampaign | None:
     """Delete a draft campaign + its queued recipients (DB cascades).
 
     Returns the deleted campaign, ``None`` if not found, and raises
     ``ValueError`` when the campaign is not a draft — sent/partial campaigns
     are kept: their recipient tokens power live unsubscribe/survey links and
     the rows are the audit record."""
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalar_one_or_none()
     if c is None:
         return None
     if c.status != CampaignStatus.draft:

@@ -54,8 +54,7 @@ class _FakeAsyncClient:
         self.calls.append({"method": "GET", "url": url, "headers": headers, "params": params})
         return self._next_response()
 
-    async def post(self, url, headers=None, data=None, json=None,
-                   content=None, params=None):
+    async def post(self, url, headers=None, data=None, json=None, content=None, params=None):
         self.calls.append(
             {
                 "method": "POST",
@@ -272,14 +271,17 @@ async def test_api_error_503_maps_to_503(client):
 @pytest.mark.asyncio
 async def test_get_publishing_limit_success(client):
     fake = _FakeAsyncClient(
-        _FakeResponse(200, {
-            "data": [{
-                "quota_usage": [
-                    {"metric": "publish_count", "quota_duration_seconds": 86400, "value": 3}
-                ],
-                "config": {"quota_total": 25},
-            }]
-        })
+        _FakeResponse(
+            200,
+            {
+                "data": [
+                    {
+                        "quota_usage": [{"metric": "publish_count", "quota_duration_seconds": 86400, "value": 3}],
+                        "config": {"quota_total": 25},
+                    }
+                ]
+            },
+        )
     )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
@@ -293,14 +295,17 @@ async def test_get_publishing_limit_success(client):
 @pytest.mark.asyncio
 async def test_get_remaining_publish_quota(client):
     fake = _FakeAsyncClient(
-        _FakeResponse(200, {
-            "data": [{
-                "quota_usage": [
-                    {"metric": "publish_count", "value": 10}
-                ],
-                "config": {"quota_total": 25},
-            }]
-        })
+        _FakeResponse(
+            200,
+            {
+                "data": [
+                    {
+                        "quota_usage": [{"metric": "publish_count", "value": 10}],
+                        "config": {"quota_total": 25},
+                    }
+                ]
+            },
+        )
     )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
@@ -326,12 +331,15 @@ async def test_get_remaining_publish_quota_fails_open(client):
 @pytest.mark.asyncio
 async def test_list_comments_success(client):
     fake = _FakeAsyncClient(
-        _FakeResponse(200, {
-            "data": [
-                {"id": "17890012346", "text": "Great post!", "username": "user1", "like_count": 5},
-                {"id": "17890012347", "text": "Nice", "username": "user2", "like_count": 1},
-            ]
-        })
+        _FakeResponse(
+            200,
+            {
+                "data": [
+                    {"id": "17890012346", "text": "Great post!", "username": "user1", "like_count": 5},
+                    {"id": "17890012347", "text": "Nice", "username": "user2", "like_count": 1},
+                ]
+            },
+        )
     )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
@@ -353,9 +361,7 @@ async def test_list_comments_invalid_limit(client):
 
 @pytest.mark.asyncio
 async def test_reply_to_comment_success(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"id": "17890012348", "text": "Thank you!", "username": "testuser"})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"id": "17890012348", "text": "Thank you!", "username": "testuser"}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         result = await client.reply_to_comment("17890012345", "Thank you!")
@@ -419,9 +425,7 @@ async def test_wait_for_container_ready_error(client):
 async def test_wait_for_container_ready_timeout(client):
     # Always returns IN_PROGRESS — will time out.
     # Provide enough responses for the polling loop (0.5s / 0.1s = ~5 polls).
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"status_code": "IN_PROGRESS"}) for _ in range(20)
-    ])
+    fake = _FakeAsyncClient([_FakeResponse(200, {"status_code": "IN_PROGRESS"}) for _ in range(20)])
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         with pytest.raises(TimeoutError, match="did not finish"):
@@ -431,11 +435,13 @@ async def test_wait_for_container_ready_timeout(client):
 @pytest.mark.asyncio
 async def test_create_and_publish_video_one_call(client):
     # Three responses: container create, status check, publish
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "17890012349"}),
-        _FakeResponse(200, {"status_code": "FINISHED"}),
-        _FakeResponse(200, {"id": "17890012356"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"id": "17890012349"}),
+            _FakeResponse(200, {"status_code": "FINISHED"}),
+            _FakeResponse(200, {"id": "17890012356"}),
+        ]
+    )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         media_id = await client.create_and_publish_video(
@@ -492,11 +498,13 @@ async def test_create_story_container_invalid_type(client):
 
 @pytest.mark.asyncio
 async def test_publish_story_image_one_call(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "17890012352"}),
-        _FakeResponse(200, {"status_code": "FINISHED"}),
-        _FakeResponse(200, {"id": "17890012354"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"id": "17890012352"}),
+            _FakeResponse(200, {"status_code": "FINISHED"}),
+            _FakeResponse(200, {"id": "17890012354"}),
+        ]
+    )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         media_id = await client.publish_story(
@@ -511,11 +519,13 @@ async def test_publish_story_image_one_call(client):
 
 @pytest.mark.asyncio
 async def test_publish_story_video_with_polling(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"id": "17890012353"}),
-        _FakeResponse(200, {"status_code": "FINISHED"}),
-        _FakeResponse(200, {"id": "17890012355"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"id": "17890012353"}),
+            _FakeResponse(200, {"status_code": "FINISHED"}),
+            _FakeResponse(200, {"id": "17890012355"}),
+        ]
+    )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         media_id = await client.publish_story(
@@ -533,18 +543,21 @@ async def test_publish_story_video_with_polling(client):
 @pytest.mark.asyncio
 async def test_get_tagged_media_success(client):
     fake = _FakeAsyncClient(
-        _FakeResponse(200, {
-            "data": [
-                {
-                    "id": "m1",
-                    "caption": "Loving @cloudless.gr!",
-                    "media_type": "IMAGE",
-                    "permalink": "https://instagram.com/p/abc123",
-                    "username": "fan_user",
-                    "timestamp": "2026-09-01T10:00:00+0000",
-                }
-            ]
-        })
+        _FakeResponse(
+            200,
+            {
+                "data": [
+                    {
+                        "id": "m1",
+                        "caption": "Loving @cloudless.gr!",
+                        "media_type": "IMAGE",
+                        "permalink": "https://instagram.com/p/abc123",
+                        "username": "fan_user",
+                        "timestamp": "2026-09-01T10:00:00+0000",
+                    }
+                ]
+            },
+        )
     )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
@@ -558,12 +571,15 @@ async def test_get_tagged_media_success(client):
 @pytest.mark.asyncio
 async def test_get_recent_mentions_flat_list(client):
     fake = _FakeAsyncClient(
-        _FakeResponse(200, {
-            "data": [
-                {"id": "m1", "caption": "Mention 1"},
-                {"id": "m2", "caption": "Mention 2"},
-            ]
-        })
+        _FakeResponse(
+            200,
+            {
+                "data": [
+                    {"id": "m1", "caption": "Mention 1"},
+                    {"id": "m2", "caption": "Mention 2"},
+                ]
+            },
+        )
     )
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
@@ -585,9 +601,7 @@ async def test_get_recent_mentions_invalid_limit(client):
 @pytest.mark.asyncio
 async def test_quota_parser_handles_int_usage(client):
     """quota_usage arrives as a bare int on v26 — used to undercount."""
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"data": [{"quota_usage": 2}]})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"quota_usage": 2}]}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         remaining = await client.get_remaining_publish_quota()
@@ -617,9 +631,7 @@ async def test_quota_parser_handles_list_usage(client):
 
 @pytest.mark.asyncio
 async def test_search_hashtag(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"data": [{"id": "1784", "name": "automation"}]})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"id": "1784", "name": "automation"}]}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         data = await client.search_hashtag("#automation")
@@ -638,9 +650,7 @@ async def test_search_hashtag_requires_query(client):
 
 @pytest.mark.asyncio
 async def test_hashtag_top_media(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"data": [{"id": "m1", "permalink": "https://i/p/1"}]})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"id": "m1", "permalink": "https://i/p/1"}]}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         rows = await client.get_hashtag_top_media("1784")
@@ -650,9 +660,7 @@ async def test_hashtag_top_media(client):
 
 @pytest.mark.asyncio
 async def test_business_discovery(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"business_discovery": {"username": "rival", "followers_count": 5000}})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"business_discovery": {"username": "rival", "followers_count": 5000}}))
     with patch("app.services.instagram_api.httpx.AsyncClient") as mock_client:
         mock_client.return_value = fake
         data = await client.business_discovery("@rival")
@@ -703,8 +711,7 @@ async def test_container_validation_branches(client):
     with pytest.raises(ValueError):
         await client.create_carousel_container([], "cap")
     with pytest.raises(ValueError):
-        await client.create_carousel_container(
-            [str(i) for i in range(11)], "cap")
+        await client.create_carousel_container([str(i) for i in range(11)], "cap")
     with pytest.raises(ValueError):
         await client.create_carousel_container(["bad id!"], "cap")
 
@@ -724,14 +731,11 @@ async def test_story_container_branches(client):
     with pytest.raises(ValueError):
         await client.create_story_container("")
     with pytest.raises(ValueError):
-        await client.create_story_container("https://x/m",
-                                            media_type="GIF")
+        await client.create_story_container("https://x/m", media_type="GIF")
 
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "c1"}))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
-        cid = await client.create_story_container(
-            "https://x/v.mp4", media_type="VIDEO",
-            link="https://l", alt_text="alt")
+        cid = await client.create_story_container("https://x/v.mp4", media_type="VIDEO", link="https://l", alt_text="alt")
         assert cid == "c1"
         data = fake.calls[0]["data"]
         assert data["media_type"] == "STORIES"
@@ -741,18 +745,15 @@ async def test_story_container_branches(client):
     # publish_story wrapper
     fake = _FakeAsyncClient(_FakeResponse(200, {"id": "s1"}))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
-        with patch.object(client, "wait_for_container_ready",
-                          return_value="FINISHED"):
-            with patch.object(client, "publish_container",
-                              return_value="media1"):
+        with patch.object(client, "wait_for_container_ready", return_value="FINISHED"):
+            with patch.object(client, "publish_container", return_value="media1"):
                 out = await client.publish_story("https://x/i.jpg")
     assert out == "media1"
 
 
 @pytest.mark.asyncio
 async def test_hashtag_discovery_and_demographics(client):
-    fake = _FakeAsyncClient(_FakeResponse(
-        200, {"data": [{"id": "m1"}]}))
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"id": "m1"}]}))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
         out = await client.get_hashtag_recent_media("123")
         assert out == [{"id": "m1"}]
@@ -770,11 +771,9 @@ async def test_hashtag_discovery_and_demographics(client):
         await client.get_engaged_audience_demographics(breakdown="zip")
     fake = _FakeAsyncClient(_FakeResponse(200, {"data": []}))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
-        await client.get_engaged_audience_demographics(
-            breakdown="city")
+        await client.get_engaged_audience_demographics(breakdown="city")
         assert fake.calls[0]["params"]["breakdown"] == "city"
-        assert fake.calls[0]["params"]["metric"] == \
-            "engaged_audience_demographics"
+        assert fake.calls[0]["params"]["metric"] == "engaged_audience_demographics"
 
     with pytest.raises(ValueError):
         await client.get_account_insights(metric="")
@@ -806,8 +805,7 @@ async def test_graph_dm_methods(client):
         assert send["json"]["recipient"]["id"] == "r1"
         assert send["json"]["messaging_type"] == "RESPONSE"
 
-        await client.send_dm_template("r1", "tmpl",
-                                      components=[{"type": "body"}])
+        await client.send_dm_template("r1", "tmpl", components=[{"type": "body"}])
         tmpl = fake.calls[1]
         assert tmpl["json"]["messaging_type"] == "MESSAGE_TAG"
         att = tmpl["json"]["message"]["attachment"]["payload"]
@@ -824,8 +822,7 @@ async def test_graph_dm_methods(client):
 
 
 def _webdm():
-    return api.InstagramWebDMClient(
-        session_id="sess", csrf_token="csrf", ds_user_id="u1")
+    return api.InstagramWebDMClient(session_id="sess", csrf_token="csrf", ds_user_id="u1")
 
 
 def test_webdm_headers():
@@ -844,10 +841,7 @@ def test_webdm_headers():
 @pytest.mark.asyncio
 async def test_webdm_conversations():
     c = _webdm()
-    body = {"inbox": {"threads": [{
-        "thread_id": "t1",
-        "users": [{"pk": 5, "username": "alice"},
-                  {"username": "bob"}]}]}}
+    body = {"inbox": {"threads": [{"thread_id": "t1", "users": [{"pk": 5, "username": "alice"}, {"username": "bob"}]}]}}
     fake = _FakeAsyncClient(_FakeResponse(200, body))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
         out = await c.get_conversations(limit=5)
@@ -865,12 +859,15 @@ async def test_webdm_conversations():
 @pytest.mark.asyncio
 async def test_webdm_messages():
     c = _webdm()
-    body = {"thread": {"items": [
-        {"item_id": "i1", "user_id": 9, "text": "hi",
-         "timestamp": "1"},
-        {"item_id": "i2", "user_id": 9, "share_text": "shared"},
-        {"item_id": "i3", "user_id": 9},
-    ]}}
+    body = {
+        "thread": {
+            "items": [
+                {"item_id": "i1", "user_id": 9, "text": "hi", "timestamp": "1"},
+                {"item_id": "i2", "user_id": 9, "share_text": "shared"},
+                {"item_id": "i3", "user_id": 9},
+            ]
+        }
+    }
     fake = _FakeAsyncClient(_FakeResponse(200, body))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
         out = await c.get_dm_messages("t1")
@@ -934,8 +931,7 @@ async def test_last_edges(client):
                 await method(*args)
 
     # list_recent_media
-    fake = _FakeAsyncClient(_FakeResponse(
-        200, {"data": [{"id": "m1"}]}))
+    fake = _FakeAsyncClient(_FakeResponse(200, {"data": [{"id": "m1"}]}))
     with patch.object(api.httpx, "AsyncClient", return_value=fake):
         out = await client.list_recent_media(limit=5)
         assert out == [{"id": "m1"}]

@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 def _get_slack_token() -> str:
     settings = get_settings()
-    return ((settings.SLACK_BOT_TOKEN or "").strip() or (settings.SLACK_ACCESS_TOKEN or "").strip())
+    return (settings.SLACK_BOT_TOKEN or "").strip() or (settings.SLACK_ACCESS_TOKEN or "").strip()
 
 
 async def _post_slack_text(
@@ -115,18 +115,14 @@ async def _post_slack_text(
     return False, last_err or "unknown error", None
 
 
-async def _fanout_talk(
-    text: str, purpose: str, blocks: list[dict] | None = None
-) -> None:
+async def _fanout_talk(text: str, purpose: str, blocks: list[dict] | None = None) -> None:
     """Mirror the notification into Nextcloud Talk when enabled —
     the Slack migration transport (ops room for everything, approvals
     room for alerts). Best-effort, never raises."""
     try:
         from app.services import nextcloud_talk
 
-        await nextcloud_talk.post_to_talk(
-            text, purpose=purpose, extra=nextcloud_talk.blocks_to_text(blocks)
-        )
+        await nextcloud_talk.post_to_talk(text, purpose=purpose, extra=nextcloud_talk.blocks_to_text(blocks))
     except Exception:  # noqa: BLE001
         logger.debug("Talk fanout failed (non-fatal)", exc_info=True)
 
@@ -165,8 +161,7 @@ async def post_alert_to_slack(text: str, blocks: list[dict] | None = None) -> No
 SOCIALAUTO_ADMIN_URL = "https://social.cloudless.gr"
 
 
-def _button(text: str, action_id: str, *, value: str = "", style: str | None = None,
-            url: str | None = None, confirm: str | None = None) -> dict:
+def _button(text: str, action_id: str, *, value: str = "", style: str | None = None, url: str | None = None, confirm: str | None = None) -> dict:
     btn: dict = {
         "type": "button",
         "text": {"type": "plain_text", "text": text, "emoji": True},
@@ -196,8 +191,7 @@ def session_heal_buttons() -> list[dict]:
             "elements": [
                 _button("Run session heal", "socialauto_session_heal", style="primary"),
                 _button("Ops console", "socialauto_ops_status"),
-                _button("Open SocialAuto", "open_socialauto_admin",
-                        url=f"{SOCIALAUTO_ADMIN_URL}/admin"),
+                _button("Open SocialAuto", "open_socialauto_admin", url=f"{SOCIALAUTO_ADMIN_URL}/admin"),
             ],
         }
     ]
@@ -207,18 +201,17 @@ def publish_failure_buttons(queue_id: str) -> list[dict]:
     """Actions block for publish-failure alerts — retry/cancel the queue item."""
     elements: list[dict] = []
     if queue_id and queue_id != "unknown":
+        elements.append(_button("Retry", "socialauto_retry_queue", value=queue_id, style="primary"))
         elements.append(
-            _button("Retry", "socialauto_retry_queue", value=queue_id, style="primary")
+            _button(
+                "Skip (cancel)",
+                "socialauto_cancel_queue",
+                value=queue_id,
+                style="danger",
+                confirm="Cancel this queue item permanently? The post won't publish to this target.",
+            )
         )
-        elements.append(
-            _button("Skip (cancel)", "socialauto_cancel_queue", value=queue_id,
-                    style="danger",
-                    confirm="Cancel this queue item permanently? The post won't publish to this target.")
-        )
-    elements.append(
-        _button("Open queue", "open_socialauto_queue",
-                url=f"{SOCIALAUTO_ADMIN_URL}/admin")
-    )
+    elements.append(_button("Open queue", "open_socialauto_queue", url=f"{SOCIALAUTO_ADMIN_URL}/admin"))
     return [{"type": "actions", "elements": elements}]
 
 
@@ -248,9 +241,7 @@ async def post_publishing_to_slack(text: str) -> None:
     """
     settings = get_settings()
     webhook = (settings.SLACK_PUBLISHING_WEBHOOK_URL or "").strip()
-    channel_id = (settings.SLACK_PUBLISHING_CHANNEL_ID or "").strip() or (
-        settings.SLACK_CHANNEL_ID or ""
-    ).strip()
+    channel_id = (settings.SLACK_PUBLISHING_CHANNEL_ID or "").strip() or (settings.SLACK_CHANNEL_ID or "").strip()
     if not webhook and not channel_id:
         return
     ok, err, _ = await _post_slack_text(
@@ -273,9 +264,7 @@ async def post_telegram_to_slack(text: str) -> tuple[bool, str | None]:
     """
     settings = get_settings()
     webhook_url = (settings.SLACK_TELEGRAM_WEBHOOK_URL or "").strip() or settings.SLACK_WEBHOOK_URL
-    channel_id = (settings.SLACK_TELEGRAM_CHANNEL_ID or "").strip() or (
-        settings.SLACK_CHANNEL_ID or ""
-    ).strip()
+    channel_id = (settings.SLACK_TELEGRAM_CHANNEL_ID or "").strip() or (settings.SLACK_CHANNEL_ID or "").strip()
     if not webhook_url and not channel_id:
         return False, "Telegram Slack channel not configured"
     ok, err, _ = await _post_slack_text(
@@ -425,4 +414,3 @@ async def upload_file_to_slack(
     except Exception as exc:
         logger.debug("Slack file upload failed (non-fatal)", exc_info=True)
         return False, None, str(exc)
-

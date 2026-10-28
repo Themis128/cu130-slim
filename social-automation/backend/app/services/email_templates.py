@@ -106,6 +106,7 @@ def _user_email(user: User) -> str:
 
 # ── Welcome ─────────────────────────────────────────────────────────────────
 
+
 async def send_welcome_email(user: User) -> None:
     """Send a welcome email to a newly registered user."""
     subject = f"Welcome to SocialAuto, {user.name or 'there'}!"
@@ -147,6 +148,7 @@ async def send_welcome_email(user: User) -> None:
 
 # ── Password Reset ──────────────────────────────────────────────────────────
 
+
 async def send_password_reset_email(user: User, reset_link: str) -> None:
     """Send a password reset email with a reset link."""
     subject = "Reset your SocialAuto password"
@@ -178,15 +180,14 @@ async def send_password_reset_email(user: User, reset_link: str) -> None:
 
 # ── Post Published ──────────────────────────────────────────────────────────
 
+
 async def send_post_published_email(user: User, post: Post, platform: str | None = None) -> None:
     """Send a notification when a scheduled post is published."""
     if platform:
         platforms = platform
     else:
         try:
-            platforms = ", ".join(
-                t.platform for t in getattr(post, "targets", []) if t.platform
-            ) or "your connected accounts"
+            platforms = ", ".join(t.platform for t in getattr(post, "targets", []) if t.platform) or "your connected accounts"
         except Exception:
             platforms = "your connected accounts"
     snippet = (post.content_text or "")[:100]
@@ -197,7 +198,7 @@ async def send_post_published_email(user: User, post: Post, platform: str | None
     text = (
         f"Hi {user.name or user.email},\n\n"
         f"Your post has been successfully published to {platforms}.\n\n"
-        f"Post preview:\n\"{snippet}\"\n\n"
+        f'Post preview:\n"{snippet}"\n\n'
         "View your analytics: https://social.cloudless.gr/analytics\n\n"
         "— The SocialAuto Team"
     )
@@ -220,6 +221,7 @@ async def send_post_published_email(user: User, post: Post, platform: str | None
 
 
 # ── Account Connected ───────────────────────────────────────────────────────
+
 
 async def send_account_connected_email(user: User, platform: str) -> None:
     """Send a notification when a social account is connected via OAuth."""
@@ -249,6 +251,7 @@ async def send_account_connected_email(user: User, platform: str) -> None:
 
 # ── Quota Warning ───────────────────────────────────────────────────────────
 
+
 async def send_quota_warning_email(
     user: User,
     resource: str,
@@ -268,7 +271,7 @@ async def send_quota_warning_email(
     html = _html_wrapper(
         f"{pct}% of limit used",
         f"""
-        <p>You've used <strong>{used}</strong> out of <strong>{limit}</strong> {resource.replace('_', ' ')} this month.</p>
+        <p>You've used <strong>{used}</strong> out of <strong>{limit}</strong> {resource.replace("_", " ")} this month.</p>
         <div style="background:#0f172a;border-radius:8px;padding:4px;margin:16px 0;">
           <div style="background:#38bdf8;height:8px;border-radius:4px;width:{pct}%;"></div>
         </div>
@@ -286,6 +289,7 @@ async def send_quota_warning_email(
 
 # ── Team Invite ─────────────────────────────────────────────────────────────
 
+
 async def send_team_invite_email(
     inviter_name: str,
     invitee_email: str,
@@ -295,7 +299,7 @@ async def send_team_invite_email(
     """Send a team invitation email."""
     subject = f"{inviter_name} invited you to join {team_name} on SocialAuto"
     text = (
-        f"You've been invited by {inviter_name} to join the team \"{team_name}\" on SocialAuto.\n\n"
+        f'You\'ve been invited by {inviter_name} to join the team "{team_name}" on SocialAuto.\n\n'
         "SocialAuto is a social media automation platform with AI-powered content generation, "
         "multi-platform publishing, and analytics.\n\n"
         f"Click the link below to accept the invitation:\n{invite_link}\n\n"
@@ -339,7 +343,7 @@ async def send_team_added_email(
     subject = f"You have been added to {team_name} on SocialAuto"
     text = (
         f"Hi,\n\n"
-        f"{adder_name} has added you to the team \"{team_name}\" on SocialAuto.\n\n"
+        f'{adder_name} has added you to the team "{team_name}" on SocialAuto.\n\n'
         f"You can access the team dashboard here:\n{dashboard_link}\n\n"
         "— The SocialAuto Team"
     )

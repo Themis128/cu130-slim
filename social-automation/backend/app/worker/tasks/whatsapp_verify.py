@@ -18,6 +18,7 @@ Related:
 - Scripts: .devin/skills/whatsapp-phone-verify/scripts/
 - Docs: docs/meta-services-status.md (Issue 4)
 """
+
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -82,9 +83,7 @@ async def _check_and_request() -> dict[str, Any]:
     async with _get_db() as db:
         from app.models.social_account import SocialAccount
 
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "whatsapp")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp"))
         accounts = result.scalars().all()
 
         for account in accounts:
@@ -157,10 +156,7 @@ async def _check_and_request() -> dict[str, Any]:
             if len(times) >= 9:
                 # Keep one slot of headroom under Meta's 10-request ceiling.
                 oldest = min(times)
-                skip_reason = (
-                    f"72h request window saturated ({len(times)} logged, "
-                    f"oldest exits {oldest + timedelta(hours=72):%Y-%m-%d %H:%M}Z)"
-                )
+                skip_reason = f"72h request window saturated ({len(times)} logged, oldest exits {oldest + timedelta(hours=72):%Y-%m-%d %H:%M}Z)"
             elif rl_at and rl_phone in (None, phone_id):
                 # Meta's stated cooldown after a 136024 is ~1 hour. When a
                 # request log exists for this phone, the ≥9/72h cap above is
@@ -171,23 +167,13 @@ async def _check_and_request() -> dict[str, Any]:
                 hold = timedelta(hours=1) if times else timedelta(hours=72)
                 if now - rl_at < hold:
                     window_end = rl_at + hold
-                    skip_reason = (
-                        f"post-136024 cooldown (until {window_end:%Y-%m-%d %H:%M}Z)"
-                    )
-            elif (
-                meta.get("whatsapp_code_status") == "sent"
-                and sent_at
-                and sent_phone in (None, phone_id)
-                and now - sent_at < timedelta(hours=24)
-            ):
+                    skip_reason = f"post-136024 cooldown (until {window_end:%Y-%m-%d %H:%M}Z)"
+            elif meta.get("whatsapp_code_status") == "sent" and sent_at and sent_phone in (None, phone_id) and now - sent_at < timedelta(hours=24):
                 # A code is already outstanding for this phone — the user has
                 # 24h to enter it before we auto-resend. Without this gate the
                 # 30-min beat would burst SMS codes until Meta 136024s again.
                 resend_at = sent_at + timedelta(hours=24)
-                skip_reason = (
-                    f"code already sent {(now - sent_at).seconds // 3600}h ago "
-                    f"— resend at {resend_at:%Y-%m-%d %H:%M}Z if still unverified"
-                )
+                skip_reason = f"code already sent {(now - sent_at).seconds // 3600}h ago — resend at {resend_at:%Y-%m-%d %H:%M}Z if still unverified"
 
             if skip_reason:
                 stats["rate_limited"] += 1
@@ -206,9 +192,7 @@ async def _check_and_request() -> dict[str, Any]:
 
             if status_code == 200:
                 stats["code_sent"] += 1
-                stats["details"].append(
-                    f"{account.id}: ✅ verification code SENT to {status.get('display_phone_number', '?')}"
-                )
+                stats["details"].append(f"{account.id}: ✅ verification code SENT to {status.get('display_phone_number', '?')}")
                 meta["whatsapp_code_requested_at"] = now.isoformat()
                 meta["whatsapp_code_sent_at"] = now.isoformat()
                 meta["whatsapp_code_sent_phone_id"] = phone_id
@@ -234,9 +218,7 @@ async def _check_and_request() -> dict[str, Any]:
                     await db.commit()
                 else:
                     stats["errors"] += 1
-                    stats["details"].append(
-                        f"{account.id}: request failed: {json.dumps(code_resp.get('error', {}))[:200]}"
-                    )
+                    stats["details"].append(f"{account.id}: request failed: {json.dumps(code_resp.get('error', {}))[:200]}")
 
     return stats
 

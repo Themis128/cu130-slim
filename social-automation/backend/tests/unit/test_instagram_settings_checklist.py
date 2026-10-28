@@ -1,4 +1,5 @@
 """Tests for app/scripts/instagram_settings_checklist.py — bridge HTTP + checklist CLI."""
+
 from __future__ import annotations
 
 import io
@@ -29,6 +30,7 @@ class _RespCM:
 def _urlopen_ok(payload):
     def _open(req, timeout=0):
         return _RespCM(payload)
+
     return _open
 
 
@@ -38,11 +40,13 @@ def test_get_json_ok_and_error(monkeypatch):
 
     def raise_http(req, timeout=0):
         raise HTTPError("u", 500, "err", {}, io.BytesIO(b"b"))
+
     monkeypatch.setattr(sc, "urlopen", raise_http)
     assert "error" in sc._get_json("/x")
 
     def raise_url(req, timeout=0):
         raise URLError("down")
+
     monkeypatch.setattr(sc, "urlopen", raise_url)
     assert "error" in sc._get_json("/x")
 
@@ -60,25 +64,30 @@ def test_evaluate_js_ok_and_error(monkeypatch):
 
     def raise_http(req, timeout=0):
         raise HTTPError("u", 400, "err", {}, io.BytesIO(b"b"))
+
     monkeypatch.setattr(sc, "urlopen", raise_http)
     assert "error" in sc._evaluate_js("x")
 
 
 def test_check_current_settings_no_session(monkeypatch):
-    seq = iter([
-        {"status": "done"},            # /session/navigate
-        {"status": "waiting_for_login"}  # /session/status — "waiting" in status
-    ])
+    seq = iter(
+        [
+            {"status": "done"},  # /session/navigate
+            {"status": "waiting_for_login"},  # /session/status — "waiting" in status
+        ]
+    )
     monkeypatch.setattr(sc, "urlopen", lambda req, timeout=0: _RespCM(next(seq)))
     out = sc.check_current_settings()
     assert "error" in out and "No active browser session" in out["error"]
 
 
 def test_check_current_settings_not_logged_in(monkeypatch):
-    seq = iter([
-        {"status": "done"},  # navigate
-        {"status": "done"},  # status
-    ])
+    seq = iter(
+        [
+            {"status": "done"},  # navigate
+            {"status": "done"},  # status
+        ]
+    )
     monkeypatch.setattr(sc, "urlopen", lambda req, timeout=0: _RespCM(next(seq)))
     monkeypatch.setattr(sc, "_evaluate_js", lambda e: {"result": "NOT_LOGGED_IN"})
     out = sc.check_current_settings()
@@ -86,11 +95,13 @@ def test_check_current_settings_not_logged_in(monkeypatch):
 
 
 def test_check_current_settings_logged_in(monkeypatch):
-    seq = iter([
-        {"status": "done"},     # navigate
-        {"status": "done"},     # status
-        {"biography": "bio"},   # /profile/instagram
-    ])
+    seq = iter(
+        [
+            {"status": "done"},  # navigate
+            {"status": "done"},  # status
+            {"biography": "bio"},  # /profile/instagram
+        ]
+    )
     monkeypatch.setattr(sc, "urlopen", lambda req, timeout=0: _RespCM(next(seq)))
     monkeypatch.setattr(sc, "_evaluate_js", lambda e: {"result": "LOGGED_IN"})
     out = sc.check_current_settings()

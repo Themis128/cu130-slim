@@ -1,4 +1,5 @@
 """Celery task: daily free-promotion scan → email report."""
+
 from __future__ import annotations
 
 from typing import Any

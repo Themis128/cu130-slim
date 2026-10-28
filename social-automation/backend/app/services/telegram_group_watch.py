@@ -223,9 +223,7 @@ async def list_buffered_messages(
 async def _alert_cooldown_ok(account_id: str, chat_id: str, fingerprint: str) -> bool:
     try:
         r = await _redis()
-        key = _ALERT_CD_KEY.format(
-            account_id=account_id, chat_id=chat_id, fingerprint=fingerprint[:64]
-        )
+        key = _ALERT_CD_KEY.format(account_id=account_id, chat_id=chat_id, fingerprint=fingerprint[:64])
         created = await r.set(key, "1", nx=True, ex=_ALERT_COOLDOWN_SECONDS)
         return bool(created)
     except Exception:
@@ -281,14 +279,8 @@ async def process_group_message_watch(
 
     text = inbound.get("text") or ""
     entities = inbound.get("entities") or []
-    mention = bool(
-        cfg.get("alert_on_bot_mention") and bot_mentioned(text, entities, bot_username)
-    )
-    kw_hits = (
-        matching_keywords(text, list(cfg.get("keywords") or []))
-        if cfg.get("alert_on_keywords")
-        else []
-    )
+    mention = bool(cfg.get("alert_on_bot_mention") and bot_mentioned(text, entities, bot_username))
+    kw_hits = matching_keywords(text, list(cfg.get("keywords") or [])) if cfg.get("alert_on_keywords") else []
     if not mention and not kw_hits:
         result["reason"] = "no_alert_match"
         return result
@@ -305,12 +297,7 @@ async def process_group_message_watch(
         reasons.append("bot mention")
     if kw_hits:
         reasons.append("keywords: " + ", ".join(kw_hits[:5]))
-    alert_text = (
-        f"📣 Visibility group alert — {title}\n"
-        f"From: {who}\n"
-        f"Why: {'; '.join(reasons)}\n\n"
-        f"{text[:1500]}"
-    )
+    alert_text = f"📣 Visibility group alert — {title}\nFrom: {who}\nWhy: {'; '.join(reasons)}\n\n{text[:1500]}"
     if cfg.get("forward_alert_messages") and inbound.get("message_id") is not None:
         try:
             await client.forward_message(owner, chat_id, int(inbound["message_id"]))
@@ -351,9 +338,7 @@ async def handle_owner_link_command(
     if not is_link:
         return cfg, False
 
-    already = bool(cfg.get("owner_chat_id")) and str(cfg.get("owner_chat_id")) == str(
-        inbound["chat_id"]
-    )
+    already = bool(cfg.get("owner_chat_id")) and str(cfg.get("owner_chat_id")) == str(inbound["chat_id"])
     if cmd == "/start" and payload != "linkowner" and cfg.get("owner_chat_id") and not already:
         # Owner already linked to a different chat — a bare /start from
         # anyone else (e.g. a channel subscriber opening the bot) must not
@@ -370,9 +355,7 @@ async def handle_owner_link_command(
         await notify_owner(
             client,
             str(cfg["owner_chat_id"]),
-            "Already linked ✅\n\n"
-            f"Still need: add me to the group\n{add_link}\n\n"
-            f"And turn off Group Privacy in BotFather:\n{privacy}",
+            f"Already linked ✅\n\nStill need: add me to the group\n{add_link}\n\nAnd turn off Group Privacy in BotFather:\n{privacy}",
         )
     else:
         await notify_owner(
@@ -589,11 +572,7 @@ async def send_digest_for_account(
 
     chat_ids = _watched_chat_ids(cfg)
     # If watch_all_groups and no explicit list, still digest known watched_chats only
-    titles = {
-        str(c.get("chat_id")): c.get("title") or ""
-        for c in (cfg.get("watched_chats") or [])
-        if isinstance(c, dict)
-    }
+    titles = {str(c.get("chat_id")): c.get("title") or "" for c in (cfg.get("watched_chats") or []) if isinstance(c, dict)}
     max_n = int(cfg.get("digest_max_messages") or 40)
     for cid in chat_ids:
         messages = await list_buffered_messages(account_id, cid, limit=max_n)

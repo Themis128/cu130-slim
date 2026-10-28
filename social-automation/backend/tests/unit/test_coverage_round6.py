@@ -1,4 +1,5 @@
 """Coverage round 6: espocrm note/target-list + nurture_sequence helpers + auto_gates env-on."""
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -6,13 +7,13 @@ import pytest
 
 
 def _cfg(monkeypatch, base="https://e", key="k"):
-    monkeypatch.setattr("app.services.espocrm_client.get_settings",
-                        lambda: MagicMock(ESPOCRM_BASE_URL=base, ESPOCRM_API_KEY=key))
+    monkeypatch.setattr("app.services.espocrm_client.get_settings", lambda: MagicMock(ESPOCRM_BASE_URL=base, ESPOCRM_API_KEY=key))
 
 
 @pytest.mark.asyncio
 async def test_add_lead_note_paths(monkeypatch):
     import app.services.espocrm_client as E
+
     _cfg(monkeypatch)
     monkeypatch.setattr(E, "espo_post", AsyncMock(return_value={"id": "n1"}))
     assert await E.add_lead_note("lead1", "hi") is True
@@ -24,6 +25,7 @@ async def test_add_lead_note_paths(monkeypatch):
 @pytest.mark.asyncio
 async def test_add_lead_note_unconfigured(monkeypatch):
     import app.services.espocrm_client as E
+
     _cfg(monkeypatch, base="", key="")
     assert await E.add_lead_note("lead1", "hi") is False
 
@@ -31,6 +33,7 @@ async def test_add_lead_note_unconfigured(monkeypatch):
 @pytest.mark.asyncio
 async def test_target_list_id(monkeypatch):
     import app.services.espocrm_client as E
+
     _cfg(monkeypatch)
     monkeypatch.setattr(E, "espo_get", AsyncMock(return_value={"list": [{"id": "tl1"}]}))
     assert await E.target_list_id("My List") == "tl1"
@@ -42,6 +45,7 @@ async def test_target_list_id(monkeypatch):
 @pytest.mark.asyncio
 async def test_target_list_id_error_swallowed(monkeypatch):
     import app.services.espocrm_client as E
+
     _cfg(monkeypatch)
     monkeypatch.setattr(E, "espo_get", AsyncMock(side_effect=RuntimeError("x")))
     assert await E.target_list_id("My List") is None
@@ -50,6 +54,7 @@ async def test_target_list_id_error_swallowed(monkeypatch):
 @pytest.mark.asyncio
 async def test_list_leads_contacts_accounts(monkeypatch):
     import app.services.espocrm_client as E
+
     _cfg(monkeypatch)
     monkeypatch.setattr(E, "list_all", AsyncMock(return_value=[{"id": "x"}]))
     assert await E.list_leads_for_campaign() == [{"id": "x"}]
@@ -60,9 +65,9 @@ async def test_list_leads_contacts_accounts(monkeypatch):
 @pytest.mark.asyncio
 async def test_campaign_profiles_merges(monkeypatch):
     import app.services.espocrm_client as E
+
     _cfg(monkeypatch)
-    leads = [{"id": "l1", "name": "L1", "emailAddress": "a@x.com"},
-             {"id": "l2", "name": "L2"}]
+    leads = [{"id": "l1", "name": "L1", "emailAddress": "a@x.com"}, {"id": "l2", "name": "L2"}]
     contacts = [{"id": "c1", "name": "C1", "emailAddress": "a@x.com"}]
     accounts = [{"id": "ac1", "name": "A1"}]
     monkeypatch.setattr(E, "list_all", AsyncMock(side_effect=[leads, contacts, accounts]))
@@ -72,6 +77,7 @@ async def test_campaign_profiles_merges(monkeypatch):
 
 def test_lead_age_days_and_naive():
     from app.services import nurture_sequence as N
+
     lead = MagicMock(created_at=datetime.now(UTC) - timedelta(days=3))
     assert 2.9 < N._lead_age_days(lead) < 3.1
     naive = MagicMock(created_at=datetime.now() - timedelta(days=1))
@@ -81,6 +87,7 @@ def test_lead_age_days_and_naive():
 
 def test_due_step_optout_and_none():
     from app.services import nurture_sequence as N
+
     lead = MagicMock(meta_data={"unsubscribed": True})
     assert N._due_step(lead) is None
     lead2 = MagicMock(meta_data={"nurture_opted_out": True})
@@ -89,6 +96,7 @@ def test_due_step_optout_and_none():
 
 def test_due_step_progression():
     from app.services import nurture_sequence as N
+
     if not getattr(N, "STEPS", None):
         pytest.skip("no STEPS constant")
     old = datetime.now(UTC) - timedelta(days=365)
@@ -105,6 +113,7 @@ def test_due_step_progression():
 @pytest.mark.asyncio
 async def test_post_autoapprove_env_on_approves(monkeypatch):
     from app.worker.tasks import auto_gates
+
     monkeypatch.setenv("AUTO_APPROVE_POSTS", "1")
     post = MagicMock(id="p1", user_id="u1")
     res = MagicMock()
@@ -129,6 +138,7 @@ async def test_post_autoapprove_env_on_approves(monkeypatch):
 @pytest.mark.asyncio
 async def test_survey_autosend_empty(monkeypatch):
     from app.worker.tasks import auto_gates
+
     res = MagicMock()
     res.scalars.return_value.all.return_value = []
     db = MagicMock()

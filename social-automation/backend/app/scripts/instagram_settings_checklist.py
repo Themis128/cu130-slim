@@ -193,10 +193,7 @@ def check_current_settings() -> dict:
         return {"error": "No active browser session. Start one first."}
 
     # Check current page
-    result = _evaluate_js(
-        "(document.body.innerText.includes('Log into') || "
-        "document.body.innerText.includes('Sign up')) ? 'NOT_LOGGED_IN' : 'LOGGED_IN'"
-    )
+    result = _evaluate_js("(document.body.innerText.includes('Log into') || document.body.innerText.includes('Sign up')) ? 'NOT_LOGGED_IN' : 'LOGGED_IN'")
     if result.get("result") == "NOT_LOGGED_IN":
         return {"error": "Not logged in to Instagram. Login via VNC first."}
 
@@ -224,9 +221,7 @@ def print_checklist() -> None:
         print(f"  {category}")
         print(f"{'─' * 70}")
         for item in items:
-            priority_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}.get(
-                item["priority"], "⚪"
-            )
+            priority_icon = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}.get(item["priority"], "⚪")
             print(f"  {priority_icon} {item['setting']}")
             print(f"     → {item['recommendation']}")
             print(f"     Why: {item['why']}")

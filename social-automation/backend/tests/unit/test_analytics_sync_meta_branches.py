@@ -29,9 +29,7 @@ def _meta(monkeypatch):
     monkeypatch.setattr(A, "decrypt_token", lambda t: "tok" if t else None)
     monkeypatch.setattr(A, "httpx", SimpleNamespace(AsyncClient=_Client))
     monkeypatch.setattr(A, "_persist_snapshot", _counting_persist())
-    monkeypatch.setattr(
-        A, "_persist_account_event", lambda db, acc, ts, et, m: events.append((et, m))
-    )
+    monkeypatch.setattr(A, "_persist_account_event", lambda db, acc, ts, et, m: events.append((et, m)))
     monkeypatch.setattr(A, "_record_follower_snapshot", AsyncMock())
     monkeypatch.setattr(A, "_resolve_stale_note", AsyncMock())
     return events
@@ -67,8 +65,7 @@ async def test_insights_out_of_range_metric_index_gives_up_after_bounded_retries
 
     assert resp is bad
     assert client.get.await_count == 3
-    assert all(c.kwargs["params"] == {"period": "day", "metric": "reach"}
-               for c in client.get.await_args_list)
+    assert all(c.kwargs["params"] == {"period": "day", "metric": "reach"} for c in client.get.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -97,11 +94,11 @@ async def test_fb_profile_stats_without_followers_or_counters_record_nothing(_me
     import app.services.facebook_sidecar as fsc
 
     monkeypatch.setattr(
-        fsc, "FacebookSidecarClient",
+        fsc,
+        "FacebookSidecarClient",
         lambda **kw: SimpleNamespace(get_profile_stats=AsyncMock(return_value={"name": "Themis"})),
     )
-    acc = _account(platform="facebook", access_token_enc="enc", username="themis",
-                   meta_data={"account_type": "user"}, scopes=[])
+    acc = _account(platform="facebook", access_token_enc="enc", username="themis", meta_data={"account_type": "user"}, scopes=[])
 
     r = await A.sync_facebook_account(_DB(), acc)
 
@@ -110,16 +107,19 @@ async def test_fb_profile_stats_without_followers_or_counters_record_nothing(_me
 
 
 def _fb_page_without_token():
-    return _account(platform="facebook", access_token_enc="enc", account_id="pg-1",
-                    account_type="page", username="cu", scopes=[],
-                    meta_data={"account_type": "page"})
+    return _account(
+        platform="facebook", access_token_enc="enc", account_id="pg-1", account_type="page", username="cu", scopes=[], meta_data={"account_type": "page"}
+    )
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("accounts", [
-    _resp(500),  # me/accounts refused
-    _resp(200, {"data": [{"id": "some-other-page", "access_token": "wrong"}]}),  # no match
-])
+@pytest.mark.parametrize(
+    "accounts",
+    [
+        _resp(500),  # me/accounts refused
+        _resp(200, {"data": [{"id": "some-other-page", "access_token": "wrong"}]}),  # no match
+    ],
+)
 async def test_fb_page_token_lookup_miss_falls_back_to_user_token(_meta, accounts):
     """When me/accounts fails or doesn't list this Page, the user token is
     used. A different Page's token must never be borrowed."""
@@ -133,21 +133,38 @@ async def test_fb_page_token_lookup_miss_falls_back_to_user_token(_meta, account
 
 
 def _fb_page():
-    return _account(platform="facebook", access_token_enc="enc", account_id="pg-1",
-                    account_type="page", username="cu", scopes=[],
-                    meta_data={"account_type": "page", "page_token": "page-tok"})
+    return _account(
+        platform="facebook",
+        access_token_enc="enc",
+        account_id="pg-1",
+        account_type="page",
+        username="cu",
+        scopes=[],
+        meta_data={"account_type": "page", "page_token": "page-tok"},
+    )
 
 
 @pytest.mark.asyncio
 async def test_fb_attribution_skips_non_dict_values_and_keys_by_day(_meta, monkeypatch):
     monkeypatch.setattr(A, "_meta_insights_get", AsyncMock(return_value=_resp(200, {"data": []})))
-    _Client.get = AsyncMock(side_effect=[
-        _resp(200, {"data": []}),  # discovery
-        _resp(200, {"data": [{"values": [
-            {"value": 5, "end_time": "2026-10-09T07:00:00+0000"},  # flat int: not attribution
-            {"value": {"paid": 1, "non_paid": 2}, "end_time": "2026-10-10T07:00:00+0000"},
-        ]}]}),
-    ])
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(200, {"data": []}),  # discovery
+            _resp(
+                200,
+                {
+                    "data": [
+                        {
+                            "values": [
+                                {"value": 5, "end_time": "2026-10-09T07:00:00+0000"},  # flat int: not attribution
+                                {"value": {"paid": 1, "non_paid": 2}, "end_time": "2026-10-10T07:00:00+0000"},
+                            ]
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
 
     r = await A.sync_facebook_account(_DB(results=[[]]), _fb_page())
 
@@ -174,18 +191,28 @@ async def test_fb_attribution_http_error_is_silent_and_writes_nothing(_meta, mon
 async def test_ig_heatmap_ignores_non_dict_values_and_keeps_hourly_max(_meta, monkeypatch):
     monkeypatch.setattr(A, "_fetch_instagram_media_metrics", AsyncMock(return_value=A.MetricBundle()))
     monkeypatch.setattr(A, "_meta_insights_get", AsyncMock(return_value=_resp(200, {"data": []})))
-    _Client.get = AsyncMock(side_effect=[
-        _resp(200, {"data": []}),  # media discovery
-        _resp(200, {"data": []}),  # demographics
-        _resp(200, {"data": []}),  # follow_type split
-        _resp(200, {"data": [{"values": [
-            {"value": 3},  # not a per-hour map
-            {"value": {"9": 5, "10": 1}},
-            {"value": {"9": 2, "10": None, "11": 7}},
-        ]}]}),
-    ])
-    acc = _account(platform="instagram", access_token_enc="enc", account_id="ig-1",
-                   username="cu", scopes=[], meta_data={"account_type": "business"})
+    _Client.get = AsyncMock(
+        side_effect=[
+            _resp(200, {"data": []}),  # media discovery
+            _resp(200, {"data": []}),  # demographics
+            _resp(200, {"data": []}),  # follow_type split
+            _resp(
+                200,
+                {
+                    "data": [
+                        {
+                            "values": [
+                                {"value": 3},  # not a per-hour map
+                                {"value": {"9": 5, "10": 1}},
+                                {"value": {"9": 2, "10": None, "11": 7}},
+                            ]
+                        }
+                    ]
+                },
+            ),
+        ]
+    )
+    acc = _account(platform="instagram", access_token_enc="enc", account_id="ig-1", username="cu", scopes=[], meta_data={"account_type": "business"})
 
     await A.sync_instagram_account(_DB(results=[[]]), acc)
 
@@ -201,14 +228,22 @@ async def test_ig_heatmap_ignores_non_dict_values_and_keeps_hourly_max(_meta, mo
 async def test_threads_profile_never_overwrites_existing_identity(_meta, monkeypatch):
     monkeypatch.setattr(A, "_fetch_threads_media_metrics", AsyncMock(return_value=A.MetricBundle()))
     monkeypatch.setattr(A, "_fetch_threads_account_insights", AsyncMock(return_value={}))
-    monkeypatch.setattr(A, "_fetch_threads_profile", AsyncMock(return_value={
-        "username": "new", "name": "New", "threads_profile_picture_url": "https://new",
-        "followers_count": 9,
-    }))
+    monkeypatch.setattr(
+        A,
+        "_fetch_threads_profile",
+        AsyncMock(
+            return_value={
+                "username": "new",
+                "name": "New",
+                "threads_profile_picture_url": "https://new",
+                "followers_count": 9,
+            }
+        ),
+    )
     _Client.get = AsyncMock(return_value=_resp(200, {"data": []}))
-    acc = _account(platform="threads", access_token_enc="enc", account_id="th-1",
-                   username="mine", display_name="Mine", avatar_url="https://mine",
-                   meta_data={}, scopes=[])
+    acc = _account(
+        platform="threads", access_token_enc="enc", account_id="th-1", username="mine", display_name="Mine", avatar_url="https://mine", meta_data={}, scopes=[]
+    )
     db = _DB(results=[[_target("m1")]])
 
     await A.sync_threads_account(db, acc)

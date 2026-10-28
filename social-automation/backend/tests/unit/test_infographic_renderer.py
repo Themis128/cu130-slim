@@ -25,6 +25,7 @@ from app.services.infographic_renderer import (
 # 1. Infographic detection
 # ---------------------------------------------------------------------------
 
+
 class TestInfographicDetection:
     def test_detects_infographic_keyword(self):
         assert is_infographic_request("Create an infographic about cloudless.gr") is True
@@ -61,6 +62,7 @@ class TestInfographicDetection:
 # 2. Prompt sanitization
 # ---------------------------------------------------------------------------
 
+
 class TestPromptSanitization:
     def test_adds_no_text_instructions(self):
         result = sanitize_prompt_for_background("infographic about cloudless.gr")
@@ -81,6 +83,7 @@ class TestPromptSanitization:
 # ---------------------------------------------------------------------------
 # 3. PIL rendering
 # ---------------------------------------------------------------------------
+
 
 class TestInfographicRendering:
     def _make_background(self, width=1024, height=1024) -> bytes:
@@ -137,10 +140,7 @@ class TestInfographicRendering:
     def test_renders_with_many_sections(self):
         content = {
             "title": "Many Sections",
-            "sections": [
-                {"icon": "📊", "heading": f"Section {i}", "body": f"Body {i}"}
-                for i in range(8)
-            ],
+            "sections": [{"icon": "📊", "heading": f"Section {i}", "body": f"Body {i}"} for i in range(8)],
         }
         bg = self._make_background()
         result = render_infographic(content, bg)
@@ -192,9 +192,7 @@ class TestInfographicRendering:
         def fake_truetype(*_a, **_k):
             return sentinel
 
-        monkeypatch.setattr(
-            IR.os.path, "exists", lambda p: "DejaVu" in p or "dejavu" in p
-        )
+        monkeypatch.setattr(IR.os.path, "exists", lambda p: "DejaVu" in p or "dejavu" in p)
         monkeypatch.setattr(IR.ImageFont, "truetype", fake_truetype)
         assert IR._font(18, "regular") is sentinel
 
@@ -232,6 +230,7 @@ class TestInfographicRendering:
 # 4. Content generation (mocked)
 # ---------------------------------------------------------------------------
 
+
 class TestInfographicContentGeneration:
     def test_content_generation_returns_structured_json(self, monkeypatch):
         """Verify generate_infographic_content calls the LLM and returns structured content."""
@@ -267,9 +266,7 @@ class TestSpellcheckContent:
         return {
             "title": "Why Cloadless Matters",  # typo in LLM output
             "subtitle": "A Clear Sky Vison",
-            "sections": [
-                {"icon": "☁️", "heading": "Overveiw", "body": "Cloudless means clear skies."}
-            ],
+            "sections": [{"icon": "☁️", "heading": "Overveiw", "body": "Cloudless means clear skies."}],
             "footer": "Visit cloudless.gr",
         }
 
@@ -279,11 +276,7 @@ class TestSpellcheckContent:
         from app.services import infographic_renderer
 
         async def fake_correct(text, **kw):
-            return (
-                text.replace("Cloadless", "Cloudless")
-                .replace("Vison", "Vision")
-                .replace("Overveiw", "Overview")
-            )
+            return text.replace("Cloadless", "Cloudless").replace("Vison", "Vision").replace("Overveiw", "Overview")
 
         import app.services.spellcheck as sc
 
@@ -318,8 +311,8 @@ def test_spellcheck_skips_blank_and_nonstring_fields(monkeypatch):
     import app.services.infographic_renderer as ir
 
     content = {
-        "title": "",                    # blank → returned as-is
-        "subtitle": None,               # non-string → returned as-is
+        "title": "",  # blank → returned as-is
+        "subtitle": None,  # non-string → returned as-is
         "footer": "  ",
         "sections": [
             {"heading": "Hi", "body": "Body", "icon": "x"},

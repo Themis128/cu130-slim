@@ -56,9 +56,7 @@ async def get_usage(
     posts_used = posts_result.scalar_one()
 
     # Social accounts (total, not monthly)
-    accounts_result = await db.execute(
-        select(func.count(SocialAccount.id)).where(SocialAccount.team_id == team_id)
-    )
+    accounts_result = await db.execute(select(func.count(SocialAccount.id)).where(SocialAccount.team_id == team_id))
     accounts_used = accounts_result.scalar_one()
 
     return {
@@ -97,11 +95,13 @@ async def get_usage_history(
             func.extract("year", Post.created_at).label("y"),
             func.extract("month", Post.created_at).label("m"),
             func.count(Post.id).label("cnt"),
-        ).where(
+        )
+        .where(
             Post.team_id == team_id,
             Post.status != PostStatus.ARCHIVED,
             Post.created_at >= datetime(months[0][0], months[0][1], 1, tzinfo=UTC),
-        ).group_by("y", "m")
+        )
+        .group_by("y", "m")
     )
     post_map: dict[tuple[int, int], int] = {}
     for row in post_rows:
@@ -113,10 +113,12 @@ async def get_usage_history(
             func.extract("year", AIUsageLog.created_at).label("y"),
             func.extract("month", AIUsageLog.created_at).label("m"),
             func.count(AIUsageLog.id).label("cnt"),
-        ).where(
+        )
+        .where(
             AIUsageLog.team_id == team_id,
             AIUsageLog.created_at >= datetime(months[0][0], months[0][1], 1, tzinfo=UTC),
-        ).group_by("y", "m")
+        )
+        .group_by("y", "m")
     )
     ai_map: dict[tuple[int, int], int] = {}
     for row in ai_rows:

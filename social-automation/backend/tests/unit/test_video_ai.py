@@ -2,6 +2,7 @@
 vision helpers stubbed at the DMR/CF boundary; PIL frames are real so the
 poster picker exercises the real quality scorer.
 """
+
 from __future__ import annotations
 
 import asyncio

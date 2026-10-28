@@ -141,8 +141,11 @@ class TestSlackChannelOverride:
     async def test_channel_name_overrides_webhook_destination(self, monkeypatch):
         monkeypatch.setattr(slack_notifications.httpx, "AsyncClient", self._FakeClient)
         ok, err, _ = await slack_notifications._post_slack_text(
-            text="t", webhook_url="https://hooks.slack.com/services/x",
-            token="", channel_id="#polar-support", purpose="test",
+            text="t",
+            webhook_url="https://hooks.slack.com/services/x",
+            token="",
+            channel_id="#polar-support",
+            purpose="test",
         )
         assert ok is True and err is None
         assert self._FakeClient.last_payload["channel"] == "#polar-support"
@@ -152,8 +155,11 @@ class TestSlackChannelOverride:
         """Channel IDs (C...) belong to the token path, not webhook override."""
         monkeypatch.setattr(slack_notifications.httpx, "AsyncClient", self._FakeClient)
         ok, _, _ = await slack_notifications._post_slack_text(
-            text="t", webhook_url="https://hooks.slack.com/services/x",
-            token="", channel_id="C0C1F1K3DDF", purpose="test",
+            text="t",
+            webhook_url="https://hooks.slack.com/services/x",
+            token="",
+            channel_id="C0C1F1K3DDF",
+            purpose="test",
         )
         assert ok is True
         assert "channel" not in self._FakeClient.last_payload

@@ -61,9 +61,7 @@ async def _admin_user_and_team(db):
     user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
     if not user:
         raise SystemExit(f"Admin user not found: {email}")
-    team = (
-        await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))
-    ).scalars().first()
+    team = (await db.execute(select(Team).join(TeamMember).where(TeamMember.user_id == user.id))).scalars().first()
     return user, team
 
 
@@ -98,10 +96,7 @@ async def cmd_list(args: argparse.Namespace) -> None:
             return
         for a in accounts:
             meta = a.meta_data or {}
-            print(
-                f"{a.id}\t{a.display_name or a.username or a.account_id}\t"
-                f"type={meta.get('account_type', 'person')}\tstatus={a.status}"
-            )
+            print(f"{a.id}\t{a.display_name or a.username or a.account_id}\ttype={meta.get('account_type', 'person')}\tstatus={a.status}")
 
 
 async def cmd_validate(args: argparse.Namespace) -> None:
@@ -208,12 +203,15 @@ async def cmd_publish(args: argparse.Namespace) -> None:
             link_description=args.link_description,
             visibility=args.visibility,
         )
-        _print_json("Publish result", {
-            "success": result.success,
-            "platform_post_id": result.platform_post_id,
-            "platform_url": result.platform_url,
-            "error": result.error,
-        })
+        _print_json(
+            "Publish result",
+            {
+                "success": result.success,
+                "platform_post_id": result.platform_post_id,
+                "platform_url": result.platform_url,
+                "error": result.error,
+            },
+        )
 
 
 async def cmd_comment(args: argparse.Namespace) -> None:
@@ -234,12 +232,15 @@ async def cmd_comment(args: argparse.Namespace) -> None:
             text=args.text,
             creator_urn=creator_urn,
         )
-        _print_json("Comment result", {
-            "success": result.success,
-            "platform_post_id": result.platform_post_id,
-            "platform_url": result.platform_url,
-            "error": result.error,
-        })
+        _print_json(
+            "Comment result",
+            {
+                "success": result.success,
+                "platform_post_id": result.platform_post_id,
+                "platform_url": result.platform_url,
+                "error": result.error,
+            },
+        )
 
 
 async def cmd_followers(args: argparse.Namespace) -> None:

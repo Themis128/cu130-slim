@@ -52,9 +52,7 @@ class TestMiddlewarePathResolution:
     def test_middleware_uses_full_path_from_endpoint_map(self) -> None:
         app = _app_with_nested_routes()
         register_route_metrics(app)
-        endpoint = next(
-            ep for ep, p in _ENDPOINT_PATHS.items() if p == "/api/v1/auth/login"
-        )
+        endpoint = next(ep for ep, p in _ENDPOINT_PATHS.items() if p == "/api/v1/auth/login")
         assert _ENDPOINT_PATHS.get(endpoint) == "/api/v1/auth/login"
         # ensure the middleware fallback chain resolves via the map
         assert metrics._ENDPOINT_PATHS.get(endpoint) is not None

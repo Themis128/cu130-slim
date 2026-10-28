@@ -93,11 +93,13 @@ def test_campaign_status_parse():
 @pytest.mark.asyncio
 async def test_navigate_eval_pagetext(monkeypatch):
     monkeypatch.setattr(A, "get_settings", lambda: _settings())
-    client = _Client([
-        ("navigate", _Resp()),
-        ("eval", _Resp(payload={"result": "checkbox clicked"})),
-        ("page-text", _Resp(payload={"text": "campaigns"})),
-    ])
+    client = _Client(
+        [
+            ("navigate", _Resp()),
+            ("eval", _Resp(payload={"result": "checkbox clicked"})),
+            ("page-text", _Resp(payload={"text": "campaigns"})),
+        ]
+    )
     _patch_client(monkeypatch, client)
     await A._navigate("http://cm")
     assert await A._eval("js") == "checkbox clicked"
@@ -142,10 +144,12 @@ def _cm_routes(status_before="907100946 Boost\n\nActive", status_after=None, eva
 @pytest.mark.asyncio
 async def test_set_status_already_paused(monkeypatch):
     monkeypatch.setattr(A, "get_settings", lambda: _settings())
-    client = _Client([
-        ("navigate", _Resp()),
-        ("page-text", _Resp(payload={"text": "907100946\n\nPaused"})),
-    ])
+    client = _Client(
+        [
+            ("navigate", _Resp()),
+            ("page-text", _Resp(payload={"text": "907100946\n\nPaused"})),
+        ]
+    )
     _patch_client(monkeypatch, client)
     out = await A.set_campaign_status("pause")
     assert out == {"ok": True, "status": "paused", "detail": "Already paused"}
@@ -154,10 +158,12 @@ async def test_set_status_already_paused(monkeypatch):
 @pytest.mark.asyncio
 async def test_set_status_unreadable(monkeypatch):
     monkeypatch.setattr(A, "get_settings", lambda: _settings())
-    client = _Client([
-        ("navigate", _Resp()),
-        ("page-text", _Resp(payload={"text": "not logged in"})),
-    ])
+    client = _Client(
+        [
+            ("navigate", _Resp()),
+            ("page-text", _Resp(payload={"text": "not logged in"})),
+        ]
+    )
     _patch_client(monkeypatch, client)
     out = await A.set_campaign_status("pause")
     assert out["ok"] is False and "Could not read" in out["detail"]
@@ -166,16 +172,20 @@ async def test_set_status_unreadable(monkeypatch):
 @pytest.mark.asyncio
 async def test_set_status_full_toggle(monkeypatch):
     monkeypatch.setattr(A, "get_settings", lambda: _settings())
-    evals = iter([
-        _Resp(payload={"result": "checkbox clicked"}),   # select row
-        _Resp(payload={"result": "clicked Set status"}),  # open menu
-        _Resp(payload={"result": "clicked Pause"}),       # menu item
-        _Resp(payload={"result": "clicked Confirm"}),     # confirm
-    ])
-    pages = iter([
-        _Resp(payload={"text": "907100946\n\nActive"}),   # initial read
-        _Resp(payload={"text": "907100946\n\nPaused"}),   # verify read
-    ])
+    evals = iter(
+        [
+            _Resp(payload={"result": "checkbox clicked"}),  # select row
+            _Resp(payload={"result": "clicked Set status"}),  # open menu
+            _Resp(payload={"result": "clicked Pause"}),  # menu item
+            _Resp(payload={"result": "clicked Confirm"}),  # confirm
+        ]
+    )
+    pages = iter(
+        [
+            _Resp(payload={"text": "907100946\n\nActive"}),  # initial read
+            _Resp(payload={"text": "907100946\n\nPaused"}),  # verify read
+        ]
+    )
 
     class _C(_Client):
         async def post(self, url, **kw):
@@ -220,11 +230,16 @@ async def test_set_status_row_not_found_and_menu_fail(monkeypatch):
     out = await A.set_campaign_status("pause")
     assert out["ok"] is False and "row select failed" in out["detail"]
 
-    _patch_client(monkeypatch, _mk([
-        _Resp(payload={"result": "row clicked"}),
-        _Resp(payload={"result": "clicked Set status"}),
-        _Resp(payload={"result": "not found: Pause"}),
-    ]))
+    _patch_client(
+        monkeypatch,
+        _mk(
+            [
+                _Resp(payload={"result": "row clicked"}),
+                _Resp(payload={"result": "clicked Set status"}),
+                _Resp(payload={"result": "not found: Pause"}),
+            ]
+        ),
+    )
     out = await A.set_campaign_status("pause")
     assert out["ok"] is False and "menu 'Pause' failed" in out["detail"]
 
@@ -233,10 +248,12 @@ async def test_set_status_row_not_found_and_menu_fail(monkeypatch):
 async def test_set_status_verify_mismatch_and_sidecar_error(monkeypatch):
     monkeypatch.setattr(A, "get_settings", lambda: _settings())
     evals = iter([_Resp(payload={"result": "row clicked"})] * 4)
-    pages = iter([
-        _Resp(payload={"text": "907100946\n\nActive"}),
-        _Resp(payload={"text": "907100946\n\nActive"}),  # still active after toggle
-    ])
+    pages = iter(
+        [
+            _Resp(payload={"text": "907100946\n\nActive"}),
+            _Resp(payload={"text": "907100946\n\nActive"}),  # still active after toggle
+        ]
+    )
 
     class _C(_Client):
         async def post(self, url, **kw):

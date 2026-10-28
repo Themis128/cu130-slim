@@ -179,8 +179,7 @@ async def generate_image(
                     continue
                 status = entry.get("status") or {}
                 if status.get("status_str") == "error":
-                    msgs = [m[1].get("exception_message", "?")
-                            for m in status.get("messages", []) if m[0] == "execution_error"]
+                    msgs = [m[1].get("exception_message", "?") for m in status.get("messages", []) if m[0] == "execution_error"]
                     raise ComfyUIImageError(f"ComfyUI execution failed: {msgs or status}")
                 outputs = entry.get("outputs") or {}
                 imgs = (outputs.get("9") or {}).get("images") or []

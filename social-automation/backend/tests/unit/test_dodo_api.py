@@ -1,6 +1,7 @@
 """Unit tests for the Dodo Payments client — webhook signature verification,
 tier mapping, and configuration gating. No network calls.
 """
+
 import base64
 import hashlib
 import hmac
@@ -106,7 +107,9 @@ async def test_dodo_event_for_other_subscription_does_not_downgrade():
     )
 
     await _handle_dodo_subscription_event(
-        None, team, "subscription.failed",
+        None,
+        team,
+        "subscription.failed",
         {"subscription_id": "sub_other", "status": "failed"},
     )
     assert team.subscription_status == "active"
@@ -114,7 +117,9 @@ async def test_dodo_event_for_other_subscription_does_not_downgrade():
     assert team.dodo_subscription_id == "sub_current"
 
     await _handle_dodo_subscription_event(
-        None, team, "subscription.cancelled",
+        None,
+        team,
+        "subscription.cancelled",
         {"subscription_id": "sub_other", "status": "cancelled"},
     )
     assert team.subscription_status == "active"
@@ -134,7 +139,9 @@ async def test_dodo_event_for_current_subscription_applies():
         plan_tier="pro",
     )
     await _handle_dodo_subscription_event(
-        None, team, "subscription.failed",
+        None,
+        team,
+        "subscription.failed",
         {"subscription_id": "sub_current", "status": "failed"},
     )
     assert team.subscription_status == "failed"
@@ -150,15 +157,18 @@ async def test_sync_dm_auto_reply_enables_on_paid():
 
     accounts = [
         SocialAccount(
-            platform="twitter", account_type="person",
+            platform="twitter",
+            account_type="person",
             meta_data={"twitter_auto_reply": {"enabled": False}},
         ),
         SocialAccount(
-            platform="facebook", account_type="user",
+            platform="facebook",
+            account_type="user",
             meta_data={"personal_messenger_auto_reply": {"enabled": False}},
         ),
         SocialAccount(
-            platform="facebook", account_type="page",
+            platform="facebook",
+            account_type="page",
             meta_data={"messenger_auto_reply": {"enabled": False}},
         ),
         SocialAccount(platform="linkedin", account_type="person", meta_data={}),
@@ -191,11 +201,13 @@ async def test_sync_dm_auto_reply_disables_on_free():
 
     accounts = [
         SocialAccount(
-            platform="twitter", account_type="person",
+            platform="twitter",
+            account_type="person",
             meta_data={"twitter_auto_reply": {"enabled": True}},
         ),
         SocialAccount(
-            platform="telegram", account_type="bot",
+            platform="telegram",
+            account_type="bot",
             meta_data={"telegram_auto_reply": {"enabled": True}},
         ),
     ]
@@ -228,9 +240,7 @@ async def test_live_payments_enabled_false_on_merchant_not_live(monkeypatch, dod
     """MERCHANT_NOT_LIVE 403 -> False (review still pending)."""
 
     async def fake_request(method, path, **kwargs):
-        raise dodo_api.DodoError(
-            "Dodo POST /checkouts -> 403: Live payments not enabled for merchant"
-        )
+        raise dodo_api.DodoError("Dodo POST /checkouts -> 403: Live payments not enabled for merchant")
 
     monkeypatch.setattr(dodo_api, "_request", fake_request)
     assert await dodo_api.live_payments_enabled() is False
@@ -254,9 +264,7 @@ async def test_live_payments_enabled_true_on_validation_error(monkeypatch, dodo_
     DodoError — any non-MERCHANT_NOT_LIVE error means live is enabled."""
 
     async def fake_request(method, path, **kwargs):
-        raise dodo_api.DodoError(
-            "Dodo POST /checkouts -> 422: product_id invalid"
-        )
+        raise dodo_api.DodoError("Dodo POST /checkouts -> 422: product_id invalid")
 
     monkeypatch.setattr(dodo_api, "_request", fake_request)
     assert await dodo_api.live_payments_enabled() is True
@@ -419,7 +427,9 @@ async def test_create_checkout_with_customer_id(monkeypatch, dodo_settings):
 
     monkeypatch.setattr(dodo_api, "_request", fake_request)
     out = await dodo_api.create_checkout(
-        product_id="pdt_pro", team_id="t1", customer_id="cust_1",
+        product_id="pdt_pro",
+        team_id="t1",
+        customer_id="cust_1",
     )
     assert out == {"id": "sess_1", "checkout_url": "https://dodo/co/sess_1"}
     assert captured["customer"] == {"customer_id": "cust_1"}
@@ -437,8 +447,10 @@ async def test_create_checkout_with_email_name(monkeypatch, dodo_settings):
 
     monkeypatch.setattr(dodo_api, "_request", fake_request)
     out = await dodo_api.create_checkout(
-        product_id="pdt_pro", team_id="t1",
-        customer_email="a@b.c", customer_name="Ann",
+        product_id="pdt_pro",
+        team_id="t1",
+        customer_email="a@b.c",
+        customer_name="Ann",
     )
     assert out["checkout_url"] is None
     assert captured["customer"] == {"email": "a@b.c", "name": "Ann"}

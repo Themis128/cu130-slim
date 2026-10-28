@@ -45,9 +45,7 @@ settings = get_settings()
 def _pkce_pair() -> tuple[str, str]:
     """Return (code_verifier, code_challenge) for S256 PKCE."""
     verifier = secrets.token_urlsafe(48)
-    challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(verifier.encode()).digest()
-    ).rstrip(b"=").decode()
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
     return verifier, challenge
 
 
@@ -137,11 +135,7 @@ class SocialAccountResponse(BaseModel):
 
         def scrub(obj: object) -> object:
             if isinstance(obj, dict):
-                return {
-                    k: scrub(val)
-                    for k, val in obj.items()
-                    if not secret_key.search(str(k))
-                }
+                return {k: scrub(val) for k, val in obj.items() if not secret_key.search(str(k))}
             if isinstance(obj, list):
                 return [scrub(item) for item in obj]
             return obj
@@ -221,6 +215,7 @@ async def connect_account_body(
     from sqlalchemy import case
 
     from app.models.user import UserRole
+
     _tier_rank = case(
         (Team.plan_tier == "enterprise", 4),
         (Team.plan_tier == "business", 3),
@@ -274,8 +269,7 @@ async def connect_account_body(
         # video.list required for /v2/video/list/ and /v2/video/query/.
         # user.info.profile → bio/verified/deep-link; user.info.stats →
         # follower/following/likes/video counts (analytics profile_sync).
-        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
-                   "video.publish", "video.upload", "video.list"],
+        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
     }.get(data.platform, [])
 
     # Twitter and TikTok OAuth 2.0 require PKCE
@@ -312,9 +306,7 @@ async def connect_account(
     db: AsyncSession = Depends(get_db),
 ):
     # Verify team membership
-    result = await db.execute(
-        select(TeamMember).where(TeamMember.team_id == team_id, TeamMember.user_id == current_user.id)
-    )
+    result = await db.execute(select(TeamMember).where(TeamMember.team_id == team_id, TeamMember.user_id == current_user.id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Not a member of this team")
 
@@ -347,8 +339,7 @@ async def connect_account(
         # video.list required for /v2/video/list/ and /v2/video/query/.
         # user.info.profile → bio/verified/deep-link; user.info.stats →
         # follower/following/likes/video counts (analytics profile_sync).
-        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
-                   "video.publish", "video.upload", "video.list"],
+        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
     }.get(platform, [])
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
@@ -380,9 +371,7 @@ async def connect_account(
 
 
 @router.post("/linkedin/sync-organizations")
-async def sync_linkedin_organizations(team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def sync_linkedin_organizations(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Re-scan LinkedIn company pages for the connected personal account.
 
     Requires the token to include ``w_organization_social`` / ``r_organization_social``.
@@ -433,8 +422,7 @@ async def sync_linkedin_organizations(team_id: TeamId,
             for a in synced
         ],
         "hint": (
-            "Reconnect LinkedIn with company-page scopes if this list is empty "
-            "(Community Management API + w_organization_social on your LinkedIn app)."
+            "Reconnect LinkedIn with company-page scopes if this list is empty (Community Management API + w_organization_social on your LinkedIn app)."
             if not synced
             else None
         ),
@@ -449,7 +437,9 @@ async def get_account(
 ):
     """Get a single social account by ID."""
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -482,7 +472,9 @@ async def test_account(
 ):
     """Test that an account's token is still valid by calling the platform API."""
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -492,7 +484,6 @@ async def test_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-
     token = decrypt_token(account.access_token_enc)
     platform = account.platform
 
@@ -500,6 +491,7 @@ async def test_account(
         valid = False
         if platform == "linkedin":
             from app.services.linkedin_api import LinkedInAPIClient
+
             client = LinkedInAPIClient(access_token=token)
             await client.validate_token()
             valid = True
@@ -563,7 +555,9 @@ async def disconnect_account(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -584,7 +578,9 @@ async def refresh_account_token(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -667,7 +663,9 @@ async def validate_account(
     db: AsyncSession = Depends(get_db),
 ):
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -677,13 +675,13 @@ async def validate_account(
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-
     token = decrypt_token(account.access_token_enc)
     platform = account.platform
 
     try:
         if platform == "linkedin":
             from app.services.linkedin_api import LinkedInAPIClient
+
             client = LinkedInAPIClient(access_token=token)
             await client.validate_token()
         elif platform == "twitter":
@@ -725,6 +723,7 @@ async def validate_account(
 
 # ── Business account discovery ─────────────────────────────────────────────────
 
+
 class BusinessAccountSyncResponse(BaseModel):
     platform: str
     synced: int
@@ -739,7 +738,9 @@ async def sync_business_accounts(
 ):
     """Discover and store business accounts/pages for the connected platform account."""
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -927,7 +928,9 @@ async def set_business_account(
 ):
     """Select a discovered business account as the active publishing target."""
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             TeamMember.user_id == current_user.id,
@@ -979,7 +982,9 @@ async def _get_facebook_account(
 ) -> SocialAccount:
     """Fetch a Facebook account owned by the current user's team."""
     result = await db.execute(
-        select(SocialAccount).join(Team).join(TeamMember)
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
         .where(
             SocialAccount.id == account_id,
             SocialAccount.platform == "facebook",
@@ -992,14 +997,14 @@ async def _get_facebook_account(
     if require_page and not account.is_business:
         raise HTTPException(
             status_code=400,
-            detail="This operation requires a Facebook Page account, not a user account. "
-            "Use 'Sync Business Accounts' first to discover your Pages.",
+            detail="This operation requires a Facebook Page account, not a user account. Use 'Sync Business Accounts' first to discover your Pages.",
         )
     return account
 
 
 class PageProfileUpdate(BaseModel):
     """Editable Facebook Page profile fields."""
+
     about: str | None = None
     description: str | None = None
     website: str | None = None
@@ -1103,6 +1108,7 @@ async def upload_facebook_cover_photo(
 
 class AssignManageTaskRequest(BaseModel):
     """Request body for assigning the MANAGE task to the current user."""
+
     business_id: str
     business_user_id: str | None = None
 
@@ -1148,4 +1154,3 @@ async def assign_facebook_manage_task(
         return {"success": success, "business_user_id": business_user_id, "tasks": tasks}
     except FacebookAPIError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
-

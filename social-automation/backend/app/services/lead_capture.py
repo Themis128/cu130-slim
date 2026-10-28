@@ -54,7 +54,7 @@ def _looks_like_name(text: str) -> bool:
 def _lead_prompts(*, greek: bool) -> dict[str, str]:
     if greek:
         return {
-            "welcome": "Clear skies. Zero friction. Πριν συνεχίσουμε, να πάρουμε 30\" για να σας βοηθήσουμε σωστά.",
+            "welcome": 'Clear skies. Zero friction. Πριν συνεχίσουμε, να πάρουμε 30" για να σας βοηθήσουμε σωστά.',
             "ask_name": "Ποιο είναι το όνομά σας;",
             "ask_email": "Ποιο email να χρησιμοποιήσουμε;",
             "bad_email": "Δεν φαίνεται σωστό email. Μπορείτε να το ξαναγράψετε;",
@@ -79,9 +79,7 @@ def _session_key(source: LeadSource, team_id: uuid.UUID, thread_id: str) -> str:
     return f"lead:capture:{source.value}:{team_id}:{thread_id}"
 
 
-async def snapshot_lead_session(
-    source: LeadSource, team_id: uuid.UUID, thread_id: str
-) -> str | None:
+async def snapshot_lead_session(source: LeadSource, team_id: uuid.UUID, thread_id: str) -> str | None:
     """Return the raw Redis session for this thread (None when absent).
 
     Callers that must deliver the FSM's reply over a fallible transport
@@ -102,9 +100,7 @@ async def snapshot_lead_session(
             pass
 
 
-async def restore_lead_session(
-    source: LeadSource, team_id: uuid.UUID, thread_id: str, raw: str | None
-) -> None:
+async def restore_lead_session(source: LeadSource, team_id: uuid.UUID, thread_id: str, raw: str | None) -> None:
     """Write a session snapshot back (or clear it when raw is None)."""
     settings = get_settings()
     redis_url = getattr(settings, "MESSENGER_REDIS_URL", None) or settings.REDIS_URL
@@ -446,4 +442,3 @@ async def handle_lead_capture_message(
             await r.aclose()
         except Exception:
             pass
-

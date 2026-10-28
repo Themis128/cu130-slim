@@ -1,4 +1,5 @@
 """Coverage: consent_healers platform probes + wrapper."""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -18,6 +19,7 @@ def _db(accs):
 @pytest.mark.asyncio
 async def test_twitter_skip_no_account(monkeypatch):
     from app.worker.tasks import consent_healers as CH
+
     monkeypatch.setattr(CH, "task_session", lambda: _db([]))
     assert await CH._twitter() == "skip"
 
@@ -25,6 +27,7 @@ async def test_twitter_skip_no_account(monkeypatch):
 @pytest.mark.asyncio
 async def test_twitter_healed(monkeypatch):
     from app.worker.tasks import consent_healers as CH
+
     acc = MagicMock(status="expired", access_token_enc=b"enc")
     monkeypatch.setattr(CH, "task_session", lambda: _db([acc]))
     monkeypatch.setattr(CH, "decrypt_token", lambda b: "tok")
@@ -41,6 +44,7 @@ async def test_twitter_healed(monkeypatch):
 @pytest.mark.asyncio
 async def test_whatsapp_skip_no_account(monkeypatch):
     from app.worker.tasks import consent_healers as CH
+
     monkeypatch.setattr(CH, "task_session", lambda: _db([]))
     out = await CH._whatsapp()
     assert isinstance(out, str)
@@ -49,6 +53,7 @@ async def test_whatsapp_skip_no_account(monkeypatch):
 @pytest.mark.asyncio
 async def test_heal_consents_wrapper(monkeypatch):
     from app.worker.tasks import consent_healers as CH
+
     monkeypatch.setattr(CH, "run_async", lambda c: {"twitter": "skip"})
     out = CH.heal_consents()
     assert isinstance(out, dict)

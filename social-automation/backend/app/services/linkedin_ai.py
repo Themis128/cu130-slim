@@ -264,9 +264,7 @@ Return JSON with:
             }
         )
 
-    body = "\n\n".join(
-        f"{s['heading']}\n{s['body']}" for s in cleaned_sections
-    )
+    body = "\n\n".join(f"{s['heading']}\n{s['body']}" for s in cleaned_sections)
 
     # Pull-quote block — real attributed quote only; empty object skips it.
     quote = result.get("quote") or {}
@@ -275,10 +273,7 @@ Return JSON with:
     quote_url = str(quote.get("source_url") or "").strip()
     quote_block = ""
     if quote_text and quote_attr:
-        quote_block = (
-            f'\u201c{quote_text}\u201d\n\u2014 {quote_attr}'
-            + (f"\n{quote_url}" if quote_url else "")
-        )
+        quote_block = f"\u201c{quote_text}\u201d\n\u2014 {quote_attr}" + (f"\n{quote_url}" if quote_url else "")
 
     # Sources & further reading — LinkedIn linkifies bare URLs in the paste.
     sources = [
@@ -292,9 +287,7 @@ Return JSON with:
     ]
     sources_block = ""
     if sources:
-        lines = "\n".join(
-            f"\u2022 {x['title']} — {x['publisher']}\n  {x['url']}" for x in sources
-        )
+        lines = "\n".join(f"\u2022 {x['title']} — {x['publisher']}\n  {x['url']}" for x in sources)
         sources_block = f"Sources & further reading\n{lines}"
 
     if quote_block:
@@ -431,14 +424,16 @@ def rank_best_time_windows(
         avg = _score(rates)
         if avg < mean_er:
             continue
-        windows.append({
-            "day": day_names[day_idx],
-            "time": f"{hour:02d}:00",
-            "timezone": timezone,
-            "confidence": "high" if avg >= mean_er * _MARGIN else "medium",
-            "avg_engagement_rate": round(avg, 4),
-            "sample_size": len(rates),
-        })
+        windows.append(
+            {
+                "day": day_names[day_idx],
+                "time": f"{hour:02d}:00",
+                "timezone": timezone,
+                "confidence": "high" if avg >= mean_er * _MARGIN else "medium",
+                "avg_engagement_rate": round(avg, 4),
+                "sample_size": len(rates),
+            }
+        )
         if len(windows) >= _MAX_WINDOWS:
             break
     return windows
@@ -474,10 +469,12 @@ async def suggest_best_time_to_post(
         {"day": "Wednesday", "time": "12:00", "timezone": timezone, "confidence": "medium"},
     ]
     if account_type.lower() in ("person", "personal"):
-        windows.extend([
-            {"day": "Monday", "time": "17:00", "timezone": timezone, "confidence": "medium"},
-            {"day": "Friday", "time": "08:00", "timezone": timezone, "confidence": "medium"},
-        ])
+        windows.extend(
+            [
+                {"day": "Monday", "time": "17:00", "timezone": timezone, "confidence": "medium"},
+                {"day": "Friday", "time": "08:00", "timezone": timezone, "confidence": "medium"},
+            ]
+        )
     return windows
 
 

@@ -5,6 +5,7 @@ free, fast, and unlimited. Cloudflare-first principle is preserved by using
 Cloudflare Images transforms when available in the future, but Pillow is the
 reliable local fallback.
 """
+
 from __future__ import annotations
 
 import io
@@ -52,6 +53,7 @@ PLATFORM_PRESETS: dict[str, dict] = {
 @dataclass
 class TransformResult:
     """Result of an image transformation."""
+
     image_bytes: bytes
     mime_type: str
     width: int

@@ -3,6 +3,7 @@
 Redis is faked in-memory; helpers are designed to fail open so outage cases
 are covered too. No network, no database.
 """
+
 import time
 
 import pytest

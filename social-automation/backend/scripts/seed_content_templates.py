@@ -15,6 +15,7 @@ Behaviour:
   pillar ids differ between installs, so the seed never hardcodes them.
 - Prints a one-line diff summary per template (created / updated / unchanged).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -78,11 +79,7 @@ async def _resolve_team_id(db, wanted: str | None) -> uuid.UUID:
 
 
 async def _pillar_id(db, team_id: uuid.UUID, name: str) -> uuid.UUID:
-    row = (
-        await db.execute(
-            select(Pillar.id).where(Pillar.team_id == team_id, Pillar.name == name)
-        )
-    ).first()
+    row = (await db.execute(select(Pillar.id).where(Pillar.team_id == team_id, Pillar.name == name))).first()
     if row:
         return row[0]
     p = Pillar(team_id=team_id, name=name)
@@ -110,7 +107,9 @@ async def seed(team_id_arg: str | None, seed_path: Path) -> None:
             if row is None:
                 db.add(
                     ContentPromptTemplate(
-                        id=uuid.UUID(t["id"]), team_id=team_id, name=t["name"],
+                        id=uuid.UUID(t["id"]),
+                        team_id=team_id,
+                        name=t["name"],
                         **values,
                     )
                 )
@@ -119,8 +118,7 @@ async def seed(team_id_arg: str | None, seed_path: Path) -> None:
             changed = [f for f in FIELDS if getattr(row, f) != values[f]]
             for f in changed:
                 setattr(row, f, values[f])
-            print(f"  {'~' if changed else '='} {t['name']}  "
-                  f"({'updated: ' + ','.join(changed) if changed else 'unchanged'})")
+            print(f"  {'~' if changed else '='} {t['name']}  ({'updated: ' + ','.join(changed) if changed else 'unchanged'})")
         await db.commit()
     print(f"seeded {len(templates)} templates for team {team_id}")
 

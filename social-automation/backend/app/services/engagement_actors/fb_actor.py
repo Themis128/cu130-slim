@@ -4,6 +4,7 @@ Navigates to the post permalink, focuses the comment box, types and
 submits. Meta hard-cap: 5 comments/hour enforced at queue layer.
 Likes via aria-label click. Reposts are never auto-acted.
 """
+
 import asyncio
 import json
 import logging
@@ -25,8 +26,7 @@ LIKE_JS = """(() => {
 async def act(action, db) -> dict:
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=90) as c:
         try:
-            await c.post("/session/start",
-                         json={"platform": "facebook", "force": True})
+            await c.post("/session/start", json={"platform": "facebook", "force": True})
         except Exception:
             return {"error": "browser busy", "skip": True}
 
@@ -37,8 +37,7 @@ async def act(action, db) -> dict:
         if action.action == "comment":
             if not action.comment_draft:
                 return {"error": "empty draft"}
-            await c.post("/session/navigate",
-                         json={"url": action.target_post_id})
+            await c.post("/session/navigate", json={"url": action.target_post_id})
             await asyncio.sleep(6)
             expr = f"""(async () => {{
               const sleep=ms=>new Promise(r=>setTimeout(r,ms));

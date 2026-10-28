@@ -18,9 +18,9 @@ from dataclasses import dataclass
 class Stage:
     key: str
     name: str
-    attentional_capital: str          # what the influencer controls here
-    brand_relation: str               # paper's guidance on brand engagement
-    actions: tuple[str, ...]          # stage-appropriate playbook
+    attentional_capital: str  # what the influencer controls here
+    brand_relation: str  # paper's guidance on brand engagement
+    actions: tuple[str, ...]  # stage-appropriate playbook
 
 
 STAGES: tuple[Stage, ...] = (

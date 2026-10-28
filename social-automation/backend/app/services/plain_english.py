@@ -159,9 +159,7 @@ def any_needs_plain_english(texts: list[str]) -> bool:
     return any(needs_plain_english_rewrite(t) for t in texts if t)
 
 
-_ORIGINAL_MARKERS = re.compile(
-    r"(?i)^[ \t]*(?:original(?:[ \t]+text)?|before)[ \t]*[:\-][ \t]*"
-)
+_ORIGINAL_MARKERS = re.compile(r"(?i)^[ \t]*(?:original(?:[ \t]+text)?|before)[ \t]*[:\-][ \t]*")
 _REWRITTEN_MARKERS = re.compile(
     r"(?i)(?:^|\n)[ \t]*(?:plain[ \t]+english|rewritten?|fixed|after|corrected)"
     r"(?:[ \t]+version)?[ \t]*[:\-][ \t]*"
@@ -419,9 +417,7 @@ async def run_nlp_check_and_fix(
     # Keep NLP text only — drop original leftovers and redundant duplicates.
     from app.services.duplicate_detector import detect_carousel_duplicates
 
-    cleaned_slides, cleaned_caption, dup_report = dedupe_carousel_copy(
-        cleaned_slides, cleaned_caption
-    )
+    cleaned_slides, cleaned_caption, dup_report = dedupe_carousel_copy(cleaned_slides, cleaned_caption)
     # Re-check after fix for residual issues (informational).
     after = check_carousel_copy(cleaned_slides, cleaned_caption)
     residual_dups = detect_carousel_duplicates(cleaned_slides, cleaned_caption)
@@ -454,10 +450,7 @@ async def run_nlp_check_and_fix(
                 for i in after.issues
             ]
         )
-    logger.info(
-        f"[nlp] check issues={len(report.issues)} fixed={report.fixed} "
-        f"rewritten={report.fields_rewritten} dup_actions={dup_report.actions}"
-    )
+    logger.info(f"[nlp] check issues={len(report.issues)} fixed={report.fixed} rewritten={report.fields_rewritten} dup_actions={dup_report.actions}")
     return cleaned_slides, cleaned_caption, report
 
 
@@ -626,11 +619,7 @@ def check_sofia_rules(text: str, field: str = "text") -> list[NlpIssue]:
     # (a question followed by a P.S. still counts as closing engagement).
     tail = lines[-1] if lines else ""
     close_zone = text[-300:]
-    has_cta = (
-        _CTA_SIGNAL.search(tail)
-        or "?" in close_zone
-        or _CTA_SIGNAL.search(close_zone)
-    )
+    has_cta = _CTA_SIGNAL.search(tail) or "?" in close_zone or _CTA_SIGNAL.search(close_zone)
     if tail and not has_cta:
         issues.append(
             NlpIssue(

@@ -27,6 +27,7 @@ Commands:
     run                  process --limit leads (default --dry-run; --approve
                          actually sends; --action message|connect|all)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -90,9 +91,7 @@ async def _list_members() -> list[dict]:
                 {
                     "maxSize": 1,
                     "select": ["id"],
-                    "where": [
-                        {"type": "equals", "attribute": "name", "value": TARGET_LIST_NAME}
-                    ],
+                    "where": [{"type": "equals", "attribute": "name", "value": TARGET_LIST_NAME}],
                 }
             )
         },
@@ -137,8 +136,7 @@ async def _touch_lead(lead: dict, *, detail: str = "") -> str:
     await espo_patch(f"/Lead/{lead_id}", {"status": "In Process"})
     await add_lead_note(
         lead_id,
-        "Newsletter nurture (contacted via LinkedIn sidecar)."
-        + (f" {detail}" if detail else ""),
+        "Newsletter nurture (contacted via LinkedIn sidecar)." + (f" {detail}" if detail else ""),
     )
     return lead_id
 
@@ -194,10 +192,7 @@ async def cmd_run(args) -> None:
                     dry_run=dry_run,
                 )
             if dry_run:
-                print(
-                    f"[{i}] {action} {name}: dry-run ok — "
-                    f"resolved {res.get('recipient', url)}"
-                )
+                print(f"[{i}] {action} {name}: dry-run ok — resolved {res.get('recipient', url)}")
             else:
                 await _touch_lead(lead)
                 print(f"[{i}] {action} {name}: {res.get('status')} {url}")

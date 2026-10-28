@@ -50,9 +50,7 @@ def test_client_rejects_bad_token():
 
 @pytest.mark.asyncio
 async def test_get_account_info_success(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"status": 0, "status_message": "ok", "id": "pa:123", "name": "Cloudless"})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"status": 0, "status_message": "ok", "id": "pa:123", "name": "Cloudless"}))
     with patch("app.services.viber_api.httpx.AsyncClient", return_value=fake):
         data = await client.get_account_info()
     assert data["name"] == "Cloudless"
@@ -63,9 +61,7 @@ async def test_get_account_info_success(client):
 
 @pytest.mark.asyncio
 async def test_nonzero_status_raises(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"status": 6, "status_message": "notSubscribed"})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"status": 6, "status_message": "notSubscribed"}))
     with patch("app.services.viber_api.httpx.AsyncClient", return_value=fake):
         with pytest.raises(api.ViberAPIError) as excinfo:
             await client.send_text("user1", "hello")
@@ -213,11 +209,9 @@ async def test_unset_webhook(client):
 
 @pytest.mark.asyncio
 async def test_set_webhook_with_event_types(client):
-    w, fake = _wire(_FakeResponse(200, {
-        "status": 0, "event_types": ["delivered", "seen"]}))
+    w, fake = _wire(_FakeResponse(200, {"status": 0, "event_types": ["delivered", "seen"]}))
     with w:
-        events = await client.set_webhook(
-            "https://example.com/hook", event_types=["delivered", "seen"])
+        events = await client.set_webhook("https://example.com/hook", event_types=["delivered", "seen"])
     assert events == ["delivered", "seen"]
     assert fake.calls[0]["json"]["event_types"] == ["delivered", "seen"]
 
@@ -243,10 +237,7 @@ async def test_send_message_requires_receiver(client):
 async def test_send_message_tracking_and_avatar(client):
     w, fake = _wire(_FakeResponse(200, {"status": 0}))
     with w:
-        await client.send_message(
-            "u1", {"type": "text", "text": "hi"},
-            sender_name="B", sender_avatar="https://a/x.png",
-            tracking_data="t" * 5000)
+        await client.send_message("u1", {"type": "text", "text": "hi"}, sender_name="B", sender_avatar="https://a/x.png", tracking_data="t" * 5000)
     payload = fake.calls[0]["json"]
     assert payload["receiver"] == "u1"
     assert payload["sender"]["avatar"] == "https://a/x.png"
@@ -257,10 +248,8 @@ async def test_send_message_tracking_and_avatar(client):
 async def test_send_video_and_file_and_url(client):
     w, fake = _wire(_FakeResponse(200, {"status": 0}))
     with w:
-        await client.send_video("u1", "https://a/v.mp4", size=123,
-                                duration=9, thumbnail="https://a/t.jpg")
-        await client.send_file("u1", "https://a/f.pdf", size=5,
-                               file_name="f.pdf")
+        await client.send_video("u1", "https://a/v.mp4", size=123, duration=9, thumbnail="https://a/t.jpg")
+        await client.send_file("u1", "https://a/f.pdf", size=5, file_name="f.pdf")
         await client.send_url("u1", "https://example.com")
     video, file_, url_ = (c["json"] for c in fake.calls)
     assert video["type"] == "video" and video["duration"] == 9
@@ -347,8 +336,7 @@ def test_parse_webhook_ping_and_unknown():
 
 
 def test_parse_unsubscribed():
-    out = api.parse_webhook_event({
-        "event": "unsubscribed", "user": {"id": "u9", "name": "N"}})
+    out = api.parse_webhook_event({"event": "unsubscribed", "user": {"id": "u9", "name": "N"}})
     assert out["user_id"] == "u9" and out["user_name"] == "N"
 
 
@@ -356,11 +344,8 @@ def test_parse_unsubscribed():
 async def test_send_picture_optional_fields(client):
     w, fake = _wire(_FakeResponse(200, {"status": 0}))
     with w:
-        await client.send_picture(
-            "u1", "https://a/p.jpg", text="cap" * 2000,
-            thumbnail="https://a/t.jpg")
-        await client.send_picture("u1", "https://a/p2.jpg",
-                                  thumbnail="http://bad")
+        await client.send_picture("u1", "https://a/p.jpg", text="cap" * 2000, thumbnail="https://a/t.jpg")
+        await client.send_picture("u1", "https://a/p2.jpg", thumbnail="http://bad")
     pic = fake.calls[0]["json"]
     assert pic["text"] and pic["thumbnail"] == "https://a/t.jpg"
     pic2 = fake.calls[1]["json"]
@@ -370,8 +355,7 @@ async def test_send_picture_optional_fields(client):
 @pytest.mark.asyncio
 async def test_send_file_rejects_http(client):
     with pytest.raises(ValueError, match="HTTPS"):
-        await client.send_file("u1", "http://a/f.pdf", size=1,
-                               file_name="f.pdf")
+        await client.send_file("u1", "http://a/f.pdf", size=1, file_name="f.pdf")
 
 
 def test_error_detail_property():

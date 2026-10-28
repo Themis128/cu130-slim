@@ -45,12 +45,8 @@ def _load_key():
             Ed25519PrivateKey,
         )
 
-        key = Ed25519PrivateKey.from_private_bytes(
-            base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4))
-        )
-        pub = key.public_key().public_bytes(
-            serialization.Encoding.Raw, serialization.PublicFormat.Raw
-        )
+        key = Ed25519PrivateKey.from_private_bytes(base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)))
+        pub = key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
         # RFC 7638 JWK thumbprint — matches the kid served in the JWKS.
         thumb = json.dumps(
             {"crv": "Ed25519", "kty": "OKP", "x": _b64u(pub)},
@@ -82,10 +78,7 @@ def signature_headers(method: str, url: str) -> dict[str, str]:
         if parts.query:
             path += "?" + parts.query
         created = int(time.time())
-        params = (
-            f"({ ' '.join(_COVERED) });created={created};"
-            f'keyid="{_key_kid}";alg="ed25519"'
-        )
+        params = f'({" ".join(_COVERED)});created={created};keyid="{_key_kid}";alg="ed25519"'
         base = "\n".join(
             [
                 f'"@method": {method.upper()}',

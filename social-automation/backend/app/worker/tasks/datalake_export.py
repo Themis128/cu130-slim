@@ -20,6 +20,7 @@ Each run overwrites the whole table (snapshot-style export) — idempotent
 by construction, no dedup needed downstream. PII is minimized: leads keep
 only a sha256 email hash + domain; web events drop client_ip/user_agent.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -59,9 +60,7 @@ settings = get_settings()
 _WEB_EVENTS_DAYS = 90
 
 # Datalake keys mirrored to Nextcloud — summary artifacts only.
-_NC_MIRROR_RE = re.compile(
-    r"^lake/(socialauto-(funnel|ops|reports|monetization|insights)/|cloudflare-usage/)"
-)
+_NC_MIRROR_RE = re.compile(r"^lake/(socialauto-(funnel|ops|reports|monetization|insights)/|cloudflare-usage/)")
 
 
 _worker_db = task_session
@@ -85,9 +84,7 @@ def _email_domain(email: str | None) -> str | None:
 
 async def _put_json(key: str, rows: Any, bucket: str) -> dict:
     data = json.dumps(rows, ensure_ascii=False, default=str).encode()
-    return await r2_storage.upload_object(
-        key, data, content_type="application/json", bucket=bucket
-    )
+    return await r2_storage.upload_object(key, data, content_type="application/json", bucket=bucket)
 
 
 async def _export_accounts(db: AsyncSession) -> list[dict]:
@@ -120,37 +117,36 @@ async def _export_posts(db: AsyncSession) -> list[dict]:
     by_post: dict[str, dict] = {}
     for post, target, platform in result.all():
         key = str(post.id)
-        entry = by_post.setdefault(key, {
-            "post_id": key,
-            "team_id": str(post.team_id),
-            "status": str(post.status),
-            "content_snippet": (post.content_text or "")[:200],
-            "link_url": post.link_url,
-            "hashtags": list(post.hashtags or []),
-            "media_count": len(post.media_ids or []),
-            "scheduled_at": _iso(post.scheduled_at),
-            "published_at": _iso(post.published_at),
-            "created_at": _iso(post.created_at),
-            "targets": [],
-        })
-        entry["targets"].append({
-            "account_id": str(target.social_account_id),
-            "platform": platform,
-            "platform_post_id": target.platform_post_id,
-            "platform_url": target.platform_url,
-            "status": target.status,
-        })
+        entry = by_post.setdefault(
+            key,
+            {
+                "post_id": key,
+                "team_id": str(post.team_id),
+                "status": str(post.status),
+                "content_snippet": (post.content_text or "")[:200],
+                "link_url": post.link_url,
+                "hashtags": list(post.hashtags or []),
+                "media_count": len(post.media_ids or []),
+                "scheduled_at": _iso(post.scheduled_at),
+                "published_at": _iso(post.published_at),
+                "created_at": _iso(post.created_at),
+                "targets": [],
+            },
+        )
+        entry["targets"].append(
+            {
+                "account_id": str(target.social_account_id),
+                "platform": platform,
+                "platform_post_id": target.platform_post_id,
+                "platform_url": target.platform_url,
+                "status": target.status,
+            }
+        )
     return list(by_post.values())
 
 
 async def _export_metrics(db: AsyncSession) -> list[dict]:
-    rows = (
-        await db.execute(
-            select(PostAnalyticsSnapshot).order_by(
-                PostAnalyticsSnapshot.captured_at.desc()
-            )
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(PostAnalyticsSnapshot).order_by(PostAnalyticsSnapshot.captured_at.desc()))).scalars().all()
     return [
         {
             "snapshot_id": str(s.id),
@@ -176,11 +172,7 @@ async def _export_metrics(db: AsyncSession) -> list[dict]:
 
 
 async def _export_followers(db: AsyncSession) -> list[dict]:
-    rows = (
-        await db.execute(
-            select(FollowerSnapshot).order_by(FollowerSnapshot.captured_at)
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(FollowerSnapshot).order_by(FollowerSnapshot.captured_at))).scalars().all()
     return [
         {
             "account_id": str(f.social_account_id),
@@ -194,13 +186,7 @@ async def _export_followers(db: AsyncSession) -> list[dict]:
 
 
 async def _export_account_events(db: AsyncSession) -> list[dict]:
-    rows = (
-        await db.execute(
-            select(AnalyticsEvent)
-            .where(AnalyticsEvent.post_id.is_(None))
-            .order_by(AnalyticsEvent.occurred_at.desc())
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(AnalyticsEvent).where(AnalyticsEvent.post_id.is_(None)).order_by(AnalyticsEvent.occurred_at.desc()))).scalars().all()
     return [
         {
             "team_id": str(e.team_id),
@@ -231,9 +217,7 @@ async def _export_leads(db: AsyncSession) -> list[dict]:
         await db.execute(
             select(Lead, SocialAccount.platform)
             .outerjoin(SocialAccount, SocialAccount.id == Lead.social_account_id)
-            .where(
-                *[Lead.email.not_ilike(s) for s in _FIXTURE_EMAIL_SUFFIXES]
-            )
+            .where(*[Lead.email.not_ilike(s) for s in _FIXTURE_EMAIL_SUFFIXES])
             .order_by(Lead.created_at.desc())
         )
     ).all()
@@ -268,22 +252,14 @@ async def _export_email_campaigns(db: AsyncSession) -> list[dict]:
         SurveyResponse,
     )
 
-    campaigns = (
-        await db.execute(select(EmailCampaign).order_by(EmailCampaign.created_at.desc()))
-    ).scalars().all()
+    campaigns = (await db.execute(select(EmailCampaign).order_by(EmailCampaign.created_at.desc()))).scalars().all()
     out: list[dict] = []
     for c in campaigns:
-        recs = (
-            await db.execute(
-                select(EmailRecipient).where(EmailRecipient.campaign_id == c.id)
-            )
-        ).scalars().all()
+        recs = (await db.execute(select(EmailRecipient).where(EmailRecipient.campaign_id == c.id))).scalars().all()
         responses = (
             await db.execute(
                 select(SurveyResponse, EmailRecipient.email)
-                .outerjoin(
-                    EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id
-                )
+                .outerjoin(EmailRecipient, EmailRecipient.id == SurveyResponse.recipient_id)
                 .where(SurveyResponse.campaign_id == c.id)
             )
         ).all()
@@ -358,11 +334,7 @@ async def _export_telegram_channels(db: AsyncSession) -> list[dict]:
     the bot administers (discovered via ``my_chat_member`` webhook events),
     plus named invite links. Invite-link URLs are excluded: they grant
     access to the private channel and are treated as secrets."""
-    rows = (
-        await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "telegram")
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram"))).scalars().all()
     out: list[dict] = []
     for a in rows:
         meta = a.meta_data or {}
@@ -400,31 +372,31 @@ async def _export_telegram_channels(db: AsyncSession) -> list[dict]:
 async def _export_web_events(db: AsyncSession) -> list[dict]:
     since = datetime.now(UTC) - timedelta(days=_WEB_EVENTS_DAYS)
     rows = (
-        await db.execute(
-            select(WebAnalyticsEvent)
-            .where(WebAnalyticsEvent.occurred_at >= since)
-            .order_by(WebAnalyticsEvent.occurred_at.desc())
-        )
-    ).scalars().all()
+        (await db.execute(select(WebAnalyticsEvent).where(WebAnalyticsEvent.occurred_at >= since).order_by(WebAnalyticsEvent.occurred_at.desc())))
+        .scalars()
+        .all()
+    )
     out = []
     for e in rows:
         payload = e.payload or {}
-        out.append({
-            "team_id": str(e.team_id),
-            "domain": e.domain,
-            "event_name": e.event_name,
-            "session_id": e.session_id,
-            "path": e.path,
-            "referrer": e.referrer,
-            "locale": e.locale,
-            "utm_source": payload.get("utm_source"),
-            "utm_medium": payload.get("utm_medium"),
-            "utm_campaign": payload.get("utm_campaign"),
-            "utm_content": payload.get("utm_content"),
-            "utm_term": payload.get("utm_term"),
-            # client_ip / user_agent intentionally dropped (PII minimization)
-            "occurred_at": _iso(e.occurred_at),
-        })
+        out.append(
+            {
+                "team_id": str(e.team_id),
+                "domain": e.domain,
+                "event_name": e.event_name,
+                "session_id": e.session_id,
+                "path": e.path,
+                "referrer": e.referrer,
+                "locale": e.locale,
+                "utm_source": payload.get("utm_source"),
+                "utm_medium": payload.get("utm_medium"),
+                "utm_campaign": payload.get("utm_campaign"),
+                "utm_content": payload.get("utm_content"),
+                "utm_term": payload.get("utm_term"),
+                # client_ip / user_agent intentionally dropped (PII minimization)
+                "occurred_at": _iso(e.occurred_at),
+            }
+        )
     return out
 
 
@@ -439,58 +411,60 @@ async def _export_funnel(db: AsyncSession) -> dict:
     """
     since = datetime.now(UTC) - timedelta(days=_WEB_EVENTS_DAYS)
     per_post = (
-        await db.execute(
-            text(
-                "SELECT p.id::text AS post_id,"
-                " p.meta_data->>'source' AS campaign,"
-                " sa.platform,"
-                " p.published_at,"
-                " count(*) FILTER (WHERE e.event_name='page_view') AS views,"
-                " count(*) FILTER (WHERE e.event_name='contact_submit') AS leads,"
-                " count(*) FILTER (WHERE e.event_name LIKE '%\\_click') AS clicks"
-                " FROM posts p"
-                " JOIN post_targets pt ON pt.post_id=p.id AND pt.status='published'"
-                " JOIN social_accounts sa ON sa.id=pt.social_account_id"
-                " JOIN web_analytics_events e"
-                "   ON e.payload->>'utm_content' = p.id::text"
-                "   AND e.occurred_at >= :since"
-                " GROUP BY 1,2,3,4"
-                " ORDER BY leads DESC, views DESC"
-            ),
-            {"since": since},
+        (
+            await db.execute(
+                text(
+                    "SELECT p.id::text AS post_id,"
+                    " p.meta_data->>'source' AS campaign,"
+                    " sa.platform,"
+                    " p.published_at,"
+                    " count(*) FILTER (WHERE e.event_name='page_view') AS views,"
+                    " count(*) FILTER (WHERE e.event_name='contact_submit') AS leads,"
+                    " count(*) FILTER (WHERE e.event_name LIKE '%\\_click') AS clicks"
+                    " FROM posts p"
+                    " JOIN post_targets pt ON pt.post_id=p.id AND pt.status='published'"
+                    " JOIN social_accounts sa ON sa.id=pt.social_account_id"
+                    " JOIN web_analytics_events e"
+                    "   ON e.payload->>'utm_content' = p.id::text"
+                    "   AND e.occurred_at >= :since"
+                    " GROUP BY 1,2,3,4"
+                    " ORDER BY leads DESC, views DESC"
+                ),
+                {"since": since},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     by_campaign = (
-        await db.execute(
-            text(
-                "SELECT e.payload->>'utm_campaign' AS campaign,"
-                " e.payload->>'utm_source' AS platform,"
-                " count(*) FILTER (WHERE e.event_name='page_view') AS views,"
-                " count(*) FILTER (WHERE e.event_name='contact_submit') AS leads,"
-                " count(*) FILTER (WHERE e.event_name LIKE '%\\_click') AS clicks"
-                " FROM web_analytics_events e"
-                " WHERE e.payload ? 'utm_source' AND e.occurred_at >= :since"
-                " GROUP BY 1,2 ORDER BY leads DESC, views DESC"
-            ),
-            {"since": since},
+        (
+            await db.execute(
+                text(
+                    "SELECT e.payload->>'utm_campaign' AS campaign,"
+                    " e.payload->>'utm_source' AS platform,"
+                    " count(*) FILTER (WHERE e.event_name='page_view') AS views,"
+                    " count(*) FILTER (WHERE e.event_name='contact_submit') AS leads,"
+                    " count(*) FILTER (WHERE e.event_name LIKE '%\\_click') AS clicks"
+                    " FROM web_analytics_events e"
+                    " WHERE e.payload ? 'utm_source' AND e.occurred_at >= :since"
+                    " GROUP BY 1,2 ORDER BY leads DESC, views DESC"
+                ),
+                {"since": since},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     return {
         "window_days": _WEB_EVENTS_DAYS,
         "generated_at": _iso(datetime.now(UTC)),
-        "per_post": [
-            {**r, "published_at": _iso(r["published_at"])} for r in per_post
-        ],
+        "per_post": [{**r, "published_at": _iso(r["published_at"])} for r in per_post],
         "by_campaign": [dict(r) for r in by_campaign],
     }
 
 
 async def _export_ad_snapshots(db: AsyncSession) -> list[dict]:
-    rows = (
-        await db.execute(
-            select(AdCampaignSnapshot).order_by(AdCampaignSnapshot.captured_at.desc())
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(AdCampaignSnapshot).order_by(AdCampaignSnapshot.captured_at.desc()))).scalars().all()
     return [
         {
             "team_id": str(s.team_id),
@@ -514,11 +488,7 @@ async def _export_ad_snapshots(db: AsyncSession) -> list[dict]:
 
 
 async def _export_ad_daily(db: AsyncSession) -> list[dict]:
-    rows = (
-        await db.execute(
-            select(AdDailyMetric).order_by(AdDailyMetric.day.desc())
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(AdDailyMetric).order_by(AdDailyMetric.day.desc()))).scalars().all()
     return [
         {
             "team_id": str(r.team_id),
@@ -555,13 +525,7 @@ async def _export_ad_daily(db: AsyncSession) -> list[dict]:
 
 
 async def _export_ad_demographics(db: AsyncSession) -> list[dict]:
-    rows = (
-        await db.execute(
-            select(AdDemographicSegment).order_by(
-                AdDemographicSegment.impressions.desc()
-            )
-        )
-    ).scalars().all()
+    rows = (await db.execute(select(AdDemographicSegment).order_by(AdDemographicSegment.impressions.desc()))).scalars().all()
     return [
         {
             "team_id": str(r.team_id),
@@ -616,15 +580,11 @@ async def _cf_gql(client: httpx.AsyncClient, token: str, acct: str, body: str) -
     resp.raise_for_status()
     payload = resp.json()
     if payload.get("errors"):
-        raise RuntimeError(
-            "; ".join(e.get("message", "?") for e in payload["errors"])
-        )
+        raise RuntimeError("; ".join(e.get("message", "?") for e in payload["errors"]))
     return payload["data"]["viewer"]["accounts"][0]
 
 
-async def _cf_rest(
-    client: httpx.AsyncClient, token: str, acct: str, path: str
-) -> list:
+async def _cf_rest(client: httpx.AsyncClient, token: str, acct: str, path: str) -> list:
     # Paths starting with "/" are account-independent (e.g. /zones).
     url = f"{_CF_REST}{path}" if path.startswith("/") else f"{_CF_REST}/accounts/{acct}/{path}"
     resp = await client.get(url, headers={"Authorization": f"Bearer {token}"})
@@ -683,14 +643,8 @@ async def _export_cloudflare_usage() -> dict:
               dimensions{{ gateway provider }} }}
             ''',
         )
-        d1_names = {
-            d["uuid"]: d["name"]
-            for d in await _cf_rest(client, token, acct, "d1/database")
-        }
-        kv_names = {
-            n["id"]: n["title"]
-            for n in await _cf_rest(client, token, acct, "storage/kv/namespaces")
-        }
+        d1_names = {d["uuid"]: d["name"] for d in await _cf_rest(client, token, acct, "d1/database")}
+        kv_names = {n["id"]: n["title"] for n in await _cf_rest(client, token, acct, "storage/kv/namespaces")}
         # Zone HTTP traffic needs the "Zone Analytics Read" token perm —
         # intentionally omitted (unverifiable with the current token); the
         # funnel signal lives in socialauto-web-events regardless.
@@ -704,23 +658,12 @@ async def _export_cloudflare_usage() -> dict:
         )
         w["requests"] += row["sum"]["requests"]
         w["errors"] += row["sum"]["errors"]
-        w["by_status"][row["dimensions"]["status"]] = (
-            w["by_status"].get(row["dimensions"]["status"], 0)
-            + row["sum"]["requests"]
-        )
+        w["by_status"][row["dimensions"]["status"]] = w["by_status"].get(row["dimensions"]["status"], 0) + row["sum"]["requests"]
 
     r2: dict[str, dict] = {}
     for row in data.get("r2") or []:
-        b = r2.setdefault(
-            row["dimensions"]["bucketName"], {"class_a": 0, "class_b": 0}
-        )
-        cls = (
-            "class_a"
-            if row["dimensions"]["actionType"].startswith(
-                ("Put", "List", "Create", "Complete", "Abort", "Delete")
-            )
-            else "class_b"
-        )
+        b = r2.setdefault(row["dimensions"]["bucketName"], {"class_a": 0, "class_b": 0})
+        cls = "class_a" if row["dimensions"]["actionType"].startswith(("Put", "List", "Create", "Complete", "Abort", "Delete")) else "class_b"
         b[cls] += row["sum"]["requests"]
 
     return {
@@ -728,28 +671,20 @@ async def _export_cloudflare_usage() -> dict:
         "generated_at": now.isoformat(),
         "workers": workers,
         "r2_operations": r2,
-        "d1": [
-            {"database": d1_names.get(r["dimensions"]["databaseId"], r["dimensions"]["databaseId"]), **r["sum"]}
-            for r in data.get("d1") or []
-        ],
+        "d1": [{"database": d1_names.get(r["dimensions"]["databaseId"], r["dimensions"]["databaseId"]), **r["sum"]} for r in data.get("d1") or []],
         "kv": [
-            {"namespace": kv_names.get(r["dimensions"]["namespaceId"], r["dimensions"]["namespaceId"]),
-             "action": r["dimensions"]["actionType"], "requests": r["sum"]["requests"]}
+            {
+                "namespace": kv_names.get(r["dimensions"]["namespaceId"], r["dimensions"]["namespaceId"]),
+                "action": r["dimensions"]["actionType"],
+                "requests": r["sum"]["requests"],
+            }
             for r in data.get("kv") or []
         ],
-        "workers_ai": [
-            {"model": r["dimensions"]["modelId"], "inferences": r["count"]}
-            for r in data.get("ai") or []
-        ],
+        "workers_ai": [{"model": r["dimensions"]["modelId"], "inferences": r["count"]} for r in data.get("ai") or []],
         "ai_gateway": [
-            {"gateway": r["dimensions"]["gateway"], "provider": r["dimensions"]["provider"],
-             "requests": r["count"], **r["sum"]}
-            for r in data.get("aigw") or []
+            {"gateway": r["dimensions"]["gateway"], "provider": r["dimensions"]["provider"], "requests": r["count"], **r["sum"]} for r in data.get("aigw") or []
         ],
-        "vectorize_indexes": [
-            {"name": i.get("name"), "dimensions": (i.get("config") or {}).get("dimensions")}
-            for i in vectorize
-        ],
+        "vectorize_indexes": [{"name": i.get("name"), "dimensions": (i.get("config") or {}).get("dimensions")} for i in vectorize],
     }
 
 
@@ -788,15 +723,8 @@ async def _export_edge_metrics() -> dict:
                 # indexes it numerically — compare as int, and use a
                 # structural && spanset since status lives on a different
                 # span than url.full.
-                entry["errors_5xx"] = len(
-                    await _search(" && {span.http.response.status_code >= 500}")
-                )
-                entry["errors_4xx"] = len(
-                    await _search(
-                        " && {span.http.response.status_code >= 400"
-                        " && span.http.response.status_code < 500}"
-                    )
-                )
+                entry["errors_5xx"] = len(await _search(" && {span.http.response.status_code >= 500}"))
+                entry["errors_4xx"] = len(await _search(" && {span.http.response.status_code >= 400 && span.http.response.status_code < 500}"))
                 durs = sorted(t.get("durationMs", 0) for t in traces)
                 entry["sampled_traces"] = len(durs)
                 if durs:
@@ -827,19 +755,9 @@ async def _export_reports_index() -> list[dict]:
             out.append(
                 {
                     "manifest": p.name,
-                    "generated_at": datetime.fromtimestamp(
-                        p.stat().st_mtime, UTC
-                    ).isoformat(),
+                    "generated_at": datetime.fromtimestamp(p.stat().st_mtime, UTC).isoformat(),
                     "subjects": [r.get("subject") for r in reports],
-                    "files": [
-                        f
-                        for r in reports
-                        for f in (
-                            [r.get("html_file"), r.get("text_file")]
-                            + [a.get("file") for a in r.get("attachments", [])]
-                        )
-                        if f
-                    ],
+                    "files": [f for r in reports for f in ([r.get("html_file"), r.get("text_file")] + [a.get("file") for a in r.get("attachments", [])]) if f],
                 }
             )
         except Exception:  # noqa: BLE001 — skip unreadable manifest
@@ -858,9 +776,7 @@ async def _export_monetization(db: AsyncSession) -> list[dict]:
         gather_account_metrics,
     )
 
-    accounts = (
-        await db.execute(select(SocialAccount).where(SocialAccount.status == "active"))
-    ).scalars().all()
+    accounts = (await db.execute(select(SocialAccount).where(SocialAccount.status == "active"))).scalars().all()
     now = datetime.now(UTC).isoformat()
     rows: list[dict] = []
     for a in accounts:
@@ -909,44 +825,55 @@ async def _export_monetization(db: AsyncSession) -> list[dict]:
 async def _export_ops_health(db: AsyncSession) -> dict:
     """Current ops snapshot: queue state, recent failures, sync freshness."""
     queue = (
-        await db.execute(
-            text(
-                "SELECT sa.platform, pq.status, count(*) n"
-                " FROM publish_queue pq"
-                " JOIN social_accounts sa ON sa.id=pq.social_account_id"
-                " GROUP BY 1,2 ORDER BY 1,2"
+        (
+            await db.execute(
+                text(
+                    "SELECT sa.platform, pq.status, count(*) n"
+                    " FROM publish_queue pq"
+                    " JOIN social_accounts sa ON sa.id=pq.social_account_id"
+                    " GROUP BY 1,2 ORDER BY 1,2"
+                )
             )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     failed_7d = (
-        await db.execute(
-            text(
-                "SELECT sa.platform, pt.status, count(*) n"
-                " FROM post_targets pt"
-                " JOIN posts p ON p.id=pt.post_id"
-                " JOIN social_accounts sa ON sa.id=pt.social_account_id"
-                " WHERE pt.status IN ('failed','skipped')"
-                " AND p.created_at > now() - interval '7 days'"
-                " GROUP BY 1,2"
+        (
+            await db.execute(
+                text(
+                    "SELECT sa.platform, pt.status, count(*) n"
+                    " FROM post_targets pt"
+                    " JOIN posts p ON p.id=pt.post_id"
+                    " JOIN social_accounts sa ON sa.id=pt.social_account_id"
+                    " WHERE pt.status IN ('failed','skipped')"
+                    " AND p.created_at > now() - interval '7 days'"
+                    " GROUP BY 1,2"
+                )
             )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     freshness = (
-        await db.execute(
-            text(
-                "SELECT sa.platform, sa.username,"
-                " (SELECT max(pas.captured_at) FROM post_analytics_snapshots pas"
-                "  WHERE pas.social_account_id=sa.id) AS last_metrics"
-                " FROM social_accounts sa WHERE sa.status='active'"
+        (
+            await db.execute(
+                text(
+                    "SELECT sa.platform, sa.username,"
+                    " (SELECT max(pas.captured_at) FROM post_analytics_snapshots pas"
+                    "  WHERE pas.social_account_id=sa.id) AS last_metrics"
+                    " FROM social_accounts sa WHERE sa.status='active'"
+                )
             )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     now = datetime.now(UTC)
     stale_accounts = [
         f"{r['platform']}/@{r['username']}"
         for r in freshness
-        if r["last_metrics"] is None
-        or (now - r["last_metrics"].replace(tzinfo=UTC)) > timedelta(hours=2)
+        if r["last_metrics"] is None or (now - r["last_metrics"].replace(tzinfo=UTC)) > timedelta(hours=2)
     ]
     return {
         "generated_at": now.isoformat(),
@@ -960,7 +887,6 @@ async def _export_ops_health(db: AsyncSession) -> dict:
 def export_datalake() -> dict:
     """Snapshot-export all SocialAuto lake tables to the datalake bucket."""
     return run_async(_export_async())
-
 
 
 async def _coro_of(v):
@@ -1028,8 +954,7 @@ async def _export_async() -> dict:
         # Insights engine output — one gold-ready file per team.
         teams = (await db.execute(select(Team))).scalars().all()
         for team in teams:
-            await put(f"lake/socialauto-insights/{team.id}.json",
-                      build_team_insights(db, team.id))
+            await put(f"lake/socialauto-insights/{team.id}.json", build_team_insights(db, team.id))
 
     errors = {k: v for k, v in written.items() if isinstance(v, str)}
 
@@ -1045,9 +970,7 @@ async def _export_async() -> dict:
                 if not _NC_MIRROR_RE.match(key):
                     continue
                 try:
-                    remote = await nextcloud_export.upload_bytes(
-                        key, json.dumps(rows, default=str).encode(), "application/json"
-                    )
+                    remote = await nextcloud_export.upload_bytes(key, json.dumps(rows, default=str).encode(), "application/json")
                     mirrored[key] = remote
                 except Exception as exc:  # noqa: BLE001 — mirror is best-effort
                     mirrored[key] = f"ERROR: {str(exc)[:200]}"

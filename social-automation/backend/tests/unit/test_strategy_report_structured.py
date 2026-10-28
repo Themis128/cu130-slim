@@ -4,6 +4,7 @@ Providers return the strategist reply as think-residue text, JSON arrays of
 strings/objects, or a structured {"actions": ...}/{"content": ...} payload.
 These tests pin each shape to the actions the automation plan receives.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,8 +23,13 @@ A2 = "Share an Instagram image at 12:30 Athens with a client quote."
 
 def _digest():
     return DigestReport(
-        generated_at=datetime(2026, 10, 17, 18, 0, tzinfo=UTC), timezone="Europe/Athens",
-        team_name="T", days=1, overview={}, impressions_24h=10, engagement_24h=3,
+        generated_at=datetime(2026, 10, 17, 18, 0, tzinfo=UTC),
+        timezone="Europe/Athens",
+        team_name="T",
+        days=1,
+        overview={},
+        impressions_24h=10,
+        engagement_24h=3,
     )
 
 
@@ -38,16 +44,18 @@ class TestParseActions:
         assert SR._parse_actions(text) == [A1]
 
     def test_json_array_mixed_entries(self):
-        text = json.dumps([
-            A1,
-            12345678901234567890,                       # numeric → str, long enough
-            {"action": A2},
-            {"text": "Reply to every LinkedIn comment within the hour."},
-            {"note": "short", "detail": "Repurpose the top LinkedIn post as a TikTok video."},
-            {"x": 1},                                    # no string field → dropped
-            ["nested"],                                  # unsupported → ignored
-            "too short",
-        ])
+        text = json.dumps(
+            [
+                A1,
+                12345678901234567890,  # numeric → str, long enough
+                {"action": A2},
+                {"text": "Reply to every LinkedIn comment within the hour."},
+                {"note": "short", "detail": "Repurpose the top LinkedIn post as a TikTok video."},
+                {"x": 1},  # no string field → dropped
+                ["nested"],  # unsupported → ignored
+                "too short",
+            ]
+        )
         assert SR._parse_actions(text) == [
             A1,
             "12345678901234567890",
@@ -87,10 +95,7 @@ class TestParseActions:
     def test_python_repr_list_recomposed_items_feed_playbook_parser(self):
         # The composed "Platform - HH:MM - Format - reason" line must give
         # _parse_playbook_item a routable platform/time/format.
-        text = (
-            "[{'platform': 'TikTok', 'time': '20:00', 'format': 'video', "
-            "'reason': 'Repurpose the top LinkedIn post into a short clip.'}]"
-        )
+        text = "[{'platform': 'TikTok', 'time': '20:00', 'format': 'video', 'reason': 'Repurpose the top LinkedIn post into a short clip.'}]"
         out = SR._parse_actions(text)
         item = SR._parse_playbook_item(out[0])
         assert item.platform == "tiktok"
@@ -99,30 +104,37 @@ class TestParseActions:
 
     def test_caps_at_max_actions(self):
         # Distinct actions: near-duplicates are now collapsed before the cap.
-        many = json.dumps([
-            "Publish a LinkedIn carousel on cloud migration costs at 09:00",
-            "Share an Instagram reel showing a website speed test at 12:30",
-            "Reply to every open LinkedIn comment before lunch today",
-            "Repurpose last week's best post into a TikTok video clip",
-            "Email the newsletter list a free audit offer this afternoon",
-            "Post a Threads poll asking which Cloudflare feature they use",
-            "Update the Facebook page cover with the new hosting banner",
-            "Pin the customer testimonial to the top of the X profile",
-        ])
+        many = json.dumps(
+            [
+                "Publish a LinkedIn carousel on cloud migration costs at 09:00",
+                "Share an Instagram reel showing a website speed test at 12:30",
+                "Reply to every open LinkedIn comment before lunch today",
+                "Repurpose last week's best post into a TikTok video clip",
+                "Email the newsletter list a free audit offer this afternoon",
+                "Post a Threads poll asking which Cloudflare feature they use",
+                "Update the Facebook page cover with the new hosting banner",
+                "Pin the customer testimonial to the top of the X profile",
+            ]
+        )
         assert len(SR._parse_actions(many)) == SR._MAX_ACTIONS
 
 
 class TestStructuredPayload:
     @pytest.mark.asyncio
     async def test_actions_list_of_mixed_shapes(self, monkeypatch):
-        out = await _run(monkeypatch, {"actions": [
-            A1,
-            {"instruction": A2},
-            {"foo": "Longest string field wins for unknown schema objects."},
-            {"action": ""},           # empty → longest string ("" → dropped)
-            None,                     # unsupported type → dropped
-            "short",
-        ]})
+        out = await _run(
+            monkeypatch,
+            {
+                "actions": [
+                    A1,
+                    {"instruction": A2},
+                    {"foo": "Longest string field wins for unknown schema objects."},
+                    {"action": ""},  # empty → longest string ("" → dropped)
+                    None,  # unsupported type → dropped
+                    "short",
+                ]
+            },
+        )
         assert out == [A1, A2, "Longest string field wins for unknown schema objects."]
 
     @pytest.mark.asyncio
@@ -183,10 +195,8 @@ async def test_execute_report_actions_converts_playbook_to_executor_calls(monkey
     # platform + Athens time + format intact.
     assert len(out) == 2
     acts = seen["actions"]
-    assert (acts[0].platform, acts[0].time_athens, acts[0].format) == (
-        "linkedin", "09:30", "carousel")
-    assert (acts[1].platform, acts[1].time_athens, acts[1].format) == (
-        "tiktok", "20:00", "video")
+    assert (acts[0].platform, acts[0].time_athens, acts[0].format) == ("linkedin", "09:30", "carousel")
+    assert (acts[1].platform, acts[1].time_athens, acts[1].format) == ("tiktok", "20:00", "video")
     assert seen["kw"]["source"] == "strategy-brief"
     assert seen["kw"]["dedup_field"] == "strategy_action"
     assert seen["kw"]["target_date"].isoformat() == "2026-10-28"  # Athens +1d
@@ -199,13 +209,12 @@ def test_scheduled_results_render_in_text_and_html():
     """QUEUED BY THE PLATFORM block covers text + html scheduled output."""
     report = SR.StrategyReport(
         generated_at=datetime(2026, 10, 27, 7, 0, tzinfo=UTC),
-        timezone="Europe/Athens", team_name="T",
+        timezone="Europe/Athens",
+        team_name="T",
         actions=[A1],
         scheduled=[
-            {"platform": "linkedin", "status": "scheduled",
-             "scheduled_at": "2026-10-28 09:30 EET", "reason": None},
-            {"platform": "tiktok", "status": "drafted",
-             "scheduled_at": None, "reason": "video format — left as draft"},
+            {"platform": "linkedin", "status": "scheduled", "scheduled_at": "2026-10-28 09:30 EET", "reason": None},
+            {"platform": "tiktok", "status": "drafted", "scheduled_at": None, "reason": "video format — left as draft"},
         ],
     )
     text = report.to_text()
@@ -223,7 +232,8 @@ async def test_execute_report_actions_no_actions_noop():
 
     report = SR.StrategyReport(
         generated_at=datetime(2026, 10, 27, 7, 0, tzinfo=UTC),
-        timezone="Europe/Athens", team_name="T",
+        timezone="Europe/Athens",
+        team_name="T",
     )
     assert await SR.execute_report_actions(object(), Team(), report) == []
 

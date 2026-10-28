@@ -3,6 +3,7 @@
 Run inside the social-api container:
     PYTHONPATH=/app python scripts/check_r2_public_url.py
 """
+
 from __future__ import annotations
 
 import asyncio

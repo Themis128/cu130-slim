@@ -20,6 +20,7 @@ Deliberately read-only: the scan never claims a coupon, spends budget, or
 accepts terms — it reports. Exploitation actions go through the normal
 publish/ads paths with the usual approvals.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -252,9 +253,7 @@ def scan_promo_emails(lookback_days: int = 2) -> tuple[list[PromoOpportunity], l
             ids = _imap_search(mail, since)
             candidates: list[tuple[bytes, str, str, str]] = []
             for msg_id in ids[-400:]:  # cap: a busy mailbox still scans newest 400
-                status, data = mail.fetch(
-                    msg_id, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])"
-                )
+                status, data = mail.fetch(msg_id, "(BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE)])")
                 if status != "OK" or not data or not isinstance(data[0], tuple):
                     continue
                 header = data[0][1].decode("utf-8", "replace")
@@ -326,10 +325,7 @@ async def collect_linkedin_credit(db) -> tuple[list[PromoOpportunity], list[str]
                     platform="linkedin",
                     kind="ad_credit_state",
                     title=f"€{remaining:.2f} promo credit unspent",
-                    detail=(
-                        f"account spend €{m.account_spend_eur:.2f} of €{credit:.2f} credit; "
-                        f"{active} campaign(s) active"
-                    ),
+                    detail=(f"account spend €{m.account_spend_eur:.2f} of €{credit:.2f} credit; {active} campaign(s) active"),
                     value=f"€{remaining:.2f}",
                     action=(
                         f"Relaunch a campaign capped ≤€{ceiling:.2f} lifetime with a hard "
@@ -346,10 +342,7 @@ async def collect_linkedin_credit(db) -> tuple[list[PromoOpportunity], list[str]
                     platform="linkedin",
                     kind="ad_credit_state",
                     title=f"Promo credit exhausted ({remaining:+.2f})",
-                    detail=(
-                        f"account spend €{m.account_spend_eur:.2f} vs €{credit:.2f} credit — "
-                        "overage bills the card on file"
-                    ),
+                    detail=(f"account spend €{m.account_spend_eur:.2f} vs €{credit:.2f} credit — overage bills the card on file"),
                     value=f"{remaining:+.2f}",
                     action="Keep all campaigns stopped; every further euro hits the Visa.",
                     source="linkedin-marketing-api",
@@ -390,16 +383,13 @@ async def collect_program_opportunities(db, team_id) -> list[PromoOpportunity]:
                 )
             )
         elif unmet and g.eta_days is not None and g.eta_days <= 60:
-            gap = ", ".join(
-                f"{c.name} {c.current}/{c.target}" for c in unmet[:3]
-            )
+            gap = ", ".join(f"{c.name} {c.current}/{c.target}" for c in unmet[:3])
             out.append(
                 PromoOpportunity(
                     platform=g.platform,
                     kind="program_gate",
                     title=f"{g.program.program} — ~{g.eta_days}d to unlock ({g.handle})",
-                    detail=f"unmet: {gap}"
-                    + (f"; manual pending: {', '.join(c.name for c in pending[:2])}" if pending else ""),
+                    detail=f"unmet: {gap}" + (f"; manual pending: {', '.join(c.name for c in pending[:2])}" if pending else ""),
                     value="free payout program",
                     action="Prioritise growth content on this account — the daily monetization report already schedules it.",
                     source="program-evaluator",
@@ -452,9 +442,7 @@ _PLAYBOOK_SCHEMA = {
 }
 
 
-async def _llm_playbook(
-    db, team_id, opportunities: list[PromoOpportunity]
-) -> list[str]:
+async def _llm_playbook(db, team_id, opportunities: list[PromoOpportunity]) -> list[str]:
     """DMR → CF inference turns the findings into an exploit playbook.
 
     Returns [] on any failure — the report still ships without it."""
@@ -512,9 +500,7 @@ async def build_promo_report(db) -> PromoReport:
     settings = get_settings()
     report = PromoReport(generated_at=datetime.now(UTC))
 
-    email_opps, email_errors = await asyncio.to_thread(
-        scan_promo_emails, settings.PROMO_SCAN_LOOKBACK_DAYS
-    )
+    email_opps, email_errors = await asyncio.to_thread(scan_promo_emails, settings.PROMO_SCAN_LOOKBACK_DAYS)
     report.opportunities.extend(email_opps)
     report.scan_errors.extend(email_errors)
 
@@ -527,9 +513,7 @@ async def build_promo_report(db) -> PromoReport:
         report.opportunities.extend(await collect_program_opportunities(db, team.id))
         report.opportunities.extend(await collect_manual_checks(db, team.id))
         if not report.playbook:
-            report.playbook = await _llm_playbook(
-                db, team.id, report.opportunities
-            )
+            report.playbook = await _llm_playbook(db, team.id, report.opportunities)
             report.llm_used = bool(report.playbook)
     return report
 

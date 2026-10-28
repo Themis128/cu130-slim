@@ -24,11 +24,7 @@ def evaluate(totals: dict, min_lines: float, min_branches: float) -> tuple[bool,
     line_pct = 100.0 * totals["covered_lines"] / statements if statements else 100.0
     branch_pct = 100.0 * totals["covered_branches"] / branches
     ok = line_pct >= min_lines and branch_pct >= min_branches
-    msg = (
-        f"line coverage {line_pct:.2f}% (gate {min_lines}%) - "
-        f"branch coverage {branch_pct:.2f}% (gate {min_branches}%) - "
-        f"{'OK' if ok else 'FAIL'}"
-    )
+    msg = f"line coverage {line_pct:.2f}% (gate {min_lines}%) - branch coverage {branch_pct:.2f}% (gate {min_branches}%) - {'OK' if ok else 'FAIL'}"
     return ok, msg
 
 

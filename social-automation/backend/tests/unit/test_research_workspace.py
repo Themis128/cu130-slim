@@ -1,4 +1,5 @@
 """Coverage: research_workspace async helpers (collection/upsert/query/ask/sync)."""
+
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,6 +19,7 @@ class _R:
     def raise_for_status(self):
         if self.status_code >= 400:
             import httpx
+
             raise httpx.HTTPStatusError("e", request=None, response=None)
 
     @property
@@ -49,6 +51,7 @@ class _C:
 async def test_collection_id_get_or_create(monkeypatch):
     from app.services import chroma_client as CC
     from app.services import research_workspace as RW
+
     monkeypatch.setattr(CC, "_collection_item_url", lambda n: f"http://c/{n}")
     monkeypatch.setattr(CC, "_collection_base_url", lambda: "http://c")
     monkeypatch.setattr(CC, "_validate_collection_name", lambda n: n)
@@ -64,6 +67,7 @@ async def test_collection_id_get_or_create(monkeypatch):
 async def test_upsert(monkeypatch):
     from app.services import chroma_client as CC
     from app.services import research_workspace as RW
+
     monkeypatch.setattr(CC, "_collection_base_url", lambda: "http://c/collections")
     monkeypatch.setattr("httpx.AsyncClient", lambda **k: _C([_R(200)]))
     await RW._upsert("col", ["i1"], [[0.1]], ["d"], [{}])  # no raise
@@ -72,9 +76,11 @@ async def test_upsert(monkeypatch):
 @pytest.mark.asyncio
 async def test_query_hits_and_misses(monkeypatch):
     from app.services import research_workspace as RW
+
     monkeypatch.setattr(RW, "_get_embedding", AsyncMock(return_value=[0.1]))
     monkeypatch.setattr(RW, "_collection_id", AsyncMock(return_value="col"))
     from app.services import chroma_client as CC
+
     monkeypatch.setattr(CC, "_collection_base_url", lambda: "http://c")
     monkeypatch.setattr("httpx.AsyncClient", lambda **k: _C([_R(200, {"documents": [["doc1", "doc2"]]})]))
     assert await RW._query("t", "q", 2) == ["doc1", "doc2"]
@@ -86,6 +92,7 @@ async def test_query_hits_and_misses(monkeypatch):
 @pytest.mark.asyncio
 async def test_ask(monkeypatch):
     from app.services import research_workspace as RW
+
     monkeypatch.setattr(RW, "_query", AsyncMock(return_value=["ctx1", "ctx2"]))
     payload = {"choices": [{"message": {"content": "the answer"}}]}
     monkeypatch.setattr("httpx.AsyncClient", lambda **k: _C([_R(200, payload)]))
@@ -96,6 +103,7 @@ async def test_ask(monkeypatch):
 @pytest.mark.asyncio
 async def test_ingest_nextcloud_folder(monkeypatch):
     from app.services import research_workspace as RW
+
     propfind = _R(200, text="<d:href>/f/a.md</d:href>")
     fr = _R(200, content=b"file body")
 
@@ -123,11 +131,16 @@ async def test_ingest_nextcloud_folder(monkeypatch):
 @pytest.mark.asyncio
 async def test_sync_all_swallows_errors(monkeypatch):
     from app.services import research_workspace as RW
+
     res = MagicMock()
-    row = MagicMock(value=json.dumps([
-        {"team_id": "t1", "project": "p", "folder": "f"},
-        {"team_id": "t2"},
-    ]))
+    row = MagicMock(
+        value=json.dumps(
+            [
+                {"team_id": "t1", "project": "p", "folder": "f"},
+                {"team_id": "t2"},
+            ]
+        )
+    )
     res.scalars.return_value.first.return_value = row
     db = MagicMock()
     db.execute = AsyncMock(return_value=res)
@@ -135,6 +148,7 @@ async def test_sync_all_swallows_errors(monkeypatch):
     class _S:
         async def __aenter__(self):
             return db
+
         async def __aexit__(self, *a):
             return False
 
@@ -146,6 +160,7 @@ async def test_sync_all_swallows_errors(monkeypatch):
         if calls["n"] == 2:
             raise RuntimeError("down")
         return {"files": 1}
+
     monkeypatch.setattr(RW, "ingest_nextcloud_folder", _ing)
     out = await RW.sync_all()
     assert len(out) == 1  # second team's failure swallowed

@@ -11,6 +11,7 @@ Tables synced: users, teams, team_members, social_accounts, posts, post_targets,
 media_assets, media_collections, publish_queue, ai_providers, ai_usage_logs,
 analytics_events, prompt_templates, generated_workflows, post_analytics_snapshots.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -80,12 +81,14 @@ SYNC_TABLES: list[dict[str, str]] = [
 # High-volume tables that stay Postgres-primary (NOT synced to D1).
 # These are append-only analytics/audit tables that would blow past the
 # D1 free tier (100K writes/day) if synced every 5 minutes.
-POSTGRES_ONLY_TABLES = frozenset({
-    "analytics_events",
-    "post_analytics_snapshots",
-    "ai_usage_logs",
-    "follower_snapshots",
-})
+POSTGRES_ONLY_TABLES = frozenset(
+    {
+        "analytics_events",
+        "post_analytics_snapshots",
+        "ai_usage_logs",
+        "follower_snapshots",
+    }
+)
 
 # Whitelist of allowed table names — used to prevent SQL injection in
 # sync_table_to_d1 / sync_table_to_postgres where the table name is
@@ -106,27 +109,31 @@ class SyncService:
     """Bidirectional D1 ↔ PostgreSQL sync service."""
 
     # Columns that are boolean in Postgres but stored as 0/1 in D1/SQLite
-    _BOOL_COLUMNS = frozenset({
-        "success",
-        "is_active",
-        "is_default",
-        "is_enabled",
-        "is_superuser",
-        "is_published",
-        "is_approved",
-        "is_favorite",
-        "is_archived",
-        "is_processed",
-        "is_verified",
-    })
+    _BOOL_COLUMNS = frozenset(
+        {
+            "success",
+            "is_active",
+            "is_default",
+            "is_enabled",
+            "is_superuser",
+            "is_published",
+            "is_approved",
+            "is_favorite",
+            "is_archived",
+            "is_processed",
+            "is_verified",
+        }
+    )
 
     # Columns that are PostgreSQL arrays (varchar[]) stored as JSON strings in D1
-    _ARRAY_COLUMNS = frozenset({
-        "tags",
-        "ai_tags",
-        "platforms",
-        "hashtags",
-    })
+    _ARRAY_COLUMNS = frozenset(
+        {
+            "tags",
+            "ai_tags",
+            "platforms",
+            "hashtags",
+        }
+    )
 
     def __init__(self) -> None:
         self._sync_lock = asyncio.Lock()
@@ -159,23 +166,14 @@ class SyncService:
             info = await d1_client.query_all(f"PRAGMA table_info({table})")
             if not info:
                 return False
-            col_defs = ", ".join(
-                f"{c['name']} {c['type'] or 'TEXT'}{' NOT NULL' if c.get('notnull') else ''}"
-                for c in info
-            )
+            col_defs = ", ".join(f"{c['name']} {c['type'] or 'TEXT'}{' NOT NULL' if c.get('notnull') else ''}" for c in info)
             col_names = ", ".join(c["name"] for c in info)
             pk_str = ", ".join(pk_cols)
             new_table = f"{table}_repaired"
 
-            await d1_client.execute(
-                f"CREATE TABLE IF NOT EXISTS {new_table} "
-                f"({col_defs}, PRIMARY KEY ({pk_str}))"
-            )
+            await d1_client.execute(f"CREATE TABLE IF NOT EXISTS {new_table} ({col_defs}, PRIMARY KEY ({pk_str}))")
             # DISTINCT + ORDER BY rowid keeps one copy per PK (dedupe)
-            await d1_client.execute(
-                f"INSERT OR REPLACE INTO {new_table} SELECT {col_names} "
-                f"FROM {table} GROUP BY {pk_str}"
-            )
+            await d1_client.execute(f"INSERT OR REPLACE INTO {new_table} SELECT {col_names} FROM {table} GROUP BY {pk_str}")
             await d1_client.execute(f"DROP TABLE {table}")
             await d1_client.execute(f"ALTER TABLE {new_table} RENAME TO {table}")
             self._d1_pk_cache[table] = True
@@ -208,6 +206,7 @@ class SyncService:
         # Timestamp conversion (ISO 8601 string → datetime)
         if isinstance(value, str):
             import re
+
             if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", value):
                 try:
                     return datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -268,9 +267,7 @@ class SyncService:
         r = None
         try:
             r = await _sync_redis()
-            if debounce and not await r.set(
-                _RS_DEBOUNCE.format(table=table), "1", nx=True, ex=_SYNC_MIN_INTERVAL
-            ):
+            if debounce and not await r.set(_RS_DEBOUNCE.format(table=table), "1", nx=True, ex=_SYNC_MIN_INTERVAL):
                 logger.debug("D1 sync debounced for %s (interval %ds)", table, _SYNC_MIN_INTERVAL)
                 stats["skipped"] = 1
                 return stats
@@ -286,10 +283,7 @@ class SyncService:
         try:
             async with engine.connect() as col_check:
                 col_result = await col_check.execute(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_name = :tbl AND column_name = 'updated_at'"
-                    ),
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name = :tbl AND column_name = 'updated_at'"),
                     {"tbl": table},
                 )
                 has_updated_at = col_result.fetchone() is not None
@@ -340,9 +334,7 @@ class SyncService:
                 return json.dumps([str(row_dict.get(c)) for c in pk_cols])
 
             def _row_hash(row_dict: dict[str, Any]) -> str:
-                return hashlib.sha1(
-                    json.dumps(row_dict, sort_keys=True, default=str).encode()
-                ).hexdigest()
+                return hashlib.sha1(json.dumps(row_dict, sort_keys=True, default=str).encode()).hexdigest()
 
             # Tables without updated_at (or first sync) can't select by
             # watermark — diff row content against the Redis hash map so we
@@ -384,8 +376,7 @@ class SyncService:
                 )
                 if not await self._repair_d1_pk(table, pk_cols):
                     logger.error(
-                        "D1 table %r still has no PRIMARY KEY — refusing to "
-                        "upsert (would silently duplicate rows)",
+                        "D1 table %r still has no PRIMARY KEY — refusing to upsert (would silently duplicate rows)",
                         table,
                     )
                     stats["errors"] += 1
@@ -398,16 +389,11 @@ class SyncService:
             # PRAGMA means the table itself is missing — the PK check
             # already refused that case; leave it to the upsert error.
             try:
-                d1_cols = {
-                    c["name"]
-                    for c in await d1_client.query_all(f"PRAGMA table_info({table})")
-                }
+                d1_cols = {c["name"] for c in await d1_client.query_all(f"PRAGMA table_info({table})")}
                 if d1_cols:
                     for col in columns:
                         if col not in d1_cols:
-                            await d1_client.execute(
-                                f'ALTER TABLE {table} ADD COLUMN "{col}" TEXT'
-                            )
+                            await d1_client.execute(f'ALTER TABLE {table} ADD COLUMN "{col}" TEXT')
                             logger.info("D1 %s: added missing column %s", table, col)
             except Exception as exc:
                 logger.error("D1 column heal failed for %s: %s", table, exc)
@@ -417,14 +403,8 @@ class SyncService:
             # Build INSERT OR REPLACE statement (SQLite/D1 syntax)
             col_str = ", ".join(columns)
             placeholders = ", ".join(["?"] * len(columns))
-            sql = (
-                f"INSERT OR REPLACE INTO {table} ({col_str}) "
-                f"VALUES ({placeholders})"
-            )
-            delete_sql = (
-                f"DELETE FROM {table} WHERE "
-                + " AND ".join(f"{c} = ?" for c in pk_cols)
-            )
+            sql = f"INSERT OR REPLACE INTO {table} ({col_str}) VALUES ({placeholders})"
+            delete_sql = f"DELETE FROM {table} WHERE " + " AND ".join(f"{c} = ?" for c in pk_cols)
 
             def _ser(row_dict: dict[str, Any]) -> list[Any]:
                 values = []
@@ -473,15 +453,14 @@ class SyncService:
                     stats["errors"] += 1
                     _consecutive_errors += 1
                     if "exceeded" in exc_str.lower() and "daily" in exc_str.lower():
-                        logger.warning(
-                            "D1 daily write limit reached — skipping remaining tables for this sync cycle"
-                        )
+                        logger.warning("D1 daily write limit reached — skipping remaining tables for this sync cycle")
                         _limit_hit()
                         break
                     if _consecutive_errors >= 3:
                         logger.error(
                             "D1 sync for %s: aborting after %d consecutive errors",
-                            table, _consecutive_errors,
+                            table,
+                            _consecutive_errors,
                         )
                         break
 
@@ -494,17 +473,13 @@ class SyncService:
                     # mirrored before the map existed are invisible to it.
                     # On reconcile, diff live D1 PKs against Postgres.
                     try:
-                        d1_pk_rows = await d1_client.query_all(
-                            f"SELECT {', '.join(pk_cols)} FROM {table}"
-                        )
+                        d1_pk_rows = await d1_client.query_all(f"SELECT {', '.join(pk_cols)} FROM {table}")
                         for d1row in d1_pk_rows:
                             key = json.dumps([str(d1row.get(c)) for c in pk_cols])
                             if key not in new_hashes:
                                 stale_keys.add(key)
                     except Exception as exc:
-                        logger.error(
-                            "D1 PK reconcile read failed for %s: %s", table, exc
-                        )
+                        logger.error("D1 PK reconcile read failed for %s: %s", table, exc)
                 for key in stale_keys:
                     try:
                         pk_vals = json.loads(key)
@@ -540,8 +515,7 @@ class SyncService:
                 await self._set_last_sync(table, r)
             else:
                 logger.warning(
-                    "D1 sync for %s had %d errors — watermark held, "
-                    "failed rows retry next cycle",
+                    "D1 sync for %s had %d errors — watermark held, failed rows retry next cycle",
                     table,
                     stats["errors"],
                 )
@@ -556,7 +530,10 @@ class SyncService:
 
         logger.info(
             "Synced %s: %d rows to D1 (%d deleted, %d errors)",
-            table, stats["synced"], stats.get("deleted", 0), stats["errors"],
+            table,
+            stats["synced"],
+            stats.get("deleted", 0),
+            stats["errors"],
         )
         return stats
 
@@ -588,8 +565,7 @@ class SyncService:
             return {"synced": 0, "errors": 1, "skipped": 0}
         if table in POSTGRES_WRITE_OWNED:
             logger.info(
-                "Skipping D1→Postgres sync for %r — Postgres-write-owned; "
-                "the D1 mirror is read-only and must not resurrect stale rows",
+                "Skipping D1→Postgres sync for %r — Postgres-write-owned; the D1 mirror is read-only and must not resurrect stale rows",
                 table,
             )
             stats = {"synced": 0, "errors": 0, "skipped": 1}
@@ -625,23 +601,12 @@ class SyncService:
             pk_conflict = ", ".join(pk_cols)
             update_str = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c not in pk_cols)
             if update_str:
-                sql = (
-                    f"INSERT INTO {table} ({col_str}) "
-                    f"VALUES ({placeholders}) "
-                    f"ON CONFLICT ({pk_conflict}) DO UPDATE SET {update_str}"
-                )
+                sql = f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) ON CONFLICT ({pk_conflict}) DO UPDATE SET {update_str}"
             else:
                 # All columns are PK columns — use DO NOTHING
-                sql = (
-                    f"INSERT INTO {table} ({col_str}) "
-                    f"VALUES ({placeholders}) "
-                    f"ON CONFLICT ({pk_conflict}) DO NOTHING"
-                )
+                sql = f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) ON CONFLICT ({pk_conflict}) DO NOTHING"
 
-            converted = [
-                {col: self._d1_to_pg_value(col, row[col]) for col in columns}
-                for row in rows
-            ]
+            converted = [{col: self._d1_to_pg_value(col, row[col]) for col in columns} for row in rows]
 
             # D1 rows may contain PK duplicates (from the PK-less-table bug).
             # Dedupe by PK — last occurrence wins — before upserting.
@@ -651,7 +616,9 @@ class SyncService:
             if len(seen) < len(converted):
                 logger.info(
                     "Deduped %s: %d D1 rows -> %d by PK",
-                    table, len(converted), len(seen),
+                    table,
+                    len(converted),
+                    len(seen),
                 )
             converted = list(seen.values())
 
@@ -699,9 +666,7 @@ class SyncService:
         async with self._sync_lock:
             results = {}
             for t in SYNC_TABLES:
-                results[t["table"]] = await self.sync_table_to_d1(
-                    t["table"], t["pk"], debounce=False
-                )
+                results[t["table"]] = await self.sync_table_to_d1(t["table"], t["pk"], debounce=False)
             return results
 
     async def sync_all_to_postgres(self) -> dict[str, dict[str, int]]:
@@ -725,9 +690,7 @@ class SyncService:
         to_pg = await self.sync_all_to_postgres()
 
         elapsed = (datetime.now(UTC) - start).total_seconds()
-        total_synced = sum(s.get("synced", 0) for s in to_d1.values()) + sum(
-            s.get("synced", 0) for s in to_pg.values()
-        )
+        total_synced = sum(s.get("synced", 0) for s in to_d1.values()) + sum(s.get("synced", 0) for s in to_pg.values())
 
         result = {
             "started_at": start.isoformat(),

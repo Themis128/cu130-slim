@@ -7,6 +7,7 @@ deliverables (html/txt/png) into ``/notebooks/output``. These endpoints let
 the UI list available notebooks, browse prior runs, view rendered output,
 and trigger a run without waiting for the scheduled brief.
 """
+
 from __future__ import annotations
 
 import json
@@ -118,9 +119,7 @@ async def list_reports(
     prefix = f"{notebook}-" if notebook and _SAFE_NAME.match(notebook) else ""
     known = _notebook_names()
     reports_out: list[dict[str, Any]] = []
-    for manifest_path in sorted(
-        OUTPUT_DIR.glob(f"{prefix}*.manifest.json"), reverse=True
-    )[:limit]:
+    for manifest_path in sorted(OUTPUT_DIR.glob(f"{prefix}*.manifest.json"), reverse=True)[:limit]:
         manifest: dict[str, Any] = {}
         try:
             manifest = json.loads(manifest_path.read_text())
@@ -129,13 +128,10 @@ async def list_reports(
         run_prefix = manifest_path.name[: -len(".manifest.json")]
         # Notebook name = longest known notebook prefix of the run id.
         nb = next(
-            (n for n in sorted(known, key=len, reverse=True)
-             if run_prefix == n or run_prefix.startswith(n + "-")),
+            (n for n in sorted(known, key=len, reverse=True) if run_prefix == n or run_prefix.startswith(n + "-")),
             run_prefix,
         )
-        created = datetime.fromtimestamp(
-            manifest_path.stat().st_mtime, tz=UTC
-        ).isoformat()
+        created = datetime.fromtimestamp(manifest_path.stat().st_mtime, tz=UTC).isoformat()
         # Flat manifest or multi-report {"reports": […]} — one row each.
         entries = manifest.get("reports") or ([manifest] if manifest else [])
         for rep in entries:
@@ -143,11 +139,7 @@ async def list_reports(
             for key in ("html_file", "text_file"):
                 if rep.get(key):
                     files.append(Path(rep[key]).name)
-            files += [
-                Path(a["file"]).name
-                for a in rep.get("attachments") or []
-                if a.get("file")
-            ]
+            files += [Path(a["file"]).name for a in rep.get("attachments") or [] if a.get("file")]
             # Only advertise files that actually exist on disk.
             files = [f for f in dict.fromkeys(files) if (OUTPUT_DIR / f).is_file()]
             reports_out.append(
@@ -155,9 +147,7 @@ async def list_reports(
                     "run": run_prefix,
                     "notebook": nb,
                     "subject": rep.get("subject"),
-                    "html_file": (
-                        Path(rep["html_file"]).name if rep.get("html_file") else None
-                    ),
+                    "html_file": (Path(rep["html_file"]).name if rep.get("html_file") else None),
                     "files": files,
                     "created": created,
                 }

@@ -289,10 +289,7 @@ def _is_tweety_bool_get_bug(exc: BaseException) -> bool:
     tweety's parsers expect a dict (``data.user`` and friends), crashing with
     ``AttributeError: 'bool' object has no attribute 'get'``. Not account or
     session trouble; the twscrape read covers the same data."""
-    return (
-        isinstance(exc, AttributeError)
-        and "'bool' object has no attribute 'get'" in str(exc)
-    )
+    return isinstance(exc, AttributeError) and "'bool' object has no attribute 'get'" in str(exc)
 
 
 # Breaker reasons that are pure capacity limits (429 / codes 88 rate limit,
@@ -932,11 +929,7 @@ def _from_tweety_tweet(t: Any, username: str | None = None) -> XWebTweetMetrics 
         return None
     created = getattr(t, "created_on", None) or getattr(t, "date", None)
     author = str(getattr(getattr(t, "author", None), "username", "") or "") or None
-    is_repost = bool(
-        getattr(t, "retweeted_tweet", None)
-        or getattr(t, "is_retweet", False)
-        or _is_foreign_author(author, username)
-    )
+    is_repost = bool(getattr(t, "retweeted_tweet", None) or getattr(t, "is_retweet", False) or _is_foreign_author(author, username))
     return XWebTweetMetrics(
         id=tid,
         created_at=created if isinstance(created, datetime) else None,
@@ -958,10 +951,7 @@ def _from_twscrape_tweet(t: Any, username: str | None = None) -> XWebTweetMetric
         return None
     created = getattr(t, "date", None)
     author = str(getattr(getattr(t, "user", None), "username", "") or "") or None
-    is_repost = bool(
-        getattr(t, "retweetedTweet", None)
-        or _is_foreign_author(author, username)
-    )
+    is_repost = bool(getattr(t, "retweetedTweet", None) or _is_foreign_author(author, username))
     return XWebTweetMetrics(
         id=tid,
         created_at=created if isinstance(created, datetime) else None,

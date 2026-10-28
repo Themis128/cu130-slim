@@ -1,4 +1,5 @@
 """Unit tests for Meta insights adaptive metric dropping."""
+
 from __future__ import annotations
 
 import json
@@ -62,14 +63,7 @@ async def test_meta_insights_get_drops_product_type_metrics_and_retries():
         [
             _FakeResponse(
                 400,
-                {
-                    "error": {
-                        "message": (
-                            "The Instagram Media Insights API does not support "
-                            "the impressions, replies metric for this media product type"
-                        )
-                    }
-                },
+                {"error": {"message": ("The Instagram Media Insights API does not support the impressions, replies metric for this media product type")}},
             ),
             _FakeResponse(200, {"data": [{"name": "views", "values": [{"value": 9}]}]}),
         ]
@@ -92,13 +86,7 @@ async def test_meta_insights_get_drops_metric_index():
         [
             _FakeResponse(
                 400,
-                {
-                    "error": {
-                        "message": (
-                            "metric[1] must be one of the following values: views,likes"
-                        )
-                    }
-                },
+                {"error": {"message": ("metric[1] must be one of the following values: views,likes")}},
             ),
             _FakeResponse(200, {"data": []}),
         ]
@@ -135,9 +123,7 @@ async def test_meta_insights_get_bare_100_probes_metrics_individually():
         ["post_media_view", "post_clicks"],
     )
     assert resp.status_code == 200
-    assert resp.json() == {
-        "data": [{"name": "post_clicks", "values": [{"value": 3}]}]
-    }
+    assert resp.json() == {"data": [{"name": "post_clicks", "values": [{"value": 3}]}]}
     assert [c["params"]["metric"] for c in client.calls] == [
         "post_media_view,post_clicks",
         "post_media_view",

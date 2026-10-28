@@ -44,4 +44,3 @@ def test_rollup_all_skipped_fails_post():
     assert status == PostStatus.FAILED
     assert partial is False
     assert "skipped" in (reason or "").lower()
-

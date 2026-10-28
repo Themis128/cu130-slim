@@ -1,4 +1,5 @@
 """Coverage for app/services/email_drip.py — the autonomous drip loops."""
+
 import uuid
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -14,12 +15,22 @@ NOW = datetime(2026, 10, 18, 12, 0, tzinfo=UTC)
 
 def _campaign(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), name="Template", kind=CampaignKind.marketing,
-        subject="S", text_body="Hi {{first_name}}", html_body="<p>hi</p>",
-        from_name="Cloudless", reply_to=None, status=CampaignStatus.draft,
-        sent_at=None, espocrm_target_list_id=None, survey_url=None,
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="Template",
+        kind=CampaignKind.marketing,
+        subject="S",
+        text_body="Hi {{first_name}}",
+        html_body="<p>hi</p>",
+        from_name="Cloudless",
+        reply_to=None,
+        status=CampaignStatus.draft,
+        sent_at=None,
+        espocrm_target_list_id=None,
+        survey_url=None,
         meta_data={"drip_template": "first_approach", "hero_url": "https://x/h.png"},
-        created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
     d.update(kw)
     return SimpleNamespace(**d)
@@ -66,7 +77,7 @@ class _DB:
 def test_parse_dt_variants():
     assert D._parse_dt("2026-10-18T10:00:00+00:00").year == 2026
     assert D._parse_dt("2026-10-18T10:00:00Z").tzinfo is not None
-    assert D._parse_dt("2026-10-18").day == 18          # date-only closeDate
+    assert D._parse_dt("2026-10-18").day == 18  # date-only closeDate
     assert D._parse_dt(None) is None
     assert D._parse_dt("not-a-date") is None
 
@@ -101,9 +112,9 @@ def test_mailable_excludes_internal_and_synthetic(monkeypatch):
         SMTP_FROM="noreply@cloudless.gr",
     )
     monkeypatch.setattr(D, "get_settings", lambda: s)
-    assert not D._mailable("tbaltzakis@cloudless.gr")      # owner mailbox
-    assert not D._mailable("anyone@cloudless.gr")          # own sending domain
-    assert not D._mailable("psid.abc@messenger.local")     # synthetic
+    assert not D._mailable("tbaltzakis@cloudless.gr")  # owner mailbox
+    assert not D._mailable("anyone@cloudless.gr")  # own sending domain
+    assert not D._mailable("psid.abc@messenger.local")  # synthetic
     assert not D._mailable("not-an-email")
     assert D._mailable("prospect@customer.io")
 
@@ -115,8 +126,7 @@ def test_mailable_excludes_internal_and_synthetic(monkeypatch):
 async def test_first_approach_candidates_skip_tests_and_empties(monkeypatch):
     async def fake_leads():
         return [
-            {"id": "L1", "firstName": "Ana", "lastName": "R",
-             "emailAddress": "Ana@Real.com"},
+            {"id": "L1", "firstName": "Ana", "lastName": "R", "emailAddress": "Ana@Real.com"},
             {"id": "L2", "emailAddress": "ci-test+1@example.invalid"},
             {"id": "L3", "emailAddress": "  "},
             {"id": "L4", "firstName": "Bob", "emailAddress": "bob@corp.io"},
@@ -133,14 +143,11 @@ async def test_renewal_candidates_contact_anniversary(monkeypatch):
     async def fake_contacts():
         return [
             # created ~1y ago → first renewal window (anniv 2026-11-01 ≤ +30d)
-            {"id": "C1", "firstName": "Ana", "lastName": "R",
-             "emailAddress": "ana@corp.io", "createdAt": "2025-11-01T00:00:00Z"},
+            {"id": "C1", "firstName": "Ana", "lastName": "R", "emailAddress": "ana@corp.io", "createdAt": "2025-11-01T00:00:00Z"},
             # created recently → no anniversary inside lookahead
-            {"id": "C2", "emailAddress": "new@corp.io",
-             "createdAt": "2026-10-01T00:00:00Z"},
+            {"id": "C2", "emailAddress": "new@corp.io", "createdAt": "2026-10-01T00:00:00Z"},
             # anniversary already passed this year → next is beyond lookahead
-            {"id": "C3", "emailAddress": "old@corp.io",
-             "createdAt": "2025-01-15T00:00:00Z"},
+            {"id": "C3", "emailAddress": "old@corp.io", "createdAt": "2025-01-15T00:00:00Z"},
         ]
 
     monkeypatch.setattr(D.espocrm_client, "list_contacts", fake_contacts)
@@ -158,19 +165,15 @@ async def test_renewal_candidates_contact_anniversary(monkeypatch):
 async def test_renewal_candidates_closed_won_opportunity(monkeypatch):
     async def fake_contacts():
         return [
-            {"id": "C9", "firstName": "Kim", "emailAddress": "kim@corp.io",
-             "createdAt": "2026-05-01T00:00:00Z"},
+            {"id": "C9", "firstName": "Kim", "emailAddress": "kim@corp.io", "createdAt": "2026-05-01T00:00:00Z"},
         ]
 
     async def fake_list_all(entity, **kw):
         assert entity == "Opportunity"
         return [
-            {"id": "O1", "stage": "Closed Won", "closeDate": "2025-11-10",
-             "contactsIds": ["C9"], "accountId": "A1"},
-            {"id": "O2", "stage": "Closed Lost", "closeDate": "2025-11-10",
-             "contactsIds": ["C9"]},
-            {"id": "O3", "stage": "Closed Won", "closeDate": "2024-01-05",
-             "contactsIds": ["C9"]},  # anniv 2027-01 — outside lookahead
+            {"id": "O1", "stage": "Closed Won", "closeDate": "2025-11-10", "contactsIds": ["C9"], "accountId": "A1"},
+            {"id": "O2", "stage": "Closed Lost", "closeDate": "2025-11-10", "contactsIds": ["C9"]},
+            {"id": "O3", "stage": "Closed Won", "closeDate": "2024-01-05", "contactsIds": ["C9"]},  # anniv 2027-01 — outside lookahead
         ]
 
     async def fake_accounts():
@@ -212,9 +215,7 @@ def test_duplicate_gate_bypasses_drip_clones():
             async def execute(self, *a, **kw):
                 raise AssertionError("drip clones must not reach the similarity scan")
 
-        dup, score = await S.find_duplicate_campaign(
-            _NoDB(), _campaign(meta_data={"drip_key": "first_approach"})
-        )
+        dup, score = await S.find_duplicate_campaign(_NoDB(), _campaign(meta_data={"drip_key": "first_approach"}))
         assert dup is None and score == 0.0
 
     import asyncio
@@ -230,8 +231,8 @@ async def test_run_drip_mails_only_fresh_addresses(monkeypatch):
     template = _campaign()
     db = _DB(
         results=[
-            [template],                       # _template lookup
-            [("dup@corp.io",)],               # _already_dripped (cycle=None)
+            [template],  # _template lookup
+            [("dup@corp.io",)],  # _already_dripped (cycle=None)
         ]
     )
 
@@ -239,10 +240,7 @@ async def test_run_drip_mails_only_fresh_addresses(monkeypatch):
 
     async def fake_resolve(db_, campaign, **kw):
         captured["emails"] = [e["email"] for e in kw["explicit_emails"]]
-        return [
-            SimpleNamespace(status=RecipientStatus.pending, email=e["email"])
-            for e in kw["explicit_emails"]
-        ]
+        return [SimpleNamespace(status=RecipientStatus.pending, email=e["email"]) for e in kw["explicit_emails"]]
 
     class _Celery:
         @staticmethod
@@ -255,20 +253,19 @@ async def test_run_drip_mails_only_fresh_addresses(monkeypatch):
         notes.append((cid, entity))
 
     monkeypatch.setattr(S, "resolve_audience", fake_resolve)
-    monkeypatch.setattr(
-        "app.worker.celery_app.celery_app", _Celery, raising=False
-    )
+    monkeypatch.setattr("app.worker.celery_app.celery_app", _Celery, raising=False)
     monkeypatch.setattr(D.espocrm_client, "add_lead_note", fake_note)
 
     stats = await D._run_drip(
-        db, template.team_id, "first_approach",
+        db,
+        template.team_id,
+        "first_approach",
         [
-            {"email": "ana@real.com", "name": "Ana", "crm_entity": "Lead",
-             "crm_id": "L1", "cycle": None},
-            {"email": "dup@corp.io", "name": "D", "crm_entity": "Lead",
-             "crm_id": "L2", "cycle": None},
+            {"email": "ana@real.com", "name": "Ana", "crm_entity": "Lead", "crm_id": "L1", "cycle": None},
+            {"email": "dup@corp.io", "name": "D", "crm_entity": "Lead", "crm_id": "L2", "cycle": None},
         ],
-        dry_run=False, now=NOW,
+        dry_run=False,
+        now=NOW,
     )
     assert stats["mailed"] == 1 and stats["already_sent"] == 1
     assert captured["emails"] == ["ana@real.com"]
@@ -282,10 +279,12 @@ async def test_run_drip_dry_run_sends_nothing(monkeypatch):
     template = _campaign()
     db = _DB(results=[[template], []])
     stats = await D._run_drip(
-        db, template.team_id, "first_approach",
-        [{"email": "a@b.co", "name": "A", "crm_entity": "Lead",
-          "crm_id": "L1", "cycle": None}],
-        dry_run=True, now=NOW,
+        db,
+        template.team_id,
+        "first_approach",
+        [{"email": "a@b.co", "name": "A", "crm_entity": "Lead", "crm_id": "L1", "cycle": None}],
+        dry_run=True,
+        now=NOW,
     )
     assert stats["mailed"] == 0
     assert stats["would_mail"] == [{"email": "a@b.co", "cycle": None}]
@@ -296,10 +295,12 @@ async def test_run_drip_dry_run_sends_nothing(monkeypatch):
 async def test_run_drip_without_template_reports_error():
     db = _DB(results=[[]])
     stats = await D._run_drip(
-        db, uuid.uuid4(), "first_approach",
-        [{"email": "a@b.co", "name": "A", "crm_entity": "Lead",
-          "crm_id": "L1", "cycle": None}],
-        dry_run=False, now=NOW,
+        db,
+        uuid.uuid4(),
+        "first_approach",
+        [{"email": "a@b.co", "name": "A", "crm_entity": "Lead", "crm_id": "L1", "cycle": None}],
+        dry_run=False,
+        now=NOW,
     )
     assert stats["errors"] and stats["mailed"] == 0
 
@@ -310,16 +311,16 @@ async def test_run_drip_all_suppressed_discards_clone(monkeypatch):
     db = _DB(results=[[template], []])
 
     async def fake_resolve(db_, campaign, **kw):
-        return [
-            SimpleNamespace(status=RecipientStatus.skipped_suppressed, email="x")
-        ]
+        return [SimpleNamespace(status=RecipientStatus.skipped_suppressed, email="x")]
 
     monkeypatch.setattr(S, "resolve_audience", fake_resolve)
     stats = await D._run_drip(
-        db, template.team_id, "first_approach",
-        [{"email": "a@b.co", "name": "A", "crm_entity": "Lead",
-          "crm_id": "L1", "cycle": None}],
-        dry_run=False, now=NOW,
+        db,
+        template.team_id,
+        "first_approach",
+        [{"email": "a@b.co", "name": "A", "crm_entity": "Lead", "crm_id": "L1", "cycle": None}],
+        dry_run=False,
+        now=NOW,
     )
     assert stats["mailed"] == 0 and stats["suppressed_only"] == 1
     assert db.deleted  # the unsent clone is removed — audit stays clean
@@ -337,20 +338,20 @@ async def test_aie_course_candidates_respect_step_gap(monkeypatch):
     monkeypatch.setattr(D, "get_settings", lambda: s)
     # step 1 → previous key is first_approach: one mailed 8d ago (due),
     # one 2d ago (still cooling), one with no timestamp (skipped)
-    db = _DB(results=[
-        [
-            ("old@corp.io", NOW - timedelta(days=8), NOW - timedelta(days=8)),
-            ("new@corp.io", NOW - timedelta(days=2), NOW - timedelta(days=2)),
-            ("notime@corp.io", None, None),
-        ],
-    ])
+    db = _DB(
+        results=[
+            [
+                ("old@corp.io", NOW - timedelta(days=8), NOW - timedelta(days=8)),
+                ("new@corp.io", NOW - timedelta(days=2), NOW - timedelta(days=2)),
+                ("notime@corp.io", None, None),
+            ],
+        ]
+    )
     leads = {
         "old@corp.io": {"id": "l-old", "_name": "Old Timer"},
         "new@corp.io": {"id": "l-new", "_name": "New Bee"},
     }
-    out = await D._aie_course_candidates(
-        db, uuid.uuid4(), "aie_course_1", timedelta(days=7), NOW, leads
-    )
+    out = await D._aie_course_candidates(db, uuid.uuid4(), "aie_course_1", timedelta(days=7), NOW, leads)
     assert [c["email"] for c in out] == ["old@corp.io"]
     assert out[0]["crm_id"] == "l-old" and out[0]["crm_entity"] == "Lead"
 
@@ -369,9 +370,7 @@ async def test_aie_course_step2_uses_previous_step_key(monkeypatch):
         return {"grad@corp.io": NOW - timedelta(days=9)}
 
     monkeypatch.setattr(D, "_dripped_with_dates", spy_dates)
-    out = await D._aie_course_candidates(
-        _DB(), uuid.uuid4(), "aie_course_2", timedelta(days=7), NOW, {}
-    )
+    out = await D._aie_course_candidates(_DB(), uuid.uuid4(), "aie_course_2", timedelta(days=7), NOW, {})
     assert calls == ["aie_course_1"]  # gated on step 1, not first_approach
     assert [c["email"] for c in out] == ["grad@corp.io"]
     assert out[0]["crm_id"] is None  # unknown CRM record → note skipped
@@ -408,16 +407,16 @@ async def test_already_dripped_cycle_filter():
 
 @pytest.mark.asyncio
 async def test_dripped_with_dates_naive_and_latest():
-    naive = datetime(2026, 10, 1, 8, 0)          # tzinfo None → UTC fix
+    naive = datetime(2026, 10, 1, 8, 0)  # tzinfo None → UTC fix
     aware_old = datetime(2026, 9, 1, tzinfo=UTC)
     aware_new = datetime(2026, 10, 5, tzinfo=UTC)
     db = _DB(
         results=[
             [
-                ("a@b.co", naive, None),            # naive → tzified
-                ("b@b.co", None, None),             # no date → skip
+                ("a@b.co", naive, None),  # naive → tzified
+                ("b@b.co", None, None),  # no date → skip
                 ("c@b.co", aware_old, None),
-                ("c@b.co", aware_new, None),        # latest wins
+                ("c@b.co", aware_new, None),  # latest wins
             ]
         ]
     )
@@ -431,12 +430,13 @@ async def test_dripped_with_dates_naive_and_latest():
 async def test_renewal_skips_unparseable_and_test_contacts(monkeypatch):
     async def fake_contacts():
         return [
-            {"id": "C1", "emailAddress": "a@corp.io"},          # no createdAt
-            {"id": "C2", "emailAddress": "test@example.com",    # not mailable
-             "createdAt": "2025-11-01T00:00:00Z"},
-            {"id": "C3", "firstName": "Ok", "lastName": "Name",
-             "emailAddress": "ok@corp.io",
-             "createdAt": "2025-11-01T00:00:00Z"},
+            {"id": "C1", "emailAddress": "a@corp.io"},  # no createdAt
+            {
+                "id": "C2",
+                "emailAddress": "test@example.com",  # not mailable
+                "createdAt": "2025-11-01T00:00:00Z",
+            },
+            {"id": "C3", "firstName": "Ok", "lastName": "Name", "emailAddress": "ok@corp.io", "createdAt": "2025-11-01T00:00:00Z"},
         ]
 
     async def no_opps(*a, **kw):
@@ -468,9 +468,8 @@ async def test_renewal_account_pull_failure_and_account_fallback(monkeypatch):
 
     async def opps(*a, **kw):
         return [
-            {"id": "O1", "stage": "Closed Won", "closeDate": "2025-11-10",
-             "accountId": "A9", "contactsIds": ["C-ghost"]},  # unknown contact
-            {"id": "O2", "stage": "Closed Won"},             # no closeDate
+            {"id": "O1", "stage": "Closed Won", "closeDate": "2025-11-10", "accountId": "A9", "contactsIds": ["C-ghost"]},  # unknown contact
+            {"id": "O2", "stage": "Closed Won"},  # no closeDate
         ]
 
     async def boom_accounts():
@@ -519,16 +518,23 @@ async def test_aie_lead_map_and_unmailable_step_candidate(monkeypatch):
 
     monkeypatch.setattr(D, "_dripped_with_dates", dates)
     monkeypatch.setattr(
-        D.espocrm_client, "list_leads_for_campaign",
+        D.espocrm_client,
+        "list_leads_for_campaign",
         lambda: iter([]),
     )
     s = SimpleNamespace(
-        EMAIL_DRIP_INTERNAL_DOMAINS=(), EMAIL_DRIP_EXCLUDE=(),
-        DIGEST_EMAIL_TO="ops@cloudless.gr", SMTP_FROM="no@cloudless.gr",
+        EMAIL_DRIP_INTERNAL_DOMAINS=(),
+        EMAIL_DRIP_EXCLUDE=(),
+        DIGEST_EMAIL_TO="ops@cloudless.gr",
+        SMTP_FROM="no@cloudless.gr",
     )
     monkeypatch.setattr(D, "get_settings", lambda: s)
     out = await D._aie_course_candidates(
-        _DB(), uuid.uuid4(), "aie_course_1", timedelta(days=7), NOW,
+        _DB(),
+        uuid.uuid4(),
+        "aie_course_1",
+        timedelta(days=7),
+        NOW,
         {"real@corp.io": {"id": "L9", "_name": "Real"}},
     )
     assert [c["email"] for c in out] == ["real@corp.io"]
@@ -537,18 +543,18 @@ async def test_aie_lead_map_and_unmailable_step_candidate(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_drip_empty_candidates_and_all_mailed():
-    stats = await D._run_drip(
-        _DB(), uuid.uuid4(), "first_approach", [], dry_run=False, now=NOW
-    )
+    stats = await D._run_drip(_DB(), uuid.uuid4(), "first_approach", [], dry_run=False, now=NOW)
     assert stats["candidates"] == 0 and stats["mailed"] == 0
 
     template = _campaign()
     db = _DB(results=[[template], [("dup@corp.io",)]])
     stats = await D._run_drip(
-        db, template.team_id, "first_approach",
-        [{"email": "dup@corp.io", "name": "D", "crm_entity": "Lead",
-          "crm_id": "L1", "cycle": None}],
-        dry_run=False, now=NOW,
+        db,
+        template.team_id,
+        "first_approach",
+        [{"email": "dup@corp.io", "name": "D", "crm_entity": "Lead", "crm_id": "L1", "cycle": None}],
+        dry_run=False,
+        now=NOW,
     )
     assert stats["mailed"] == 0 and stats["already_sent"] == 1
     assert db.added == []  # clone never created
@@ -574,16 +580,16 @@ async def test_run_drip_note_skip_and_failure(monkeypatch):
         raise RuntimeError("espo down")
 
     monkeypatch.setattr(S, "resolve_audience", fake_resolve)
-    monkeypatch.setattr(
-        "app.worker.celery_app.celery_app", _Celery, raising=False
-    )
+    monkeypatch.setattr("app.worker.celery_app.celery_app", _Celery, raising=False)
     monkeypatch.setattr(D.espocrm_client, "add_lead_note", boom)
 
     stats = await D._run_drip(
-        db, template.team_id, "first_approach",
-        [{"email": "real@corp.io", "name": "R", "crm_entity": "Lead",
-          "crm_id": "L1", "cycle": None}],
-        dry_run=False, now=NOW,
+        db,
+        template.team_id,
+        "first_approach",
+        [{"email": "real@corp.io", "name": "R", "crm_entity": "Lead", "crm_id": "L1", "cycle": None}],
+        dry_run=False,
+        now=NOW,
     )
     # rec 'no@cand.io' has no candidate → skipped; 'real@corp.io' note fails
     # but the drip still reports the queue.
@@ -607,9 +613,11 @@ async def test_run_email_drip_sweep_error_isolation_and_slack(monkeypatch):
     import app.services.slack_notifications as slack_mod
 
     s = SimpleNamespace(
-        EMAIL_DRIP_AIE_ENABLED=False, EMAIL_DRIP_AIE_GAP_DAYS=7,
+        EMAIL_DRIP_AIE_ENABLED=False,
+        EMAIL_DRIP_AIE_GAP_DAYS=7,
         EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS=30,
-        DIGEST_EMAIL_TO="ops@cloudless.gr", SMTP_FROM="no@cloudless.gr",
+        DIGEST_EMAIL_TO="ops@cloudless.gr",
+        SMTP_FROM="no@cloudless.gr",
     )
     monkeypatch.setattr(D, "get_settings", lambda: s)
 
@@ -622,13 +630,10 @@ async def test_run_email_drip_sweep_error_isolation_and_slack(monkeypatch):
             return await super().execute(stmt, *a, **kw)
 
     db = _DBFail(results=[[team]])
-    monkeypatch.setattr(
-        dbsession, "async_session_maker", lambda: _SessionCM(db)
-    )
+    monkeypatch.setattr(dbsession, "async_session_maker", lambda: _SessionCM(db))
 
     async def leads():
-        return [{"id": "L1", "firstName": "Ana",
-                 "emailAddress": "ana@corp.io"}]
+        return [{"id": "L1", "firstName": "Ana", "emailAddress": "ana@corp.io"}]
 
     async def no_contacts():
         return []
@@ -666,7 +671,7 @@ async def test_slack_report_tolerates_post_failure(monkeypatch):
         "teams": [
             {
                 "team_id": "t",
-                "first_approach": None,          # falsy → skipped in report
+                "first_approach": None,  # falsy → skipped in report
                 "renewal": {"mailed": 2, "candidates": 3, "already_sent": 1},
             }
         ]
@@ -679,17 +684,17 @@ async def test_run_email_drip_sweep_aie_enabled(monkeypatch):
     import app.db.session as dbsession
 
     s = SimpleNamespace(
-        EMAIL_DRIP_AIE_ENABLED=True, EMAIL_DRIP_AIE_GAP_DAYS=7,
+        EMAIL_DRIP_AIE_ENABLED=True,
+        EMAIL_DRIP_AIE_GAP_DAYS=7,
         EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS=30,
-        DIGEST_EMAIL_TO="ops@cloudless.gr", SMTP_FROM="no@cloudless.gr",
+        DIGEST_EMAIL_TO="ops@cloudless.gr",
+        SMTP_FROM="no@cloudless.gr",
     )
     monkeypatch.setattr(D, "get_settings", lambda: s)
 
     team = SimpleNamespace(id=uuid.uuid4())
     db = _DB(results=[[team]])
-    monkeypatch.setattr(
-        dbsession, "async_session_maker", lambda: _SessionCM(db)
-    )
+    monkeypatch.setattr(dbsession, "async_session_maker", lambda: _SessionCM(db))
 
     async def none(*a, **kw):
         return []
@@ -716,17 +721,17 @@ async def test_run_email_drip_sweep_writes_audit_artifact(monkeypatch):
     from app.models.user import AuditLog
 
     s = SimpleNamespace(
-        EMAIL_DRIP_AIE_ENABLED=False, EMAIL_DRIP_AIE_GAP_DAYS=7,
+        EMAIL_DRIP_AIE_ENABLED=False,
+        EMAIL_DRIP_AIE_GAP_DAYS=7,
         EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS=30,
-        DIGEST_EMAIL_TO="ops@cloudless.gr", SMTP_FROM="no@cloudless.gr",
+        DIGEST_EMAIL_TO="ops@cloudless.gr",
+        SMTP_FROM="no@cloudless.gr",
     )
     monkeypatch.setattr(D, "get_settings", lambda: s)
 
     team = SimpleNamespace(id=uuid.uuid4())
     db = _DB(results=[[team]])
-    monkeypatch.setattr(
-        dbsession, "async_session_maker", lambda: _SessionCM(db)
-    )
+    monkeypatch.setattr(dbsession, "async_session_maker", lambda: _SessionCM(db))
 
     async def none(*a, **kw):
         return []
