@@ -104,7 +104,6 @@ async def _bridge_health() -> str:
     import json
     import os
     import time
-    import urllib.parse
     import urllib.request
 
     tok, ct0 = os.environ.get("X_WEB_AUTH_TOKEN", ""), os.environ.get("X_WEB_CT0", "")
@@ -132,14 +131,34 @@ async def _bridge_health() -> str:
         time.sleep(6)
         r = _post("/session/evaluate", {"expression": "location.href"})
         cur = str(r.get("result") or r.get("url") or "")
-        host = urllib.parse.urlparse(cur).hostname or ""
-        on_x = host == "x.com" or host.endswith(".x.com")
-        if on_x and (cur.startswith("https://x.com/login") or "/i/flow" in cur):
+        if "login" in cur or "i/flow" in cur:
             await post_alert_to_slack(":warning: X session stale — refresh X_WEB_AUTH_TOKEN (x.com devtools cookies).")
             return "stale"
-        return "live" if on_x else f"rotated ({cur[:40]})"
+        return "live" if "x.com" in cur else f"rotated ({cur[:40]})"
     except Exception as e:
         return f"busy ({str(e)[:60]})"
+
+
+async def _dmr_health() -> str:
+    """Keep the serving model warm + alert if the engine stops serving.
+    A 1-token chat call holds smollm2 loaded — cold-load is the
+    ConnectTimeout/ReadTimeout class that broke the triage."""
+    import os
+
+    import httpx
+
+    url = os.environ.get("DMR_URL", "http://host.docker.internal:12435/engines/llama.cpp/v1")
+    try:
+        async with httpx.AsyncClient(timeout=45) as c:
+            r = await c.post(
+                f"{url}/chat/completions", json={"model": "docker.io/ai/smollm2:latest", "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1}
+            )
+        if r.status_code == 200:
+            return "warm"
+        return f"http {r.status_code}"
+    except Exception as e:
+        await post_alert_to_slack(f":warning: DMR serve check failed — {type(e).__name__}: engine reachable but chat hangs (model cold/unloaded).")
+        return f"down ({type(e).__name__})"
 
 
 @celery_app.task(name="app.worker.tasks.consent_healers.heal_consents")
@@ -150,6 +169,7 @@ def heal_consents() -> dict:
             "linkedin": await _linkedin_snapshot(),
             "whatsapp": await _whatsapp(),
             "bridge": await _bridge_health(),
+            "dmr": await _dmr_health(),
         }
 
     return run_async(_go())
