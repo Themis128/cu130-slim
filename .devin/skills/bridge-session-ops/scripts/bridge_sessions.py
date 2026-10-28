@@ -18,6 +18,17 @@ PLATFORMS = {
 }
 
 
+
+
+def pin() -> None:
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(
+                "http://stack-ops:8787/keepawake/browser-novnc?ttl=600",
+                method="POST", data=b""), timeout=8)
+    except Exception:
+        pass
+
 def ev(expr: str, tries: int = 3) -> dict:
     last = None
     for _ in range(tries):
@@ -83,6 +94,7 @@ def err(msg: str) -> int:
 
 
 def main() -> int:
+    pin()
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     if cmd == "status":
         return status()
