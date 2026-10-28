@@ -1,0 +1,44 @@
+name: Master Healer
+on:
+  schedule:
+    - cron: "15 */6 * * *"   # every 6h — catches lint/inventory drift between merges
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  heal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Auto-fix lint on master
+        run: |
+          pip install -q ruff
+          ruff check --fix social-automation/backend/app/ social-automation/backend/scripts/ social-automation/backend/tests/ || true
+          ruff format social-automation/backend/app/ social-automation/backend/scripts/ social-automation/backend/tests/ || true
+      - name: Regenerate route inventory
+        run: |
+          cd social-automation/backend
+          pip install -q -r requirements.txt || pip install -q -r requirements-prod.txt || true
+          cd ../..
+          python scripts/generate_route_inventory.py || true
+      - name: Open heal PR if drifted
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "no drift — nothing to heal"; exit 0
+          fi
+          git config user.name "devin-healer[bot]"
+          git config user.email "healer@cloudless.gr"
+          git checkout -b heal/$(date +%Y%m%d-%H%M)
+          git add -A
+          git commit -m "chore(heal): ruff autofix + route inventory regen ($(date +%F))"
+          git push -q origin HEAD
+          PR=$(gh pr create --base master --title "chore(heal): master hygiene $(date +%F)" --body "Auto-healer: ruff autofix + api-surface-inventory regen." | tail -1)
+          gh pr merge "$PR" --squash --auto --delete-branch || true

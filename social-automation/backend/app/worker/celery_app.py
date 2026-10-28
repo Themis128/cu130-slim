@@ -43,6 +43,7 @@ celery_app = Celery(
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.auto_gates",
         "app.worker.tasks.consent_healers",
+        "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.datalake_insights",
@@ -595,6 +596,11 @@ celery_app.conf.update(
         "survey-autosend": {
             "task": "app.worker.tasks.auto_gates.survey_autosend",
             "schedule": 900.0,  # every 15 min — fires flagged survey campaigns
+            "options": {"queue": "default"},
+        },
+        "log-intel": {
+            "task": "app.worker.tasks.log_intel.digest",
+            "schedule": 1800.0,  # 30 min — syslog→LLM triage digest
             "options": {"queue": "default"},
         },
         "consent-healers": {
