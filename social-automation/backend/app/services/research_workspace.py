@@ -5,6 +5,7 @@ Sources are pulled from a Nextcloud/WebDAV folder, chunked, embedded
 into the team's `research` Chroma collection, and queryable with full
 context — the AI sees every ingested doc when answering.
 """
+import json
 import logging
 import re
 from pathlib import Path
@@ -152,16 +153,25 @@ async def ask(team_id: str, question: str, n: int = 6) -> dict:
 
 
 async def sync_all():
-    """Hourly-ish sync — re-ingest each team's configured research folder."""
+    """Hourly-ish sync — re-ingest each team's configured research folder.
+
+    Config lives in ``social_secrets`` under key ``research_folder`` as JSON:
+    ``[{"team_id": ..., "project": ..., "folder": ...}, ...]``.
+    """
     async with async_session_maker() as db:
-        from app.models.settings import Setting
-        rows = (await db.execute(
-            select(Setting).where(Setting.key == "research_folder"))).scalars().all()
+        from app.models.social_secret import SocialSecret
+        row = (await db.execute(
+            select(SocialSecret).where(SocialSecret.key == "research_folder"))).scalars().first()
+    try:
+        rows = json.loads(row.value) if row else []
+    except (ValueError, TypeError):
+        logger.warning("[research] research_folder secret is not valid JSON")
+        rows = []
     out = []
     for s in rows:
         try:
             out.append(await ingest_nextcloud_folder(
-                s.team_id, s.data.get("project", "default"), s.data.get("folder", "Research")))
+                s["team_id"], s.get("project", "default"), s.get("folder", "Research")))
         except Exception as e:
-            logger.warning("[research] sync failed for %s: %s", s.team_id, e)
+            logger.warning("[research] sync failed for %s: %s", s.get("team_id"), e)
     return out

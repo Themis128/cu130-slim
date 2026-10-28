@@ -1,4 +1,5 @@
 """Coverage: research_workspace async helpers (collection/upsert/query/ask/sync)."""
+import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -123,8 +124,11 @@ async def test_ingest_nextcloud_folder(monkeypatch):
 async def test_sync_all_swallows_errors(monkeypatch):
     from app.services import research_workspace as RW
     res = MagicMock()
-    row = MagicMock(team_id="t1", data={"project": "p", "folder": "f"})
-    res.scalars.return_value.all.return_value = [row, MagicMock(team_id="t2", data={})]
+    row = MagicMock(value=json.dumps([
+        {"team_id": "t1", "project": "p", "folder": "f"},
+        {"team_id": "t2"},
+    ]))
+    res.scalars.return_value.first.return_value = row
     db = MagicMock()
     db.execute = AsyncMock(return_value=res)
 
