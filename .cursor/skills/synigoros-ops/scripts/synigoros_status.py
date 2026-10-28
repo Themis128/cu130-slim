@@ -1,19 +1,23 @@
 #!/usr/bin/env python3
 """synigoros_status.py — poll the Ombudsman tracking page for a complaint's status.
 
-    synigoros_status.py [--mail EMAIL] [--kpa 202610260029] [--bridge URL]
+    synigoros_status.py [--mail EMAIL] [--kpa KPA] [--bridge URL]
 
 Fill the tracking form on the adhoc browser bridge, click Ταυτοποίηση,
 extract Κατάσταση + Αριθμός Πρωτοκόλλου. Exit 0 with the status line, 1 on
-identification failure / bridge error. Designed to run inside social-api
-(BRIDGE=http://browser-novnc-adhoc:9224) or anywhere the bridge is reachable.
+identification failure / bridge error / empty status. Designed to run
+inside social-api (BRIDGE=http://browser-novnc-adhoc:9224) or anywhere
+the bridge is reachable.
+
+Credentials come from SYNIGOROS_MAIL + SYNIGOROS_KPA (or the --mail/--kpa
+flags) — nothing identifying is committed.
 """
-import json, sys, time, urllib.request, urllib.error
+import json, os, sys, time, urllib.request, urllib.error
 
 BRIDGE = "http://browser-novnc-adhoc:9224"
 TRACK = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"
-MAIL  = "baltzakis.themis@gmail.com"   # the complaint lives under this account
-KPA   = "202610260029"
+MAIL  = os.environ.get("SYNIGOROS_MAIL", "")
+KPA   = os.environ.get("SYNIGOROS_KPA", "")
 
 def call(path, data, tries=3):
     for i in range(tries):
@@ -38,37 +42,52 @@ def main() -> int:
         if a == "--bridge": BRIDGE = args[i+1]
         if a == "--mail":   MAIL   = args[i+1]
         if a == "--kpa":    KPA    = args[i+1]
+    if not MAIL or not KPA:
+        raise SystemExit("need SYNIGOROS_MAIL + SYNIGOROS_KPA (env or --mail/--kpa)")
 
     # any platform arg just boots the browser — navigate handles the real URL
     call("/session/start", {"platform": "reddit", "interactive": False})
-    time.sleep(4)
-    call("/session/navigate", {"url": TRACK})
-    for _ in range(10):                      # wait for the tracking form
-        if ev("!!document.getElementById('webMail')") or \
-           ev("document.body.innerText.includes('Κατάσταση')"):
-            break
-        time.sleep(3)
-    else:
-        raise SystemExit("tracking page never rendered")
-    if ev("!!document.getElementById('webMail')"):   # fresh session → identify
-        ev(f"(()=>{{const m=document.getElementById('webMail');m.value='{MAIL}';"
-           f"m.dispatchEvent(new Event('input',{{bubbles:true}}));"
-           f"const c=document.getElementById('webCode');c.value='{KPA}';"
-           f"c.dispatchEvent(new Event('input',{{bubbles:true}}));return 1}})()")
-        call("/session/click", {"selector": "button"})
-        time.sleep(14)
-        if ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
-            print("IDENTIFY FAILED — wrong mail/ΚΠΑ pair")
+    try:
+        time.sleep(4)
+        call("/session/navigate", {"url": TRACK})
+        for _ in range(10):                      # wait for the tracking form
+            if ev("!!document.getElementById('webMail')") or \
+               ev("document.body.innerText.includes('Κατάσταση')"):
+                break
+            time.sleep(3)
+        else:
+            raise SystemExit("tracking page never rendered")
+        if ev("!!document.getElementById('webMail')"):   # fresh session → identify
+            ev("(()=>{const m=document.getElementById('webMail');m.value=%s;"
+               "m.dispatchEvent(new Event('input',{bubbles:true}));"
+               "const c=document.getElementById('webCode');c.value=%s;"
+               "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
+               % (json.dumps(MAIL), json.dumps(KPA)))
+            call("/session/click", {"selector": "button"})
+            time.sleep(14)
+            if ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
+                print("IDENTIFY FAILED — wrong mail/ΚΠΑ pair")
+                return 1
+        out = ev("""(()=>{const t=document.body.innerText;
+          const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
+          return JSON.stringify({
+            status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) || grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
+            proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
+            kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
+          })})()""")
+        # an empty status means the page left the form in an unexpected
+        # state (verification challenge, slow transition) — not a success
+        if not json.loads(out).get("status"):
+            print(out)
+            print("INCOMPLETE — status empty (challenge or transition); retry later")
             return 1
-    out = ev("""(()=>{const t=document.body.innerText;
-      const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
-      return JSON.stringify({
-        status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) || grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
-        proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
-        kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
-      })})()""")
-    print(out)
-    return 0
+        print(out)
+        return 0
+    finally:
+        # release the pinned bridge session — a held session 409s every
+        # other platform for five minutes
+        try: call("/session/close", {})
+        except Exception: pass
 
 if __name__ == "__main__":
     sys.exit(main())

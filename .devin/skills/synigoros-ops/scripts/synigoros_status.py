@@ -8,12 +8,12 @@ extract Κατάσταση + Αριθμός Πρωτοκόλλου. Exit 0 with 
 identification failure / bridge error. Designed to run inside social-api
 (BRIDGE=http://browser-novnc-adhoc:9224) or anywhere the bridge is reachable.
 """
-import json, sys, time, urllib.request, urllib.error
+import json, os, sys, time, urllib.request, urllib.error
 
 BRIDGE = "http://browser-novnc-adhoc:9224"
 TRACK = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"
-MAIL  = "baltzakis.themis@gmail.com"   # the complaint lives under this account
-KPA   = "202610260029"
+MAIL  = os.environ.get("SYNIGOROS_MAIL", "")
+KPA   = os.environ.get("SYNIGOROS_KPA", "")
 
 def call(path, data, tries=3):
     for i in range(tries):
@@ -38,6 +38,8 @@ def main() -> int:
         if a == "--bridge": BRIDGE = args[i+1]
         if a == "--mail":   MAIL   = args[i+1]
         if a == "--kpa":    KPA    = args[i+1]
+    if not MAIL or not KPA:
+        raise SystemExit("need SYNIGOROS_MAIL + SYNIGOROS_KPA (env or --mail/--kpa)")
 
     # any platform arg just boots the browser — navigate handles the real URL.
     # close first: another task may hold the shared session (409).
@@ -54,10 +56,11 @@ def main() -> int:
     else:
         raise SystemExit("tracking page never rendered")
     if ev("!!document.getElementById('webMail')"):   # fresh session → identify
-        ev(f"(()=>{{const m=document.getElementById('webMail');m.value='{MAIL}';"
-           f"m.dispatchEvent(new Event('input',{{bubbles:true}}));"
-           f"const c=document.getElementById('webCode');c.value='{KPA}';"
-           f"c.dispatchEvent(new Event('input',{{bubbles:true}}));return 1}})()")
+        ev("(()=>{const m=document.getElementById('webMail');m.value=%s;"
+           "m.dispatchEvent(new Event('input',{bubbles:true}));"
+           "const c=document.getElementById('webCode');c.value=%s;"
+           "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
+           % (json.dumps(MAIL), json.dumps(KPA)))
         call("/session/click", {"selector": "button"})
         time.sleep(14)
         if ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
@@ -70,10 +73,22 @@ def main() -> int:
         proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
         kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
       })})()""")
+    # empty status = challenge/transition state, not a successful poll
+    if not json.loads(out).get("status"):
+        print(out)
+        print("INCOMPLETE — status empty (challenge or transition); retry later")
+        _release()
+        return 1
     print(out)
     if "--notify" in sys.argv:
         _notify(out)
+    _release()
     return 0
+
+def _release() -> None:
+    """Release the pinned bridge session — a held session 409s other platforms."""
+    try: call("/session/close", {})
+    except Exception: pass
 
 STATE = "/tmp/synigoros_last.json"
 CHAT  = "-1004436942504"                 # Cloudless — Automation HQ channel
