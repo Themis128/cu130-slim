@@ -12,7 +12,6 @@ import logging
 import os
 
 import httpx
-from celery import shared_task
 from sqlalchemy import select
 
 from app.core.security import decrypt_token
@@ -83,7 +82,7 @@ async def _linkedin_snapshot() -> str:
         import subprocess
         import sys
         script = ("/app/.devin/skills/offer-survey-ops/scripts/offer_survey.py")
-        r2 = subprocess.run(
+        subprocess.run(
             [sys.executable, script, "audience", SURVEY_CID,
              *(f"--email={e}" for e in emails)],
             capture_output=True, text=True)
@@ -115,14 +114,18 @@ async def _whatsapp() -> str:
 async def _bridge_health() -> str:
     """Seed X cookies + probe whether the session resolves vs a login wall —
     alerts when X_WEB_AUTH_TOKEN is stale (the real failure mode)."""
-    import os, urllib.request, json, time
+    import json
+    import os
+    import time
+    import urllib.request
     tok, ct0 = os.environ.get("X_WEB_AUTH_TOKEN",""), os.environ.get("X_WEB_CT0","")
     if not (tok and ct0):
         return "skip"
     def _post(path, payload):
         r = urllib.request.Request("http://browser-novnc:9223"+path,
             data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"})
-        with urllib.request.urlopen(r, timeout=15) as f: return json.loads(f.read() or b"{}")
+        with urllib.request.urlopen(r, timeout=15) as f:
+            return json.loads(f.read() or b"{}")
     try:
         urllib.request.urlopen(urllib.request.Request(
             "http://stack-ops:8787/keepawake/browser-novnc?ttl=300",
