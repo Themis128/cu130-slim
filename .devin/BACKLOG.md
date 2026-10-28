@@ -159,3 +159,7 @@
 - **#785 Meta**: facebook-browser-sidecar has NO session (has_session:false) — needs login → business.facebook.com.
 - **#791**: confirmed not API-readable — app-side only.
 - **Approvals**: #784 "approved" · #794 batch size · #793 partner picks · #795 page edits.
+
+## Session 2026-10-28 (cont.) — platform-rejection proactivity memorized
+
+- User directive: "we must always be proactive about platform-side rejections" — codified in AGENTS.md (proactivity principle section) + company brain memory ops-platform-rejection-proactivity.

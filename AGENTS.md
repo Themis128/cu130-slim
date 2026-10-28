@@ -1,0 +1,712 @@
+# Agent working notes for cu130-slim / SocialAuto
+
+## Persistent backlog (read first, update last)
+
+`.devin/BACKLOG.md` is the living to-do list across sessions. Every session MUST:
+
+1. **Read it at session start** — pick up leftovers relevant to the task.
+2. **Update it at session end** — check off what landed, add anything left
+   unfinished or newly discovered (with IDs/URLs/paths so it's actionable),
+   and commit the update. User instruction 2026-10-19: "create a to do list,
+   add this to memory, always update it with leftovers."
+
+## Cursor Cloud specific instructions
+
+Cloud Agents run the app on the host, not via Docker Compose. `.cursor/install.sh` creates the backend virtualenv (including dev extras) and installs frontend dependencies. `.cursor/start.sh` starts PostgreSQL and Redis, creates database `social_automation` owned by `social_user`, and runs `alembic upgrade head`.
+
+- API: `http://localhost:8000` (terminal `social-api`). Health: `curl http://localhost:8000/health`. Swagger: `/docs`.
+- Frontend: `http://localhost:3001` (terminal `social-frontend`). It proxies `/api/v1/*` to the API.
+- Local env file: `social-automation/backend/.env.local` (gitignored). Seeded admin is `admin@example.com` / `admin_password_123`. `D1_ENABLED=false`, so Postgres is the database until Cloudflare tokens are set.
+- Node must be `>= 22.22.2`. If `node -v` is older, `/usr/bin/node` from NodeSource is the one to use (`PATH="/usr/bin:$PATH"`).
+- Unit tests (same filter as CI): `cd social-automation/backend && . .venv/bin/activate && python -m pytest tests/unit -q -m "not integration"`.
+- Frontend typecheck: `cd social-automation/frontend && PATH="/usr/bin:$PATH" ./node_modules/.bin/tsc --noEmit --incremental false`.
+- LanguageTool, n8n, and the browser sidecars are not part of this environment. Spellcheck falls back to the original text. Do not publish to live social accounts from here.
+
+## Landing changes on master (all agents — incl. Grok Build CLI)
+
+`master` is **protected**: direct pushes are always rejected (`GH006`), including `git push origin <branch>:master`. Required checks: `validate` + `secret-scan`. The only way to land work:
+
+```bash
+git fetch origin && git checkout -b <topic-branch> origin/master
+# ... work, commit ...
+git push origin <topic-branch>                      # push the branch itself
+gh pr create --base master --head <topic-branch>    # open PR
+# either wait for validate + secret-scan then merge:
+gh pr merge <N> --squash --delete-branch
+# or let it merge itself when checks pass:
+gh pr merge <N> --squash --delete-branch --auto
+```
+
+- Never retry `git push origin …:master` — it cannot succeed. If you see `GH006: Protected branch update failed`, switch to the PR flow above.
+- `docs/arch-hw-reality-check` was already merged via PR #43 and deleted — do not push it again.
+- Repo auto-merge is **enabled** — `--auto` queues the merge until `validate` + `secret-scan` pass.
+- Compose app images use `:latest` + `pull_policy: always` — no sha pin PRs.
+
+## Commit & push cadence
+
+- After every **~15 file changes** or at the end of a **major implementation chunk**, run the test gate below, commit, and push.
+- If local history has been cleaned/rewritten, use `git push --force-with-lease` and mention it in the summary.
+- Do not leave the working tree dirty at the end of a session unless the user explicitly asked for uncommitted changes.
+- A pre-commit or post-edit hook may auto-commit staged changes. Always check `git log --oneline -3` before committing to avoid duplicate or empty commits.
+
+## Test gate before commit/push
+
+Run these for any feature that touches backend, frontend, compose, or n8n:
+
+- **Pre-commit hook** (`.githooks/pre-commit`, enabled via `git config core.hooksPath .githooks`) automatically runs `ruff check` + `mypy` on staged backend files inside the `social-api` container — same checks as the first two CI steps. It fails open when the container is down. Bypass with `--no-verify` only intentionally.
+- Container file drift: after committing tests/code, sync changed files into `social-api` + worker containers with `docker compose cp` — stale files in the container make the local gate diverge from CI.
+
+1. `pytest tests/unit -q` inside `social-api` — must pass for the **touched modules only** (e.g. `pytest tests/unit/test_<module>.py`). Do NOT run the whole ~7k suite inside `social-api`: the container's `mem_limit` is 1 GiB (steady-state ~600 MiB) and a full-suite run OOM-kills the production API (observed 2026-10-27). The full suite is CI's gate (`pytest tests/unit -v --tb=short` in `social-automation-backend.yml`); locally run it via the `.venv` on the host (`. .venv/bin/activate && python -m pytest tests/unit -q -m "not integration"`) or accept CI. If a containerized run is unavoidable, use `pytest --timeout=90 -v` so a hang fails fast instead of stalling silently, and `pkill -f pytest` stale runners first — orphaned runs compound memory pressure.
+2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
+3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
+4. `docker compose config --quiet` — must be valid.
+5. `curl http://localhost:8083/health` after `social-api` restart — must return ok.
+6. `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` after worker restart — should show 4 nodes (publishing, media, default, messenger).
+7. Validate all Mermaid diagrams in `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (e.g. via mermaid.ink) when they change.
+8. Frontend: `tsc --noEmit --incremental false` in `social-automation/frontend` using local `./node_modules/.bin/tsc` — no TS errors. The frontend container only ships the built output, so run tsc on the host.
+9. If n8n workflows changed: import, publish, and trigger a dry run.
+10. `curl http://localhost:8083/api/v1/cf-db/health` — D1, KV, and Vectorize should report `true` when Cloudflare is reachable.
+
+## Proxy policy (Cloudflare-first)
+
+- **When a proxy is needed (Instagram, scraping, geo-bypass, IP rotation), always use Cloudflare WARP first.**
+- The `warp-proxy` container (image `caomingjun/warp`) runs a free Cloudflare WARP SOCKS5 proxy on port 1080 inside the compose network.
+- Internal proxy URL: `socks5://warp-proxy:1080`
+- Host proxy URL: `socks5://127.0.0.1:1080`
+- WARP gives a Cloudflare IP (not datacenter-flagged), located in Greece by default.
+- Only consider paid residential proxies (SOAX, BrightData, IPRoyal, WebShare) if WARP IPs are also blocked by the target service.
+- The Instagram sidecar (`INSTAGRAM_PROXY` env var) defaults to `socks5://warp-proxy:1080`.
+- The `socksio` package must be installed in any container that uses SOCKS5 with httpx (`pip install httpx[socks]`).
+- `warp-proxy` is sleep-managed by stack-ops (wake-group dep of linkedin-sidecar + instagram-private-api) — `socks5://stack-ops:1080` inside the stack wakes it on connect.
+
+## Idle-sleep (stack-ops)
+
+- Expensive/infrequent containers (sidecars, browser-novnc, comfyui, warp-proxy, languagetool, metabase, jupyter, flower, portainer, env-manager, MCP servers, n8n-sandbox, instagram-private-api) auto-sleep when idle and wake on connect through the `stack-ops` proxy — **an `Exited` container is likely asleep, not broken**: check `python3 scripts/stackctl.py status` first.
+- Never add `depends_on` on a managed service (it force-starts them on `compose up`), and never probe a managed port for health checks (a probe is a wake) — use `GET 127.0.0.1:8787/status`.
+- Architecture, config schema, control API, and host-watchdog interplay: `docs/ops/stack-ops-idle-sleep.md`.
+
+## Container restart rules
+
+- `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.
+- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Copy changed files into all worker containers and `social-api`. The four queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
+- `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
+- **Worker async model** — every Celery task runs its coroutines on ONE persistent asyncio loop per prefork child (`app/worker/_async.py`, started by `worker_process_init`). Use `run_async(coro)` instead of `asyncio.run()` and `task_session()` / `get_session_factory()` instead of `async_session_maker()` or a per-task engine. Combining `asyncio.run()` with the shared session pool is the 'Future attached to a different loop' crash — eliminated by construction here. `docker cp` does NOT reload modules in a running worker — always restart after hot-syncing.
+- `comfyui` — restart after CLI args or env changes.
+- **Docker Model Runner (DMR)** — not a Compose container; it's a host-level Docker engine (`docker model *` CLI). No restart needed after app code changes. After `docker model configure --context-size N` or runtime flag changes, the model reloads on the next request. Use `docker model status` to verify the engine is running.
+- `n8n` — restart and re-import workflows after any `n8n-workflows/` or webhook change.
+- `social-frontend` — rebuild image or restart dev container after frontend source change.
+
+## Common commands
+
+```bash
+# backend unit tests — touched modules only inside social-api (1 GiB mem_limit);
+# full suite via host .venv or CI (see gate #1)
+docker compose exec -T social-api python -m pytest tests/unit/test_<module>.py -q
+
+# lint
+docker compose exec -T social-api python -m ruff check <paths>
+
+# validate compose
+docker compose config --quiet
+
+# restart key containers (4 queue-dedicated workers + beat)
+docker compose restart social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger celery-beat
+
+# health
+curl http://localhost:8083/health
+
+# Cloudflare database health
+curl http://localhost:8083/api/v1/cf-db/health
+
+# trigger bidirectional D1 ↔ Postgres sync
+curl -X POST http://localhost:8083/api/v1/cf-db/sync
+
+# replay queued writes to D1 after failover
+curl -X POST http://localhost:8083/api/v1/cf-db/replay
+
+# D1 table row counts
+curl http://localhost:8083/api/v1/cf-db/tables
+
+# frontend typecheck (run on host, not in container)
+cd social-automation/frontend && ./node_modules/.bin/tsc --noEmit --incremental false
+
+# copy a changed backend file into the running container
+docker compose cp social-automation/backend/app/services/foo.py social-api:/app/app/services/foo.py
+
+# check all 4 Celery worker nodes are online
+docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping
+
+# check which queues each worker is consuming
+docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues
+
+# run Alembic migrations to the latest head
+docker compose exec -T social-api python -m alembic upgrade head
+
+# check current Alembic head
+docker compose exec -T social-api python -c "from alembic.config import Config; from alembic.script import ScriptDirectory; sd=ScriptDirectory.from_config(Config('alembic.ini')); print(sd.get_current_head())"
+
+# check team plan tiers and quota usage
+curl -s http://localhost:8083/api/v1/usage -H "Authorization: Bearer <token>" | python3 -m json.tool
+
+# deep-check Facebook sidecar session (detects profile picker)
+curl -s http://localhost:9226/session/validate | python3 -m json.tool
+
+# manually trigger Instagram session health check
+docker compose exec -T social-worker-default celery -A app.worker.celery_app call app.worker.tasks.instagram_session_check.check_instagram_sessions
+
+# check Docker Model Runner status (host-level engine, not a Compose container)
+docker model status
+curl -sf http://localhost:12435/engines/v1/models | python3 -m json.tool
+
+# list pulled DMR models
+docker model list
+
+# check GPU VRAM usage
+nvidia-smi --query-gpu=memory.used,memory.free,memory.total --format=csv
+
+# configure DMR context size (model reloads on next request)
+docker model configure --context-size 8192 ai/qwen3:8b-q4_K_M
+```
+
+## Product defaults to preserve
+
+- **Never change profile pictures or banners/cover photos on any social media account unless the user explicitly asks for it.** This applies to all platforms (Facebook, Instagram, LinkedIn, Threads, Twitter/X, TikTok). If a profile picture or banner is missing or outdated, mention it to the user but do not change it yourself.
+- **Every post must always have the correct media for its type** (single image/video, carousel, infographic/poster, Reel/TikTok, etc.). Never create, schedule, or publish with empty `media_ids`, mismatched asset types, missing carousel slides, or platform-rejected formats. Instagram Graph image URLs must be JPEG-compatible (`/api/v1/media/view?format=jpeg` for WebP/HEIC/AVIF). Fix or regenerate media before publish — do not ship broken media and retry later.
+- **All video/audio media posted must carry the corresponding sound/music track** — never publish a Reel/TikTok/video post muted or with missing audio. If a generated video lacks audio, attach or generate the sound/music before scheduling; silent media is a broken asset, same class as a missing carousel slide.
+- **Admin user has unrestricted access.** The user logs in with admin credentials (`SOCIAL_ADMIN_EMAIL` / `SOCIAL_ADMIN_PASSWORD`). As admin, the user must have full unrestricted access to all SocialAuto features — connecting/adding accounts, all platforms, all endpoints, quotas bypassed. If the app blocks the admin from an action, treat it as a bug to fix, not a limitation.
+- **Platform focus (Visibility Era DAY 2, 8-week commitment)**: MAIN = LinkedIn (original content, carousels, Educator posts) → SECONDARY = Meta platforms (Instagram, Facebook Page, Threads — adapted versions) → LAST = Twitter/X + TikTok (opportunistic only). Scheduled workflows must target main/secondary tiers; never add schedules firing into last-tier platforms. Stored live as `brand_voices.voice_signature.platform_focus`; check with `creator_type.py platforms`.
+- LinkedIn carousels for **cloudless.gr** post as the **Company Page** account `9c4451bb-e820-489f-8676-76ddbc788ffe`, not a personal profile.
+- Threads account for **cloudless.gr** uses the Threads/Instagram username **`cloudless.gr`** (with a dot, not underscore). This is the brand account, not the personal `t_baltzakis` account.
+- Carousel slide backgrounds: **ComfyUI FLUX.1-schnell Q4 GGUF** (local GPU, under `media_gpu_lock`) → Cloudflare Workers AI FLUX schnell fallback → brand canvas. Slide copy/NLP still uses DMR (`ai/llama3.2`) + Cloudflare.
+- **Cloudflare-first, free-first** for all inference, storage, and databases; prefer Cloudflare Workers AI, R2, D1, KV, and Vectorize. Use local services (Postgres, Redis, Chroma, MinIO, Docker Model Runner) as failover.
+- **Database fallback chain**: D1 (Cloudflare, primary) → PostgreSQL (local, failover). The dual-write router (`app/services/db_router.py`) writes to D1 first, then Postgres. Circuit breaker opens after 3 D1 failures, routing to Postgres for 60s. Queued writes replay to D1 on recovery.
+- **Two PostgreSQL containers** (do not confuse them):
+  - `social-postgres` → DB `social_automation`, user `social_user` — SocialAuto app data (users, posts, media, accounts). This is the one `social-api` connects to via `DATABASE_URL`.
+  - `postgres` → DB `metabase`, user `metabase` — Metabase analytics warehouse only.
+- **Admin user seeding**: `init_db()` runs on `social-api` startup (FastAPI lifespan). If `SOCIAL_ADMIN_EMAIL` + `SOCIAL_ADMIN_PASSWORD` env vars are set, it creates the admin user if missing, re-hashes the password and syncs `name`/`timezone` on every startup (so `.env` rotations always take effect), and creates a default team. If login returns `{"detail":"Invalid credentials"}`, re-seed manually: `docker compose exec -T social-api python -c "import asyncio; from app.db.session import init_db; asyncio.run(init_db())"`. The login endpoint uses OAuth2 form data (`application/x-www-form-urlencoded`), not JSON.
+- **Team-scoped data**: All media assets, posts, social accounts, and AI usage logs are scoped by `team_id`. If the admin user is re-seeded (new UUID), existing data from the old team will not appear. Reassign with: `UPDATE media_assets SET team_id='<new>, user_id='<new>' WHERE team_id='<old>';` (same for `posts`, `social_accounts`, `ai_usage_logs`).
+- **Cache fallback chain**: KV (Cloudflare, primary) → Redis (local, failover).
+- **Vector fallback chain**: Vectorize (Cloudflare, primary) → ChromaDB (local, failover).
+- **Storage fallback chain**: R2 (Cloudflare, cloud) → MinIO (local S3, host ports 9102/9101, container 9000/9001 — portainer owns host :9000) → local disk (`/app/uploads`). The `/api/v1/media/view` endpoint transparently serves assets from any backend.
+- **Inference fallback chain (text)**: DMR (local Docker Model Runner) → Cloudflare Workers AI (the ONLY cloud fallback). Other cloud providers (Groq, Gemini, Mistral, Cohere, OpenRouter, NVIDIA, HuggingFace, OpenAI, SambaNova) are kept in PROVIDER_CATALOG for manual selection but are NOT in the automatic fallback chain.
+- **Inference fallback chain (images)**: ComfyUI FLUX.1-schnell Q4 GGUF (local GPU, `app/services/comfyui_image.py`) → Cloudflare Workers AI (the ONLY cloud fallback). `local-diffusers` (SD 1.5) is retired — stopped, `LOAD_ON_STARTUP=false`. Other image providers (Pixazo, Together, HuggingFace, NVIDIA FLUX) are manual-selection-only.
+- **Docker Model Runner (DMR)**: Primary local text inference. API at `http://localhost:12435` (host) or `http://host.docker.internal:12435` (containers) — an **engine-level GPU runner** (`docker-model-runner` container, image `local/model-runner:vllm-cuda-fixed`) with llama.cpp CUDA (`-ngl 999` full offload) + vLLM 0.27.1 backends. The Docker Desktop runner on 12434 (CPU-only llama.cpp) still exists but the app no longer points at it. OpenAI-compatible (`/engines/v1/chat/completions`), Anthropic-compatible (`/anthropic/v1/messages`), and Ollama-compatible (`/api/chat`) APIs. Models (platform-aware routing): `ai/qwen3:8b-q4_K_M` (`DMR_TEXT_MODEL` — long-form LinkedIn/Facebook + schema/JSON, ctx 6144, keep-alive 5m, ~5.1GB), `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` (`DMR_MID_MODEL`+`DMR_CHATBOT_MODEL` — non-thinking instruct for short-form platforms + all chatbots, ctx 4096, keep-alive 30m pinned, ~2.7GB), `ai/smollm3` (`DMR_TINY_MODEL` — <200-char prompts, `--reasoning-budget 0`), `ai/llama3.2` (carousel-pipeline NLP check/fix + title generation — required by `run_cloudless_carousel_pipeline`, ~2GB), `ai/qwen3-vl` (vision), `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` (embeddings — 1024 dims, ~0.7GB; replaced the 8B `ai/qwen3-embedding` which was the largest storm contributor), `ai/smollm2-vllm` (vLLM safetensors, experimental). Config via `docker model configure --context-size N`; active `docker model` context is `vllm` (→ localhost:12435). Skill: `.devin/skills/docker-model-runner/`. MCP server: `dmr` in `.devin/mcp_config.json` — verified live 2026-10-11: v2.0.0 with 26 tools (dmr_status, dmr_list, dmr_pull, dmr_inspect, dmr_rm, dmr_tag, dmr_push, dmr_search, dmr_purge, dmr_chat, dmr_completion, dmr_embed, dmr_vision, dmr_ollama_chat, dmr_anthropic, dmr_generate_image, dmr_ps, dmr_df, dmr_unload, dmr_bench, dmr_logs, dmr_configure, dmr_configure_show, dmr_vram, dmr_validate, dmr_route).
+  - **DMR resilience**: `docker-model-runner` has `RestartPolicy=always`; models persist in named volume `docker-model-runner-models`. The `dmr-watchdog` compose service applies canonical model configs via HTTP `POST /engines/_configure` every ~60s (the `docker model` CLI plugin I/O-errors inside containers — HTTP only), and probes both `/engines/v1/models` and `/api/ps` every 10s: `/engines/v1/models` stays 200 when the llama.cpp scheduler is wedged, `/api/ps` is the deep probe — 3 consecutive failures → `docker restart docker-model-runner`. Celery task `dmr_health.check_dmr_health` (every 5 min, default queue) publishes health + missing-model list to Redis `dmr:status`. `scripts/dmr/gpu-runner-recreate.py` heals/recreates the container if Docker Desktop resets it.
+  - **DMR image backup**: the patched image `local/model-runner:vllm-cuda-fixed` is exported to `/home/tbaltzakis/backups/dmr/model-runner-vllm-cuda-fixed.tar` (~9GB, torch cu126 fix + model configs baked in). If Docker Desktop wipes the image, restore with `docker load -i /home/tbaltzakis/backups/dmr/model-runner-vllm-cuda-fixed.tar` then run `scripts/dmr/gpu-runner-recreate.py` — skips the install-runner + torch-patch + configure cycle. Re-export after committing a new image revision: `docker save local/model-runner:vllm-cuda-fixed -o /home/tbaltzakis/backups/dmr/model-runner-vllm-cuda-fixed.tar`.
+  - **DMR settings**: `DMR_URL` (app, 12435 llama.cpp), `DMR_BASE_URL` (sidecars, no `/engines` suffix), `DMR_TEXT_MODEL`/`DMR_MID_MODEL`/`DMR_CHATBOT_MODEL`/`DMR_TINY_MODEL`/`DMR_VISION_MODEL`/`DMR_EMBEDDING_MODEL`, `DMR_MAX_CONCURRENCY` (default 4, semaphore in `dmr.py`), `DMR_VLLM_URL` (experimental vLLM backend — provider `dmr-vllm`, manual selection only, never in the auto fallback chain).
+  - **Chatbot inference order**: Messenger (`messenger_chatbot.py`), WhatsApp (`whatsapp_chatbot.py`), Telegram (reuses `generate_contextual_reply`), and the messenger-sidecar all run **DMR first → Cloudflare Workers AI → static fallback**. Intent detection was already DMR-first.
+  - **DMR GPU runner (port 12435)**: created via `docker model install-runner --backend vllm --gpu cuda --port 12435` then patched: torch `+cpu`→`+cu126` in `/opt/vllm-env` (the `latest-vllm-cuda` image ships a broken CPU-only torch), env `VLLM_WSL2_ENABLE_PIN_MEMORY=1` (WSL2 disables pinned memory → "UVA is not available"), env `VLLM_USE_FLASHINFER_SAMPLER=0` (image lacks `ninja` for FlashInfer JIT), `docker model configure docker.io/ai/smollm2-vllm:latest --gpu-memory-utilization 0.25` (per-model, FULL ref required — short names silently no-op; once configured, the API resolves only the full ref and `ai/smollm2-vllm` 404s). The committed image `local/model-runner:vllm-cuda-fixed` has the torch fix; container env vars carry the other two. Model config (e.g. gpu-memory-utilization) lives in the container layer — reapply after `install-runner`/`reinstall-runner` recreates it.
+  - **vLLM needs safetensors**: GGUF models run on llama.cpp, safetensors (`*-vllm` tags) run on vLLM. 8GB VRAM caps vLLM at small models (~≤4GB weights).
+  - **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) cannot run there and was removed from the model store. For local GPU image generation on WSL2, use **ComfyUI FLUX.1-schnell Q4 GGUF** (`comfyui` service, `COMFYUI_PROFILE=flux`).
+  - **GPU arbitration (one-model-in-VRAM, RTX 3070 8GB)**: `app/services/gpu_arbiter.py` — media jobs (ComfyUI image/video) wrap their render in `media_gpu_lock()` (Redis lock `gpu:media_lock` + busy flag `gpu:media_busy`, TTL 1800s). On acquire it evicts resident DMR models; on release it POSTs ComfyUI `/free` (`unload_models+free_memory`) so the card returns to DMR — ComfyUI caches checkpoints with no TTL and that was the 2026-10-05 `generate-content` wedge. All DMR requests also take `dmr_slot()` — a Redis NX+TTL FIFO lock (`gpu:dmr_lock`) serializing DMR cluster-wide across API + workers (the runner has no admission control; concurrent model loads wedge the scheduler). DMR entry points (`call_dmr`, `call_dmr_embedding`, `call_dmr_vision`) `await_media_idle()` (bounded 300s) before loading. On insufficient VRAM or `TimeoutException`/`RemoteProtocolError`, `call_dmr` runs `_free_gpu_memory()` (evict DMR + free ComfyUI cache) then retries once, then falls back to Cloudflare. Host-side equivalent: `scripts/gpu_serial.py` (HTTP-only — the `docker model` CLI plugin I/O-errors inside containers; it works on the WSL host).
+  - **Media generation stack (verified live 2026-10-05)**: image txt2img = FLUX.1-schnell Q4_0 GGUF (`models/unet/flux1-schnell-Q4_0.gguf` + `clip_l` + `t5xxl_fp8` text encoders + `ae.safetensors` VAE); video = Wan2.2 TI2V-5B GGUF Q4_K_M ONLY (frames 4n+1, dims mult. of 16, native 704×1280, uni_pc/simple @ cfg 5, tiled VAE decode; `image_bytes` → native I2V). LTXV/Wan2.1 retired after Wan2.2 won the A/B. Long-form = `generate_video_segments`. ComfyUI custom-node deps (`gguf`, `opencv`, `colour-science`, `diffusers`, etc.) are pinned in the Dockerfile Layer 4 — nodes are bind-mounted so their requirements.txt can't install at build time.
+- **Video generation (TikTok)**: `POST /api/v1/media/generate-video` → Celery `generate_video_asset_task` (media queue) → `app/services/comfyui_video.py` → ComfyUI (`COMFYUI_URL=http://comfyui:8000`, `social-media-comfyui-gpu`, lowvram RTX 3070). Model `Wan2.2-TI2V-5B-Q4_K_M.gguf` via `UnetLoaderGGUF` — the only video model. Constraints: dims multiple of 16, frames = 4n+1, native res 704×1280 (~16min render), `VAEDecodeTiled` mandatory, official Wan2.2 negative prompt. Long-form: `options.duration_seconds` (≤60) or `options.scene_prompts` → sequential segments + ffmpeg concat. Stored graphs in `comfyui-workflows/`; weights in `storage-models/` (gitignored). Driven by n8n `tiktok-video-post` (webhook + every-2-days schedule; `publish:false` = draft-only dry run; scheduled runs use `MEDIA_UPLOAD`, explicit calls may `DIRECT_POST`). Details: `docs/media-creation-architecture.md` § Video model notes.
+- n8n and Metabase keep PostgreSQL as primary (they require native Postgres connections). Their D1 databases are backup targets only.
+- Every media text field (`alt_text`, `tags`, `ai_caption`, `generation_prompt`, `filename`) is spell/grammar-corrected via LanguageTool before storage.
+- **Infographic renderer** (`app/services/infographic_renderer.py`): AI image models (SD 1.5, FLUX) cannot spell — they generate garbled nonsense text in pixels. When a prompt contains keywords like `infographic`, `poster`, `chart`, `statistics`, `timeline`, `checklist`, the renderer: (1) generates structured text content via Cloudflare Workers AI LLM, (2) generates an AI background with anti-text negative prompts, (3) creates a **procedural gradient background** via PIL (diagonal gradient + accent glow orbs + dot grid) to eliminate text bleed-through — the AI background is used only as a 15% opacity Gaussian-blurred texture layer, (4) overlays correctly-spelled text via PIL with WorkSans fonts — uses numbered cyan badge circles (1, 2, 3...) instead of emoji icons. Wired into `/media/generate-image` and `/ai/generate-image`. Non-fatal: falls back to raw background if overlay fails. Vision-model QA: no spelling errors, no garbled text, quality 8/10.
+- **Quality pipeline** (`app/services/media_quality.py`): All media-generation endpoints run spellcheck (LanguageTool, per-field concurrently) + NLP plain-English check/fix + SEO scoring + `detect_gibberish` on prompt, caption, alt_text, and tags. Image bytes are never touched. Quality reports persisted in `MediaAsset.meta_data.quality`. Non-fatal: failures return best-available text with diagnostics.
+- **Publish quality gate** (`app/services/quality_pipeline.py:apply_publish_gate` + `app/worker/tasks/publishing.py:_enforce_publish_quality`): every text post must score ≥ `PUBLISH_MIN_SEO_SCORE` (default 80, 0 disables) composite SEO/NLP before `publish_to_platform` — runs the full pipeline (spellcheck → NLP fix → SEO score → LLM improve loop ≤ `PUBLISH_QUALITY_MAX_ITERATIONS`) then skips the target + Slack-alerts below the bar or on residual gibberish. Verdict cached in `platform_specific.quality_gate` per content SHA-1 (multi-target posts check once; edited copy re-checks); fails open on infra errors.
+- **Category-aware spellcheck** (`app/services/spellcheck.py:auto_correct_detailed`): LanguageTool error-rule classes (TYPOS/GRAMMAR/CASING/PUNCTUATION/…) auto-apply; voice-rewriting classes skip via `LANGUAGETOOL_SKIP_CATEGORIES` (STYLE/TYPOGRAPHY/REDUNDANCY/WIKIPEDIA) + `LANGUAGETOOL_SKIP_RULE_PREFIXES` (`AI_HB_*`). Overlap-safe application; returns a structured applied-fix report. `auto_correct` remains the thin wrapper.
+- **Multi-tenant teams** (`app/api/teams.py`): 9-endpoint Teams API (create, list, get, patch, delete, invite, add/remove members, role changes, switch active team). JWT `team_id` claims, role hierarchy (OWNER>ADMIN>EDITOR>VIEWER). Cross-tenant isolation on all content/media/account queries. `GET /api/v1/teams`, `POST /api/v1/teams/{team_id}/switch`, `POST /api/v1/teams/{team_id}/invite` (sends email if user doesn't exist).
+- **Tier-based quota enforcement** (`app/core/quotas.py`, `app/api/deps.py:check_quota`): free(10 posts/50 AI/1 account), pro(100/500/5), business(∞/5000/20), enterprise(∞/∞/∞). `check_quota()` on AI, content, and account-connect endpoints. Admin bypass via `SOCIAL_ADMIN_EMAIL`. `GET /api/v1/usage` + `/api/v1/usage/history`. `init_db()` auto-sets admin team to enterprise. Quota warning email at 80% (once per month per resource, respects `email_on_quota` preference).
+- **Onboarding wizard** (`app/(dashboard)/onboarding/`): 4-step frontend wizard (welcome, connect account, brand basics, first post). `onboarding_completed` field on `User` model (Alembic `r0a1b2c3d4e5`). `PATCH /auth/me` support. Dashboard redirect for incomplete onboarding. `OnboardingChecklist` + `EmptyState` dashboard widgets.
+- **Public marketing pages** (`app/(public)/`): landing (`/`), pricing (`/pricing`), features (`/features`), about (`/about`), API docs (`/api-docs`). 7 marketing components. Auth-aware root page redirects logged-in users to `/dashboard`.
+- **Transactional email** (`app/services/email_templates.py`): 6 templates (welcome, password reset, post published, account connected, quota warning, team invite). `EmailLog` model + `email_logs` table (Alembic `t2c4d5e6f7a8`). Fire-and-forget via `asyncio.create_task` in request scope, `await` in Celery tasks. Non-fatal on failure. Respects notification preferences: `email_new_post`, `email_on_quota`, `email_account_connected` (welcome, password_reset, team_invite always sent). Frontend toggles in Settings → Notifications.
+- **Public API documentation**: `EXPOSE_API_DOCS` setting (default `true`) decoupled from `DEBUG`. Swagger UI (`/docs`), ReDoc (`/redoc`), OpenAPI JSON (`/openapi.json`) all accessible with `DEBUG=false`. Frontend `/api-docs` page with CDN-loaded Swagger UI.
+- **DEBUG=false in production**: `.env` has `DEBUG=false` (was `true`). Stack traces are no longer exposed. API docs remain accessible via `EXPOSE_API_DOCS=true`.
+- Never commit secrets (`.env`, `N8N_API_KEY`, Cloudflare tokens, admin password, `GITHUB_TOKEN`).
+- Do not change the public Docker Compose port mappings (e.g. `social-api:8083`, `social-frontend:8082`, `n8n:5678`, `chroma:8001`, `languagetool:8010`, `comfyui:8000`, `metabase:3000`). DMR runs on host port `12435` (the `docker-model-runner` GPU container; Desktop runner 12434 is unused). New internal services may use unmapped ports only after confirming no conflicts.
+
+## Platform coverage
+
+SocialAuto supports seven feed platforms (OAuth, publishing, analytics, token refresh, SEO) plus messaging channels:
+
+**Feed platforms:** LinkedIn, Twitter / X, Facebook, Instagram, Threads, TikTok, Bluesky (AT Protocol — app-password sessions, no OAuth; `app/services/bluesky_api.py` + `/api/v1/bluesky/connect`)
+
+**Messaging channels (no feed publish — soft-skipped):** WhatsApp Business Cloud API, Telegram Bot API, Facebook Messenger, Viber (`app/api/viber.py` + `viber_chatbot.py`)
+
+### Bot auto-reply architecture
+
+Feed-platform DMs and messaging channels share a unified bot reply engine in `app/services/messenger_chatbot.py` (`generate_contextual_reply`). WhatsApp uses `app/services/whatsapp_chatbot.py`; Telegram Bot API uses `app/services/telegram_chatbot.py` (webhook inbound, `chat_id` threads).
+
+**Telegram DM lead funnel:** the channel agent's offer posts carry a `t.me/<bot>?start=audit` deep link plus UTM-tagged site CTAs; `/start audit` in the bot DM runs the shared lead-capture FSM (`lead_capture.py`, source `telegram_dm`) → Lead row → owner alert. Lead prompts honor `telegram_auto_reply.enabled` and paused threads, roll the Redis session back on failed sends, and re-ask on stale button taps. Owner linking (`/linkowner`, `/start linkowner`, or a bare `/start` only while unlinked) can never be hijacked by funnel deep links — see `docs/superpowers/guides/12-telegram-bot.md`.
+
+**Reply pipeline (per inbound message):**
+1. **Deterministic pricing safeguard** — keyword detection (English + Greek) intercepts pricing questions before the LLM and returns a hardcoded response directing to `cloudless.gr` for a free audit. Prevents the 8B model from hallucinating specific euro amounts.
+2. **Intent detection** — classifies as business, personal, question, spam, or greeting (DMR → CF fallback).
+3. **Brand knowledge RAG** — retrieves relevant brand context from ChromaDB/Vectorize.
+4. **Brand voice injection** — fetches banned phrases, preferred phrases, euro pricing enforcement, bilingual Greek/English rules, and bot disclosure from the Brand system API (`GET /api/v1/brand/voice`). Cached for 5 minutes. Injected into every bot's system prompt even if the per-account prompt doesn't include them.
+5. **Conversation memory** — last 10 messages from ChromaDB for context-aware replies.
+6. **Reply generation** — Cloudflare Workers AI (Llama 3.1 8B) is primary for all languages. DMR (Qwen3 8B, local) is fallback. Static text is final fallback.
+7. **Bot disclosure** — first contact in a thread gets `🤖 Auto-reply:` prefix (Meta policy). Tracked in Redis with 24h TTL.
+8. **Cooldown** — per-thread 5-minute cooldown in Redis to avoid spam.
+9. **Human handoff** — threads can be paused/resumed per account.
+
+**All 6 polling tasks** (personal_messenger, instagram_messenger, threads_messenger, twitter_messenger, tiktok_messenger, linkedin_messenger) now pass `intent` and `brand_context` to `generate_contextual_reply`.
+
+**Brand voice rules** (enforced on all 11 bot configs):
+- Banned phrases: synergy, leverage, best-in-class, cutting-edge, state-of-the-art, world-class, next-generation, revolutionary, game-changing, disruptive, paradigm shift
+- Preferred phrases: Clear skies. Zero friction., The third way, We earn your business every month, Your code is yours, No lock-in contracts, Results in 14 days, Without the enterprise BS, Free audit first, Transparent pricing in euros
+- Pricing: always euros (€), never USD. Don't make up specific prices.
+- Language: bilingual Greek + English, match user language exactly, never mix.
+- Disclosure: always say you are a bot.
+
+### Bot analytics
+
+Every bot reply is tracked to two tables for observability and dashboards:
+
+1. **`ai_usage_logs`** — provider, model, latency, success/failure, endpoint (`bot_reply`), via `track_inference()`.
+2. **`analytics_events`** — `bot_reply` event type with metadata: `thread_id`, `provider`, `model`, `success`, `error`, `intent`, `guardrail`, `language`, `reply_length`, `latency_ms`.
+
+Tracking is non-blocking — logging failures are swallowed and never break the bot reply. All 5 return paths are instrumented:
+- Pricing guardrail (deterministic, before LLM)
+- Cloudflare Workers AI success
+- Cloudflare Workers AI failure
+- DMR fallback success
+- DMR fallback failure
+
+All 6 polling tasks pass `team_id=account.team_id` to `generate_contextual_reply` so analytics events are scoped to the correct team.
+
+**API endpoints** (`app/api/analytics.py`):
+- `GET /api/v1/analytics/bots/summary` — bot reply metrics from PostgreSQL: total replies, success/failure rate, guardrail triggers, pricing guardrail triggers, Greek/English breakdown, avg latency, per-provider, per-account, per-day.
+- `GET /api/v1/analytics/bots/cloudflare-ai` — Workers AI usage from Cloudflare GraphQL Analytics API (free): total requests, neurons consumed, free-tier limit (10K neurons/day), free-tier remaining, per-model breakdown, daily time series.
+- `GET /api/v1/analytics/bots/cloudflare-overview` — combined Cloudflare analytics overview: Workers AI, Workers invocations, R2, D1, KV, Vectorize metrics in a single response.
+
+**Cloudflare Analytics client** (`app/services/cf_analytics.py`):
+Queries the Cloudflare GraphQL Analytics API (free, uses existing `CLOUDFLARE_API_TOKEN`):
+- `get_workers_ai_usage(days)` — `aiInferenceAdaptiveGroups` dataset: requests, neurons (estimated from tokens), per-model, per-day.
+- `get_workers_invocations(days)` — `workersInvocationsAdaptive` dataset: requests, errors, CPU time P50/P99, per-script.
+- `get_r2_usage(days)` — `r2OperationsAdaptiveGroups` dataset: operations by action type and bucket.
+- `get_d1_usage(days)` — `d1QueriesAdaptiveGroups` dataset: query counts per database.
+- `get_kv_usage(days)` — `kvOperationsAdaptiveGroups` dataset: read/write/delete/list operations.
+- `get_vectorize_usage(days)` — `vectorizeQueriesAdaptiveGroups` dataset: query counts per index.
+- `get_cf_overview(days)` — aggregates all of the above into a single dashboard response.
+
+Live data (7-day window): 1,010 AI requests (1,210 neurons, 68,790 free remaining), 59K Worker invocations, 9,275 R2 operations, 19,605 D1 queries, 68 KV ops.
+
+**Frontend** (`app/(dashboard)/analytics/page.tsx`):
+The analytics page (`/analytics`) has two new sections below the existing post/follower/engagement metrics:
+- **Bot Reply Analytics** — KPI cards (total replies, success rate, guardrail triggers, pricing guardrails, Greek/English, avg latency, failures), provider breakdown (Cloudflare/DMR/deterministic with icons), and daily activity bar chart (replies/errors/guardrails).
+- **Cloudflare Infrastructure Analytics** — KPI cards for Workers AI (requests, neurons, free-tier remaining), Workers (requests, errors), R2 operations, D1 queries, KV operations; Workers AI model breakdown, Worker script breakdown, R2 bucket breakdown, D1 database breakdown.
+
+Frontend data flow:
+- Types: `BotAnalyticsSummary`, `CloudflareAIUsage`, `CloudflareOverview` in `src/types/index.ts`.
+- API client: `analyticsApi.getBotSummary()`, `getCloudflareAIUsage()`, `getCloudflareOverview()` in `src/services/api.ts`.
+- Hooks: `useBotSummary(days)`, `useCloudflareAIUsage(days)`, `useCloudflareOverview(days)` in `src/hooks/useQueries.ts` (30s/60s refetch intervals).
+- E2E tests: `tests/analytics.test.ts` checks both new sections render.
+
+### Auto token refresh
+
+A Celery beat task `app.worker.tasks.token_refresh.refresh_expiring_tokens` runs twice hourly (at :15 and :45 past the hour). It refreshes any active account token expiring within the next 4 hours:
+
+- **TikTok**: 24-hour tokens — refreshed daily (TikTok doesn't return `expires_in` on refresh, so 24h is assumed).
+- **Twitter/X**: 2-hour tokens — refreshed every hour (requires `offline.access` scope for refresh token). Uses `https://x.com/i/oauth2/authorize` and `https://api.x.com/2/oauth2/token` (not `twitter.com`/`api.twitter.com`).
+- **Meta (Facebook/Instagram/Threads)**: ~60-day long-lived tokens — refreshed when within 4 hours of expiry.
+- **LinkedIn**: tokens don't expire (no `expires_in` returned).
+
+If a refresh fails, the account is marked as `expired` and requires manual reconnect from the Accounts page. The task is registered in `celery_app.py` beat_schedule as `refresh-expiring-tokens`.
+
+### Instagram private-API session health check
+
+A Celery beat task `app.worker.tasks.instagram_session_check.check_instagram_sessions` runs every 6 hours (at :30 past, every 6h). It calls `GET /account` on the aiograpi-rest sidecar (`http://instagram-private-api:8000`) with each saved `X-Session-ID` from `social_accounts.meta_data["private_api_session_id"]`. If the session is expired or the sidecar is unreachable, the account is marked `expired` and the team owner gets an alert email (24h cooldown to avoid spam). The task is registered in `celery_app.py` beat_schedule as `check-instagram-sessions`.
+
+### Session auto-heal (hourly)
+
+`app.worker.tasks.session_healer.heal_sessions` runs at :20 hourly and probes every browser transport (LinkedIn/Facebook sidecars + all shared-bridge platforms), auto-recovers what it can (credential login, cookie re-inject, Threads IG-SSO bootstrap), persists fresh session material, and Slack-alerts only when human action is needed. On-demand: `POST /api/v1/ops/session-heal`. LinkedIn `li_at` cookies are fingerprint-bound — never transplant them across browsers; native credential login is the recovery path. Bridge pollers use a Redis verified-dead marker (`browser_bridge:dead:*`, 30 min) so a logged-out platform doesn't re-burn ~200s of busy-hold every poll cycle; the healer clears it on recovery. Skill: `.devin/skills/session-ops/session-auto-heal/`.
+
+### Facebook browser sidecar session validation
+
+The FB sidecar's `isLoggedIn()` function checks three signals: (1) URL is `facebook.com` and not `/login`, `/checkpoint`, `/recover`; (2) the `c_user` cookie exists; (3) the page does NOT show the profile picker ("Continue as X" / "Use another profile" / `crypted_string` query param). The `GET /session/validate` endpoint does a deep check (navigates to the feed and returns a body snippet). If the profile picker is shown, `logged_in` is `false` — the session is NOT usable even though cookies exist.
+
+### Facebook account model
+
+Facebook stores two types of accounts:
+
+1. **User account** (type=`user`) — the Facebook user who authorized, with a long-lived user token. This is the main account used by `Sync Business` to call `/me/accounts`.
+2. **Page accounts** (type=`page`, `is_business=True`) — one per managed Page, with permanent Page tokens. Created automatically during OAuth and when Sync Business is clicked.
+
+If `Sync Business` fails with `(#100) Tried accessing nonexisting field (accounts)`, the stored token is a Page token instead of a User token — disconnect and reconnect Facebook.
+
+### TikTok OAuth specifics
+
+TikTok Login Kit has several non-standard OAuth requirements that differ from other platforms:
+
+- **`client_key` parameter**: TikTok requires `client_key` (not `client_id`) in both the authorize URL and the token exchange. The custom `TikTokOAuth2` class in `app/api/auth.py` overrides `get_access_token` and `refresh_token` to send `client_key`. The authorize URL also includes `client_key` via `extras_params`.
+- **PKCE required**: TikTok mandates `code_challenge` + `code_challenge_method=S256` in the authorize URL. SocialAuto generates a PKCE pair for every TikTok request and encodes the `code_verifier` in the base64-JSON state parameter.
+- **Comma-separated scopes**: TikTok requires scopes as a comma-separated string (e.g. `user.info.basic,video.publish,video.upload`), not space-separated like other OAuth providers. SocialAuto passes scopes via `extras_params["scope"]` with `",".join(scopes)` and sets the library `scope` to `None`.
+- **HTTPS-only redirect URIs**: `TIKTOK_REDIRECT_URI` must use `https://`. The production callback `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` is routed through the Cloudflare named tunnel to the local `social-api` container.
+- **Env vars**: `TIKTOK_CLIENT_KEY`, `TIKTOK_CLIENT_SECRET`, `TIKTOK_REDIRECT_URI`.
+- **Connected account**: `cloudless.gr` TikTok account (sandbox: `cloudless-dev`, target user `user3113682023385`).
+
+### TikTok Content Posting API
+
+- **Publish modes**: `MEDIA_UPLOAD` (sends to TikTok inbox for manual posting — **required to use TikTok’s in-app music library / effects**) and `DIRECT_POST` (posts directly from SocialAuto — requires app audit for public posts). Use `MEDIA_UPLOAD` when the creator must pick TikTok sounds; use `DIRECT_POST` for SocialAuto-only publish with API controls (privacy, duet/stitch/comment, brand toggles, cover frame, photo `auto_add_music`).
+- TikTok does **not** expose its commercial music catalog to third-party apps. SocialAuto can mix **your own** audio (`music_asset_id`) or send a draft via `MEDIA_UPLOAD` so the creator finishes in TikTok.
+- **Media transfer**: `FILE_UPLOAD` (upload video bytes directly — no domain verification needed) and `PULL_FROM_URL` (TikTok downloads from URL — requires domain verification in dev console). SocialAuto's `_publish_tiktok` in `app/services/publishing.py` automatically uses `FILE_UPLOAD` when a local video file is available.
+- **Video encoding**: TikTok rejects/hangs on videos below **23 FPS** (official media transfer guide). Slideshow builder uses `fps=30` + silent AAC. Prefer H.264 / yuv420p / ≥360px.
+- **Photo posts**: `photo_cover_index` is **0-based**. Photos only support `PULL_FROM_URL` (domain verify required).
+- **Spam protection**: TikTok limits API uploads to **5 pending shares per 24-hour period**. Error: `spam_risk_too_many_pending_share`. Clear pending uploads from the TikTok mobile app or via the cancel API (`/v2/post/publish/cancel/`). Resume stuck posts with `platform_specific.tiktok.publish_id` instead of re-init.
+- **Publish ID format**: FILE_UPLOAD IDs use `v_inbox_file~v2.<numeric_id>` (includes `~` and `.`). The `_ID_RE` regex in `app/services/tiktok_api.py` accepts these.
+- **Upload URL hosts**: TikTok returns regional hosts (e.g. `open-upload-i18n.tiktokapis.com`). The `upload_video_file` method accepts any `*.tiktokapis.com` host.
+- **App details**: App name "Cloudless", App ID `7630494700880906241`, currently under Individual ownership (needs transfer to organization `cloudless.gr` / `7630331010873377809`).
+- **Domain verification**: Verify `cloudless.gr` in the TikTok dev console (URL properties) by adding a DNS TXT record in Cloudflare. Covers all subdomains including `social.cloudless.gr`.
+- **Skills**: `.devin/skills/tiktok-console-ops/tiktok-publish/` (publishing, spam management, slideshow builder) and `.devin/skills/developer-apps-ops/tiktok-dev-console/` (domain verification, app/org transfer, audit).
+
+## Brand identity system
+
+- One Brand per team, stored in the `brands` table (migration `h4c5d6e7f8a9`).
+- Brand DNA: name, industry, positioning, mission, values, target audience, competitors, tagline, website.
+- Brand Voice: tone dimensions (1-5 sliders), messaging pillars, banned phrases, preferred phrases, example content, voice signature.
+- Brand Visual: primary/accent/neutral colors, heading/body fonts, type scale, logo URL, logo variants, image style, photography direction.
+- Brand Guidelines: compiled JSON document with shareable token and version number.
+- Brand Assets: logos, templates, OG images, favicons linked to the media library.
+- API router: `/api/v1/brand` with sub-routes for `/voice`, `/visual`, `/guidelines`, `/assets`.
+- Frontend: `/brand` dashboard, `/brand/identity`, `/brand/voice`, `/brand/visual`, `/brand/guidelines`.
+- **Phase 2 (planned)**: Brand Kit Extractor (URL → brand profile) and Voice Analyzer (content → voice signature).
+- **Phase 3 (planned)**: Brand Context Engine — inject brand voice into every AI generation, compliance scoring before publish.
+- See `docs/superpowers/plans/ai-branding-expansion-plan.md` for the full 6-phase roadmap.
+
+## Media AI enhancement system
+
+- **Image transformation** (`app/services/image_transform.py`): 17 platform presets (Instagram, LinkedIn, Twitter, Facebook, TikTok, Threads, OG), resize with cover/contain fit, crop, format conversion (JPEG/PNG/WebP/AVIF), compress to target size, text watermark. All local Pillow — no AI needed.
+- **AI image enhancement** (`app/services/image_enhance.py`): background removal (CF Workers AI segmentation), upscaling 2x/4x (local LANCZOS + sharpening), smart crop with AI subject detection (CF llama-4-scout vision), quality scoring (blur/brightness/contrast — local, no AI), WCAG-compliant alt text generation (CF vision model).
+- **API router**: `/api/v1/media/enhance` with 13 endpoints for single-asset and batch operations.
+- **Batch processing**: Celery task `batch_enhance_task` in `app/worker/tasks/media_enhance.py` — supports resize, convert, compress, upscale, remove_bg, smart_crop, alt_text on up to 50 assets.
+- **Frontend**: AI Enhancement Studio at `/media/enhance/[id]` with before/after preview, platform preset selector, quality score display, and all operation buttons. Wand icon on media library cards links to the studio.
+- See `docs/superpowers/plans/media-ai-enhancement-plan.md` for the full plan.
+
+## Image generation pipeline
+
+- **Endpoint**: `POST /api/v1/media/generate-image` — generates an image from a text prompt and stores it in the media library.
+- **Fallback chain (first success wins)**:
+  1. **Local Diffusers (SD 1.5, GPU)** — primary. Uses the `local-diffusers` container's OpenAI-compatible `/v1/images/generations` endpoint. Free, local, no quota. Supports `prompt`, `negative_prompt`, `width`, `height`, `steps`, `cfg_scale`, `seed`.
+  2. **Cloudflare Workers AI (FLUX schnell)** — the ONLY cloud fallback. Used when Local Diffusers is unavailable or fails. Model: `@cf/black-forest-labs/flux-1-schnell`.
+- **Removed from automatic path**: Pixazo, Together AI, HuggingFace, NVIDIA FLUX — these are manual-selection-only via the AI Providers settings page.
+- **Provider provenance**: Each generated image records `meta_data.inference_provider` (`local-diffusers` or `cloudflare`) and `meta_data.inference_model` for tracking which path produced the asset.
+- **DMR Diffusers (SDXL)**: The `ai/stable-diffusion` model (SDXL, 6.94 GB DDUF) was removed from DMR — the Diffusers engine is **not available on Docker Desktop/WSL2** anyway (requires native Linux with NVIDIA CUDA). On WSL2, ComfyUI FLUX.1-schnell GGUF is the working local GPU image path (local-diffusers SD 1.5 was retired and its image removed). See `.devin/skills/docker-model-runner/SKILL.md` for DMR details.
+
+## Image quality gate
+
+- **Automatic scoring**: Every image uploaded via `POST /api/v1/media/upload` or generated via `POST /api/v1/media/generate-image` is automatically quality-scored using `score_image_quality()` in `app/services/image_enhance.py`. The score is stored in `meta_data.quality_score`.
+- **Score breakdown**: `overall` (0-100, weighted), `sharpness` (Laplacian variance, 0-100), `brightness` (mean histogram, 0-100), `contrast` (stddev, 0-100), `blur_detected` (bool), `too_dark` (bool), `too_bright` (bool), `issues` (list of actionable strings).
+- **Thresholds** (configurable in `app/core/config.py`):
+  - `MIN_IMAGE_QUALITY_SCORE = 60` — images below this overall score get `meta_data.quality_failed = True`.
+  - `MIN_IMAGE_SHARPNESS = 20` — blurry/broken images (sharpness below this) also get flagged.
+  - Set either to `0` to disable that gate.
+- **Soft flag**: Flagged images are still stored — `quality_failed` is informational so the UI can show a warning badge. No uploads are blocked.
+- **API access**: `GET /api/v1/media/enhance/assets/{asset_id}/quality` returns the score for any image. `MediaAssetResponse` now includes `meta_data` so quality scores and provider info are visible in list/detail responses.
+- **Dark-theme note**: The scoring uses mean brightness for `too_dark` detection (threshold < 50/255). Brand designs with intentional dark navy backgrounds (#0b1220) will trigger `too_dark=True` — this is expected and does not mean the image is bad. Use `sharpness` and `contrast` as the primary quality indicators for dark-themed content.
+
+## Music / audio track support
+
+- Posts can have an optional `music_asset_id` field (FK to `media_assets.id`, `ON DELETE SET NULL`).
+- Audio uploads are supported in the media library: `.mp3`, `.wav`, `.m4a`, `.aac`, `.ogg`, `.flac`.
+- The post editor has a **Music Track** card with a `MusicPickerDialog` for selecting one audio asset.
+- During publishing (`app/services/publishing.py`), if a music asset is attached and the post includes a video, ffmpeg mixes the audio into the video before dispatching to social platforms. The original video is not mutated — a temporary mixed file is produced and cleaned up after publishing.
+- The `MusicPickerDialog` component (`frontend/src/components/ui/MusicPickerDialog.tsx`) filters the media library by audio MIME type or audio file extension and returns a single `MediaAsset`.
+- Migration: `i5d6e7f8a9b0` (chained after merge migration `5d35f29495b9`).
+
+## LinkedIn carousel pipeline
+
+- **Cloudflare Workers AI only** for carousel generation (text + image). No DMR/ComfyUI fallback for this path.
+- The pipeline (`app/services/carousel_pipeline.py`) generates slide copy, runs NLP plain-English check/fix, spellchecks each slide's title/body/highlight via LanguageTool, generates background images via FLUX schnell, composes branded slides (dark navy + teal Cloudless brand), spellchecks the final caption, runs SEO scoring on the caption+hashtags, and combines all slides into a **single PDF** — one media library entry.
+- An AI-generated title is produced for each carousel and stored in `MediaAsset.ai_caption`. The target platform and account are stored in `MediaAsset.tags` (e.g. `['carousel', 'linkedin', 'slides:7', 'cloudless.gr']`).
+- The `/api/v1/ai/run-carousel-and-publish` endpoint supports `custom_slides`, `custom_caption`, and `custom_hashtags` in the request body to override AI-generated copy with curated content. When custom slides are provided, AI copy generation and NLP dedup are skipped.
+- The `/api/v1/media/view` endpoint serves PDFs and audio files directly (browsers render them natively). The frontend `ImageViewerDialog` renders PDFs in an `<iframe>` and audio in an `<audio>` player.
+- Media library cards show a file icon for PDFs (with AI title and platform tags) and a music icon for audio files.
+- Post as the **cloudless.gr Company Page** account (`9c4451bb-e820-489f-8676-76ddbc788ffe`), not a personal profile.
+- Automate via n8n workflow `cloudless-cf-carousel-linkedin` (schedule or webhook).
+
+## Quality pipeline (NLP + spellcheck + SEO)
+
+All content-generating endpoints enforce a three-step quality pipeline before returning results. The shared helper is `app/services/quality_pipeline.py` (`apply_quality_pipeline`).
+
+### Quality steps
+
+1. **Spellcheck** — `auto_correct` via LanguageTool (grammar + spelling corrections).
+2. **NLP** — `run_nlp_check_and_fix` to flag jargon/hard sentences and rewrite to plain English.
+3. **SEO** — `analyze_seo` to score content against platform best practices (length, hashtags, readability, keywords, links, plain English).
+4. **Auto-improve** — if the SEO overall score is below the target (default 90), the pipeline feeds recommendations back to the LLM, regenerates the content, and re-checks. Up to 2 iterations.
+5. **Gibberish guard** — `detect_gibberish` (in `app/services/spellcheck.py`) catches mangled tokens that survive correction: mixed-case mangles (`GGr`, `APIkey` — exempts `PDFs`/`APIs` plurals + allowlisted `OAuth`/`QLoRA`/`DBaaS`/`ONNX`) and LanguageTool `issueType: misspelling` residuals on unprotected ASCII tokens ≥8 chars. URLs, domains, `urn:li:` mentions, hashtags, @handles, and `LANGUAGETOOL_PROTECTED_WORDS` are masked first; LanguageTool-down degrades to pattern-only. Flagged tokens land on `QualityResult.gibberish_tokens` and force an improvement round naming them even when SEO already meets target.
+
+### Endpoint coverage
+
+| Endpoint | NLP | Spellcheck | SEO | Auto-improve |
+|----------|-----|------------|-----|--------------|
+| `POST /api/v1/ai/generate-content` | ✅ | ✅ | ✅ | ✅ (target 90) |
+| `POST /api/v1/ai/improve-content` | ✅ | ✅ | ✅ | ✅ (target 90) |
+| `POST /api/v1/ai/generate-carousel` | ✅ | ✅ | ✅ | — |
+| `POST /api/v1/ai/generate-carousel-pipeline` | ✅ | ✅ | ✅ | — |
+| `POST /api/v1/ai/run-carousel-and-publish` | ✅ | ✅ | ✅ | — |
+| `POST /api/v1/ai/analyze-content` | ✅ | ✅ | ✅ | — |
+| Publishing worker (`publish_to_platform`) | — | ✅ | — | — |
+
+### Response fields
+
+All content-generating endpoints now return additional quality metadata:
+- `seo_score` — the full SEO score breakdown (overall, readability, keywords, hashtags, links, plain_english, length, recommendations).
+- `nlp_report` — the NLP plain-English check report (issues found, fields rewritten).
+- `sofia_score` — 0-100 Sofia copy-spec score (hook ≤12 words + approved openers, AI-tell blacklist, zero em dashes, rhythm variation, real specifics, CTA/P.S. close) computed on the final text.
+- `quality` — full quality pipeline result (only present if auto-improvement ran).
+
+Live draft scoring is also exposed as `POST /api/v1/ai/nlp-check` (deterministic, no AI call — the composer NlpPanel debounce-checks against it) and generation prompts inject `SOFIA_POST_SPEC` from `app/services/plain_english.py` so generated copy follows the same spec the scorer measures.
+
+### Decorator
+
+`@with_quality(target_score=90)` can be applied to any endpoint that returns a Pydantic model with `content` and `hashtags` fields. It automatically extracts, quality-checks, and patches the response.
+
+### Publishing-time spellcheck
+
+In addition to generation-time quality checks, `publish_to_platform` in `app/services/publishing.py` spellchecks the final assembled post text (including platform-specific overrides, hashtags, and link URLs) via `auto_correct` before dispatching to social platforms. This is advisory — spellcheck failures never block publishing.
+
+After spellcheck, `detect_gibberish` runs on the same assembled text — this is the safety net for content that bypassed the generation pipeline (content briefs, n8n workflows). Flagged posts return a `skipped` `PublishResult` (deterministic text-quality problem — needs a content fix, not a retry). A detector error stays advisory and never blocks publishing.
+
+### DMR fallback for text quality steps
+
+All text-based quality pipeline steps (NLP check/fix, SEO auto-improve, carousel copy generation, AI title generation) use `allow_fallback=True`, so if Cloudflare Workers AI is unavailable or quota-exhausted, the inference chain falls back to **DMR** (Docker Model Runner, local). The automatic fallback chain is `dmr → cloudflare` only — other cloud providers (Groq, Gemini, Mistral, etc.) are manual-selection-only. This ensures the quality pipeline never silently skips NLP/SEO improvement when CF is down.
+
+**What falls back to DMR:**
+- `apply_quality_pipeline` NLP check/fix and auto-improve iterations.
+- `run_cloudless_carousel_pipeline` slide copy generation, NLP check/fix, and AI title generation.
+- `generate-carousel-pipeline` endpoint NLP check/fix.
+- `generate-content` and `improve-content` via `apply_quality_pipeline`.
+
+**What does NOT fall back (stays Cloudflare-only):**
+- Carousel **image** generation (`_call_cf_image_pipeline`, `_cf_generate_background`) — images must use Cloudflare Workers AI (FLUX schnell / SD img2img) per the product default. Image generation has no DMR fallback.
+- `generate-carousel-pipeline` image pipeline calls (`allow_fallback=False` for image requests).
+
+**DMR model**: `ai/qwen3:8b-q4_K_M` (Q4_K_M quantization, ~5GB VRAM when loaded). DMR auto-loads the model on first request and auto-unloads after idle — no manual VRAM preload needed. Verify with `docker model status` and `curl -sf http://localhost:12435/engines/v1/models`.
+
+**Container tuning notes:**
+- DMR and the `local-diffusers` container share the 8GB RTX 3070 Laptop GPU. DMR uses ~5GB VRAM (model weights + KV cache) when a model is loaded; local-diffusers uses ~2GB when generating. DMR auto-unloads when idle so they rarely conflict.
+- DMR is a host-level Docker engine (not a Compose container) — no `docker compose restart` needed. Context size and runtime flags are set via `docker model configure`.
+- LanguageTool (`languagetool` container, port 8010) handles spellcheck — `Java_Xmx=256m` heap limit. No GPU needed.
+
+### Container data-flow matrix
+
+Verified connectivity from `social-api` to all dependent services:
+
+| Service | Container | Port | Path | Status |
+|---------|-----------|------|------|--------|
+| LanguageTool (spellcheck) | `languagetool` | 8010 | `/v2/check` | OK (200) |
+| Chroma (dedup/vector) | `chroma` | 8000 | `/api/v2/` | OK (v2 API; v1 deprecated) |
+| Redis (celery/cache) | `redis` | 6379 | TCP | OK |
+| Postgres (primary DB) | `social-postgres` | 5432 | TCP | OK |
+| MinIO (storage) | `minio` | 9000 | `/minio/health/live` | OK (200) |
+| n8n (workflows) | `n8n` | 5678 | `/healthz` | OK (200) |
+| DMR (primary local inference) | `docker-model-runner` (host engine, not Compose) | 12435 | `/engines/v1/models` | OK (200, model auto-loads on request) |
+| Instagram Private API | `instagram-private-api` | 8000 | `/` | OK (307 redirect to /docs) |
+| LinkedIn Browser Sidecar | `linkedin-browser-sidecar` | 9225 | `/health` | OK (200) |
+| Facebook Browser Sidecar | `facebook-browser-sidecar` | 9226 | `/health` | OK (200) |
+| TikTok Browser Sidecar | `tiktok-browser-sidecar` | 9224 | `/health` | OK (200) |
+| Browser Bridge (noVNC) | `browser-novnc` | 9223 | `/` | OK (404 on root, server up) |
+| WARP Proxy | `warp-proxy` | 1080 | TCP (SOCKS5) | OK |
+| Cloudflared tunnel | `social-cloudflared` | — | Outbound tunnel `social-cloudless` — serves `social.cloudless.gr` ONLY (omv hostnames moved to the dedicated `omv-cloudless` tunnel on omv, 2026-10-05) | OK (container healthy) |
+
+### Known infrastructure issues
+
+- **Cloudflare tokens**: `CLOUDFLARE_API_TOKEN` is healthy — `/api/v1/cf-db/health` reports `d1`, `kv`, `vectorize` all `true`, router in `dual` mode (D1 primary, circuit closed). D1/KV/Vectorize clients try tokens in order: `CLOUDFLARE_API_TOKEN` → `CLOUDFLARE_AI_API_TOKEN` → `CLOUDFLARE_EMAIL_API_TOKEN` (the AI token lacks D1/KV/Vectorize scopes). If a token ever goes stale, required scopes: D1 Edit, Workers KV Edit, Vectorize Edit (Workers AI Edit only if sharing the AI token). After rotating, update `.env`, restart `social-api` + workers, verify via `/api/v1/cf-db/health` (`tokens_available`, `*_configured` diagnostics included).
+- **linkedin-mcp-server healthcheck**: Fixed — was using `curl` (not available in the container image). Now uses Python `socket` TCP check on port 9227. Container reports healthy.
+- **social-worker-default CPU**: Normal — runs `sync_all_analytics` Celery beat tasks which are CPU-intensive during analytics sync. Concurrency=2, max-tasks-per-child=200.
+- **Chroma API v1 deprecated**: Chroma client uses v2 API (`/api/v2/tenants/default_tenant/databases/default_database`). The v1 endpoint returns 410 Gone — this is expected and not a problem.
+- **Cloudflared tunnel EOF during restarts**: Expected — when `social-api` restarts, cloudflared logs `Unable to reach the origin service: EOF`. It auto-reconnects within seconds (4 connections to Sofia edge). No action needed.
+- **Tunnel replicas share one ingress**: remote-managed Cloudflare tunnels apply the same ingress config to EVERY connected replica — a second cloudflared on the same tunnel that can't resolve an origin name serves cloudflared 502s for its share of traffic (omv `cloudflared-ha` broke `/api` this way on 2026-10-05). Tunnels are now split per node: `social-cloudless` (WSL → social.* only) and `omv-cloudless` (omv → cloud/office/signal/push). Diagnose replica count via `GET /accounts/$CLOUDFLARE_ACCOUNT_ID/cfd_tunnel/<id>/connections` — each entry is one cloudflared instance (arch + conn count).
+
+### Instagram-specific rules
+
+- Instagram captions do **not** include `link_url` (removed from `_LINK_IN_BODY` in `content_renderer.py`). Instagram has no clickable caption links, and the SEO scorer penalizes links in IG captions.
+- `_resolve_ig_user_token` in `publishing.py` resolves the correct Facebook **user** token (not Page token) for Instagram Graph API publishing. It uses `getattr()` for `parent_account_id`/`team_id` (test-safe), uses `.limit(1).first()` for the fallback query (avoids `MultipleResultsFound`), and logs all failure paths.
+- **Instagram publishing priority** (first success wins, in `app/services/publishing.py` → `_publish_instagram`):
+  1. **instagrapi** (`app/services/instagrapi_client.py`) — direct Python private mobile API. Requires `INSTAGRAM_USERNAME` and `INSTAGRAM_PASSWORD` env vars. Works for any account type (personal, creator, business) without Meta App Review. Session is cached as JSON on the uploads volume (`/app/uploads/.instagrapi/{username}.json`) with a 6-day TTL. Supports single photos, videos, and carousels up to 10. All blocking calls are dispatched via `asyncio.to_thread`.
+  2. **Web API** (`rupload_igphoto`) — uses browser `sessionid` cookie directly against `www.instagram.com`. Requires `private_api_session_id`, `private_api_csrf_token`, `private_api_ds_user_id` in `SocialAccount.meta_data`. Supports single photos and carousels. Sessions are short-lived and may be invalidated after API use.
+  3. **Sidecar** (`aiograpi-rest` private mobile API) — fallback for video uploads or when the above paths are unavailable. Uses the `instagram-private-api` Docker sidecar at `http://instagram-private-api:8000`.
+  4. **Graph API** — last resort. Requires Meta App Review for `instagram_content_publish` permission.
+- **Profile endpoints** for web session management:
+  - `POST /api/v1/profile/instagram/web-session` — stores `sessionid`, `csrftoken`, `ds_user_id` in `SocialAccount.meta_data`.
+  - `GET /api/v1/profile/instagram/web-session` — validates the session against Instagram's web API.
+
+### Known lower-priority stubs (not blocking)
+
+- `_estimate_cost` in `inference.py` returns `0.0` (Phase 4.2 cost reporting — not wired up).
+- NVIDIA FLUX Kontext `example_id=0` placeholder (NVIDIA-specific enhancement path, not used by Cloudflare carousel).
+- Competitor snapshot in `brand_monitoring.py` stores zeroed metrics (competitor monitoring feature not wired up yet).
+
+## Alembic migration chain
+
+The migration chain is linear. Always set `down_revision` to the current head before creating a new migration. Run `grep -h "^revision\|^down_revision" alembic/versions/*.py` to verify there is only one head.
+
+Current chain (oldest → newest, 39 revisions):
+1. `d90da9214372` — initial migration
+2. `d897700d7a90` — scheduled posts partial index
+3. `a1b2c3d4e5f6` — AI providers table
+4. `e1f2a3b4c5d6` — default timezone Europe/Athens
+5. `f2a3b4c5d6e7` — post analytics snapshots
+6. `g3b4c5d6e7f8` — nullable snapshot post_id
+7. `d9a5a234d4d7` — AI usage logs
+8. `9c222774bd04` — media collections and R2 storage
+9. `21e4c2d4daf5` — MinIO storage backend enum
+10. `b2c3d4e5f6a7` — platform event index
+11. `h4c5d6e7f8a9` — brand tables
+12. `c5d6e7f8a9b0` — cancelled queue_status enum
+13. `d6e7f8a9b1c2` — 2FA + notification preferences on users
+14. `e7f8a9b1c2d3` — account type column
+15. `5d35f29495b9` — merge brand + account-type heads
+16. `i5d6e7f8a9b0` — music_asset_id on posts
+17. `j5d6e7f8a9b1` — social_secrets (Cloudflare SSM w/ local failover)
+18. `k6e7f8a9b2c3` — follower_snapshots
+19. `l7f8a9b3c4d5` — provider routing policy + circuit breaker + usage cost
+20. `m8a9b4c5d6e7` — approval workflow, PostComment, Pillar, ContentBrief
+21. `n9b5c6d7e8f9` — content_prompt_templates
+22. `o7c8d9e0f1a2` — audit_logs
+23. `p8d9e0f1a2b3` — brand_mentions + competitor_snapshots
+24. `q9e1f2a3b4c5` — recurring post fields
+25. `r0a1b2c3d4e5` — onboarding_completed on users
+26. `s1b3c4d5e6f7` — plan_tier on teams
+27. `t2c4d5e6f7a8` — email_logs (transactional email audit)
+28. `l6f7a8b9c0d1` — leads (Meta lead capture)
+29. `u3e6f7a8b9c0` — digital cards
+30. `v4g5h6i7j8k9` — web analytics config + events
+31. `w6h7i8j9k0l1` — paddle billing fields + billing_events
+32. `x7i8j9k0l1m2` — polar billing columns
+33. `y8j9k0l1m2n3` — dodo billing columns
+34. `z9k0l1m2n3o4` — polar_discount_code
+35. `w1a2b3c4d5e6` — whatsapp_messages
+36. `a6b7c8d9e0f1` — ad_campaign_snapshots
+37. `b7c8d9e0f1a2` — ad_daily_metrics + ad_demographic_segments
+38. `c8d9e0f1a2b3` — publish_queue dedupe + partial unique index
+39. `f6e5d4c3b2a1` — 'website' leadsource enum
+40. `f7a8b9c0d1e2` — merge five heads incl. engagement meta_data (current head)
+
+## CodeQL alert history
+
+- **#7043** (High) — Polynomial regex in `plain_english.py:137`: fixed by replacing `\s` with `[ \t]` in `_REWRITTEN_MARKERS` and `_ORIGINAL_MARKERS` to eliminate overlapping whitespace quantifiers.
+- **#7052** (Medium) — Log injection in `linkedin_api.py:141`: fixed by applying `_sanitize_log_text()` to the `url` parameter before logging in `_log_api_error` and `_raise_for_status`.
+- When fixing CodeQL alerts, always sanitize any user-controlled or external data passed to `logger` calls (URLs, response text, error messages).
+- Do not claim CodeQL alerts are closed until GitHub scan results confirm closure.
+
+## Documentation & diagrams
+
+- **Always update the architecture documentation** whenever infrastructure, integrations, or system design changes — this is a standing requirement, not optional. Update `docs/application-architecture.md` (the canonical doc) plus any affected `AGENTS.md` / `README` notes in the same commit as the change.
+- If the scope, architecture, or behavior changes, update `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` (and its Devin copy at `~/.devin/plans/plan-e6a92ed66b9dca4a.md`) and any affected `AGENTS.md` / `README` notes.
+- Keep the Mermaid diagrams in the roadmap in sync with the actual flows (inference fallback, media lifecycle, publishing, etc.).
+- Every new feature or user-facing workflow must have a step-by-step guide in `docs/superpowers/guides/`. Add a link in the guides `README.md` and, if relevant, in the frontend empty-state or help text.
+
+## Current guides
+
+1. [Getting started](01-getting-started.md)
+2. [Connecting social accounts](02-connecting-accounts.md)
+3. [Media library](03-media-library.md)
+4. [Creating a post](04-creating-a-post.md)
+5. [LinkedIn carousel](05-linkedin-carousel.md)
+6. [Analytics and queue](06-analytics-and-queue.md)
+7. [Cloudflare database failover](07-cf-database-failover.md)
+8. [Brand identity setup](08-brand-identity-setup.md)
+9. [AI media enhancement](09-ai-media-enhancement.md)
+10. [TikTok content posting](10-tiktok-content-posting.md)
+11. [Meta lead capture](11-meta-lead-capture.md)
+12. [Telegram bot](12-telegram-bot.md) — BotFather token, HTTPS webhook, send, AI auto-reply, channel agent, DM lead funnel
+17. [X free web fallback](17-x-web-fallback.md) — `X_WEB_*` cookie-auth tweety/twscrape fallback for X API 402 credits-depleted (off by default)
+21. [Sales-funnel audit](docs/superpowers/guides/21-funnel-audit.md) — live stage counts, weakest-transition detection, auction warning (fix conversion before buying traffic)
+22. [Lead-gen readiness audit](docs/superpowers/guides/22-leadgen-audit.md) — capture surfaces, DM lead lanes, UTM discipline, 30d lead volume (Meta lead-gen model)
+
+## Current plans
+
+- `docs/superpowers/plans/plan-e6a92ed66b9dca4a.md` — original platform roadmap.
+- `docs/superpowers/plans/ai-branding-expansion-plan.md` — 6-phase AI branding roadmap (Phase 1 complete, Phases 2-6 planned).
+- `docs/superpowers/plans/media-ai-enhancement-plan.md` — media AI enhancement plan (implemented).
+
+## Celery worker architecture
+
+Tasks are routed to dedicated queues via `task_routes` in `app/worker/celery_app.py` so time-sensitive publishing is never blocked by CPU-heavy media/AI work:
+
+| Queue | Worker container | Concurrency | Max tasks/child | Tasks |
+|-------|-----------------|-------------|-----------------|-------|
+| `publishing` | `social-worker-publishing` | 3 | 200 | `process_publish_queue`, `check_scheduled_posts`, `publish_post_now`, `refresh_expiring_tokens` |
+| `media` | `social-worker-media` | 2 | 50 | `batch_enhance_task`, `auto_tag_asset_task` |
+| `default` + `celery` | `social-worker-default` | 2 | 200 | `sync_all_analytics`, `sync_team_analytics_task`, `execute_workflow`, `deploy_workflow`, `send_daily_slack_digest`, `run_notebook_report` (papermill executes `/notebooks/reports/*.ipynb` — worker mounts `./notebooks`, needs papermill/ipykernel/pandas/matplotlib from `social-worker-latest`), `export_datalake`, `linkedin_ads_*`, unrouted tasks |
+| `messenger` | `social-worker-messenger` | 2 | 50 | `poll_personal_messenger` (DMR inference + RAG + intent + cooldown) |
+
+- `celery-beat` is a single scheduler instance that dispatches periodic tasks into the routed queues. Never scale beat to multiple instances.
+- Total: 9 concurrent prefork processes across 4 containers (was 4 in a single container before).
+- Publishing gets 3 slots (I/O-bound, ~120MB/process) so "publish now" is never blocked by a long `process_publish_queue` run.
+- Media gets 2 slots with `max-tasks-per-child=50` to recycle Pillow/AI memory frequently on this memory-constrained Docker Desktop allocation (~16 GiB visible to WSL/Docker; Windows host is ~32 GiB).
+- Default gets 2 slots with `max-tasks-per-child=200` (light I/O tasks, recycle infrequently).
+- Messenger gets 2 slots with `max-tasks-per-child=50` — AI inference (CF Workers AI + DMR Qwen3 8B fallback) + ChromaDB RAG + intent detection + brand voice injection is RAM-heavy, so processes recycle often. One slot for the 120s poller, one for ad-hoc bot tasks (brand indexing, thread pause/resume).
+- `task_acks_late=True` + `task_reject_on_worker_lost=True`: tasks are acked after completion — a worker crash triggers redelivery instead of silent loss.
+- `result_expires=3600`: Redis result backend auto-cleans after 1 hour.
+- Per-task time limits via `task_annotations` in `celery_app.py`:
+  - Publishing: 10–15 min (fail fast on hung API calls)
+  - Media: 5–40 min (CPU-heavy Pillow/AI work)
+  - Analytics: 10–20 min
+  - Workflows: 2–7 min (n8n API calls)
+  - Digest: 5–10 min
+- Worker env/volumes/depends_on are shared via YAML anchors (`x-worker-env`, `x-worker-volumes`, `x-worker-depends`) in `docker-compose.yml`.
+- The `social-worker-default` container consumes both `default` and `celery` queues — the `celery` queue catches any task that wasn't explicitly routed.
+- Health checks use worker-specific hostnames: `publishing@%h`, `media@%h`, `default@%h`, `messenger@%h`.
+- Verify: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping` — should show 4 nodes online.
+- Verify queue routing: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect active_queues`.
+- Verify per-worker concurrency: `docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect stats | grep max-concurrency`.
+
+## GPU & VRAM optimization
+
+The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows host ~32 GiB; Docker Desktop/WSL currently sees ~16 GiB. DMR (Docker Model Runner), ComfyUI, and `local-diffusers` share the GPU. See [`docs/CODEMAP.md` § Workstation](docs/CODEMAP.md#workstation-office--wsl). The configuration maximizes VRAM usage and minimizes container RAM.
+
+### Docker Model Runner (DMR, host engine — not a Compose container)
+
+- **Model**: `ai/qwen3:8b-q4_K_M` — Q4_K_M quantization, ~5GB VRAM when loaded. All layers on GPU via llama.cpp engine.
+- **Context size**: configurable via `docker model configure --context-size N` (default 4096). Social copy rarely exceeds 500 tokens.
+- **Auto-load/unload**: DMR loads the model on first request and unloads after idle — no manual VRAM preload or `KEEP_ALIVE` needed (unlike the old Ollama setup).
+- **Default model** in `app/core/config.py` is `ai/qwen3:8b-q4_K_M` (`DMR_TEXT_MODEL`).
+- Verify with `docker model status` and `curl -sf http://localhost:12435/engines/v1/models`.
+- After context/flag changes: `docker model configure --context-size N ai/qwen3:8b-q4_K_M` — the model reloads on the next request.
+- Other DMR models: `hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M` (`DMR_MID_MODEL`/`DMR_CHATBOT_MODEL` — short-form platforms + chatbots, non-thinking, pinned keep-alive 30m), `ai/qwen3-vl` (vision), `hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF` (embeddings — 1024 dims, ~0.7GB; replaced the 8B `ai/qwen3-embedding` which was the largest storm contributor), `ai/smollm3` (`DMR_TINY_MODEL`, `--reasoning-budget 0`). `ai/smollm2` remains pulled as rollback.
+- **`docker model configure` REPLACES the whole per-model config** — pass all flags in one call (`docker model configure --context-size 8192 --keep-alive 30m ai/qwen3:8b-q4_K_M`), verify with `configure show`. Current live config: qwen3:8b ctx=6144 keep-alive=5m; 4b-instruct ctx=4096 keep-alive=30m; smollm3 ctx=4096 keep-alive=5m `--reasoning-budget 0`. hf.co GGUFs NEED explicit `--context-size` (native ctx 262k → 36GB KV OOM).
+- **No `docker` CLI inside containers** — `apply_best_practice_configs()`/`configure_speculative_decoding()` in `dmr.py` no-op in-container; apply runtime config from the host.
+- **Speculative decoding broken on llama.cpp b9879**: attaching `hf.co/Qwen/Qwen3-0.6B-GGUF` as draft for qwen3:8b crashes the runner (`vector::_M_range_check` on draft load) and takes the model offline. Draft is pulled but not attached.
+- **DMR Diffusers limitation**: The Diffusers engine (for SDXL image generation) requires native Linux x86_64 with NVIDIA CUDA. It is **not available on Docker Desktop/WSL2** — `docker model status` shows `diffusers: Not Installed`. The `ai/stable-diffusion` model (6.94 GB DDUF) cannot run there and was removed from the model store. For local GPU image generation on WSL2, use the `local-diffusers` container (SD 1.5) instead.
+
+### ComfyUI (`social-media-comfyui-gpu` container)
+
+- Flags are **profile-driven**: the entrypoint loads `profiles/${COMFYUI_PROFILE:-sdxl}.txt` and appends `CLI_ARGS`; `BASE_ARGS` only carries listen/port/preview. `--lowvram` lives in the `sdxl` and `flux` profiles (shared 8GB card) — the `quality` profile deliberately omits it, so do NOT add it to `BASE_ARGS` (appended args can't be removed).
+- The entrypoint also creates a `libcuda.so` → `libcuda.so.1.1` symlink under `/usr/lib/wsl/drivers/nvltsi.inf_amd64_*/` — WSL ships only the versioned lib and triton JIT compilation fails without the unversioned name.
+- `--gpu-only`/`--highvram` remain mutually exclusive; low-VRAM mode is the correct default on the shared card (GPU arbitration via `gpu_arbiter.py`).
+
+### Java heap limits (RAM savings)
+
+- **LanguageTool**: `Java_Xms=128m`, `Java_Xmx=256m` (was 512m). Saves ~180MB RAM.
+- **Metabase**: `JAVA_TOOL_OPTIONS=-Xms128m -Xmx384m` (was default ~1GB). Saves ~600MB RAM. Note: 256m causes OOM; 384m is the minimum for Metabase's Liquibase + Quartz scheduler.
+
+### VRAM budget (8GB RTX 3070 Laptop)
+
+| Component | VRAM | Notes |
+|-----------|------|-------|
+| CUDA/display driver | ~0.5GB | System overhead |
+| DMR model weights | ~5.0GB | qwen3:8b Q4_K_M, auto-loaded on request, auto-unloaded when idle |
+| ComfyUI (idle) | ~0.5GB | PyTorch + CUDA context |
+| Local Diffusers (SD 1.5) | ~2.0GB | Allocated when generating; unloaded when idle |
+| **Free when DMR loaded** | **~0.5GB** | Tight — DMR auto-unloads when idle so local-diffusers can generate |
+
+- **DMR SDXL**: The `ai/stable-diffusion` model (6.94 GB DDUF) is not pulled — it cannot load into VRAM on WSL2 (Diffusers engine not available). It would require ~6GB VRAM if it could run.
+- **Local Diffusers (SD 1.5)**: Uses ~2.0GB VRAM when active, ~3.4GB reserved. Unloads when idle so DMR/ComfyUI can use the VRAM.
+- **DMR + local-diffusers coexistence**: DMR auto-unloads its model after idle, so the two rarely hold VRAM simultaneously. When both are active (~7GB total), it fits in 8GB but leaves little headroom.
+
+## ZCode MCP registration
+
+- Workspace-scoped ZCode MCP config: `.zcode/config.json` (machine-specific absolute paths — kept out of git via `.git/info/exclude`). Registers 7 servers, ~86 tools, boot-verified 2026-10-11: `dmr` (26), `metabase` (19), `n8n` (13), `tiktok-console` (9), `cloudflare` (8), `platform` (8), `polar` (3).
+- Excluded: `telegram` — the Telethon client is **unauthorized** (`telegram_session.session` file session not logged in; all `TELEGRAM_SESSION_STRING*` vars commented out in `~/tools/telegram-mcp/.env`). Fix needs one interactive login by the user: `cd ~/tools/telegram-mcp && uv run session_string_generator.py` (phone code), then set `TELEGRAM_SESSION_STRING` in that `.env` — after that add it to `.zcode/config.json`. Also excluded: `playwright` (docker-heavy, redundant), `socialauto` + mcp-remote servers (auth-dependent), `linkedin`/`airbyte`/`nextcloud` (empty command entries).
+- `metabase` container drift fixed 2026-10-11: the container had been *removed* (not stack-ops-stopped), so wake-on-connect had nothing to start — recreated via `docker compose up -d metabase`, verified the MCP path end-to-end (dashboards list 200), then stopped back to the asleep posture.
+
+## Billing preferences
+
+- **The user uses Dodo, not Stripe.** For merchant-of-record / payment work, prefer Dodo. Polar is configured as `BILLING_PROVIDER=polar` but the user's payment platform of choice is Dodo. Do not direct the user to Stripe-branded flows expecting them to have a Stripe account — note that Polar internally uses Stripe Identity/Stripe Express for its KYC and payout onboarding even when the merchant doesn't otherwise use Stripe.
+- **Email**: The user's email client/server runs on their OMV-HA box (home server, Raspberry Pi — see below). Dedicated mailboxes (e.g. for the Polar SocialAuto app) must be created there — do NOT set up forwarding to Gmail. Inbound mail for cloudless.gr is handled by Cloudflare Email Routing (route*.mx.cloudflare.net); mailbox creds live in `/etc/dovecot/users` (virtual users `tbaltzakis@` / `espocrm@` / `polar@` / `omv-relay@`).
+- **OMV-HA SSH access**: `ssh tbaltzakis@192.168.1.130` — password stored in `.env` as `OMV_SSH_PASSWORD` (never commit it). Despite the name it is a Raspberry Pi running Debian 13 (no openmediavault packages): dovecot (IMAP 993, virtual mailboxes under `/var/mail/vhosts/cloudless.gr/`), postfix (submission 587, relays via Resend, cert from Let's Encrypt via acme.sh DNS-01 — auto-renews, see `/root/.acme.sh/`), roundcube webmail, valkey, cloudflared, keepalived BACKUP node (VIP 192.168.1.200). Reachable directly on LAN from this WSL2 host.
+- **omv master (192.168.1.128, hostname `omv`)**: keepalived MASTER holding the VIP; runs the Nextcloud docker stack (`cloud.cloudless.gr` — nextcloud, nextcloud-cron, notify-push, talk-hpb, talk-recording) + k3s. SSH only via the deploy key on the Pi: `ssh -i ~/.ssh/omv_ha tbaltzakis@192.168.1.128` (no password auth). occ: `sudo docker exec -u www-data nextcloud php occ …`. Nextcloud Mail account `tbaltzakis@cloudless.gr` → IMAP/SMTP at `mail.cloudless.gr` (container hosts-entry → the Pi); `app.mail.verify-tls-peer=true` (valid LE cert, do NOT set it back to false). Talk TURN is advertised at `192.168.1.200:3478` (LAN-only; external guests need a port-forward or hosted TURN). The omv compose/config fixes are codified in the `Themis128/cloudless.gr` repo under `infrastructure/omv/`.
+- **Public DNS quirk**: `mail.cloudless.gr` resolves publicly to a dead IP (150.228.61.158) — direct external IMAP/SMTP by hostname does NOT work; LAN + Nextcloud (hosts entry) only. MX is Cloudflare Email Routing and does not use this record.
+
+## Proactivity principle — platform-side rejections
+
+- **Always be proactive about platform-side rejections** (LinkedIn content moderation, Meta/Threads rate limits, API rejections). They cannot be pre-verified — treat them as expected, not exceptional.
+- **Before publish**: verify what IS knowable — token expiry + publish scopes, media public-URL reachability, per-account dedup, correct-media gate. This is the only class of failure you can prevent.
+- **After publish**: a failure is not done when it retries — it is done when it is *classified* and *surfaced*. The path exists (retry ×3 → failed → failure-learning signature → Slack digest + remediation proposals at ≥3x/7d). Never leave a failed post silent: confirm the signature landed and, for recurring signatures, write the remediation note before being asked.
+- **The healer contract**: auto-heal mechanical stalls (queue orphans, wedged publishes, stale locks, daemon death); alert-not-autofix on judgment calls (media choice, content edits, platform policy decisions).
