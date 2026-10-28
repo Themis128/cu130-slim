@@ -9,3 +9,5 @@ wheel>=0.46.2
 msgpack>=1.2.1
 jaraco.context>=6.1.0
 cryptography>=43.0.0
+# CVE-2026-49272 — device_code grant skipped validation (fixed in 4.0.0)
+oauthlib>=4.0.0
