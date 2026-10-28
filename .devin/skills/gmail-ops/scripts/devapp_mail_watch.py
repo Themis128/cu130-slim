@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""devapp_mail_watch — watch Gmail for developer-platform review mail.
+
+Targets the LinkedIn CM-API Standard Tier review (Microsoft Vetting
+Services, LinkedIn developer notifications, Qualtrics confirmations).
+Dedups via a state file; sends new hits to the Automation HQ Telegram
+channel by exec'ing the send inside social-api (bot token stays in the
+container's encrypted store).
+
+Cron (host):  5 9 * * *  python3 <repo>/.devin/skills/gmail-ops/scripts/devapp_mail_watch.py
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+GMAIL = os.path.join(HERE, "gmail.py")
+STATE = os.path.join(HERE, "..", "state", "devapp_seen.json")
+QUERY = ('from:(linkedin.com OR microsoft.com OR qualtrics.com) '
+         '(vetting OR "access request" OR "Community Management" OR '
+         '"developer app" OR "approved" OR "review") newer_than:3d')
+CHAT = "-1004436942504"
+
+SEND_PY = """
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
+from app.models import SocialAccount
+from app.core.config import get_settings
+from app.core.security import decrypt_token
+from app.services.telegram_api import TelegramAPIClient
+async def go():
+    eng = create_async_engine(get_settings().DATABASE_URL)
+    S = sessionmaker(eng, class_=AsyncSession)
+    async with S() as db:
+        acc = (await db.execute(select(SocialAccount).where(
+            SocialAccount.platform=='telegram',
+            SocialAccount.status=='active').limit(1))).scalar_one()
+        enc = acc.meta_data.get('bot_token_enc')
+        tok = decrypt_token(enc.encode() if isinstance(enc,str) else enc) \
+            if enc else decrypt_token(acc.access_token_enc)
+        await TelegramAPIClient(tok).send_message(%r, %r)
+asyncio.run(go())
+"""
+
+
+def search():
+    r = subprocess.run(["python3", GMAIL, "search", QUERY],
+                       capture_output=True, text=True, timeout=60)
+    if r.returncode != 0:
+        print("search failed:", r.stderr[:200], file=sys.stderr)
+        return []
+    out = []
+    for line in r.stdout.splitlines():
+        p = [x.strip() for x in line.split("|", 2)]
+        if len(p) == 3 and p[2]:
+            out.append({"date": p[0], "from": p[1], "subject": p[2]})
+    return out
+
+
+def main():
+    hits = search()
+    if not hits:
+        print("no hits")
+        return 0
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    seen = set(json.load(open(STATE))) if os.path.exists(STATE) else set()
+    new = [h for h in hits
+           if (h["subject"] + "|" + h["date"]) not in seen]
+    if not new:
+        print("no new hits")
+        return 0
+    lines = "\\n".join(
+        f"• {re.sub('[^ -~]', '', h['subject'])[:70]} — {h['from'][:40]}"
+        for h in new[:6])
+    msg = "🔎 Dev-app review mail arrived:\\n" + lines
+    script = SEND_PY % (CHAT, msg)
+    r = subprocess.run(
+        ["docker", "exec", "-i", "social-api", "python", "-"],
+        input=script, capture_output=True, text=True, timeout=60)
+    print("telegram:", "sent" if r.returncode == 0 else r.stderr[:200])
+    seen.update(h["subject"] + "|" + h["date"] for h in new)
+    json.dump(sorted(seen), open(STATE, "w"))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
