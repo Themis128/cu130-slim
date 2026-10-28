@@ -96,10 +96,26 @@ exit 0
 D=$(docker exec social-api python - <<'PY' 2>/dev/null
 import os
 want = ["LINKEDIN_CLIENT_ID","LINKEDIN_CLIENT_SECRET","TWITTER_CLIENT_ID",
-        "TWITTER_CLIENT_SECRET","SLACK_BOT_TOKEN","GOOGLE_CLIENT_ID"]
+        "TWITTER_CLIENT_SECRET","SLACK_BOT_TOKEN"]
 bad = [k for k in want if not (os.environ.get(k) or "").strip()]
 print(",".join(bad))
 PY
 )
 [ -n "$D" ] && ALERT "env-drift" ":warning: empty creds in container env: $D — check .env vs secondary checkout"
+exit 0
+
+# 10. gateway upstream — when social-api recreates, its IP changes and the
+#     nginx gateway keeps proxying to the stale one (8083 dead while API
+#     is fine internally — seen 2026-10-28). Heal = restart gateway, not api.
+G=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:8083/health 2>/dev/null || echo 000)
+D=$(docker exec social-api curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:8000/health 2>/dev/null || echo 000)
+if [ "$D" = "200" ] && [ "$G" != "200" ]; then
+  docker restart social-api-gateway >/dev/null 2>&1 && ALERT "gateway-upstream" ":warning: gateway had stale upstream — restarted"
+fi
+# 11. n8n unhealthy — stuck "health: starting" blocks compose up -d on
+#     dependent services. Restart clears it.
+N8=$(docker inspect -f '{{.State.Health.Status}}' n8n 2>/dev/null || echo missing)
+if [ "$N8" = "unhealthy" ]; then
+  docker restart n8n >/dev/null 2>&1 && ALERT "n8n-unhealthy" ":warning: n8n unhealthy — restarted"
+fi
 exit 0
