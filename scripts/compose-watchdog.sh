@@ -165,3 +165,10 @@ if [ "$S" != "True" ]; then
   python3 /home/tbaltzakis/cu130-slim/.devin/skills/slack-ops/scripts/slack_token_sync.py >/dev/null 2>&1 && ALERT "slack-token" ":warning: Slack token expired — rotated via slack_token_sync"
 fi
 exit 0
+
+# 8. social_accounts expired — can't auto-heal (human OAuth gate) but
+#    alert immediately instead of waiting for the digest to catch it
+E=$(docker exec social-postgres psql -U social_user -d social_automation -tAc \
+    "select string_agg(platform,',') from social_accounts where status='expired'" 2>/dev/null | tr -d ' ')
+[ -n "$E" ] && ALERT "expired-accounts" ":warning: accounts expired: $E — needs OAuth re-auth"
+exit 0
