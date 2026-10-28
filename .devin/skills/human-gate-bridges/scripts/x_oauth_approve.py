@@ -9,6 +9,17 @@ import json, sys, time, time, urllib.request
 
 BRIDGE = "http://browser-novnc:9223"
 
+
+
+def pin() -> None:
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(
+                "http://stack-ops:8787/keepawake/browser-novnc?ttl=600",
+                method="POST", data=b""), timeout=8)
+    except Exception:
+        pass
+
 def ev(expr: str, tries: int = 8) -> dict:
     # 409 = another platform session holds the shared bridge — back off.
     last = None
@@ -31,6 +42,7 @@ def ev(expr: str, tries: int = 8) -> dict:
     return {"error": f"bridge busy after {tries} tries: {last}"}
 
 def main() -> int:
+    pin()
     if len(sys.argv) < 2:
         print(__doc__); return 1
     url = sys.argv[1]

@@ -6,6 +6,17 @@ import json, sys, urllib.request
 
 BRIDGE = "http://browser-novnc:9223"
 
+
+
+def pin() -> None:
+    try:
+        urllib.request.urlopen(
+            urllib.request.Request(
+                "http://stack-ops:8787/keepawake/browser-novnc?ttl=600",
+                method="POST", data=b""), timeout=8)
+    except Exception:
+        pass
+
 def ev(expr: str, tries: int = 8) -> dict:
     # 409 = another platform session holds the shared bridge — back off.
     last = None
@@ -28,6 +39,7 @@ def ev(expr: str, tries: int = 8) -> dict:
     return {"error": f"bridge busy after {tries} tries: {last}"}
 
 def main() -> int:
+    pin()
     # navigate to the data-privacy export page
     ev("location.href='https://www.linkedin.com/mypreferences/d/categories/data-privacy'")
     import time; time.sleep(5)
