@@ -73,8 +73,17 @@ def main() -> int:
         proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
         kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
       })})()""")
+    data = json.loads(out)
+    # a cached session may show a DIFFERENT complaint's status — the
+    # form never ran, so the displayed ΚΠΑ must match the requested one
+    if data.get("kpa") and data["kpa"] != KPA:
+        print(out)
+        print(f"WRONG-COMPLAINT — page shows ΚΠΑ {data['kpa']}, requested {KPA} "
+              "(cached session; reset required)")
+        _release()
+        return 1
     # empty status = challenge/transition state, not a successful poll
-    if not json.loads(out).get("status"):
+    if not data.get("status"):
         print(out)
         print("INCOMPLETE — status empty (challenge or transition); retry later")
         _release()

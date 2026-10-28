@@ -16,7 +16,8 @@ description: >
 - Identify needs **email + ΚΠΑ** (tracking code) — supplied via
   `SYNIGOROS_MAIL` + `SYNIGOROS_KPA` env vars (or `--mail`/`--kpa` flags);
   no identifying values are committed to the repo.
-- The protocol # shown at submission IS the ΚΠΑ.
+- ΚΠΑ (tracking code) and Αριθμός Πρωτοκόλλου (protocol #) are DISTINCT
+  numbers on the receipt — identify uses ΚΠΑ, the status page shows both.
 - **Wrong email ⇒ "Δεν έγινε ταυτοποίηση!"** — themis.baltzakis@gmail.com
   fails; the complaint's registered email works.
 - A live session skips the form (status view renders directly) — the script
