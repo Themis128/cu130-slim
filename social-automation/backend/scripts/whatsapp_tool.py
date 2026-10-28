@@ -95,16 +95,23 @@ def cmd_verify_code(code: str) -> None:
 
 
 def cmd_register() -> None:
-    """POST /{phone_number_id}/register — the non-migration registration path.
+    """POST /{phone_number_id}/register — finalize registration with a PIN.
 
-    Meta error 2388091 ("not being migrated") means request_code is the wrong
-    endpoint for a number that isn't migrating — the standard flow is
-    /register (which triggers the SMS) followed by /verify_code.
+    True sequence per Meta docs: /request_code (fires the SMS) →
+    /verify_code (proves possession) → /register (activates, needs PIN).
+    Use this when a number verified but never completed registration —
+    e.g. request_code rejected with 2388091 ("not being migrated").
+
+    Requires WA_REGISTRATION_PIN — a hardcoded default would leave the
+    number's two-step verification protected by a public value.
     """
+    pin = os.environ.get("WA_REGISTRATION_PIN")
+    if not pin:
+        raise SystemExit("set WA_REGISTRATION_PIN — no default (predictable PIN = insecure 2SV)")
     out = _graph_post(
         f"{_need('WHATSAPP_PHONE_NUMBER_ID')}/register",
         messaging_product="whatsapp",
-        pin=os.environ.get("WA_REGISTRATION_PIN", "123456"),
+        pin=pin,
     )
     print(json.dumps(out, indent=2))
 
