@@ -240,3 +240,13 @@
 - [x] `qualtrics-ops` skill — QID-keyed Qualtrics fill + `.select-menu` dropdown support
 - [ ] **Open:** OAuth uses client `77tf4oysp8u3fz` ≠ submitted app (`77j8kzfi1a6jn8`). If it's a second app, either submit its upgrade form (needs its Products-tab link) or switch `.env` creds to the approved app once Standard Tier lands.
 - [ ] Watch `baltzakis.themis@gmail.com` for Microsoft Vetting Services verification email
+
+## Session 2026-10-28c — master green-out
+- Backend CI GREEN (run 40707100096): all unit tests + lint + coverage gates.
+- Landed: #1079 synigoros_status task module (missing beat dep, 5 CI fails),
+  #1080 synigoros-ops skill, #1078 mail-code-fetch skill,
+  #1082/#1083/#1085/#1093 coverage tests (synigoros, task tails, _probe
+  branches, consent_healers tails) — restored 99.0/95.3 gates,
+  #1084/#1087/#1088/#1090/#1092 lint fixes (parallel-merge leaks).
+- #1073 closed — corrupted rebase (2,604-file deletion); synigoros skill
+  salvaged separately.
