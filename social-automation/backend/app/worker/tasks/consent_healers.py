@@ -12,6 +12,7 @@ import logging
 import os
 
 import httpx
+from celery import shared_task
 from sqlalchemy import select
 
 from app.core.security import decrypt_token
@@ -82,7 +83,7 @@ async def _linkedin_snapshot() -> str:
         import subprocess
         import sys
         script = ("/app/.devin/skills/offer-survey-ops/scripts/offer_survey.py")
-        subprocess.run(
+        r2 = subprocess.run(
             [sys.executable, script, "audience", SURVEY_CID,
              *(f"--email={e}" for e in emails)],
             capture_output=True, text=True)
@@ -111,6 +112,37 @@ async def _whatsapp() -> str:
     return f"still-{cvs or 'unknown'}"
 
 
+async def _bridge_health() -> str:
+    """Seed X cookies + probe whether the session resolves vs a login wall —
+    alerts when X_WEB_AUTH_TOKEN is stale (the real failure mode)."""
+    import os, urllib.request, json, time
+    tok, ct0 = os.environ.get("X_WEB_AUTH_TOKEN",""), os.environ.get("X_WEB_CT0","")
+    if not (tok and ct0):
+        return "skip"
+    def _post(path, payload):
+        r = urllib.request.Request("http://browser-novnc:9223"+path,
+            data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"})
+        with urllib.request.urlopen(r, timeout=15) as f: return json.loads(f.read() or b"{}")
+    try:
+        urllib.request.urlopen(urllib.request.Request(
+            "http://stack-ops:8787/keepawake/browser-novnc?ttl=300",
+            method="POST", data=b""), timeout=8)
+        _post("/session/cookies", {"cookies":[
+            {"name":"auth_token","value":tok,"domain":".x.com","path":"/","secure":True,"httpOnly":True},
+            {"name":"ct0","value":ct0,"domain":".x.com","path":"/","secure":True}]})
+        time.sleep(1)
+        _post("/session/evaluate", {"expression":"location.href='https://x.com/home'"})
+        time.sleep(6)
+        r = _post("/session/evaluate", {"expression":"location.href"})
+        cur = str(r.get("result") or r.get("url") or "")
+        if "login" in cur or "i/flow" in cur:
+            await post_alert_to_slack(":warning: X session stale — refresh X_WEB_AUTH_TOKEN (x.com devtools cookies).")
+            return "stale"
+        return "live" if "x.com" in cur else f"rotated ({cur[:40]})"
+    except Exception as e:
+        return f"busy ({str(e)[:60]})"
+
+
 @celery_app.task(name="app.worker.tasks.consent_healers.heal_consents")
 def heal_consents() -> dict:
     async def _go():
@@ -118,5 +150,6 @@ def heal_consents() -> dict:
             "twitter": await _twitter(),
             "linkedin": await _linkedin_snapshot(),
             "whatsapp": await _whatsapp(),
+            "bridge": await _bridge_health(),
         }
     return run_async(_go())
