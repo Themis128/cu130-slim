@@ -12,7 +12,7 @@ Usage:
 Run from the HOST — copies itself into the container and executes there.
 Requires the engagement-browser container running with x11vnc on :5900.
 """
-import base64, subprocess, sys
+import base64, shlex, subprocess, sys
 
 PAYLOAD = r'''
 import socket, struct, sys

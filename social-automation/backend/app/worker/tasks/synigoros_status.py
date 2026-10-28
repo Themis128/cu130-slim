@@ -1,148 +1,138 @@
-"""Daily Ombudsman (Συνήγορος του Πολίτη) complaint-status poll.
+"""synigoros_status — daily Ombudsman complaint-status poll.
 
-Fills the public tracking form on the adhoc browser bridge (email + ΚΠΑ),
-extracts Κατάσταση / Αριθμός Πρωτοκόλλου, and posts a Telegram alert to the
-Automation HQ channel when the status changes. Last status persists in the
-`social_secrets` KV table so beat restarts don't re-alert.
+Navigates the tracking page on browser-novnc-adhoc, identifies with
+email+ΚΠΑ, extracts Κατάσταση, persists it as an AnalyticsEvent, and pings
+the Cloudless — Automation HQ Telegram channel when the status changes.
+
+Skill doc: .devin/skills/synigoros-ops/SKILL.md
 """
 
-from __future__ import annotations
-
+import asyncio
 import json
 import logging
-import os
+import time
+from datetime import UTC, datetime
 
 import httpx
 from sqlalchemy import select
 
 from app.core.security import decrypt_token
-from app.models.social_account import SocialAccount
-from app.models.social_secret import SocialSecret
+from app.models import AnalyticsEvent, SocialAccount
 from app.services.telegram_api import TelegramAPIClient
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-BRIDGE = os.environ.get("ADHOC_BRIDGE_URL", "http://browser-novnc-adhoc:9224")
+BRIDGE = "http://browser-novnc-adhoc:9224"
 TRACK_URL = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"
-MAIL = os.environ.get("SYNIGOROS_MAIL", "baltzakis.themis@gmail.com")
-KPA = os.environ.get("SYNIGOROS_KPA", "202610260029")
-CHAT_ID = os.environ.get("SYNIGOROS_CHAT_ID", "-1004436942504")
-STATE_KEY = "synigoros_last_status"
+MAIL = "baltzakis.themis@gmail.com"
+KPA = "202610260029"
+TELEGRAM_CHAT = "-1004436942504"  # Cloudless — Automation HQ
+EVENT_TYPE = "synigoros_status"
+PLATFORM = "synigoros"
 
 
-async def _bridge_call(client: httpx.AsyncClient, path: str, data: dict, tries: int = 3) -> dict:
+def _bridge(path: str, data: dict, tries: int = 3) -> dict:
     for i in range(tries):
-        try:
-            r = await client.post(f"{BRIDGE}{path}", json=data, timeout=45)
-            if r.status_code == 409 or (r.status_code == 500 and "context was destroyed" in r.text):
-                if i < tries - 1:
-                    import asyncio
-
-                    await asyncio.sleep(15)
-                    continue
-            r.raise_for_status()
-            return r.json()
-        except (httpx.HTTPError, ValueError):
-            if i < tries - 1:
-                import asyncio
-
-                await asyncio.sleep(15)
-                continue
-            raise
+        r = httpx.post(f"{BRIDGE}{path}", json=data, timeout=40)
+        if r.status_code == 409 or (r.status_code == 500 and "context was destroyed" in r.text):
+            time.sleep(15)
+            continue
+        r.raise_for_status()
+        return r.json()
     return {}
 
 
-async def _ev(client: httpx.AsyncClient, expr: str):
-    return (await _bridge_call(client, "/session/evaluate", {"expression": expr})).get("result")
+def _ev(expr: str):
+    return _bridge("/session/evaluate", {"expression": expr}).get("result")
 
 
-async def _poll() -> dict:
-    """Drive the bridge through identify + status extraction."""
-    import asyncio
-
-    async with httpx.AsyncClient() as client:
-        try:
-            await _bridge_call(client, "/session/close", {})
-        except httpx.HTTPError:
-            pass
-        await _bridge_call(client, "/session/start", {"platform": "reddit", "interactive": False, "force": True})
-        await asyncio.sleep(4)
-        await _bridge_call(client, "/session/navigate", {"url": TRACK_URL})
-
-        for _ in range(10):
-            if await _ev(client, "!!document.getElementById('webMail')") or await _ev(client, "document.body.innerText.includes('Κατάσταση')"):
-                break
-            await asyncio.sleep(3)
-        else:
-            raise RuntimeError("tracking page never rendered")
-
-        if await _ev(client, "!!document.getElementById('webMail')"):
-            await _ev(
-                client,
-                "(()=>{const m=document.getElementById('webMail');"
-                f"m.value='{MAIL}';m.dispatchEvent(new Event('input',{{bubbles:true}}));"
-                f"const c=document.getElementById('webCode');c.value='{KPA}';"
-                "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()",
-            )
-            await _bridge_call(client, "/session/click", {"selector": "button"})
-            await asyncio.sleep(14)
-            if await _ev(client, "document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
-                raise RuntimeError("identify failed — wrong mail/ΚΠΑ pair")
-
-        raw = await _ev(
-            client,
-            """(()=>{const t=document.body.innerText;
-            const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
-            return JSON.stringify({
-              status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) || grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
-              proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
-              kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
-            })})()""",
+def _poll() -> dict:
+    # boot the shared browser (any platform arg) — close a stale session first
+    try:
+        _bridge("/session/close", {})
+    except Exception:
+        pass
+    _bridge("/session/start", {"platform": "reddit", "interactive": False, "force": True})
+    time.sleep(4)
+    _bridge("/session/navigate", {"url": TRACK_URL})
+    for _ in range(10):
+        if _ev("!!document.getElementById('webMail')") or \
+           _ev("document.body.innerText.includes('Κατάσταση')"):
+            break
+        time.sleep(3)
+    else:
+        raise RuntimeError("tracking page never rendered")
+    if _ev("!!document.getElementById('webMail')"):
+        _ev(
+            f"(()=>{{const m=document.getElementById('webMail');m.value='{MAIL}';"
+            f"m.dispatchEvent(new Event('input',{{bubbles:true}}));"
+            f"const c=document.getElementById('webCode');c.value='{KPA}';"
+            f"c.dispatchEvent(new Event('input',{{bubbles:true}}));return 1}})()"
         )
-        return json.loads(raw) if raw else {}
-
-
-async def _notify(status: str, proto: str) -> None:
-    async with task_session() as db:
-        acc = (
-            await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram", SocialAccount.status == "active").limit(1))
-        ).scalar_one_or_none()
-        if not acc:
-            return
-        md = acc.meta_data or {}
-        enc = md.get("bot_token_enc")
-        tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
-        await TelegramAPIClient(tok).send_message(CHAT_ID, f"📋 Synigoros — status changed:\n{status} (πρωτ. {proto})")
-
-
-async def _run() -> str:
-    result = await _poll()
-    status = result.get("status", "")
-    if not status:
-        return "no-status-extracted"
-
-    async with task_session() as db:
-        row = (await db.execute(select(SocialSecret).where(SocialSecret.key == STATE_KEY))).scalars().first()
-        last = row.value if row else None
-        if status == last:
-            return "unchanged"
-        if row:
-            row.value = status
-        else:
-            db.add(SocialSecret(key=STATE_KEY, value=status, description="Last Synigoros poll status"))
-        await db.commit()
-
-    await _notify(status, result.get("proto", ""))
-    return "notified"
+        _bridge("/session/click", {"selector": "button"})
+        time.sleep(14)
+        if _ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
+            raise RuntimeError("identify failed — wrong mail/ΚΠΑ pair")
+    out = _ev(
+        """(()=>{const t=document.body.innerText;
+        const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
+        return JSON.stringify({
+          status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) ||
+                  grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
+          proto: grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
+          kpa:   grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
+        })})()"""
+    )
+    return json.loads(out)
 
 
 @celery_app.task(name="app.worker.tasks.synigoros_status.poll_synigoros")
-def poll_synigoros() -> str:
-    """Daily poll of the Ombudsman complaint status → Telegram on change."""
-    try:
-        return run_async(_run())
-    except Exception as exc:  # noqa: BLE001 — beat must not crash-loop
-        logger.warning("synigoros poll failed: %s", exc)
-        return f"error: {exc}"
+def poll_synigoros() -> dict:
+    return run_async(_run())
+
+
+async def _run() -> dict:
+    result = await asyncio.to_thread(_poll)
+    status = result.get("status", "")
+    async with task_session() as db:
+        last = (
+            await db.execute(
+                select(AnalyticsEvent)
+                .where(AnalyticsEvent.event_type == EVENT_TYPE)
+                .order_by(AnalyticsEvent.occurred_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        acc = (
+            await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "telegram",
+                    SocialAccount.status == "active",
+                ).limit(1)
+            )
+        ).scalar_one()
+        team_id = last.team_id if last else acc.team_id
+        changed = bool(status) and (not last or last.meta_data.get("status") != status)
+        db.add(
+            AnalyticsEvent(
+                team_id=team_id,
+                event_type=EVENT_TYPE,
+                platform=PLATFORM,
+                occurred_at=datetime.now(UTC),
+                meta_data=result,
+            )
+        )
+        if changed:
+            enc = acc.meta_data.get("bot_token_enc")
+            tok = (
+                decrypt_token(enc.encode() if isinstance(enc, str) else enc)
+                if enc
+                else decrypt_token(acc.access_token_enc)
+            )
+            await TelegramAPIClient(tok).send_message(
+                TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{status}"
+            )
+            result["telegram_notified"] = True
+    return result

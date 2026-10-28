@@ -7,7 +7,6 @@ via the versioned REST API (app 264925843, Development Tier).
     python scripts/linkedin_cm_tool.py comments <account_id> <post_urn>
     python scripts/linkedin_cm_tool.py scopes <account_id>
 """
-
 import asyncio
 import sys
 import uuid as uuid_mod
@@ -25,7 +24,11 @@ async def _account(account_id: str):
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        row = (await db.execute(select(SocialAccount).where(SocialAccount.id == uuid_mod.UUID(account_id)))).scalar_one_or_none()
+        row = (
+            await db.execute(
+                select(SocialAccount).where(SocialAccount.id == uuid_mod.UUID(account_id))
+            )
+        ).scalar_one_or_none()
         if row is None:
             raise SystemExit(f"no such account {account_id}")
         db.expunge(row)
@@ -66,10 +69,19 @@ def cmd_posts(account_id: str) -> None:
                 f"{API}/posts?q=author&author={q}&count=10",
                 headers=_headers(_token(acc)),
             )
+            if r.status_code in (403, 426):  # Dev Tier: no /rest — legacy v2
+                a = "List(" + urllib.parse.quote(urn, safe="") + ")"
+                r = await c.get(
+                    f"https://api.linkedin.com/v2/ugcPosts?q=authors&authors={a}&count=10",
+                    headers=_headers(_token(acc)),
+                )
         print(r.status_code)
         d = r.json() if r.status_code == 200 else {"err": r.text[:300]}
-        for p in d.get("elements") or []:
-            body = (p.get("commentary") or "")[:80].replace("\n", " ")
+        for p in (d.get("elements") or []):
+            body = (p.get("commentary")
+                    or (p.get("specificContent", {})
+                        .get("com.linkedin.ugc.ShareContent", {})
+                        .get("shareCommentary", {}).get("text")) or "")[:80].replace("\n", " ")
             print(f"{p.get('id')}\t{body}")
         if "err" in d:
             print(d)
@@ -88,6 +100,11 @@ def cmd_comments(account_id: str, post_urn: str) -> None:
                 f"{API}/socialActions/{q}/comments",
                 headers=_headers(_token(acc)),
             )
+            if r.status_code in (403, 426):  # Dev Tier: no /rest — legacy v2
+                r = await c.get(
+                    f"https://api.linkedin.com/v2/socialActions/{q}/comments",
+                    headers=_headers(_token(acc)),
+                )
         print(r.status_code, r.text[:500])
 
     asyncio.run(_run())
@@ -99,7 +116,8 @@ def cmd_scopes(account_id: str) -> None:
         tok = _token(acc)
         async with httpx.AsyncClient(timeout=20) as c:
             for probe in ["userinfo", "organizations/264925843", "posts?q=author&author=x"]:
-                r = await c.get(f"{API if 'posts' in probe or 'organizations' in probe else 'https://api.linkedin.com/v2'}/{probe}", headers=_headers(tok))
+                r = await c.get(f"{API if 'posts' in probe or 'organizations' in probe else 'https://api.linkedin.com/v2'}/{probe}",
+                                headers=_headers(tok))
                 print(probe, r.status_code)
 
     asyncio.run(_run())

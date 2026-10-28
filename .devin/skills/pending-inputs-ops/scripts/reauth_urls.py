@@ -5,7 +5,7 @@
     reauth_urls.py twitter  # one platform only
 """
 import json, sys
-sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[3] / "offer-survey-ops/scripts"))
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2] / "offer-survey-ops/scripts"))
 import offer_survey as s
 
 TEAM = "10024d25-2ea4-40ea-86c6-ba89f515a2eb"

@@ -30,7 +30,7 @@ ALERT() {  # post to the ops Slack channel, throttled to once/30min per key
   local key="$1" msg="$2"
   local f="/tmp/wd-$(echo "$key" | md5sum | cut -c1-8)"
   [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f") )) -lt 1800 ] && return
-  docker compose exec -T social-api python -c "
+  timeout 20 docker compose exec -T social-api python -c "
 import asyncio
 from app.services.slack_notifications import post_alert_to_slack
 asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
@@ -122,10 +122,22 @@ WHERE status='publishing' AND updated_at < now() - interval '30 minutes'
 RETURNING 1" 2>/dev/null | grep -c 1)
 [ "${WEDGED:-0}" -gt 0 ] && ALERT "wedged-publish" ":warning: marked $WEDGED post(s) failed — stuck 'publishing' >30min with no active queue row"
 # 8b. Stale processing locks — belt & suspenders alongside the in-code
-#     stale-lock reclaim: a processing row locked >15min is a zombie.
+#     stale-lock reclaim: a processing row locked >45min is a zombie — LinkedIn org image publishes legit take ~17-25min, 15min killed healthy publishes (2026-10-28).
 STALE=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
 UPDATE publish_queue SET status='pending', locked_at=NULL, locked_by=NULL
-WHERE status='processing' AND locked_at < now() - interval '15 minutes'
+WHERE status='processing' AND locked_at < now() - interval '45 minutes'
 RETURNING 1" 2>/dev/null | grep -c 1)
 [ "${STALE:-0}" -gt 0 ] && ALERT "stale-qlock" ":warning: released $STALE stale publish_queue lock(s) — retry will pick them up"
+# 9. Publish-verify — a queue slot that fired >2h ago whose target is still
+#    'pending' means the platform-side path rejected/dropped it silently.
+#    Alert fast; don't wait for tomorrow's digest. Recurring signatures get
+#    a remediation note per the proactivity principle.
+LATE=$(docker exec social-postgres psql -U social_user -d social_automation -tAc "
+SELECT string_agg(DISTINCT sa.platform, ', ')
+FROM publish_queue pq
+JOIN post_targets t ON t.post_id=pq.post_id AND t.social_account_id=pq.social_account_id
+JOIN social_accounts sa ON sa.id=pq.social_account_id
+WHERE pq.status='completed' AND pq.scheduled_at < now() - interval '2 hours'
+  AND t.status='pending'" 2>/dev/null)
+[ -n "${LATE:-}" ] && ALERT "publish-verify" ":warning: platform(s) ${LATE} show pending >2h after queue completed — check publish errors in UI"
 exit 0

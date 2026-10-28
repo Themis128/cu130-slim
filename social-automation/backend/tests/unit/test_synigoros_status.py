@@ -237,12 +237,7 @@ async def test_notify_falls_back_to_access_token(monkeypatch):
 
 def test_wrapper_ok(monkeypatch):
     from app.worker.tasks import synigoros_status as M
-
-    def _run(c):
-        c.close()
-        return "unchanged"
-
-    monkeypatch.setattr(M, "run_async", _run)
+    monkeypatch.setattr(M, "run_async", lambda c: "unchanged")
     assert M.poll_synigoros() == "unchanged"
 
 

@@ -39,8 +39,11 @@ def main() -> int:
         if a == "--mail":   MAIL   = args[i+1]
         if a == "--kpa":    KPA    = args[i+1]
 
-    # any platform arg just boots the browser — navigate handles the real URL
-    call("/session/start", {"platform": "reddit", "interactive": False})
+    # any platform arg just boots the browser — navigate handles the real URL.
+    # close first: another task may hold the shared session (409).
+    try: call("/session/close", {})
+    except SystemExit: pass
+    call("/session/start", {"platform": "reddit", "interactive": False, "force": True})
     time.sleep(4)
     call("/session/navigate", {"url": TRACK})
     for _ in range(10):                      # wait for the tracking form
@@ -68,7 +71,43 @@ def main() -> int:
         kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
       })})()""")
     print(out)
+    if "--notify" in sys.argv:
+        _notify(out)
     return 0
+
+STATE = "/tmp/synigoros_last.json"
+CHAT  = "-1004436942504"                 # Cloudless — Automation HQ channel
+
+def _notify(payload: str) -> None:
+    """Alert on status change via the telegram bot — skipped if unchanged."""
+    try:
+        cur = json.loads(payload).get("status", "")
+        last = json.load(open(STATE)).get("status") if os.path.exists(STATE) else None
+        json.dump({"status": cur}, open(STATE, "w"))
+        if not cur or cur == last:
+            return
+        import asyncio
+        from app.db.session import async_session_maker
+        from sqlalchemy import select
+        from app.models import SocialAccount
+        from app.services.telegram_api import TelegramAPIClient
+        from app.core.security import decrypt_token
+        async def _send():
+            async with async_session_maker() as db:
+                acc = (await db.execute(select(SocialAccount).where(
+                    SocialAccount.platform == "telegram",
+                    SocialAccount.status == "active").limit(1))).scalar_one()
+                enc = acc.meta_data.get("bot_token_enc")
+                tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc \
+                    else decrypt_token(acc.access_token_enc)
+                await TelegramAPIClient(tok).send_message(
+                    CHAT, f"📋 Synigoros — status changed:\n{cur}")
+        asyncio.run(_send())
+        print("telegram-notified")
+    except Exception as e:
+        print("notify-skip:", e)
+
+import os  # noqa: E402  (kept at end — script-style module)
 
 if __name__ == "__main__":
     sys.exit(main())

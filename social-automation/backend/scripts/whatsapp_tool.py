@@ -19,7 +19,6 @@ Commands:
 Env used: WHATSAPP_ACCESS_TOKEN, WHATSAPP_BUSINESS_ACCOUNT_ID,
 WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_ID. Never prints tokens.
 """
-
 from __future__ import annotations
 
 import argparse
@@ -61,7 +60,6 @@ def _graph_get(path: str, **params) -> dict:
         raise SystemExit(json.dumps(data["error"], indent=2))
     return data
 
-
 def _graph_post(path: str, **params) -> dict:
     import requests
 
@@ -97,10 +95,11 @@ def cmd_verify_code(code: str) -> None:
 
 
 def cmd_register() -> None:
-    """POST /{phone_number_id}/register — non-migration registration path.
+    """POST /{phone_number_id}/register — the non-migration registration path.
 
-    Meta 2388091 ("not being migrated") means request_code is wrong —
-    the standard flow is /register (fires the SMS) then /verify_code.
+    Meta error 2388091 ("not being migrated") means request_code is the wrong
+    endpoint for a number that isn't migrating — the standard flow is
+    /register (which triggers the SMS) followed by /verify_code.
     """
     out = _graph_post(
         f"{_need('WHATSAPP_PHONE_NUMBER_ID')}/register",
@@ -131,7 +130,10 @@ def cmd_templates() -> None:
         print("(no message templates on the WABA)")
     for t in rows:
         rej = f" rejected={t['rejected_reason']}" if t.get("rejected_reason") else ""
-        print(f"{t.get('name')}\t{t.get('status')}\t{t.get('category')}\t{t.get('language')}{rej}")
+        print(
+            f"{t.get('name')}\t{t.get('status')}\t{t.get('category')}\t"
+            f"{t.get('language')}{rej}"
+        )
 
 
 def cmd_waba() -> None:
