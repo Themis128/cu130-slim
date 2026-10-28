@@ -1,4 +1,5 @@
 """HTTP Message Signatures (RFC 9421) — signature_headers()."""
+
 import base64
 import json
 
@@ -34,14 +35,10 @@ def test_no_key_returns_empty(monkeypatch):
 
 
 def test_signed_headers_verify(signing_key):
-    headers = http_signatures.signature_headers(
-        "GET", "https://example.com/feed?x=1"
-    )
+    headers = http_signatures.signature_headers("GET", "https://example.com/feed?x=1")
     assert set(headers) == {"Signature-Agent", "Signature-Input", "Signature"}
-    assert headers["Signature-Agent"].strip('"').endswith(
-        "/.well-known/http-message-signatures-directory"
-    )
-    params = headers["Signature-Input"][len("sig1="):]
+    assert headers["Signature-Agent"].strip('"').endswith("/.well-known/http-message-signatures-directory")
+    params = headers["Signature-Input"][len("sig1=") :]
     assert '"@method"' in params and '"@authority"' in params
     assert 'alg="ed25519"' in params and "created=" in params
 
@@ -57,14 +54,10 @@ def test_signed_headers_verify(signing_key):
         ]
     )
     sig_b64 = headers["Signature"].split("sig1=:")[1].rstrip(":")
-    signing_key.public_key().verify(
-        base64.b64decode(sig_b64), base.encode()
-    )  # raises on failure
+    signing_key.public_key().verify(base64.b64decode(sig_b64), base.encode())  # raises on failure
 
     # kid must be the RFC 7638 thumbprint of the public key.
-    pub = signing_key.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    )
+    pub = signing_key.public_key().public_bytes(serialization.Encoding.Raw, serialization.PublicFormat.Raw)
     import hashlib
 
     x = base64.urlsafe_b64encode(pub).rstrip(b"=").decode()
@@ -73,9 +66,7 @@ def test_signed_headers_verify(signing_key):
         separators=(",", ":"),
         sort_keys=True,
     ).encode()
-    expected = base64.urlsafe_b64encode(hashlib.sha256(thumb).digest()).rstrip(
-        b"="
-    ).decode()
+    expected = base64.urlsafe_b64encode(hashlib.sha256(thumb).digest()).rstrip(b"=").decode()
     assert kid == expected
 
 

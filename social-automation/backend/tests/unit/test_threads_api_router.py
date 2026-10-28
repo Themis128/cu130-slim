@@ -4,6 +4,7 @@ posts, replies, DM auto-reply + browser-bridge DM endpoints.
 Route functions are invoked directly with a fake AsyncSession;
 ThreadsAPIClient, httpx, and the browser bridge are monkeypatched.
 """
+
 import uuid
 
 import pytest
@@ -17,6 +18,7 @@ from app.services.threads_api import ThreadsAPIError
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
 
 class _Scalars:
     def __init__(self, items):
@@ -53,8 +55,7 @@ class FakeDB:
         teams = [v for k, v in cparams.items() if k == "team_id" or k.startswith("team_id_")]
         if teams:
             res = [a for a in res if a.team_id in teams]
-        plats = [v for k, v in cparams.items()
-                 if k == "platform" or k.startswith("platform_")]
+        plats = [v for k, v in cparams.items() if k == "platform" or k.startswith("platform_")]
         if plats:
             res = [a for a in res if a.platform in plats]
         return _Result(res)
@@ -70,15 +71,16 @@ def _account(**kw) -> SocialAccount:
         platform="threads",
         account_id=kw.get("account_id", "123456"),
         username=kw.get("username", "cloudless.gr"),
-        status="active", account_type="person",
+        status="active",
+        account_type="person",
         access_token_enc=kw.get("access_token_enc", encrypt_token("th-tok")),
-        scopes=[], meta_data=kw.get("meta_data", {}),
+        scopes=[],
+        meta_data=kw.get("meta_data", {}),
     )
 
 
 class _ThreadsClient:
-    profile = {"id": "123456", "username": "cloudless.gr", "name": "Cloudless",
-               "threads_biography": "bio", "is_verified": True}
+    profile = {"id": "123456", "username": "cloudless.gr", "name": "Cloudless", "threads_biography": "bio", "is_verified": True}
     insights = {"data": [{"name": "views", "total_value": {"value": 10}}]}
     error = None
     delete_ok = True
@@ -146,6 +148,7 @@ class _HTTP:
 @pytest.fixture(autouse=True)
 def _patch(monkeypatch):
     import httpx
+
     monkeypatch.setattr(threads, "ThreadsAPIClient", _ThreadsClient)
     monkeypatch.setattr(httpx, "AsyncClient", _HTTP)
     _ThreadsClient.error = None
@@ -159,6 +162,7 @@ def _patch(monkeypatch):
 # ---------------------------------------------------------------------------
 # Account + client resolution
 # ---------------------------------------------------------------------------
+
 
 class TestResolution:
     pytestmark = pytest.mark.asyncio
@@ -195,7 +199,9 @@ class TestResolution:
     async def test_client_ok(self):
         a = _account()
         acct, client = await threads._get_threads_client(
-            FakeDB(accounts=[a]), a.team_id, a.id,
+            FakeDB(accounts=[a]),
+            a.team_id,
+            a.id,
         )
         assert acct is a and client.user_id == "123456"
         assert client.access_token == "th-tok"
@@ -204,6 +210,7 @@ class TestResolution:
 # ---------------------------------------------------------------------------
 # Profile + insights
 # ---------------------------------------------------------------------------
+
 
 class TestProfileAndInsights:
     pytestmark = pytest.mark.asyncio
@@ -225,7 +232,9 @@ class TestProfileAndInsights:
         with pytest.raises(HTTPException) as e:
             await threads.update_threads_profile(
                 threads.ThreadsProfileUpdateRequest(biography="x"),
-                a.team_id, a.id, FakeDB(accounts=[a]),
+                a.team_id,
+                a.id,
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 400
 
@@ -244,7 +253,9 @@ class TestProfileAndInsights:
         with pytest.raises(HTTPException) as e:
             await threads.update_threads_profile(
                 threads.ThreadsProfileUpdateRequest(biography="x"),
-                a.team_id, a.id, FakeDB(accounts=[a]),
+                a.team_id,
+                a.id,
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 503
 
@@ -254,15 +265,16 @@ class TestProfileAndInsights:
                 pass
 
             async def update_threads_profile(self, *a, **kw):
-                return {"status": "updated", "updated_fields": ["biography"],
-                        "ignored_fields": []}
+                return {"status": "updated", "updated_fields": ["biography"], "ignored_fields": []}
 
         monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
         a = _account(meta_data={"k": 1})
         db = FakeDB(accounts=[a])
         out = await threads.update_threads_profile(
             threads.ThreadsProfileUpdateRequest(biography="new bio"),
-            a.team_id, a.id, db,
+            a.team_id,
+            a.id,
+            db,
         )
         assert out.success is True and out.updated_fields == ["biography"]
         assert a.meta_data["biography"] == "new bio" and a.meta_data["k"] == 1
@@ -270,21 +282,20 @@ class TestProfileAndInsights:
 
     async def test_insights_happy(self):
         a = _account()
-        out = await threads.get_threads_insights(a.team_id, a.id, "views",
-                                                 FakeDB(accounts=[a]))
+        out = await threads.get_threads_insights(a.team_id, a.id, "views", FakeDB(accounts=[a]))
         assert out.metric == "views" and len(out.values) == 1
 
     async def test_insights_error_returns_empty(self):
         _ThreadsClient.error = ThreadsAPIError(403, "no scope", "https://g")
         a = _account()
-        out = await threads.get_threads_insights(a.team_id, a.id, "views",
-                                                 FakeDB(accounts=[a]))
+        out = await threads.get_threads_insights(a.team_id, a.id, "views", FakeDB(accounts=[a]))
         assert out.values == []
 
 
 # ---------------------------------------------------------------------------
 # Post insights / quota / list / reply / delete / followers
 # ---------------------------------------------------------------------------
+
 
 class TestPostsAndQuota:
     pytestmark = pytest.mark.asyncio
@@ -293,7 +304,11 @@ class TestPostsAndQuota:
         a = _account()
         with pytest.raises(HTTPException) as e:
             await threads.get_threads_post_insights(
-                "../bad", a.team_id, a.id, "views", FakeDB(accounts=[a]),
+                "../bad",
+                a.team_id,
+                a.id,
+                "views",
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 400
 
@@ -303,7 +318,11 @@ class TestPostsAndQuota:
         _HTTP.responses = [_Resp(200, {"data": {"views": {"value": 10}}})]
         a = _account()
         out = await threads.get_threads_post_insights(
-            "12345", a.team_id, a.id, "views", FakeDB(accounts=[a]),
+            "12345",
+            a.team_id,
+            a.id,
+            "views",
+            FakeDB(accounts=[a]),
         )
         assert out.metrics == {"views": {"value": 10}}
         assert "graph.threads.net/v1.0/12345/insights" in _HTTP.calls[0][1]
@@ -313,15 +332,28 @@ class TestPostsAndQuota:
         a = _account()
         with pytest.raises(HTTPException) as e:
             await threads.get_threads_post_insights(
-                "12345", a.team_id, a.id, "views", FakeDB(accounts=[a]),
+                "12345",
+                a.team_id,
+                a.id,
+                "views",
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 403
 
     async def test_quota_parses_publish_count(self):
-        _HTTP.responses = [_Resp(200, {"data": [{
-            "quota_usage": [{"metric": "publish_count", "value": 37}],
-            "config": {"quota_total": 250},
-        }]})]
+        _HTTP.responses = [
+            _Resp(
+                200,
+                {
+                    "data": [
+                        {
+                            "quota_usage": [{"metric": "publish_count", "value": 37}],
+                            "config": {"quota_total": 250},
+                        }
+                    ]
+                },
+            )
+        ]
         a = _account()
         out = await threads.get_threads_quota(a.team_id, a.id, FakeDB(accounts=[a]))
         assert out.used == 37 and out.remaining == 213 and out.total == 250
@@ -333,14 +365,17 @@ class TestPostsAndQuota:
         assert out.remaining == 250 and out.used == 0
 
     async def test_list_posts(self):
-        _HTTP.responses = [_Resp(200, {
-            "data": [{"id": "p1", "text": "hi", "media_type": "TEXT",
-                      "permalink": "https://t/p1"}],
-            "paging": {"next": "cursor"},
-        })]
+        _HTTP.responses = [
+            _Resp(
+                200,
+                {
+                    "data": [{"id": "p1", "text": "hi", "media_type": "TEXT", "permalink": "https://t/p1"}],
+                    "paging": {"next": "cursor"},
+                },
+            )
+        ]
         a = _account()
-        out = await threads.list_threads_posts(a.team_id, a.id, 25, None,
-                                               FakeDB(accounts=[a]))
+        out = await threads.list_threads_posts(a.team_id, a.id, 25, None, FakeDB(accounts=[a]))
         assert out.posts[0].permalink == "https://t/p1"
         assert out.paging["next"] == "cursor"
         assert "after" not in _HTTP.calls[0][2]["params"]
@@ -348,34 +383,37 @@ class TestPostsAndQuota:
     async def test_list_posts_after_param(self):
         _HTTP.responses = [_Resp(200, {"data": []})]
         a = _account()
-        await threads.list_threads_posts(a.team_id, a.id, 10, "CUR",
-                                         FakeDB(accounts=[a]))
+        await threads.list_threads_posts(a.team_id, a.id, 10, "CUR", FakeDB(accounts=[a]))
         assert _HTTP.calls[0][2]["params"]["after"] == "CUR"
 
     async def test_list_posts_error(self):
         _HTTP.responses = [_Resp(500, {}, "oops")]
         a = _account()
         with pytest.raises(HTTPException) as e:
-            await threads.list_threads_posts(a.team_id, a.id, 25, None,
-                                             FakeDB(accounts=[a]))
+            await threads.list_threads_posts(a.team_id, a.id, 25, None, FakeDB(accounts=[a]))
         assert e.value.status_code == 500
 
     async def test_reply_empty_text_400(self):
         a = _account()
         with pytest.raises(HTTPException) as e:
             await threads.reply_to_thread(
-                "m1", a.team_id, threads.ThreadsReplyRequest(text="  "),
-                a.id, FakeDB(accounts=[a]),
+                "m1",
+                a.team_id,
+                threads.ThreadsReplyRequest(text="  "),
+                a.id,
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 400
 
     async def test_reply_two_step_chain(self):
-        _HTTP.responses = [_Resp(200, {"id": "creation-9"}),
-                           _Resp(200, {"id": "published-9"})]
+        _HTTP.responses = [_Resp(200, {"id": "creation-9"}), _Resp(200, {"id": "published-9"})]
         a = _account()
         out = await threads.reply_to_thread(
-            "m1", a.team_id, threads.ThreadsReplyRequest(text="reply!"),
-            a.id, FakeDB(accounts=[a]),
+            "m1",
+            a.team_id,
+            threads.ThreadsReplyRequest(text="reply!"),
+            a.id,
+            FakeDB(accounts=[a]),
         )
         assert out.media_id == "published-9"
         urls = [c[1] for c in _HTTP.calls]
@@ -390,8 +428,11 @@ class TestPostsAndQuota:
         a = _account()
         with pytest.raises(HTTPException) as e:
             await threads.reply_to_thread(
-                "m1", a.team_id, threads.ThreadsReplyRequest(text="x"),
-                a.id, FakeDB(accounts=[a]),
+                "m1",
+                a.team_id,
+                threads.ThreadsReplyRequest(text="x"),
+                a.id,
+                FakeDB(accounts=[a]),
             )
         assert "reply creation failed" in e.value.detail
 
@@ -400,8 +441,11 @@ class TestPostsAndQuota:
         a = _account()
         with pytest.raises(HTTPException) as e:
             await threads.reply_to_thread(
-                "m1", a.team_id, threads.ThreadsReplyRequest(text="x"),
-                a.id, FakeDB(accounts=[a]),
+                "m1",
+                a.team_id,
+                threads.ThreadsReplyRequest(text="x"),
+                a.id,
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 500
 
@@ -410,46 +454,43 @@ class TestPostsAndQuota:
         a = _account()
         with pytest.raises(HTTPException) as e:
             await threads.reply_to_thread(
-                "m1", a.team_id, threads.ThreadsReplyRequest(text="x"),
-                a.id, FakeDB(accounts=[a]),
+                "m1",
+                a.team_id,
+                threads.ThreadsReplyRequest(text="x"),
+                a.id,
+                FakeDB(accounts=[a]),
             )
         assert "reply publish failed" in e.value.detail
 
     async def test_delete_post(self):
         a = _account()
-        out = await threads.delete_threads_post("m1", a.team_id, a.id,
-                                                FakeDB(accounts=[a]))
+        out = await threads.delete_threads_post("m1", a.team_id, a.id, FakeDB(accounts=[a]))
         assert out.success is True
 
     async def test_delete_post_api_error(self):
         _ThreadsClient.error = ThreadsAPIError(403, "no perm", "https://g")
         a = _account()
         with pytest.raises(HTTPException) as e:
-            await threads.delete_threads_post("m1", a.team_id, a.id,
-                                              FakeDB(accounts=[a]))
+            await threads.delete_threads_post("m1", a.team_id, a.id, FakeDB(accounts=[a]))
         assert e.value.status_code == 403
 
     async def test_delete_post_false_400(self):
         _ThreadsClient.delete_ok = False
         a = _account()
         with pytest.raises(HTTPException) as e:
-            await threads.delete_threads_post("m1", a.team_id, a.id,
-                                              FakeDB(accounts=[a]))
+            await threads.delete_threads_post("m1", a.team_id, a.id, FakeDB(accounts=[a]))
         assert e.value.status_code == 400
 
     async def test_followers_happy(self):
-        _HTTP.responses = [_Resp(200, {"data": [{"name": "followers_count",
-                                                 "total_value": {"value": 9}}]})]
+        _HTTP.responses = [_Resp(200, {"data": [{"name": "followers_count", "total_value": {"value": 9}}]})]
         a = _account()
-        out = await threads.get_threads_followers(a.team_id, a.id,
-                                                  FakeDB(accounts=[a]))
+        out = await threads.get_threads_followers(a.team_id, a.id, FakeDB(accounts=[a]))
         assert out.values[0]["name"] == "followers_count"
 
     async def test_followers_error_empty(self):
         _HTTP.error = RuntimeError("down")
         a = _account()
-        out = await threads.get_threads_followers(a.team_id, a.id,
-                                                  FakeDB(accounts=[a]))
+        out = await threads.get_threads_followers(a.team_id, a.id, FakeDB(accounts=[a]))
         assert out.values == []
 
 
@@ -457,13 +498,13 @@ class TestPostsAndQuota:
 # DM auto-reply + bridge DM endpoints
 # ---------------------------------------------------------------------------
 
+
 class TestDM:
     pytestmark = pytest.mark.asyncio
 
     async def test_dm_auto_reply_get_defaults(self):
         a = _account()
-        out = await threads.get_threads_dm_auto_reply(a.id, a.team_id,
-                                                      FakeDB(accounts=[a]))
+        out = await threads.get_threads_dm_auto_reply(a.id, a.team_id, FakeDB(accounts=[a]))
         assert out.enabled is False and out.max_tokens == 250
 
     async def test_dm_auto_reply_update(self):
@@ -484,8 +525,7 @@ class TestDM:
         monkeypatch.setattr("app.api.deps.check_plan_feature", chk)
         a = _account()
         cfg = threads.ThreadsAutoReplyConfig(enabled=True)
-        await threads.update_threads_dm_auto_reply(a.id, cfg, a.team_id,
-                                                   FakeDB(accounts=[a]))
+        await threads.update_threads_dm_auto_reply(a.id, cfg, a.team_id, FakeDB(accounts=[a]))
         assert seen == ["dm_auto_reply"]
 
     def _bridge(self, monkeypatch, **methods):
@@ -500,37 +540,48 @@ class TestDM:
     async def test_dm_conversations(self, monkeypatch):
         async def convs(self):
             return {"threads": []}
+
         self._bridge(monkeypatch, get_threads_dm_conversations=convs)
         a = _account()
         out = await threads.list_threads_dm_conversations(
-            a.id, a.team_id, FakeDB(accounts=[a]),
+            a.id,
+            a.team_id,
+            FakeDB(accounts=[a]),
         )
         assert out == {"threads": []}
 
     async def test_dm_read_thread(self, monkeypatch):
         async def msgs(self, tid):
             return {"messages": [{"text": "hi"}], "tid": tid}
+
         self._bridge(monkeypatch, get_threads_dm_messages=msgs)
         a = _account()
         out = await threads.read_threads_dm_thread(
-            a.id, "t1", a.team_id, FakeDB(accounts=[a]),
+            a.id,
+            "t1",
+            a.team_id,
+            FakeDB(accounts=[a]),
         )
         assert out["tid"] == "t1"
 
     async def test_dm_send_requires_text(self):
         a = _account()
         with pytest.raises(HTTPException) as e:
-            await threads.send_threads_dm(a.id, "t1", {}, a.team_id,
-                                          FakeDB(accounts=[a]))
+            await threads.send_threads_dm(a.id, "t1", {}, a.team_id, FakeDB(accounts=[a]))
         assert e.value.status_code == 400
 
     async def test_dm_send_ok(self, monkeypatch):
         async def send(self, tid, text):
             return {"sent": True, "tid": tid, "text": text}
+
         self._bridge(monkeypatch, send_threads_dm_message=send)
         a = _account()
         out = await threads.send_threads_dm(
-            a.id, "t1", {"text": "yo"}, a.team_id, FakeDB(accounts=[a]),
+            a.id,
+            "t1",
+            {"text": "yo"},
+            a.team_id,
+            FakeDB(accounts=[a]),
         )
         assert out["sent"] is True
 
@@ -539,11 +590,14 @@ class TestDM:
 
         async def convs(self):
             raise BrowserBridgeError(503, "bridge err")
+
         self._bridge(monkeypatch, get_threads_dm_conversations=convs)
         a = _account()
         with pytest.raises(HTTPException) as e:
             await threads.list_threads_dm_conversations(
-                a.id, a.team_id, FakeDB(accounts=[a]),
+                a.id,
+                a.team_id,
+                FakeDB(accounts=[a]),
             )
         assert e.value.status_code == 503
 
@@ -551,6 +605,7 @@ class TestDM:
 # ---------------------------------------------------------------------------
 # Session helpers (DM login + status)
 # ---------------------------------------------------------------------------
+
 
 class TestSessionHelpers:
     pytestmark = pytest.mark.asyncio
@@ -575,6 +630,7 @@ class TestSessionHelpers:
 
         async def no_sleep(*a, **k):
             return None
+
         monkeypatch.setattr(asyncio, "sleep", no_sleep)
 
         class Bridge:
@@ -593,7 +649,9 @@ class TestSessionHelpers:
         monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
         a = _account()
         out = await threads.threads_dm_session_status(
-            a.id, a.team_id, FakeDB(accounts=[a]),
+            a.id,
+            a.team_id,
+            FakeDB(accounts=[a]),
         )
         assert out["browser_session"]["state"] == "active"
         assert out["threads_session"]["logged_in"] is True
@@ -612,7 +670,9 @@ class TestSessionHelpers:
         monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
         a = _account()
         out = await threads.threads_dm_session_status(
-            a.id, a.team_id, FakeDB(accounts=[a]),
+            a.id,
+            a.team_id,
+            FakeDB(accounts=[a]),
         )
         assert out["threads_session"]["logged_in"] is False
         assert "error" in out["threads_session"]
@@ -628,7 +688,9 @@ class TestSessionHelpers:
         monkeypatch.setattr(threads, "_get_browser_bridge_client", lambda: Bridge())
         a = _account()
         out = await threads.threads_dm_session_status(
-            a.id, a.team_id, FakeDB(accounts=[a]),
+            a.id,
+            a.team_id,
+            FakeDB(accounts=[a]),
         )
         assert out["threads_session"]["logged_in"] is False
         assert "error" in out["browser_session"]
@@ -676,7 +738,10 @@ class TestDmErrorBranches:
         a = _account()
         with pytest.raises(HTTPException) as ei:
             await threads.read_threads_dm_thread(
-                a.id, "t1", a.team_id, FakeDB(accounts=[a]),
+                a.id,
+                "t1",
+                a.team_id,
+                FakeDB(accounts=[a]),
             )
         assert ei.value.status_code == 503
 
@@ -694,7 +759,11 @@ class TestDmErrorBranches:
         a = _account()
         with pytest.raises(HTTPException) as ei:
             await threads.send_threads_dm(
-                a.id, "t1", {"text": "hi"}, a.team_id, FakeDB(accounts=[a]),
+                a.id,
+                "t1",
+                {"text": "hi"},
+                a.team_id,
+                FakeDB(accounts=[a]),
             )
         assert ei.value.status_code == 500
 

@@ -162,32 +162,38 @@ async def collect_signatures(db, window: timedelta = _WINDOW) -> dict[tuple[str,
 
 async def _recent_proposal_exists(db, team_id, platform: str, signature: str, cooldown: timedelta) -> bool:
     """Dedup: a proposal for this signature was already emitted inside the cooldown."""
-    q = select(AuditLog.id).where(
-        AuditLog.action == "failure-learning",
-        AuditLog.resource_type == "signature",
-        AuditLog.created_at >= datetime.now(UTC) - cooldown,
-        AuditLog.meta["platform"].astext == platform,
-        AuditLog.meta["signature"].astext == signature,
-    ).limit(1)
+    q = (
+        select(AuditLog.id)
+        .where(
+            AuditLog.action == "failure-learning",
+            AuditLog.resource_type == "signature",
+            AuditLog.created_at >= datetime.now(UTC) - cooldown,
+            AuditLog.meta["platform"].astext == platform,
+            AuditLog.meta["signature"].astext == signature,
+        )
+        .limit(1)
+    )
     return (await db.execute(q)).first() is not None
 
 
 async def _record_proposal(db, team_id, sig: FailureSignature) -> None:
-    db.add(AuditLog(
-        team_id=team_id,
-        action="failure-learning",
-        resource_type="signature",
-        resource_id=f"{sig.platform}:{sig.signature}",
-        detail=f"{sig.count}x in 7d — {sig.remediation}",
-        meta={
-            "platform": sig.platform,
-            "signature": sig.signature,
-            "bucket": sig.bucket,
-            "count": sig.count,
-            "samples": sig.samples,
-            "remediation": sig.remediation,
-        },
-    ))
+    db.add(
+        AuditLog(
+            team_id=team_id,
+            action="failure-learning",
+            resource_type="signature",
+            resource_id=f"{sig.platform}:{sig.signature}",
+            detail=f"{sig.count}x in 7d — {sig.remediation}",
+            meta={
+                "platform": sig.platform,
+                "signature": sig.signature,
+                "bucket": sig.bucket,
+                "count": sig.count,
+                "samples": sig.samples,
+                "remediation": sig.remediation,
+            },
+        )
+    )
 
 
 async def run_failure_learning(
@@ -232,17 +238,19 @@ async def run_failure_learning(
     }
 
     # Observable artifact — every run, even a quiet one.
-    db.add(AuditLog(
-        team_id=team_id,
-        action="failure-learning",
-        resource_type="sweep",
-        detail=f"scanned={report['scanned']} signatures={report['signatures']} proposals={len(proposed)}",
-        meta={
-            "proposals": len(proposed),
-            "recurring": len(recurring),
-            "by_bucket": report["by_bucket"],
-        },
-    ))
+    db.add(
+        AuditLog(
+            team_id=team_id,
+            action="failure-learning",
+            resource_type="sweep",
+            detail=f"scanned={report['scanned']} signatures={report['signatures']} proposals={len(proposed)}",
+            meta={
+                "proposals": len(proposed),
+                "recurring": len(recurring),
+                "by_bucket": report["by_bucket"],
+            },
+        )
+    )
 
     if post_slack and proposed:
         try:
@@ -250,10 +258,7 @@ async def run_failure_learning(
 
             lines = ["*Failure-trajectory loop — remediation proposals*"]
             for s in proposed:
-                lines.append(
-                    f"• `{s.platform}` **{s.signature}** ({s.bucket}) — {s.count} failures in 7d"
-                    f"\n  ↳ {s.remediation}"
-                )
+                lines.append(f"• `{s.platform}` **{s.signature}** ({s.bucket}) — {s.count} failures in 7d\n  ↳ {s.remediation}")
             await post_alert_to_slack("\n".join(lines))
         except Exception:  # noqa: BLE001 — proposal rows already persisted
             logger.exception("failure learning: slack proposal failed")

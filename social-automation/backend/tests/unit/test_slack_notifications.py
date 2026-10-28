@@ -45,9 +45,7 @@ async def test_post_digest_prefers_webhook_when_set():
     )
     fake = _FakeAsyncClient(_FakeResponse(200, "ok"))
 
-    with patch.object(sn, "get_settings", return_value=settings), patch.object(
-        sn.httpx, "AsyncClient", return_value=fake
-    ):
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
         ok, err, ts = await sn.post_digest_text_to_slack("hello")
 
     assert ok is True
@@ -67,9 +65,7 @@ async def test_post_digest_falls_back_to_token_and_channel():
     )
     fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "ts": "123.456"}))
 
-    with patch.object(sn, "get_settings", return_value=settings), patch.object(
-        sn.httpx, "AsyncClient", return_value=fake
-    ):
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
         ok, err, ts = await sn.post_digest_text_to_slack("digest")
 
     assert ok is True
@@ -104,14 +100,11 @@ async def test_post_alert_uses_alerts_webhook():
     )
     fake = _FakeAsyncClient(_FakeResponse(200, "ok"))
 
-    with patch.object(sn, "get_settings", return_value=settings), patch.object(
-        sn.httpx, "AsyncClient", return_value=fake
-    ):
+    with patch.object(sn, "get_settings", return_value=settings), patch.object(sn.httpx, "AsyncClient", return_value=fake):
         await sn.post_alert_to_slack("boom")
 
     assert fake.calls[0]["url"] == settings.SLACK_ALERTS_WEBHOOK_URL
     assert fake.calls[0]["json"] == {"text": "boom"}
-
 
 
 # ---------- files.getUploadURLExternal flow ----------
@@ -137,7 +130,9 @@ class _UploadFakeClient:
 async def test_upload_file_no_token_fails_soft():
     with patch.object(sn, "_get_slack_token", return_value=""):
         ok, fid, err = await sn.upload_file_to_slack(
-            content=b"data", filename="a.png", channel_id="C1",
+            content=b"data",
+            filename="a.png",
+            channel_id="C1",
         )
     assert not ok and fid is None and "TOKEN" in err
 
@@ -146,25 +141,33 @@ async def test_upload_file_no_token_fails_soft():
 async def test_upload_file_empty_content_fails_soft():
     with patch.object(sn, "_get_slack_token", return_value="xoxb-t"):
         ok, fid, err = await sn.upload_file_to_slack(
-            content=b"", filename="a.png", channel_id="C1",
+            content=b"",
+            filename="a.png",
+            channel_id="C1",
         )
     assert not ok and "empty" in err
 
 
 @pytest.mark.asyncio
 async def test_upload_file_full_flow():
-    fake = _UploadFakeClient([
-        _FakeResponse(200, {"ok": True, "upload_url": "https://up.example/u", "file_id": "F123"}),
-        _FakeResponse(200, {}),  # raw PUT to upload_url
-        _FakeResponse(200, {"ok": True}),
-    ])
+    fake = _UploadFakeClient(
+        [
+            _FakeResponse(200, {"ok": True, "upload_url": "https://up.example/u", "file_id": "F123"}),
+            _FakeResponse(200, {}),  # raw PUT to upload_url
+            _FakeResponse(200, {"ok": True}),
+        ]
+    )
     with (
         patch.object(sn, "_get_slack_token", return_value="xoxb-t"),
         patch("app.services.slack_notifications.httpx.AsyncClient", return_value=fake),
     ):
         ok, fid, err = await sn.upload_file_to_slack(
-            content=b"png-bytes", filename="digest.png", channel_id="C1",
-            title="Daily", initial_comment="hi", thread_ts="1.2",
+            content=b"png-bytes",
+            filename="digest.png",
+            channel_id="C1",
+            title="Daily",
+            initial_comment="hi",
+            thread_ts="1.2",
         )
 
     assert ok and fid == "F123" and err is None
@@ -185,7 +188,9 @@ async def test_upload_file_step1_error():
         patch("app.services.slack_notifications.httpx.AsyncClient", return_value=fake),
     ):
         ok, fid, err = await sn.upload_file_to_slack(
-            content=b"x", filename="a.png", channel_id="C1",
+            content=b"x",
+            filename="a.png",
+            channel_id="C1",
         )
     assert not ok and "invalid_auth" in err
 
@@ -195,12 +200,10 @@ async def test_upload_file_step1_error():
 
 @pytest.mark.asyncio
 async def test_post_slack_text_missing_config():
-    ok, err, ts = await sn._post_slack_text(
-        text="t", webhook_url="", token="", channel_id="", purpose="p")
+    ok, err, ts = await sn._post_slack_text(text="t", webhook_url="", token="", channel_id="", purpose="p")
     assert not ok and "isn’t configured" in err
 
-    ok, err, ts = await sn._post_slack_text(
-        text="t", webhook_url="", token="tok", channel_id="", purpose="p")
+    ok, err, ts = await sn._post_slack_text(text="t", webhook_url="", token="tok", channel_id="", purpose="p")
     assert not ok and "channel id" in err
 
 
@@ -209,8 +212,8 @@ async def test_post_slack_text_webhook_ok_with_blocks_and_channel():
     fake = _FakeAsyncClient(_FakeResponse(200, "ok"))
     with patch.object(sn.httpx, "AsyncClient", return_value=fake):
         ok, err, ts = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/x", token="",
-            channel_id="#chan", purpose="p", blocks=[{"type": "section"}])
+            text="t", webhook_url="https://hooks/x", token="", channel_id="#chan", purpose="p", blocks=[{"type": "section"}]
+        )
     assert ok
     payload = fake.calls[0]["json"]
     assert payload["blocks"] == [{"type": "section"}]
@@ -221,22 +224,18 @@ async def test_post_slack_text_webhook_ok_with_blocks_and_channel():
 async def test_post_slack_text_token_path_ok_and_api_error():
     ok_resp = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "ts": "1.9"}))
     with patch.object(sn.httpx, "AsyncClient", return_value=ok_resp):
-        ok, err, ts = await sn._post_slack_text(
-            text="t", webhook_url="", token="tok", channel_id="C1", purpose="p")
+        ok, err, ts = await sn._post_slack_text(text="t", webhook_url="", token="tok", channel_id="C1", purpose="p")
     assert ok and ts == "1.9"
     assert ok_resp.calls[0]["url"].endswith("chat.postMessage")
 
-    err_resp = _FakeAsyncClient(
-        _FakeResponse(200, {"ok": False, "error": "missing_scope", "needed": "chat:write"}))
+    err_resp = _FakeAsyncClient(_FakeResponse(200, {"ok": False, "error": "missing_scope", "needed": "chat:write"}))
     with patch.object(sn.httpx, "AsyncClient", return_value=err_resp):
-        ok, err, ts = await sn._post_slack_text(
-            text="t", webhook_url="", token="tok", channel_id="C1", purpose="p")
+        ok, err, ts = await sn._post_slack_text(text="t", webhook_url="", token="tok", channel_id="C1", purpose="p")
     assert not ok and "missing_scope" in err and "chat:write" in err
 
     err_resp2 = _FakeAsyncClient(_FakeResponse(200, {"ok": False}))
     with patch.object(sn.httpx, "AsyncClient", return_value=err_resp2):
-        ok, err, _ = await sn._post_slack_text(
-            text="t", webhook_url="", token="tok", channel_id="C1", purpose="p")
+        ok, err, _ = await sn._post_slack_text(text="t", webhook_url="", token="tok", channel_id="C1", purpose="p")
     assert not ok and "unknown" in err
 
 
@@ -251,22 +250,17 @@ async def test_post_slack_text_webhook_4xx_fallback_to_token():
         async def post(self, url, headers=None, json=None):
             self.calls.append({"url": url, "headers": headers, "json": json})
             self.n += 1
-            return _FakeResponse(404, "no_service") if self.n == 1 else _FakeResponse(
-                200, {"ok": True, "ts": "2.2"})
+            return _FakeResponse(404, "no_service") if self.n == 1 else _FakeResponse(200, {"ok": True, "ts": "2.2"})
 
     fake = _Both()
     with patch.object(sn.httpx, "AsyncClient", return_value=fake):
-        ok, err, ts = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/dead", token="tok",
-            channel_id="C1", purpose="p")
+        ok, err, ts = await sn._post_slack_text(text="t", webhook_url="https://hooks/dead", token="tok", channel_id="C1", purpose="p")
     assert ok and ts == "2.2"
 
     # webhook 400 with no token/channel -> returns error immediately
     fake2 = _FakeAsyncClient(_FakeResponse(400, "bad"))
     with patch.object(sn.httpx, "AsyncClient", return_value=fake2):
-        ok, err, _ = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/x", token="",
-            channel_id="", purpose="p")
+        ok, err, _ = await sn._post_slack_text(text="t", webhook_url="https://hooks/x", token="", channel_id="", purpose="p")
     assert not ok and "HTTP 400" in err
 
 
@@ -277,9 +271,7 @@ async def test_post_slack_text_webhook_5xx_retries_then_fails():
         patch.object(sn.httpx, "AsyncClient", return_value=fake),
         patch.object(sn.asyncio, "sleep", AsyncMock()),
     ):
-        ok, err, _ = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/x", token="",
-            channel_id="", purpose="p")
+        ok, err, _ = await sn._post_slack_text(text="t", webhook_url="https://hooks/x", token="", channel_id="", purpose="p")
     # 5xx does not hit the <500 fallback branch — loop just returns last_err
     assert not ok and "HTTP 500" in err
 
@@ -307,9 +299,7 @@ async def test_post_slack_text_connect_errors_retry_and_fallback():
         patch.object(sn.httpx, "AsyncClient", return_value=fake),
         patch.object(sn.asyncio, "sleep", AsyncMock()),
     ):
-        ok, err, _ = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/x", token="tok",
-            channel_id="C1", purpose="p")
+        ok, err, _ = await sn._post_slack_text(text="t", webhook_url="https://hooks/x", token="tok", channel_id="C1", purpose="p")
     # after 4 webhook failures, the token attempt also fails ConnectError
     # inside _via_token which raises -> caught by outer except? No —
     # _via_token raise propagates inside the retry loop's try -> treated
@@ -324,9 +314,7 @@ async def test_post_slack_text_connect_errors_retry_and_fallback():
         patch.object(sn.httpx, "AsyncClient", return_value=fake2),
         patch.object(sn.asyncio, "sleep", AsyncMock()),
     ):
-        ok, err, _ = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/x", token="",
-            channel_id="", purpose="p")
+        ok, err, _ = await sn._post_slack_text(text="t", webhook_url="https://hooks/x", token="", channel_id="", purpose="p")
     assert ok
 
 
@@ -337,9 +325,7 @@ async def test_post_slack_text_outer_exception():
             raise ValueError("weird")
 
     with patch.object(sn.httpx, "AsyncClient", return_value=_Boom(None)):
-        ok, err, _ = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/x", token="",
-            channel_id="", purpose="p")
+        ok, err, _ = await sn._post_slack_text(text="t", webhook_url="https://hooks/x", token="", channel_id="", purpose="p")
     assert not ok and "weird" in err
 
 
@@ -357,7 +343,8 @@ async def test_post_alert_to_slack():
     settings = SimpleNamespace(
         SLACK_ALERTS_WEBHOOK_URL="https://hooks/alerts",
         SLACK_ALERTS_CHANNEL_ID="C1",
-        SLACK_BOT_TOKEN="", SLACK_ACCESS_TOKEN="",
+        SLACK_BOT_TOKEN="",
+        SLACK_ACCESS_TOKEN="",
     )
     with (
         patch.object(sn, "get_settings", return_value=settings),
@@ -418,10 +405,14 @@ async def test_post_publishing_to_slack():
 @pytest.mark.asyncio
 async def test_billing_and_paddle_and_support_senders():
     settings = SimpleNamespace(
-        SLACK_BILLING_WEBHOOK_URL="", SLACK_PADDLE_WEBHOOK_URL="",
-        SLACK_BILLING_CHANNEL_ID="", SLACK_PADDLE_CHANNEL_ID="",
-        SLACK_BOT_TOKEN="", SLACK_ACCESS_TOKEN="",
-        SLACK_SUPPORT_WEBHOOK_URL="", SLACK_SUPPORT_CHANNEL_ID="",
+        SLACK_BILLING_WEBHOOK_URL="",
+        SLACK_PADDLE_WEBHOOK_URL="",
+        SLACK_BILLING_CHANNEL_ID="",
+        SLACK_PADDLE_CHANNEL_ID="",
+        SLACK_BOT_TOKEN="",
+        SLACK_ACCESS_TOKEN="",
+        SLACK_SUPPORT_WEBHOOK_URL="",
+        SLACK_SUPPORT_CHANNEL_ID="",
     )
     with patch.object(sn, "get_settings", return_value=settings):
         ok, err = await sn.post_billing_digest_to_slack("t")
@@ -431,8 +422,10 @@ async def test_billing_and_paddle_and_support_senders():
 
     settings2 = SimpleNamespace(
         SLACK_BILLING_WEBHOOK_URL="https://hooks/bill",
-        SLACK_PADDLE_WEBHOOK_URL="", SLACK_BILLING_CHANNEL_ID="",
-        SLACK_PADDLE_CHANNEL_ID="C9", SLACK_BOT_TOKEN="t",
+        SLACK_PADDLE_WEBHOOK_URL="",
+        SLACK_BILLING_CHANNEL_ID="",
+        SLACK_PADDLE_CHANNEL_ID="C9",
+        SLACK_BOT_TOKEN="t",
         SLACK_ACCESS_TOKEN="",
         SLACK_SUPPORT_WEBHOOK_URL="https://hooks/sup",
         SLACK_SUPPORT_CHANNEL_ID="",
@@ -535,8 +528,7 @@ async def test_upload_file_step2_and_step3_errors():
         patch.object(sn, "_get_slack_token", return_value="t"),
         patch.object(sn.httpx, "AsyncClient", return_value=fake),
     ):
-        ok, fid, err = await sn.upload_file_to_slack(
-            content=b"x", filename="f", channel_id="C")
+        ok, fid, err = await sn.upload_file_to_slack(content=b"x", filename="f", channel_id="C")
         assert not ok and "HTTP 500" in err
 
     responses2 = [
@@ -549,20 +541,17 @@ async def test_upload_file_step2_and_step3_errors():
         patch.object(sn, "_get_slack_token", return_value="t"),
         patch.object(sn.httpx, "AsyncClient", return_value=fake2),
     ):
-        ok, fid, err = await sn.upload_file_to_slack(
-            content=b"x", filename="f", channel_id="C")
+        ok, fid, err = await sn.upload_file_to_slack(content=b"x", filename="f", channel_id="C")
         assert not ok and "bad_channel" in err
 
 
 @pytest.mark.asyncio
 async def test_upload_file_no_token_and_empty_content():
     with patch.object(sn, "_get_slack_token", return_value=""):
-        ok, fid, err = await sn.upload_file_to_slack(
-            content=b"x", filename="f", channel_id="C")
+        ok, fid, err = await sn.upload_file_to_slack(content=b"x", filename="f", channel_id="C")
         assert not ok and "needs SLACK_BOT_TOKEN" in err
     with patch.object(sn, "_get_slack_token", return_value="t"):
-        ok, fid, err = await sn.upload_file_to_slack(
-            content=b"", filename="f", channel_id="C")
+        ok, fid, err = await sn.upload_file_to_slack(content=b"", filename="f", channel_id="C")
         assert not ok and "empty" in err
 
 
@@ -582,8 +571,7 @@ async def test_upload_file_exception_soft():
         patch.object(sn, "_get_slack_token", return_value="t"),
         patch.object(sn.httpx, "AsyncClient", return_value=_Boom()),
     ):
-        ok, fid, err = await sn.upload_file_to_slack(
-            content=b"x", filename="f", channel_id="C")
+        ok, fid, err = await sn.upload_file_to_slack(content=b"x", filename="f", channel_id="C")
         assert not ok and "net down" in err
 
 
@@ -600,9 +588,7 @@ async def test_post_slack_text_connect_error_no_fallback():
         patch.object(sn.asyncio, "sleep", AsyncMock()),
     ):
         # webhook unreachable, no token/channel for fallback -> last_err
-        ok, err, _ = await sn._post_slack_text(
-            text="t", webhook_url="https://hooks/x", token="",
-            channel_id="", purpose="p")
+        ok, err, _ = await sn._post_slack_text(text="t", webhook_url="https://hooks/x", token="", channel_id="", purpose="p")
         assert not ok and "ConnectError" in err
 
 
@@ -610,8 +596,10 @@ async def test_post_slack_text_connect_error_no_fallback():
 async def test_billing_and_support_failure_warning_paths():
     settings = SimpleNamespace(
         SLACK_BILLING_WEBHOOK_URL="https://hooks/b",
-        SLACK_PADDLE_WEBHOOK_URL="", SLACK_BILLING_CHANNEL_ID="",
-        SLACK_PADDLE_CHANNEL_ID="", SLACK_BOT_TOKEN="",
+        SLACK_PADDLE_WEBHOOK_URL="",
+        SLACK_BILLING_CHANNEL_ID="",
+        SLACK_PADDLE_CHANNEL_ID="",
+        SLACK_BOT_TOKEN="",
         SLACK_ACCESS_TOKEN="",
         SLACK_SUPPORT_WEBHOOK_URL="https://hooks/s",
         SLACK_SUPPORT_CHANNEL_ID="",
@@ -657,11 +645,7 @@ class _Recording(_FakeAsyncClient):
 @pytest.mark.asyncio
 async def test_post_publishing_unconfigured_returns_without_calling():
     fake = _Recording(None)
-    with patch.object(
-        sn, "get_settings", return_value=_pub_settings(SLACK_BOT_TOKEN="")
-    ), patch.object(
-        sn.httpx, "AsyncClient", return_value=fake
-    ):
+    with patch.object(sn, "get_settings", return_value=_pub_settings(SLACK_BOT_TOKEN="")), patch.object(sn.httpx, "AsyncClient", return_value=fake):
         await sn.post_publishing_to_slack("published!")
     assert fake.calls == []  # no webhook, no channel → nothing attempted
 
@@ -669,11 +653,14 @@ async def test_post_publishing_unconfigured_returns_without_calling():
 @pytest.mark.asyncio
 async def test_post_publishing_webhook_dead_falls_back_to_bot_token():
     fake = _Recording(None)
-    with patch.object(
-        sn,
-        "get_settings",
-        return_value=_pub_settings(SLACK_PUBLISHING_WEBHOOK_URL="https://hooks/dead"),
-    ), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+    with (
+        patch.object(
+            sn,
+            "get_settings",
+            return_value=_pub_settings(SLACK_PUBLISHING_WEBHOOK_URL="https://hooks/dead"),
+        ),
+        patch.object(sn.httpx, "AsyncClient", return_value=fake),
+    ):
         await sn.post_publishing_to_slack("published!")
     urls = [c["url"] for c in fake.calls]
     assert urls[0].startswith("https://hooks")  # webhook tried first
@@ -685,11 +672,14 @@ async def test_post_publishing_webhook_dead_falls_back_to_bot_token():
 @pytest.mark.asyncio
 async def test_post_publishing_no_webhook_uses_token_and_dedicated_channel():
     fake = _Recording(None)
-    with patch.object(
-        sn,
-        "get_settings",
-        return_value=_pub_settings(SLACK_PUBLISHING_CHANNEL_ID="CPUB"),
-    ), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+    with (
+        patch.object(
+            sn,
+            "get_settings",
+            return_value=_pub_settings(SLACK_PUBLISHING_CHANNEL_ID="CPUB"),
+        ),
+        patch.object(sn.httpx, "AsyncClient", return_value=fake),
+    ):
         await sn.post_publishing_to_slack("published!")
     assert len(fake.calls) == 1
     assert fake.calls[0]["url"].endswith("chat.postMessage")
@@ -699,18 +689,21 @@ async def test_post_publishing_no_webhook_uses_token_and_dedicated_channel():
 @pytest.mark.asyncio
 async def test_post_telegram_to_slack_dedicated_channel_wins():
     fake = _Recording(None)
-    with patch.object(
-        sn,
-        "get_settings",
-        return_value=SimpleNamespace(
-            SLACK_TELEGRAM_WEBHOOK_URL="",
-            SLACK_TELEGRAM_CHANNEL_ID="CTG",
-            SLACK_WEBHOOK_URL="https://hooks/main",
-            SLACK_CHANNEL_ID="CMAIN",
-            SLACK_BOT_TOKEN="xoxb-test",
-            SLACK_ACCESS_TOKEN="",
+    with (
+        patch.object(
+            sn,
+            "get_settings",
+            return_value=SimpleNamespace(
+                SLACK_TELEGRAM_WEBHOOK_URL="",
+                SLACK_TELEGRAM_CHANNEL_ID="CTG",
+                SLACK_WEBHOOK_URL="https://hooks/main",
+                SLACK_CHANNEL_ID="CMAIN",
+                SLACK_BOT_TOKEN="xoxb-test",
+                SLACK_ACCESS_TOKEN="",
+            ),
         ),
-    ), patch.object(sn.httpx, "AsyncClient", return_value=fake):
+        patch.object(sn.httpx, "AsyncClient", return_value=fake),
+    ):
         ok, err = await sn.post_telegram_to_slack("tg event")
     assert ok and err is None
     assert fake.calls[0]["url"].startswith("https://hooks")  # webhook tried first

@@ -20,9 +20,7 @@ class QueueStatus(enum.StrEnum):
 
 class PublishQueue(Base):
     __tablename__ = "publish_queue"
-    __table_args__ = (
-        Index("ix_publish_queue_scheduled_status", "scheduled_at", "status"),
-    )
+    __table_args__ = (Index("ix_publish_queue_scheduled_status", "scheduled_at", "status"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     post_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("posts.id", ondelete="CASCADE"), nullable=False, index=True)

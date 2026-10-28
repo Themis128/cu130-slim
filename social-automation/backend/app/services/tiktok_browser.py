@@ -126,10 +126,14 @@ class TikTokBrowserService:
 
     async def set_session(self, session_id: str, user_id: str | None = None) -> dict[str, Any]:
         """Inject the TikTok session cookie into the browser and verify it."""
-        return await self._request("POST", "/session", {
-            "session_id": session_id,
-            "user_id": user_id,
-        })
+        return await self._request(
+            "POST",
+            "/session",
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+            },
+        )
 
     async def check_session(self) -> dict[str, Any]:
         """Check if the current browser session is still alive."""
@@ -156,10 +160,14 @@ class TikTokBrowserService:
         potential_connections: str | None = None,
         others: str | None = None,
     ) -> dict[str, Any]:
-        return await self._request("POST", "/privacy/direct-messages", {
-            "potential_connections": potential_connections,
-            "others": others,
-        })
+        return await self._request(
+            "POST",
+            "/privacy/direct-messages",
+            {
+                "potential_connections": potential_connections,
+                "others": others,
+            },
+        )
 
     # ── Notifications ────────────────────────────────────────────────────
 
@@ -173,12 +181,16 @@ class TikTokBrowserService:
         new_followers: bool | None = None,
         mentions_and_tags: bool | None = None,
     ) -> dict[str, Any]:
-        return await self._request("POST", "/notifications/interactions", {
-            "likes": likes,
-            "comments": comments,
-            "new_followers": new_followers,
-            "mentions_and_tags": mentions_and_tags,
-        })
+        return await self._request(
+            "POST",
+            "/notifications/interactions",
+            {
+                "likes": likes,
+                "comments": comments,
+                "new_followers": new_followers,
+                "mentions_and_tags": mentions_and_tags,
+            },
+        )
 
     # ── Ads ──────────────────────────────────────────────────────────────
 
@@ -201,14 +213,18 @@ class TikTokBrowserService:
         industry: str | None = None,
         business_license_number: str | None = None,
     ) -> dict[str, Any]:
-        return await self._request("POST", "/business-verification/fill", {
-            "company_name": company_name,
-            "website": website,
-            "country": country,
-            "address": address,
-            "industry": industry,
-            "business_license_number": business_license_number,
-        })
+        return await self._request(
+            "POST",
+            "/business-verification/fill",
+            {
+                "company_name": company_name,
+                "website": website,
+                "country": country,
+                "address": address,
+                "industry": industry,
+                "business_license_number": business_license_number,
+            },
+        )
 
     async def get_business_verification_status(self) -> dict[str, Any]:
         return await self._request("GET", "/business-verification/status")

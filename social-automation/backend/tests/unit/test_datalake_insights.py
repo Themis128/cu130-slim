@@ -1,4 +1,5 @@
 """Coverage: app.services.datalake_insights pure compute/pick/render fns."""
+
 from datetime import UTC, datetime, timedelta
 
 import app.services.datalake_insights as D
@@ -6,15 +7,11 @@ import app.services.datalake_insights as D
 
 def test_survey_signals_full():
     responses = [
-        {"email": "A@x.com", "answers": {
-            "audit_interest": "Yes",
-            "worth_per_month": "500",
-            "hesitate_why": "too pricey",
-            "embarrass": "manual server maintenance overhead"}},
-        {"email": "b@y.com", "answers": {
-            "audit_interest": "No",
-            "worth_per_month": "900",
-            "sell_online_barrier": "shipping logistics problems"}},
+        {
+            "email": "A@x.com",
+            "answers": {"audit_interest": "Yes", "worth_per_month": "500", "hesitate_why": "too pricey", "embarrass": "manual server maintenance overhead"},
+        },
+        {"email": "b@y.com", "answers": {"audit_interest": "No", "worth_per_month": "900", "sell_online_barrier": "shipping logistics problems"}},
     ]
     out = D.compute_survey_signals(responses)
     assert out["responses"] == 2
@@ -106,8 +103,7 @@ def test_pick_actions_branches():
     signals = {
         "best_converting": "linkedin",
         "lead_sources": [("linkedin", 7)],
-        "ad_campaigns": {"c1": {"spend": 100.0, "leads": 2, "cpl": 50.0},
-                         "c2": {"spend": 10.0, "leads": 5, "cpl": 2.0}},
+        "ad_campaigns": {"c1": {"spend": 100.0, "leads": 2, "cpl": 50.0}, "c2": {"spend": 10.0, "leads": 5, "cpl": 2.0}},
         "growth": {"threads": {"gate": {"gap": 50, "eta_days": 10}}},
         "platform_engagement": {"tiktok": 0.08, "x": 0.01},
         "email_funnel": {"survey": {"sent": 10, "open_rate": 0.1}},
@@ -118,21 +114,30 @@ def test_pick_actions_branches():
     }
     acts = D.pick_actions(signals)
     types = {a["type"] for a in acts}
-    assert {"platform_focus", "lead_source", "ad_efficiency", "monetization_eta",
-            "engagement_high", "email_deliverability", "content_topic",
-            "audit_escalation", "price_signal", "objection_copy"} <= types
+    assert {
+        "platform_focus",
+        "lead_source",
+        "ad_efficiency",
+        "monetization_eta",
+        "engagement_high",
+        "email_deliverability",
+        "content_topic",
+        "audit_escalation",
+        "price_signal",
+        "objection_copy",
+    } <= types
     assert all("reason" in a for a in acts)
 
 
 def test_render_slack_lines():
     signals = {
-        "responses": 2, "lead_volume_30d": 5,
+        "responses": 2,
+        "lead_volume_30d": 5,
         "best_converting": "linkedin",
         "platform_funnels": {"linkedin": {"views": 9, "leads": 3}},
         "lead_sources": [("linkedin", 5)],
         "ad_campaigns": {"c1": {"spend": 40.0, "leads": 2, "cpl": 20.0}},
-        "growth": {"threads": {"followers": 100, "per_week": 7.0,
-                               "gate": {"gap": 50, "eta_days": 10}}},
+        "growth": {"threads": {"followers": 100, "per_week": 7.0, "gate": {"gap": 50, "eta_days": 10}}},
         "platform_engagement": {"tiktok": 0.1},
         "email_funnel": {"survey": {"sent": 10, "open_rate": 0.4, "responses": 1}},
     }

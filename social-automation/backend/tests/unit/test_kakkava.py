@@ -5,6 +5,7 @@ No network, no database: Chroma HTTP calls and the embedding chain are
 monkeypatched at the module boundary; PDF extraction exercises a real
 PyMuPDF-written document.
 """
+
 import hashlib
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -56,8 +57,7 @@ def test_extract_text_md(tmp_path: Path):
 def test_extract_text_html_strips_scripts(tmp_path: Path):
     p = tmp_path / "page.html"
     p.write_text(
-        "<html><head><script>var x=1;</script></head>"
-        "<body><p>Hello doctrine</p></body></html>",
+        "<html><head><script>var x=1;</script></head><body><p>Hello doctrine</p></body></html>",
         encoding="utf-8",
     )
     out = kakkava.extract_text(p)

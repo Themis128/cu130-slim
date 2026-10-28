@@ -15,6 +15,7 @@ Covers:
 
 Reuses the fakes from the existing analytics suites. There is no
 network and no DB."""
+
 from __future__ import annotations
 
 import uuid
@@ -68,10 +69,15 @@ async def test_facebook_personal_sidecar_without_followers(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("http")
 async def test_threads_skips_metric_row_with_empty_values():
-    _HTTP.response = _Resp(200, {"data": [
-        {"name": "followers_count", "values": []},
-        {"name": "followers_count", "total_value": {"value": 5}},
-    ]})
+    _HTTP.response = _Resp(
+        200,
+        {
+            "data": [
+                {"name": "followers_count", "values": []},
+                {"name": "followers_count", "total_value": {"value": 5}},
+            ]
+        },
+    )
     assert await A._threads_follower_count(_account("threads")) == 5
 
 
@@ -123,8 +129,9 @@ async def test_platform_metrics_counts_draft_only_in_total(request):
 @pytest.mark.asyncio
 async def test_export_csv_with_no_rows_is_empty(request):
     team = request.getfixturevalue("_with_team")
-    out = await A.export_report(team.id, format="csv", days=30, platform=None, account_id=None, post_id=None,
-                                start_date=None, end_date=None, db=_DB([]), current_user=_USER)
+    out = await A.export_report(
+        team.id, format="csv", days=30, platform=None, account_id=None, post_id=None, start_date=None, end_date=None, db=_DB([]), current_user=_USER
+    )
     assert out.media_type == "text/csv" and out.body == b""
 
 
@@ -134,14 +141,13 @@ async def test_bot_summary_other_guardrail_zero_latency_and_dayless_rows(request
     acct = uuid.uuid4()
     day = datetime.now(UTC)
     rows = [
-        SimpleNamespace(provider="cf", language="english", guardrail="profanity", success="true", latency_ms=0,
-                        social_account_id=acct, day=None, reply_count=2),
-        SimpleNamespace(provider="cf", language="english", guardrail="", success="true", latency_ms=50,
-                        social_account_id=acct, day=day, reply_count=1),
+        SimpleNamespace(
+            provider="cf", language="english", guardrail="profanity", success="true", latency_ms=0, social_account_id=acct, day=None, reply_count=2
+        ),
+        SimpleNamespace(provider="cf", language="english", guardrail="", success="true", latency_ms=50, social_account_id=acct, day=day, reply_count=1),
     ]
     out = await A.get_bot_analytics_summary(team.id, days=30, db=_DB(rows), current_user=_USER)
     assert out.guardrail_triggers == 2 and out.pricing_guardrail_triggers == 0
     assert out.avg_latency_ms == 50  # zero-latency rows don't drag the mean
     assert len(out.by_account) == 1 and out.by_account[0]["replies"] == 3
     assert len(out.by_day) == 1 and out.by_day[0]["replies"] == 1
-

@@ -336,9 +336,11 @@ async def test_analyze_settings_failure_falls_back(monkeypatch):
 
     monkeypatch.setattr(cfg, "get_settings", Mock(side_effect=RuntimeError("no env")))
     calls = []
+
     async def _inf(prompt, provider_name, schema, **kw):
         calls.append((provider_name, kw))
         return {"response": {"ok": True}} if provider_name == "dmr" else (_ for _ in ()).throw(RuntimeError("cf"))
+
     monkeypatch.setattr(B, "call_inference", _inf)
     out = await B._analyze_website_content("site copy", "x", None)
     assert out == {"ok": True}

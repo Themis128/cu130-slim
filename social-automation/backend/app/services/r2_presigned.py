@@ -4,6 +4,7 @@ SigV4 presigning is done in-process via app.services.s3_sigv4 (pure stdlib,
 no AWS SDK). Objects can still be uploaded server-side via r2_storage.py
 using the Cloudflare REST API when the S3 credentials are not configured.
 """
+
 from __future__ import annotations
 
 import uuid

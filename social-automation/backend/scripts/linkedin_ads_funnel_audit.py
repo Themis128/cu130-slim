@@ -89,25 +89,14 @@ async def _campaigns_and_credit() -> dict:
         for c in (m.raw.get("campaigns") or [])
     ]
     if not campaigns and m.campaign_id:
-        campaigns.append(
-            {"id": m.campaign_id, "name": m.campaign_name,
-             "status": m.status, "budget_eur": m.budget_eur}
-        )
+        campaigns.append({"id": m.campaign_id, "name": m.campaign_name, "status": m.status, "budget_eur": m.budget_eur})
     credit = get_settings().LINKEDIN_ADS_CREDIT_EUR
     # Worst-case exposure: spend so far + remaining cap of every campaign
     # that could still deliver (active/paused/draft) — the truth ladder from
     # linkedin-ads-ops. spend_by_campaign is per-campaign from adAnalytics.
-    resumable_cap = sum(
-        c["budget"] or 0.0
-        for c in (m.raw.get("campaigns") or [])
-        if c["status"] in ("active", "paused", "draft")
-    )
+    resumable_cap = sum(c["budget"] or 0.0 for c in (m.raw.get("campaigns") or []) if c["status"] in ("active", "paused", "draft"))
     spent_by_campaign = m.raw.get("spend_by_campaign") or {}
-    resumable_spent = sum(
-        spent_by_campaign.get(c["id"], 0.0)
-        for c in (m.raw.get("campaigns") or [])
-        if c["status"] in ("active", "paused", "draft")
-    )
+    resumable_spent = sum(spent_by_campaign.get(c["id"], 0.0) for c in (m.raw.get("campaigns") or []) if c["status"] in ("active", "paused", "draft"))
     worst_case = m.account_spend_eur - resumable_spent + resumable_cap
     return {
         "campaigns": campaigns,
@@ -134,12 +123,7 @@ async def _format_diversity() -> dict:
                 )
             )
         ).all()
-    return {
-        "campaigns_seen": [
-            {"id": r.campaign_id, "name": r.campaign_name, "status": r.status}
-            for r in rows
-        ]
-    }
+    return {"campaigns_seen": [{"id": r.campaign_id, "name": r.campaign_name, "status": r.status} for r in rows]}
 
 
 async def _leadgen_and_conversions(token_note: dict) -> dict:
@@ -161,12 +145,8 @@ async def _leadgen_and_conversions(token_note: dict) -> dict:
     h = _linkedin_headers(token)
     async with httpx.AsyncClient(timeout=30.0) as client:
         for key, url in (
-            ("lead_forms",
-             f"https://api.linkedin.com/rest/leadForms?q=owner"
-             f"&owner=(sponsoredAccount:{_AD_URN})&count=10"),
-            ("conversions",
-             f"https://api.linkedin.com/rest/conversions?q=account"
-             f"&accounts=List({_AD_URN})&count=10"),
+            ("lead_forms", f"https://api.linkedin.com/rest/leadForms?q=owner&owner=(sponsoredAccount:{_AD_URN})&count=10"),
+            ("conversions", f"https://api.linkedin.com/rest/conversions?q=account&accounts=List({_AD_URN})&count=10"),
         ):
             try:
                 r = await client.get(url, headers=h)
@@ -174,10 +154,7 @@ async def _leadgen_and_conversions(token_note: dict) -> dict:
                     n = len((r.json() or {}).get("elements") or [])
                     out[key] = f"reachable — {n} configured"
                 elif r.status_code in (400, 403, 404):
-                    out[key] = (
-                        f"unreachable via r_ads token (HTTP {r.status_code})"
-                        " — needs leadgen/conversions scope or CM check"
-                    )
+                    out[key] = f"unreachable via r_ads token (HTTP {r.status_code}) — needs leadgen/conversions scope or CM check"
                 else:
                     out[key] = f"probe failed (HTTP {r.status_code})"
             except Exception as exc:  # noqa: BLE001
@@ -196,7 +173,8 @@ async def _espo_paid_leads() -> dict:
     async def _count(attr: str, value: str) -> int | None:
         try:
             rows = await espo.list_all(
-                "Lead", select=["id"],
+                "Lead",
+                select=["id"],
                 where=[{"type": "equals", "attribute": attr, "value": value}],
             )
             return len(rows)
@@ -211,19 +189,12 @@ async def _espo_paid_leads() -> dict:
 
 async def _paid_events() -> int | None:
     async with async_session_maker() as db:
-        return await db.scalar(
-            text(
-                "SELECT count(*) FROM web_analytics_events"
-                " WHERE payload->>'utm_medium' = 'paid'"
-            )
-        )
+        return await db.scalar(text("SELECT count(*) FROM web_analytics_events WHERE payload->>'utm_medium' = 'paid'"))
 
 
 async def _insight_tag() -> str:
     try:
-        async with httpx.AsyncClient(
-            timeout=15.0, follow_redirects=True
-        ) as client:
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
             r = await client.get(_SITE)
         if r.status_code != 200:
             return f"unchecked — {_SITE} HTTP {r.status_code}"
@@ -234,53 +205,40 @@ async def _insight_tag() -> str:
 
 async def _document_stock() -> int | None:
     async with async_session_maker() as db:
-        return await db.scalar(
-            text("SELECT count(*) FROM media_assets WHERE mime_type='application/pdf'")
-        )
+        return await db.scalar(text("SELECT count(*) FROM media_assets WHERE mime_type='application/pdf'"))
 
 
 async def audit() -> dict:
     ads, formats, surfaces, espo, paid_events, tag, pdfs = await asyncio.gather(
-        _campaigns_and_credit(), _format_diversity(), _leadgen_and_conversions({}),
-        _espo_paid_leads(), _paid_events(), _insight_tag(), _document_stock(),
+        _campaigns_and_credit(),
+        _format_diversity(),
+        _leadgen_and_conversions({}),
+        _espo_paid_leads(),
+        _paid_events(),
+        _insight_tag(),
+        _document_stock(),
     )
 
     # Format diversification: distinct name-suffix hints across all campaigns
     # ever seen (API inventory + snapshot history).
-    names = [c["name"] for c in ads.get("campaigns", [])] + [
-        c["name"] for c in formats["campaigns_seen"]
-    ]
-    formats_seen = {
-        (n.rsplit("—", 1)[-1].strip().lower() if "—" in n else "unspecified")
-        for n in names
-    }
+    names = [c["name"] for c in ads.get("campaigns", [])] + [c["name"] for c in formats["campaigns_seen"]]
+    formats_seen = {(n.rsplit("—", 1)[-1].strip().lower() if "—" in n else "unspecified") for n in names}
 
     gaps = []
     if ads.get("api_error"):
         gaps.append(f"ads API metrics failed (sidecar fallback): {ads['api_error'][:120]}")
     credit, worst = ads.get("credit_eur"), ads.get("worst_case_eur")
     if credit and worst is not None and worst > credit:
-        gaps.append(
-            f"CARD AT RISK — worst-case exposure €{worst:.2f} exceeds promo credit €{credit:.2f}"
-        )
+        gaps.append(f"CARD AT RISK — worst-case exposure €{worst:.2f} exceeds promo credit €{credit:.2f}")
     if isinstance(espo.get("leads_utm_medium_paid"), int) and espo["leads_utm_medium_paid"] == 0:
-        gaps.append(
-            "zero paid leads in EspoCRM — Dark Horse's 'leads flow into "
-            "nurture' loop has never produced a record"
-        )
+        gaps.append("zero paid leads in EspoCRM — Dark Horse's 'leads flow into nurture' loop has never produced a record")
     if paid_events == 0:
         gaps.append("zero utm_medium=paid site events — paid→site attribution never landed")
     if tag.startswith("absent"):
-        gaps.append(
-            "no LinkedIn Insight Tag on cloudless.gr — Connectd's measurement "
-            "foundation is missing; ad→lead conversion is invisible to LinkedIn"
-        )
+        gaps.append("no LinkedIn Insight Tag on cloudless.gr — Connectd's measurement foundation is missing; ad→lead conversion is invisible to LinkedIn")
     active = [c for c in ads.get("campaigns", []) if c["status"] in ("active", "paused")]
     if active and len(formats_seen) < 2:
-        gaps.append(
-            f"single-format ads ({', '.join(sorted(formats_seen))}) — Connectd's "
-            "fix was format diversification (Document / Thought Leader / boosted)"
-        )
+        gaps.append(f"single-format ads ({', '.join(sorted(formats_seen))}) — Connectd's fix was format diversification (Document / Thought Leader / boosted)")
 
     return {
         "generated_at": datetime.now(UTC).isoformat(),
@@ -293,10 +251,7 @@ async def audit() -> dict:
             "worst_case_eur": ads.get("worst_case_eur"),
         },
         "capture_surfaces": surfaces,
-        "ab_rotation": (
-            "unmeasurable via API — creatives endpoints unreachable with r_ads "
-            "token; verify ≥2 creatives per active campaign in Campaign Manager"
-        ),
+        "ab_rotation": ("unmeasurable via API — creatives endpoints unreachable with r_ads token; verify ≥2 creatives per active campaign in Campaign Manager"),
         "funnel": {
             "espo_paid_leads": espo.get("leads_utm_medium_paid"),
             "espo_linkedin_leads": espo.get("leads_utm_source_linkedin"),
@@ -320,8 +275,7 @@ def render(r: dict) -> str:
     cr = r["credit"]
     lines += [
         "",
-        f"credit €{cr['credit_eur']} · spend €{cr['account_spend_eur']}"
-        f" · worst-case €{cr['worst_case_eur']}",
+        f"credit €{cr['credit_eur']} · spend €{cr['account_spend_eur']} · worst-case €{cr['worst_case_eur']}",
         f"formats seen : {', '.join(r['formats_seen']) or '—'}",
         f"lead gen     : {r['capture_surfaces']['lead_forms']}",
         f"conversions  : {r['capture_surfaces']['conversions']}",

@@ -11,6 +11,7 @@ handle, and ``meta_data.pds_url`` the PDS (defaults to bsky.social).
 - ``GET /{account_id}/status`` — live session + profile check
 - ``DELETE /{account_id}`` handled by the generic accounts router
 """
+
 from __future__ import annotations
 
 import uuid

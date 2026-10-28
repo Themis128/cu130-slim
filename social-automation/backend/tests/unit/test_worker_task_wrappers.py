@@ -23,7 +23,7 @@ class _Ctx:
 
 
 def _factory(db):
-    return lambda: (lambda: _Ctx(db))
+    return lambda: lambda: _Ctx(db)
 
 
 class _ExecDB:

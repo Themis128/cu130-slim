@@ -83,15 +83,17 @@ async def test_chunked_upload_initialize_append_finalize_status(monkeypatch):
 
     monkeypatch.setattr(api.asyncio, "sleep", _sleep)
     mid = "1880028106020515840"
-    fake = _Client([
-        _Resp(200, {"data": {"id": mid, "expires_after_secs": 86400}}),
-        _Resp(204, ""),
-        _Resp(204, ""),
-        _Resp(204, ""),
-        _Resp(200, {"data": {"id": mid, "processing_info": {"state": "pending", "check_after_secs": 2}}}),
-        _Resp(200, {"data": {"id": mid, "processing_info": {"state": "in_progress", "check_after_secs": 1}}}),
-        _Resp(200, {"data": {"id": mid, "processing_info": {"state": "succeeded"}}}),
-    ])
+    fake = _Client(
+        [
+            _Resp(200, {"data": {"id": mid, "expires_after_secs": 86400}}),
+            _Resp(204, ""),
+            _Resp(204, ""),
+            _Resp(204, ""),
+            _Resp(200, {"data": {"id": mid, "processing_info": {"state": "pending", "check_after_secs": 2}}}),
+            _Resp(200, {"data": {"id": mid, "processing_info": {"state": "in_progress", "check_after_secs": 1}}}),
+            _Resp(200, {"data": {"id": mid, "processing_info": {"state": "succeeded"}}}),
+        ]
+    )
     data = b"x" * 10
     with _patched(fake):
         out = await api.TwitterAPIClient("tok").upload_media_chunked(data, "video/mp4", "tweet_video", chunk_size=4)
@@ -114,11 +116,13 @@ async def test_chunked_upload_initialize_append_finalize_status(monkeypatch):
 async def test_chunked_upload_processing_failure_raises(monkeypatch):
     monkeypatch.setattr(api.asyncio, "sleep", AsyncMock())
     mid = "123"
-    fake = _Client([
-        _Resp(200, {"data": {"id": mid}}),
-        _Resp(204, ""),
-        _Resp(200, {"data": {"id": mid, "processing_info": {"state": "failed", "error": {"message": "InvalidMedia"}}}}),
-    ])
+    fake = _Client(
+        [
+            _Resp(200, {"data": {"id": mid}}),
+            _Resp(204, ""),
+            _Resp(200, {"data": {"id": mid, "processing_info": {"state": "failed", "error": {"message": "InvalidMedia"}}}}),
+        ]
+    )
     with _patched(fake), pytest.raises(api.TwitterAPIError) as exc:
         await api.TwitterAPIClient("tok").upload_media_chunked(b"gif", "image/gif", "tweet_gif")
     assert "InvalidMedia" in str(exc.value)
@@ -243,7 +247,10 @@ async def test_alt_text_failure_does_not_fail_upload(tmp_path, monkeypatch):
 
     monkeypatch.setattr(_MediaClient, "__init__", init)
     mid = await pub._twitter_upload_media(
-        _file(tmp_path, "a.jpg"), access_token="t", account=SimpleNamespace(scopes=["media.write"]), alt_text="x",
+        _file(tmp_path, "a.jpg"),
+        access_token="t",
+        account=SimpleNamespace(scopes=["media.write"]),
+        alt_text="x",
     )
     assert mid == "11"
 
@@ -252,9 +259,7 @@ async def test_alt_text_failure_does_not_fail_upload(tmp_path, monkeypatch):
 async def test_media_upload_401_refreshes_token_once(tmp_path, monkeypatch):
     from app.services import x_web
 
-    jpeg = (
-        b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
-    )
+    jpeg = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
     img = _file(tmp_path, "a.jpg", jpeg)
     monkeypatch.setattr(x_web, "plan_media", lambda paths: x_web.MediaPlan(kind="images", paths=paths))
     monkeypatch.setattr(x_web, "prepare_media", lambda plan, d: list(plan.paths))

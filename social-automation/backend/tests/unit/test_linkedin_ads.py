@@ -1,4 +1,5 @@
 """Coverage: app.services.linkedin_ads + research_workspace pure helpers."""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,6 +16,7 @@ class _R:
     def raise_for_status(self):
         if self.status_code >= 400:
             import httpx
+
             raise httpx.HTTPStatusError("e", request=None, response=None)
 
 
@@ -49,6 +51,7 @@ def _patch(monkeypatch, mod, responses, token="tok"):
 @pytest.mark.asyncio
 async def test_ad_accounts(monkeypatch):
     import app.services.linkedin_ads as L
+
     _patch(monkeypatch, L, [_R(200, {"elements": [{"id": 1, "name": "Acct"}]})])
     db = _db_with_account(MagicMock(access_token_enc="enc"))
     out = await L.ad_accounts(db)
@@ -58,6 +61,7 @@ async def test_ad_accounts(monkeypatch):
 @pytest.mark.asyncio
 async def test_ad_accounts_scoped_team(monkeypatch):
     import app.services.linkedin_ads as L
+
     _patch(monkeypatch, L, [_R(200, {"elements": []})])
     db = _db_with_account(MagicMock(access_token_enc="enc"))
     out = await L.ad_accounts(db, team_id="t1")
@@ -67,6 +71,7 @@ async def test_ad_accounts_scoped_team(monkeypatch):
 @pytest.mark.asyncio
 async def test_campaigns(monkeypatch):
     import app.services.linkedin_ads as L
+
     _patch(monkeypatch, L, [_R(200, {"elements": [{"id": 9, "name": "C", "status": "ACTIVE"}]})])
     db = _db_with_account(MagicMock(access_token_enc="enc"))
     out = await L.campaigns(db, "urn:li:sponsoredAccount:1")
@@ -76,6 +81,7 @@ async def test_campaigns(monkeypatch):
 @pytest.mark.asyncio
 async def test_snapshot_empty(monkeypatch):
     import app.services.linkedin_ads as L
+
     _patch(monkeypatch, L, [_R(200, {"elements": []})])
     db = _db_with_account(MagicMock(access_token_enc="enc"))
     assert await L.snapshot(db) == {"accounts": 0}
@@ -84,10 +90,15 @@ async def test_snapshot_empty(monkeypatch):
 @pytest.mark.asyncio
 async def test_snapshot_with_campaigns_stamps_meta(monkeypatch):
     import app.services.linkedin_ads as L
-    _patch(monkeypatch, L, [
-        _R(200, {"elements": [{"id": 1, "urn": "urn:li:sponsoredAccount:1", "name": "Acct"}]}),
-        _R(200, {"elements": [{"id": 2, "name": "Camp", "status": "ACTIVE"}]}),
-    ])
+
+    _patch(
+        monkeypatch,
+        L,
+        [
+            _R(200, {"elements": [{"id": 1, "urn": "urn:li:sponsoredAccount:1", "name": "Acct"}]}),
+            _R(200, {"elements": [{"id": 2, "name": "Camp", "status": "ACTIVE"}]}),
+        ],
+    )
     acc = MagicMock(access_token_enc="enc", meta_data={})
     db = _db_with_account(acc)
     out = await L.snapshot(db)
@@ -98,6 +109,7 @@ async def test_snapshot_with_campaigns_stamps_meta(monkeypatch):
 @pytest.mark.asyncio
 async def test_lead_gen_forms(monkeypatch):
     import app.services.linkedin_ads as L
+
     _patch(monkeypatch, L, [_R(200, {"elements": [{"id": "f1"}]})])
     db = _db_with_account(MagicMock(access_token_enc="enc"))
     assert (await L.lead_gen_forms(db, "urn:x"))[0]["id"] == "f1"
@@ -106,6 +118,7 @@ async def test_lead_gen_forms(monkeypatch):
 @pytest.mark.asyncio
 async def test_lead_form_responses_ok_and_non200(monkeypatch):
     import app.services.linkedin_ads as L
+
     _patch(monkeypatch, L, [_R(200, {"elements": [{"lead": 1}]}), _R(400, {})])
     db = _db_with_account(MagicMock(access_token_enc="enc"))
     assert (await L.lead_form_responses(db, "u"))[0]["lead"] == 1
@@ -114,6 +127,7 @@ async def test_lead_form_responses_ok_and_non200(monkeypatch):
 
 def test_chunks_overlap_and_minlen():
     from app.services.research_workspace import _chunks
+
     text = "A sentence that is long enough to survive the forty char minimum cut. " * 40
     chunks = _chunks(text)
     assert len(chunks) > 1
@@ -122,17 +136,20 @@ def test_chunks_overlap_and_minlen():
 
 def test_chunks_empty():
     from app.services.research_workspace import _chunks
+
     assert _chunks("tiny") == []
 
 
 def test_extract_text():
     from app.services.research_workspace import _extract
+
     assert _extract("a.txt", b"hello") == "hello"
 
 
 def test_extract_pdf_bytes():
     """fitz.open on invalid bytes — check whether it raises or returns empty."""
     from app.services.research_workspace import _extract
+
     try:
         out = _extract("a.pdf", b"not-a-pdf")
     except Exception:

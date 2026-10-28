@@ -158,10 +158,15 @@ class _FakeClient:
     def __init__(self, **overrides):
         self.phone_number_id = overrides.pop("phone_number_id", "1334613883061552")
         for name, ret in (
-            ("get_phone_number_info", {
-                "display_phone_number": "+301234567890", "verified_name": "Cloudless",
-                "code_verification_status": "VERIFIED", "quality_rating": "GREEN",
-            }),
+            (
+                "get_phone_number_info",
+                {
+                    "display_phone_number": "+301234567890",
+                    "verified_name": "Cloudless",
+                    "code_verification_status": "VERIFIED",
+                    "quality_rating": "GREEN",
+                },
+            ),
             ("get_business_profile", {"about": "hi", "description": "desc", "websites": ["https://cloudless.gr"]}),
             ("update_business_profile", {"result": "success"}),
             ("create_phone_number", {"id": "new-pnid"}),
@@ -343,9 +348,7 @@ async def test_credentials_stores_encrypted(monkeypatch):
     db = _DB([acc])
     monkeypatch.setattr(whatsapp, "encrypt_token", lambda t: b"enc-token")
     _patch_client(monkeypatch)
-    body = WhatsAppCredentialsUpdate(
-        access_token="EAAnew", phone_number_id="pn1", waba_id="w1", subscribe_webhooks=False
-    )
+    body = WhatsAppCredentialsUpdate(access_token="EAAnew", phone_number_id="pn1", waba_id="w1", subscribe_webhooks=False)
     out = await update_whatsapp_credentials(acc.id, body, db, _user())
     assert out["credentials_stored"] is True
     assert acc.meta_data["access_token"] == "enc-token"
@@ -355,17 +358,19 @@ async def test_credentials_stores_encrypted(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_credentials_phone_change_wipes_code_state(monkeypatch):
-    acc = _wa_account(meta_data={
-        "access_token": "EAa", "phone_number_id": "old-pn",
-        "whatsapp_code_status": "sent", "whatsapp_rate_limited_at": "t",
-        "whatsapp_code_request_log": {"old-pn": 3},
-    })
+    acc = _wa_account(
+        meta_data={
+            "access_token": "EAa",
+            "phone_number_id": "old-pn",
+            "whatsapp_code_status": "sent",
+            "whatsapp_rate_limited_at": "t",
+            "whatsapp_code_request_log": {"old-pn": 3},
+        }
+    )
     db = _DB([acc])
     monkeypatch.setattr(whatsapp, "encrypt_token", lambda t: b"enc")
     _patch_client(monkeypatch)
-    body = WhatsAppCredentialsUpdate(
-        access_token="EAAnew", phone_number_id="new-pn", subscribe_webhooks=False
-    )
+    body = WhatsAppCredentialsUpdate(access_token="EAAnew", phone_number_id="new-pn", subscribe_webhooks=False)
     await update_whatsapp_credentials(acc.id, body, db, _user())
     assert "whatsapp_code_status" not in acc.meta_data
     assert "whatsapp_rate_limited_at" not in acc.meta_data
@@ -378,9 +383,7 @@ async def test_credentials_webhook_subscribe_failure_tolerated(monkeypatch):
     db = _DB([acc])
     monkeypatch.setattr(whatsapp, "encrypt_token", lambda t: b"enc")
     _patch_client(monkeypatch, _FakeClient(subscribe_app_to_waba=RuntimeError("boom")))
-    body = WhatsAppCredentialsUpdate(
-        access_token="EAAnew", phone_number_id="pn1", waba_id="w1", subscribe_webhooks=True
-    )
+    body = WhatsAppCredentialsUpdate(access_token="EAAnew", phone_number_id="pn1", waba_id="w1", subscribe_webhooks=True)
     out = await update_whatsapp_credentials(acc.id, body, db, _user())
     assert out["webhook_subscription"]["success"] is False
 
@@ -399,10 +402,14 @@ async def test_setup_status_no_credentials():
 
 @pytest.mark.asyncio
 async def test_setup_status_full(monkeypatch):
-    acc = _wa_account(meta_data={
-        "access_token": "EAa", "phone_number_id": "pn", "waba_id": "w1",
-        "whatsapp_setup": {"setup_complete": True},
-    })
+    acc = _wa_account(
+        meta_data={
+            "access_token": "EAa",
+            "phone_number_id": "pn",
+            "waba_id": "w1",
+            "whatsapp_setup": {"setup_complete": True},
+        }
+    )
     _patch_client(monkeypatch)
     out = await get_setup_status(acc.id, _DB([acc]), _user())
     assert out["phone_number_registered"] is True
@@ -414,10 +421,13 @@ async def test_setup_status_full(monkeypatch):
 @pytest.mark.asyncio
 async def test_setup_status_api_failures_tolerated(monkeypatch):
     acc = _wa_account()
-    _patch_client(monkeypatch, _FakeClient(
-        get_phone_number_info=RuntimeError("x"),
-        list_waba_subscriptions=RuntimeError("y"),
-    ))
+    _patch_client(
+        monkeypatch,
+        _FakeClient(
+            get_phone_number_info=RuntimeError("x"),
+            list_waba_subscriptions=RuntimeError("y"),
+        ),
+    )
     out = await get_setup_status(acc.id, _DB([acc]), _user())
     assert out["phone_number_registered"] is False
     assert out["webhook_subscribed"] is False
@@ -481,9 +491,7 @@ async def _reg_endpoint(fn, body):
 @pytest.mark.asyncio
 async def test_register_flow_400_no_account():
     with pytest.raises(HTTPException) as e:
-        await create_phone_number(
-            CreatePhoneNumberRequest(waba_id="w", cc="30", phone_number="123", verified_name="C"),
-            _DB([None]), _user())
+        await create_phone_number(CreatePhoneNumberRequest(waba_id="w", cc="30", phone_number="123", verified_name="C"), _DB([None]), _user())
     assert e.value.status_code == 400
 
 
@@ -491,9 +499,7 @@ async def test_register_flow_400_no_account():
 async def test_create_number_success(monkeypatch):
     acc = _wa_account()
     _patch_client(monkeypatch)
-    out = await create_phone_number(
-        CreatePhoneNumberRequest(waba_id="w", cc="30", phone_number="123", verified_name="C"),
-        _DB([acc]), _user())
+    out = await create_phone_number(CreatePhoneNumberRequest(waba_id="w", cc="30", phone_number="123", verified_name="C"), _DB([acc]), _user())
     assert out["id"] == "new-pnid"
 
 
@@ -502,9 +508,7 @@ async def test_create_number_502(monkeypatch):
     acc = _wa_account()
     _patch_client(monkeypatch, _FakeClient(create_phone_number=RuntimeError("x")))
     with pytest.raises(HTTPException) as e:
-        await create_phone_number(
-            CreatePhoneNumberRequest(waba_id="w", cc="30", phone_number="1", verified_name="C"),
-            _DB([acc]), _user())
+        await create_phone_number(CreatePhoneNumberRequest(waba_id="w", cc="30", phone_number="1", verified_name="C"), _DB([acc]), _user())
     assert e.value.status_code == 502
 
 
@@ -626,9 +630,7 @@ async def test_send_text_records_message(monkeypatch):
 async def test_send_image_dispatch(monkeypatch):
     acc = _wa_account()
     client = _patch_client(monkeypatch)
-    out = await send_message(
-        acc.id, SendMessageRequest(to="+30", image_url="https://x/img.jpg", caption="cap"),
-        _DB([acc]), _user())
+    out = await send_message(acc.id, SendMessageRequest(to="+30", image_url="https://x/img.jpg", caption="cap"), _DB([acc]), _user())
     client.send_image.assert_awaited_once()
     assert out["messages"][0]["id"] == "wamid.2"
 
@@ -637,9 +639,7 @@ async def test_send_image_dispatch(monkeypatch):
 async def test_send_document_dispatch(monkeypatch):
     acc = _wa_account()
     client = _patch_client(monkeypatch)
-    await send_message(
-        acc.id, SendMessageRequest(to="+30", document_url="https://x/d.pdf", filename="d.pdf"),
-        _DB([acc]), _user())
+    await send_message(acc.id, SendMessageRequest(to="+30", document_url="https://x/d.pdf", filename="d.pdf"), _DB([acc]), _user())
     client.send_document.assert_awaited_once()
 
 
@@ -657,8 +657,7 @@ async def test_send_template_success(monkeypatch):
     acc = _wa_account()
     db = _DB([acc])
     client = _patch_client(monkeypatch)
-    out = await send_template(
-        acc.id, SendTemplateRequest(to="+30", template_name="welcome"), db, _user())
+    out = await send_template(acc.id, SendTemplateRequest(to="+30", template_name="welcome"), db, _user())
     client.send_template.assert_awaited_once()
     assert out["messages"][0]["id"] == "wamid.4"
 
@@ -775,8 +774,7 @@ async def test_receive_webhook_no_secret_processes_events(monkeypatch):
     monkeypatch.setattr(whatsapp.settings, "FACEBOOK_APP_SECRET", "")
     monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
     events = [
-        {"phone_number_id": "pn", "sender_phone": "+30", "sender_name": "A",
-         "message_text": "hi", "message_type": "text", "message_id": "m1"},
+        {"phone_number_id": "pn", "sender_phone": "+30", "sender_name": "A", "message_text": "hi", "message_type": "text", "message_id": "m1"},
         {"phone_number_id": "pn", "message_type": "status", "status": "read", "message_id": "m2"},
     ]
     monkeypatch.setattr(whatsapp, "parse_webhook_event", lambda b: events)
@@ -796,19 +794,30 @@ def test_waba_events_wrong_object():
 
 
 def test_waba_events_messages_skipped():
-    body = {"object": "whatsapp_business_account", "entry": [{"id": "w", "changes": [
-        {"field": "messages", "value": {}},
-        {"field": "account_update", "value": {"event": "PARTNER_INSTALLED"}},
-    ]}]}
+    body = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "id": "w",
+                "changes": [
+                    {"field": "messages", "value": {}},
+                    {"field": "account_update", "value": {"event": "PARTNER_INSTALLED"}},
+                ],
+            }
+        ],
+    }
     assert _process_waba_level_events(body) == 1
 
 
 def test_waba_events_field_branches():
     changes = [
-        {"field": "account_update", "value": {
-            "event": "OFFICIAL_BUSINESS_ACCOUNT",
-            "ban_info": {"waba_ban_state": "SCHEDULE_FOR_DISABLE", "waba_ban_date": "d"},
-        }},
+        {
+            "field": "account_update",
+            "value": {
+                "event": "OFFICIAL_BUSINESS_ACCOUNT",
+                "ban_info": {"waba_ban_state": "SCHEDULE_FOR_DISABLE", "waba_ban_date": "d"},
+            },
+        },
         {"field": "account_review_update", "value": {"decision": "APPROVED"}},
         {"field": "account_alerts", "value": {"entity_type": "PHONE_NUMBER"}},
         {"field": "business_capability_update", "value": {"max_daily_conversations_per_phone_number": 250}},
@@ -830,8 +839,7 @@ def test_waba_events_field_branches():
 async def test_record_message_commits():
     acc = _wa_account()
     db = _DB()
-    await _record_message(db, acc, peer_phone="+30", direction="inbound",
-                          message_type="text", message_text="hi", message_id="w1")
+    await _record_message(db, acc, peer_phone="+30", direction="inbound", message_type="text", message_text="hi", message_id="w1")
     assert db.committed == 1
     assert len(db.executed) == 1
 
@@ -841,8 +849,7 @@ async def test_record_message_failure_tolerated():
     acc = _wa_account()
     db = _DB()
     db.fail_commit = True
-    await _record_message(db, acc, peer_phone="+30", direction="inbound",
-                          message_type="text", message_text="hi")
+    await _record_message(db, acc, peer_phone="+30", direction="inbound", message_type="text", message_text="hi")
     assert db.rolled_back == 1  # swallowed — non-fatal
 
 
@@ -865,10 +872,13 @@ async def test_process_inline_records_and_skips_when_disabled(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_process_inline_bot_reply_path(monkeypatch):
-    acc = _wa_account(meta_data={
-        "phone_number_id": "pn", "access_token": "EAa",
-        "whatsapp_auto_reply": {"enabled": True, "system_prompt": "s"},
-    })
+    acc = _wa_account(
+        meta_data={
+            "phone_number_id": "pn",
+            "access_token": "EAa",
+            "whatsapp_auto_reply": {"enabled": True, "system_prompt": "s"},
+        }
+    )
     db = _DB([acc])
     client = _patch_client(monkeypatch)
 
@@ -885,8 +895,7 @@ async def test_process_inline_bot_reply_path(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_process_inline_bot_skipped(monkeypatch):
-    acc = _wa_account(meta_data={"phone_number_id": "pn", "access_token": "EAa",
-                                 "whatsapp_auto_reply": {"enabled": True}})
+    acc = _wa_account(meta_data={"phone_number_id": "pn", "access_token": "EAa", "whatsapp_auto_reply": {"enabled": True}})
     db = _DB([acc])
     client = _patch_client(monkeypatch)
     mod = ModuleType("app.services.whatsapp_chatbot")
@@ -898,8 +907,7 @@ async def test_process_inline_bot_skipped(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_process_inline_bot_error_swallowed(monkeypatch):
-    acc = _wa_account(meta_data={"phone_number_id": "pn", "access_token": "EAa",
-                                 "whatsapp_auto_reply": {"enabled": True}})
+    acc = _wa_account(meta_data={"phone_number_id": "pn", "access_token": "EAa", "whatsapp_auto_reply": {"enabled": True}})
     db = _DB([acc])
     _patch_client(monkeypatch)
     mod = ModuleType("app.services.whatsapp_chatbot")
@@ -929,10 +937,7 @@ async def test_create_bot_custom_prompt_and_language(monkeypatch):
     db = _DB([acc])
     monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
     _patch_client(monkeypatch)
-    out = await create_bot(
-        acc.id,
-        BotCreateRequest(custom_prompt="You help {business_name} users.", language="el"),
-        _user(), db)
+    out = await create_bot(acc.id, BotCreateRequest(custom_prompt="You help {business_name} users.", language="el"), _user(), db)
     assert "Cloudless WA" in out["bot"]["system_prompt"]
     assert "Greek" in out["bot"]["system_prompt"]
 
@@ -978,10 +983,12 @@ async def test_activate_bot_400_no_bot(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_activate_and_deactivate_bot(monkeypatch):
-    acc = _wa_account(meta_data={
-        "whatsapp_bot": {"name": "B", "enabled": False},
-        "whatsapp_auto_reply": {"enabled": False},
-    })
+    acc = _wa_account(
+        meta_data={
+            "whatsapp_bot": {"name": "B", "enabled": False},
+            "whatsapp_auto_reply": {"enabled": False},
+        }
+    )
     monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
     db = _DB([acc])
     out = await activate_bot(acc.id, _user(), db)
@@ -1036,9 +1043,7 @@ async def test_thread_config_get_set(monkeypatch):
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
     out = await get_thread_config(acc.id, "+30", _user(), _DB([acc]))
     assert out["config"]["model"] == "m"
-    out = await set_thread_config(
-        acc.id, "+30", ThreadConfigRequest(phone="+30", model="x", max_tokens=10),
-        _user(), _DB([acc]))
+    out = await set_thread_config(acc.id, "+30", ThreadConfigRequest(phone="+30", model="x", max_tokens=10), _user(), _DB([acc]))
     assert out["config"] == {"model": "x", "max_tokens": 10}
     mod.set_thread_config.assert_awaited_once()
 
@@ -1074,9 +1079,9 @@ async def test_index_brand_no_brand(monkeypatch):
 @pytest.mark.asyncio
 async def test_index_brand_success(monkeypatch):
     acc = _wa_account()
-    brand = SimpleNamespace(name="Cloudless", tagline="t", positioning_statement="p",
-                            mission="m", industry="cloud", values=["v"],
-                            target_audience={}, competitor_names=[])
+    brand = SimpleNamespace(
+        name="Cloudless", tagline="t", positioning_statement="p", mission="m", industry="cloud", values=["v"], target_audience={}, competitor_names=[]
+    )
     mod = _chatbot_mod(index_brand_knowledge=7)
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
     out = await index_brand(acc.id, _user(), _DB([acc, brand]))
@@ -1142,9 +1147,7 @@ async def test_credentials_display_phone_stored(monkeypatch):
     db = _DB([acc])
     monkeypatch.setattr(whatsapp, "encrypt_token", lambda t: b"enc")
     _patch_client(monkeypatch)
-    body = WhatsAppCredentialsUpdate(
-        access_token="EAAnew", phone_number_id="pn1",
-        display_phone_number="+301111", subscribe_webhooks=False)
+    body = WhatsAppCredentialsUpdate(access_token="EAAnew", phone_number_id="pn1", display_phone_number="+301111", subscribe_webhooks=False)
     await update_whatsapp_credentials(acc.id, body, db, _user())
     assert acc.meta_data["display_phone_number"] == "+301111"
 
@@ -1152,8 +1155,7 @@ async def test_credentials_display_phone_stored(monkeypatch):
 @pytest.mark.asyncio
 async def test_get_profile_phone_info_failure_tolerated(monkeypatch):
     acc = _wa_account()
-    _patch_client(monkeypatch, _FakeClient(
-        get_phone_number_info=RuntimeError("down")))
+    _patch_client(monkeypatch, _FakeClient(get_phone_number_info=RuntimeError("down")))
     out = await get_whatsapp_profile(acc.id, _DB([acc]), _user())
     assert out.account_id == acc.id  # phone-info fetch failure tolerated
 
@@ -1161,51 +1163,38 @@ async def test_get_profile_phone_info_failure_tolerated(monkeypatch):
 @pytest.mark.asyncio
 async def test_global_account_endpoints_400_no_account():
     with pytest.raises(HTTPException) as e:
-        await request_verification_code(
-            RequestCodeRequest(phone_number_id="pn"), _DB(), _user())
+        await request_verification_code(RequestCodeRequest(phone_number_id="pn"), _DB(), _user())
     assert e.value.status_code == 400
     with pytest.raises(HTTPException):
-        await verify_phone_code(
-            VerifyCodeRequest(phone_number_id="pn", code="1"), _DB(), _user())
+        await verify_phone_code(VerifyCodeRequest(phone_number_id="pn", code="1"), _DB(), _user())
     with pytest.raises(HTTPException):
-        await register_phone_number(
-            RegisterNumberRequest(phone_number_id="pn", pin="1"),
-            _DB(), _user())
+        await register_phone_number(RegisterNumberRequest(phone_number_id="pn", pin="1"), _DB(), _user())
     with pytest.raises(HTTPException):
-        await deregister_phone_number(
-            DeregisterNumberRequest(phone_number_id="pn"), _DB(), _user())
+        await deregister_phone_number(DeregisterNumberRequest(phone_number_id="pn"), _DB(), _user())
     with pytest.raises(HTTPException):
-        await subscribe_app_to_waba(
-            WabaSubscriptionRequest(waba_id="w"), _DB(), _user())
+        await subscribe_app_to_waba(WabaSubscriptionRequest(waba_id="w"), _DB(), _user())
     with pytest.raises(HTTPException):
         await list_waba_subscriptions("w", _DB(), _user())
     with pytest.raises(HTTPException):
-        await unsubscribe_app_from_waba(
-            WabaSubscriptionRequest(waba_id="w"), _DB(), _user())
+        await unsubscribe_app_from_waba(WabaSubscriptionRequest(waba_id="w"), _DB(), _user())
 
 
 @pytest.mark.asyncio
 async def test_global_endpoints_502s(monkeypatch):
     acc = _wa_account()
-    _patch_client(monkeypatch, _FakeClient(
-        deregister_number=RuntimeError("x")))
+    _patch_client(monkeypatch, _FakeClient(deregister_number=RuntimeError("x")))
     with pytest.raises(HTTPException) as e:
-        await deregister_phone_number(
-            DeregisterNumberRequest(phone_number_id="pn"), _DB([acc]),
-            _user())
+        await deregister_phone_number(DeregisterNumberRequest(phone_number_id="pn"), _DB([acc]), _user())
     assert e.value.status_code == 502
 
-    _patch_client(monkeypatch, _FakeClient(
-        list_waba_subscriptions=RuntimeError("x")))
+    _patch_client(monkeypatch, _FakeClient(list_waba_subscriptions=RuntimeError("x")))
     with pytest.raises(HTTPException) as e:
         await list_waba_subscriptions("w", _DB([acc]), _user())
     assert e.value.status_code == 502
 
-    _patch_client(monkeypatch, _FakeClient(
-        unsubscribe_app_from_waba=RuntimeError("x")))
+    _patch_client(monkeypatch, _FakeClient(unsubscribe_app_from_waba=RuntimeError("x")))
     with pytest.raises(HTTPException) as e:
-        await unsubscribe_app_from_waba(
-            WabaSubscriptionRequest(waba_id="w"), _DB([acc]), _user())
+        await unsubscribe_app_from_waba(WabaSubscriptionRequest(waba_id="w"), _DB([acc]), _user())
     assert e.value.status_code == 502
 
 
@@ -1214,24 +1203,19 @@ async def test_receive_webhook_flow_parse_error_tolerated(monkeypatch):
     monkeypatch.setattr(whatsapp.settings, "FACEBOOK_APP_SECRET", "")
     monkeypatch.delenv("FACEBOOK_APP_SECRET", raising=False)
     monkeypatch.setattr(whatsapp, "parse_webhook_event", lambda b: [])
-    monkeypatch.setitem(sys.modules, "app.api.whatsapp_flows",
-                        ModuleType("app.api.whatsapp_flows"))
-    sys.modules["app.api.whatsapp_flows"].process_flow_responses = \
-        AsyncMock(side_effect=RuntimeError("parse boom"))
+    monkeypatch.setitem(sys.modules, "app.api.whatsapp_flows", ModuleType("app.api.whatsapp_flows"))
+    sys.modules["app.api.whatsapp_flows"].process_flow_responses = AsyncMock(side_effect=RuntimeError("parse boom"))
     out = await receive_webhook(_Req(b"{}"), _DB())
     assert out["status"] == "ok"
 
 
 @pytest.mark.asyncio
 async def test_process_inline_mark_read_failure_and_empty_reply(monkeypatch):
-    acc = _wa_account(meta_data={
-        "phone_number_id": "pn",
-        "whatsapp_auto_reply": {"enabled": True, "fallback_text": "fb"}})
+    acc = _wa_account(meta_data={"phone_number_id": "pn", "whatsapp_auto_reply": {"enabled": True, "fallback_text": "fb"}})
     db = _DB([acc])
 
     # mark_message_read raises → tolerated; bot returns empty reply → return
-    _patch_client(monkeypatch, _FakeClient(
-        mark_message_read=RuntimeError("x")))
+    _patch_client(monkeypatch, _FakeClient(mark_message_read=RuntimeError("x")))
     mod = _chatbot_mod(process_inbound_message={"reply": ""})
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
     await _process_inline(db, "pn", "+30", "A", "hi", "text", "m1")
@@ -1243,27 +1227,22 @@ async def test_create_bot_profile_failure_and_brand_index(monkeypatch):
     acc = _wa_account()
     db = _DB([acc])
     monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
-    _patch_client(monkeypatch, _FakeClient(
-        update_business_profile=RuntimeError("x")))
+    _patch_client(monkeypatch, _FakeClient(update_business_profile=RuntimeError("x")))
     mod = _chatbot_mod(index_brand_knowledge=0)
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
-    out = await create_bot(
-        acc.id, BotCreateRequest(personality="support"), _user(), db)
-    assert out["profile"] == {"result": "error",
-                            "detail": "profile update failed"}
+    out = await create_bot(acc.id, BotCreateRequest(personality="support"), _user(), db)
+    assert out["profile"] == {"result": "error", "detail": "profile update failed"}
 
     # brand found → indexed (1344-1354); index raising → tolerated (1355-1356)
     brand = SimpleNamespace(
-        name="Cloudless", tagline="t", positioning_statement="p",
-        mission="m", industry="cloud", values=["v"],
-        target_audience={}, competitor_names=["c"])
+        name="Cloudless", tagline="t", positioning_statement="p", mission="m", industry="cloud", values=["v"], target_audience={}, competitor_names=["c"]
+    )
     acc = _wa_account()
     db = _DB([acc, brand])
     _patch_client(monkeypatch)
     mod = _chatbot_mod(index_brand_knowledge=9)
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
-    out = await create_bot(
-        acc.id, BotCreateRequest(personality="support"), _user(), db)
+    out = await create_bot(acc.id, BotCreateRequest(personality="support"), _user(), db)
     assert out["brand_indexed"] == 9
 
     acc = _wa_account()
@@ -1272,23 +1251,19 @@ async def test_create_bot_profile_failure_and_brand_index(monkeypatch):
     mod = ModuleType("app.services.whatsapp_chatbot")
     mod.index_brand_knowledge = AsyncMock(side_effect=RuntimeError("x"))
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", mod)
-    out = await create_bot(
-        acc.id, BotCreateRequest(personality="support"), _user(), db)
+    out = await create_bot(acc.id, BotCreateRequest(personality="support"), _user(), db)
     assert out["brand_indexed"] == 0
 
 
 @pytest.mark.asyncio
 async def test_account_phone_endpoints_502(monkeypatch):
     acc = _wa_account()
-    _patch_client(monkeypatch, _FakeClient(
-        request_verification_code=RuntimeError("x")))
+    _patch_client(monkeypatch, _FakeClient(request_verification_code=RuntimeError("x")))
     with pytest.raises(HTTPException) as e:
-        await request_phone_code(acc.id, "SMS", "en_US", _user(),
-                                 _DB([acc]))
+        await request_phone_code(acc.id, "SMS", "en_US", _user(), _DB([acc]))
     assert e.value.status_code == 502
 
-    _patch_client(monkeypatch, _FakeClient(
-        register_number=RuntimeError("x")))
+    _patch_client(monkeypatch, _FakeClient(register_number=RuntimeError("x")))
     with pytest.raises(HTTPException) as e:
         await register_account_phone(acc.id, "123456", _user(), _DB([acc]))
     assert e.value.status_code == 502
@@ -1323,9 +1298,7 @@ def _chatbot_mod_with_redis(redis_result=None, raise_=False):
         mod._get_redis = AsyncMock(side_effect=RuntimeError("redis down"))
     else:
         mod._get_redis = AsyncMock(return_value=redis_result)
-    mod.process_inbound_message = AsyncMock(
-        return_value={"reply": "auto answer", "intent": "greeting"}
-    )
+    mod.process_inbound_message = AsyncMock(return_value={"reply": "auto answer", "intent": "greeting"})
     return mod
 
 
@@ -1368,9 +1341,7 @@ async def test_promote_flow_dedup_marker_skips_resend(monkeypatch):
 @pytest.mark.asyncio
 async def test_promote_flow_no_redis_fails_closed(monkeypatch):
     sent = []
-    monkeypatch.setitem(
-        sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(raise_=True)
-    )
+    monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis(raise_=True))
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_flows", _flows_mod(sent))
     await whatsapp._maybe_promote_flow(_promo_account(), "+30", "greeting")
     assert sent == []
@@ -1411,10 +1382,13 @@ async def test_promote_flow_decrypts_non_ea_token(monkeypatch):
 @pytest.mark.asyncio
 async def test_process_inline_swallows_promotion_error(monkeypatch):
     """A broken flow_promotion config logs+skips — the auto-reply still lands."""
-    acc = _wa_account(meta_data={
-        "phone_number_id": "pn", "access_token": "EAa",
-        "whatsapp_auto_reply": {"enabled": True, "flow_promotion": "bad-config"},
-    })
+    acc = _wa_account(
+        meta_data={
+            "phone_number_id": "pn",
+            "access_token": "EAa",
+            "whatsapp_auto_reply": {"enabled": True, "flow_promotion": "bad-config"},
+        }
+    )
     db = _DB([acc])
     client = _patch_client(monkeypatch)
     monkeypatch.setitem(sys.modules, "app.services.whatsapp_chatbot", _chatbot_mod_with_redis())

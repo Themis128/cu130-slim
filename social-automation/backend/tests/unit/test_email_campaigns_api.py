@@ -4,6 +4,7 @@ Handlers are called directly with an ordered-result DB fake (same pattern as
 test_service_feed.py). EspoCRM, Celery and the service layer's mail path are
 mocked — nothing leaves the process.
 """
+
 import json
 import uuid
 from datetime import UTC, datetime
@@ -61,8 +62,12 @@ class TestCampaignCrud:
     async def test_create_renders_branded_html_when_missing(self):
         db = _FlushDB()
         body = api.CampaignCreate(
-            name="  Launch ", kind=CampaignKind.survey, subject=" Hello ", text_body="Body text",
-            from_name="  ", questions=[api.SurveyQuestion(id="q1", label="How?", type="rating")],
+            name="  Launch ",
+            kind=CampaignKind.survey,
+            subject=" Hello ",
+            text_body="Body text",
+            from_name="  ",
+            questions=[api.SurveyQuestion(id="q1", label="How?", type="rating")],
         )
         out = await api.create_campaign(body, TEAM, db, USER)
         (row,) = db.added
@@ -107,12 +112,14 @@ class TestAudienceAndLists:
     @pytest.mark.asyncio
     async def test_add_audience_counts(self):
         c = _campaign()
-        db = _DB([
-            _Res([c]),              # campaign
-            _Res(["blocked@x.com"]),  # suppression list
-            _Res([]),               # lead lookup for explicit emails
-            _Res([("pending", 1), ("skipped_suppressed", 1)]),  # stats
-        ])
+        db = _DB(
+            [
+                _Res([c]),  # campaign
+                _Res(["blocked@x.com"]),  # suppression list
+                _Res([]),  # lead lookup for explicit emails
+                _Res([("pending", 1), ("skipped_suppressed", 1)]),  # stats
+            ]
+        )
         spec = api.AudienceSpec(emails=[{"email": "ok@x.com"}, {"email": "blocked@x.com"}])
         out = await api.add_audience(c.id, spec, TEAM, db, USER)
         assert out["queued"] == 1 and out["skipped_suppressed"] == 1
@@ -131,8 +138,7 @@ class TestAudienceAndLists:
         r1 = _recipient(status=RecipientStatus.sent, sent_at=when)
         r2 = _recipient(email="b@x.com", status=RecipientStatus.failed, error="bounced")
         out = await api.list_recipients(c.id, TEAM, 200, _DB([_Res([c]), _Res([r1, r2])]), USER)
-        assert out[0] == {"email": r1.email, "name": r1.name, "status": "sent",
-                          "sent_at": when.isoformat(), "error": None}
+        assert out[0] == {"email": r1.email, "name": r1.name, "status": "sent", "sent_at": when.isoformat(), "error": None}
         assert out[1]["sent_at"] is None and out[1]["error"] == "bounced"
         with pytest.raises(HTTPException):
             await api.list_recipients(c.id, TEAM, 200, _DB([_Res([])]), USER)
@@ -145,8 +151,7 @@ class TestAudienceAndLists:
         r1 = SimpleNamespace(lead_id=lid, answers={"q": 1}, espocrm_noted=True, submitted_at=when)
         r2 = SimpleNamespace(lead_id=None, answers={}, espocrm_noted=False, submitted_at=when)
         out = await api.list_responses(c.id, TEAM, _DB([_Res([c]), _Res([(r1, "a@x.com"), (r2, None)])]), USER)
-        assert out[0] == {"email": "a@x.com", "lead_id": str(lid), "answers": {"q": 1},
-                          "espocrm_noted": True, "submitted_at": when.isoformat()}
+        assert out[0] == {"email": "a@x.com", "lead_id": str(lid), "answers": {"q": 1}, "espocrm_noted": True, "submitted_at": when.isoformat()}
         assert out[1]["lead_id"] is None and out[1]["email"] is None
         with pytest.raises(HTTPException):
             await api.list_responses(c.id, TEAM, _DB([_Res([])]), USER)
@@ -192,8 +197,7 @@ class TestSuppressionsAndCrm:
         when = datetime(2026, 10, 3, tzinfo=UTC)
         row = SimpleNamespace(email="a@x.com", reason="manual", source="api", created_at=when)
         out = await api.list_suppressions(TEAM, _DB([_Res([row])]), USER)
-        assert out == [{"email": "a@x.com", "reason": "manual", "source": "api",
-                        "created_at": when.isoformat()}]
+        assert out == [{"email": "a@x.com", "reason": "manual", "source": "api", "created_at": when.isoformat()}]
         db = _DB([_Res([])])
         res = await api.add_suppression(api.SuppressionAdd(email="B@X.com"), TEAM, db, USER)
         assert res == {"email": "b@x.com", "suppressed": True}
@@ -216,15 +220,13 @@ class TestSuppressionsAndCrm:
 
         async def contacts():
             return [
-                {"id": "c1", "firstName": "Ann", "lastName": "Lee", "emailAddress": "a@x.com",
-                 "accountName": "Acme", "title": "CTO"},
+                {"id": "c1", "firstName": "Ann", "lastName": "Lee", "emailAddress": "a@x.com", "accountName": "Acme", "title": "CTO"},
                 {"id": "c2", "accountName": "Solo Ltd", "emailAddress": "s@x.com"},
                 {"id": "c3"},
             ]
 
         async def leads():
-            return [{"id": "l1", "firstName": "Lou", "emailAddress": "l@x.com",
-                     "status": "New", "source": "Web"}]
+            return [{"id": "l1", "firstName": "Lou", "emailAddress": "l@x.com", "status": "New", "source": "Web"}]
 
         monkeypatch.setattr(api.espocrm_client, "lead_counts", counts)
         monkeypatch.setattr(api.espocrm_client, "list_contacts", contacts)
@@ -233,8 +235,7 @@ class TestSuppressionsAndCrm:
         out = await api.crm_clients(TEAM, 2, USER)
         assert [c["name"] for c in out["contacts"]] == ["Ann Lee", "Solo Ltd"]  # limit applied
         assert out["contacts"][0]["title"] == "CTO"
-        assert out["leads"] == [{"id": "l1", "name": "Lou", "email": "l@x.com",
-                                 "status": "New", "source": "Web"}]
+        assert out["leads"] == [{"id": "l1", "name": "Lou", "email": "l@x.com", "status": "New", "source": "Web"}]
 
 
 class TestPublicUnsubscribe:
@@ -288,8 +289,7 @@ class TestPublicSurvey:
         # campaign gone → unavailable
         resp = await api.survey_form(rec.token, _DB([_Res([rec]), _Res([]), _Res([])]))
         assert resp.status_code == 404 and b"Unavailable" in resp.body
-        camp = _campaign(kind=CampaignKind.survey, name="Feedback", subject="Two questions",
-                         meta_data={"questions": self.Q})
+        camp = _campaign(kind=CampaignKind.survey, name="Feedback", subject="Two questions", meta_data={"questions": self.Q})
         resp = await api.short_survey_form(rec.token, _DB([_Res([rec]), _Res([]), _Res([camp])]))
         assert resp.status_code == 200
         assert b"Feedback" in resp.body and b"Two questions" in resp.body

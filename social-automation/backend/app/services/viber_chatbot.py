@@ -45,9 +45,7 @@ async def check_cooldown(account_id: str, user_id: str, cooldown_seconds: int) -
     if r is None:
         return True
     try:
-        return not await r.exists(
-            _COOLDOWN_KEY.format(account_id=account_id, user_id=user_id)
-        )
+        return not await r.exists(_COOLDOWN_KEY.format(account_id=account_id, user_id=user_id))
     except Exception:
         return True
     finally:
@@ -75,9 +73,7 @@ async def is_thread_paused(account_id: str, user_id: str) -> bool:
     if r is None:
         return False
     try:
-        return bool(
-            await r.exists(_PAUSED_KEY.format(account_id=account_id, user_id=user_id))
-        )
+        return bool(await r.exists(_PAUSED_KEY.format(account_id=account_id, user_id=user_id)))
     except Exception:
         return False
     finally:
@@ -130,10 +126,7 @@ async def process_inbound_message(
         result["reason"] = "auto_reply_disabled"
         return result
 
-    cooldown_seconds = int(
-        config.get("cooldown_seconds", DEFAULT_COOLDOWN_SECONDS)
-        or DEFAULT_COOLDOWN_SECONDS
-    )
+    cooldown_seconds = int(config.get("cooldown_seconds", DEFAULT_COOLDOWN_SECONDS) or DEFAULT_COOLDOWN_SECONDS)
     if not await check_cooldown(account_id, user_id, cooldown_seconds):
         result["skipped"] = True
         result["reason"] = "cooldown_active"

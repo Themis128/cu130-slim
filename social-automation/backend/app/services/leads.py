@@ -137,9 +137,7 @@ async def _post_cloudless_leads_webhook(payload: dict[str, Any]) -> None:
 def _espo_lead_id_from_response(resp: httpx.Response) -> str | None:
     """Pull the created EspoCRM lead id out of the webhook result array."""
     if resp.status_code >= 400:
-        logger.debug(
-            "Cloudless leads webhook rejected (%s): %s", resp.status_code, resp.text[:200]
-        )
+        logger.debug("Cloudless leads webhook rejected (%s): %s", resp.status_code, resp.text[:200])
         return None
     try:
         results = (resp.json() or {}).get("results") or []
@@ -161,9 +159,7 @@ async def _record_espo_lead_id(lead_id: str, espo_id: str) -> None:
         from app.db.session import async_session_maker
 
         async with async_session_maker() as db:
-            lead = (
-                await db.execute(select(Lead).where(Lead.id == lid))
-            ).scalar_one_or_none()
+            lead = (await db.execute(select(Lead).where(Lead.id == lid))).scalar_one_or_none()
             if lead is None:
                 return
             md = dict(lead.meta_data or {})
@@ -208,14 +204,20 @@ async def upsert_lead(
 
     if dedupe_on_thread_id and thread_id:
         existing = (
-            await db.execute(
-                select(Lead).where(
-                    Lead.team_id == team_id,
-                    Lead.source == source,
-                    Lead.thread_id == thread_id,
-                ).limit(1)
+            (
+                await db.execute(
+                    select(Lead)
+                    .where(
+                        Lead.team_id == team_id,
+                        Lead.source == source,
+                        Lead.thread_id == thread_id,
+                    )
+                    .limit(1)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if existing:
             changed = False
 
@@ -264,14 +266,20 @@ async def upsert_lead(
 
     if dedupe_on_email:
         existing = (
-            await db.execute(
-                select(Lead).where(
-                    Lead.team_id == team_id,
-                    Lead.source == source,
-                    Lead.email == email_n,
-                ).limit(1)
+            (
+                await db.execute(
+                    select(Lead)
+                    .where(
+                        Lead.team_id == team_id,
+                        Lead.source == source,
+                        Lead.email == email_n,
+                    )
+                    .limit(1)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if existing:
             changed = False
 
@@ -372,14 +380,20 @@ async def create_lead(
 
     if dedupe_on_email:
         existing = (
-            await db.execute(
-                select(Lead).where(
-                    Lead.team_id == team_id,
-                    Lead.source == source,
-                    Lead.email == email_n,
-                ).limit(1)
+            (
+                await db.execute(
+                    select(Lead)
+                    .where(
+                        Lead.team_id == team_id,
+                        Lead.source == source,
+                        Lead.email == email_n,
+                    )
+                    .limit(1)
+                )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if existing:
             # Best-effort: enrich missing fields
             changed = False
@@ -493,14 +507,7 @@ async def notify_lead_created(lead: Lead) -> None:
 
             interest = lead.interest.value if lead.interest else "—"
             size = lead.company_size.value if lead.company_size else "—"
-            body = (
-                "New lead captured\n\n"
-                f"Source: {lead.source.value}\n"
-                f"Name: {lead.name}\n"
-                f"Email: {lead.email}\n"
-                f"Company size: {size}\n"
-                f"Interest: {interest}\n"
-            )
+            body = f"New lead captured\n\nSource: {lead.source.value}\nName: {lead.name}\nEmail: {lead.email}\nCompany size: {size}\nInterest: {interest}\n"
             if lead.notes:
                 body += f"Notes: {lead.notes[:500]}\n"
             await send_email(
@@ -534,4 +541,3 @@ async def notify_lead_created(lead: Lead) -> None:
                 await client.post(webhook_url, json=payload)
         except Exception:
             logger.debug("Lead webhook notify failed (non-fatal)", exc_info=True)
-

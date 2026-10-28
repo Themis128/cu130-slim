@@ -1,4 +1,5 @@
 """Tests for app/services/metrics.py — Prometheus middleware + business gauges."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -39,13 +40,15 @@ async def test_middleware_records_request():
     endpoint = object()
     route = SimpleNamespace(path="/api/v1/posts/{id}")
     scope = {
-        "type": "http", "path": "/api/v1/posts/1", "method": "GET",
-        "endpoint": endpoint, "route": route,
+        "type": "http",
+        "path": "/api/v1/posts/1",
+        "method": "GET",
+        "endpoint": endpoint,
+        "route": route,
     }
     M._ENDPOINT_PATHS[endpoint] = "/api/v1/posts/{id}"
     await mw(scope, None, send)
-    sample = M.HTTP_REQUESTS.labels(
-        method="GET", path="/api/v1/posts/{id}", status=201)
+    sample = M.HTTP_REQUESTS.labels(method="GET", path="/api/v1/posts/{id}", status=201)
     assert sample._value.get() >= 1
 
 
@@ -59,8 +62,7 @@ async def test_middleware_fallback_route_and_unmatched():
 
     mw = M.PrometheusMiddleware(app)
     # no endpoint -> falls back to route.path
-    scope = {"type": "http", "path": "/x", "method": "GET",
-             "route": SimpleNamespace(path="/x")}
+    scope = {"type": "http", "path": "/x", "method": "GET", "route": SimpleNamespace(path="/x")}
     await mw(scope, None, send)
     # no route either -> "unmatched"
     scope2 = {"type": "http", "path": "/y", "method": "GET"}
@@ -111,23 +113,23 @@ class _DB:
     async def execute(self, q):
         self.calls += 1
         n = self.calls
-        if n == 1:   # users
+        if n == 1:  # users
             return _Res(one=_Row((10, 4)))
-        if n == 2:   # teams by tier
+        if n == 2:  # teams by tier
             return _Res(rows=[("pro", 2), ("free", 5)])
-        if n == 3:   # subscriptions
+        if n == 3:  # subscriptions
             return _Res(rows=[("active", 2)])
-        if n == 4:   # social accounts
+        if n == 4:  # social accounts
             return _Res(rows=[("linkedin", "active", 3)])
-        if n == 5:   # posts
+        if n == 5:  # posts
             return _Res(rows=[("published", 9)])
-        if n == 6:   # queue
+        if n == 6:  # queue
             return _Res(rows=[("pending", 1)])
-        if n == 7:   # media
+        if n == 7:  # media
             return _Res(scalar=42)
-        if n == 8:   # billing events
+        if n == 8:  # billing events
             return _Res(rows=[("checkout", 3)])
-        if n == 9:   # billing errors
+        if n == 9:  # billing errors
             return _Res(scalar=1)
         if n == 10:  # ai by provider
             return _Res(rows=[("dmr", 20, 0.5, 10)])
@@ -138,11 +140,13 @@ class _DB:
         if n == 13:  # published/failed last 7d (post_targets outcomes)
             # 'skipped' must NOT be counted as published — regression for
             # the old publish_queue 'completed' counting.
-            return _Res(rows=[
-                ("linkedin", "published", 12),
-                ("tiktok", "failed", 2),
-                ("linkedin", "skipped", 5),
-            ])
+            return _Res(
+                rows=[
+                    ("linkedin", "published", 12),
+                    ("tiktok", "failed", 2),
+                    ("linkedin", "skipped", 5),
+                ]
+            )
         if n == 14:  # followers latest
             return _Res(rows=[("linkedin", "cloudless_gr", "acc-1", 250)])
         if n == 15:  # token expiry
@@ -174,22 +178,18 @@ async def test_refresh_business_metrics(monkeypatch):
     assert M.MEDIA._value.get() == 42
     assert M.AI_CALLS.labels(provider="dmr")._value.get() == 20
     assert M.AI_ERRORS._value.get() == 2
-    assert M.QUEUE_PLATFORM.labels(
-        platform="linkedin", status="completed")._value.get() == 96
+    assert M.QUEUE_PLATFORM.labels(platform="linkedin", status="completed")._value.get() == 96
     assert M.PUBLISHED_7D.labels(platform="linkedin")._value.get() == 12
     assert M.FAILURES_7D.labels(platform="tiktok")._value.get() == 2
-    assert M.FOLLOWERS.labels(
-        platform="linkedin", account="cloudless_gr", account_id="acc-1"
-    )._value.get() == 250
-    assert M.TOKEN_EXPIRY.labels(
-        platform="facebook", account="cloudless.gr", account_id="acc-2"
-    )._value.get() == 86400.0
+    assert M.FOLLOWERS.labels(platform="linkedin", account="cloudless_gr", account_id="acc-1")._value.get() == 250
+    assert M.TOKEN_EXPIRY.labels(platform="facebook", account="cloudless.gr", account_id="acc-2")._value.get() == 86400.0
 
 
 @pytest.mark.asyncio
 async def test_refresh_business_metrics_db_failure_soft(monkeypatch):
     def broken():
         raise RuntimeError("db down")
+
     monkeypatch.setattr(M, "async_session_maker", broken)
     await M.refresh_business_metrics()  # no raise
 

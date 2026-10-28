@@ -1,4 +1,5 @@
 """Tests for app/scripts/instagram_profile_update.py — bridge HTTP helpers + CLI."""
+
 from __future__ import annotations
 
 import io
@@ -29,6 +30,7 @@ class _RespCM:
 def _ok(payload):
     def _open(req, timeout=0):
         return _RespCM(payload)
+
     return _open
 
 
@@ -40,21 +42,27 @@ def _url_error(req, timeout=0):
     raise URLError("down")
 
 
-@pytest.mark.parametrize("helper,args", [
-    (pu._post_json, ("/p", {"a": 1})),
-    (pu._patch_json, ("/p", {"a": 1})),
-    (pu._get_json, ("/p",)),
-])
+@pytest.mark.parametrize(
+    "helper,args",
+    [
+        (pu._post_json, ("/p", {"a": 1})),
+        (pu._patch_json, ("/p", {"a": 1})),
+        (pu._get_json, ("/p",)),
+    ],
+)
 def test_http_helpers_ok(monkeypatch, helper, args):
     monkeypatch.setattr(pu, "urlopen", _ok({"ok": True}))
     assert helper(*args) == {"ok": True}
 
 
-@pytest.mark.parametrize("helper,args", [
-    (pu._post_json, ("/p", {})),
-    (pu._patch_json, ("/p", {})),
-    (pu._get_json, ("/p",)),
-])
+@pytest.mark.parametrize(
+    "helper,args",
+    [
+        (pu._post_json, ("/p", {})),
+        (pu._patch_json, ("/p", {})),
+        (pu._get_json, ("/p",)),
+    ],
+)
 def test_http_helpers_http_error(monkeypatch, helper, args, capsys):
     monkeypatch.setattr(pu, "urlopen", _http_error)
     with pytest.raises(SystemExit):
@@ -62,11 +70,14 @@ def test_http_helpers_http_error(monkeypatch, helper, args, capsys):
     assert "ERROR 500" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize("helper,args", [
-    (pu._post_json, ("/p", {})),
-    (pu._patch_json, ("/p", {})),
-    (pu._get_json, ("/p",)),
-])
+@pytest.mark.parametrize(
+    "helper,args",
+    [
+        (pu._post_json, ("/p", {})),
+        (pu._patch_json, ("/p", {})),
+        (pu._get_json, ("/p",)),
+    ],
+)
 def test_http_helpers_url_error(monkeypatch, helper, args, capsys):
     monkeypatch.setattr(pu, "urlopen", _url_error)
     with pytest.raises(SystemExit):

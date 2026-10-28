@@ -4,6 +4,7 @@ Manual/assisted only — Skool has no write API. Approval lands the post
 through the browser composer; requires a logged-in Skool session in the
 shared browser (same session the hourly sync uses).
 """
+
 import logging
 
 logger = logging.getLogger(__name__)

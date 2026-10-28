@@ -85,9 +85,7 @@ async def ensure_asset_phash(db: AsyncSession, asset: MediaAsset) -> str | None:
     return ph
 
 
-async def media_duplicate_reason(
-    db: AsyncSession, post: Post, account_id, window_days: int = DUP_WINDOW_DAYS
-) -> str | None:
+async def media_duplicate_reason(db: AsyncSession, post: Post, account_id, window_days: int = DUP_WINDOW_DAYS) -> str | None:
     """Return a skip reason if this post's image set already shipped to the
     account inside `window_days`, else None.
 
@@ -99,11 +97,7 @@ async def media_duplicate_reason(
     if not media_ids:
         return None
 
-    assets = (
-        (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(media_ids))))
-        .scalars()
-        .all()
-    )
+    assets = (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(media_ids)))).scalars().all()
     draft_hashes: set[str] = set()
     for asset in assets:
         ph = await ensure_asset_phash(db, asset)
@@ -136,11 +130,7 @@ async def media_duplicate_reason(
     if not prior_ids:
         return None
 
-    prior_assets = (
-        (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(prior_ids))))
-        .scalars()
-        .all()
-    )
+    prior_assets = (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(prior_ids)))).scalars().all()
     prior_phashes: dict[str, str] = {}
     for asset in prior_assets:
         ph = (asset.meta_data or {}).get(PHASH_META_KEY)
@@ -154,17 +144,9 @@ async def media_duplicate_reason(
     for ids in prior_media_ids:
         if not ids:
             continue
-        published_hashes = [
-            prior_phashes[str(i)] for i in ids if str(i) in prior_phashes
-        ]
+        published_hashes = [prior_phashes[str(i)] for i in ids if str(i) in prior_phashes]
         if len(published_hashes) != len(draft_hashes):
             continue
-        if all(
-            any(phash_distance(h, ph) <= DUP_DISTANCE for ph in published_hashes)
-            for h in draft_hashes
-        ):
-            return (
-                "Skipped: identical media already published to this account "
-                f"within the last {window_days}d"
-            )
+        if all(any(phash_distance(h, ph) <= DUP_DISTANCE for ph in published_hashes) for h in draft_hashes):
+            return f"Skipped: identical media already published to this account within the last {window_days}d"
     return None

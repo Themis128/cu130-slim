@@ -1,4 +1,5 @@
 """Coverage for app/services/db_router.py — D1/Postgres dual-write router."""
+
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -61,10 +62,11 @@ def _wire_pg(monkeypatch, result):
     conn = _Conn(result)
     engine = _Engine(conn)
     import sqlalchemy.ext.asyncio as sa_async
+
     monkeypatch.setattr(sa_async, "create_async_engine", lambda url: engine)
     import app.core.config as cfg
-    monkeypatch.setattr(cfg, "settings",
-                        SimpleNamespace(DATABASE_URL="postgresql://x"))
+
+    monkeypatch.setattr(cfg, "settings", SimpleNamespace(DATABASE_URL="postgresql://x"))
     return conn, engine
 
 
@@ -120,8 +122,7 @@ class TestQuery:
     async def test_d1_failover_to_pg(self, monkeypatch):
         d1 = _d1(query_all=AsyncMock(side_effect=RuntimeError("d1 down")))
         monkeypatch.setattr(DBR, "d1_client", d1)
-        result = SimpleNamespace(
-            keys=lambda: ["a"], fetchall=lambda: [(1,), (2,)])
+        result = SimpleNamespace(keys=lambda: ["a"], fetchall=lambda: [(1,), (2,)])
         conn, engine = _wire_pg(monkeypatch, result)
         r = DualWriteRouter()
         out = await r.query("SELECT a FROM t WHERE id = ?", [5])
@@ -264,8 +265,7 @@ class TestPostgresExecute:
     async def test_execute_rowcount(self, monkeypatch):
         conn, engine = _wire_pg(monkeypatch, SimpleNamespace(rowcount=3))
         r = DualWriteRouter()
-        out = await r._postgres_execute(
-            "INSERT INTO t (is_enabled) VALUES (?)", [1])
+        out = await r._postgres_execute("INSERT INTO t (is_enabled) VALUES (?)", [1])
         assert out == 3
         assert conn.executed[0][1] == {"param_0": True}
         assert engine.disposed
@@ -319,9 +319,7 @@ class TestHealth:
         r = DualWriteRouter()
         r._replay_queue.append({})
         out = await r.health()
-        assert out == {"d1_primary": True, "circuit_open": False,
-                       "failure_count": 0, "replay_queue_size": 1,
-                       "mode": "dual"}
+        assert out == {"d1_primary": True, "circuit_open": False, "failure_count": 0, "replay_queue_size": 1, "mode": "dual"}
 
     @pytest.mark.asyncio
     async def test_postgres_only(self, monkeypatch):

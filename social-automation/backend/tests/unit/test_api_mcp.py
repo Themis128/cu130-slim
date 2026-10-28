@@ -1,4 +1,5 @@
 """Coverage for app/api/mcp.py — MCP stack status endpoints."""
+
 import uuid
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -14,8 +15,7 @@ def _user():
 
 
 class _Resp:
-    def __init__(self, status=200, body=None, text="", headers=None,
-                 content=b"png"):
+    def __init__(self, status=200, body=None, text="", headers=None, content=b"png"):
         self.status_code = status
         self._body = body
         self.text = text
@@ -79,8 +79,7 @@ class TestCheckHttp:
         c.get_map["http://x/health"] = _Resp(200, {"up": True})
         _wire(monkeypatch, c)
         out = await MCP._check_http("http://x/health")
-        assert out == {"online": True, "status_code": 200,
-                       "data": {"up": True}}
+        assert out == {"online": True, "status_code": 200, "data": {"up": True}}
 
     @pytest.mark.asyncio
     async def test_non_json_body(self, monkeypatch):
@@ -94,8 +93,7 @@ class TestCheckHttp:
     @pytest.mark.asyncio
     async def test_unreachable(self, monkeypatch):
         _wire(monkeypatch, _HTTP())
-        monkeypatch.setattr(MCP.httpx, "AsyncClient",
-                            lambda **kw: _HTTP())
+        monkeypatch.setattr(MCP.httpx, "AsyncClient", lambda **kw: _HTTP())
         c = _HTTP()
         c.exc = TimeoutError()
         _wire(monkeypatch, c)
@@ -109,8 +107,8 @@ class TestParseSse:
         assert out == {"a": 1}
 
     def test_bad_json_and_no_data(self):
-        assert MCP._parse_sse_response('data: {bad\n') == {}
-        assert MCP._parse_sse_response('event: y\n') == {}
+        assert MCP._parse_sse_response("data: {bad\n") == {}
+        assert MCP._parse_sse_response("event: y\n") == {}
 
 
 class TestMcpInitAndListTools:
@@ -123,8 +121,7 @@ class TestMcpInitAndListTools:
             _Resp(200, text=SSE_TOOLS),
         ]
         _wire(monkeypatch, c)
-        out = await MCP._mcp_initialize_and_list_tools(
-            "http://mcp:9227/mcp")
+        out = await MCP._mcp_initialize_and_list_tools("http://mcp:9227/mcp")
         assert out["online"] is True
         assert out["session_id"] == "abc123def456..."
         assert len(out["tools"]) == 2
@@ -156,8 +153,7 @@ class TestMcpInitAndListTools:
     @pytest.mark.asyncio
     async def test_no_port_no_session(self, monkeypatch):
         c = _HTTP()
-        c.post_queue = [_Resp(200), _Resp(202),
-                        _Resp(200, text=SSE_TOOLS)]
+        c.post_queue = [_Resp(200), _Resp(202), _Resp(200, text=SSE_TOOLS)]
         _wire(monkeypatch, c)
         out = await MCP._mcp_initialize_and_list_tools("http://host/mcp")
         assert out["session_id"] == "none"
@@ -175,17 +171,13 @@ class TestMcpInitAndListTools:
 class TestStackStatus:
     @pytest.mark.asyncio
     async def test_aggregates(self, monkeypatch):
-        monkeypatch.setattr(MCP, "_check_http", AsyncMock(
-            return_value={"online": True, "status_code": 200}))
-        monkeypatch.setattr(MCP, "_mcp_initialize_and_list_tools", AsyncMock(
-            side_effect=[{"online": True, "tools": []},
-                         RuntimeError("airbyte gone")]))
+        monkeypatch.setattr(MCP, "_check_http", AsyncMock(return_value={"online": True, "status_code": 200}))
+        monkeypatch.setattr(MCP, "_mcp_initialize_and_list_tools", AsyncMock(side_effect=[{"online": True, "tools": []}, RuntimeError("airbyte gone")]))
         out = await MCP.get_mcp_stack_status(current_user=_user())
         assert out["status"] == "ok"
         assert out["total_services"] == 5
         ids = {s["id"] for s in out["services"]}
-        assert ids == {"linkedin_sidecar", "facebook_sidecar",
-                       "instagram_sidecar", "linkedin_mcp", "airbyte_mcp"}
+        assert ids == {"linkedin_sidecar", "facebook_sidecar", "instagram_sidecar", "linkedin_mcp", "airbyte_mcp"}
         air = next(s for s in out["services"] if s["id"] == "airbyte_mcp")
         assert air["online"] is False
         assert "airbyte gone" in air["error"]
@@ -202,23 +194,19 @@ class TestScreenshot:
     @pytest.mark.asyncio
     async def test_happy(self, monkeypatch):
         c = _HTTP()
-        c.get_map[f"{MCP.LINKEDIN_SIDECAR_URL}/screenshot"] = \
-            _Resp(200, content=b"\x89PNG")
+        c.get_map[f"{MCP.LINKEDIN_SIDECAR_URL}/screenshot"] = _Resp(200, content=b"\x89PNG")
         _wire(monkeypatch, c)
-        out = await MCP.get_screenshot("linkedin_sidecar",
-                                       current_user=_user())
+        out = await MCP.get_screenshot("linkedin_sidecar", current_user=_user())
         assert out.body == b"\x89PNG"
         assert out.media_type == "image/png"
 
     @pytest.mark.asyncio
     async def test_sidecar_error(self, monkeypatch):
         c = _HTTP()
-        c.get_map[f"{MCP.FACEBOOK_SIDECAR_URL}/screenshot"] = \
-            _Resp(503)
+        c.get_map[f"{MCP.FACEBOOK_SIDECAR_URL}/screenshot"] = _Resp(503)
         _wire(monkeypatch, c)
         with pytest.raises(HTTPException) as ei:
-            await MCP.get_screenshot("facebook_sidecar",
-                                     current_user=_user())
+            await MCP.get_screenshot("facebook_sidecar", current_user=_user())
         # the raised 503 is re-wrapped by the broad except → 500
         assert ei.value.status_code == 500
 
@@ -228,8 +216,7 @@ class TestScreenshot:
         c.exc = TimeoutError()
         _wire(monkeypatch, c)
         with pytest.raises(HTTPException) as ei:
-            await MCP.get_screenshot("linkedin_sidecar",
-                                     current_user=_user())
+            await MCP.get_screenshot("linkedin_sidecar", current_user=_user())
         assert ei.value.status_code == 500
 
 
@@ -243,15 +230,12 @@ class TestCheckSession:
     @pytest.mark.asyncio
     async def test_ok_and_error(self, monkeypatch):
         c = _HTTP()
-        c.get_map[f"{MCP.LINKEDIN_SIDECAR_URL}/session"] = \
-            _Resp(200, {"logged_in": True})
+        c.get_map[f"{MCP.LINKEDIN_SIDECAR_URL}/session"] = _Resp(200, {"logged_in": True})
         _wire(monkeypatch, c)
-        out = await MCP.check_session("linkedin_sidecar",
-                                      current_user=_user())
+        out = await MCP.check_session("linkedin_sidecar", current_user=_user())
         assert out == {"status": "ok", "result": {"logged_in": True}}
         c.exc = RuntimeError()
-        out = await MCP.check_session("linkedin_sidecar",
-                                      current_user=_user())
+        out = await MCP.check_session("linkedin_sidecar", current_user=_user())
         assert out == {"status": "error", "error": "Internal error"}
 
 
@@ -267,8 +251,7 @@ class TestLinkedinMcpCalls:
 
     @pytest.mark.asyncio
     async def test_get_profile(self, monkeypatch):
-        sse = ('data: {"result":{"content":[{"type":"text",'
-               '"text":"profile-data"}]}}\n')
+        sse = 'data: {"result":{"content":[{"type":"text","text":"profile-data"}]}}\n'
         c = self._client_with(sse)
         _wire(monkeypatch, c)
         out = await MCP.linkedin_mcp_get_profile(current_user=_user())
@@ -286,21 +269,17 @@ class TestLinkedinMcpCalls:
 
     @pytest.mark.asyncio
     async def test_search_people(self, monkeypatch):
-        sse = ('data: {"result":{"content":[{"type":"image","data":"x"},'
-               '{"type":"text","text":"people"}]}}\n')
+        sse = 'data: {"result":{"content":[{"type":"image","data":"x"},{"type":"text","text":"people"}]}}\n'
         c = self._client_with(sse)
         _wire(monkeypatch, c)
-        out = await MCP.linkedin_mcp_search_people(
-            keywords="devops", current_user=_user())
+        out = await MCP.linkedin_mcp_search_people(keywords="devops", current_user=_user())
         assert out == {"status": "ok", "results": "people"}
-        assert c.posts[2][1]["json"]["params"]["arguments"] == {
-            "keywords": "devops"}
+        assert c.posts[2][1]["json"]["params"]["arguments"] == {"keywords": "devops"}
 
     @pytest.mark.asyncio
     async def test_search_people_error(self, monkeypatch):
         c = _HTTP()
         c.exc = OSError()
         _wire(monkeypatch, c)
-        out = await MCP.linkedin_mcp_search_people(
-            keywords="x", current_user=_user())
+        out = await MCP.linkedin_mcp_search_people(keywords="x", current_user=_user())
         assert out == {"status": "error", "error": "Internal error"}

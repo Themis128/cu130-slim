@@ -139,18 +139,13 @@ class SendPictureRequest(BaseModel):
 
 
 class BroadcastRequest(BaseModel):
-    broadcast_list: list[str] = Field(
-        ..., max_length=300, description="Subscribed Viber user ids (max 300)"
-    )
+    broadcast_list: list[str] = Field(..., max_length=300, description="Subscribed Viber user ids (max 300)")
     text: str = Field(..., min_length=1, max_length=7000)
 
 
 class AutoReplyConfig(BaseModel):
     enabled: bool = False
-    system_prompt: str = (
-        "You are a helpful assistant for {business_name}. Reply concisely and professionally "
-        "in the same language as the incoming message."
-    )
+    system_prompt: str = "You are a helpful assistant for {business_name}. Reply concisely and professionally in the same language as the incoming message."
     model: str = "ai/qwen3:8b-q4_K_M"
     fallback_text: str = "Thanks for your message! I will get back to you soon."
     max_tokens: int = 300
@@ -374,17 +369,11 @@ async def get_setup_status(
 
     next_step = "setup_complete"
     if not has_creds:
-        next_step = (
-            "Create a Viber bot via a verified partner "
-            "(partners.viber.com), then paste the auth token via Connect / credentials"
-        )
+        next_step = "Create a Viber bot via a verified partner (partners.viber.com), then paste the auth token via Connect / credentials"
     elif not token_valid:
         next_step = "Auth token is invalid — update credentials"
     elif not webhook_ok:
-        next_step = (
-            "Call Setup Webhook so Viber can POST events to SocialAuto "
-            "(requires public HTTPS, e.g. social.cloudless.gr)"
-        )
+        next_step = "Call Setup Webhook so Viber can POST events to SocialAuto (requires public HTTPS, e.g. social.cloudless.gr)"
     elif not (meta.get("viber_auto_reply") or {}).get("enabled"):
         next_step = "Enable auto-reply for the bot"
 
@@ -400,10 +389,7 @@ async def get_setup_status(
         "subscribers_count": (info or {}).get("subscribers_count"),
         "can_send_messages": token_valid,
         "next_step": next_step,
-        "note": (
-            "Bots can only message subscribed users. Broadcast requires Viber "
-            "account-manager approval (status 15 until granted)."
-        ),
+        "note": ("Bots can only message subscribed users. Broadcast requires Viber account-manager approval (status 15 until granted)."),
     }
 
 
@@ -438,9 +424,7 @@ async def send_picture(
     client = _client_for(account)
     sender = (account.meta_data or {}).get("bot_name") or account.display_name or "Cloudless"
     try:
-        result = await client.send_picture(
-            body.receiver, body.media_url, text=body.text, sender_name=sender
-        )
+        result = await client.send_picture(body.receiver, body.media_url, text=body.text, sender_name=sender)
     except (ViberAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"status": "ok", "message_token": result.get("message_token")}
@@ -459,9 +443,7 @@ async def broadcast(
     client = _client_for(account)
     sender = (account.meta_data or {}).get("bot_name") or account.display_name or "Cloudless"
     try:
-        result = await client.broadcast_text(
-            body.broadcast_list, body.text, sender_name=sender
-        )
+        result = await client.broadcast_text(body.broadcast_list, body.text, sender_name=sender)
     except (ViberAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return {"status": "ok", "result": result}
@@ -537,9 +519,7 @@ async def receive_webhook(
     account_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    x_viber_content_signature: str | None = Header(
-        None, alias="X-Viber-Content-Signature"
-    ),
+    x_viber_content_signature: str | None = Header(None, alias="X-Viber-Content-Signature"),
 ):
     """Receive Viber webhook callbacks (set_webhook push)."""
     result = await db.execute(

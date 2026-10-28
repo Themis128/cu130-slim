@@ -3,6 +3,7 @@
 Run inside the social-api container:
     python scripts/smoke_test_media_ai.py
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -10,6 +10,7 @@ ReDoc:    https://api.hikerapi.com/redoc
 
 Requires ``HIKER_API_KEY`` in settings.  100 free requests on signup.
 """
+
 from __future__ import annotations
 
 import logging

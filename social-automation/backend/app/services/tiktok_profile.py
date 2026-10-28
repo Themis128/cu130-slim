@@ -108,9 +108,26 @@ _DEFAULT_PARAMS: dict[str, Any] = {
 
 # X-Gorgon signing key (from the open-source HkerVit implementation)
 _GORGON_KEY = [
-    0xDF, 0x77, 0xB9, 0x40, 0xB9, 0x9B, 0x84, 0x83,
-    0xD1, 0xB9, 0xCB, 0xD1, 0xF7, 0xC2, 0xB9, 0x85,
-    0xC3, 0xD0, 0xFB, 0xC3,
+    0xDF,
+    0x77,
+    0xB9,
+    0x40,
+    0xB9,
+    0x9B,
+    0x84,
+    0x83,
+    0xD1,
+    0xB9,
+    0xCB,
+    0xD1,
+    0xF7,
+    0xC2,
+    0xB9,
+    0x85,
+    0xC3,
+    0xD0,
+    0xFB,
+    0xC3,
 ]
 
 
@@ -242,9 +259,7 @@ class _TikTokPrivateClient:
     def _query(data: dict[str, Any]) -> str:
         return urllib.parse.urlencode(data)
 
-    def _headers(
-        self, params_str: str, data_str: str | None = None
-    ) -> dict[str, str]:
+    def _headers(self, params_str: str, data_str: str | None = None) -> dict[str, str]:
         headers = {
             "accept-encoding": "gzip",
             "connection": "Keep-Alive",
@@ -261,9 +276,7 @@ class _TikTokPrivateClient:
             headers["x-ss-stub"] = hashlib.md5(data_str.encode()).hexdigest().upper()
         return headers
 
-    async def _post(
-        self, path: str, data: dict[str, Any], use_user_id: bool = True
-    ) -> dict[str, Any]:
+    async def _post(self, path: str, data: dict[str, Any], use_user_id: bool = True) -> dict[str, Any]:
         params = self._build_params()
         params_str = self._query(params)
         if use_user_id:
@@ -284,10 +297,7 @@ class _TikTokPrivateClient:
             )
             logger.debug("TikTok private API %s -> %s", path, resp.status_code)
             if resp.status_code == 403:
-                raise TikTokWriteBlocked(
-                    f"Private API returned 403. TikTok's anti-bot system "
-                    f"blocked the request. Path: {path}"
-                )
+                raise TikTokWriteBlocked(f"Private API returned 403. TikTok's anti-bot system blocked the request. Path: {path}")
             if resp.status_code >= 400:
                 raise TikTokProfileError(
                     resp.status_code,
@@ -295,9 +305,7 @@ class _TikTokPrivateClient:
                 )
             return resp.json()
 
-    async def _get(
-        self, path: str, extra_params: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    async def _get(self, path: str, extra_params: dict[str, Any] | None = None) -> dict[str, Any]:
         params = self._build_params()
         if extra_params:
             params.update(extra_params)
@@ -385,10 +393,7 @@ class TikTokProfileService:
         if not self.access_token or not self.open_id:
             raise TikTokProfileError(503, "Official API token not configured")
 
-        fields = (
-            "open_id,union_id,avatar_url,display_name,bio_description,"
-            "username,profile_deep_link,is_verified"
-        )
+        fields = "open_id,union_id,avatar_url,display_name,bio_description,username,profile_deep_link,is_verified"
         url = "https://open.tiktokapis.com/v2/user/info/"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(

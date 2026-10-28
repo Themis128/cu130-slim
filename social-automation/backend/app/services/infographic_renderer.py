@@ -28,13 +28,13 @@ from app.services.inference import call_inference
 logger = logging.getLogger(__name__)
 
 # ── Brand tokens (same as carousel_pipeline) ──────────────────────────────────
-BG = (15, 15, 23)          # #0f0f17
-CARD = (22, 22, 34)        # slightly lighter panel
-ACCENT = (0, 255, 245)     # #00fff5 cloudless cyan
-ACCENT2 = (255, 100, 40)   # warm orange accent
+BG = (15, 15, 23)  # #0f0f17
+CARD = (22, 22, 34)  # slightly lighter panel
+ACCENT = (0, 255, 245)  # #00fff5 cloudless cyan
+ACCENT2 = (255, 100, 40)  # warm orange accent
 TEXT_COL = (225, 235, 245)  # near-white body copy
-SUB = (120, 135, 160)      # muted blue-grey
-GRID = (30, 30, 45)        # subtle grid line colour
+SUB = (120, 135, 160)  # muted blue-grey
+GRID = (30, 30, 45)  # subtle grid line colour
 
 _FONT_DIR = "/app/app/assets/fonts"
 _FONT_FILES = {
@@ -49,11 +49,30 @@ _FALLBACK = {
 
 # Keywords that trigger the infographic renderer
 _INFOGRAPHIC_KEYWORDS = {
-    "infographic", "poster", "flyer", "brochure", "chart",
-    "diagram", "statistics", "stats", "data visualization",
-    "report", "summary", "overview", "factsheet", "fact sheet",
-    "comparison", "breakdown", "timeline", "process", "steps",
-    "guide", "checklist", "tips", "how-to", "how to",
+    "infographic",
+    "poster",
+    "flyer",
+    "brochure",
+    "chart",
+    "diagram",
+    "statistics",
+    "stats",
+    "data visualization",
+    "report",
+    "summary",
+    "overview",
+    "factsheet",
+    "fact sheet",
+    "comparison",
+    "breakdown",
+    "timeline",
+    "process",
+    "steps",
+    "guide",
+    "checklist",
+    "tips",
+    "how-to",
+    "how to",
 }
 
 
@@ -236,10 +255,10 @@ def _create_gradient_background(width: int, height: int) -> Image.Image:
     draw = ImageDraw.Draw(img, "RGBA")
     orbs = [
         # (cx, cy, radius, color, alpha)
-        (width * 0.85, height * 0.15, 200, (0, 255, 245, 15)),    # top-right cyan
-        (width * 0.15, height * 0.85, 250, (255, 100, 40, 12)),   # bottom-left orange
-        (width * 0.90, height * 0.90, 150, (0, 255, 245, 8)),     # bottom-right cyan
-        (width * 0.10, height * 0.20, 120, (100, 80, 200, 10)),   # top-left purple
+        (width * 0.85, height * 0.15, 200, (0, 255, 245, 15)),  # top-right cyan
+        (width * 0.15, height * 0.85, 250, (255, 100, 40, 12)),  # bottom-left orange
+        (width * 0.90, height * 0.90, 150, (0, 255, 245, 8)),  # bottom-right cyan
+        (width * 0.10, height * 0.20, 120, (100, 80, 200, 10)),  # top-left purple
     ]
     for cx, cy, r, color in orbs:
         for radius in range(int(r), 0, -2):
@@ -368,13 +387,16 @@ def render_infographic(
         badge_y = card_y + 18
         draw.rounded_rectangle(
             (badge_x, badge_y, badge_x + badge_size, badge_y + badge_size),
-            radius=10, fill=ACCENT,
+            radius=10,
+            fill=ACCENT,
         )
         # Center the number in the badge
         num_w = draw.textlength(badge_num, font=badge_font)
         draw.text(
             (badge_x + (badge_size - num_w) / 2, badge_y + 6),
-            badge_num, font=badge_font, fill=BG,
+            badge_num,
+            font=badge_font,
+            fill=BG,
         )
 
         # Heading
@@ -386,8 +408,12 @@ def render_infographic(
         body_y = heading_y + int(section_font_h.size * 1.3)
         max_body_width = width - heading_x - margin - 20
         _draw_wrapped_text(
-            draw, body, (heading_x, body_y),
-            section_font_b, SUB, max_body_width,
+            draw,
+            body,
+            (heading_x, body_y),
+            section_font_b,
+            SUB,
+            max_body_width,
             max_lines=3,
         )
 
@@ -402,8 +428,13 @@ def render_infographic(
     footer_font = _font(18, "regular")
     footer_y = height - 70
     _draw_wrapped_text(
-        draw, footer_line, (margin, footer_y),
-        footer_font, SUB, width - 2 * margin, max_lines=2,
+        draw,
+        footer_line,
+        (margin, footer_y),
+        footer_font,
+        SUB,
+        width - 2 * margin,
+        max_lines=2,
     )
 
     # Export as PNG
@@ -413,6 +444,7 @@ def render_infographic(
 
 
 # ── PIL text helpers ──────────────────────────────────────────────────────────
+
 
 def _wrap_text(
     draw: ImageDraw.ImageDraw,
@@ -451,7 +483,7 @@ def _draw_wrapped_text(
         lines = lines[:max_lines]
         # Add ellipsis to last line if truncated
         if lines:
-            lines[-1] = lines[-1][:max(0, len(lines[-1]) - 3)] + "..."
+            lines[-1] = lines[-1][: max(0, len(lines[-1]) - 3)] + "..."
     x, y = xy
     for line in lines:
         draw.text((x, y), line, font=font, fill=fill)

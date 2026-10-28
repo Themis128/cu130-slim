@@ -11,10 +11,11 @@ Wraps dmr.chat in a structured control loop:
         max_retries=3, trim_chars=4000,     # context trim on retry
         tag="survey-subject")
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,9 @@ async def llm_call(
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
-            text = await dmr.chat(prompt, system=system, model=model)
+            resp = await dmr.call_dmr_chat(
+                prompt, system=system or None, model_override=model)
+            text = resp.get("text") if isinstance(resp, dict) else str(resp)
         except Exception as e:
             last_err = e
             logger.warning("%s: attempt %d transport error: %s", tag, attempt, e)

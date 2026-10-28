@@ -41,10 +41,7 @@ def _decode(raw: str) -> str:
     """RFC2047 header decode — mirrors promo_scan's approach."""
     try:
         parts = email.header.decode_header(raw)
-        return "".join(
-            p.decode(enc or "utf-8", "replace") if isinstance(p, bytes) else str(p)
-            for p, enc in parts
-        )
+        return "".join(p.decode(enc or "utf-8", "replace") if isinstance(p, bytes) else str(p) for p, enc in parts)
     except Exception:  # noqa: BLE001
         return raw
 
@@ -212,8 +209,7 @@ async def _slack_report(stats: dict[str, Any]) -> None:
     lines = [
         "*CRM engagement sweep* — "
         f"{stats['matched']} reply-matches, {stats['noted']} noted, "
-        f"{stats['status_bumped']} leads → In Process, {stats['errors']} errors"
-        + (" (dry run)" if stats["dry_run"] else "")
+        f"{stats['status_bumped']} leads → In Process, {stats['errors']} errors" + (" (dry run)" if stats["dry_run"] else "")
     ]
     for d in stats["details"][:5]:
         lines.append(f"• {d['email']}: {d['subject']}")

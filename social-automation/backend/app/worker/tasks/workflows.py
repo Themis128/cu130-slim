@@ -14,7 +14,6 @@ celery_app.set_default()
 celery_app.set_current()
 
 
-
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
 def execute_workflow(self, workflow_id: str, input_data: dict) -> dict:  # type: ignore[no-untyped-def]
     result = run_async(_execute_workflow_async(workflow_id, input_data))

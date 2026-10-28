@@ -1,4 +1,5 @@
 """LTX-Video prompt-graph constraints — bad params must fail before queueing."""
+
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -65,8 +66,6 @@ class TestBuildT2VPromptValidation:
         assert (latent["width"], latent["height"], latent["length"]) == (128, 1216, 9)
 
 
-
-
 class _Resp:
     def __init__(self, json_body=None, content=b"", status=200):
         self._json = json_body or {}
@@ -121,8 +120,7 @@ class _FakeClient:
 
 
 def _wire(monkeypatch, client, comfy_url="http://comfy:8188"):
-    monkeypatch.setattr(CV, "get_settings",
-                        lambda: SimpleNamespace(COMFYUI_URL=comfy_url))
+    monkeypatch.setattr(CV, "get_settings", lambda: SimpleNamespace(COMFYUI_URL=comfy_url))
     monkeypatch.setattr(CV.httpx, "AsyncClient", lambda **kw: client)
     awake = AsyncMock()
     monkeypatch.setattr(CV.stack_ops, "keepawake", awake)
@@ -175,14 +173,12 @@ class TestBuilders:
         assert g2["prompt"]["14"]["inputs"]["start_image"] == ["20", 0]
 
     def test_wan22_validation(self):
-        for kwargs in [dict(width=500), dict(height=2000), dict(num_frames=50),
-                       dict(num_frames=5), dict(steps=0), dict(frame_rate=8)]:
+        for kwargs in [dict(width=500), dict(height=2000), dict(num_frames=50), dict(num_frames=5), dict(steps=0), dict(frame_rate=8)]:
             with pytest.raises(ValueError):
                 build_wan22_prompt(prompt="x", **kwargs)
 
     def test_i2v_prompt(self):
-        g = build_i2v_prompt(prompt="move", image_name="a.png",
-                             strength=0.8, seed=5)
+        g = build_i2v_prompt(prompt="move", image_name="a.png", strength=0.8, seed=5)
         nodes = g["prompt"]
         assert nodes["20"]["inputs"]["image"] == "a.png"
         assert nodes["21"]["class_type"] == "LTXVImgToVideoConditionOnly"
@@ -236,11 +232,14 @@ class TestGenerateVideo:
             await generate_video(prompt="x", model="ltxv")
 
     def _history_success(self, prompt_id="p1"):
-        return _Resp({prompt_id: {
-            "status": {"status_str": "success", "messages": []},
-            "outputs": {"12": {"gifs": [{
-                "filename": "out.mp4", "type": "output",
-                "subfolder": "sub"}]}}}})
+        return _Resp(
+            {
+                prompt_id: {
+                    "status": {"status_str": "success", "messages": []},
+                    "outputs": {"12": {"gifs": [{"filename": "out.mp4", "type": "output", "subfolder": "sub"}]}},
+                }
+            }
+        )
 
     @pytest.mark.asyncio
     async def test_happy_path(self, monkeypatch):
@@ -249,8 +248,7 @@ class TestGenerateVideo:
         c.get_responses["/history/p1"] = [self._history_success()]
         c.get_responses["/view"] = _Resp(content=b"x" * 2048)
         _wire(monkeypatch, c)
-        data, meta = await generate_video(prompt="hi", poll_s=0.01,
-                                          timeout_s=30)
+        data, meta = await generate_video(prompt="hi", poll_s=0.01, timeout_s=30)
         assert data == b"x" * 2048
         assert meta["filename"] == "out.mp4"
         assert meta["model"] == "wan22"
@@ -263,11 +261,9 @@ class TestGenerateVideo:
         c.get_responses["/history/p1"] = [self._history_success()]
         c.get_responses["/view"] = _Resp(content=b"x" * 2048)
         _wire(monkeypatch, c)
-        _, meta = await generate_video(prompt="hi", num_frames=50,
-                                       frame_rate=25, steps=25, cfg=3.0,
-                                       poll_s=0.01, timeout_s=30)
+        _, meta = await generate_video(prompt="hi", num_frames=50, frame_rate=25, steps=25, cfg=3.0, poll_s=0.01, timeout_s=30)
         graph = c.posts[0][1]["json"]["prompt"]
-        assert graph["14"]["inputs"]["length"] == 81   # normalized 4n+1
+        assert graph["14"]["inputs"]["length"] == 81  # normalized 4n+1
         assert graph["15"]["inputs"]["steps"] == 20
         assert graph["15"]["inputs"]["cfg"] == 5.0
         assert meta["frame_rate"] == 24
@@ -280,8 +276,7 @@ class TestGenerateVideo:
         c.get_responses["/history/p1"] = [self._history_success()]
         c.get_responses["/view"] = _Resp(content=b"x" * 2048)
         _wire(monkeypatch, c)
-        await generate_video(prompt="hi", image_bytes=b"img",
-                             poll_s=0.01, timeout_s=30)
+        await generate_video(prompt="hi", image_bytes=b"img", poll_s=0.01, timeout_s=30)
         graph = c.posts[1][1]["json"]["prompt"]
         assert graph["20"]["inputs"]["image"] == "srv.png"
         assert graph["14"]["inputs"]["start_image"] == ["20", 0]
@@ -289,8 +284,7 @@ class TestGenerateVideo:
     @pytest.mark.asyncio
     async def test_node_errors(self, monkeypatch):
         c = _FakeClient()
-        c.post_responses["/prompt"] = _Resp(
-            {"prompt_id": "p1", "node_errors": {"15": "bad"}})
+        c.post_responses["/prompt"] = _Resp({"prompt_id": "p1", "node_errors": {"15": "bad"}})
         _wire(monkeypatch, c)
         with pytest.raises(ComfyUIVideoError, match="rejected"):
             await generate_video(prompt="x", poll_s=0.01, timeout_s=10)
@@ -307,10 +301,9 @@ class TestGenerateVideo:
     async def test_execution_error(self, monkeypatch):
         c = _FakeClient()
         c.post_responses["/prompt"] = _Resp({"prompt_id": "p1"})
-        c.get_responses["/history/p1"] = [_Resp({"p1": {
-            "status": {"status_str": "error", "messages": [
-                ["execution_error", {"exception_message": "OOM"}]]},
-            "outputs": {}}})]
+        c.get_responses["/history/p1"] = [
+            _Resp({"p1": {"status": {"status_str": "error", "messages": [["execution_error", {"exception_message": "OOM"}]]}, "outputs": {}}})
+        ]
         _wire(monkeypatch, c)
         with pytest.raises(ComfyUIVideoError, match="OOM"):
             await generate_video(prompt="x", poll_s=0.01, timeout_s=10)
@@ -370,8 +363,7 @@ class TestSegments:
 
     @pytest.mark.asyncio
     async def test_single_segment_passthrough(self, monkeypatch):
-        gen = AsyncMock(return_value=(b"mp4", {"prompt_id": "p",
-                                               "filename": "f.mp4"}))
+        gen = AsyncMock(return_value=(b"mp4", {"prompt_id": "p", "filename": "f.mp4"}))
         monkeypatch.setattr(CV, "generate_video", gen)
         data, meta = await generate_video_segments(prompts=["one"])
         assert data == b"mp4"
@@ -379,14 +371,15 @@ class TestSegments:
 
     @pytest.mark.asyncio
     async def test_multi_segment_concat(self, monkeypatch):
-        gen = AsyncMock(side_effect=[
-            (b"s1", {"prompt_id": "p1", "filename": "a.mp4"}),
-            (b"s2", {"prompt_id": "p2", "filename": "b.mp4"}),
-        ])
+        gen = AsyncMock(
+            side_effect=[
+                (b"s1", {"prompt_id": "p1", "filename": "a.mp4"}),
+                (b"s2", {"prompt_id": "p2", "filename": "b.mp4"}),
+            ]
+        )
         monkeypatch.setattr(CV, "generate_video", gen)
         monkeypatch.setattr(CV, "_concat_mp4s", lambda b, fr: b"combined")
-        data, meta = await generate_video_segments(
-            prompts=["a", "b"], num_frames=41, frame_rate=20)
+        data, meta = await generate_video_segments(prompts=["a", "b"], num_frames=41, frame_rate=20)
         assert data == b"combined"
         assert meta["segments"] == 2
         assert meta["num_frames"] == 82
@@ -401,13 +394,11 @@ class TestConcatMp4s:
             with open(cmd[-1], "wb") as f:
                 f.write(b"joined")
             return SimpleNamespace(returncode=0, stderr=b"")
+
         monkeypatch.setattr(CV.subprocess, "run", fake_run)
         assert CV._concat_mp4s([b"a", b"b"], 24) == b"joined"
 
     def test_concat_failure(self, monkeypatch):
-        monkeypatch.setattr(
-            CV.subprocess, "run",
-            lambda cmd, **kw: SimpleNamespace(
-                returncode=1, stderr=b"bad ffmpeg"))
+        monkeypatch.setattr(CV.subprocess, "run", lambda cmd, **kw: SimpleNamespace(returncode=1, stderr=b"bad ffmpeg"))
         with pytest.raises(ComfyUIVideoError, match="ffmpeg concat failed"):
             CV._concat_mp4s([b"a"], 24)

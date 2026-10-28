@@ -18,6 +18,7 @@ Commands:
 
 Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -38,9 +39,7 @@ async def _accounts() -> list:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.status == "active")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.status == "active"))
         return list(result.scalars().all())
 
 
@@ -193,10 +192,7 @@ async def cmd_growth() -> None:
             continue
         first, last = snaps[0], snaps[-1]
         gain = _daily_gain(snaps)
-        print(
-            f"{a.platform:10s} {handle:24s} {first[1]:>6} → {last[1]:>6} "
-            f"({gain:+.2f}/day over {len(snaps)} snapshots)"
-        )
+        print(f"{a.platform:10s} {handle:24s} {first[1]:>6} → {last[1]:>6} ({gain:+.2f}/day over {len(snaps)} snapshots)")
 
 
 async def main() -> int:

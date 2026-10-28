@@ -93,9 +93,7 @@ async def collect_edit_diffs(db, team_id, window: timedelta = _WINDOW) -> list[E
         edited = content or ""
         if not original.strip() or original.strip() == edited.strip():
             continue  # no usable baseline, or the edit never landed
-        diffs.append(
-            EditDiff(str(post_id), diff_features(original, edited), len(edited) - len(original))
-        )
+        diffs.append(EditDiff(str(post_id), diff_features(original, edited), len(edited) - len(original)))
     return diffs
 
 
@@ -125,13 +123,15 @@ async def run_edit_diff_sweep(
         "suggestions": suggestions,
     }
 
-    db.add(AuditLog(
-        team_id=team_id,
-        action="edit-diff",
-        resource_type="sweep",
-        detail=f"edited={len(diffs)} suggestions={len(suggestions)}",
-        meta={"features": feature_counts, "suggestions": suggestions},
-    ))
+    db.add(
+        AuditLog(
+            team_id=team_id,
+            action="edit-diff",
+            resource_type="sweep",
+            detail=f"edited={len(diffs)} suggestions={len(suggestions)}",
+            meta={"features": feature_counts, "suggestions": suggestions},
+        )
+    )
 
     if post_slack and suggestions:
         try:

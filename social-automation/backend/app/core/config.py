@@ -45,9 +45,10 @@ class Settings(BaseSettings):
         if len(v) < 32 or v == "change-me-in-production":
             raise ValueError(
                 "JWT_SECRET_KEY must be at least 32 characters and cannot be the default value. "
-                "Set it in .env: JWT_SECRET_KEY=$(python3 -c \"import secrets; print(secrets.token_hex(32))\")"
+                'Set it in .env: JWT_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")'
             )
         return v
+
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
@@ -98,17 +99,14 @@ class Settings(BaseSettings):
     # it mangles — Redis→Regis, Kakkava→Baklava). Extend via env, don't
     # shrink the defaults.
     LANGUAGETOOL_PROTECTED_WORDS: str = (
-        "Kakkava,Redis,cloudless,cloudless.gr,SocialAuto,Polar,n8n,noVNC,"
-        "instagrapi,TikTok,LinkedIn,DevOps,FinOps,Airflow,asyncpg,Sofia"
+        "Kakkava,Redis,cloudless,cloudless.gr,SocialAuto,Polar,n8n,noVNC,instagrapi,TikTok,LinkedIn,DevOps,FinOps,Airflow,asyncpg,Sofia"
     )
     # LanguageTool rule categories auto_correct must NOT apply — these rewrite
     # intended voice rather than fix errors (STYLE rewrites short punchy
     # sentences; TYPOGRAPHY injects curly quotes/em-dashes that Sofia scoring
     # penalizes; REDUNDANCY strips deliberate emphasis; WIKIPEDIA/AI_HB rules
     # are premium hints). Comma-separated category IDs.
-    LANGUAGETOOL_SKIP_CATEGORIES: str = (
-        "STYLE,TYPOGRAPHY,REDUNDANCY,WIKIPEDIA,COLLOQUIALISMS,CASUAL,CREATIVE_WRITING"
-    )
+    LANGUAGETOOL_SKIP_CATEGORIES: str = "STYLE,TYPOGRAPHY,REDUNDANCY,WIKIPEDIA,COLLOQUIALISMS,CASUAL,CREATIVE_WRITING"
     # Rule-id prefixes auto_correct must NOT apply (LanguageTool's premium
     # AI-generated hints — noisy on short social copy).
     LANGUAGETOOL_SKIP_RULE_PREFIXES: str = "AI_HB_,PREMIUM_"
@@ -405,17 +403,17 @@ class Settings(BaseSettings):
     # Nextcloud Talk notification transport — dual-posts every Slack
     # notification into Talk rooms (Slack migration target).
     NEXTCLOUD_TALK_NOTIFY: bool = False
-    NEXTCLOUD_TALK_ROOM: str = ""          # "SocialAuto Ops" room token
-    NEXTCLOUD_TALK_ROOM_ALERTS: str = ""   # "SocialAuto Approvals" room token
-    NEXTCLOUD_BASE_URL: str = ""           # https://cloud.cloudless.gr
+    NEXTCLOUD_TALK_ROOM: str = ""  # "SocialAuto Ops" room token
+    NEXTCLOUD_TALK_ROOM_ALERTS: str = ""  # "SocialAuto Approvals" room token
+    NEXTCLOUD_BASE_URL: str = ""  # https://cloud.cloudless.gr
     # Shared secret for the Talk webhook bot (occ talk:bot:install) —
     # verifies inbound commands and signs outbound bot replies.
     NEXTCLOUD_TALK_BOT_SECRET: str = ""
     # Nextcloud data-sync — pushes follower metrics into Tables and the
     # post pipeline into Deck so the workspace stays live (idempotent).
     NEXTCLOUD_SYNC_ENABLED: bool = False
-    NEXTCLOUD_TABLE_ID: int = 0          # Tables table id (SocialAuto Metrics)
-    NEXTCLOUD_DECK_BOARD_ID: int = 0     # Deck board id (Content Pipeline)
+    NEXTCLOUD_TABLE_ID: int = 0  # Tables table id (SocialAuto Metrics)
+    NEXTCLOUD_DECK_BOARD_ID: int = 0  # Deck board id (Content Pipeline)
     # When set, only this team's rows sync to the shared NC surfaces —
     # keeps other teams' metrics/posts off a board all readers share.
     NEXTCLOUD_SYNC_TEAM_ID: str = ""
@@ -425,16 +423,16 @@ class Settings(BaseSettings):
     # entry per day (owner-visible governance). Fail-silent when Chroma
     # or Nextcloud are unreachable.
     COMPANY_BRAIN_ENABLED: bool = True
-    COMPANY_BRAIN_HOUR: int = 23     # Europe/Athens via Celery timezone
-    COMPANY_BRAIN_MINUTE: int = 45   # Europe/Athens via Celery timezone
+    COMPANY_BRAIN_HOUR: int = 23  # Europe/Athens via Celery timezone
+    COMPANY_BRAIN_MINUTE: int = 45  # Europe/Athens via Celery timezone
 
     # Kakkava corpus — the Visibility Era source folder (PDFs/md/html)
     # bind-mounted read-only from the host OneDrive path. Ingested into
     # Chroma team_<id>_doctrine for semantic recall during generation.
     KAKKAVA_DIR: str = "/mnt/kakkava"
     KAKKAVA_SYNC_ENABLED: bool = True
-    KAKKAVA_SYNC_HOUR: int = 5       # Europe/Athens via Celery timezone
-    KAKKAVA_SYNC_MINUTE: int = 50    # Europe/Athens via Celery timezone
+    KAKKAVA_SYNC_HOUR: int = 5  # Europe/Athens via Celery timezone
+    KAKKAVA_SYNC_MINUTE: int = 50  # Europe/Athens via Celery timezone
 
     # Admin user auto-seeding
     SOCIAL_ADMIN_EMAIL: str = ""
@@ -478,6 +476,7 @@ class Settings(BaseSettings):
         if v in ("", None):
             return None
         return v
+
     SLACK_PADDLE_WEBHOOK_URL: str = ""
     SLACK_PADDLE_CHANNEL_ID: str = ""
     SLACK_PADDLE_DIGEST_HOUR: int = 10  # Europe/Athens via Celery timezone
@@ -546,7 +545,7 @@ class Settings(BaseSettings):
     # campaign audiences + the client catalog. The public URL is behind
     # Cloudflare Access; the stack uses the cluster NodePort with a dedicated
     # `socialauto` API user (X-Api-Key).
-    ESPOCRM_BASE_URL: str = ""   # e.g. http://192.168.1.200:30700
+    ESPOCRM_BASE_URL: str = ""  # e.g. http://192.168.1.200:30700
     ESPOCRM_API_KEY: str = ""
 
     # Website analytics ingestion from cloudless.gr.
@@ -581,9 +580,7 @@ class Settings(BaseSettings):
     # Comma-separated fnmatch patterns for recipients we never mail — CI/e2e
     # test registrations point at mailboxes that don't exist and Postfix
     # bounces them back to the admin inbox (550 5.1.1).
-    EMAIL_SUPPRESS_ADDR_PATTERNS: str = (
-        "ci-test*@*,*e2e*@*,reset-*@*,*@*.invalid,*@example.com,*@example.org,*@example.net,*@socialauto.dev"
-    )
+    EMAIL_SUPPRESS_ADDR_PATTERNS: str = "ci-test*@*,*e2e*@*,reset-*@*,*@*.invalid,*@example.com,*@example.org,*@example.net,*@socialauto.dev"
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
     # Public funnel: email the Cloud Migration Playbook to /leads/public signups.
     # Default link is the copy on the public cloudless.gr site: social.cloudless.gr
@@ -599,14 +596,14 @@ class Settings(BaseSettings):
     # that drip/cycle. Per-recipient dedupe lives in email_recipients; the
     # campaign-level similarity gate is bypassed for drip clones.
     EMAIL_DRIP_ENABLED: bool = True
-    EMAIL_DRIP_HOUR: int = 8     # Europe/Athens via Celery timezone
+    EMAIL_DRIP_HOUR: int = 8  # Europe/Athens via Celery timezone
     EMAIL_DRIP_MINUTE: int = 20  # before the 09:00 digest
     EMAIL_DRIP_RENEWAL_LOOKAHEAD_DAYS: int = 30
     EMAIL_DRIP_RENEWAL_PERIOD_DAYS: int = 365
-    EMAIL_DRIP_AIE_ENABLED: bool = True   # Oxford AIE 4-step course sequence
-    EMAIL_DRIP_AIE_GAP_DAYS: int = 7      # days between course steps
+    EMAIL_DRIP_AIE_ENABLED: bool = True  # Oxford AIE 4-step course sequence
+    EMAIL_DRIP_AIE_GAP_DAYS: int = 7  # days between course steps
     LEAD_RESEARCH_ENABLED: bool = True
-    LEAD_RESEARCH_HOUR: int = 8     # Europe/Athens via Celery timezone
+    LEAD_RESEARCH_HOUR: int = 8  # Europe/Athens via Celery timezone
     LEAD_RESEARCH_MINUTE: int = 40  # after the 08:20 drip, before the 09:00 digest
     # CRM hygiene — EspoCRM user id to own unassigned leads; empty = the
     # API user itself (automation claims ownership).

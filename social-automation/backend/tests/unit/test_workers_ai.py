@@ -1,4 +1,5 @@
 """Unit tests for Cloudflare Workers AI speech-to-text integration."""
+
 import pytest
 from fastapi import HTTPException
 
@@ -15,6 +16,7 @@ def _mock_usage_tracker(monkeypatch):
     ResourceWarning/RuntimeWarning. Mock it to a no-op for all tests in this
     file.
     """
+
     async def _noop_track(*args, **kwargs):
         pass
 
@@ -243,6 +245,8 @@ async def test_call_workers_ai_chat_missing_account_id(monkeypatch):
     with pytest.raises(HTTPException) as exc_info:
         await inference._call_workers_ai_chat("hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456")
     assert exc_info.value.status_code == 400
+
+
 @pytest.mark.asyncio
 async def test_list_workers_ai_models_paginates_and_normalizes(monkeypatch, cf_settings):
     page1 = _FakeResponse(
@@ -291,15 +295,14 @@ async def test_list_workers_ai_models_requires_credentials(monkeypatch):
         await inference.list_workers_ai_models()
     assert exc.value.status_code == 400
 
+
 @pytest.mark.asyncio
 async def test_transcribe_normalizes_content_type(monkeypatch, cf_settings):
     """Generic content types must be rewritten — Workers AI rejects them (8001)."""
     fake = _FakeAsyncClient(200, {"result": {"text": "hi"}})
     monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=120.0: fake)
 
-    await inference.transcribe_workers_ai(
-        b"RIFF", "application/octet-stream", model="@cf/openai/whisper"
-    )
+    await inference.transcribe_workers_ai(b"RIFF", "application/octet-stream", model="@cf/openai/whisper")
     assert fake.last_headers["Content-Type"] == "audio/wav"
 
     await inference.transcribe_workers_ai(b"RIFF", "audio/mpeg", model="@cf/openai/whisper")
@@ -382,10 +385,7 @@ async def test_call_workers_ai_image_success(monkeypatch, cf_settings):
     assert result["image_base64"] == "iVBORw0KGgo=="
     assert result["format"] == "base64"
     assert result["prompt"] == "A beautiful sunset over mountains"
-    assert fake.last_url == (
-        "https://api.cloudflare.com/client/v4/accounts/account-123"
-        "/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0"
-    )
+    assert fake.last_url == ("https://api.cloudflare.com/client/v4/accounts/account-123/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0")
     assert fake.last_headers["Authorization"] == "Bearer tok-456"
     assert fake.last_json["prompt"] == "A beautiful sunset over mountains"
     assert "messages" not in fake.last_json
@@ -409,9 +409,11 @@ async def test_call_workers_ai_image_raw_png_response(monkeypatch, cf_settings):
     )
 
     import base64 as _b64
+
     assert _b64.b64decode(result["image_base64"]) == png_bytes
     assert result["format"] == "base64"
     assert result["prompt"] == "orange cloud"
+
 
 @pytest.mark.asyncio
 async def test_call_workers_ai_image_missing_credentials(monkeypatch):
@@ -422,15 +424,14 @@ async def test_call_workers_ai_image_missing_credentials(monkeypatch):
     monkeypatch.setattr(inference, "_ai_token", lambda: "")
 
     with pytest.raises(HTTPException) as exc_info:
-        await inference._call_workers_ai_image(
-            "hi", model="@cf/stabilityai/stable-diffusion-xl-base-1.0"
-        )
+        await inference._call_workers_ai_image("hi", model="@cf/stabilityai/stable-diffusion-xl-base-1.0")
     assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
 async def test_call_inference_cloudflare_image_model_with_schema_raises(monkeypatch, cf_settings):
     """A schema (structured text) with an image model raises a clear 400."""
+
     async def fake_config(provider_name, team_id, db):
         return (
             "https://api.cloudflare.com/client/v4/accounts/account-123/ai/run/",
@@ -553,8 +554,11 @@ async def test_chat_respects_explicit_max_tokens(monkeypatch, cf_settings):
     fake = _FakeAsyncClient(200, {"result": {"response": "{}"}})
     monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake)
     await inference._call_workers_ai_chat(
-        "hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456",
-        schema={"type": "object"}, max_tokens=64,
+        "hi",
+        model="@cf/meta/llama-3.1-8b-instruct",
+        api_key="tok-456",
+        schema={"type": "object"},
+        max_tokens=64,
     )
     assert fake.last_json["max_tokens"] == 64
 
@@ -562,22 +566,20 @@ async def test_chat_respects_explicit_max_tokens(monkeypatch, cf_settings):
     fake2 = _FakeAsyncClient(200, {"result": {"response": "hi"}})
     monkeypatch.setattr(inference.httpx, "AsyncClient", lambda timeout=300.0: fake2)
     await inference._call_workers_ai_chat(
-        "hi", model="@cf/meta/llama-3.1-8b-instruct", api_key="tok-456",
+        "hi",
+        model="@cf/meta/llama-3.1-8b-instruct",
+        api_key="tok-456",
     )
     assert "max_tokens" not in fake2.last_json
 
 
 def test_parse_json_response_markdown_fenced():
-    text = "```\n{\n  \"slides\": [\"a\"]\n}\n```"
+    text = '```\n{\n  "slides": ["a"]\n}\n```'
     assert inference._parse_json_response(text) == {"slides": ["a"]}
 
 
 def test_parse_json_response_prose_wrapped_with_braces_in_strings():
-    text = (
-        'Sure! Here is your JSON:\n\n'
-        '{"body": "use {curly} braces", "n": 2}\n'
-        'Let me know if you need changes.'
-    )
+    text = 'Sure! Here is your JSON:\n\n{"body": "use {curly} braces", "n": 2}\nLet me know if you need changes.'
     assert inference._parse_json_response(text) == {"body": "use {curly} braces", "n": 2}
 
 
@@ -657,9 +659,7 @@ async def test_call_workers_ai_image_handles_new_direct_format(monkeypatch, cf_s
     ],
 )
 @pytest.mark.asyncio
-async def test_free_cloud_provider_env_config(
-    monkeypatch, provider, setting_name, expected_url, expected_model
-):
+async def test_free_cloud_provider_env_config(monkeypatch, provider, setting_name, expected_url, expected_model):
     monkeypatch.setattr(inference.settings, setting_name, "test-key")
 
     base_url, model, api_key = await inference._get_provider_config(provider, None, None)

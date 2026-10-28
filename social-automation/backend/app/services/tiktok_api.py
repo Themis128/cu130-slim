@@ -129,9 +129,7 @@ def probe_tiktok_video(path: str) -> dict[str, Any] | None:
     if not streams:
         return None
     stream = streams[0]
-    fps = _parse_frame_rate(stream.get("avg_frame_rate")) or _parse_frame_rate(
-        stream.get("r_frame_rate")
-    )
+    fps = _parse_frame_rate(stream.get("avg_frame_rate")) or _parse_frame_rate(stream.get("r_frame_rate"))
     duration = None
     for raw in (stream.get("duration"), (payload.get("format") or {}).get("duration")):
         try:
@@ -177,20 +175,14 @@ def validate_tiktok_video_constraints(path: str) -> str | None:
         short_side = min(width, height)
         long_side = max(width, height)
         if short_side < TIKTOK_MIN_DIMENSION:
-            issues.append(
-                f"resolution {width}x{height} (short side must be ≥{TIKTOK_MIN_DIMENSION}px)"
-            )
+            issues.append(f"resolution {width}x{height} (short side must be ≥{TIKTOK_MIN_DIMENSION}px)")
         if long_side > TIKTOK_MAX_DIMENSION:
-            issues.append(
-                f"resolution {width}x{height} (long side must be ≤{TIKTOK_MAX_DIMENSION}px)"
-            )
+            issues.append(f"resolution {width}x{height} (long side must be ≤{TIKTOK_MAX_DIMENSION}px)")
     if isinstance(fps, float) and not math.isnan(fps) and fps > 0:
         if fps < TIKTOK_MIN_FPS:
             issues.append(f"{fps:.2f} FPS (TikTok requires ≥{TIKTOK_MIN_FPS} FPS)")
     if isinstance(duration, float) and duration > TIKTOK_MAX_DURATION_SEC:
-        issues.append(
-            f"{duration:.0f}s duration (max {TIKTOK_MAX_DURATION_SEC}s / 10 minutes)"
-        )
+        issues.append(f"{duration:.0f}s duration (max {TIKTOK_MAX_DURATION_SEC}s / 10 minutes)")
     if not issues:
         return None
     return "TikTok media validation failed: " + "; ".join(issues)
@@ -226,6 +218,7 @@ def _expected_chunk_count(video_size: int, chunk_size: int) -> int:
     if chunk_size <= 0:
         raise ValueError("chunk_size must be positive")
     return max(1, video_size // chunk_size)
+
 
 # TikTok publish IDs and open IDs are alphanumeric with hyphens.
 # FILE_UPLOAD publish IDs use a format like "v_inbox_file~v2.7681096048080848918"
@@ -358,10 +351,7 @@ class TikTokAPIClient:
         """``GET /v2/user/info/`` with stats fields — follower/following/
         likes/video counts (needs ``user.info.stats`` scope)."""
         url = f"{self._base_url}/user/info/"
-        fields = (
-            "open_id,union_id,avatar_url,display_name,follower_count,"
-            "following_count,likes_count,video_count"
-        )
+        fields = "open_id,union_id,avatar_url,display_name,follower_count,following_count,likes_count,video_count"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=self._headers(), params={"fields": fields})
             self._raise_for_status(resp, url)
@@ -444,9 +434,7 @@ class TikTokAPIClient:
                 raise ValueError("video_size must be positive when source is FILE_UPLOAD")
             planned_chunk_size, planned_chunk_count = _video_chunk_plan(video_size)
             resolved_chunk_size = chunk_size or planned_chunk_size
-            resolved_chunk_count = (
-                total_chunk_count if chunk_size is not None else planned_chunk_count
-            )
+            resolved_chunk_count = total_chunk_count if chunk_size is not None else planned_chunk_count
             if resolved_chunk_size <= 0 or resolved_chunk_size > min(video_size, MAX_CHUNK_SIZE):
                 raise ValueError("chunk_size must be positive and no larger than 64 MB")
             if resolved_chunk_count <= 0 or resolved_chunk_count > MAX_CHUNK_COUNT:
@@ -497,17 +485,13 @@ class TikTokAPIClient:
                 raise ValueError("video_size must be positive when source is FILE_UPLOAD")
             planned_chunk_size, planned_chunk_count = _video_chunk_plan(video_size)
             resolved_chunk_size = chunk_size or planned_chunk_size
-            resolved_chunk_count = (
-                total_chunk_count if chunk_size is not None else planned_chunk_count
-            )
+            resolved_chunk_count = total_chunk_count if chunk_size is not None else planned_chunk_count
             if resolved_chunk_size <= 0 or resolved_chunk_size > min(video_size, MAX_CHUNK_SIZE):
                 raise ValueError("chunk_size must be positive and no larger than 64 MB")
             if resolved_chunk_count <= 0 or resolved_chunk_count > MAX_CHUNK_COUNT:
                 raise ValueError("total_chunk_count must be between 1 and 1000")
             if resolved_chunk_count != _expected_chunk_count(video_size, resolved_chunk_size):
-                raise ValueError(
-                    "total_chunk_count must equal video_size divided by chunk_size, rounded down"
-                )
+                raise ValueError("total_chunk_count must equal video_size divided by chunk_size, rounded down")
             source_info.update(
                 {
                     "video_size": video_size,
@@ -729,10 +713,7 @@ class TikTokAPIClient:
 
     async def list_videos(
         self,
-        fields: str = (
-            "id,create_time,cover_image_url,share_url,video_description,"
-            "duration,title,like_count,comment_count,share_count,view_count"
-        ),
+        fields: str = ("id,create_time,cover_image_url,share_url,video_description,duration,title,like_count,comment_count,share_count,view_count"),
         cursor: int = 0,
         max_count: int = 20,
     ) -> dict[str, Any]:
@@ -765,10 +746,7 @@ class TikTokAPIClient:
     async def query_video(
         self,
         video_ids: list[str],
-        fields: str = (
-            "id,create_time,cover_image_url,share_url,video_description,"
-            "duration,title,like_count,comment_count,share_count,view_count"
-        ),
+        fields: str = ("id,create_time,cover_image_url,share_url,video_description,duration,title,like_count,comment_count,share_count,view_count"),
     ) -> dict[str, Any]:
         """Query specific videos by ID via Display API.
 

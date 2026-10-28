@@ -6,6 +6,7 @@ browser-novnc bridge, attempts the cheapest recovery path per platform
 fresh session material to Postgres, and Slack-alerts only when human
 action is required. See ``app.services.session_healer`` for the ladder.
 """
+
 import logging
 
 from celery import shared_task

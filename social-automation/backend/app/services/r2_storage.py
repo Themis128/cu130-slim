@@ -12,6 +12,7 @@ Reference:
 - https://developers.cloudflare.com/r2/
 - https://developers.cloudflare.com/api/resources/r2/subresources/buckets/subresources/objects/
 """
+
 from __future__ import annotations
 
 import re

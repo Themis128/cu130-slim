@@ -34,9 +34,7 @@ async def test_monetization_task_run_inner(monkeypatch):
     out = await T._run(send=False, execute=True, insight_days=14)
     assert out == {"reports": [{"team_name": "Cloudless"}]}
     runner.assert_awaited_once()
-    assert runner.call_args.kwargs == {
-        "insight_days": 14, "send": False, "execute": True
-    }
+    assert runner.call_args.kwargs == {"insight_days": 14, "send": False, "execute": True}
 
 
 def test_monetization_task_delegates_to_run_async(monkeypatch):
@@ -69,9 +67,7 @@ def test_heal_sessions_delegates(monkeypatch):
         return {"healed": ["linkedin"]}
 
     monkeypatch.setattr(T, "run_async", fake_run_async)
-    monkeypatch.setattr(
-        "app.services.session_healer.heal_all_sessions", fake_heal
-    )
+    monkeypatch.setattr("app.services.session_healer.heal_all_sessions", fake_heal)
     out = T.heal_sessions()
     assert out == {"healed": ["linkedin"]}
 
@@ -121,9 +117,7 @@ async def test_fallback_monetization_delegates(monkeypatch):
         async def __aexit__(self, *a):
             return False
 
-    monkeypatch.setattr(
-        "app.db.session.async_session_maker", lambda: _Ctx()
-    )
+    monkeypatch.setattr("app.db.session.async_session_maker", lambda: _Ctx())
     runner = AsyncMock(return_value=[{"team_name": "T"}])
     monkeypatch.setattr(
         "app.services.monetization_report.run_monetization_report_for_all_teams",

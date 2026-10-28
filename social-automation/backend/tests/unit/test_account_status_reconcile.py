@@ -1,4 +1,5 @@
 """Unit tests for the social_accounts platform-truth reconcile task."""
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -54,15 +55,13 @@ async def test_probe_meta_500_error():
 
 @pytest.mark.asyncio
 async def test_probe_tiktok_error_code_maps_revoked():
-    with patch.object(R.httpx, "AsyncClient",
-                      lambda **k: _Client(_Resp(200, {"error": {"code": "access_token_invalid"}}))):
+    with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(200, {"error": {"code": "access_token_invalid"}}))):
         assert await R._probe("tiktok", "x", "tok", {}) == "revoked"
 
 
 @pytest.mark.asyncio
 async def test_probe_tiktok_ok():
-    with patch.object(R.httpx, "AsyncClient",
-                      lambda **k: _Client(_Resp(200, {"error": {"code": "ok"}}))):
+    with patch.object(R.httpx, "AsyncClient", lambda **k: _Client(_Resp(200, {"error": {"code": "ok"}}))):
         assert await R._probe("tiktok", "x", "tok", {}) == "active"
 
 
@@ -75,6 +74,7 @@ async def test_probe_unknown_platform_returns_error():
 @pytest.mark.asyncio
 async def test_reconcile_marks_expired_without_probe():
     from datetime import UTC, datetime, timedelta
+
     acc = MagicMock()
     acc.token_expires_at = datetime.now(UTC) - timedelta(days=1)
     acc.access_token_enc = b"x"
@@ -95,9 +95,11 @@ async def test_reconcile_marks_expired_without_probe():
         async def __aexit__(self, *a):
             return False
 
-    with patch.object(R, "task_session", lambda: _Sess()), \
-         patch.object(R, "post_alert_to_slack", new=AsyncMock()) as alert, \
-         patch.object(R, "_probe", new=AsyncMock(return_value="active")) as probe:
+    with (
+        patch.object(R, "task_session", lambda: _Sess()),
+        patch.object(R, "post_alert_to_slack", new=AsyncMock()) as alert,
+        patch.object(R, "_probe", new=AsyncMock(return_value="active")) as probe,
+    ):
         counts = await R._reconcile()
     probe.assert_not_awaited()  # expired-by-date never hits the network
     assert acc.status == "expired"
@@ -127,9 +129,11 @@ async def test_reconcile_stamps_last_verified_at():
         async def __aexit__(self, *a):
             return False
 
-    with patch.object(R, "task_session", lambda: _Sess()), \
-         patch.object(R, "decrypt_token", return_value="tok"), \
-         patch.object(R, "_probe", new=AsyncMock(return_value="active")):
+    with (
+        patch.object(R, "task_session", lambda: _Sess()),
+        patch.object(R, "decrypt_token", return_value="tok"),
+        patch.object(R, "_probe", new=AsyncMock(return_value="active")),
+    ):
         counts = await R._reconcile()
     assert "last_verified_at" in acc.meta_data
     assert counts["active"] == 1 and counts["drifted"] == 0

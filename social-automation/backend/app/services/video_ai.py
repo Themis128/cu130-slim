@@ -25,6 +25,7 @@ ffmpeg/ffprobe (already installed in the api and worker images):
 Best-effort throughout: failures are logged, partial results (probe data,
 quality scores) are still persisted, and nothing raises.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -63,9 +64,7 @@ _SAMPLE_POSITIONS = (0.15, 0.5, 0.85)
 
 async def _run(cmd: list[str], timeout: int = _FRAME_TIMEOUT) -> subprocess.CompletedProcess:
     """Run a subprocess off the event loop. Single seam for tests."""
-    return await asyncio.to_thread(
-        subprocess.run, cmd, capture_output=True, timeout=timeout
-    )
+    return await asyncio.to_thread(subprocess.run, cmd, capture_output=True, timeout=timeout)
 
 
 async def _run_op(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
@@ -104,9 +103,13 @@ async def probe_video(video_bytes: bytes) -> dict[str, Any]:
             src.write_bytes(video_bytes)
             proc = await _run(
                 [
-                    "ffprobe", "-v", "error",
-                    "-print_format", "json",
-                    "-show_format", "-show_streams",
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-print_format",
+                    "json",
+                    "-show_format",
+                    "-show_streams",
                     str(src),
                 ],
                 timeout=_PROBE_TIMEOUT,
@@ -153,11 +156,16 @@ async def _extract_frame_at(src: Path, at_seconds: float, dst: Path) -> bytes | 
     """Extract one JPEG frame at a timestamp. ``-ss`` before ``-i`` = fast seek."""
     proc = await _run(
         [
-            "ffmpeg", "-y",
-            "-ss", f"{at_seconds:.3f}",
-            "-i", str(src),
-            "-frames:v", "1",
-            "-q:v", "3",
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{at_seconds:.3f}",
+            "-i",
+            str(src),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
             str(dst),
         ]
     )
@@ -186,9 +194,7 @@ async def extract_sample_frames(
         if duration_seconds and duration_seconds > 0:
             positions = _SAMPLE_POSITIONS[:max_frames]
             for i, pos in enumerate(positions):
-                frame = await _extract_frame_at(
-                    src, duration_seconds * pos, Path(td) / f"f{i}.jpg"
-                )
+                frame = await _extract_frame_at(src, duration_seconds * pos, Path(td) / f"f{i}.jpg")
                 if frame:
                     frames.append(frame)
             if frames:
@@ -198,9 +204,17 @@ async def extract_sample_frames(
         dst = Path(td) / "thumb.jpg"
         proc = await _run(
             [
-                "ffmpeg", "-y", "-i", str(src),
-                "-vf", "thumbnail=90", "-frames:v", "1",
-                "-q:v", "3", str(dst),
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(src),
+                "-vf",
+                "thumbnail=90",
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                str(dst),
             ]
         )
         if proc.returncode == 0 and dst.is_file() and dst.stat().st_size:
@@ -235,14 +249,10 @@ async def _store_poster(asset: MediaAsset, poster_bytes: bytes) -> dict[str, str
     poster_path = f"{asset.storage_path}{POSTER_SUFFIX}"
     try:
         if asset.storage_backend == "minio":
-            res = await minio_storage.upload_object(
-                poster_path, poster_bytes, content_type="image/jpeg"
-            )
+            res = await minio_storage.upload_object(poster_path, poster_bytes, content_type="image/jpeg")
             return {"path": poster_path, "url": res.get("public_url") or ""}
         if asset.storage_backend == "r2":
-            res = await r2_storage.upload_object(
-                poster_path, poster_bytes, content_type="image/jpeg"
-            )
+            res = await r2_storage.upload_object(poster_path, poster_bytes, content_type="image/jpeg")
             return {"path": poster_path, "url": res.get("public_url") or ""}
         target = safe_resolve(str(UPLOAD_DIR), poster_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -316,9 +326,7 @@ async def auto_tag_video_asset(asset: MediaAsset, db) -> None:
         flag_modified(asset, "meta_data")
         changed = True
 
-    frames = await extract_sample_frames(
-        video_bytes, duration_seconds=probe.get("duration_seconds")
-    )
+    frames = await extract_sample_frames(video_bytes, duration_seconds=probe.get("duration_seconds"))
     if not frames:
         if changed:
             await db.commit()
@@ -339,10 +347,7 @@ async def auto_tag_video_asset(asset: MediaAsset, db) -> None:
     if quality:
         meta = dict(asset.meta_data or {})
         meta["quality_score"] = quality
-        meta["quality_failed"] = (
-            quality["sharpness"] < settings.MIN_IMAGE_SHARPNESS
-            or quality["overall"] < settings.MIN_IMAGE_QUALITY_SCORE
-        )
+        meta["quality_failed"] = quality["sharpness"] < settings.MIN_IMAGE_SHARPNESS or quality["overall"] < settings.MIN_IMAGE_QUALITY_SCORE
         asset.meta_data = meta
         flag_modified(asset, "meta_data")
 
@@ -436,10 +441,26 @@ async def trim_video(video_bytes: bytes, start: float, end: float, *, mime: str 
         src.write_bytes(video_bytes)
         r = await _run_op(
             [
-                "ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(src),
-                "-t", f"{end - start:.3f}",
-                "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+                "ffmpeg",
+                "-y",
+                "-ss",
+                f"{start:.3f}",
+                "-i",
+                str(src),
+                "-t",
+                f"{end - start:.3f}",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
                 str(dst),
             ],
             timeout=_VIDEO_OP_TIMEOUT,
@@ -497,11 +518,21 @@ async def attach_audio(
         if loop_audio:
             cmd += ["-stream_loop", "-1"]
         cmd += [
-            "-i", str(asrc),
-            "-c:v", "copy",
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:a", "aac", "-b:a", "192k",
-            "-shortest", "-movflags", "+faststart",
+            "-i",
+            str(asrc),
+            "-c:v",
+            "copy",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
             str(dst),
         ]
         r = await _run_op(cmd, timeout=_VIDEO_OP_TIMEOUT)

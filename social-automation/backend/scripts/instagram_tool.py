@@ -25,6 +25,7 @@ Commands:
 Options: -a/--account ACCOUNT_UUID (defaults to first instagram account).
 Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -45,9 +46,7 @@ async def _accounts() -> list:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "instagram")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "instagram"))
         return list(result.scalars().all())
 
 
@@ -60,8 +59,7 @@ def _client_for(account):
     return InstagramAPIClient(
         access_token=token,
         ig_user_id=account.account_id,
-        use_business_login_api=(account.meta_data or {}).get("login_type")
-        == "business_login",
+        use_business_login_api=(account.meta_data or {}).get("login_type") == "business_login",
     )
 
 
@@ -80,10 +78,7 @@ async def _pick(account_id: str | None):
 async def cmd_accounts() -> None:
     for a in await _accounts():
         meta = a.meta_data or {}
-        print(
-            f"{a.id}  @{a.username or '-'}  {a.display_name or ''}  "
-            f"type={meta.get('login_type', '-')}  status={a.status}"
-        )
+        print(f"{a.id}  @{a.username or '-'}  {a.display_name or ''}  type={meta.get('login_type', '-')}  status={a.status}")
 
 
 async def cmd_me(account_id: str | None) -> None:
@@ -102,11 +97,19 @@ async def cmd_quota(account_id: str | None) -> None:
 async def cmd_insights(account_id: str | None, days: int, metric: str | None) -> None:
     account = await _pick(account_id)
     client = _client_for(account)
-    metrics = [metric] if metric else [
-        "reach", "follower_count", "profile_views", "accounts_engaged",
-        "total_interactions", "website_clicks",
-        "impressions",  # deprecated on newer versions — expected to flag
-    ]
+    metrics = (
+        [metric]
+        if metric
+        else [
+            "reach",
+            "follower_count",
+            "profile_views",
+            "accounts_engaged",
+            "total_interactions",
+            "website_clicks",
+            "impressions",  # deprecated on newer versions — expected to flag
+        ]
+    )
     out = {}
     for m in metrics:
         try:
@@ -131,9 +134,7 @@ async def cmd_engaged(account_id: str | None, breakdown: str) -> None:
     account = await _pick(account_id)
     print(
         json.dumps(
-            await _client_for(account).get_engaged_audience_demographics(
-                breakdown=breakdown
-            ),
+            await _client_for(account).get_engaged_audience_demographics(breakdown=breakdown),
             indent=2,
         )
     )
@@ -144,7 +145,7 @@ async def cmd_media(account_id: str | None, limit: int) -> None:
     rows = await _client_for(account).list_recent_media(limit=limit)
     for m in rows:
         cap = (m.get("caption") or "").replace("\n", " ")[:60]
-        print(f"{m.get('timestamp','')[:10]}  {m.get('id')}  {cap}  {m.get('permalink')}")
+        print(f"{m.get('timestamp', '')[:10]}  {m.get('id')}  {cap}  {m.get('permalink')}")
 
 
 def _graph_only_note(exc: Exception) -> None:
@@ -185,9 +186,7 @@ async def cmd_hashtag(account_id: str | None, query: str) -> None:
     top = await client.get_hashtag_top_media(hid, limit=10)
     for m in top:
         cap = (m.get("caption") or "").replace("\n", " ")[:60]
-        print(
-            f"  top  likes={m.get('like_count', '-')} comments={m.get('comments_count', '-')}  {cap}"
-        )
+        print(f"  top  likes={m.get('like_count', '-')} comments={m.get('comments_count', '-')}  {cap}")
 
 
 async def cmd_discover(account_id: str | None, username: str) -> None:

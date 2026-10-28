@@ -4,6 +4,7 @@ Scores generated content on four dimensions: readability, engagement,
 hashtag quality, and length fit. Also provides a three-tier hashtag
 strategy (Safe/Rising/Niche) based on PulseTag research.
 """
+
 from __future__ import annotations
 
 import re
@@ -32,28 +33,72 @@ PLATFORM_HASHTAG_MIX: dict[str, dict[str, int]] = {
 }
 
 # Emotional/engagement words
-EMOTIONAL_WORDS = frozenset({
-    "amazing", "incredible", "exciting", "love", "thrilled", "delighted",
-    "fantastic", "awesome", "wonderful", "breakthrough", "game-changer",
-    "transformative", "revolutionary", "stunning", "remarkable", "powerful",
-    "essential", "critical", "proven", "guaranteed", "exclusive", "limited",
-    "free", "new", "instant", "easy", "simple", "fast", "best", "top",
-})
+EMOTIONAL_WORDS = frozenset(
+    {
+        "amazing",
+        "incredible",
+        "exciting",
+        "love",
+        "thrilled",
+        "delighted",
+        "fantastic",
+        "awesome",
+        "wonderful",
+        "breakthrough",
+        "game-changer",
+        "transformative",
+        "revolutionary",
+        "stunning",
+        "remarkable",
+        "powerful",
+        "essential",
+        "critical",
+        "proven",
+        "guaranteed",
+        "exclusive",
+        "limited",
+        "free",
+        "new",
+        "instant",
+        "easy",
+        "simple",
+        "fast",
+        "best",
+        "top",
+    }
+)
 
 # Personal pronouns for engagement scoring
 PERSONAL_PRONOUNS = frozenset({"i", "you", "we", "your", "our", "us", "me", "my", "us"})
 
 # CTA phrases
-CTA_PHRASES = frozenset({
-    "click", "subscribe", "follow", "share", "comment", "learn more",
-    "get started", "sign up", "try", "download", "join", "discover",
-    "explore", "read more", "check out", "don't miss", "act now",
-})
+CTA_PHRASES = frozenset(
+    {
+        "click",
+        "subscribe",
+        "follow",
+        "share",
+        "comment",
+        "learn more",
+        "get started",
+        "sign up",
+        "try",
+        "download",
+        "join",
+        "discover",
+        "explore",
+        "read more",
+        "check out",
+        "don't miss",
+        "act now",
+    }
+)
 
 
 @dataclass
 class ContentScore:
     """Four-dimension content score."""
+
     readability: float
     engagement: float
     hashtag_quality: float
@@ -62,12 +107,7 @@ class ContentScore:
     @property
     def overall(self) -> float:
         """Weighted overall score (0-100)."""
-        return (
-            self.readability * 0.25
-            + self.engagement * 0.30
-            + self.hashtag_quality * 0.25
-            + self.length_fit * 0.20
-        )
+        return self.readability * 0.25 + self.engagement * 0.30 + self.hashtag_quality * 0.25 + self.length_fit * 0.20
 
     def to_dict(self) -> dict[str, float]:
         return {
@@ -82,6 +122,7 @@ class ContentScore:
 @dataclass
 class HashtagStrategy:
     """Three-tier hashtag strategy."""
+
     safe: list[str] = field(default_factory=list)
     rising: list[str] = field(default_factory=list)
     niche: list[str] = field(default_factory=list)

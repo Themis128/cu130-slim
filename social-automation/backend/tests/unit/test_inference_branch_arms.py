@@ -9,6 +9,7 @@
 - Local SD3.5 with cfg_scale=0 leaves the field out of the payload.
 
 All HTTP goes through respx; nothing leaves the process."""
+
 from __future__ import annotations
 
 import asyncio
@@ -51,9 +52,7 @@ async def test_img2img_rate_limited_without_hf_key_raises(monkeypatch):
     sleep = AsyncMock()
     monkeypatch.setattr(asyncio, "sleep", sleep)
     with respx.mock(assert_all_called=True) as router:
-        route = router.post(url__regex=r".*/accounts/acct/ai/run/.*").mock(
-            return_value=httpx.Response(429, text="neurons exhausted")
-        )
+        route = router.post(url__regex=r".*/accounts/acct/ai/run/.*").mock(return_value=httpx.Response(429, text="neurons exhausted"))
         with pytest.raises(HTTPException) as ei:
             await I._call_workers_ai_img2img("p", _png(), negative_prompt="", max_retries=2)
     assert ei.value.status_code == 502
@@ -90,8 +89,7 @@ async def test_local_sd35_zero_cfg_omits_field():
 
     url = "http://sd35.local/v1/genimg"
     with respx.mock() as router:
-        post = router.post(url).mock(return_value=httpx.Response(
-            200, json={"artifacts": [{"base64": base64.b64encode(b"IMG").decode()}]}))
+        post = router.post(url).mock(return_value=httpx.Response(200, json={"artifacts": [{"base64": base64.b64encode(b"IMG").decode()}]}))
         assert await I._call_local_sd35("p", url, cfg_scale=0) == b"IMG"
     body = json.loads(post.calls[0].request.content)
     assert "cfg_scale" not in body and "negative_prompt" not in body

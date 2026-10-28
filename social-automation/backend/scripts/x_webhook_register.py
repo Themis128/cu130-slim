@@ -7,6 +7,7 @@ Uses OAuth1 user-context against the Account Activity API:
 
 Usage: python x_webhook_register.py <env_name> <webhook_url>
 """
+
 from __future__ import annotations
 
 import os

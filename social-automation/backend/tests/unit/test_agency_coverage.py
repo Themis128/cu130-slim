@@ -116,10 +116,20 @@ def _user():
 
 def _audit(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), url="https://acme.example",
-        status=AgencyAuditStatus.completed, score=42, findings=[], tech=[],
-        recommended_services=[], action_plan=None, error=None, lead_id=None,
-        espo_lead_id=None, meta_data={}, created_at=datetime.now(UTC),
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        url="https://acme.example",
+        status=AgencyAuditStatus.completed,
+        score=42,
+        findings=[],
+        tech=[],
+        recommended_services=[],
+        action_plan=None,
+        error=None,
+        lead_id=None,
+        espo_lead_id=None,
+        meta_data={},
+        created_at=datetime.now(UTC),
         completed_at=datetime.now(UTC),
     )
     d.update(kw)
@@ -128,11 +138,21 @@ def _audit(**kw):
 
 def _proposal(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), audit_id=None, lead_id=None,
-        espo_lead_id=None, recipient_email="c@acme.example",
-        recipient_name="Acme", services=["cloud"], price_low_eur=100,
-        price_high_eur=200, subject="s", body_md="b", meta_data={},
-        status=AgencyProposalStatus.draft, sent_at=None,
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        audit_id=None,
+        lead_id=None,
+        espo_lead_id=None,
+        recipient_email="c@acme.example",
+        recipient_name="Acme",
+        services=["cloud"],
+        price_low_eur=100,
+        price_high_eur=200,
+        subject="s",
+        body_md="b",
+        meta_data={},
+        status=AgencyProposalStatus.draft,
+        sent_at=None,
         created_at=datetime.now(UTC),
     )
     d.update(kw)
@@ -141,11 +161,21 @@ def _proposal(**kw):
 
 def _project(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), proposal_id=None, lead_id=None,
-        espo_lead_id=None, name="Acme job", client_email="c@acme.example",
-        kickoff_at=datetime.now(UTC), due_at=datetime.now(UTC),
-        status=AgencyProjectStatus.active, milestones=[], handoff_md=None,
-        last_client_update_at=None, meta_data={}, created_at=datetime.now(UTC),
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        proposal_id=None,
+        lead_id=None,
+        espo_lead_id=None,
+        name="Acme job",
+        client_email="c@acme.example",
+        kickoff_at=datetime.now(UTC),
+        due_at=datetime.now(UTC),
+        status=AgencyProjectStatus.active,
+        milestones=[],
+        handoff_md=None,
+        last_client_update_at=None,
+        meta_data={},
+        created_at=datetime.now(UTC),
     )
     d.update(kw)
     return SimpleNamespace(**d)
@@ -191,8 +221,7 @@ async def test_list_and_get_endpoints():
     audit, prop, proj = _audit(), _proposal(), _project()
 
     db = _DB(_Res(rows=[tid]), _Res(rows=[audit]))
-    out = await A.list_audits(status=AgencyAuditStatus.completed, limit=10,
-                              current_user=_user(), db=db)
+    out = await A.list_audits(status=AgencyAuditStatus.completed, limit=10, current_user=_user(), db=db)
     assert out == [audit]
 
     db = _DB(_Res(rows=[tid]), _Res(rows=[audit]))
@@ -203,16 +232,14 @@ async def test_list_and_get_endpoints():
     assert await A.get_audit(audit.id, current_user=_user(), db=db) is audit
 
     db = _DB(_Res(rows=[tid]), _Res(rows=[prop]))
-    out = await A.list_proposals(status=AgencyProposalStatus.draft, limit=10,
-                                 current_user=_user(), db=db)
+    out = await A.list_proposals(status=AgencyProposalStatus.draft, limit=10, current_user=_user(), db=db)
     assert out == [prop]
 
     db = _DB(_Res(rows=[tid]), _Res(scalar=prop))
     assert await A.get_proposal(prop.id, current_user=_user(), db=db) is prop
 
     db = _DB(_Res(rows=[tid]), _Res(rows=[proj]))
-    out = await A.list_projects(status=AgencyProjectStatus.active, limit=10,
-                                current_user=_user(), db=db)
+    out = await A.list_projects(status=AgencyProjectStatus.active, limit=10, current_user=_user(), db=db)
     assert out == [proj]
 
     db = _DB(_Res(rows=[tid]), _Res(scalar=proj))
@@ -232,16 +259,19 @@ async def test_service_catalog():
 async def test_run_audit_now_success(monkeypatch):
     tid = uuid.uuid4()
     result = {
-        "url": "https://acme.example", "score": 88, "findings": [],
-        "recommended_services": ["cloud"], "action_plan": "plan",
-        "ttfb_ms": 120, "http_status": 200, "tech": ["nginx"],
+        "url": "https://acme.example",
+        "score": 88,
+        "findings": [],
+        "recommended_services": ["cloud"],
+        "action_plan": "plan",
+        "ttfb_ms": 120,
+        "http_status": 200,
+        "tech": ["nginx"],
         "analytics": ["ga4"],
     }
     monkeypatch.setattr(A, "run_site_audit", AsyncMock(return_value=result))
     db = _DB(_Res(rows=[tid]))
-    out = await A.run_audit_now(
-        A.AuditRunRequest(url="https://acme.example"),
-        current_user=_user(), db=db)
+    out = await A.run_audit_now(A.AuditRunRequest(url="https://acme.example"), current_user=_user(), db=db)
     assert out.status == AgencyAuditStatus.completed and out.score == 88
     assert out.meta_data["manual"] is True and db.commits == 1
 
@@ -249,21 +279,17 @@ async def test_run_audit_now_success(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_audit_now_unsafe_and_error(monkeypatch):
     tid = uuid.uuid4()
-    monkeypatch.setattr(
-        A, "run_site_audit",
-        AsyncMock(side_effect=UnsafeUrlError("private ip")))
+    monkeypatch.setattr(A, "run_site_audit", AsyncMock(side_effect=UnsafeUrlError("private ip")))
     db = _DB(_Res(rows=[tid]))
     with pytest.raises(HTTPException) as ei:
-        await A.run_audit_now(A.AuditRunRequest(url="http://10.0.0.1"),
-                              current_user=_user(), db=db)
+        await A.run_audit_now(A.AuditRunRequest(url="http://10.0.0.1"), current_user=_user(), db=db)
     assert ei.value.status_code == 422 and "private ip" in ei.value.detail
     assert db.added[0].status == AgencyAuditStatus.failed
 
     monkeypatch.setattr(A, "run_site_audit", AsyncMock(side_effect=RuntimeError("down")))
     db = _DB(_Res(rows=[tid]))
     with pytest.raises(HTTPException) as ei:
-        await A.run_audit_now(A.AuditRunRequest(url="https://x.example"),
-                              current_user=_user(), db=db)
+        await A.run_audit_now(A.AuditRunRequest(url="https://x.example"), current_user=_user(), db=db)
     assert ei.value.status_code == 502
 
 
@@ -271,14 +297,12 @@ async def test_run_audit_now_unsafe_and_error(monkeypatch):
 async def test_approve_proposal_ok_and_409(monkeypatch):
     tid = uuid.uuid4()
     prop = _proposal()
-    monkeypatch.setattr(A, "send_proposal",
-                        AsyncMock(return_value={"ok": True, "sent": True}))
+    monkeypatch.setattr(A, "send_proposal", AsyncMock(return_value={"ok": True, "sent": True}))
     db = _DB(_Res(rows=[tid]), _Res(scalar=prop))
     out = await A.approve_proposal(prop.id, current_user=_user(), db=db)
     assert out["ok"] is True
 
-    monkeypatch.setattr(A, "send_proposal",
-                        AsyncMock(return_value={"ok": False, "error": "not draft"}))
+    monkeypatch.setattr(A, "send_proposal", AsyncMock(return_value={"ok": False, "error": "not draft"}))
     db = _DB(_Res(rows=[tid]), _Res(scalar=prop))
     with pytest.raises(HTTPException) as ei:
         await A.approve_proposal(prop.id, current_user=_user(), db=db)
@@ -306,23 +330,18 @@ async def test_create_project_with_and_without_proposal():
     tid = uuid.uuid4()
     # plain project — naive kickoff gets tzinfo, due = kickoff + 13d
     db = _DB(_Res(rows=[tid]))
-    out = await A.create_project(
-        A.ProjectCreateRequest(name="Acme", client_email="c@x.io",
-                               kickoff_at=datetime(2026, 11, 1)),
-        current_user=_user(), db=db)
+    out = await A.create_project(A.ProjectCreateRequest(name="Acme", client_email="c@x.io", kickoff_at=datetime(2026, 11, 1)), current_user=_user(), db=db)
     assert out.kickoff_at.tzinfo is not None
     assert (out.due_at - out.kickoff_at).days == 13
     assert out.lead_id is None and out.client_email == "c@x.io"
     assert len(out.milestones) == 4
 
     # from a sent proposal — inherits lead + recipient email
-    prop = _proposal(lead_id=uuid.uuid4(), espo_lead_id="e1",
-                     recipient_email="won@acme.example")
+    prop = _proposal(lead_id=uuid.uuid4(), espo_lead_id="e1", recipient_email="won@acme.example")
     db = _DB(_Res(rows=[tid]), _Res(scalar=prop))
     out = await A.create_project(
-        A.ProjectCreateRequest(name="From proposal", proposal_id=prop.id,
-                               client_email=None, kickoff_at=None),
-        current_user=_user(), db=db)
+        A.ProjectCreateRequest(name="From proposal", proposal_id=prop.id, client_email=None, kickoff_at=None), current_user=_user(), db=db
+    )
     assert out.lead_id == prop.lead_id and out.espo_lead_id == "e1"
     assert out.client_email == "won@acme.example"
     assert out.kickoff_at.tzinfo is not None
@@ -345,9 +364,7 @@ _TASKS = [
 def test_task_disabled_returns_none(monkeypatch, task_name, sweep_name):
     import app.worker.tasks.agency as T
 
-    monkeypatch.setattr(
-        "app.core.config.get_settings",
-        lambda: SimpleNamespace(AGENCY_ENABLED=False))
+    monkeypatch.setattr("app.core.config.get_settings", lambda: SimpleNamespace(AGENCY_ENABLED=False))
     assert getattr(T, task_name)() is None
 
 
@@ -355,11 +372,11 @@ def test_task_disabled_returns_none(monkeypatch, task_name, sweep_name):
 def test_task_enabled_runs_sweep(monkeypatch, task_name, sweep_name):
     import app.worker.tasks.agency as T
 
-    monkeypatch.setattr(
-        "app.core.config.get_settings",
-        lambda: SimpleNamespace(AGENCY_ENABLED=True))
+    monkeypatch.setattr("app.core.config.get_settings", lambda: SimpleNamespace(AGENCY_ENABLED=True))
+
     async def _s():
         return {"ok": sweep_name}
+
     monkeypatch.setattr(T.agency_pipeline, sweep_name, _s)
     monkeypatch.setattr(T, "run_async", lambda coro: asyncio.run(coro))
     assert getattr(T, task_name)() == {"ok": sweep_name}
@@ -369,11 +386,11 @@ def test_task_enabled_runs_sweep(monkeypatch, task_name, sweep_name):
 def test_task_failure_swallowed(monkeypatch, task_name, sweep_name):
     import app.worker.tasks.agency as T
 
-    monkeypatch.setattr(
-        "app.core.config.get_settings",
-        lambda: SimpleNamespace(AGENCY_ENABLED=True))
+    monkeypatch.setattr("app.core.config.get_settings", lambda: SimpleNamespace(AGENCY_ENABLED=True))
+
     async def _boom():
         raise RuntimeError("sweep down")
+
     monkeypatch.setattr(T.agency_pipeline, sweep_name, _boom)
     monkeypatch.setattr(T, "run_async", lambda coro: asyncio.run(coro))
     assert getattr(T, task_name)() is None
@@ -422,20 +439,24 @@ async def test_audit_sweep_empty_and_paths(monkeypatch):
     assert r == {"status": "ok", "completed": 0, "failed": 0}
 
     # one ok + one raise + one unsafe
-    good, boom, unsafe = (
-        _audit(status=AgencyAuditStatus.pending, url=f"https://{n}.example")
-        for n in ("good", "boom", "unsafe"))
+    good, boom, unsafe = (_audit(status=AgencyAuditStatus.pending, url=f"https://{n}.example") for n in ("good", "boom", "unsafe"))
     seen_notes = []
+
     async def _note(lid, text):
         seen_notes.append(text)
         return True
+
     monkeypatch.setattr(P.espo, "add_lead_note", _note)
     good.espo_lead_id = "e9"
     result = {
-        "url": "https://good.example", "score": 80,
+        "url": "https://good.example",
+        "score": 80,
         "findings": [{"finding": "f1", "severity": "warning"}],
-        "recommended_services": [], "action_plan": "p",
-        "ttfb_ms": 10, "http_status": 200, "tech": ["nginx"],
+        "recommended_services": [],
+        "action_plan": "p",
+        "ttfb_ms": 10,
+        "http_status": 200,
+        "tech": ["nginx"],
         "analytics": [],
     }
     calls = []
@@ -468,12 +489,14 @@ async def test_proposal_sweep_empty_and_drafts(monkeypatch):
     assert r == {"status": "ok", "drafted": 0}
 
     # one completed audit, no existing proposal → draft + slack (swallowed)
-    audit = _audit(status=AgencyAuditStatus.completed, score=70,
-                   recommended_services=["cloud"],
-                   findings=[{"finding": "No HSTS", "severity": "warning",
-                              "service": "cloud"}],
-                   action_plan="p", meta_data={"lead_email": "c@acme.example",
-                                               "lead_name": "Acme"})
+    audit = _audit(
+        status=AgencyAuditStatus.completed,
+        score=70,
+        recommended_services=["cloud"],
+        findings=[{"finding": "No HSTS", "severity": "warning", "service": "cloud"}],
+        action_plan="p",
+        meta_data={"lead_email": "c@acme.example", "lead_name": "Acme"},
+    )
     db = _DB(_Res(rows=[audit]), _Res(scalar=None), _Res(scalar=None))
     r = await P.proposal_sweep(session_factory=_factory(db))
     assert r["drafted"] == 1
@@ -494,8 +517,7 @@ async def test_engineer_sweep_empty_and_plans(monkeypatch):
     assert sent.meta_data["engineering_plan"]["plan_md"]
 
     # already planned → skipped
-    sent2 = _proposal(status=AgencyProposalStatus.sent,
-                      meta_data={"engineering_plan": {"plan_md": "x"}})
+    sent2 = _proposal(status=AgencyProposalStatus.sent, meta_data={"engineering_plan": {"plan_md": "x"}})
     db = _DB(_Res(rows=[sent2]))
     r = await P.engineer_sweep(session_factory=_factory(db))
     assert r["planned"] == 0
@@ -509,8 +531,7 @@ async def test_pm_sweep_empty_update_deliver_overdue(monkeypatch):
 
     # project at day 5 → update drafted
     kickoff = datetime.now(UTC) - timedelta(days=4)
-    p1 = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13),
-                  milestones=P.project_milestones())
+    p1 = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13), milestones=P.project_milestones())
     db = _DB(_Res(rows=[p1]))
     r = await P.pm_sweep(session_factory=_factory(db))
     assert r["updates"] == 2 and p1.last_client_update_at is not None
@@ -522,8 +543,7 @@ async def test_pm_sweep_empty_update_deliver_overdue(monkeypatch):
     for m in ms:
         m["done"] = True
         m["done_at"] = datetime.now(UTC).isoformat()
-    p2 = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13),
-                  milestones=ms)
+    p2 = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13), milestones=ms)
     db = _DB(_Res(rows=[p2]))
     r = await P.pm_sweep(session_factory=_factory(db))
     assert r["delivered"] == 1 and p2.status == AgencyProjectStatus.delivered
@@ -532,8 +552,7 @@ async def test_pm_sweep_empty_update_deliver_overdue(monkeypatch):
     # past a custom early due_at (+2d grace) while <day 14 → stalled, not
     # delivered (handoff path needs day >= DELIVERY_DAYS)
     kickoff = datetime.now(UTC) - timedelta(days=10)
-    p3 = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=6),
-                  milestones=P.project_milestones())
+    p3 = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=6), milestones=P.project_milestones())
     db = _DB(_Res(rows=[p3]))
     r = await P.pm_sweep(session_factory=_factory(db))
     assert r["overdue"] == 1 and p3.status == AgencyProjectStatus.stalled
@@ -559,27 +578,37 @@ async def test_triage_local_leads_classifies_and_dedupes(monkeypatch):
     # same-domain lead dedupes via the audit-exists check.
     monkeypatch.setattr(P.espo, "configured", lambda: False)
     notes = []
+
     async def _note(lid, text):
         notes.append(text)
         return True
+
     monkeypatch.setattr(P.espo, "add_lead_note", _note)
 
     from app.models.lead import Lead
 
     lead1 = Lead(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), name="A", email="",
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="A",
+        email="",
         notes="we need a cloud migration for acme.io site is acme.io",
-        meta_data={"espocrm_lead_id": "esp1"}, )
+        meta_data={"espocrm_lead_id": "esp1"},
+    )
     lead1.id = uuid.uuid4()
     lead2 = Lead(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), name="B", email="",
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="B",
+        email="",
         notes="cloud migration please, domain acme.io",
-        meta_data={}, )
+        meta_data={},
+    )
     lead2.id = uuid.uuid4()
     db = _DB(
-        _Res(rows=[lead1, lead2]),   # local untriaged leads select
-        _Res(),                      # dup-check for lead1's domain → none
-        _Res(rows=[1]),              # dup-check for lead2's domain → exists
+        _Res(rows=[lead1, lead2]),  # local untriaged leads select
+        _Res(),  # dup-check for lead1's domain → none
+        _Res(rows=[1]),  # dup-check for lead2's domain → exists
     )
     stats = await P._triage_local_leads(db, lead1.team_id)
     assert stats["triaged"] == 2 and stats["audits"] == 1
@@ -591,8 +620,7 @@ async def test_triage_local_leads_classifies_and_dedupes(monkeypatch):
 async def test_triage_espo_leads_path(monkeypatch):
     monkeypatch.setattr(P.espo, "configured", lambda: True)
     notes, triage = [], []
-    lead = {"id": "e1", "name": "EspoCo", "emailAddress": "e@espo.io",
-            "description": "we want seo marketing for our shop espo-shop.gr"}
+    lead = {"id": "e1", "name": "EspoCo", "emailAddress": "e@espo.io", "description": "we want seo marketing for our shop espo-shop.gr"}
 
     async def _list(entity, where=None, **kw):
         if entity == "Note":
@@ -621,29 +649,37 @@ async def test_public_audit_endpoint(monkeypatch):
     import app.api.leads as L
 
     audit_result = {
-        "url": "https://acme.test/", "score": 42,
+        "url": "https://acme.test/",
+        "score": 42,
         "findings": [{"detail": "missing HSTS"}],
-        "recommended_services": ["cloud"], "action_plan": "fix headers",
+        "recommended_services": ["cloud"],
+        "action_plan": "fix headers",
     }
-    monkeypatch.setattr("app.services.site_audit.run_site_audit",
-                        lambda u: asyncio.sleep(0, audit_result))
+    monkeypatch.setattr("app.services.site_audit.run_site_audit", lambda u: asyncio.sleep(0, audit_result))
     monkeypatch.setattr("app.services.url_safety.validate_public_http_url", lambda u: u)
     monkeypatch.setattr("app.api.leads.create_lead", lambda *a, **k: asyncio.sleep(0, SimpleNamespace(id=uuid.uuid4())))
 
     class _S:
         CLOUDLESS_WEB_ANALYTICS_TEAM_ID = str(uuid.uuid4())
+
     monkeypatch.setattr("app.api.leads.get_settings", lambda: _S())
     L.limiter.enabled = False  # slowapi hits real Redis otherwise
 
     added = []
+
     class _DB:
-        async def flush(self): pass
-        def add(self, r): added.append(r)
-        async def commit(self): pass
+        async def flush(self):
+            pass
+
+        def add(self, r):
+            added.append(r)
+
+        async def commit(self):
+            pass
+
     from starlette.requests import Request
-    fake_req = Request({"type": "http", "method": "POST",
-                        "path": "/x", "headers": [],
-                        "client": ("127.0.0.1", 1), "server": ("t", 80)})
+
+    fake_req = Request({"type": "http", "method": "POST", "path": "/x", "headers": [], "client": ("127.0.0.1", 1), "server": ("t", 80)})
     req = L.PublicAuditRequest(email="lead@acme.test", url="https://acme.test")
     out = await L.create_audit_public(req, fake_req, _DB())
     assert out["ok"] and out["score"] == 42 and out["issues"] == 1
@@ -651,8 +687,8 @@ async def test_public_audit_endpoint(monkeypatch):
 
     # unsafe URL → 400
     from app.services.url_safety import UnsafeUrlError
-    monkeypatch.setattr("app.services.url_safety.validate_public_http_url",
-                        lambda u: (_ for _ in ()).throw(UnsafeUrlError("bad")))
+
+    monkeypatch.setattr("app.services.url_safety.validate_public_http_url", lambda u: (_ for _ in ()).throw(UnsafeUrlError("bad")))
     try:
         await L.create_audit_public(req, fake_req, _DB())
         raise AssertionError("should 400")
@@ -672,26 +708,33 @@ async def test_public_survey_endpoint(monkeypatch):
 
     monkeypatch.setattr("app.api.leads.create_lead", lambda *a, **k: asyncio.sleep(0, None))
     captured = []
-    async def fake_upsert(payload): captured.append(payload)
+
+    async def fake_upsert(payload):
+        captured.append(payload)
+
     monkeypatch.setattr("app.services.espocrm_client.upsert_lead", fake_upsert)
     L.limiter.enabled = False
 
     class _S:
         CLOUDLESS_WEB_ANALYTICS_TEAM_ID = str(uuid.uuid4())
         PLAYBOOK_PDF_URL = "https://x/playbook.pdf"
+
     monkeypatch.setattr("app.api.leads.get_settings", lambda: _S())
 
     class _DB:
-        async def commit(self): pass
-        async def flush(self): pass
-    from starlette.requests import Request
-    fake_req = Request({"type": "http", "method": "POST", "path": "/x",
-                        "headers": [], "client": ("127.0.0.1", 1), "server": ("t", 80)})
+        async def commit(self):
+            pass
 
-    req = L.PublicSurveyRequest(email="lead@acme.test", name="Jane D",
-                                 phone="+30 691 234 5678", company_size="11-50",
-                                 interest="cloud migration",
-                                 answers={"pain": "manual deploys"})
+        async def flush(self):
+            pass
+
+    from starlette.requests import Request
+
+    fake_req = Request({"type": "http", "method": "POST", "path": "/x", "headers": [], "client": ("127.0.0.1", 1), "server": ("t", 80)})
+
+    req = L.PublicSurveyRequest(
+        email="lead@acme.test", name="Jane D", phone="+30 691 234 5678", company_size="11-50", interest="cloud migration", answers={"pain": "manual deploys"}
+    )
     out = await L.create_survey_public(req, fake_req, _DB())
     assert out["ok"] and captured
     assert captured[0]["phoneNumber"] == "+30 691 234 5678"

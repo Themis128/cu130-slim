@@ -15,6 +15,7 @@ Covers:
 
 Reuses the fakes from the existing publishing suites; every platform,
 the bridge, storage and ffmpeg are faked."""
+
 from __future__ import annotations
 
 import uuid
@@ -107,8 +108,7 @@ async def test_refresh_minimal_response_keeps_existing_fields(monkeypatch):
     monkeypatch.setattr(authmod, "twitter_client", _TC())
     monkeypatch.setattr(P, "decrypt_token", lambda t: "rt")
     expiry = datetime.now(UTC) + timedelta(hours=1)
-    acct = SimpleNamespace(refresh_token_enc=b"old-rt", access_token_enc=None, token_expires_at=expiry,
-                           scopes=["tweet.write"], status="expired")
+    acct = SimpleNamespace(refresh_token_enc=b"old-rt", access_token_enc=None, token_expires_at=expiry, scopes=["tweet.write"], status="expired")
     db = _DB()
     db.commit = AsyncMock()
     assert await P._refresh_oauth2_token(acct, db) == "new"

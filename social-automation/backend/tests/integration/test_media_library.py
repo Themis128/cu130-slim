@@ -1,4 +1,5 @@
 """Integration tests for the modern media library: collections, search, and tagging."""
+
 import io
 
 import pytest

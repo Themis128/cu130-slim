@@ -84,14 +84,18 @@ async def test_messenger_icebreaker_postback_creates_lead(client, db):
     assert resp.status_code == 200
 
     lead = (
-        await db.execute(
-            select(Lead).where(
-                Lead.team_id == team.id,
-                Lead.source == LeadSource.facebook_messenger,
-                Lead.thread_id == sender_psid,
+        (
+            await db.execute(
+                select(Lead).where(
+                    Lead.team_id == team.id,
+                    Lead.source == LeadSource.facebook_messenger,
+                    Lead.thread_id == sender_psid,
+                )
             )
         )
-    ).scalars().first()
+        .scalars()
+        .first()
+    )
     assert lead is not None
     assert lead.interest == LeadInterest.cloud
 
@@ -154,14 +158,18 @@ async def test_messenger_icebreaker_postback_updates_existing_lead_interest(clie
     assert resp2.status_code == 200
 
     leads = (
-        await db.execute(
-            select(Lead).where(
-                Lead.team_id == team.id,
-                Lead.source == LeadSource.facebook_messenger,
-                Lead.thread_id == sender_psid,
+        (
+            await db.execute(
+                select(Lead).where(
+                    Lead.team_id == team.id,
+                    Lead.source == LeadSource.facebook_messenger,
+                    Lead.thread_id == sender_psid,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     assert len(leads) == 1
     assert leads[0].interest == LeadInterest.audit
 
@@ -246,4 +254,3 @@ async def test_sidecar_dispatch_includes_postback_payload(client, db):
 
     assert calls, "Expected webhook to dispatch to sidecar"
     assert calls[0]["json"]["postback_payload"] == "LEAD_CLOUD"
-

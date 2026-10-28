@@ -180,9 +180,15 @@ class TestVramOracle:
         monkeypatch.setattr(dmr, "_nvidia_smi_vram", lambda: None)
         monkeypatch.setattr(dmr.settings, "COMFYUI_URL", "http://comfyui:8000")
         mib = 1024 * 1024
-        fake_client.set_get("system_stats", _Resp(200, {
-            "devices": [{"type": "cuda", "vram_total": 8192 * mib, "vram_free": 6144 * mib}],
-        }))
+        fake_client.set_get(
+            "system_stats",
+            _Resp(
+                200,
+                {
+                    "devices": [{"type": "cuda", "vram_total": 8192 * mib, "vram_free": 6144 * mib}],
+                },
+            ),
+        )
         vram = await dmr._get_vram_info()
         assert vram == {"used": 2048, "free": 6144, "total": 8192}
 
@@ -202,70 +208,131 @@ def _ps_model(name: str, expires: str = "0001-01-01T00:00:00Z") -> dict:
 
 class TestQueuedLoadGate:
     @pytest.mark.asyncio
-    async def test_queued_load_reserves_vram_and_fails_gate(
-        self, fake_client, monkeypatch
-    ):
+    async def test_queued_load_reserves_vram_and_fails_gate(self, fake_client, monkeypatch):
         """An epoch-0 'Loading...' 8B entry reserves 4096 MiB — with 6GB 'free'
         reported, a 4B request (3072 needed) must fail the gate and heal first."""
-        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
-            "used": 2048, "free": 6144, "total": 8192,
-        }))
-        fake_client.set_get("/api/ps", _Resp(200, {"models": [
-            _ps_model("docker.io/ai/qwen3:8b-q4_K_M"),
-        ]}))
+        monkeypatch.setattr(
+            dmr,
+            "_get_vram_info",
+            AsyncMock(
+                return_value={
+                    "used": 2048,
+                    "free": 6144,
+                    "total": 8192,
+                }
+            ),
+        )
+        fake_client.set_get(
+            "/api/ps",
+            _Resp(
+                200,
+                {
+                    "models": [
+                        _ps_model("docker.io/ai/qwen3:8b-q4_K_M"),
+                    ]
+                },
+            ),
+        )
         assert await dmr._has_vram_for_model("hf.co/x/qwen3-4b:Q4_K_M") is False
 
     @pytest.mark.asyncio
     async def test_loaded_models_do_not_reserve(self, fake_client, monkeypatch):
         """Models with a real expires_at are resident — counted by nvidia-smi,
         not re-reserved by the queued-load oracle."""
-        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
-            "used": 4096, "free": 4096, "total": 8192,
-        }))
-        fake_client.set_get("/api/ps", _Resp(200, {"models": [
-            _ps_model("docker.io/ai/qwen3:8b-q4_K_M", "2030-01-01T00:00:00Z"),
-        ]}))
+        monkeypatch.setattr(
+            dmr,
+            "_get_vram_info",
+            AsyncMock(
+                return_value={
+                    "used": 4096,
+                    "free": 4096,
+                    "total": 8192,
+                }
+            ),
+        )
+        fake_client.set_get(
+            "/api/ps",
+            _Resp(
+                200,
+                {
+                    "models": [
+                        _ps_model("docker.io/ai/qwen3:8b-q4_K_M", "2030-01-01T00:00:00Z"),
+                    ]
+                },
+            ),
+        )
         assert await dmr._has_vram_for_model("hf.co/x/qwen3-4b:Q4_K_M") is True
 
     @pytest.mark.asyncio
-    async def test_target_model_excluded_from_reservation(
-        self, fake_client, monkeypatch
-    ):
+    async def test_target_model_excluded_from_reservation(self, fake_client, monkeypatch):
         """A queued reload of the requested model itself is not double-counted."""
-        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
-            "used": 1024, "free": 7168, "total": 8192,
-        }))
-        fake_client.set_get("/api/ps", _Resp(200, {"models": [
-            _ps_model("huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M"),
-        ]}))
-        assert await dmr._has_vram_for_model(
-            "hf.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M"
-        ) is True
+        monkeypatch.setattr(
+            dmr,
+            "_get_vram_info",
+            AsyncMock(
+                return_value={
+                    "used": 1024,
+                    "free": 7168,
+                    "total": 8192,
+                }
+            ),
+        )
+        fake_client.set_get(
+            "/api/ps",
+            _Resp(
+                200,
+                {
+                    "models": [
+                        _ps_model("huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M"),
+                    ]
+                },
+            ),
+        )
+        assert await dmr._has_vram_for_model("hf.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M") is True
 
     @pytest.mark.asyncio
-    async def test_resident_target_passes_gate_under_pressure(
-        self, fake_client, monkeypatch
-    ):
+    async def test_resident_target_passes_gate_under_pressure(self, fake_client, monkeypatch):
         """A resident model needs no VRAM — the gate must not heal-evict our
         own warm model just because foreign loads are queued."""
-        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
-            "used": 7000, "free": 100, "total": 8192,
-        }))
-        fake_client.set_get("/api/ps", _Resp(200, {"models": [
-            _ps_model("huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M",
-                      "2030-01-01T00:00:00Z"),
-            _ps_model("docker.io/ai/qwen3-vl:latest"),
-        ]}))
-        assert await dmr._has_vram_for_model(
-            "hf.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M"
-        ) is True
+        monkeypatch.setattr(
+            dmr,
+            "_get_vram_info",
+            AsyncMock(
+                return_value={
+                    "used": 7000,
+                    "free": 100,
+                    "total": 8192,
+                }
+            ),
+        )
+        fake_client.set_get(
+            "/api/ps",
+            _Resp(
+                200,
+                {
+                    "models": [
+                        _ps_model("huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M", "2030-01-01T00:00:00Z"),
+                        _ps_model("docker.io/ai/qwen3-vl:latest"),
+                    ]
+                },
+            ),
+        )
+        assert await dmr._has_vram_for_model("hf.co/unsloth/qwen3-4b-instruct-2507-gguf:Q4_K_M") is True
 
     @pytest.mark.asyncio
     async def test_ps_unreachable_reserves_nothing(self, fake_client, monkeypatch):
         """DMR /api/ps down → zero reservation, plain free-VRAM check applies."""
-        monkeypatch.setattr(dmr, "_get_vram_info", AsyncMock(return_value={
-            "used": 1024, "free": 7168, "total": 8192,
-        }))
+        monkeypatch.setattr(
+            dmr,
+            "_get_vram_info",
+            AsyncMock(
+                return_value={
+                    "used": 1024,
+                    "free": 7168,
+                    "total": 8192,
+                }
+            ),
+        )
         fake_client.set_get("/api/ps", _Resp(500, {}))
         assert await dmr._has_vram_for_model("hf.co/x/qwen3-4b:Q4_K_M") is True
 
@@ -301,7 +368,10 @@ class TestOomHealRetry:
         )
 
         result = await dmr._call_dmr_chat_internal(
-            "hi", model_override="ai/gpu-resident-model", max_tokens=5, _skip_health_check=False,
+            "hi",
+            model_override="ai/gpu-resident-model",
+            max_tokens=5,
+            _skip_health_check=False,
         )
         assert result == {"text": "recovered"}
         heal.assert_awaited_once()
@@ -330,7 +400,10 @@ class TestOomHealRetry:
         )
 
         result = await dmr._call_dmr_chat_internal(
-            "hi", model_override="ai/smollm3", max_tokens=5, _skip_health_check=False,
+            "hi",
+            model_override="ai/smollm3",
+            max_tokens=5,
+            _skip_health_check=False,
         )
         assert result == {"text": "recovered"}
         heal.assert_not_awaited()
@@ -398,6 +471,7 @@ class TestKeepWarm:
     def _patch(self, monkeypatch, *, busy=False, running=(), vram_ok=True):
         monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=True))
         import app.services.gpu_arbiter as arbiter
+
         monkeypatch.setattr(arbiter, "media_gpu_busy", AsyncMock(return_value=busy))
         monkeypatch.setattr(dmr, "_running_dmr_models", AsyncMock(return_value=set(running)))
         monkeypatch.setattr(dmr, "_has_vram_for_model", AsyncMock(return_value=vram_ok))
@@ -459,7 +533,8 @@ class TestWarmupBudget:
         monkeypatch.setattr(dmr, "_try_acquire_warmup_lock", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr, "apply_best_practice_configs", AsyncMock())
         monkeypatch.setattr(
-            dmr, "_get_vram_info",
+            dmr,
+            "_get_vram_info",
             AsyncMock(return_value={"used": 4192, "free": 6700, "total": 8192}),
         )
         monkeypatch.setattr(dmr.settings, "DMR_MID_MODEL", "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M")
@@ -501,9 +576,7 @@ class TestModelTaskCoercion:
         assert dmr._coerce_model_for_task(None, "text", "FB") == "FB"
 
     def test_matching_family_passthrough(self):
-        assert dmr._coerce_model_for_task(
-            "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF", "embedding", "FB"
-        ) == "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"
+        assert dmr._coerce_model_for_task("hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF", "embedding", "FB") == "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"
         assert dmr._coerce_model_for_task("ai/qwen3-vl", "vision", "FB") == "ai/qwen3-vl"
         assert dmr._coerce_model_for_task("ai/qwen3:8b-q4_K_M", "text", "FB") == "ai/qwen3:8b-q4_K_M"
 
@@ -513,18 +586,12 @@ class TestModelTaskCoercion:
         assert dmr._coerce_model_for_task("ai/qwen3-vl", "embedding", "FB") == "FB"
 
     def test_select_model_embedder_override_coerced(self, monkeypatch):
-        monkeypatch.setattr(
-            dmr.settings, "DMR_MID_MODEL", "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
-        )
-        got = dmr._select_model_by_complexity(
-            "write a caption", model_override="ai/qwen3-embedding", platform="tiktok"
-        )
+        monkeypatch.setattr(dmr.settings, "DMR_MID_MODEL", "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M")
+        got = dmr._select_model_by_complexity("write a caption", model_override="ai/qwen3-embedding", platform="tiktok")
         assert got == "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
 
     def test_select_model_valid_override_wins(self):
-        got = dmr._select_model_by_complexity(
-            "write a caption", model_override="ai/llama3.2", platform="tiktok"
-        )
+        got = dmr._select_model_by_complexity("write a caption", model_override="ai/llama3.2", platform="tiktok")
         assert got == "ai/llama3.2"
 
     @pytest.mark.asyncio

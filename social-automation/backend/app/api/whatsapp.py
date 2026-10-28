@@ -9,6 +9,7 @@ Meta app.  The phone number ID and access token are stored in the existing
 ``social_accounts`` table (platform="whatsapp",
 meta_data.phone_number_id, meta_data.access_token).
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -48,15 +49,14 @@ router = APIRouter()
 # Helpers
 # ------------------------------------------------------------------
 
+
 async def _get_whatsapp_account(
     db: AsyncSession,
     account_id: uuid.UUID,
     user: User,
 ) -> SocialAccount:
     """Load a WhatsApp account and verify ownership."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -106,6 +106,7 @@ def _get_whatsapp_client(account: SocialAccount) -> WhatsAppAPIClient:
 # Pydantic schemas
 # ------------------------------------------------------------------
 
+
 class WhatsAppSetupRequest(BaseModel):
     greeting_text: str | None = Field(None, description="Custom greeting/about text for the business profile")
 
@@ -118,6 +119,7 @@ class WhatsAppCredentialsUpdate(BaseModel):
     whatsapp_business_management, and business_management permissions,
     store the token here so the app can send messages and receive webhooks.
     """
+
     access_token: str = Field(..., description="Permanent System User access token")
     phone_number_id: str = Field(..., description="WhatsApp Business phone number ID")
     waba_id: str | None = Field(None, description="WhatsApp Business Account ID")
@@ -161,8 +163,10 @@ class SendMessageRequest(BaseModel):
 
 # ── Phone number registration schemas (4-step flow) ──────────────────
 
+
 class CreatePhoneNumberRequest(BaseModel):
     """Step 1: Create a business phone number on a WABA."""
+
     waba_id: str = Field(..., description="WhatsApp Business Account ID")
     cc: str = Field(..., description="Country calling code (e.g. '30' for Greece)")
     phone_number: str = Field(..., description="Phone number without country code")
@@ -171,6 +175,7 @@ class CreatePhoneNumberRequest(BaseModel):
 
 class RequestCodeRequest(BaseModel):
     """Step 2: Request a verification code."""
+
     phone_number_id: str = Field(..., description="Phone number ID from step 1")
     code_method: str = Field("SMS", description="Delivery method: 'SMS' or 'VOICE'")
     language: str = Field("en_US", description="Language code (e.g. 'en_US', 'el_GR')")
@@ -178,23 +183,27 @@ class RequestCodeRequest(BaseModel):
 
 class VerifyCodeRequest(BaseModel):
     """Step 3: Verify the phone number with the code."""
+
     phone_number_id: str = Field(..., description="Phone number ID from step 1")
     code: str = Field(..., description="Verification code (with or without hyphen)")
 
 
 class RegisterNumberRequest(BaseModel):
     """Step 4: Register the verified phone number for API use."""
+
     phone_number_id: str = Field(..., description="Verified phone number ID")
     pin: str = Field(..., description="6-digit two-step verification PIN")
 
 
 class DeregisterNumberRequest(BaseModel):
     """Deregister a phone number (stops API use)."""
+
     phone_number_id: str = Field(..., description="Phone number ID to deregister")
 
 
 class WabaSubscriptionRequest(BaseModel):
     """Subscribe or unsubscribe the app to webhooks on a WABA."""
+
     waba_id: str = Field(..., description="WhatsApp Business Account ID")
 
 
@@ -218,6 +227,7 @@ class AutoReplyConfig(BaseModel):
 # ------------------------------------------------------------------
 # Setup & Profile endpoints
 # ------------------------------------------------------------------
+
 
 @router.post("/{account_id}/setup", response_model=dict)
 async def setup_whatsapp(
@@ -249,10 +259,12 @@ async def setup_whatsapp(
     profile_result = None
     if body and body.greeting_text:
         try:
-            profile_result = await client.update_business_profile({
-                "about": body.greeting_text[:139],  # WhatsApp about limit
-                "description": body.greeting_text[:512],
-            })
+            profile_result = await client.update_business_profile(
+                {
+                    "about": body.greeting_text[:139],  # WhatsApp about limit
+                    "description": body.greeting_text[:512],
+                }
+            )
         except Exception as e:
             logger.warning("Business profile update failed: %s", _sanitize_log_text(str(e)))
             profile_result = {"result": "error", "detail": "profile update failed"}
@@ -341,9 +353,7 @@ async def update_whatsapp_credentials(
             client = _get_whatsapp_client(account)
             webhook_result = await client.subscribe_app_to_waba(body.waba_id)
         except Exception as e:
-            logger.warning(
-                "WABA webhook subscription failed: %s", _sanitize_log_text(str(e))
-            )
+            logger.warning("WABA webhook subscription failed: %s", _sanitize_log_text(str(e)))
             webhook_result = {"success": False, "error": "subscription request failed"}
 
     return {
@@ -417,15 +427,11 @@ async def get_setup_status(
         "display_phone_number": meta.get("display_phone_number", ""),
         "waba_id": waba_id,
         "phone_number_id": phone_number_id,
-        "next_step": _next_setup_step(
-            has_credentials, bool(waba_id), webhook_subscribed, phone_registered, profile_set
-        ),
+        "next_step": _next_setup_step(has_credentials, bool(waba_id), webhook_subscribed, phone_registered, profile_set),
     }
 
 
-def _next_setup_step(
-    has_creds: bool, has_waba: bool, webhook_sub: bool, phone_reg: bool, profile_set: bool
-) -> str:
+def _next_setup_step(has_creds: bool, has_waba: bool, webhook_sub: bool, phone_reg: bool, profile_set: bool) -> str:
     """Return the next incomplete Get Started step."""
     if not has_creds:
         return "Create a System User in Meta Business Settings and generate a permanent access token, then PUT /credentials"
@@ -504,6 +510,7 @@ async def update_whatsapp_profile(
 # https://developers.facebook.com/docs/whatsapp/cloud-api/get-started/registering-phone-numbers
 # ------------------------------------------------------------------
 
+
 @router.post("/register/create-number", response_model=dict)
 async def create_phone_number(
     body: CreatePhoneNumberRequest,
@@ -515,9 +522,7 @@ async def create_phone_number(
     Returns the new phone number ID (unverified). Use /register/request-code next.
     """
     # Use any WhatsApp account's token for the WABA-level call
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found — connect one first")
@@ -546,9 +551,7 @@ async def request_verification_code(
 
     Meta sends a code like 'WhatsApp code 123-830' to the phone number.
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found")
@@ -576,9 +579,7 @@ async def verify_phone_code(
 
     The code should be numeric (hyphen stripped automatically, e.g. '123-830' → '123830').
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found")
@@ -606,9 +607,7 @@ async def register_phone_number(
     Sets the 6-digit two-step verification PIN. After this, the number
     can send/receive messages via the Cloud API.
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found")
@@ -632,9 +631,7 @@ async def deregister_phone_number(
     user: User = Depends(get_current_user),
 ):
     """Deregister a business phone number (stops API use)."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found")
@@ -653,6 +650,7 @@ async def deregister_phone_number(
 # https://developers.facebook.com/docs/whatsapp/embedded-signup/webhooks
 # ------------------------------------------------------------------
 
+
 @router.post("/webhooks/subscribe", response_model=dict)
 async def subscribe_app_to_waba(
     body: WabaSubscriptionRequest,
@@ -669,9 +667,7 @@ async def subscribe_app_to_waba(
     Business Account lookup. The callback URL is configured in the App
     Dashboard Webhooks panel.
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found")
@@ -694,9 +690,7 @@ async def list_waba_subscriptions(
     GET /{waba_id}/subscribed_apps — returns an array of apps with
     ``id``, ``link``, and ``name`` properties for each subscribed app.
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found")
@@ -719,9 +713,7 @@ async def unsubscribe_app_from_waba(
     DELETE /{waba_id}/subscribed_apps — stops webhook notifications for
     this WABA from being sent to the app's callback URL.
     """
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "whatsapp").limit(1))
     account = result.scalars().first()
     if not account:
         raise HTTPException(status_code=400, detail="No WhatsApp account found")
@@ -736,6 +728,7 @@ async def unsubscribe_app_from_waba(
 # ------------------------------------------------------------------
 # Send API
 # ------------------------------------------------------------------
+
 
 @router.post("/{account_id}/send", response_model=dict)
 async def send_message(
@@ -758,7 +751,8 @@ async def send_message(
     try:
         if body.text:
             result = await client.send_text(
-                body.to, body.text,
+                body.to,
+                body.text,
                 preview_url=body.preview_url,
                 messaging_type=body.messaging_type,
             )
@@ -771,7 +765,8 @@ async def send_message(
 
     text = body.text or body.caption or ("[image]" if body.image_url else "[document]")
     await _record_message(
-        db, account,
+        db,
+        account,
         peer_phone=body.to,
         direction="outbound",
         message_type="text" if body.text else ("image" if body.image_url else "document"),
@@ -794,7 +789,8 @@ async def send_template(
 
     try:
         result = await client.send_template(
-            body.to, body.template_name,
+            body.to,
+            body.template_name,
             language_code=body.language_code,
             components=body.components,
         )
@@ -802,7 +798,8 @@ async def send_template(
         raise HTTPException(status_code=502, detail=f"Failed to send template: {e}")
 
     await _record_message(
-        db, account,
+        db,
+        account,
         peer_phone=body.to,
         direction="outbound",
         message_type="template",
@@ -815,6 +812,7 @@ async def send_template(
 # ------------------------------------------------------------------
 # Auto-reply configuration
 # ------------------------------------------------------------------
+
 
 @router.get("/{account_id}/auto-reply", response_model=AutoReplyConfig)
 async def get_auto_reply_config(
@@ -840,6 +838,7 @@ async def update_auto_reply_config(
     account = await _get_whatsapp_account(db, account_id, user)
     if body.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["whatsapp_auto_reply"] = body.model_dump()
@@ -852,6 +851,7 @@ async def update_auto_reply_config(
 # ------------------------------------------------------------------
 # Webhook endpoints
 # ------------------------------------------------------------------
+
 
 def _get_verify_token() -> str:
     return getattr(settings, "WHATSAPP_VERIFY_TOKEN", "") or "cloudless_whatsapp_verify"
@@ -921,6 +921,7 @@ async def receive_webhook(
     flow_responses: list[dict] = []
     try:
         from app.api.whatsapp_flows import process_flow_responses
+
         flow_responses = await process_flow_responses(body, db)
     except Exception as e:
         logger.debug("Flow response parsing skipped: %s", _sanitize_log_text(str(e)))
@@ -989,7 +990,8 @@ def _process_waba_level_events(body: dict) -> int:
                 event = value.get("event", "UNKNOWN")
                 logger.info(
                     "WhatsApp WABA %s account_update: event=%s",
-                    _sanitize_log_text(waba_id), _sanitize_log_text(str(event)),
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(str(event)),
                 )
                 # Log ban info if present
                 ban_info = value.get("ban_info")
@@ -1004,7 +1006,8 @@ def _process_waba_level_events(body: dict) -> int:
                 decision = value.get("decision", "UNKNOWN")
                 logger.info(
                     "WhatsApp WABA %s account_review_update: decision=%s",
-                    _sanitize_log_text(waba_id), _sanitize_log_text(str(decision)),
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(str(decision)),
                 )
             elif field == "account_alerts":
                 logger.info(
@@ -1023,14 +1026,18 @@ def _process_waba_level_events(body: dict) -> int:
                 name = value.get("requested_verified_name", "")
                 logger.info(
                     "WhatsApp WABA %s phone_number_name_update: decision=%s name=%s",
-                    _sanitize_log_text(waba_id), _sanitize_log_text(str(decision)), _sanitize_log_text(name),
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(str(decision)),
+                    _sanitize_log_text(name),
                 )
             elif field == "phone_number_quality_update":
                 event = value.get("event", "UNKNOWN")
                 limit = value.get("current_limit", "")
                 logger.info(
                     "WhatsApp WABA %s phone_number_quality_update: event=%s limit=%s",
-                    _sanitize_log_text(waba_id), _sanitize_log_text(str(event)), _sanitize_log_text(str(limit)),
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(str(event)),
+                    _sanitize_log_text(str(limit)),
                 )
             elif field in (
                 "message_template_status_update",
@@ -1042,7 +1049,10 @@ def _process_waba_level_events(body: dict) -> int:
                 template_name = value.get("message_template_name", "")
                 logger.info(
                     "WhatsApp WABA %s %s: event=%s template=%s",
-                    _sanitize_log_text(waba_id), _sanitize_log_text(str(field)), _sanitize_log_text(str(event)), _sanitize_log_text(template_name),
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(str(field)),
+                    _sanitize_log_text(str(event)),
+                    _sanitize_log_text(template_name),
                 )
             elif field == "security":
                 logger.info(
@@ -1053,7 +1063,8 @@ def _process_waba_level_events(body: dict) -> int:
             else:
                 logger.info(
                     "WhatsApp WABA %s unhandled webhook field: %s",
-                    _sanitize_log_text(waba_id), _sanitize_log_text(str(field)),
+                    _sanitize_log_text(waba_id),
+                    _sanitize_log_text(str(field)),
                 )
 
     return count
@@ -1121,7 +1132,8 @@ async def _process_inline(
     # Persist the inbound message for the unified inbox — regardless of
     # whether auto-reply is enabled.
     await _record_message(
-        db, account,
+        db,
+        account,
         peer_phone=sender_phone,
         direction="inbound",
         message_type=message_type,
@@ -1175,7 +1187,8 @@ async def _process_inline(
         sent = await client.send_text(sender_phone, reply_text, messaging_type="RESPONSE")
         sent_id = (sent.get("messages") or [{}])[0].get("id", "") if isinstance(sent, dict) else ""
         await _record_message(
-            db, account,
+            db,
+            account,
             peer_phone=sender_phone,
             direction="outbound",
             message_type="text",
@@ -1268,15 +1281,14 @@ async def _maybe_promote_flow(account: SocialAccount, sender_phone: str, intent:
 # Bot Builder (mirrors Messenger bot)
 # ------------------------------------------------------------------
 
+
 class BotConfig(BaseModel):
     """Configuration for a WhatsApp bot."""
+
     name: str = Field(default="Cloudless Assistant", description="Bot display name")
     enabled: bool = Field(default=False, description="Whether the bot is active")
     system_prompt: str = Field(
-        default=(
-            "You are a helpful assistant for {business_name}. Reply concisely and professionally "
-            "in the same language as the incoming message."
-        ),
+        default=("You are a helpful assistant for {business_name}. Reply concisely and professionally in the same language as the incoming message."),
         description="System prompt for AI reply generation",
     )
     model: str = Field(default="ai/qwen3:8b-q4_K_M", description="AI model (DMR-first)")
@@ -1295,6 +1307,7 @@ class BotConfig(BaseModel):
 
 class BotCreateRequest(BaseModel):
     """Request to create a new bot for an account."""
+
     name: str = Field("Cloudless Assistant", description="Bot display name")
     personality: str = Field(
         "professional_friendly",
@@ -1353,6 +1366,7 @@ async def create_bot(
     """
     account = await _get_whatsapp_account(db, account_id, current_user)
     from app.api.deps import check_plan_feature
+
     await check_plan_feature("dm_auto_reply", account.team_id, db)
     business_name = account.display_name or "Cloudless"
 
@@ -1410,9 +1424,7 @@ async def create_bot(
         from app.models.brand import Brand
         from app.services.whatsapp_chatbot import index_brand_knowledge
 
-        brand_result = await db.execute(
-            select(Brand).where(Brand.team_id == account.team_id)
-        )
+        brand_result = await db.execute(select(Brand).where(Brand.team_id == account.team_id))
         brand = brand_result.scalars().first()
         if brand:
             brand_data = {
@@ -1487,6 +1499,7 @@ async def activate_bot(
     """Activate the bot for an account."""
     account = await _get_whatsapp_account(db, account_id, current_user)
     from app.api.deps import check_plan_feature
+
     await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     bot_config = meta.get("whatsapp_bot")
@@ -1570,6 +1583,7 @@ async def pause_thread(
     """Pause the bot for a specific phone number (human handoff)."""
     await _get_whatsapp_account(db, account_id, current_user)
     from app.services.whatsapp_chatbot import pause_thread as _pause
+
     await _pause(str(account_id), req.phone, req.reason)
     return {"status": "ok", "message": f"Thread for {req.phone} paused"}
 
@@ -1584,6 +1598,7 @@ async def resume_thread(
     """Resume the bot for a specific phone number."""
     await _get_whatsapp_account(db, account_id, current_user)
     from app.services.whatsapp_chatbot import resume_thread as _resume
+
     await _resume(str(account_id), req.phone)
     return {"status": "ok", "message": f"Thread for {req.phone} resumed"}
 
@@ -1598,6 +1613,7 @@ async def get_thread_config(
     """Get per-conversation config overrides."""
     await _get_whatsapp_account(db, account_id, current_user)
     from app.services.whatsapp_chatbot import get_thread_config as _get_config
+
     config = await _get_config(str(account_id), phone)
     return {"config": config}
 
@@ -1613,6 +1629,7 @@ async def set_thread_config(
     """Set per-conversation config overrides."""
     await _get_whatsapp_account(db, account_id, current_user)
     from app.services.whatsapp_chatbot import set_thread_config as _set_config
+
     config = {k: v for k, v in req.model_dump().items() if v is not None and k != "phone"}
     await _set_config(str(account_id), phone, config)
     return {"status": "ok", "config": config}
@@ -1628,6 +1645,7 @@ async def get_thread_memory(
     """Get conversation memory for a specific phone number."""
     await _get_whatsapp_account(db, account_id, current_user)
     from app.services.whatsapp_chatbot import get_conversation_memory
+
     memory = await get_conversation_memory(str(account_id), phone)
     return {"messages": memory, "count": len(memory)}
 
@@ -1642,6 +1660,7 @@ async def get_service_window(
     """Check the 24-hour customer service window status for a phone number."""
     await _get_whatsapp_account(db, account_id, current_user)
     from app.services.whatsapp_chatbot import get_window_remaining, is_in_service_window
+
     remaining = await get_window_remaining(str(account_id), phone)
     in_window = await is_in_service_window(str(account_id), phone)
     return {
@@ -1666,9 +1685,7 @@ async def index_brand(
     from app.services.whatsapp_chatbot import index_brand_knowledge
 
     account = await _get_whatsapp_account(db, account_id, current_user)
-    result = await db.execute(
-        select(Brand).where(Brand.team_id == account.team_id)
-    )
+    result = await db.execute(select(Brand).where(Brand.team_id == account.team_id))
     brand = result.scalars().first()
     if not brand:
         return {"status": "error", "message": "No brand found for this team"}
@@ -1694,6 +1711,7 @@ async def index_brand(
 #   2. Verify the code
 #   3. Register the number for Cloud API use
 # These endpoints automate steps 1-3 via the WhatsApp Cloud API.
+
 
 @router.post("/{account_id}/phone/request-code")
 async def request_phone_code(
@@ -1760,6 +1778,7 @@ async def register_account_phone(
 
     # Update account metadata
     from sqlalchemy.orm.attributes import flag_modified
+
     meta = account.meta_data or {}
     meta["phone_registered"] = True
     meta["phone_registered_at"] = datetime.now(UTC).isoformat()

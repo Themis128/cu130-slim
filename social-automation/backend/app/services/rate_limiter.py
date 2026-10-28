@@ -3,6 +3,7 @@
 Provides per-account request pacing, Retry-After header handling, and
 exponential backoff with jitter. Uses Redis for cross-worker coordination.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -59,7 +60,11 @@ class PerAccountRateLimiter:
             if ttl > 0:
                 logger.info(
                     "Rate limit reached for %s/%s (%d/%d), waiting %ds",
-                    platform, account_id, count, limit, ttl,
+                    platform,
+                    account_id,
+                    count,
+                    limit,
+                    ttl,
                 )
                 await asyncio.sleep(ttl)
             await r.delete(key)
@@ -131,7 +136,7 @@ async def with_retry_after(
                 logger.info("Retry-After: waiting %.1fs (attempt %d/%d)", delay, attempt + 1, max_retries)
             else:
                 jitter = random.uniform(0, 0.5)
-                delay = min(base_delay * (2 ** attempt) + jitter, max_delay)
+                delay = min(base_delay * (2**attempt) + jitter, max_delay)
                 logger.info("Backoff: waiting %.1fs (attempt %d/%d)", delay, attempt + 1, max_retries)
             await asyncio.sleep(delay)
     # Unreachable, but satisfies type checker

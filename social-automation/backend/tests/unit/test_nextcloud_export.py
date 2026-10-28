@@ -4,6 +4,7 @@ The mirror (services/nextcloud_export.py) is fire-and-forget from the
 worker — if it regresses (bad URL quoting, MKCOL mishandling, share API
 drift) nothing else fails, so these tests pin the wire behavior.
 """
+
 import urllib.parse
 from types import SimpleNamespace
 
@@ -81,9 +82,7 @@ async def test_create_public_share_read_only(monkeypatch, nc_settings):
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["headers"] = dict(request.headers)
-        seen["body"] = {
-            k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()
-        }
+        seen["body"] = {k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()}
         return httpx.Response(
             200,
             json={
@@ -110,9 +109,7 @@ async def test_create_public_share_root_named_collision(monkeypatch, nc_settings
     seen: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["body"] = {
-            k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()
-        }
+        seen["body"] = {k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()}
         return httpx.Response(200, json={"ocs": {"data": {"url": "https://x/s/y"}}})
 
     _mock_client(monkeypatch, handler)
@@ -127,9 +124,7 @@ async def test_create_share_for_recorded(monkeypatch, nc_settings):
     seen: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["body"] = {
-            k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()
-        }
+        seen["body"] = {k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()}
         return httpx.Response(200, json={"ocs": {"data": {"url": "https://x/s/rec"}}})
 
     _mock_client(monkeypatch, handler)
@@ -148,9 +143,7 @@ async def test_create_public_share_with_password(monkeypatch, nc_settings):
     seen: dict = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen["body"] = {
-            k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()
-        }
+        seen["body"] = {k: v[0] for k, v in urllib.parse.parse_qs(request.content.decode()).items()}
         return httpx.Response(200, json={"ocs": {"data": {"url": "https://x/s/z"}}})
 
     _mock_client(monkeypatch, handler)
@@ -211,16 +204,12 @@ def _fake_factory(session):
 @pytest.mark.asyncio
 async def test_export_media_asset_missing_asset_skipped(monkeypatch, nc_settings):
     session = _FakeSession(None)
-    result = await nc.export_media_asset(
-        "00000000-0000-0000-0000-000000000001", _fake_factory(session)
-    )
+    result = await nc.export_media_asset("00000000-0000-0000-0000-000000000001", _fake_factory(session))
     assert result == {"status": "skipped", "reason": "asset not found"}
 
 
 @pytest.mark.asyncio
-async def test_export_media_asset_uploads_and_records_path(
-    monkeypatch, nc_settings, tmp_path
-):
+async def test_export_media_asset_uploads_and_records_path(monkeypatch, nc_settings, tmp_path):
     asset = SimpleNamespace(
         id="00000000-0000-0000-0000-000000000009",
         storage_backend="local",

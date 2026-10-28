@@ -1,4 +1,5 @@
 """Polar.sh usage and revenue digest for Slack (same #paddle channel)."""
+
 from __future__ import annotations
 
 import logging

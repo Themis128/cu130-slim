@@ -1,4 +1,5 @@
 """Tests for app/worker/tasks/tiktok_inbox_reconcile.py — MEDIA_UPLOAD draft reconcile."""
+
 from __future__ import annotations
 
 import uuid
@@ -47,21 +48,28 @@ class _DBCM:
 
 def _account(**kw):
     base = dict(
-        id=uuid.uuid4(), platform="tiktok", status="active",
-        access_token_enc=b"enc", username="cloudless",
+        id=uuid.uuid4(),
+        platform="tiktok",
+        status="active",
+        access_token_enc=b"enc",
+        username="cloudless",
         meta_data={"open_id": "oid"},
     )
     base.update(kw)
     return SimpleNamespace(**base)
 
 
-def _target(account, *, post_id="pub_1", status="published", published_at=None,
-            error_message=None, post=None, **kw):
+def _target(account, *, post_id="pub_1", status="published", published_at=None, error_message=None, post=None, **kw):
     base = dict(
-        id=uuid.uuid4(), platform_post_id=post_id, platform_url=None,
-        status=status, error_message=error_message,
-        published_at=published_at, created_at=datetime.now(UTC) - timedelta(hours=1),
-        social_account=account, post=post,
+        id=uuid.uuid4(),
+        platform_post_id=post_id,
+        platform_url=None,
+        status=status,
+        error_message=error_message,
+        published_at=published_at,
+        created_at=datetime.now(UTC) - timedelta(hours=1),
+        social_account=account,
+        post=post,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -73,9 +81,7 @@ def _wire(monkeypatch, db, targets, *, publish_ok=True, check=None):
     import app.services.tiktok_api as tt
 
     monkeypatch.setattr(tt, "is_tiktok_publish_id", lambda pid: publish_ok)
-    client = SimpleNamespace(
-        check_publish_status=check or AsyncMock(return_value={"data": {"status": "SEND_TO_USER_INBOX"}})
-    )
+    client = SimpleNamespace(check_publish_status=check or AsyncMock(return_value={"data": {"status": "SEND_TO_USER_INBOX"}}))
     monkeypatch.setattr(tt, "TikTokAPIClient", lambda **kw: client)
     return client
 
@@ -94,10 +100,11 @@ async def test_reconcile_publish_complete(monkeypatch):
     post = SimpleNamespace(platform_specific={}, published_at=datetime.now(UTC))
     acc = _account()
     t = _target(acc, post=post)
-    check = AsyncMock(return_value={
-        "data": {"status": "PUBLISH_COMPLETE",
-                 "publicaly_available_post_id": ["vid_9"]},
-    })
+    check = AsyncMock(
+        return_value={
+            "data": {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": ["vid_9"]},
+        }
+    )
     db = _DB([_Res([t])])
     _wire(monkeypatch, db, [t], check=check)
     out = await rec._reconcile_async()
@@ -161,7 +168,8 @@ async def test_reconcile_inbox_pending_fresh_vs_stale(monkeypatch):
     fresh = _target(acc, published_at=datetime.now(UTC))
     stale = _target(acc, published_at=datetime.now(UTC) - timedelta(hours=30))
     already = _target(
-        acc, published_at=datetime.now(UTC) - timedelta(hours=30),
+        acc,
+        published_at=datetime.now(UTC) - timedelta(hours=30),
         error_message="already flagged",
     )
     check = AsyncMock(return_value={"data": {"status": "SEND_TO_USER_INBOX"}})
@@ -194,6 +202,7 @@ async def test_reconcile_skips_no_account_and_non_publish_ids(monkeypatch):
     db = _DB([_Res([orphan, normal])])
     client = _wire(monkeypatch, db, None)
     import app.services.tiktok_api as tt
+
     # only the orphan's id counts as a publish_id → 'normal' filtered out,
     # orphan reaches the loop but has no account → skipped silently
     monkeypatch.setattr(tt, "is_tiktok_publish_id", lambda pid: pid == "pub_orphan")

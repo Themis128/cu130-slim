@@ -113,6 +113,4 @@ def validate_public_http_url(url: str, *, allow_http: bool = True) -> str:
     if parsed.port:
         netloc = f"{hostname}:{parsed.port}"
 
-    return urlunparse(
-        (parsed.scheme, netloc, parsed.path or "/", parsed.params, parsed.query, "")
-    )
+    return urlunparse((parsed.scheme, netloc, parsed.path or "/", parsed.params, parsed.query, ""))

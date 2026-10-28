@@ -1,4 +1,5 @@
 """Celery tasks for batch media AI enhancement."""
+
 import logging
 import uuid
 
@@ -25,6 +26,7 @@ async def _load_asset_bytes(asset) -> bytes:
     if asset.storage_backend == "minio":
         return await minio_storage.get_object(asset.storage_path)
     from app.core.path_utils import safe_resolve
+
     return safe_resolve(UPLOAD_DIR, asset.storage_path).read_bytes()
 
 
@@ -75,6 +77,7 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
                     if alt_text:
                         # Spellcheck the AI-generated alt text before persisting.
                         from app.services.media_spellcheck import correct_text
+
                         corrected = await correct_text(alt_text)
                         asset.alt_text = corrected or alt_text
                         await db.commit()
@@ -86,6 +89,7 @@ async def _run_batch(asset_ids: list[str], operation: str, params: dict) -> None
                 if out_bytes and mime_type:
                     # Store result as a new media asset
                     from app.services.media_storage import persist_generated_image
+
                     # Determine extension from mime type
                     ext_map = {
                         "image/png": ".png",

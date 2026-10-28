@@ -150,16 +150,20 @@ class TestSendAlertCooldown:
         mock_factory.__aenter__ = AsyncMock(return_value=mock_db)
         mock_factory.__aexit__ = AsyncMock(return_value=None)
 
-        with patch(
-            "app.worker.tasks.instagram_session_check.task_session",
-            return_value=mock_factory,
-        ), patch(
-            "app.services.email_templates.send_instagram_session_alert_email",
-            new_callable=AsyncMock,
-        ) as mock_send, patch(
-            "app.worker.tasks.instagram_session_check.post_alert_to_slack",
-            new_callable=AsyncMock,
-        ) as mock_slack:
+        with (
+            patch(
+                "app.worker.tasks.instagram_session_check.task_session",
+                return_value=mock_factory,
+            ),
+            patch(
+                "app.services.email_templates.send_instagram_session_alert_email",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch(
+                "app.worker.tasks.instagram_session_check.post_alert_to_slack",
+                new_callable=AsyncMock,
+            ) as mock_slack,
+        ):
             await _send_alert(owner, "testuser", "session rejected")
 
         mock_send.assert_not_called()
@@ -189,16 +193,20 @@ class TestSendAlertCooldown:
         mock_factory.__aenter__ = AsyncMock(return_value=mock_db)
         mock_factory.__aexit__ = AsyncMock(return_value=None)
 
-        with patch(
-            "app.worker.tasks.instagram_session_check.task_session",
-            return_value=mock_factory,
-        ), patch(
-            "app.services.email_templates.send_instagram_session_alert_email",
-            new_callable=AsyncMock,
-        ) as mock_send, patch(
-            "app.worker.tasks.instagram_session_check.post_alert_to_slack",
-            new_callable=AsyncMock,
-        ) as mock_slack:
+        with (
+            patch(
+                "app.worker.tasks.instagram_session_check.task_session",
+                return_value=mock_factory,
+            ),
+            patch(
+                "app.services.email_templates.send_instagram_session_alert_email",
+                new_callable=AsyncMock,
+            ) as mock_send,
+            patch(
+                "app.worker.tasks.instagram_session_check.post_alert_to_slack",
+                new_callable=AsyncMock,
+            ) as mock_slack,
+        ):
             await _send_alert(owner, "testuser", "session rejected")
 
         mock_send.assert_called_once()
@@ -224,8 +232,7 @@ class _Session:
 
 
 def _scalars(items):
-    return SimpleNamespace(scalars=lambda: SimpleNamespace(
-        all=lambda: items))
+    return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: items))
 
 
 def _scalar(val):
@@ -233,9 +240,7 @@ def _scalar(val):
 
 
 def _acct(**kw):
-    d = dict(id=uuid.uuid4(), team_id=uuid.uuid4(), platform="instagram",
-             status="active", username="cl_ig", access_token_enc=b"e",
-             meta_data={})
+    d = dict(id=uuid.uuid4(), team_id=uuid.uuid4(), platform="instagram", status="active", username="cl_ig", access_token_enc=b"e", meta_data={})
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -243,9 +248,7 @@ def _acct(**kw):
 class TestCheckGraphToken:
     @pytest.mark.asyncio
     async def test_decrypt_fails(self, monkeypatch):
-        monkeypatch.setattr(T, "decrypt_token",
-                            lambda e: (_ for _ in ()).throw(
-                                RuntimeError("bad")))
+        monkeypatch.setattr(T, "decrypt_token", lambda e: (_ for _ in ()).throw(RuntimeError("bad")))
         assert await T._check_graph_token(_acct()) is False
 
     @pytest.mark.asyncio
@@ -256,21 +259,15 @@ class TestCheckGraphToken:
     @pytest.mark.asyncio
     async def test_valid(self, monkeypatch):
         monkeypatch.setattr(T, "decrypt_token", lambda e: "tok")
-        monkeypatch.setattr(T.httpx, "AsyncClient",
-                            lambda **kw: _FakeAsyncClient(
-                                response=_FakeResponse(200)))
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=_FakeResponse(200)))
         assert await T._check_graph_token(_acct()) is True
 
     @pytest.mark.asyncio
     async def test_rejected_and_error(self, monkeypatch):
         monkeypatch.setattr(T, "decrypt_token", lambda e: "tok")
-        monkeypatch.setattr(T.httpx, "AsyncClient",
-                            lambda **kw: _FakeAsyncClient(
-                                response=_FakeResponse(401)))
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(response=_FakeResponse(401)))
         assert await T._check_graph_token(_acct()) is False
-        monkeypatch.setattr(T.httpx, "AsyncClient",
-                            lambda **kw: _FakeAsyncClient(
-                                exc=RuntimeError("net")))
+        monkeypatch.setattr(T.httpx, "AsyncClient", lambda **kw: _FakeAsyncClient(exc=RuntimeError("net")))
         assert await T._check_graph_token(_acct()) is False
 
 
@@ -283,16 +280,11 @@ class _WireDB:
         return next(self._it)
 
 
-def _wire_run(monkeypatch, accounts, db_extra=(), *, sidecar_up=True,
-              graph=True, session=True):
-    monkeypatch.setattr(T, "get_settings", lambda: SimpleNamespace(
-        INSTAGRAM_PRIVATE_API_URL="http://sc"))
-    monkeypatch.setattr(T, "_check_sidecar_health",
-                        AsyncMock(return_value=sidecar_up))
-    monkeypatch.setattr(T, "_check_graph_token",
-                        AsyncMock(return_value=graph))
-    monkeypatch.setattr(T, "_check_sidecar_session",
-                        AsyncMock(return_value=session))
+def _wire_run(monkeypatch, accounts, db_extra=(), *, sidecar_up=True, graph=True, session=True):
+    monkeypatch.setattr(T, "get_settings", lambda: SimpleNamespace(INSTAGRAM_PRIVATE_API_URL="http://sc"))
+    monkeypatch.setattr(T, "_check_sidecar_health", AsyncMock(return_value=sidecar_up))
+    monkeypatch.setattr(T, "_check_graph_token", AsyncMock(return_value=graph))
+    monkeypatch.setattr(T, "_check_sidecar_session", AsyncMock(return_value=session))
     db = _WireDB([_scalars(accounts), *db_extra])
     monkeypatch.setattr(T, "_worker_db", lambda: _Session(db))
     return db
@@ -303,14 +295,12 @@ class TestRunCheck:
     async def test_no_accounts(self, monkeypatch):
         _wire_run(monkeypatch, [])
         out = await T._run_check()
-        assert out == {"checked": 0, "healthy": 0, "expired": 0,
-                       "sidecar_up": True}
+        assert out == {"checked": 0, "healthy": 0, "expired": 0, "sidecar_up": True}
 
     @pytest.mark.asyncio
     async def test_sidecar_down(self, monkeypatch):
         acct = _acct(meta_data={"private_api_session_id": "s"})
-        _wire_run(monkeypatch, [acct], [_scalar(None)],
-                  sidecar_up=False, session=False)
+        _wire_run(monkeypatch, [acct], [_scalar(None)], sidecar_up=False, session=False)
         out = await T._run_check()
         assert out["sidecar_up"] is False
         assert out["expired"] == 1
@@ -326,8 +316,7 @@ class TestRunCheck:
 
     @pytest.mark.asyncio
     async def test_restore_expired_to_active(self, monkeypatch):
-        acct = _acct(status="expired",
-                     meta_data={"private_api_session_id": "s"})
+        acct = _acct(status="expired", meta_data={"private_api_session_id": "s"})
         db = _wire_run(monkeypatch, [acct])
         await T._run_check()
         assert acct.status == "active"
@@ -335,8 +324,7 @@ class TestRunCheck:
 
     @pytest.mark.asyncio
     async def test_business_login_graph_ok(self, monkeypatch):
-        acct = _acct(meta_data={"login_type": "business_login",
-                                "private_api_session_id": "s"})
+        acct = _acct(meta_data={"login_type": "business_login", "private_api_session_id": "s"})
         _wire_run(monkeypatch, [acct], graph=True)
         out = await T._run_check()
         assert out["healthy"] == 1
@@ -345,8 +333,7 @@ class TestRunCheck:
 
     @pytest.mark.asyncio
     async def test_business_login_fallback_to_sidecar(self, monkeypatch):
-        acct = _acct(meta_data={"login_type": "business_login",
-                                "private_api_session_id": "s"})
+        acct = _acct(meta_data={"login_type": "business_login", "private_api_session_id": "s"})
         _wire_run(monkeypatch, [acct], graph=False, session=True)
         out = await T._run_check()
         assert out["healthy"] == 1
@@ -358,8 +345,7 @@ class TestRunCheck:
         owner = SimpleNamespace(email="o@x.co", name="O")
         alert = AsyncMock()
         monkeypatch.setattr(T, "_send_alert", alert)
-        _wire_run(monkeypatch, [acct], [_scalar(owner)],
-                  graph=False)
+        _wire_run(monkeypatch, [acct], [_scalar(owner)], graph=False)
         out = await T._run_check()
         assert out["expired"] == 1
         assert acct.status == "expired"
@@ -377,8 +363,7 @@ class TestRunCheck:
         acct = _acct(meta_data={"private_api_session_id": "s"})
         alert = AsyncMock()
         monkeypatch.setattr(T, "_send_alert", alert)
-        _wire_run(monkeypatch, [acct], [_scalar(None)],
-                  session=False)
+        _wire_run(monkeypatch, [acct], [_scalar(None)], session=False)
         out = await T._run_check()
         assert out["expired"] == 1
         alert.assert_not_awaited()
@@ -389,8 +374,7 @@ class TestRunCheck:
         owner = SimpleNamespace(email="o", name="")
         alert = AsyncMock()
         monkeypatch.setattr(T, "_send_alert", alert)
-        _wire_run(monkeypatch, [acct], [_scalar(owner)],
-                  sidecar_up=True, session=False)
+        _wire_run(monkeypatch, [acct], [_scalar(owner)], sidecar_up=True, session=False)
         await T._run_check()
         assert alert.await_args.args[2] == "session rejected"
 
@@ -398,14 +382,10 @@ class TestRunCheck:
 class TestSendAlertException:
     @pytest.mark.asyncio
     async def test_swallowed(self, monkeypatch):
-        monkeypatch.setattr(T, "task_session", lambda: _Session(
-            SimpleNamespace(execute=AsyncMock(
-                side_effect=RuntimeError("db")))))
-        await _send_alert(SimpleNamespace(email="o", name=""),
-                          "u", "r")
+        monkeypatch.setattr(T, "task_session", lambda: _Session(SimpleNamespace(execute=AsyncMock(side_effect=RuntimeError("db")))))
+        await _send_alert(SimpleNamespace(email="o", name=""), "u", "r")
 
 
 def test_wrapper(monkeypatch):
-    monkeypatch.setattr(T, "run_async",
-                        lambda c: c.close() or {"done": 1})
+    monkeypatch.setattr(T, "run_async", lambda c: c.close() or {"done": 1})
     assert T.check_instagram_sessions() == {"done": 1}

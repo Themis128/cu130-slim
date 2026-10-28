@@ -27,6 +27,7 @@ Commands:
 Options: -a/--account ACCOUNT_UUID (defaults to first twitter account).
 Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -46,9 +47,7 @@ async def _accounts() -> list:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "twitter")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "twitter"))
         return list(result.scalars().all())
 
 
@@ -64,9 +63,13 @@ def _client_for(account):
 def _fmt_metrics(m: dict | None) -> str:
     m = m or {}
     return "  ".join(
-        f"{k}={m.get(k, 0)}" for k in (
-            "followers_count", "following_count", "tweet_count",
-            "listed_count", "like_count",
+        f"{k}={m.get(k, 0)}"
+        for k in (
+            "followers_count",
+            "following_count",
+            "tweet_count",
+            "listed_count",
+            "like_count",
         )
         if k in m
     )
@@ -74,26 +77,17 @@ def _fmt_metrics(m: dict | None) -> str:
 
 async def cmd_accounts() -> None:
     for a in await _accounts():
-        print(
-            f"{a.id}  @{a.username or '-'}  user_id={a.account_id}  "
-            f"status={a.status}  scopes={','.join(a.scopes or []) or '-'}"
-        )
+        print(f"{a.id}  @{a.username or '-'}  user_id={a.account_id}  status={a.status}  scopes={','.join(a.scopes or []) or '-'}")
 
 
 async def cmd_validate(account) -> None:
     data = (await _client_for(account).validate_token()).get("data") or {}
-    print(
-        f"@{data.get('username', '-')}  id={data.get('id', '-')}  "
-        f"name={data.get('name', '-')}"
-    )
+    print(f"@{data.get('username', '-')}  id={data.get('id', '-')}  name={data.get('name', '-')}")
 
 
 async def cmd_me(account) -> None:
     data = (await _client_for(account).get_me_metrics()).get("data") or {}
-    print(
-        f"@{data.get('username', '-')}  id={data.get('id', '-')}  "
-        f"verified={data.get('verified')}"
-    )
+    print(f"@{data.get('username', '-')}  id={data.get('id', '-')}  verified={data.get('verified')}")
     print(f"  {_fmt_metrics(data.get('public_metrics'))}")
     if data.get("created_at"):
         print(f"  created_at={data['created_at']}")
@@ -101,10 +95,7 @@ async def cmd_me(account) -> None:
 
 async def cmd_user(account, handle: str) -> None:
     data = (await _client_for(account).get_user_by_username(handle)).get("data") or {}
-    print(
-        f"@{data.get('username', '-')}  id={data.get('id', '-')}  "
-        f"verified={data.get('verified')}  name={data.get('name', '-')}"
-    )
+    print(f"@{data.get('username', '-')}  id={data.get('id', '-')}  verified={data.get('verified')}  name={data.get('name', '-')}")
     print(f"  {_fmt_metrics(data.get('public_metrics'))}")
     if data.get("description"):
         print(f"  bio: {data['description'][:120]}")
@@ -151,9 +142,18 @@ async def cmd_quota(account) -> None:
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("cmd", choices=(
-        "accounts", "validate", "me", "user", "tweet", "recent", "quota",
-    ))
+    parser.add_argument(
+        "cmd",
+        choices=(
+            "accounts",
+            "validate",
+            "me",
+            "user",
+            "tweet",
+            "recent",
+            "quota",
+        ),
+    )
     parser.add_argument("arg", nargs="?", default=None)
     parser.add_argument("-a", "--account", default=None)
     args = parser.parse_args()

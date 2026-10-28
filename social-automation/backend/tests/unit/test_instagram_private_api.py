@@ -86,8 +86,7 @@ async def test_login_shapes():
     # string body → session_id
     w, fake = _wire(_Resp(200, "sess-abc"))
     with w:
-        out = await c.login("u", "p", verification_code="123456",
-                            proxy="http://p")
+        out = await c.login("u", "p", verification_code="123456", proxy="http://p")
     assert out == {"session_id": "sess-abc", "logged_in": True}
     assert fake.calls[0]["data"]["verification_code"] == "123456"
     assert fake.calls[0]["data"]["proxy"] == "http://p"
@@ -112,9 +111,7 @@ async def test_login_shapes():
 @pytest.mark.asyncio
 async def test_login_challenge_and_2fa():
     c = _client()
-    w, _ = _wire(_Resp(400, {"exc_type": "ChallengeRequired",
-                            "hint": "check your phone",
-                            "last_json": '{"a":1}'}))
+    w, _ = _wire(_Resp(400, {"exc_type": "ChallengeRequired", "hint": "check your phone", "last_json": '{"a":1}'}))
     with w:
         out = await c.login("u", "p")
     assert out["challenge_required"] is True
@@ -163,8 +160,7 @@ async def test_settings_roundtrip():
     w, fake = _wire(_Resp(200, {"settings": {}}))
     with w:
         await c.get_settings("s1")
-        await c.set_settings("{}", proxy="p", locale="el",
-                             timezone="UTC")
+        await c.set_settings("{}", proxy="p", locale="el", timezone="UTC")
     assert fake.calls[0]["method"] == "get"
     assert "/auth/settings" in fake.calls[0]["url"]
     assert fake.calls[1]["method"] == "patch"
@@ -180,22 +176,16 @@ async def test_account_reads_writes():
     w, fake = _wire(_Resp(200, {"ok": 1}))
     with w:
         await c.get_account("s")
-        await c.update_account("s", biography="b", email="e@x",
-                               username="u2", external_url="https://u",
-                               full_name="F", phone_number="30")
+        await c.update_account("s", biography="b", email="e@x", username="u2", external_url="https://u", full_name="F", phone_number="30")
         await c.update_biography("s", "bio")
         await c.update_external_url("s", "https://x")
         await c.update_profile_picture("s", b"\xff\xd8", "p.jpg")
         await c.set_private("s")
         await c.set_public("s")
     paths = [c_["url"].split("side/")[1] for c_ in fake.calls]
-    assert paths == ["account", "account", "account/biography",
-                     "account/external-url", "account/picture",
-                     "account/privacy", "account/privacy"]
+    assert paths == ["account", "account", "account/biography", "account/external-url", "account/picture", "account/privacy", "account/privacy"]
     upd = fake.calls[1]
-    assert upd["data"] == {"biography": "b", "username": "u2",
-                           "email": "e@x", "external_url": "https://u",
-                           "full_name": "F", "phone_number": "30"}
+    assert upd["data"] == {"biography": "b", "username": "u2", "email": "e@x", "external_url": "https://u", "full_name": "F", "phone_number": "30"}
     assert fake.calls[5]["data"] == {"private": "true"}
     assert fake.calls[6]["data"] == {"private": "false"}
     assert fake.calls[4]["files"]["picture"][0] == "p.jpg"
@@ -222,8 +212,7 @@ async def test_uploads(tmp_path):
 
     w, fake = _wire(_Resp(200, {"id": "m1"}))
     with w:
-        out = await c.upload_photo("s", str(photo), "cap",
-                                   location="Athens")
+        out = await c.upload_photo("s", str(photo), "cap", location="Athens")
         assert out["id"] == "m1"
         call = fake.calls[0]
         assert "/photo/upload" in call["url"]
@@ -233,8 +222,7 @@ async def test_uploads(tmp_path):
         await c.upload_photo_by_url("s", "https://x/i.jpg", "cap")
         assert fake.calls[1]["data"]["url"] == "https://x/i.jpg"
 
-        await c.upload_video("s", str(video), "cap",
-                             thumbnail=str(thumb))
+        await c.upload_video("s", str(video), "cap", thumbnail=str(thumb))
         call = fake.calls[2]
         assert "/video/upload" in call["url"]
         assert "thumbnail" in call["files"]
@@ -243,12 +231,10 @@ async def test_uploads(tmp_path):
         assert "thumbnail" not in fake.calls[3]["files"]
         assert fake.calls[3]["data"]["location"] == "X"
 
-        await c.upload_video_by_url("s", "https://x/v.mp4", "cap",
-                                    thumbnail="https://x/t.jpg")
+        await c.upload_video_by_url("s", "https://x/v.mp4", "cap", thumbnail="https://x/t.jpg")
         assert fake.calls[4]["data"]["thumbnail"] == "https://x/t.jpg"
 
-        await c.upload_album("s", [str(photo), str(video)], "cap",
-                             location="Y")
+        await c.upload_album("s", [str(photo), str(video)], "cap", location="Y")
         call = fake.calls[5]
         assert "/album/upload" in call["url"]
         assert len(call["files"]) == 2

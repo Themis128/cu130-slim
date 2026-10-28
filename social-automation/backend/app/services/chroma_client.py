@@ -3,6 +3,7 @@
 Embeddings use Docker Model Runner (Qwen3-Embedding-0.6B, local) as the primary
 provider with Cloudflare Workers AI BGE-M3 as cloud failover.
 """
+
 import re
 from urllib.parse import quote, urljoin, urlparse
 

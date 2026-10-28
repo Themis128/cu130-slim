@@ -336,18 +336,14 @@ class TestStaleButtons:
     @pytest.mark.asyncio
     async def test_matching_step_payload_still_advances(self, monkeypatch):
         r = _redis(monkeypatch)
-        out, stored = await _call(
-            r, payload="LEAD_SIZE_SOLO", state={"step": "company_size", "fields": {}}
-        )
+        out, stored = await _call(r, payload="LEAD_SIZE_SOLO", state={"step": "company_size", "fields": {}})
         assert "interested" in out.text.lower()
         assert json.loads(stored)["step"] == "interest"
 
     @pytest.mark.asyncio
     async def test_lead_payload_during_name_step_reasks(self, monkeypatch):
         r = _redis(monkeypatch)
-        out, stored = await _call(
-            r, payload="LEAD_SIZE_SOLO", state={"step": "name", "fields": {}}
-        )
+        out, stored = await _call(r, payload="LEAD_SIZE_SOLO", state={"step": "name", "fields": {}})
         assert "name" in out.text.lower()
         assert json.loads(stored)["step"] == "name"
 

@@ -121,7 +121,6 @@ def workflow(request):
 
 
 class TestStructuralStandards:
-
     def test_has_stable_string_id(self, workflow):
         path, wf = workflow
         wid = wf.get("id")
@@ -132,23 +131,17 @@ class TestStructuralStandards:
     def test_execution_order_v1(self, workflow):
         path, wf = workflow
         settings = wf.get("settings", {})
-        assert settings.get("executionOrder") == "v1", (
-            f"{path.name}: settings.executionOrder must be 'v1'"
-        )
+        assert settings.get("executionOrder") == "v1", f"{path.name}: settings.executionOrder must be 'v1'"
 
     def test_nodes_have_unique_ids(self, workflow):
         path, wf = workflow
         ids = [n.get("id") for n in wf.get("nodes", []) if n.get("id")]
-        assert len(ids) == len(set(ids)), (
-            f"{path.name}: duplicate node ids: {[x for x in ids if ids.count(x) > 1]}"
-        )
+        assert len(ids) == len(set(ids)), f"{path.name}: duplicate node ids: {[x for x in ids if ids.count(x) > 1]}"
 
     def test_nodes_have_unique_names(self, workflow):
         path, wf = workflow
         names = [n["name"] for n in wf.get("nodes", [])]
-        assert len(names) == len(set(names)), (
-            f"{path.name}: duplicate node names: {[x for x in names if names.count(x) > 1]}"
-        )
+        assert len(names) == len(set(names)), f"{path.name}: duplicate node names: {[x for x in names if names.count(x) > 1]}"
 
     def test_connections_reference_existing_nodes(self, workflow):
         path, wf = workflow
@@ -156,15 +149,11 @@ class TestStructuralStandards:
         connections = wf.get("connections", {})
         for source, targets_dict in connections.items():
             if isinstance(targets_dict, dict) and "main" in targets_dict:
-                assert source in node_names, (
-                    f"{path.name}: connection source '{source}' not in nodes"
-                )
+                assert source in node_names, f"{path.name}: connection source '{source}' not in nodes"
                 for branch in targets_dict["main"]:
                     for edge in branch:
                         target = edge.get("node")
-                        assert target in node_names, (
-                            f"{path.name}: connection target '{target}' not in nodes"
-                        )
+                        assert target in node_names, f"{path.name}: connection target '{target}' not in nodes"
 
     def test_no_orphan_non_trigger_nodes(self, workflow):
         path, wf = workflow
@@ -175,10 +164,7 @@ class TestStructuralStandards:
             "n8n-nodes-base.start",
         }
         node_names = {n["name"] for n in wf.get("nodes", [])}
-        triggers = {
-            n["name"] for n in wf.get("nodes", [])
-            if n["type"] in trigger_types
-        }
+        triggers = {n["name"] for n in wf.get("nodes", []) if n["type"] in trigger_types}
 
         connected = set()
         connections = wf.get("connections", {})
@@ -218,13 +204,10 @@ def prod_workflow(request):
 
 
 class TestProductionStandards:
-
     def test_timezone_europe_athens(self, prod_workflow):
         path, wf = prod_workflow
         tz = wf.get("settings", {}).get("timezone")
-        assert tz == "Europe/Athens", (
-            f"{path.name}: timezone must be 'Europe/Athens', got '{tz}'"
-        )
+        assert tz == "Europe/Athens", f"{path.name}: timezone must be 'Europe/Athens', got '{tz}'"
 
     def test_active_flag_true(self, prod_workflow):
         path, wf = prod_workflow
@@ -237,17 +220,12 @@ class TestProductionStandards:
             ver = node.get("typeVersion", 1)
             if ntype in MODERN_TYPE_VERSIONS:
                 minimum = MODERN_TYPE_VERSIONS[ntype]
-                assert ver >= minimum, (
-                    f"{path.name}: node '{node['name']}' uses {ntype} v{ver}, "
-                    f"minimum is v{minimum}"
-                )
+                assert ver >= minimum, f"{path.name}: node '{node['name']}' uses {ntype} v{ver}, minimum is v{minimum}"
 
     def test_no_deprecated_node_types(self, prod_workflow):
         path, wf = prod_workflow
         for node in wf.get("nodes", []):
-            assert node["type"] not in DEPRECATED_NODE_TYPES, (
-                f"{path.name}: node '{node['name']}' uses deprecated type {node['type']}"
-            )
+            assert node["type"] not in DEPRECATED_NODE_TYPES, f"{path.name}: node '{node['name']}' uses deprecated type {node['type']}"
 
     def test_social_api_uses_docker_dns(self, prod_workflow):
         path, wf = prod_workflow
@@ -255,8 +233,7 @@ class TestProductionStandards:
             resolved = url.replace("{{ ($env.SOCIAL_API_URL || '", "").replace("') +", "")
             if "social-api" in resolved or "/api/v1/" in resolved:
                 assert "localhost" not in url or "$env.SOCIAL_API_URL" in url, (
-                    f"{path.name}: node '{name}' must use Docker DNS "
-                    f"(http://social-api:8000), not localhost. URL: {url}"
+                    f"{path.name}: node '{name}' must use Docker DNS (http://social-api:8000), not localhost. URL: {url}"
                 )
 
     def test_has_tags(self, prod_workflow):
@@ -269,7 +246,6 @@ class TestProductionStandards:
 
 
 class TestCarouselPipeline:
-
     @pytest.fixture
     def carousel(self):
         path = N8N_WORKFLOWS_DIR / "cloudless-carousel-pipeline.json"
@@ -281,57 +257,40 @@ class TestCarouselPipeline:
         path, wf = carousel
         raw = json.dumps(wf)
         for host in BLOCKED_HOSTS:
-            assert host not in raw, (
-                f"{path.name}: carousel must not reference {host} — "
-                "carousel path uses social-api → Cloudflare Workers AI"
-            )
+            assert host not in raw, f"{path.name}: carousel must not reference {host} — carousel path uses social-api → Cloudflare Workers AI"
 
     def test_no_comfyui_in_carousel_path(self, carousel):
         path, wf = carousel
         raw = json.dumps(wf)
-        assert "comfyui:8000" not in raw.lower(), (
-            f"{path.name}: carousel path must not call ComfyUI directly"
-        )
+        assert "comfyui:8000" not in raw.lower(), f"{path.name}: carousel path must not call ComfyUI directly"
 
     def test_uses_cf_models(self, carousel):
         path, wf = carousel
         raw = json.dumps(wf)
-        assert "@cf/meta/llama" in raw, (
-            f"{path.name}: carousel should use @cf/ Llama text model"
-        )
-        assert "@cf/black-forest-labs/flux" in raw, (
-            f"{path.name}: carousel should use @cf/ FLUX image model"
-        )
+        assert "@cf/meta/llama" in raw, f"{path.name}: carousel should use @cf/ Llama text model"
+        assert "@cf/black-forest-labs/flux" in raw, f"{path.name}: carousel should use @cf/ FLUX image model"
 
     def test_calls_run_carousel_and_publish(self, carousel):
         path, wf = carousel
         raw = json.dumps(wf)
-        assert "/api/v1/ai/run-carousel-and-publish" in raw, (
-            f"{path.name}: must call /api/v1/ai/run-carousel-and-publish"
-        )
+        assert "/api/v1/ai/run-carousel-and-publish" in raw, f"{path.name}: must call /api/v1/ai/run-carousel-and-publish"
 
     def test_login_before_pipeline(self, carousel):
         path, wf = carousel
         connections = wf.get("connections", {})
         login_targets = connections.get("Login Social API", {}).get("main", [[]])
         login_next = {e.get("node") for branch in login_targets for e in branch}
-        assert "Login OK?" in login_next, (
-            f"{path.name}: Login Social API must flow into Login OK? check"
-        )
+        assert "Login OK?" in login_next, f"{path.name}: Login Social API must flow into Login OK? check"
 
     def test_login_failure_handled(self, carousel):
         path, wf = carousel
         node_names = {n["name"] for n in wf.get("nodes", [])}
-        assert "Login Failed" in node_names, (
-            f"{path.name}: must have a 'Login Failed' error node"
-        )
+        assert "Login Failed" in node_names, f"{path.name}: must have a 'Login Failed' error node"
 
     def test_normalize_result_node_exists(self, carousel):
         path, wf = carousel
         node_names = {n["name"] for n in wf.get("nodes", [])}
-        assert "Normalize Result" in node_names, (
-            f"{path.name}: must have a 'Normalize Result' output node"
-        )
+        assert "Normalize Result" in node_names, f"{path.name}: must have a 'Normalize Result' output node"
 
     def test_normalize_result_outputs_standard_fields(self, carousel):
         path, wf = carousel
@@ -339,18 +298,14 @@ class TestCarouselPipeline:
             if node["name"] == "Normalize Result":
                 code = node["parameters"].get("jsCode", "")
                 for field in ("ok", "brand", "post_id", "status", "error"):
-                    assert field in code, (
-                        f"{path.name}: Normalize Result must output '{field}'"
-                    )
+                    assert field in code, f"{path.name}: Normalize Result must output '{field}'"
 
     def test_webhook_path(self, carousel):
         path, wf = carousel
         for node in wf.get("nodes", []):
             if node["type"] == "n8n-nodes-base.webhook":
                 wh_path = node["parameters"].get("path", "")
-                assert wh_path == "cloudless-carousel", (
-                    f"{path.name}: webhook path must be 'cloudless-carousel', got '{wh_path}'"
-                )
+                assert wh_path == "cloudless-carousel", f"{path.name}: webhook path must be 'cloudless-carousel', got '{wh_path}'"
 
     def test_schedule_interval(self, carousel):
         path, wf = carousel
@@ -374,32 +329,25 @@ class TestCarouselPipeline:
             if node["name"] == "Pick Fresh Topic":
                 code = node["parameters"].get("jsCode", "")
                 assert "topics" in code, "must have topic rotation array"
-                assert "dayBucket" in code or "rotated" in code, (
-                    "must rotate topics by day"
-                )
+                assert "dayBucket" in code or "rotated" in code, "must rotate topics by day"
 
     def test_execution_timeout(self, carousel):
         path, wf = carousel
         timeout = wf.get("settings", {}).get("executionTimeout", 0)
-        assert timeout >= 600, (
-            f"{path.name}: executionTimeout must be >= 600s for carousel pipeline, got {timeout}"
-        )
+        assert timeout >= 600, f"{path.name}: executionTimeout must be >= 600s for carousel pipeline, got {timeout}"
 
     def test_pipeline_field_in_config(self, carousel):
         path, wf = carousel
         for node in wf.get("nodes", []):
             if node["name"] == "Resolve Cloudless Config":
                 code = node["parameters"].get("jsCode", "")
-                assert "pipeline" in code, (
-                    "Resolve Cloudless Config must set pipeline identifier"
-                )
+                assert "pipeline" in code, "Resolve Cloudless Config must set pipeline identifier"
 
 
 # ─── 4. Daily digest specific ────────────────────────────────────────────────
 
 
 class TestDailyDigest:
-
     @pytest.fixture
     def digest(self):
         path = N8N_WORKFLOWS_DIR / "socialauto-daily-slack-digest.json"
@@ -417,9 +365,7 @@ class TestDailyDigest:
         for node in wf.get("nodes", []):
             if node["name"] == "Daily 09:00 Athens":
                 expr = node["parameters"]["rule"]["interval"][0]["expression"]
-                assert expr.startswith("0 9"), (
-                    f"digest schedule must be 0 9 * * *, got '{expr}'"
-                )
+                assert expr.startswith("0 9"), f"digest schedule must be 0 9 * * *, got '{expr}'"
 
     def test_days_parameter_clamped(self, digest):
         path, wf = digest
@@ -449,15 +395,12 @@ class TestDailyDigest:
 
 
 class TestSecurityStandards:
-
     def test_no_hardcoded_secrets(self, workflow):
         path, wf = workflow
         raw = json.dumps(wf)
         for pattern in SECRET_PATTERNS:
             match = pattern.search(raw)
-            assert match is None, (
-                f"{path.name}: possible hardcoded secret: {match.group()[:30]}..."
-            )
+            assert match is None, f"{path.name}: possible hardcoded secret: {match.group()[:30]}..."
 
     def test_credentials_use_env_vars(self, workflow):
         path, wf = workflow
@@ -467,10 +410,7 @@ class TestSecurityStandards:
             for bp in body_params:
                 if bp.get("name") in ("password", "username"):
                     val = bp.get("value", "")
-                    assert "$env." in val or "{{" not in val, (
-                        f"{path.name}: node '{node['name']}' credential field "
-                        f"'{bp['name']}' must use $env.* variables"
-                    )
+                    assert "$env." in val or "{{" not in val, f"{path.name}: node '{node['name']}' credential field '{bp['name']}' must use $env.* variables"
 
     def test_auth_header_uses_expression(self, workflow):
         path, wf = workflow
@@ -481,8 +421,7 @@ class TestSecurityStandards:
                 if h.get("name") == "Authorization":
                     val = h.get("value", "")
                     assert "access_token" in val or "$env" in val or "{{" in val, (
-                        f"{path.name}: node '{node['name']}' Authorization header "
-                        f"must reference a dynamic token, not a static value"
+                        f"{path.name}: node '{node['name']}' Authorization header must reference a dynamic token, not a static value"
                     )
 
 
@@ -490,7 +429,6 @@ class TestSecurityStandards:
 
 
 class TestLegacyWorkflows:
-
     @pytest.fixture
     def marketing(self):
         path = N8N_WORKFLOWS_DIR / "marketing-image-generation.json"
@@ -507,38 +445,28 @@ class TestLegacyWorkflows:
 
     def test_marketing_is_inactive(self, marketing):
         path, wf = marketing
-        assert wf.get("active") is False, (
-            f"{path.name}: legacy marketing workflow must be inactive"
-        )
+        assert wf.get("active") is False, f"{path.name}: legacy marketing workflow must be inactive"
 
     def test_comfyui_carousel_is_inactive(self, comfyui_carousel):
         path, wf = comfyui_carousel
-        assert wf.get("active") is False, (
-            f"{path.name}: legacy comfyui carousel must be inactive"
-        )
+        assert wf.get("active") is False, f"{path.name}: legacy comfyui carousel must be inactive"
 
     def test_marketing_has_stable_id(self, marketing):
         path, wf = marketing
         wid = wf.get("id")
-        assert wid is not None and wid != "1", (
-            f"{path.name}: needs a stable descriptive id for CLI import"
-        )
+        assert wid is not None and wid != "1", f"{path.name}: needs a stable descriptive id for CLI import"
 
     def test_comfyui_carousel_needs_stable_id(self, comfyui_carousel):
         path, wf = comfyui_carousel
         wid = wf.get("id")
         if wid == "1" or wid is None:
-            pytest.xfail(
-                f"{path.name}: has generic id '{wid}' — needs a descriptive slug "
-                "if it will ever be imported via CLI"
-            )
+            pytest.xfail(f"{path.name}: has generic id '{wid}' — needs a descriptive slug if it will ever be imported via CLI")
 
 
 # ─── 7. Cross-workflow consistency ───────────────────────────────────────────
 
 
 class TestCrossWorkflowConsistency:
-
     def test_no_duplicate_workflow_ids(self):
         ids = []
         for path in _collect_workflow_files():
@@ -549,9 +477,7 @@ class TestCrossWorkflowConsistency:
         seen = {}
         for wid, name in ids:
             if wid in seen:
-                pytest.fail(
-                    f"Duplicate workflow id '{wid}' in {name} and {seen[wid]}"
-                )
+                pytest.fail(f"Duplicate workflow id '{wid}' in {name} and {seen[wid]}")
             seen[wid] = name
 
     def test_no_duplicate_webhook_paths(self):
@@ -563,10 +489,7 @@ class TestCrossWorkflowConsistency:
                     wh_path = node["parameters"].get("path", "")
                     if wh_path:
                         if wh_path in paths_seen:
-                            pytest.fail(
-                                f"Duplicate webhook path '{wh_path}' in "
-                                f"{path.name} and {paths_seen[wh_path]}"
-                            )
+                            pytest.fail(f"Duplicate webhook path '{wh_path}' in {path.name} and {paths_seen[wh_path]}")
                         paths_seen[wh_path] = path.name
 
     def test_prod_workflows_use_social_api_env_fallback(self):
@@ -576,7 +499,4 @@ class TestCrossWorkflowConsistency:
             wf = _load_workflow(path)
             raw = json.dumps(wf)
             if "social-api" in raw:
-                assert "$env.SOCIAL_API_URL" in raw, (
-                    f"{path.name}: must use $env.SOCIAL_API_URL with "
-                    "http://social-api:8000 fallback"
-                )
+                assert "$env.SOCIAL_API_URL" in raw, f"{path.name}: must use $env.SOCIAL_API_URL with http://social-api:8000 fallback"

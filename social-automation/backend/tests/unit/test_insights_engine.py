@@ -110,10 +110,7 @@ def _plat(**over):
     if base["momentum_7d_engagement_z"] is None:
         # Mirror compute_insights: two-sample Poisson z on the week counts.
         recent, prior = base["engagement_7d"], base["engagement_prev_7d"]
-        base["momentum_7d_engagement_z"] = (
-            (recent - prior) / ((recent + prior) ** 0.5)
-            if recent + prior > 0 else 0.0
-        )
+        base["momentum_7d_engagement_z"] = (recent - prior) / ((recent + prior) ** 0.5) if recent + prior > 0 else 0.0
     return base
 
 
@@ -634,7 +631,7 @@ def test_recommend_momentum_floor_blocks_small_numbers():
     plats["linkedin"]["engagement_7d"] = 20
     plats["linkedin"]["engagement_prev_7d"] = 10
     # 20 vs 10: z = 10/√30 ≈ 1.83 — statistically significant, must fire.
-    plats["linkedin"]["momentum_7d_engagement_z"] = 10 / (30 ** 0.5)
+    plats["linkedin"]["momentum_7d_engagement_z"] = 10 / (30**0.5)
     assert any(r["type"] == "momentum" for r in _recommend(plats))
 
 

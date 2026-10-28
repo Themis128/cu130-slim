@@ -5,6 +5,7 @@ character limits, hashtag caps, and link inclusion rules.
 
 Uses the platform hints already defined in ``app.services.seo``.
 """
+
 from __future__ import annotations
 
 import re
@@ -46,7 +47,7 @@ def _replace_hashtag_markup(text: str) -> str:
             i = start + 1
             continue
         out.append(text[i:start])
-        out.append(f"#{text[start + len(_HASHTAG_MARKUP_PREFIX):end].strip()}")
+        out.append(f"#{text[start + len(_HASHTAG_MARKUP_PREFIX) : end].strip()}")
         i = end + 1
     out.append(text[i:])
     return "".join(out)
@@ -135,9 +136,7 @@ def strip_embedded_metadata(content: str, hashtags: list[str] | None, link_url: 
             lines.pop()
             continue
         tokens = last.split()
-        if tagset and all(t.startswith("#") for t in tokens) and all(
-            t.lstrip("#").lower() in tagset for t in tokens
-        ):
+        if tagset and all(t.startswith("#") for t in tokens) and all(t.lstrip("#").lower() in tagset for t in tokens):
             lines.pop()
             continue
         if link_norm and len(tokens) == 1 and _normalize_url(tokens[0]) == link_norm:
@@ -186,11 +185,7 @@ def render_post_text(post: Post, platform: str) -> str:
     if post.hashtags and platform in _HASHTAG_IN_BODY:
         lo, hi = _ideal_hashtag_count(platform)
         tags = post.hashtags[:hi] if hi > 0 else []
-        missing = [
-            t
-            for t in tags
-            if not re.search(rf"#{re.escape(t.lstrip('#'))}\b", body, re.IGNORECASE)
-        ]
+        missing = [t for t in tags if not re.search(rf"#{re.escape(t.lstrip('#'))}\b", body, re.IGNORECASE)]
         if missing:
             tag_str = " ".join(f"#{t.lstrip('#')}" for t in missing)
             parts.append(tag_str)

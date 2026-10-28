@@ -20,4 +20,3 @@ def test_digest_markdown_is_friendly_and_scannable():
     assert "Clear skies. Zero friction." in md
     assert "*At a glance*" in md
     assert "*All clear.*" in md
-

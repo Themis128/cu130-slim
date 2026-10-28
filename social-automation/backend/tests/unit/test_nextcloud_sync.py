@@ -4,6 +4,7 @@ The sync (services/nextcloud_sync.py) is fire-and-forget from the worker —
 these tests pin the wire contract (object-keyed row data, selection option
 ids, post:<uuid> card markers, move fallback, stale-card archive).
 """
+
 import json
 import uuid
 from datetime import UTC, datetime

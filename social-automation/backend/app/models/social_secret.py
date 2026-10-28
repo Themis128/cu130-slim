@@ -3,6 +3,7 @@
 Cloudflare-first, Postgres-failover, .env fallback is handled by the
 secret_store service.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime

@@ -18,6 +18,7 @@ Body conversion is deterministic — no AI, no network:
 - ``{{first_name}}`` and other ``{{merge}}`` fields pass through — the
   send path renders them per-recipient afterwards.
 """
+
 from __future__ import annotations
 
 import html
@@ -66,12 +67,11 @@ def _inline(text: str) -> str:
     """Escape, then restore merge fields and markdown links."""
     out = _esc(text)
     out = _MERGE_RE.sub(
-        lambda m: '<b style="color:' + _TEAL + ';">{{'
-        + m.group(1) + "}}</b>",
+        lambda m: '<b style="color:' + _TEAL + ';">{{' + m.group(1) + "}}</b>",
         out,
     )
     out = _MD_LINK_RE.sub(
-        r'<a href="\2" style="color:' + _TEAL + r';text-decoration:underline;'
+        r'<a href="\2" style="color:' + _TEAL + r";text-decoration:underline;"
         r'text-underline-offset:3px;">\1</a>',
         out,
     )
@@ -79,20 +79,14 @@ def _inline(text: str) -> str:
 
 
 def _p(text: str, extra: str = "") -> str:
-    return (
-        f'<p style="margin:0 0 18px;color:{_TEXT};font-size:16px;'
-        f'line-height:1.78;{_FONT}{extra}">{_inline(text)}</p>'
-    )
+    return f'<p style="margin:0 0 18px;color:{_TEXT};font-size:16px;line-height:1.78;{_FONT}{extra}">{_inline(text)}</p>'
 
 
 def _quote(text: str, attrib: str | None, pink: bool) -> str:
     bar = _PINK if pink else _TEAL
     attrib_html = ""
     if attrib:
-        attrib_html = (
-            f'<br/><span style="font-style:normal;{_FONT}color:{_FAINT};'
-            f'font-size:13px;letter-spacing:.04em;">— {_esc(attrib)}</span>'
-        )
+        attrib_html = f'<br/><span style="font-style:normal;{_FONT}color:{_FAINT};font-size:13px;letter-spacing:.04em;">— {_esc(attrib)}</span>'
     quote = _esc(text.strip().strip(chr(0x201C) + chr(0x201D) + chr(0x22)))
     return (
         '<table role="presentation" width="100%" cellpadding="0" '
@@ -113,11 +107,7 @@ def _numbered(items: list[tuple[str, str]]) -> str:
         parts = re.split(r"(?<=[.!?:])\s+", text.strip(), maxsplit=1)
         head = parts[0]
         rest = parts[1] if len(parts) > 1 else ""
-        rest_html = (
-            f'<br/><span style="color:{_MUTED};">{_inline(rest)}</span>'
-            if rest
-            else ""
-        )
+        rest_html = f'<br/><span style="color:{_MUTED};">{_inline(rest)}</span>' if rest else ""
         rows.append(
             '<table role="presentation" width="100%" cellpadding="0" '
             'cellspacing="0" style="margin:0 0 10px;background:#0c1424;'
@@ -138,17 +128,14 @@ def _cta(label: str, url: str) -> str:
         'cellspacing="0"><tr><td align="center" style="padding:14px 0 8px;">'
         f'<a href="{html.escape(url, quote=True)}" '
         f'style="display:inline-block;background:{_TEAL};color:{_BG};'
-        f'font-size:16px;font-weight:700;text-decoration:none;'
+        f"font-size:16px;font-weight:700;text-decoration:none;"
         f'padding:15px 44px;border-radius:999px;{_FONT}letter-spacing:.01em;"'
-        f'>{_esc(label)}</a></td></tr></table>'
+        f">{_esc(label)}</a></td></tr></table>"
     )
 
 
 def _ps(text: str) -> str:
-    return (
-        f'<p style="margin:6px 0 0;color:{_MUTED};font-size:13.5px;'
-        f'line-height:1.7;{_FONT}">{_inline(text)}</p>'
-    )
+    return f'<p style="margin:6px 0 0;color:{_MUTED};font-size:13.5px;line-height:1.7;{_FONT}">{_inline(text)}</p>'
 
 
 def body_to_inner_html(text_body: str) -> str:
@@ -227,10 +214,7 @@ def render_branded_html(
     """Wrap converted body blocks in the Cloudless email shell."""
     inner = body_to_inner_html(text_body)
     pre = (
-        f'<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">'
-        f"{_esc(preheader)}&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>"
-        if preheader
-        else ""
+        f'<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;">{_esc(preheader)}&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>' if preheader else ""
     )
     hero = (
         '<tr><td><img src="' + html.escape(hero_url, quote=True) + '" width="600" alt="" '

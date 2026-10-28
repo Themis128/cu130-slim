@@ -15,6 +15,7 @@ Commands:
 
 Never prints file contents beyond short snippets.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -24,6 +24,7 @@ Commands:
 Options: -a/--account ACCOUNT_UUID (defaults to first tiktok account).
 Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,9 +45,7 @@ async def _accounts() -> list:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "tiktok")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "tiktok"))
         return list(result.scalars().all())
 
 
@@ -74,9 +73,7 @@ async def _pick(account_id: str | None):
 async def cmd_accounts() -> None:
     for a in await _accounts():
         print(
-            f"{a.id}  @{a.username or '-'}  {a.display_name or ''}  "
-            f"open_id={a.account_id[:12]}…  status={a.status}  "
-            f"scopes={','.join(a.scopes or []) or '-'}"
+            f"{a.id}  @{a.username or '-'}  {a.display_name or ''}  open_id={a.account_id[:12]}…  status={a.status}  scopes={','.join(a.scopes or []) or '-'}"
         )
 
 
@@ -103,20 +100,12 @@ async def cmd_videos(account_id: str | None, limit: int) -> None:
 
 async def cmd_status(account_id: str | None, publish_id: str) -> None:
     account = await _pick(account_id)
-    print(
-        json.dumps(
-            await _client_for(account).check_publish_status(publish_id), indent=2
-        )
-    )
+    print(json.dumps(await _client_for(account).check_publish_status(publish_id), indent=2))
 
 
 async def cmd_dms(account_id: str | None) -> None:
     account = await _pick(account_id)
-    print(
-        json.dumps(
-            await _client_for(account).list_dm_conversations(), indent=2
-        )
-    )
+    print(json.dumps(await _client_for(account).list_dm_conversations(), indent=2))
 
 
 def main() -> None:

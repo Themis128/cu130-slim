@@ -45,6 +45,7 @@ _inbox_cache: dict[str, tuple[float, UnifiedInboxResponse]] = {}
 
 class UnifiedConversation(BaseModel):
     """Normalized conversation across all platforms."""
+
     platform: str  # messenger, instagram, whatsapp, threads, personal_messenger
     account_id: str
     account_name: str
@@ -88,9 +89,7 @@ async def get_unified_inbox(
 
     # Fetch all social accounts for the user's team
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.team_id == team_id)
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team_id))
         accounts = result.scalars().all()
 
     # Per-platform fetch budget — a wedged platform (e.g. busy browser
@@ -142,17 +141,14 @@ async def _fetch_page_messenger(account: SocialAccount) -> list[UnifiedConversat
     """Fetch conversations from a Facebook Page Messenger (Graph API)."""
     try:
         meta = account.meta_data or {}
-        page_token = (
-            meta.get("page_token")
-            or meta.get("page_access_token")
-            or meta.get("access_token")
-        )
+        page_token = meta.get("page_token") or meta.get("page_access_token") or meta.get("access_token")
         if not page_token:
             return []
         # page_token is often stored encrypted in meta_data
         if isinstance(page_token, str) and not page_token.startswith("EA"):
             try:
                 from app.core.security import decrypt_token
+
                 page_token = decrypt_token(page_token)
             except Exception:
                 pass  # might be plaintext
@@ -169,16 +165,18 @@ async def _fetch_page_messenger(account: SocialAccount) -> list[UnifiedConversat
             participants = convo.get("participants", {}).get("data", [])
             sender = participants[0] if participants else {}
             unread_count = convo.get("unread_count") or 0
-            convos.append(UnifiedConversation(
-                platform="messenger",
-                account_id=str(account.id),
-                account_name=account.display_name or "Facebook Page",
-                thread_id=convo.get("id"),
-                sender_name=sender.get("name", "Unknown"),
-                preview=convo.get("snippet", ""),
-                unread=bool(unread_count),
-                timestamp=convo.get("updated_time"),
-            ))
+            convos.append(
+                UnifiedConversation(
+                    platform="messenger",
+                    account_id=str(account.id),
+                    account_name=account.display_name or "Facebook Page",
+                    thread_id=convo.get("id"),
+                    sender_name=sender.get("name", "Unknown"),
+                    preview=convo.get("snippet", ""),
+                    unread=bool(unread_count),
+                    timestamp=convo.get("updated_time"),
+                )
+            )
         return convos
     except Exception as exc:
         logger.debug("Page Messenger fetch failed for %s: %s", account.id, exc)
@@ -192,17 +190,19 @@ async def _fetch_personal_messenger(account: SocialAccount) -> list[UnifiedConve
         result = await bridge.get_personal_messenger_conversations_fast()
         convos = []
         for convo in result.get("conversations", []):
-            convos.append(UnifiedConversation(
-                platform="personal_messenger",
-                account_id=str(account.id),
-                account_name=account.display_name or "Personal Messenger",
-                thread_id=convo.get("thread_id"),
-                sender_name=convo.get("name", "Unknown"),
-                preview=convo.get("preview", ""),
-                unread=convo.get("unread", False),
-                url=convo.get("url"),
-                e2ee=convo.get("e2ee", False),
-            ))
+            convos.append(
+                UnifiedConversation(
+                    platform="personal_messenger",
+                    account_id=str(account.id),
+                    account_name=account.display_name or "Personal Messenger",
+                    thread_id=convo.get("thread_id"),
+                    sender_name=convo.get("name", "Unknown"),
+                    preview=convo.get("preview", ""),
+                    unread=convo.get("unread", False),
+                    url=convo.get("url"),
+                    e2ee=convo.get("e2ee", False),
+                )
+            )
         return convos
     except Exception as exc:
         logger.debug("Personal Messenger fetch failed for %s: %s", account.id, exc)
@@ -221,12 +221,7 @@ async def _fetch_instagram_dms(account: SocialAccount) -> list[UnifiedConversati
                 access_token = decrypt_token(account.access_token_enc)
             except Exception:
                 access_token = None
-        ig_user_id = (
-            meta.get("ig_user_id")
-            or meta.get("instagram_user_id")
-            or meta.get("ig_business_id")
-            or account.account_id
-        )
+        ig_user_id = meta.get("ig_user_id") or meta.get("instagram_user_id") or meta.get("ig_business_id") or account.account_id
         if not access_token or not ig_user_id:
             return []
         client = InstagramAPIClient(
@@ -242,24 +237,22 @@ async def _fetch_instagram_dms(account: SocialAccount) -> list[UnifiedConversati
             participants = convo.get("participants", {}).get("data", [])
             # participants[0] is our own business account — the customer is
             # the other participant.
-            others = [
-                p for p in participants
-                if str(p.get("id", "")) not in own_ids
-                and (p.get("username") or "").lower() != own_username
-            ]
+            others = [p for p in participants if str(p.get("id", "")) not in own_ids and (p.get("username") or "").lower() != own_username]
             sender = others[0] if others else (participants[0] if participants else {})
             messages = convo.get("messages", {}).get("data", [])
             last_msg = messages[0] if messages else {}
-            convos.append(UnifiedConversation(
-                platform="instagram",
-                account_id=str(account.id),
-                account_name=account.display_name or "Instagram",
-                thread_id=convo.get("id"),
-                sender_name=sender.get("username", "Unknown"),
-                preview=last_msg.get("message") or "[media]",
-                unread=False,
-                timestamp=last_msg.get("created_time"),
-            ))
+            convos.append(
+                UnifiedConversation(
+                    platform="instagram",
+                    account_id=str(account.id),
+                    account_name=account.display_name or "Instagram",
+                    thread_id=convo.get("id"),
+                    sender_name=sender.get("username", "Unknown"),
+                    preview=last_msg.get("message") or "[media]",
+                    unread=False,
+                    timestamp=last_msg.get("created_time"),
+                )
+            )
         return convos
     except Exception as exc:
         logger.debug("Instagram DM fetch failed for %s: %s", account.id, exc)
@@ -286,19 +279,23 @@ async def _fetch_whatsapp(account: SocialAccount) -> list[UnifiedConversation]:
                 .subquery()
             )
             rows = (
-                await db.execute(
-                    select(WhatsAppMessage)
-                    .join(
-                        latest,
-                        and_(
-                            WhatsAppMessage.sender_phone == latest.c.peer,
-                            WhatsAppMessage.created_at == latest.c.mx,
-                        ),
+                (
+                    await db.execute(
+                        select(WhatsAppMessage)
+                        .join(
+                            latest,
+                            and_(
+                                WhatsAppMessage.sender_phone == latest.c.peer,
+                                WhatsAppMessage.created_at == latest.c.mx,
+                            ),
+                        )
+                        .order_by(desc(WhatsAppMessage.created_at))
+                        .limit(50)
                     )
-                    .order_by(desc(WhatsAppMessage.created_at))
-                    .limit(50)
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             if not rows:
                 return []
 
@@ -324,16 +321,18 @@ async def _fetch_whatsapp(account: SocialAccount) -> list[UnifiedConversation]:
             body = m.message_text or f"[{m.message_type}]"
             if m.direction == "outbound":
                 body = f"You: {body}"
-            convos.append(UnifiedConversation(
-                platform="whatsapp",
-                account_id=str(account.id),
-                account_name=account.display_name or "WhatsApp",
-                thread_id=peer,
-                sender_name=name_by_peer.get(peer) or peer,
-                preview=body,
-                unread=False,
-                timestamp=m.created_at.isoformat() if m.created_at else None,
-            ))
+            convos.append(
+                UnifiedConversation(
+                    platform="whatsapp",
+                    account_id=str(account.id),
+                    account_name=account.display_name or "WhatsApp",
+                    thread_id=peer,
+                    sender_name=name_by_peer.get(peer) or peer,
+                    preview=body,
+                    unread=False,
+                    timestamp=m.created_at.isoformat() if m.created_at else None,
+                )
+            )
         return convos
     except Exception as exc:
         logger.debug("WhatsApp inbox fetch failed for %s: %s", account.id, exc)

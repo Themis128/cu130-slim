@@ -109,9 +109,7 @@ async def _get_team_or_404(db: AsyncSession, team_id: uuid.UUID) -> Team:
     return team
 
 
-async def _get_membership(
-    db: AsyncSession, team_id: uuid.UUID, user_id: uuid.UUID
-) -> TeamMember | None:
+async def _get_membership(db: AsyncSession, team_id: uuid.UUID, user_id: uuid.UUID) -> TeamMember | None:
     result = await db.execute(
         select(TeamMember).where(
             TeamMember.team_id == team_id,
@@ -122,15 +120,11 @@ async def _get_membership(
 
 
 async def _count_members(db: AsyncSession, team_id: uuid.UUID) -> int:
-    result = await db.execute(
-        select(func.count()).select_from(TeamMember).where(TeamMember.team_id == team_id)
-    )
+    result = await db.execute(select(func.count()).select_from(TeamMember).where(TeamMember.team_id == team_id))
     return result.scalar_one()
 
 
-async def _assert_membership(
-    db: AsyncSession, team_id: uuid.UUID, user_id: uuid.UUID
-) -> TeamMember:
+async def _assert_membership(db: AsyncSession, team_id: uuid.UUID, user_id: uuid.UUID) -> TeamMember:
     membership = await _get_membership(db, team_id, user_id)
     if membership is None:
         raise HTTPException(
@@ -140,9 +134,7 @@ async def _assert_membership(
     return membership
 
 
-async def _assert_role(
-    db: AsyncSession, team_id: uuid.UUID, user_id: uuid.UUID, minimum: UserRole
-) -> TeamMember:
+async def _assert_role(db: AsyncSession, team_id: uuid.UUID, user_id: uuid.UUID, minimum: UserRole) -> TeamMember:
     membership = await _assert_membership(db, team_id, user_id)
     if not _role_at_least(membership.role, minimum):
         raise HTTPException(
@@ -161,11 +153,7 @@ async def list_teams(
     db: DbSession,
 ):
     """List all teams the current user belongs to, with role and member count."""
-    teams_result = await db.execute(
-        select(Team, TeamMember.role)
-        .join(TeamMember, TeamMember.team_id == Team.id)
-        .where(TeamMember.user_id == current_user.id)
-    )
+    teams_result = await db.execute(select(Team, TeamMember.role).join(TeamMember, TeamMember.team_id == Team.id).where(TeamMember.user_id == current_user.id))
     rows = teams_result.all()
     responses: list[TeamResponse] = []
     for team, role in rows:
@@ -219,10 +207,7 @@ async def get_team(
     await _assert_membership(db, team.id, current_user.id)
 
     members_result = await db.execute(
-        select(TeamMember, User)
-        .join(User, User.id == TeamMember.user_id)
-        .where(TeamMember.team_id == team.id)
-        .order_by(TeamMember.role)
+        select(TeamMember, User).join(User, User.id == TeamMember.user_id).where(TeamMember.team_id == team.id).order_by(TeamMember.role)
     )
     members = [
         MemberResponse(
@@ -257,10 +242,7 @@ async def update_team(
     await db.refresh(team)
 
     members_result = await db.execute(
-        select(TeamMember, User)
-        .join(User, User.id == TeamMember.user_id)
-        .where(TeamMember.team_id == team.id)
-        .order_by(TeamMember.role)
+        select(TeamMember, User).join(User, User.id == TeamMember.user_id).where(TeamMember.team_id == team.id).order_by(TeamMember.role)
     )
     members = [
         MemberResponse(
@@ -346,9 +328,7 @@ async def invite_member(
                 email=data.email,
                 message=f"{data.email} is already a member of this team",
             )
-        membership = TeamMember(
-            team_id=team.id, user_id=target_user.id, role=data.role
-        )
+        membership = TeamMember(team_id=team.id, user_id=target_user.id, role=data.role)
         db.add(membership)
         await db.commit()
 
@@ -363,7 +343,9 @@ async def invite_member(
                 inviter_name = current_user.name or current_user.email
                 asyncio.create_task(
                     send_team_added_email(
-                        inviter_name, target_user.email, team.name,
+                        inviter_name,
+                        target_user.email,
+                        team.name,
                         f"{frontend_url}/team",
                     )
                 )
@@ -394,9 +376,7 @@ async def invite_member(
 
         from app.services.email_templates import send_team_invite_email
 
-        asyncio.create_task(
-            send_team_invite_email(inviter_name, data.email, team.name, invite_link)
-        )
+        asyncio.create_task(send_team_invite_email(inviter_name, data.email, team.name, invite_link))
     except Exception:
         pass  # non-fatal — email logging happens inside the template
 
@@ -545,15 +525,8 @@ async def remove_member(
             )
 
     # Prevent an OWNER from removing themselves if they are the only OWNER.
-    if (
-        target_membership.role == UserRole.OWNER
-        and target_membership.user_id == current_user.id
-    ):
-        owners_result = await db.execute(
-            select(func.count())
-            .select_from(TeamMember)
-            .where(TeamMember.team_id == team.id, TeamMember.role == UserRole.OWNER)
-        )
+    if target_membership.role == UserRole.OWNER and target_membership.user_id == current_user.id:
+        owners_result = await db.execute(select(func.count()).select_from(TeamMember).where(TeamMember.team_id == team.id, TeamMember.role == UserRole.OWNER))
         owner_count = owners_result.scalar_one()
         if owner_count <= 1:
             raise HTTPException(
@@ -633,16 +606,12 @@ async def accept_invite(
             new_role = UserRole(invite_role)
         except ValueError:
             new_role = UserRole.EDITOR
-        membership = TeamMember(
-            team_id=team.id, user_id=current_user.id, role=new_role
-        )
+        membership = TeamMember(team_id=team.id, user_id=current_user.id, role=new_role)
         db.add(membership)
         await db.commit()
 
     # Return team info with the user's role.
-    member_count_result = await db.execute(
-        select(func.count()).select_from(TeamMember).where(TeamMember.team_id == team.id)
-    )
+    member_count_result = await db.execute(select(func.count()).select_from(TeamMember).where(TeamMember.team_id == team.id))
     member_count = member_count_result.scalar_one()
 
     final_membership = await _get_membership(db, team.id, current_user.id)

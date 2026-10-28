@@ -1,4 +1,5 @@
 """Tests for app/services/r2_storage.py — Cloudflare R2 REST client."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -120,8 +121,7 @@ async def test_upload_ok(monkeypatch):
     http = _HTTP(_Resp(200, {"result": {"etag": "e1"}}))
     _wire(monkeypatch, http)
     out = await r2.upload_object("k", b"data", content_type="image/png")
-    assert out == {"key": "k", "etag": "e1", "size": 4,
-                   "public_url": "https://pub.example.com/k"}
+    assert out == {"key": "k", "etag": "e1", "size": 4, "public_url": "https://pub.example.com/k"}
     assert http.calls[0][2]["headers"]["Authorization"] == "Bearer tok"
 
 

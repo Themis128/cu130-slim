@@ -14,6 +14,7 @@ Selection strategy (data-driven, NLP):
 
 Verified live 2026-09-23 on the cloudless.gr page (org 108614163).
 """
+
 import asyncio
 import json
 import logging
@@ -52,6 +53,7 @@ class _Candidate(TypedDict):
     i: int
     name: str
     headline: str
+
 
 _SCORE_PROMPT = """You are ranking LinkedIn connections for a Page-follow invitation.
 
@@ -136,8 +138,7 @@ async def _harvest_candidates(
         # Scroll + paginate.
         await _eval(
             client,
-            f"(()=>{{const l=document.querySelector('{_RESULTS_CONTAINER}');"
-            "if(l) l.scrollTop=l.scrollHeight; return true})()",
+            f"(()=>{{const l=document.querySelector('{_RESULTS_CONTAINER}');if(l) l.scrollTop=l.scrollHeight; return true}})()",
         )
         if not await _click_button_by_text(client, _SHOW_MORE_TEXT):
             break
@@ -196,11 +197,7 @@ async def _score_chunk(candidates: list[_Candidate]) -> dict[int, int]:
         payload = res.get("response", res)
         if isinstance(payload, str):
             payload = json.loads(payload)
-        scores = {
-            int(e["i"]): int(e["s"])
-            for e in (payload.get("scores") or [])
-            if isinstance(e, dict) and "i" in e and "s" in e
-        }
+        scores = {int(e["i"]): int(e["s"]) for e in (payload.get("scores") or []) if isinstance(e, dict) and "i" in e and "s" in e}
         logger.info("linkedin invites: NLP scored %s/%s candidates", len(scores), len(candidates))
         return scores
     except Exception as exc:  # noqa: BLE001 — fall back to list order
@@ -243,8 +240,7 @@ async def _login_wall(client: BrowserBridgeClient) -> bool:
         return bool(
             await _eval(
                 client,
-                "!!document.querySelector('input[name=session_key]')"
-                "||location.href.includes('authwall')",
+                "!!document.querySelector('input[name=session_key]')||location.href.includes('authwall')",
             )
         )
     except BrowserBridgeError:
@@ -439,14 +435,16 @@ async def send_invite_batch(batch_size: int = 40) -> dict[str, Any]:
                         await client.start_session("linkedin", contention_retries=4)
                     except BrowserBridgeError:
                         result.update(
-                            status="skipped", reason="browser_session_stolen",
+                            status="skipped",
+                            reason="browser_session_stolen",
                             picked_clicked=clicked_count,
                         )
                         return result
                     await asyncio.sleep(3)
                     if not await _dialog_open(client):
                         result.update(
-                            status="skipped", reason="invite_dialog_lost",
+                            status="skipped",
+                            reason="invite_dialog_lost",
                             picked_clicked=clicked_count,
                         )
                         return result
@@ -472,7 +470,9 @@ async def send_invite_batch(batch_size: int = 40) -> dict[str, Any]:
                 result.update(status="sent", sent=selected)
                 logger.info(
                     "LinkedIn invites sent: %s of %s candidates (credits were %s)",
-                    selected, len(candidates), credits_left,
+                    selected,
+                    len(candidates),
+                    credits_left,
                 )
                 return result
 

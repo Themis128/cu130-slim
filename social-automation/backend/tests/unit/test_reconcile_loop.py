@@ -1,4 +1,5 @@
 """Coverage: account_status_reconcile._reconcile loop paths."""
+
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
@@ -41,14 +42,15 @@ def _db(rows):
 @pytest.mark.asyncio
 async def test_reconcile_all_paths(monkeypatch):
     import app.worker.tasks.account_status_reconcile as R
+
     now = datetime.now(UTC)
     rows = [
-        _acc(platform="x", status="active", expires=now - timedelta(days=1)),      # expired w/o probe
-        _acc(platform="facebook", status="revoked", token="enc2"),                  # probe→active — revoked counts toward drift
-        _acc(platform="whatsapp", status="active", token="enc3"),                   # probe→revoked drift + slack
-        _acc(platform="tiktok", status="active", token="enc4"),                       # probe→inconclusive → error
-        _acc(platform="mastodon", status="active", token="enc5"),                   # unprobed → skip
-        _acc(platform="linkedin", status="active", token="enc6"),                   # probe→active clean
+        _acc(platform="x", status="active", expires=now - timedelta(days=1)),  # expired w/o probe
+        _acc(platform="facebook", status="revoked", token="enc2"),  # probe→active — revoked counts toward drift
+        _acc(platform="whatsapp", status="active", token="enc3"),  # probe→revoked drift + slack
+        _acc(platform="tiktok", status="active", token="enc4"),  # probe→inconclusive → error
+        _acc(platform="mastodon", status="active", token="enc5"),  # unprobed → skip
+        _acc(platform="linkedin", status="active", token="enc6"),  # probe→active clean
     ]
     db = _db(rows)
     monkeypatch.setattr(R, "task_session", lambda: _Sess(db))
@@ -61,7 +63,7 @@ async def test_reconcile_all_paths(monkeypatch):
     assert counts["checked"] == 6
     assert counts["expired"] >= 1
     assert counts["revoked"] >= 1
-    assert counts["error"] >= 1   # inconclusive/no-token
+    assert counts["error"] >= 1  # inconclusive/no-token
     assert counts["drifted"] >= 1
     alert.assert_awaited()
 
@@ -69,6 +71,7 @@ async def test_reconcile_all_paths(monkeypatch):
 @pytest.mark.asyncio
 async def test_reconcile_decrypt_failure(monkeypatch):
     import app.worker.tasks.account_status_reconcile as R
+
     rows = [_acc(platform="facebook", token="bad")]
     db = _db(rows)
     monkeypatch.setattr(R, "task_session", lambda: _Sess(db))
@@ -82,6 +85,7 @@ async def test_reconcile_decrypt_failure(monkeypatch):
 @pytest.mark.asyncio
 async def test_reconcile_d1_mirror_swallowed(monkeypatch):
     import app.worker.tasks.account_status_reconcile as R
+
     rows = [_acc(platform="whatsapp", status="active", token="enc")]
     db = _db(rows)
     monkeypatch.setattr(R, "task_session", lambda: _Sess(db))
@@ -91,6 +95,7 @@ async def test_reconcile_d1_mirror_swallowed(monkeypatch):
     router = MagicMock()
     router.execute = AsyncMock(side_effect=RuntimeError("D1 down"))
     import sys
+
     mod = MagicMock()
     mod.db_router = router
     monkeypatch.setitem(sys.modules, "app.services.db_router", mod)
@@ -101,6 +106,7 @@ async def test_reconcile_d1_mirror_swallowed(monkeypatch):
 @pytest.mark.asyncio
 async def test_ingest_bytes_empty_and_happy(monkeypatch):
     from app.services import research_workspace as RW
+
     # empty extract → early return
     monkeypatch.setattr(RW, "_extract", lambda n, r: "")
     assert await RW.ingest_bytes("t", "p", "n.txt", b"x") == {"ingested": 0, "file": "n.txt"}

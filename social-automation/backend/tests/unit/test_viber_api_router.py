@@ -460,19 +460,34 @@ async def test_decrypt_auth_token_fallbacks(_admin, monkeypatch):
 
 def test_webhook_base_media_fallback(monkeypatch):
     # MEDIA_PUBLIC_BASE_URL https → scheme://netloc/api/v1
-    monkeypatch.setattr(V, "settings", SimpleNamespace(
-        VIBER_WEBHOOK_BASE="", MEDIA_PUBLIC_BASE_URL="https://cdn.cloudless.gr/x",
-    ))
+    monkeypatch.setattr(
+        V,
+        "settings",
+        SimpleNamespace(
+            VIBER_WEBHOOK_BASE="",
+            MEDIA_PUBLIC_BASE_URL="https://cdn.cloudless.gr/x",
+        ),
+    )
     assert V._webhook_base() == "https://cdn.cloudless.gr/api/v1"
     # non-https → default
-    monkeypatch.setattr(V, "settings", SimpleNamespace(
-        VIBER_WEBHOOK_BASE="", MEDIA_PUBLIC_BASE_URL="http://local",
-    ))
+    monkeypatch.setattr(
+        V,
+        "settings",
+        SimpleNamespace(
+            VIBER_WEBHOOK_BASE="",
+            MEDIA_PUBLIC_BASE_URL="http://local",
+        ),
+    )
     assert V._webhook_base() == "https://social.cloudless.gr/api/v1"
     # explicit base wins
-    monkeypatch.setattr(V, "settings", SimpleNamespace(
-        VIBER_WEBHOOK_BASE="https://w.io/", MEDIA_PUBLIC_BASE_URL="",
-    ))
+    monkeypatch.setattr(
+        V,
+        "settings",
+        SimpleNamespace(
+            VIBER_WEBHOOK_BASE="https://w.io/",
+            MEDIA_PUBLIC_BASE_URL="",
+        ),
+    )
     assert V._webhook_base() == "https://w.io"
 
 
@@ -524,11 +539,13 @@ async def test_webhook_missing_credentials_400(_admin, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_webhook_unsubscribed_and_welcome_error(_admin, _crypto, monkeypatch):
-    acct = _account(meta_data={
-        "viber_auth_token_enc": "t",
-        "subscribers_count": 1,
-        "viber_auto_reply": {"welcome_message": "hi"},
-    })
+    acct = _account(
+        meta_data={
+            "viber_auth_token_enc": "t",
+            "subscribers_count": 1,
+            "viber_auto_reply": {"welcome_message": "hi"},
+        }
+    )
     monkeypatch.setattr(V, "verify_signature", lambda b, s, t: True)
     monkeypatch.setattr(V, "flag_modified", lambda *a: None)
 

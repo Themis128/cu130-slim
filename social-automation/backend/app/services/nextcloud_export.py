@@ -134,9 +134,7 @@ async def create_public_share(remote_path: str, password: str | None = None) -> 
     return await _create_share(f"{root}/{remote_path.strip('/')}", password)
 
 
-async def create_share_for_recorded(
-    recorded_path: str, password: str | None = None
-) -> str | None:
+async def create_share_for_recorded(recorded_path: str, password: str | None = None) -> str | None:
     """Share a recorded path (:func:`upload_bytes` return / nextcloud_path meta).
 
     Recorded paths carry the export root (``SocialAuto/media/…``). Paths
@@ -146,9 +144,7 @@ async def create_share_for_recorded(
     root = settings.NEXTCLOUD_EXPORT_ROOT.strip("/")
     stripped = recorded_path.strip("/")
     if not (stripped == root or stripped.startswith(f"{root}/")):
-        raise ValueError(
-            f"recorded path must start with the export root {root!r}: {recorded_path!r}"
-        )
+        raise ValueError(f"recorded path must start with the export root {root!r}: {recorded_path!r}")
     return await _create_share(stripped, password)
 
 

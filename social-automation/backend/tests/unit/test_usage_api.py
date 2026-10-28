@@ -1,4 +1,5 @@
 """Tests for app/api/usage.py — usage + 12-month history endpoints."""
+
 from __future__ import annotations
 
 import uuid
@@ -42,12 +43,14 @@ def test_month_start():
 
 @pytest.mark.asyncio
 async def test_get_usage():
-    db = _DB([
-        _Res(one_or_none="pro"),
-        _Res(scalar=7),
-        _Res(scalar=12),
-        _Res(scalar=3),
-    ])
+    db = _DB(
+        [
+            _Res(one_or_none="pro"),
+            _Res(scalar=7),
+            _Res(scalar=12),
+            _Res(scalar=3),
+        ]
+    )
     out = await get_usage(uuid.uuid4(), SimpleNamespace(), db)
     assert out["plan_tier"] == "pro"
     assert out["usage"]["ai_calls_per_month"]["used"] == 7
@@ -58,12 +61,14 @@ async def test_get_usage():
 
 @pytest.mark.asyncio
 async def test_get_usage_unknown_team_defaults_free():
-    db = _DB([
-        _Res(one_or_none=None),
-        _Res(scalar=0),
-        _Res(scalar=0),
-        _Res(scalar=0),
-    ])
+    db = _DB(
+        [
+            _Res(one_or_none=None),
+            _Res(scalar=0),
+            _Res(scalar=0),
+            _Res(scalar=0),
+        ]
+    )
     out = await get_usage(uuid.uuid4(), SimpleNamespace(), db)
     assert out["plan_tier"] == "free"
 

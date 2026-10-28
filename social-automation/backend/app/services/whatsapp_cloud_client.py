@@ -447,4 +447,3 @@ def validate_wa_phone(value: str) -> str:
     if not _PHONE_RE.match(value):
         raise ValueError(f"Invalid phone number format: {value[:40]}")
     return value.lstrip("+")
-

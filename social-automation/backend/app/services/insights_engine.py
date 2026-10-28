@@ -44,10 +44,8 @@ PLATFORM_BEST_PRACTICES: dict[str, dict[str, Any]] = {
         "ads_available": True,
         "cadence": "1 post/day max; 3–5/week is healthy",
         "best_windows": "Tue–Thu, 08:00–11:00 local (business audience)",
-        "formats": "Document/carousel posts and native text outperform links; "
-                   "carousels get ~2x dwell time",
-        "ads": "LinkedIn ads are expensive (CPL €30+) — boost only proven "
-               "organic winners; organic + employee amplification first",
+        "formats": "Document/carousel posts and native text outperform links; carousels get ~2x dwell time",
+        "ads": "LinkedIn ads are expensive (CPL €30+) — boost only proven organic winners; organic + employee amplification first",
         "source": "LinkedIn Marketing Solutions docs",
     },
     "instagram": {
@@ -55,10 +53,8 @@ PLATFORM_BEST_PRACTICES: dict[str, dict[str, Any]] = {
         "ads_available": True,
         "cadence": "3–5 feed posts/week + Reels for reach",
         "best_windows": "11:00–13:00 and 19:00–21:00 local",
-        "formats": "Reels for reach, carousels for engagement; every post "
-                   "needs media — no text-only",
-        "ads": "Boost top-engagement posts via Meta Ads Manager; target "
-               "follower lookalikes in top countries (see demographics)",
+        "formats": "Reels for reach, carousels for engagement; every post needs media — no text-only",
+        "ads": "Boost top-engagement posts via Meta Ads Manager; target follower lookalikes in top countries (see demographics)",
         "source": "Instagram Creators + Meta Business docs",
     },
     "facebook": {
@@ -67,8 +63,7 @@ PLATFORM_BEST_PRACTICES: dict[str, dict[str, Any]] = {
         "cadence": "1–2 posts/day on the Page",
         "best_windows": "09:00–13:00 weekdays local",
         "formats": "Native video and image posts; avoid engagement-bait phrasing",
-        "ads": "Meta Ads Manager on the Page; use page_post_engagements + "
-               "follower trends to pick boost candidates",
+        "ads": "Meta Ads Manager on the Page; use page_post_engagements + follower trends to pick boost candidates",
         "source": "Meta Business Help Center",
     },
     "threads": {
@@ -94,8 +89,7 @@ PLATFORM_BEST_PRACTICES: dict[str, dict[str, Any]] = {
         "ads_available": True,
         "cadence": "1–4/day for growth; consistency > volume",
         "best_windows": "18:00–22:00 local",
-        "formats": "Short video only; watch time + completion rate drive "
-                   "the algorithm",
+        "formats": "Short video only; watch time + completion rate drive the algorithm",
         "ads": "TikTok Ads only if video content already performs organically",
         "source": "TikTok Creator Center",
     },
@@ -113,8 +107,13 @@ PLATFORM_BENCHMARKS: dict[str, dict[str, Any]] = {
         # is avg engagement/post (absolute), not ER% — do not use as industry_pct.
         "industry_pct": None,
         "per_format_pct": {
-            "native_document": 7.00, "multi_image": 6.45, "video": 6.00,
-            "image": 5.30, "text": 4.50, "poll": 4.20, "link": 3.25,
+            "native_document": 7.00,
+            "multi_image": 6.45,
+            "video": 6.00,
+            "image": 5.30,
+            "text": 4.50,
+            "poll": 4.20,
+            "link": 3.25,
         },
         "source": "Socialinsider 2025 (1.3M business posts)",
     },
@@ -248,11 +247,7 @@ def _iqr_outliers(values: list[float]) -> dict[int, str]:
 def _count_resets(points: list[tuple[datetime, int, int]]) -> int:
     """Times a cumulative engagement counter decreased between captures —
     signals post deletion, stat correction, or API weirdness."""
-    return sum(
-        1
-        for prev, cur in zip(points, points[1:], strict=False)
-        if cur[1] < prev[1]
-    )
+    return sum(1 for prev, cur in zip(points, points[1:], strict=False) if cur[1] < prev[1])
 
 
 def _counter_deltas(series: list[int]) -> list[int]:
@@ -301,7 +296,7 @@ def _momentum_z(recent: float, prior: float) -> float:
     total = recent + prior
     if total <= 0:
         return 0.0
-    return (recent - prior) / (total ** 0.5)
+    return (recent - prior) / (total**0.5)
 
 
 def _wilson_low(successes: float, trials: float, z: float = 1.96) -> float | None:
@@ -340,12 +335,7 @@ def _theil_sen_slope(series: list[tuple[datetime, int]]) -> float | None:
     pts = sorted(series)
     t0 = pts[0][0]
     xy = [((t - t0).total_seconds() / 86400.0, float(v)) for t, v in pts]
-    slopes = [
-        (y2 - y1) / (x2 - x1)
-        for i, (x1, y1) in enumerate(xy)
-        for x2, y2 in xy[i + 1:]
-        if x2 > x1
-    ]
+    slopes = [(y2 - y1) / (x2 - x1) for i, (x1, y1) in enumerate(xy) for x2, y2 in xy[i + 1 :] if x2 > x1]
     return statistics.median(slopes) if slopes else None
 
 
@@ -358,9 +348,7 @@ def _confidence(posts: int, impressions: int) -> str:
     return "low"
 
 
-def _window_delta(
-    points: list[tuple[datetime, int, int]], start: datetime, end: datetime
-) -> tuple[int, int]:
+def _window_delta(points: list[tuple[datetime, int, int]], start: datetime, end: datetime) -> tuple[int, int]:
     """Engagement/impressions *received* inside [start, end).
 
     Snapshots are cumulative lifetime counters, so the delta is last-in-window
@@ -376,9 +364,7 @@ def _window_delta(
     return max(0, last[1] - base[1]), max(0, last[2] - base[2])
 
 
-async def build_team_insights(
-    db: AsyncSession, team_id: uuid.UUID, *, days: int = 90
-) -> dict[str, Any]:
+async def build_team_insights(db: AsyncSession, team_id: uuid.UUID, *, days: int = 90) -> dict[str, Any]:
     """DB boundary: fetch rows, delegate scoring to compute_insights."""
     since = datetime.now(UTC) - timedelta(days=days)
     two_weeks_ago = datetime.now(UTC) - timedelta(days=14)
@@ -468,18 +454,14 @@ async def build_team_insights(
             select(AnalyticsEvent.platform, AnalyticsEvent.event_type, AnalyticsEvent.meta_data)
             .where(
                 AnalyticsEvent.team_id == team_id,
-                AnalyticsEvent.event_type.in_(
-                    ["account_insights", "audience_demographics"]
-                ),
+                AnalyticsEvent.event_type.in_(["account_insights", "audience_demographics"]),
                 AnalyticsEvent.occurred_at >= since,
             )
             .order_by(AnalyticsEvent.occurred_at.desc())
         )
     ).all()
 
-    return compute_insights(
-        post_rows, delta_rows, follower_rows, ev_rows, days=days
-    )
+    return compute_insights(post_rows, delta_rows, follower_rows, ev_rows, days=days)
 
 
 def compute_insights(
@@ -505,15 +487,15 @@ def compute_insights(
             "likes": 0,
             "comments": 0,
             "shares": 0,
-            "hours": defaultdict(lambda: [0, 0.0]),   # hour -> [n, er_sum]
+            "hours": defaultdict(lambda: [0, 0.0]),  # hour -> [n, er_sum]
             "weekdays": defaultdict(lambda: [0, 0.0]),  # weekday -> [n, er_sum]
             "media_posts": [0, 0.0],
             "text_posts": [0, 0.0],
-            "er_imp": 0,   # impressions on rows that have a denominator
-            "er_eng": 0,   # engagement on those same rows only
+            "er_imp": 0,  # impressions on rows that have a denominator
+            "er_eng": 0,  # engagement on those same rows only
             "notes": set(),
             "top_post": None,
-            "post_engagements": [],   # (post_id, engagement, er) — for outliers/medians
+            "post_engagements": [],  # (post_id, engagement, er) — for outliers/medians
             "sanitized_rows": 0,
         }
     )
@@ -562,8 +544,7 @@ def compute_insights(
         p[bucket][1] += er
 
         if p["top_post"] is None or er > p["top_post"]["engagement_rate"]:
-            p["top_post"] = {"post_id": str(r.post_id), "engagement_rate": er,
-                             "impressions": int(r.impressions or 0)}
+            p["top_post"] = {"post_id": str(r.post_id), "engagement_rate": er, "impressions": int(r.impressions or 0)}
 
     # ── Momentum: cumulative-snapshot deltas per 7-day window ──────────────
     snap_series: dict[str, list[tuple[datetime, int, int]]] = defaultdict(list)
@@ -576,9 +557,7 @@ def compute_insights(
         pts.sort(key=lambda p: p[0])
         counter_resets[key.split(":", 1)[0]] += _count_resets(pts)
 
-    momentum: dict[str, dict[str, int]] = defaultdict(
-        lambda: {"recent_eng": 0, "prior_eng": 0, "recent_imp": 0, "prior_imp": 0}
-    )
+    momentum: dict[str, dict[str, int]] = defaultdict(lambda: {"recent_eng": 0, "prior_eng": 0, "recent_imp": 0, "prior_imp": 0})
     for key, pts in snap_series.items():
         platform = key.split(":", 1)[0]
         re_, ri = _window_delta(pts, week_ago, now)
@@ -596,18 +575,20 @@ def compute_insights(
         # a first real count from masquerading as a massive gain.
         if int(fr.followers) <= 0:
             continue
-        follower_windows[f"{fr.platform}:{fr.social_account_id}"].append(
-            (fr.captured_at, int(fr.followers))
-        )
+        follower_windows[f"{fr.platform}:{fr.social_account_id}"].append((fr.captured_at, int(fr.followers)))
     follower_growth: dict[str, dict[str, Any]] = {}
     for key, series in follower_windows.items():
         platform = key.split(":", 1)[0]
         first, last = series[0][1], series[-1][1]
         g = follower_growth.setdefault(
-            platform, {
-                "first": 0, "last": 0, "accounts": 0,
-                "anomaly": None, "slopes": [],
-            }
+            platform,
+            {
+                "first": 0,
+                "last": 0,
+                "accounts": 0,
+                "anomaly": None,
+                "slopes": [],
+            },
         )
         g["first"] += first
         g["last"] += last
@@ -638,22 +619,14 @@ def compute_insights(
             by a margin — otherwise the argmax is ordering noise."""
             total_n = sum(v[0] for v in buckets.values())
             mean_er = sum(v[1] for v in buckets.values()) / total_n if total_n else 0.0
-            cands = [
-                (k, round(_shrink_mean(v[1], v[0], mean_er), 2))
-                for k, v in buckets.items()
-                if v[0] >= min_n and not (skip and k in skip)
-            ]
+            cands = [(k, round(_shrink_mean(v[1], v[0], mean_er), 2)) for k, v in buckets.items() if v[0] >= min_n and not (skip and k in skip)]
             if not cands:
                 return None
             win = max(cands, key=lambda kv: kv[1])
             return win if win[1] > 0 and win[1] >= mean_er * 1.15 else None
 
-        media_er = (
-            round(p["media_posts"][1] / p["media_posts"][0], 2) if p["media_posts"][0] else None
-        )
-        text_er = (
-            round(p["text_posts"][1] / p["text_posts"][0], 2) if p["text_posts"][0] else None
-        )
+        media_er = round(p["media_posts"][1] / p["media_posts"][0], 2) if p["media_posts"][0] else None
+        text_er = round(p["text_posts"][1] / p["text_posts"][0], 2) if p["text_posts"][0] else None
         # Shrunk versions for the verdict — a 1-post media sample averaging
         # high ER shouldn't declare "media wins".
         all_er = [er for _, _, er in p["post_engagements"]]
@@ -670,11 +643,7 @@ def compute_insights(
         # published method is "median interactions/post ÷ followers").
         per_post = [e for _, e, _ in p["post_engagements"]]
         median_eng_post = round(statistics.median(per_post), 2) if per_post else 0.0
-        median_er = (
-            round(statistics.median([er for _, _, er in p["post_engagements"]]), 2)
-            if p["post_engagements"]
-            else 0.0
-        )
+        median_er = round(statistics.median([er for _, _, er in p["post_engagements"]]), 2) if p["post_engagements"] else 0.0
 
         # Post-level outliers on raw engagement (IQR fences).
         flags = _iqr_outliers(per_post)
@@ -693,11 +662,7 @@ def compute_insights(
         # the methodology every published benchmark uses. Gated on a
         # meaningful follower count: with ~10 followers, 2 likes reads as
         # a fake 20% "rate".
-        er_by_followers = (
-            round(median_eng_post / followers_now * 100, 3)
-            if posts and followers_now and followers_now >= _BENCHMARK_MIN_FOLLOWERS
-            else None
-        )
+        er_by_followers = round(median_eng_post / followers_now * 100, 3) if posts and followers_now and followers_now >= _BENCHMARK_MIN_FOLLOWERS else None
         bench = PLATFORM_BENCHMARKS.get(name)
         bench_ref = bench["industry_pct"] or bench["er_by_followers_pct"] if bench else None
         benchmark = None
@@ -707,24 +672,13 @@ def compute_insights(
                 "your_er_by_followers_pct": er_by_followers,
                 "benchmark_pct": bench_ref,
                 "ratio": ratio,
-                "verdict": (
-                    "above_benchmark" if ratio >= 1.2
-                    else "at_benchmark" if ratio >= 0.7
-                    else "below_benchmark"
-                ),
+                "verdict": ("above_benchmark" if ratio >= 1.2 else "at_benchmark" if ratio >= 0.7 else "below_benchmark"),
                 "method": bench["method"],
                 "source": bench["source"],
             }
 
-        platform_limits = sorted(
-            n for n in p["notes"]
-            if n and any(sig in n for sig in _PLATFORM_LIMIT_NOTES)
-        )
-        data_warnings = sorted(
-            n for n in p["notes"]
-            if n and any(sig in n for sig in _DATA_GAP_NOTES)
-            and not any(sig in n for sig in _PLATFORM_LIMIT_NOTES)
-        )
+        platform_limits = sorted(n for n in p["notes"] if n and any(sig in n for sig in _PLATFORM_LIMIT_NOTES))
+        data_warnings = sorted(n for n in p["notes"] if n and any(sig in n for sig in _DATA_GAP_NOTES) and not any(sig in n for sig in _PLATFORM_LIMIT_NOTES))
 
         # Timing buckets need a real sample — a 2-post bucket's ER max is
         # noise, not an audience signal. Dead-night Athens hours (00:00–
@@ -758,23 +712,13 @@ def compute_insights(
             "text_avg_er": text_er,
             "media_avg_er_shrunk": round(media_er_s, 2) if p["media_posts"][0] else None,
             "text_avg_er_shrunk": round(text_er_s, 2) if p["text_posts"][0] else None,
-            "avg_engagement_rate_wilson_low": (
-                round(wilson_low * 100, 2) if wilson_low is not None else None
-            ),
-            "momentum_7d_engagement_pct": _pct_change(
-                mom.get("recent_eng", 0), mom.get("prior_eng", 0)
-            ),
-            "momentum_7d_impressions_pct": _pct_change(
-                mom.get("recent_imp", 0), mom.get("prior_imp", 0)
-            ),
+            "avg_engagement_rate_wilson_low": (round(wilson_low * 100, 2) if wilson_low is not None else None),
+            "momentum_7d_engagement_pct": _pct_change(mom.get("recent_eng", 0), mom.get("prior_eng", 0)),
+            "momentum_7d_impressions_pct": _pct_change(mom.get("recent_imp", 0), mom.get("prior_imp", 0)),
             # |z| >= 1.645 → the week-over-week rate shift is ~90%
             # significant, not sampling noise on a small base.
-            "momentum_7d_engagement_z": round(
-                _momentum_z(mom.get("recent_eng", 0), mom.get("prior_eng", 0)), 2
-            ),
-            "momentum_7d_impressions_z": round(
-                _momentum_z(mom.get("recent_imp", 0), mom.get("prior_imp", 0)), 2
-            ),
+            "momentum_7d_engagement_z": round(_momentum_z(mom.get("recent_eng", 0), mom.get("prior_eng", 0)), 2),
+            "momentum_7d_impressions_z": round(_momentum_z(mom.get("recent_imp", 0), mom.get("prior_imp", 0)), 2),
             "engagement_7d": mom.get("recent_eng", 0),
             "engagement_prev_7d": mom.get("prior_eng", 0),
             "follower_growth": (
@@ -785,10 +729,7 @@ def compute_insights(
                     "anomaly": growth["anomaly"],
                     # Median of per-account Theil-Sen slopes — robust to
                     # endpoint scrapes/purges unlike first→last delta.
-                    "slope_per_day": (
-                        round(statistics.median(growth["slopes"]), 2)
-                        if growth["slopes"] else None
-                    ),
+                    "slope_per_day": (round(statistics.median(growth["slopes"]), 2) if growth["slopes"] else None),
                 }
                 if growth
                 else None
@@ -815,8 +756,12 @@ def compute_insights(
         platforms[name] = {
             "focus_tier": PLATFORM_BEST_PRACTICES.get(name, {}).get("focus", "last"),
             "confidence": "low",
-            "posts": 0, "impressions": 0, "engagement": 0,
-            "likes": 0, "comments": 0, "shares": 0,
+            "posts": 0,
+            "impressions": 0,
+            "engagement": 0,
+            "likes": 0,
+            "comments": 0,
+            "shares": 0,
             "avg_engagement_rate": 0.0,
             "avg_engagement_rate_wilson_low": None,
             "median_engagement_rate": 0.0,
@@ -828,25 +773,26 @@ def compute_insights(
             "best_weekday_athens": None,
             "best_hour_sample": 0,
             "best_weekday_sample": 0,
-            "media_avg_er": None, "text_avg_er": None,
-            "media_avg_er_shrunk": None, "text_avg_er_shrunk": None,
+            "media_avg_er": None,
+            "text_avg_er": None,
+            "media_avg_er_shrunk": None,
+            "text_avg_er_shrunk": None,
             "momentum_7d_engagement_pct": None,
             "momentum_7d_impressions_pct": None,
             "momentum_7d_engagement_z": 0.0,
             "momentum_7d_impressions_z": 0.0,
-            "engagement_7d": 0, "engagement_prev_7d": 0,
+            "engagement_7d": 0,
+            "engagement_prev_7d": 0,
             "follower_growth": (
                 {
                     "net": growth["last"] - growth["first"],
                     "current": growth["last"],
                     "accounts": growth["accounts"],
                     "anomaly": growth["anomaly"],
-                    "slope_per_day": (
-                        round(statistics.median(growth["slopes"]), 2)
-                        if growth["slopes"] else None
-                    ),
+                    "slope_per_day": (round(statistics.median(growth["slopes"]), 2) if growth["slopes"] else None),
                 }
-                if growth else None
+                if growth
+                else None
             ),
             "data_warnings": [],
             "platform_limits": [],
@@ -869,17 +815,9 @@ def compute_insights(
         "best_practices": PLATFORM_BEST_PRACTICES,
         "benchmarks": PLATFORM_BENCHMARKS,
         "preprocessing": {
-            "sanitized_rows": sum(
-                (p.get("data_quality") or {}).get("sanitized_rows", 0)
-                for p in platforms.values()
-            ),
-            "counter_resets": {
-                n: r for n, r in counter_resets.items() if r
-            },
-            "outlier_posts": sum(
-                (p.get("data_quality") or {}).get("outlier_posts", 0)
-                for p in platforms.values()
-            ),
+            "sanitized_rows": sum((p.get("data_quality") or {}).get("sanitized_rows", 0) for p in platforms.values()),
+            "counter_resets": {n: r for n, r in counter_resets.items() if r},
+            "outlier_posts": sum((p.get("data_quality") or {}).get("outlier_posts", 0) for p in platforms.values()),
         },
     }
 
@@ -891,12 +829,13 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """Rule-based recommendations grounded in platform best practices."""
     recs: list[dict[str, Any]] = []
     if not platforms:
-        return [{
-            "type": "setup",
-            "priority": "high",
-            "text": "No post metrics yet — publish a few posts per platform, "
-                    "then re-check insights.",
-        }]
+        return [
+            {
+                "type": "setup",
+                "priority": "high",
+                "text": "No post metrics yet — publish a few posts per platform, then re-check insights.",
+            }
+        ]
 
     # Rank by avg engagements per post — the only cross-platform metric that
     # survives broken denominators (LinkedIn impressions are under-reported,
@@ -911,47 +850,43 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     for name, p in platforms.items():
         for w in p.get("data_warnings", []):
             if "insights_scope_missing" in w:
-                text = (
-                    f"{name} insights are permission-blocked — reconnect the "
-                    f"account so it grants the insights scope ({w})."
-                )
+                text = f"{name} insights are permission-blocked — reconnect the account so it grants the insights scope ({w})."
             else:
                 text = f"{name} data collection issue: {w}"
-            recs.append({
-                "type": "data_gap", "priority": "high",
-                "platform": name, "text": text,
-            })
+            recs.append(
+                {
+                    "type": "data_gap",
+                    "priority": "high",
+                    "platform": name,
+                    "text": text,
+                }
+            )
             break  # one data-gap rec per platform
 
     # 1. Channel focus — where engagement is actually landing.
     top_name, top = ranked[0]
     if top["posts"] >= 3:
-        conf_note = (
-            "" if top["confidence"] != "low"
-            else " (low data confidence — treat as directional)"
-        )
+        conf_note = "" if top["confidence"] != "low" else " (low data confidence — treat as directional)"
         bench_note = ""
         if top.get("benchmark"):
             b = top["benchmark"]
             # LinkedIn (and any platform without industry_pct) compares against
             # the published ER-by-followers baseline, not a mismatched absolute.
             label = "industry median" if PLATFORM_BENCHMARKS.get(top_name, {}).get("industry_pct") else "platform baseline"
-            bench_note = (
-                f" — ER by followers {b['your_er_by_followers_pct']}% vs "
-                f"{b['benchmark_pct']}% {label} "
-                f"({b['verdict'].replace('_', ' ')})"
-            )
-        recs.append({
-            "type": "channel_focus",
-            "priority": "high",
-            "platform": top_name,
-            "text": (
-                f"{top_name} is your strongest channel "
-                f"({round(_score(top), 2)} avg interactions/post over "
-                f"{top['posts']} posts){bench_note}. Keep original content "
-                f"here first; adapt it to secondary platforms after.{conf_note}"
-            ),
-        })
+            bench_note = f" — ER by followers {b['your_er_by_followers_pct']}% vs {b['benchmark_pct']}% {label} ({b['verdict'].replace('_', ' ')})"
+        recs.append(
+            {
+                "type": "channel_focus",
+                "priority": "high",
+                "platform": top_name,
+                "text": (
+                    f"{top_name} is your strongest channel "
+                    f"({round(_score(top), 2)} avg interactions/post over "
+                    f"{top['posts']} posts){bench_note}. Keep original content "
+                    f"here first; adapt it to secondary platforms after.{conf_note}"
+                ),
+            }
+        )
 
     weak = []
     for name, p in ranked[1:]:
@@ -963,26 +898,24 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         ):
             weak.append(name)
     if weak:
-        recs.append({
-            "type": "deprioritize",
-            "priority": "medium",
-            "platform": ", ".join(weak),
-            "text": (
-                f"{', '.join(weak)} engagement is <40% of {top_name}'s — "
-                "cross-post adapted versions only, don't craft "
-                "platform-first content there this sprint."
-            ),
-        })
+        recs.append(
+            {
+                "type": "deprioritize",
+                "priority": "medium",
+                "platform": ", ".join(weak),
+                "text": (
+                    f"{', '.join(weak)} engagement is <40% of {top_name}'s — "
+                    "cross-post adapted versions only, don't craft "
+                    "platform-first content there this sprint."
+                ),
+            }
+        )
 
     # 2. Best posting windows — only when the winning bucket actually
     # produced engagement (ER > 0); otherwise use the platform baseline.
     for name, p in platforms.items():
         bp = PLATFORM_BEST_PRACTICES.get(name)
-        has_signal = (
-            p["best_weekday_athens"] and p["best_hour_athens"]
-            and p["best_weekday_athens"][1] > 0
-            and p["best_hour_athens"][1] > 0
-        )
+        has_signal = p["best_weekday_athens"] and p["best_hour_athens"] and p["best_weekday_athens"][1] > 0 and p["best_hour_athens"][1] > 0
         if has_signal:
             wd, wd_er = p["best_weekday_athens"]
             hr, hr_er = p["best_hour_athens"]
@@ -993,34 +926,33 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                 min(
                     p.get("best_hour_sample") or 0,
                     p.get("best_weekday_sample") or 0,
-                ) < 5
+                )
+                < 5
                 or p.get("confidence") == "low"
             )
-            conf_note = (
-                "" if not thin
-                else " (low data confidence — treat as directional)"
+            conf_note = "" if not thin else " (low data confidence — treat as directional)"
+            recs.append(
+                {
+                    "type": "timing",
+                    "priority": "medium",
+                    "platform": name,
+                    "text": (
+                        f"Your {name} audience engages most on {_WEEKDAYS[wd]} "
+                        f"around {hr:02d}:00 Athens time ({wd_er}% / {hr_er}% avg "
+                        f"ER in those buckets). Schedule there; platform baseline: "
+                        f"{bp['best_windows'] if bp else 'n/a'}.{conf_note}"
+                    ),
+                }
             )
-            recs.append({
-                "type": "timing",
-                "priority": "medium",
-                "platform": name,
-                "text": (
-                    f"Your {name} audience engages most on {_WEEKDAYS[wd]} "
-                    f"around {hr:02d}:00 Athens time ({wd_er}% / {hr_er}% avg "
-                    f"ER in those buckets). Schedule there; platform baseline: "
-                    f"{bp['best_windows'] if bp else 'n/a'}.{conf_note}"
-                ),
-            })
         elif bp:
-            recs.append({
-                "type": "timing",
-                "priority": "low",
-                "platform": name,
-                "text": (
-                    f"Not enough {name} post data for a custom window yet — "
-                    f"use the platform baseline: {bp['best_windows']}."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "timing",
+                    "priority": "low",
+                    "platform": name,
+                    "text": (f"Not enough {name} post data for a custom window yet — use the platform baseline: {bp['best_windows']}."),
+                }
+            )
 
     # 3. Format recommendations (media vs text) — verdict on shrunk means:
     # each bucket's mean is pulled toward the platform's mean post-ER in
@@ -1030,27 +962,25 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         t_er = p.get("text_avg_er_shrunk")
         if m_er is not None and t_er is not None and (m_er > 0 or t_er > 0):
             if m_er > t_er * 1.2:
-                recs.append({
-                    "type": "format",
-                    "priority": "medium",
-                    "platform": name,
-                    "text": (
-                        f"Media posts beat text on {name} "
-                        f"({p['media_avg_er']}% vs {p['text_avg_er']}% ER) — "
-                        "attach an image/carousel to every post."
-                    ),
-                })
+                recs.append(
+                    {
+                        "type": "format",
+                        "priority": "medium",
+                        "platform": name,
+                        "text": (f"Media posts beat text on {name} ({p['media_avg_er']}% vs {p['text_avg_er']}% ER) — attach an image/carousel to every post."),
+                    }
+                )
             elif t_er > m_er * 1.2:
-                recs.append({
-                    "type": "format",
-                    "priority": "medium",
-                    "platform": name,
-                    "text": (
-                        f"Text posts outperform media on {name} "
-                        f"({p['text_avg_er']}% vs {p['media_avg_er']}% ER) — "
-                        "lead with strong copy, media optional."
-                    ),
-                })
+                recs.append(
+                    {
+                        "type": "format",
+                        "priority": "medium",
+                        "platform": name,
+                        "text": (
+                            f"Text posts outperform media on {name} ({p['text_avg_er']}% vs {p['media_avg_er']}% ER) — lead with strong copy, media optional."
+                        ),
+                    }
+                )
 
     # 4. Momentum — rising/declining channels. Two gates: a minimum event
     # count AND a two-sample Poisson z-test (|z| >= 1.645 ≈ 90% confidence
@@ -1065,81 +995,86 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         if max(recent, prior) < _MOMENTUM_MIN_EVENTS:
             continue
         if mom is None and recent >= _MOMENTUM_MIN_EVENTS:
-            recs.append({
-                "type": "momentum",
-                "priority": "medium",
-                "platform": name,
-                "text": (
-                    f"{name} received {recent} interactions in the last 7 "
-                    "days after none the week before — momentum is building, "
-                    "post again this week to compound it."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "momentum",
+                    "priority": "medium",
+                    "platform": name,
+                    "text": (
+                        f"{name} received {recent} interactions in the last 7 "
+                        "days after none the week before — momentum is building, "
+                        "post again this week to compound it."
+                    ),
+                }
+            )
         elif z >= _MOMENTUM_Z_MIN:
-            recs.append({
-                "type": "momentum",
-                "priority": "medium",
-                "platform": name,
-                "text": (
-                    f"{name} engagement is up {mom}% week-over-week "
-                    f"({recent} vs {prior} interactions, statistically "
-                    "significant) — increase cadence now while the "
-                    "algorithm favors you."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "momentum",
+                    "priority": "medium",
+                    "platform": name,
+                    "text": (
+                        f"{name} engagement is up {mom}% week-over-week "
+                        f"({recent} vs {prior} interactions, statistically "
+                        "significant) — increase cadence now while the "
+                        "algorithm favors you."
+                    ),
+                }
+            )
         elif z <= -_MOMENTUM_Z_MIN:
-            recs.append({
-                "type": "momentum",
-                "priority": "medium",
-                "platform": name,
-                "text": (
-                    f"{name} engagement dropped {abs(mom)}% week-over-week "
-                    f"({recent} vs {prior} interactions, statistically "
-                    "significant) — review the last 7 days' content mix "
-                    "before scheduling more."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "momentum",
+                    "priority": "medium",
+                    "platform": name,
+                    "text": (
+                        f"{name} engagement dropped {abs(mom)}% week-over-week "
+                        f"({recent} vs {prior} interactions, statistically "
+                        "significant) — review the last 7 days' content mix "
+                        "before scheduling more."
+                    ),
+                }
+            )
 
     # 5. Outliers — viral posts are the strongest "replicate this" and
     # paid-boost signal the data can give; follower anomalies flag bot
     # purges or viral hits that distort trend lines.
     for name, p in platforms.items():
         ads_ok = PLATFORM_BEST_PRACTICES.get(name, {}).get("ads_available")
-        for o in (p.get("outliers") or []):
+        for o in p.get("outliers") or []:
             if o["kind"] != "viral":
                 continue
             median = o.get("platform_median_engagement") or 0
-            multiple = (
-                f" — {round(o['engagement'] / median, 1)}× your median"
-                if median else ""
+            multiple = f" — {round(o['engagement'] / median, 1)}× your median" if median else ""
+            recs.append(
+                {
+                    "type": "outlier",
+                    "priority": "high" if p["focus_tier"] == "main" else "medium",
+                    "platform": name,
+                    "text": (
+                        f"{name} post {str(o['post_id'])[:8]} is a positive "
+                        f"outlier: {o['engagement']} interactions{multiple}. "
+                        "Replicate its topic/format next sprint" + ("; it's also your best organic-proven boost candidate." if ads_ok else ".")
+                    ),
+                }
             )
-            recs.append({
-                "type": "outlier",
-                "priority": "high" if p["focus_tier"] == "main" else "medium",
-                "platform": name,
-                "text": (
-                    f"{name} post {str(o['post_id'])[:8]} is a positive "
-                    f"outlier: {o['engagement']} interactions{multiple}. "
-                    "Replicate its topic/format next sprint"
-                    + ("; it's also your best organic-proven boost candidate."
-                       if ads_ok else ".")
-                ),
-            })
         g = p.get("follower_growth") or {}
         anomaly = g.get("anomaly")
         if anomaly:
             direction = "gained" if anomaly["delta"] > 0 else "lost"
-            recs.append({
-                "type": "follower_anomaly",
-                "priority": "medium",
-                "platform": name,
-                "text": (
-                    f"{name} {direction} {abs(anomaly['delta'])} followers in "
-                    f"a single sync step ({str(anomaly['at'])[:10]}) — "
-                    "unusual movement; check for a viral hit, bot cleanup, "
-                    "or platform purge before trusting trend lines."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "follower_anomaly",
+                    "priority": "medium",
+                    "platform": name,
+                    "text": (
+                        f"{name} {direction} {abs(anomaly['delta'])} followers in "
+                        f"a single sync step ({str(anomaly['at'])[:10]}) — "
+                        "unusual movement; check for a viral hit, bot cleanup, "
+                        "or platform purge before trusting trend lines."
+                    ),
+                }
+            )
         dq = p.get("data_quality") or {}
         issues = []
         if dq.get("sanitized_rows"):
@@ -1147,75 +1082,67 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
         if dq.get("counter_resets", 0) >= _COUNTER_RESET_WARN_THRESHOLD:
             issues.append(f"{dq['counter_resets']} counter resets")
         if issues:
-            recs.append({
-                "type": "data_gap",
-                "priority": "low",
-                "platform": name,
-                "text": (
-                    f"{name} preprocessing cleaned "
-                    f"{' and '.join(issues)} — scores already exclude them."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "data_gap",
+                    "priority": "low",
+                    "platform": name,
+                    "text": (f"{name} preprocessing cleaned {' and '.join(issues)} — scores already exclude them."),
+                }
+            )
 
     # 5b. Follower growth signals.
     for name, p in platforms.items():
         g = p.get("follower_growth")
         if g and g["net"] < 0 and p["posts"] > 0:
-            recs.append({
-                "type": "growth",
-                "priority": "medium",
-                "platform": name,
-                "text": (
-                    f"{name} lost {abs(g['net'])} followers in the window — "
-                    "check content cadence/relevance; consider a re-engagement post."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "growth",
+                    "priority": "medium",
+                    "platform": name,
+                    "text": (f"{name} lost {abs(g['net'])} followers in the window — check content cadence/relevance; consider a re-engagement post."),
+                }
+            )
 
     # 6. Ads guidance — boost proven organic winners, only where an ads
     # product actually exists.
     for name, p in platforms.items():
         bp = PLATFORM_BEST_PRACTICES.get(name)
         top_post = p.get("top_post")
-        if not (bp and bp.get("ads_available") and top_post
-                and p["posts"] >= 5 and top_post["engagement_rate"] > 0):
+        if not (bp and bp.get("ads_available") and top_post and p["posts"] >= 5 and top_post["engagement_rate"] > 0):
             continue
         demo = p.get("audience_demographics") or {}
         countries = demo.get("audience_country") or demo.get("country")
         targeting = ""
         if isinstance(countries, dict) and countries:
             top3 = sorted(countries.items(), key=lambda kv: kv[1], reverse=True)[:3]
-            targeting = (" Top audience countries: "
-                         + ", ".join(c for c, _ in top3) + ".")
-        recs.append({
-            "type": "ads",
-            "priority": "low",
-            "platform": name,
-            "text": (
-                f"{name}: {bp['ads']} Top organic post hit "
-                f"{top_post['engagement_rate']}% ER — it's the boost "
-                f"candidate if you run paid.{targeting}"
-            ),
-        })
+            targeting = " Top audience countries: " + ", ".join(c for c, _ in top3) + "."
+        recs.append(
+            {
+                "type": "ads",
+                "priority": "low",
+                "platform": name,
+                "text": (f"{name}: {bp['ads']} Top organic post hit {top_post['engagement_rate']}% ER — it's the boost candidate if you run paid.{targeting}"),
+            }
+        )
 
     # 7. Cross-posting suggestion — main tier → secondary tier.
-    main_name = next(
-        (n for n, p in platforms.items() if p["focus_tier"] == "main"), None
-    )
+    main_name = next((n for n, p in platforms.items() if p["focus_tier"] == "main"), None)
     if main_name and platforms[main_name]["posts"] > 0:
-        secondary = [
-            n for n, p in platforms.items() if p["focus_tier"] == "secondary"
-        ]
+        secondary = [n for n, p in platforms.items() if p["focus_tier"] == "secondary"]
         if secondary:
-            recs.append({
-                "type": "crosspost",
-                "priority": "medium",
-                "text": (
-                    f"Repurpose your top {main_name} post to "
-                    f"{', '.join(secondary)} — adapt format per platform "
-                    "(carousel→IG carousel, short text→Threads). "
-                    "Main-platform content leads; Meta gets adaptations."
-                ),
-            })
+            recs.append(
+                {
+                    "type": "crosspost",
+                    "priority": "medium",
+                    "text": (
+                        f"Repurpose your top {main_name} post to "
+                        f"{', '.join(secondary)} — adapt format per platform "
+                        "(carousel→IG carousel, short text→Threads). "
+                        "Main-platform content leads; Meta gets adaptations."
+                    ),
+                }
+            )
 
     # 8. Campaign synthesis — one concrete plan tying it together.
     if top["posts"] >= 3:
@@ -1225,18 +1152,18 @@ def _recommend(platforms: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
             wd, _ = top["best_weekday_athens"]
             hr, _ = top["best_hour_athens"]
             window = f", best window {_WEEKDAYS[wd]} ~{hr:02d}:00 Athens"
-        fmt = "media/carousel" if (
-            (top.get("media_avg_er") or 0) >= (top.get("text_avg_er") or 0)
-        ) else "text-led"
-        recs.append({
-            "type": "campaign",
-            "priority": "medium",
-            "text": (
-                f"Next sprint: {bp.get('cadence', 'steady cadence')} on "
-                f"{top_name}{window}, {fmt} format. Adapt each post to "
-                "secondary platforms; if a post beats your account median "
-                "ER by 2x, that's the paid-amplification candidate."
-            ),
-        })
+        fmt = "media/carousel" if ((top.get("media_avg_er") or 0) >= (top.get("text_avg_er") or 0)) else "text-led"
+        recs.append(
+            {
+                "type": "campaign",
+                "priority": "medium",
+                "text": (
+                    f"Next sprint: {bp.get('cadence', 'steady cadence')} on "
+                    f"{top_name}{window}, {fmt} format. Adapt each post to "
+                    "secondary platforms; if a post beats your account median "
+                    "ER by 2x, that's the paid-amplification candidate."
+                ),
+            }
+        )
 
     return recs

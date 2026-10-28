@@ -42,6 +42,7 @@ State tracking:
 The task runs every 2 minutes via Celery beat. It is non-fatal — a single
 account or conversation failure does not abort the loop.
 """
+
 import asyncio
 import logging
 from datetime import UTC, datetime
@@ -80,6 +81,7 @@ def _run_async(coro):
             import threading
 
             result = {}
+
             def _runner():
                 new_loop = asyncio.new_event_loop()
                 try:
@@ -88,6 +90,7 @@ def _run_async(coro):
                     result["error"] = exc
                 finally:
                     new_loop.close()
+
             t = threading.Thread(target=_runner)
             t.start()
             t.join()
@@ -138,8 +141,13 @@ async def _poll_personal_messenger_async() -> dict:
 
             try:
                 replies = await _process_account(
-                    account, auto_reply, seen, browser_bridge_url,
-                    cf_token, cf_account, dmr_url,
+                    account,
+                    auto_reply,
+                    seen,
+                    browser_bridge_url,
+                    cf_token,
+                    cf_account,
+                    dmr_url,
                 )
                 stats["replies_sent"] += replies
 
@@ -148,13 +156,16 @@ async def _poll_personal_messenger_async() -> dict:
                 meta["personal_messenger_last_checked"] = datetime.now(UTC).isoformat()
                 account.meta_data = meta
                 from sqlalchemy.orm.attributes import flag_modified
+
                 flag_modified(account, "meta_data")
                 await db.commit()
             except Exception as exc:
                 stats["errors"] += 1
                 logger.error(
                     "Personal Messenger poll failed for account %s: %s",
-                    account.id, exc, exc_info=True,
+                    account.id,
+                    exc,
+                    exc_info=True,
                 )
 
     logger.info("Personal Messenger poll complete: %s", stats)
@@ -174,7 +185,7 @@ async def _process_account(
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
     from app.services.browser_orchestrator import browser_session
 
-    bridge = BrowserBridgeClient(bridge_url, platform='facebook')
+    bridge = BrowserBridgeClient(bridge_url, platform="facebook")
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
@@ -184,7 +195,8 @@ async def _process_account(
         if session["status"] != "active":
             logger.info(
                 "Personal Messenger: browser session not active for account %s — %s",
-                account.id, session["message"],
+                account.id,
+                session["message"],
             )
             return 0
     except Exception as exc:
@@ -249,7 +261,10 @@ async def _process_account(
 
             # 7. Detect intent (DMR first, CF fallback)
             intent = await detect_intent(
-                last_text, cf_token, cf_account, dmr_url,
+                last_text,
+                cf_token,
+                cf_account,
+                dmr_url,
             )
 
             # 8. Retrieve brand context (RAG)
@@ -257,11 +272,17 @@ async def _process_account(
 
             # 9. Generate context-aware reply (DMR first, CF fallback)
             reply_text = await generate_contextual_reply(
-                config, last_text, account_name,
-                account.id, thread_id,
-                cf_token, cf_account, dmr_url,
+                config,
+                last_text,
+                account_name,
+                account.id,
+                thread_id,
+                cf_token,
+                cf_account,
+                dmr_url,
                 intent=intent,
-                brand_context=brand_context, team_id=account.team_id,
+                brand_context=brand_context,
+                team_id=account.team_id,
             )
 
             # 10. Typing indicator — pause to feel natural (Meta best practice:
@@ -279,12 +300,18 @@ async def _process_account(
 
             # 12. Store both messages in conversation memory (ChromaDB)
             await store_message_memory(
-                account.team_id, account.id, thread_id,
-                "them", last_text,
+                account.team_id,
+                account.id,
+                thread_id,
+                "them",
+                last_text,
             )
             await store_message_memory(
-                account.team_id, account.id, thread_id,
-                "me", reply_text,
+                account.team_id,
+                account.id,
+                thread_id,
+                "me",
+                reply_text,
             )
 
             # 13. Mark as seen + set cooldown
@@ -293,19 +320,19 @@ async def _process_account(
             replies_sent += 1
             logger.info(
                 "Personal auto-reply sent to '%s' (thread %s, e2ee=%s, intent=%s) for account %s",
-                convo_name, thread_id, is_e2ee, intent, account.id,
+                convo_name,
+                thread_id,
+                is_e2ee,
+                intent,
+                account.id,
             )
 
             # Be gentle — wait between replies
             await asyncio.sleep(3)
 
         except BrowserBridgeError as exc:
-            logger.warning(
-                "Browser bridge error in thread %s: %s", thread_id, exc
-            )
+            logger.warning("Browser bridge error in thread %s: %s", thread_id, exc)
         except Exception as exc:
-            logger.error(
-                "Error processing thread %s: %s", thread_id, exc, exc_info=True
-            )
+            logger.error("Error processing thread %s: %s", thread_id, exc, exc_info=True)
 
     return replies_sent
