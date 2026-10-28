@@ -92,17 +92,15 @@
 - Fixed en route: `skool_sync.py` shipped undefined `_bridge_nav`/`_bridge_eval`/`json` (mypy ×7 + runtime break) — added helpers following the session_healer bridge pattern before landing #954.
 - Leftovers: none repository-side. Live-stack items remain: restart workers per AGENTS.md after publishing/worker code changes, TikTok sidecar verification still manual.
 
-## 2026-10-27 — Session closeout (post-sweep)
+## Leftovers — 2026-10-27 eod
+- **X_CLIENT_ID/X_CLIENT_SECRET** — not in secret store; add via `secret_store.set('X_CLIENT_ID','…')` + `x_reauth.sh` to fix twitter=expired
+- **WhatsApp phone verify** — `wa_verify.py` (dual-poll ADB/mail) ready; request_code via whatsapp_tool
+- **LinkedIn/X bridge sessions** — 409 busy = shared bridge contention; li_export_request.py + x_oauth_approve.py need one live session each (healer covers)
+- **export_datalake OOM** — fixed by per-table streamed writes (#1014); monitor next 6h beat for a clean run
+- **PR-landing guard** — never push when `git log -1 == origin/master` (empty cherry-pick closes the PR; documented in pr-landing-ops)
 
-- Landed: account-status-reconcile (#986→#993) and nurture-sidecar-warmup (#987→#990); BACKLOG registrations merged (#988). Both LTE issues closed.
-- cloudless.gr: umbrella #2305 landed + subsets closed; dependabot groups merged; #2308 skills+CI-path fix; #2309 links page (kept restored GSC page — PR was reverting); #2310 AI-governance offer draft live on /services.
-- Owner-gated remains (status comments + proposals posted on each): #784 test-post approval, #793 partner approvals, #794 batch size, #795 offer edits, #785 Meta evidence, #786 WA SMS (rate-limited — owner-side request best), #788 IG session bootstrap via noVNC, #789 TikTok captcha at noVNC (browser staged), #791 app-side share review.
-- New: espo_leads_tool.py CLI; owner-gate-ops + pr-sweep-ops skills.
-
-
-## 2026-10-28 — Master green-out session closeout
-
-- Master CI healthy: backend `test` 7413 passed, line 99.03%/branch 95.44% (gates 99.0/95.3), `integration-test` green, docs inventory complete.
-- Fixed en route: watch_skool_vec task-decorator drift, phantom `app.models.settings.Setting` (now SocialSecret JSON), `app.models.publish_queue`→`queue` import, datalake `tables` mirror + CF-outage isolation payloads, ruff/mypy leaks, ~200 uncovered lines over 6 test rounds, stale test fixtures (probe statuses, _PAGE, files count, side_effect leaks).
-- Docs updated: CODEMAP (reconcile, owner-gate tools, nurture warm-up), api-surface-inventory (6 new routes).
-- Remaining owner gates unchanged: Meta console evidence (#785), WA SMS (#786), app steps (#788/#789/#791), approvals (#784/#793/#794/#795).
+## Session 2026-10-28 leftovers
+- [ ] X OAuth approve — fresh auth_token needed in .env OR click reauth_urls URL; bridge pin now holds session 600s (PR #1051)
+- [ ] LinkedIn dev portal — grant "Member Data Portability API (Member)" product → li_member_snapshot.py + consent healer auto-harvests connections (PR #1046)
+- [ ] WhatsApp — standard registration via POST /{phone}/register (NOT request_code/verify_code — those are migration API; 2388091 decoded)
+- [ ] heal_consents hourly beat — twitter/linkedin/whatsapp/bridge probes, Slack alerts on state flips (PR #1049 + #1053)
