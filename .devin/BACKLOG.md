@@ -98,3 +98,12 @@
 - cloudless.gr: umbrella #2305 landed + subsets closed; dependabot groups merged; #2308 skills+CI-path fix; #2309 links page (kept restored GSC page — PR was reverting); #2310 AI-governance offer draft live on /services.
 - Owner-gated remains (status comments + proposals posted on each): #784 test-post approval, #793 partner approvals, #794 batch size, #795 offer edits, #785 Meta evidence, #786 WA SMS (rate-limited — owner-side request best), #788 IG session bootstrap via noVNC, #789 TikTok captcha at noVNC (browser staged), #791 app-side share review.
 - New: espo_leads_tool.py CLI; owner-gate-ops + pr-sweep-ops skills.
+
+## Session 2026-10-28 — Shift.Forward() 2026 recap adopted across platforms
+
+- AX Pass dashboard accessed (Gmail code fetch via playwright) → reports saved locally `~/Downloads/shift-forward-recap/` + archived to Nextcloud `SocialAuto/Shift-Forward-2026/` (2 PDFs + 2 MD).
+- Company brain: 4 memories injected (`shift-forward-2026:*`, kind=event-recap) — IOC/governance, loop engineering, content angles, CAIPE/n8n eval queue. Retry needed after GPU-arbiter 480s timeouts; run `remember()` in `social-worker-default`, NOT social-api (137 OOM kill — same 1GiB hazard as full pytest).
+- 4 DRAFT posts inserted directly (skipped `schedule_report_actions` — it OOM'd mid-copygen in social-api): linkedin org `855d6ede`, fb page `0e57b694`, ig biz `e299006a`, threads `88d1379d`, all `meta.source=shift-forward-recap`, `needs_media=true` — review/schedule in UI.
+- IntraVox page `shift-forward-2026-recap` (root, en) — takeaways + links. NOTE: `page-create --parent` returns 403 for non-root parents with app-password creds; root works.
+- cloudless.gr blog post `multi-agent-systems-governance-smb` in `src/lib/blog.ts` → PR Themis128/cloudless.gr#2312, squash auto-merge armed.
+- Nextcloud Note "Shift.Forward() 2026 — Recap & Adopted Takeaways" in "Company Brain" category (id 1319072).
