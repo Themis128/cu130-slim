@@ -1,6 +1,10 @@
 services:
   nextcloud-db:
     image: postgres:16-alpine
+    command: >
+      postgres -c shared_buffers=512MB -c effective_cache_size=4GB
+      -c work_mem=16MB -c maintenance_work_mem=128MB -c wal_buffers=16MB
+      -c random_page_cost=1.1 -c effective_io_concurrency=200
     container_name: nextcloud-db
     restart: unless-stopped
     environment:
