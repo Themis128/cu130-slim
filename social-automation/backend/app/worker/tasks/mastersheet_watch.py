@@ -9,7 +9,6 @@ Telegram-notifies on change, and logs the new data as datalake events
 import asyncio
 import difflib
 import hashlib
-import json
 import logging
 import re
 import time
@@ -40,7 +39,8 @@ def _bridge(path, data, tries=3):
         try:
             r = httpx.post(f"{BRIDGE}{path}", json=data, timeout=45)
             if r.status_code == 409 or (r.status_code == 500 and "context was destroyed" in r.text):
-                time.sleep(15); continue
+                time.sleep(15)
+                continue
             r.raise_for_status()
             return r.json()
         except httpx.HTTPStatusError:
@@ -88,8 +88,8 @@ _PATTERNS = [
 def _keywords(lines: list[str], n: int = 5) -> list[str]:
     """TF-score the new lines — salient terms the alert should name."""
     words = Counter(
-        w.lower() for l in lines
-        for w in re.findall(r"[A-Za-zΑ-ω]{4,}", l)
+        w.lower() for line in lines
+        for w in re.findall(r"[A-Za-zΑ-ω]{4,}", line)
         if w.lower() not in _STOP)
     return [w for w, _ in words.most_common(n)]
 
@@ -99,13 +99,13 @@ def _classify_delta(old_text: str, new_text: str) -> dict:
     if not old_text:
         return {"changed": True, "kind": ["first_snapshot"], "added": [], "keywords": []}
     delta = [
-        l.lstrip("+ ").strip()
-        for l in difflib.unified_diff(
+        line.lstrip("+ ").strip()
+        for line in difflib.unified_diff(
             old_text.splitlines(), new_text.splitlines(), lineterm="", n=0)
-        if l.startswith("+") and not l.startswith("+++")
+        if line.startswith("+") and not l.startswith("+++")
     ]
-    added = [l for l in delta if len(l) > 2][:50]
-    kinds = sorted({k for k, pat in _PATTERNS if any(pat.search(l) for l in added)})
+    added = [line for line in delta if len(line) > 2][:50]
+    kinds = sorted({k for k, pat in _PATTERNS if any(pat.search(line) for line in added)})
     return {
         "changed": bool(added),
         "kind": kinds or (["edit"] if added else []),
