@@ -92,8 +92,16 @@ async def _slug_inventory() -> dict:
         ).all()
         for src, camp, n in rows:
             social_platforms = (
-                "linkedin", "facebook", "instagram", "threads", "twitter",
-                "tiktok", "telegram", "whatsapp", "bluesky", "viber",
+                "linkedin",
+                "facebook",
+                "instagram",
+                "threads",
+                "twitter",
+                "tiktok",
+                "telegram",
+                "whatsapp",
+                "bluesky",
+                "viber",
             )
             bucket = social if src in social_platforms else other
             bucket.setdefault(camp or "(none)", 0)
@@ -152,13 +160,7 @@ async def _post_cta_coverage() -> dict:
 async def _attribution_30d() -> int:
     async with async_session_maker() as db:
         return (
-            await db.execute(
-                text(
-                    "SELECT count(*) FROM web_analytics_events"
-                    " WHERE occurred_at > now() - interval '30 days'"
-                    "   AND payload ? 'utm_campaign'"
-                )
-            )
+            await db.execute(text("SELECT count(*) FROM web_analytics_events WHERE occurred_at > now() - interval '30 days'   AND payload ? 'utm_campaign'"))
         ).scalar() or 0
 
 
@@ -176,8 +178,7 @@ async def _influencer_surface() -> str:
         lists = await espo.list_all(
             "TargetList",
             select=["name", "entryCount"],
-            where=[{"type": "equals", "attribute": "name",
-                    "value": "Partners & influencers"}],
+            where=[{"type": "equals", "attribute": "name", "value": "Partners & influencers"}],
         )
     except Exception as exc:
         return f"unchecked — EspoCRM query failed: {exc}"
@@ -191,7 +192,9 @@ async def _influencer_surface() -> str:
 
 async def audit() -> dict:
     inv, posts, attributed, influencer = await asyncio.gather(
-        _slug_inventory(), _post_cta_coverage(), _attribution_30d(),
+        _slug_inventory(),
+        _post_cta_coverage(),
+        _attribution_30d(),
         _influencer_surface(),
     )
 
@@ -207,10 +210,7 @@ async def audit() -> dict:
 
     gaps = []
     if not shared and (email_slugs or social_slugs):
-        gaps.append(
-            "zero shared campaign slugs — email and social never reference the "
-            "same utm_campaign (ADMAN integration rule: one slug per campaign)"
-        )
+        gaps.append("zero shared campaign slugs — email and social never reference the same utm_campaign (ADMAN integration rule: one slug per campaign)")
     if email_cta_pct is not None and email_cta_pct < 90:
         gaps.append(f"email CTA tagging {email_cta_pct}% — campaigns without utm_campaign break attribution")
     if posts["posts_30d"] and (posts["pct"] or 0) < 50:

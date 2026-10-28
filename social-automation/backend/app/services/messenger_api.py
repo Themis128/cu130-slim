@@ -257,6 +257,7 @@ class MessengerAPIClient:
         }
         if page_url:
             from urllib.parse import urlparse
+
             domain = urlparse(page_url).netloc
             if domain:
                 profile["whitelisted_domains"] = [f"https://{domain}"]
@@ -394,11 +395,13 @@ class MessengerAPIClient:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             resp = await client.get(
                 url,
-                params=self._params({
-                    "platform": platform,
-                    "limit": limit,
-                    "fields": "id,snippet,updated_time,participants,message_count,unread_count",
-                }),
+                params=self._params(
+                    {
+                        "platform": platform,
+                        "limit": limit,
+                        "fields": "id,snippet,updated_time,participants,message_count,unread_count",
+                    }
+                ),
             )
             self._raise_for_status(resp, url)
             return resp.json().get("data", [])
@@ -414,9 +417,11 @@ class MessengerAPIClient:
         async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
             resp = await client.get(
                 url,
-                params=self._params({
-                    "fields": f"messages.limit({limit}){{message,from,created_time,id}}",
-                }),
+                params=self._params(
+                    {
+                        "fields": f"messages.limit({limit}){{message,from,created_time,id}}",
+                    }
+                ),
             )
             self._raise_for_status(resp, url)
             data = resp.json()
@@ -510,6 +515,7 @@ def _interpolate_menu(menu: list[dict], **kwargs: str) -> list[dict]:
 # ------------------------------------------------------------------
 # Webhook event helpers
 # ------------------------------------------------------------------
+
 
 def parse_webhook_event(body: dict) -> list[dict]:
     """Parse a Messenger webhook payload and return normalized events.

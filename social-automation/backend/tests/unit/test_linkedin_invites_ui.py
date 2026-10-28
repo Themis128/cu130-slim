@@ -4,6 +4,7 @@ LinkedIn keeps moving the "Invite connections" entry point — the task must
 try every documented surface and fail closed (no stray clicks) when the
 control genuinely isn't there, including when the session is logged out.
 """
+
 import pytest
 
 from app.services import linkedin_invites as inv

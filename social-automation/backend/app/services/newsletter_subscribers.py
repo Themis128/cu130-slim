@@ -63,8 +63,7 @@ async def fetch_subscribers(series_urn: str) -> list[dict[str, str]]:
     """Scrape the subscribers dialog via the sidecar's /debug/eval."""
     base = os.environ.get("LINKEDIN_BROWSER_SIDECAR_URL", "http://stack-ops:9225")
     series_id = series_urn.split(":")[-1]
-    page_url = (f"https://www.linkedin.com/analytics/newsletter/"
-                f"urn:li:fsd_contentSeries:{series_id}/")
+    page_url = f"https://www.linkedin.com/analytics/newsletter/urn:li:fsd_contentSeries:{series_id}/"
     out: list[dict[str, str]] = []
     async with httpx.AsyncClient(base_url=base, timeout=180) as c:
         await c.post("/debug/navigate", json={"url": page_url})
@@ -75,33 +74,46 @@ async def fetch_subscribers(series_urn: str) -> list[dict[str, str]]:
             logger.warning("subscriber scrape failed: %s", payload["err"])
             return out
         for s in payload.get("subs") or []:
-            out.append({
-                "name": s["name"],
-                "headline": s.get("headline") or "",
-                "urn": f"urn:li:in:{s['urn']}",
-                "profile_url": f"https://www.linkedin.com/in/{s['urn']}/",
-            })
+            out.append(
+                {
+                    "name": s["name"],
+                    "headline": s.get("headline") or "",
+                    "urn": f"urn:li:in:{s['urn']}",
+                    "profile_url": f"https://www.linkedin.com/in/{s['urn']}/",
+                }
+            )
     return out
 
 
 async def espo_upsert_subscriber(sub: dict[str, str]) -> bool:
     """Upsert into EspoCRM; dedupe on the LI-URN marker in description."""
     from app.services.espocrm_client import espo_get, espo_post
-    found = await espo_get("/Lead", params={"searchParams": json.dumps({
-        "maxSize": 1, "select": ["id"],
-        "where": [{"type": "contains", "attribute": "description", "value": sub["urn"]}],
-    })})
+
+    found = await espo_get(
+        "/Lead",
+        params={
+            "searchParams": json.dumps(
+                {
+                    "maxSize": 1,
+                    "select": ["id"],
+                    "where": [{"type": "contains", "attribute": "description", "value": sub["urn"]}],
+                }
+            )
+        },
+    )
     if found.get("list"):
         return False
     first, _, last = sub["name"].partition(" ")
-    await espo_post("/Lead", {
-        "firstName": first,
-        "lastName": last or "(LinkedIn)",
-        "source": "Newsletter",
-        "description": (f"LinkedIn newsletter subscriber\n{sub['headline']}\n"
-                        f"{sub['profile_url']}\nLI-URN:{sub['urn']}"),
-        "title": sub["headline"][:90],
-    })
+    await espo_post(
+        "/Lead",
+        {
+            "firstName": first,
+            "lastName": last or "(LinkedIn)",
+            "source": "Newsletter",
+            "description": (f"LinkedIn newsletter subscriber\n{sub['headline']}\n{sub['profile_url']}\nLI-URN:{sub['urn']}"),
+            "title": sub["headline"][:90],
+        },
+    )
     return True
 
 
@@ -110,24 +122,30 @@ def _personalized_note(sub: dict[str, str]) -> str:
     headline = sub.get("headline") or ""
     role = headline.split(" at ")[0].split("|")[0].split(",")[0].strip() if headline else ""
     hook = f"Saw you're {role}, " if role and len(role) <= 60 else ""
-    intro = ("For context: I run Cloudless, we help founders, teams and "
-             "companies move to cloud and serverless, and ship the "
-             "dashboards that tell them it's working. ")
-    return (f"Thanks for subscribing to The Cloudless Build Log, {name}. "
-            f"{hook}Really glad to have you. {intro}"
-            "If a future issue touches on something you're working "
-            "through, my inbox is open. And if you'd like the free site "
-            "audit or the benchmark report, just reply here with your "
-            "email and I'll send it.")
+    intro = (
+        "For context: I run Cloudless, we help founders, teams and "
+        "companies move to cloud and serverless, and ship the "
+        "dashboards that tell them it's working. "
+    )
+    return (
+        f"Thanks for subscribing to The Cloudless Build Log, {name}. "
+        f"{hook}Really glad to have you. {intro}"
+        "If a future issue touches on something you're working "
+        "through, my inbox is open. And if you'd like the free site "
+        "audit or the benchmark report, just reply here with your "
+        "email and I'll send it."
+    )
 
 
 async def _subscriber_alert(sub: dict[str, str]) -> None:
     from app.services.slack_notifications import post_alert_to_slack
+
     await post_alert_to_slack(
         f":bell: *New newsletter subscriber* {sub['name']}"
         + (f" | {sub['headline']}" if sub["headline"] else "")
         + f"\n{sub['profile_url'] or '(no profile link)'}\n"
-        f"Suggested welcome note:\n> {_personalized_note(sub)}")
+        f"Suggested welcome note:\n> {_personalized_note(sub)}"
+    )
 
 
 async def sync_newsletter_subscribers(series_urn: str) -> dict[str, Any]:

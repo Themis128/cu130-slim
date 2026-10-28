@@ -797,6 +797,7 @@ def _notify_task_failure(sender=None, task_id=None, exception=None, **_kwargs):
         import asyncio
 
         from app.services.slack_notifications import post_alert_to_slack
+
         name = getattr(sender, "name", str(sender))
         msg = f":warning: Worker task failed `{name}`\n```{str(exception)[:300]}```"
         try:

@@ -23,6 +23,7 @@ SOCIAL_TOTP_SECRET must come from .env since there is no DB session).
 Never prints secrets. --summary prints status + a trimmed JSON body;
 --raw prints the full JSON response.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -82,9 +83,7 @@ def _trim(obj, limit: int = 600):
             out[k] = v if len(s) <= limit else s[:limit] + "…"
         return out
     if isinstance(obj, list):
-        return [_trim(x, limit) for x in obj[:10]] + (
-            [f"… +{len(obj) - 10} more"] if len(obj) > 10 else []
-        )
+        return [_trim(x, limit) for x in obj[:10]] + ([f"… +{len(obj) - 10} more"] if len(obj) > 10 else [])
     return obj
 
 
@@ -103,9 +102,7 @@ async def main() -> int:
         print("error: SOCIAL_ADMIN_EMAIL/SOCIAL_ADMIN_PASSWORD not in env", file=sys.stderr)
         return 2
 
-    secret = os.environ.get("SOCIAL_TOTP_SECRET", "").strip() or (
-        await _totp_secret_from_db(email)
-    )
+    secret = os.environ.get("SOCIAL_TOTP_SECRET", "").strip() or (await _totp_secret_from_db(email))
     form = {"username": email, "password": password}
     if secret:
         form["otp"] = _totp(secret)

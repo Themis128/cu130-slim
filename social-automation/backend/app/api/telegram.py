@@ -149,9 +149,7 @@ async def _run_lead_capture(
     )
 
 
-async def _lead_enabled_and_active(
-    account: SocialAccount, chat_id: Any, meta: dict[str, Any]
-) -> bool:
+async def _lead_enabled_and_active(account: SocialAccount, chat_id: Any, meta: dict[str, Any]) -> bool:
     """Lead prompts are bot automation: they honor the same master switch
     (``telegram_auto_reply.enabled`` — set by deactivate_bot) and the
     operator's human-handoff pause, exactly like the chatbot does."""
@@ -186,9 +184,7 @@ async def _deliver_lead_reply(
             await client.send_message(chat_id, lead_reply.text)
         return True
     except TelegramAPIError:
-        await restore_lead_session(
-            LeadSource.telegram_dm, account.team_id, str(chat_id), snapshot
-        )
+        await restore_lead_session(LeadSource.telegram_dm, account.team_id, str(chat_id), snapshot)
         raise
 
 
@@ -356,9 +352,7 @@ class SendMessageRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=4096)
     parse_mode: str | None = None
     disable_notification: bool = False
-    buttons: list[list[dict[str, str]]] | None = Field(
-        None, description="Inline keyboard rows: [{'text':..., 'url'|'callback_data':...}]"
-    )
+    buttons: list[list[dict[str, str]]] | None = Field(None, description="Inline keyboard rows: [{'text':..., 'url'|'callback_data':...}]")
 
 
 class SendPhotoRequest(BaseModel):
@@ -371,9 +365,7 @@ class SendPhotoRequest(BaseModel):
 
 class SendMediaGroupRequest(BaseModel):
     chat_id: int | str
-    media: list[dict[str, Any]] = Field(
-        ..., description="2-10 items: {'type':'photo'|'video','media':url|file_id,'caption'?}"
-    )
+    media: list[dict[str, Any]] = Field(..., description="2-10 items: {'type':'photo'|'video','media':url|file_id,'caption'?}")
 
 
 class SendPollRequest(BaseModel):
@@ -396,9 +388,7 @@ class ChatDescriptionRequest(BaseModel):
 
 class InviteLinkRequest(BaseModel):
     chat_id: int | str
-    name: str | None = Field(
-        None, max_length=64, description="Link label for source attribution (e.g. ig/threads)"
-    )
+    name: str | None = Field(None, max_length=64, description="Link label for source attribution (e.g. ig/threads)")
     expire_date: int | None = None
     member_limit: int | None = Field(None, ge=1, le=99999)
     creates_join_request: bool = False
@@ -423,10 +413,7 @@ class DeleteMessageRequest(BaseModel):
 
 class AutoReplyConfig(BaseModel):
     enabled: bool = False
-    system_prompt: str = (
-        "You are a helpful assistant for {business_name}. Reply concisely and professionally "
-        "in the same language as the incoming message."
-    )
+    system_prompt: str = "You are a helpful assistant for {business_name}. Reply concisely and professionally in the same language as the incoming message."
     model: str = "ai/qwen3:8b-q4_K_M"
     fallback_text: str = "Thanks for your message! I will get back to you soon."
     max_tokens: int = 300
@@ -439,10 +426,7 @@ class AutoReplyConfig(BaseModel):
 class BotConfig(BaseModel):
     name: str = "Cloudless Assistant"
     enabled: bool = False
-    system_prompt: str = (
-        "You are a helpful assistant for {business_name}. Reply concisely and professionally "
-        "in the same language as the incoming message."
-    )
+    system_prompt: str = "You are a helpful assistant for {business_name}. Reply concisely and professionally in the same language as the incoming message."
     model: str = "ai/qwen3:8b-q4_K_M"
     fallback_text: str = "Thanks for your message! I will get back to you soon."
     max_tokens: int = 300
@@ -473,9 +457,7 @@ class GroupWatchConfig(BaseModel):
     owner_username: str | None = None
     watched_chats: list[WatchedChat] = Field(default_factory=list)
     watch_all_groups: bool = True
-    keywords: list[str] = Field(
-        default_factory=lambda: list(default_group_watch_config()["keywords"])
-    )
+    keywords: list[str] = Field(default_factory=lambda: list(default_group_watch_config()["keywords"]))
     alert_on_bot_mention: bool = True
     alert_on_keywords: bool = True
     forward_alert_messages: bool = False
@@ -491,22 +473,10 @@ PERSONALITY_PRESETS = {
         "Reply in the same language as the incoming message (Greek or English). "
         "Be concise (2-3 sentences). Never make up facts or prices — if unsure, say you will follow up."
     ),
-    "casual": (
-        "You are {bot_name} for {business_name}. You are casual and approachable. "
-        "Reply in the same language as the incoming message. Keep it short."
-    ),
-    "formal": (
-        "You are {bot_name} for {business_name}. You are formal and precise. "
-        "Reply in the same language as the incoming message."
-    ),
-    "support": (
-        "You are {bot_name}, a customer support assistant for {business_name}. "
-        "Be helpful and patient. Never invent information."
-    ),
-    "sales": (
-        "You are {bot_name}, a sales assistant for {business_name}. "
-        "Be enthusiastic but not pushy. Never make up prices."
-    ),
+    "casual": ("You are {bot_name} for {business_name}. You are casual and approachable. Reply in the same language as the incoming message. Keep it short."),
+    "formal": ("You are {bot_name} for {business_name}. You are formal and precise. Reply in the same language as the incoming message."),
+    "support": ("You are {bot_name}, a customer support assistant for {business_name}. Be helpful and patient. Never invent information."),
+    "sales": ("You are {bot_name}, a sales assistant for {business_name}. Be enthusiastic but not pushy. Never make up prices."),
 }
 
 
@@ -515,7 +485,8 @@ PERSONALITY_PRESETS = {
 
 @router.post("/connect", response_model=dict)
 async def connect_telegram_bot(
-    body: TelegramConnectRequest, team_id: TeamId,
+    body: TelegramConnectRequest,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -741,10 +712,7 @@ async def get_setup_status(
     elif not token_valid:
         next_step = "Bot token is invalid — update credentials"
     elif not webhook_ok:
-        next_step = (
-            "Call Setup Webhook so Telegram can POST updates to SocialAuto "
-            "(requires public HTTPS, e.g. social.cloudless.gr)"
-        )
+        next_step = "Call Setup Webhook so Telegram can POST updates to SocialAuto (requires public HTTPS, e.g. social.cloudless.gr)"
     elif not (meta.get("telegram_auto_reply") or {}).get("enabled"):
         next_step = "Enable auto-reply or create a bot persona"
 
@@ -760,10 +728,7 @@ async def get_setup_status(
         "bot_id": meta.get("bot_id") or account.account_id,
         "can_send_messages": token_valid,
         "next_step": next_step,
-        "note": (
-            "Bots cannot start chats — the user must message the bot first "
-            "(https://core.telegram.org/bots)."
-        ),
+        "note": ("Bots cannot start chats — the user must message the bot first (https://core.telegram.org/bots)."),
     }
 
 
@@ -840,9 +805,7 @@ async def send_media_group(
         result = await client.send_media_group(body.chat_id, body.media)
     except (TelegramAPIError, ValueError) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    await _safe_log_channel_post(
-        db, account, body.chat_id, result, "media_group", has_media=True
-    )
+    await _safe_log_channel_post(db, account, body.chat_id, result, "media_group", has_media=True)
     return {"status": "ok", "messages": result}
 
 
@@ -951,9 +914,7 @@ async def list_channels(
     channels = (account.meta_data or {}).get(TELEGRAM_CHANNELS_META_KEY) or {}
     return {
         "status": "ok",
-        "channels": sorted(
-            channels.values(), key=lambda c: c.get("updated_at") or "", reverse=True
-        ),
+        "channels": sorted(channels.values(), key=lambda c: c.get("updated_at") or "", reverse=True),
     }
 
 
@@ -1135,23 +1096,13 @@ async def get_notify_config(
 ):
     """Notification routing status — no secrets, just booleans."""
     await _get_telegram_account(db, account_id, user)
-    slack_webhook = bool(
-        (settings.SLACK_TELEGRAM_WEBHOOK_URL or "").strip()
-        or (settings.SLACK_WEBHOOK_URL or "").strip()
-    )
-    slack_token = bool(
-        (settings.SLACK_BOT_TOKEN or "").strip()
-        or (settings.SLACK_ACCESS_TOKEN or "").strip()
-    )
-    email_to = (settings.TELEGRAM_NOTIFY_EMAIL or "").strip() or (
-        settings.DIGEST_EMAIL_TO or ""
-    ).strip()
+    slack_webhook = bool((settings.SLACK_TELEGRAM_WEBHOOK_URL or "").strip() or (settings.SLACK_WEBHOOK_URL or "").strip())
+    slack_token = bool((settings.SLACK_BOT_TOKEN or "").strip() or (settings.SLACK_ACCESS_TOKEN or "").strip())
+    email_to = (settings.TELEGRAM_NOTIFY_EMAIL or "").strip() or (settings.DIGEST_EMAIL_TO or "").strip()
     return {
         "status": "ok",
         "slack": {
-            "configured": slack_webhook or (slack_token and bool(
-                (settings.SLACK_TELEGRAM_CHANNEL_ID or settings.SLACK_CHANNEL_ID or "").strip()
-            )),
+            "configured": slack_webhook or (slack_token and bool((settings.SLACK_TELEGRAM_CHANNEL_ID or settings.SLACK_CHANNEL_ID or "").strip())),
             "dedicated_channel": bool((settings.SLACK_TELEGRAM_CHANNEL_ID or "").strip()),
         },
         "email": {
@@ -1185,6 +1136,7 @@ async def update_auto_reply_config(
     account = await _get_telegram_account(db, account_id, user)
     if body.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = dict(account.meta_data or {})
     meta["telegram_auto_reply"] = body.model_dump()
@@ -1216,6 +1168,7 @@ async def create_bot(
         system_prompt += f" Always reply in {lang_names.get(req.language, req.language)}."
 
     from app.api.deps import check_plan_feature
+
     await check_plan_feature("dm_auto_reply", account.team_id, db)
     bot_config = BotConfig(name=req.name, enabled=True, system_prompt=system_prompt)
     meta = dict(account.meta_data or {})
@@ -1240,9 +1193,7 @@ async def create_bot(
         from app.models.brand import Brand
         from app.services.telegram_chatbot import index_brand_knowledge
 
-        brand = (
-            await db.execute(select(Brand).where(Brand.team_id == account.team_id))
-        ).scalars().first()
+        brand = (await db.execute(select(Brand).where(Brand.team_id == account.team_id))).scalars().first()
         if brand:
             brand_indexed = await index_brand_knowledge(
                 str(account.team_id),
@@ -1311,6 +1262,7 @@ async def activate_bot(
 ):
     account = await _get_telegram_account(db, account_id, user)
     from app.api.deps import check_plan_feature
+
     await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = dict(account.meta_data or {})
     bot = meta.get("telegram_bot")
@@ -1370,13 +1322,12 @@ async def get_group_watch(
 ):
     account = await _get_telegram_account(db, account_id, user)
     cfg = get_group_watch_from_meta(account.meta_data)
-    return GroupWatchConfig(**{
-        **cfg,
-        "watched_chats": [
-            WatchedChat(**c) if isinstance(c, dict) else WatchedChat(chat_id=str(c))
-            for c in (cfg.get("watched_chats") or [])
-        ],
-    })
+    return GroupWatchConfig(
+        **{
+            **cfg,
+            "watched_chats": [WatchedChat(**c) if isinstance(c, dict) else WatchedChat(chat_id=str(c)) for c in (cfg.get("watched_chats") or [])],
+        }
+    )
 
 
 @router.put("/{account_id}/group-watch", response_model=GroupWatchConfig)
@@ -1399,13 +1350,12 @@ async def update_group_watch(
     except Exception as exc:
         logger.warning("group-watch webhook refresh failed: %s", _sanitize(str(exc)))
     await db.commit()
-    return GroupWatchConfig(**{
-        **normalized,
-        "watched_chats": [
-            WatchedChat(**c) if isinstance(c, dict) else WatchedChat(chat_id=str(c))
-            for c in (normalized.get("watched_chats") or [])
-        ],
-    })
+    return GroupWatchConfig(
+        **{
+            **normalized,
+            "watched_chats": [WatchedChat(**c) if isinstance(c, dict) else WatchedChat(chat_id=str(c)) for c in (normalized.get("watched_chats") or [])],
+        }
+    )
 
 
 @router.post("/{account_id}/group-watch/add-chat")
@@ -1426,9 +1376,7 @@ async def add_watched_chat(
         chat_type = info.get("type") or chat_type
     except (TelegramAPIError, ValueError) as exc:
         logger.info("getChat optional failed for watch add: %s", _sanitize(str(exc)))
-    cfg = upsert_watched_chat(
-        cfg, chat_id=body.chat_id, title=title or "", chat_type=chat_type or "supergroup"
-    )
+    cfg = upsert_watched_chat(cfg, chat_id=body.chat_id, title=title or "", chat_type=chat_type or "supergroup")
     cfg["enabled"] = True
     meta = dict(account.meta_data or {})
     meta[GROUP_WATCH_META_KEY] = cfg
@@ -1602,9 +1550,7 @@ async def receive_webhook(
     account_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    x_telegram_bot_api_secret_token: str | None = Header(
-        None, alias="X-Telegram-Bot-Api-Secret-Token"
-    ),
+    x_telegram_bot_api_secret_token: str | None = Header(None, alias="X-Telegram-Bot-Api-Secret-Token"),
 ):
     """Receive Telegram Update JSON (official setWebhook push)."""
     result = await db.execute(
@@ -1619,9 +1565,7 @@ async def receive_webhook(
 
     expected = (account.meta_data or {}).get("webhook_secret") or ""
     if expected:
-        if not x_telegram_bot_api_secret_token or not secrets.compare_digest(
-            expected, x_telegram_bot_api_secret_token
-        ):
+        if not x_telegram_bot_api_secret_token or not secrets.compare_digest(expected, x_telegram_bot_api_secret_token):
             raise HTTPException(status_code=403, detail="Invalid webhook secret token")
 
     try:
@@ -1642,19 +1586,13 @@ async def receive_webhook(
     if membership:
         try:
             client = _client_for(account)
-            watch_cfg, info = await handle_bot_membership_change(
-                client=client, cfg=watch_cfg, event=membership
-            )
+            watch_cfg, info = await handle_bot_membership_change(client=client, cfg=watch_cfg, event=membership)
             meta[GROUP_WATCH_META_KEY] = watch_cfg
             meta = _record_chat_membership(meta, membership)
             account.meta_data = meta
             flag_modified(account, "meta_data")
             new_status = membership.get("new_status") or ""
-            event = (
-                "bot_admin" if new_status == "administrator"
-                else "bot_member" if new_status == "member"
-                else "bot_removed"
-            )
+            event = "bot_admin" if new_status == "administrator" else "bot_member" if new_status == "member" else "bot_removed"
             _record_channel_event(
                 db,
                 account,
@@ -1694,9 +1632,7 @@ async def receive_webhook(
             # Bot API: via_join_request indicates the admin already approved a pending join request.
             # Pending requests are a different update type (chat_join_request), not handled here yet.
             event = "join_request_approved"
-        actor = member_event.get("username") or member_event.get("first_name") or str(
-            member_event.get("user_id") or ""
-        )
+        actor = member_event.get("username") or member_event.get("first_name") or str(member_event.get("user_id") or "")
         details: list[str] = [f"status: {member_event.get('old_status') or '?'} → {new_status or '?'}"]
         if joined and member_event.get("via_join_request"):
             details.append("via join request: approved")
@@ -1745,9 +1681,7 @@ async def receive_webhook(
         # when the agent/welcomes are disabled).
         if joined:
             try:
-                response["welcomed"] = await maybe_welcome_member(
-                    _client_for(account), account, member_event, db
-                )
+                response["welcomed"] = await maybe_welcome_member(_client_for(account), account, member_event, db)
             except Exception:  # noqa: BLE001
                 response["welcomed"] = False
         return response
@@ -1758,9 +1692,7 @@ async def receive_webhook(
         try:
             if agent_enabled(account) and _agent_cfg(account).get("auto_approve", True):
                 client = _client_for(account)
-                ok = await client.approve_chat_join_request(
-                    join_req["chat_id"], int(join_req["user_id"])
-                )
+                ok = await client.approve_chat_join_request(join_req["chat_id"], int(join_req["user_id"]))
                 response["join_request"] = "approved" if ok else "approve_failed"
                 _record_channel_event(
                     db,
@@ -1804,17 +1736,11 @@ async def receive_webhook(
 
             # LEAD_* button taps advance the lead-capture FSM for that DM.
             data = str(callback.get("data") or "")
-            if (
-                data.startswith("LEAD_")
-                and callback.get("chat_id")
-                and await _lead_enabled_and_active(account, callback["chat_id"], meta)
-            ):
+            if data.startswith("LEAD_") and callback.get("chat_id") and await _lead_enabled_and_active(account, callback["chat_id"], meta):
                 from app.models.lead import LeadSource
                 from app.services.lead_capture import snapshot_lead_session
 
-                snapshot = await snapshot_lead_session(
-                    LeadSource.telegram_dm, account.team_id, str(callback["chat_id"])
-                )
+                snapshot = await snapshot_lead_session(LeadSource.telegram_dm, account.team_id, str(callback["chat_id"]))
                 lead_reply = await _run_lead_capture(
                     db,
                     account,
@@ -1826,9 +1752,7 @@ async def receive_webhook(
                     payload=data,
                 )
                 if lead_reply:
-                    await _deliver_lead_reply(
-                        client, account, callback["chat_id"], lead_reply, snapshot
-                    )
+                    await _deliver_lead_reply(client, account, callback["chat_id"], lead_reply, snapshot)
                     response["lead_capture"] = True
                     if lead_reply.completed_lead_id:
                         response["lead_id"] = str(lead_reply.completed_lead_id)
@@ -1925,22 +1849,16 @@ async def receive_webhook(
     # audit" hits is_lead_capture_trigger via the "audit" keyword. Reuses the
     # Messenger/Instagram state machine; LEAD_* button taps come back through
     # the callback_query branch below.
-    if inbound.get("chat_type") == "private" and inbound.get("chat_id") and await _lead_enabled_and_active(
-        account, inbound["chat_id"], meta
-    ):
+    if inbound.get("chat_type") == "private" and inbound.get("chat_id") and await _lead_enabled_and_active(account, inbound["chat_id"], meta):
         try:
             from app.models.lead import LeadSource
             from app.services.lead_capture import snapshot_lead_session
 
-            snapshot = await snapshot_lead_session(
-                LeadSource.telegram_dm, account.team_id, str(inbound["chat_id"])
-            )
+            snapshot = await snapshot_lead_session(LeadSource.telegram_dm, account.team_id, str(inbound["chat_id"]))
             lead_reply = await _run_lead_capture(db, account, inbound, payload="")
             if lead_reply:
                 client = _client_for(account)
-                await _deliver_lead_reply(
-                    client, account, inbound["chat_id"], lead_reply, snapshot
-                )
+                await _deliver_lead_reply(client, account, inbound["chat_id"], lead_reply, snapshot)
                 response["lead_capture"] = True
                 if lead_reply.completed_lead_id:
                     response["lead_id"] = str(lead_reply.completed_lead_id)

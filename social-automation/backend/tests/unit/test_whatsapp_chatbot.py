@@ -473,11 +473,19 @@ async def test_index_brand_partial_and_retrieve_edges(monkeypatch):
     monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: _Client())
     assert await W.index_brand_knowledge("t", {"name": "x", "tagline": "y"}) == 1
     # post raises inside retrieve → ""
-    monkeypatch.setattr(W.httpx, "AsyncClient", lambda **kw: type("C2", (), {
-        "__aenter__": AsyncMock(return_value=None),
-        "__aexit__": AsyncMock(return_value=False),
-        "post": AsyncMock(side_effect=RuntimeError("x")),
-    })())
+    monkeypatch.setattr(
+        W.httpx,
+        "AsyncClient",
+        lambda **kw: type(
+            "C2",
+            (),
+            {
+                "__aenter__": AsyncMock(return_value=None),
+                "__aexit__": AsyncMock(return_value=False),
+                "post": AsyncMock(side_effect=RuntimeError("x")),
+            },
+        )(),
+    )
     assert await W.retrieve_brand_context("q") == ""
 
 
@@ -544,8 +552,14 @@ async def test_process_inbound_bad_team_uuid(monkeypatch, redis):
     monkeypatch.setattr(W, "generate_contextual_reply", AsyncMock(return_value="reply"))
     monkeypatch.setattr(W, "set_cooldown", AsyncMock())
     out = await W.process_inbound_message(
-        account_id="a", team_id="not-a-uuid", phone="p", sender_name="n",
-        message_text="hi", message_id="m1", config={"enabled": True}, account_name="n",
+        account_id="a",
+        team_id="not-a-uuid",
+        phone="p",
+        sender_name="n",
+        message_text="hi",
+        message_id="m1",
+        config={"enabled": True},
+        account_name="n",
     )
     assert out["reply"] == "reply"
     assert W.generate_contextual_reply.await_args.kwargs["team_id"] is None

@@ -1,4 +1,5 @@
 """Attribution meta for POST /api/v1/leads/public (cloudless.gr forwarder)."""
+
 from __future__ import annotations
 
 from app.api.leads import PublicLeadRequest, public_lead_meta

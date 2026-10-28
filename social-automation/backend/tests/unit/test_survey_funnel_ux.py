@@ -1,5 +1,6 @@
 """Tests for the survey-funnel UX: pill rendering, audit-CTA split, nudge,
 and the staff responses dashboard."""
+
 from __future__ import annotations
 
 import uuid
@@ -18,9 +19,7 @@ USER = SimpleNamespace(id=uuid.uuid4())
 
 class TestQuestionInputUX:
     def test_choice_renders_pill(self):
-        html = api._question_input(
-            {"id": "q1", "label": "Pick one", "type": "choice", "options": ["a", "b"]}, 1
-        )
+        html = api._question_input({"id": "q1", "label": "Pick one", "type": "choice", "options": ["a", "b"]}, 1)
         assert 'class="qp"' in html
         assert 'class="pill"' in html
 
@@ -44,7 +43,10 @@ class TestSurveySubmitAuditCTA:
         rec = _recipient(token="t-audit")
         campaign = _campaign(kind=CampaignKind.survey)
         db = _DB([_Res([rec]), _Res([campaign])])
-        async def _ok(db, token, ans): return (SimpleNamespace(id=uuid.uuid4()), [])
+
+        async def _ok(db, token, ans):
+            return (SimpleNamespace(id=uuid.uuid4()), [])
+
         monkeypatch.setattr(api.svc, "submit_survey", _ok)
         req = _body_request(b'{"audit_interest":"Yes","email":"a@b.c"}', "application/json")
         resp = await api.survey_submit("t-audit", req, db)
@@ -57,7 +59,10 @@ class TestSurveySubmitAuditCTA:
         rec = _recipient(token="t-plain")
         campaign = _campaign(kind=CampaignKind.survey)
         db = _DB([_Res([rec]), _Res([campaign])])
-        async def _ok(db, token, ans): return (SimpleNamespace(id=uuid.uuid4()), [])
+
+        async def _ok(db, token, ans):
+            return (SimpleNamespace(id=uuid.uuid4()), [])
+
         monkeypatch.setattr(api.svc, "submit_survey", _ok)
         req = _body_request(b'{"audit_interest":"No","email":"a@b.c"}', "application/json")
         resp = await api.survey_submit("t-plain", req, db)

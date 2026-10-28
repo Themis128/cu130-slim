@@ -137,9 +137,8 @@ async def test_business_verification_and_settings(svc):
     fake = _Client(_Resp(200, {"status": "pending"}))
     svc._client = fake
     await svc.fill_business_verification(
-        company_name="Cloudless", website="https://cloudless.gr",
-        country="GR", address="x", industry="tech",
-        business_license_number="123")
+        company_name="Cloudless", website="https://cloudless.gr", country="GR", address="x", industry="tech", business_license_number="123"
+    )
     body = fake.calls[-1][2]
     assert body["company_name"] == "Cloudless"
     assert body["business_license_number"] == "123"

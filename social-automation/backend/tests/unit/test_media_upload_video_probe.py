@@ -1,4 +1,5 @@
 """Upload-time video metadata probe in POST /media/upload."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock

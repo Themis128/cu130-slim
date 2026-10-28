@@ -102,9 +102,7 @@ class TestColdLoadTimeout:
     async def test_cold_timeout_respects_caller_floor(self, monkeypatch):
         client = _patch_common(monkeypatch, running=set())
         monkeypatch.setattr(dmr, "_get_client", AsyncMock(return_value=client))
-        await dmr.call_dmr_chat(
-            "hi", model_override=MODEL, schema={"type": "object"}
-        )
+        await dmr.call_dmr_chat("hi", model_override=MODEL, schema={"type": "object"})
         # schema calls default to 180s; cold extends them to DMR_COLD_TIMEOUT
         assert all(t == dmr.settings.DMR_COLD_TIMEOUT for t in client.timeouts)
 

@@ -66,6 +66,7 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type"],
 )
 
+
 @app.get("/openapi.json", include_in_schema=False)
 async def openapi_root():
     return app.openapi()

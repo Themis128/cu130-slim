@@ -21,9 +21,7 @@ def test_fernet_rejects_wrong_key_length(monkeypatch):
     import app.core.security as sec
 
     monkeypatch.setattr(sec, "_fernet", None)
-    monkeypatch.setattr(
-        sec.settings, "ENCRYPTION_KEY", "too-short", raising=False
-    )
+    monkeypatch.setattr(sec.settings, "ENCRYPTION_KEY", "too-short", raising=False)
     with pytest.raises(ValueError, match="32 bytes"):
         sec.get_fernet()
 
@@ -75,13 +73,9 @@ def test_r2_host_default_and_endpoint(monkeypatch):
     import app.services.r2_presigned as r2
 
     monkeypatch.setattr(r2.settings, "R2_S3_ENDPOINT", "", raising=False)
-    monkeypatch.setattr(
-        r2.settings, "CLOUDFLARE_ACCOUNT_ID", "acct123", raising=False
-    )
+    monkeypatch.setattr(r2.settings, "CLOUDFLARE_ACCOUNT_ID", "acct123", raising=False)
     assert r2._r2_host() == "acct123.r2.cloudflarestorage.com"
-    monkeypatch.setattr(
-        r2.settings, "R2_S3_ENDPOINT", "https://custom.example.com/", raising=False
-    )
+    monkeypatch.setattr(r2.settings, "R2_S3_ENDPOINT", "https://custom.example.com/", raising=False)
     assert r2._r2_host() == "custom.example.com"
 
 
@@ -90,9 +84,7 @@ def test_public_url_variants(monkeypatch):
 
     monkeypatch.setattr(r2.settings, "R2_PUBLIC_URL", "", raising=False)
     assert r2._public_url("k") is None
-    monkeypatch.setattr(
-        r2.settings, "R2_PUBLIC_URL", "https://pub.example.com", raising=False
-    )
+    monkeypatch.setattr(r2.settings, "R2_PUBLIC_URL", "https://pub.example.com", raising=False)
     assert r2._public_url("k") == "https://pub.example.com/k"
 
 
@@ -225,9 +217,7 @@ def _img_bytes(img, fmt="PNG"):
 def test_parse_embedded_bad_unicode_falls_back(monkeypatch):
     import app.services.free_instagram_client as fic
 
-    monkeypatch.setattr(
-        fic, "_decode_unicode_escapes", lambda s: (_ for _ in ()).throw(ValueError("bad"))
-    )
+    monkeypatch.setattr(fic, "_decode_unicode_escapes", lambda s: (_ for _ in ()).throw(ValueError("bad")))
     html = '"follower_count": 42, "biography": "hello world", "profile_pic_url": "http://x/y.jpg"'
     out = fic._parse_embedded(html)
     assert out["follower_count"] == 42
@@ -284,13 +274,8 @@ async def test_snapshot_and_restore_close_exception_tolerated(monkeypatch):
     fake = _FakeRedis(close_fails=True)
     _patch_redis(monkeypatch, fake)
     # aclose raises → swallowed by the finally
-    assert (
-        await lc.snapshot_lead_session(LeadSource.telegram_dm, uuid.uuid4(), "t1")
-        is None
-    )
-    await lc.restore_lead_session(
-        LeadSource.telegram_dm, uuid.uuid4(), "t1", '{"step": "name"}'
-    )
+    assert await lc.snapshot_lead_session(LeadSource.telegram_dm, uuid.uuid4(), "t1") is None
+    await lc.restore_lead_session(LeadSource.telegram_dm, uuid.uuid4(), "t1", '{"step": "name"}')
     await lc.restore_lead_session(LeadSource.telegram_dm, uuid.uuid4(), "t1", None)
 
 
@@ -365,9 +350,7 @@ async def test_get_account_and_config_401_retry(monkeypatch):
     calls = {"accounts": 0}
 
     with respx.mock(assert_all_called=False) as router:
-        router.post(f"{ms.SOCIAL_API_URL}/api/v1/auth/login").mock(
-            return_value=httpx.Response(200, json={"access_token": "fresh"})
-        )
+        router.post(f"{ms.SOCIAL_API_URL}/api/v1/auth/login").mock(return_value=httpx.Response(200, json={"access_token": "fresh"}))
 
         def accounts_resp(request):
             calls["accounts"] += 1
@@ -375,13 +358,15 @@ async def test_get_account_and_config_401_retry(monkeypatch):
                 return httpx.Response(401)
             return httpx.Response(
                 200,
-                json=[{
-                    "platform": "facebook",
-                    "account_id": "pg1",
-                    "id": "acct-1",
-                    "display_name": "cloudless.gr",
-                    "meta_data": {"page_token": "pt", "messenger_auto_reply": {"enabled": True}},
-                }],
+                json=[
+                    {
+                        "platform": "facebook",
+                        "account_id": "pg1",
+                        "id": "acct-1",
+                        "display_name": "cloudless.gr",
+                        "meta_data": {"page_token": "pt", "messenger_auto_reply": {"enabled": True}},
+                    }
+                ],
             )
 
         router.get(f"{ms.SOCIAL_API_URL}/api/v1/accounts").mock(side_effect=accounts_resp)
@@ -404,14 +389,8 @@ async def test_generate_ai_response_cf_fallback(monkeypatch):
     monkeypatch.setattr(ms, "CLOUDFLARE_ACCOUNT_ID", "acct", raising=False)
 
     with respx.mock(assert_all_called=False) as router:
-        router.post(f"{ms.DMR_BASE_URL}/engines/v1/chat/completions").mock(
-            side_effect=httpx.ConnectError("dmr down")
-        )
-        router.post(url__regex=r".*cloudflare.*").mock(
-            return_value=httpx.Response(
-                200, json={"result": {"response": " cf-answer "}}
-            )
-        )
+        router.post(f"{ms.DMR_BASE_URL}/engines/v1/chat/completions").mock(side_effect=httpx.ConnectError("dmr down"))
+        router.post(url__regex=r".*cloudflare.*").mock(return_value=httpx.Response(200, json={"result": {"response": " cf-answer "}}))
         out = await ms._generate_ai_response({"system_prompt": "s"}, "hello", "page")
 
     assert out == "cf-answer"
@@ -430,9 +409,7 @@ async def test_generate_ai_response_both_fail_returns_fallback(monkeypatch):
 
     with respx.mock(assert_all_called=False) as router:
         router.post(url__regex=r".*").mock(side_effect=httpx.ConnectError("down"))
-        out = await ms._generate_ai_response(
-            {"system_prompt": "s", "fallback_text": "the-fallback"}, "hi", "pg"
-        )
+        out = await ms._generate_ai_response({"system_prompt": "s", "fallback_text": "the-fallback"}, "hi", "pg")
     assert out == "the-fallback"
 
 
@@ -445,14 +422,21 @@ async def test_export_monetization_rows(monkeypatch):
     import app.worker.tasks.datalake_export as de
 
     acc_ok = SimpleNamespace(
-        id=uuid.uuid4(), platform="facebook", account_type="user",
+        id=uuid.uuid4(),
+        platform="facebook",
+        account_type="user",
         username="themis",
     )
     acc_err = SimpleNamespace(
-        id=uuid.uuid4(), platform="tiktok", account_type="user", username="tk",
+        id=uuid.uuid4(),
+        platform="tiktok",
+        account_type="user",
+        username="tk",
     )
     acc_fun = SimpleNamespace(
-        id=uuid.uuid4(), platform="linkedin", account_type="organization",
+        id=uuid.uuid4(),
+        platform="linkedin",
+        account_type="organization",
         username="cloudless-gr",
     )
     rows_holder = {acc_ok.id: {"followers": 66, "gain_per_day": 1.5}}
@@ -496,8 +480,12 @@ async def test_ops_monetization_report_inline_and_queued(monkeypatch):
         runner,
     )
     out = await ops.trigger_monetization_report(
-        send=False, execute=True, insight_days=30, async_queue=False,
-        current_user=None, db=SimpleNamespace(),
+        send=False,
+        execute=True,
+        insight_days=30,
+        async_queue=False,
+        current_user=None,
+        db=SimpleNamespace(),
     )
     assert out["reports"] == [{"team_name": "T"}]
 
@@ -508,12 +496,14 @@ async def test_ops_monetization_report_inline_and_queued(monkeypatch):
         def delay(**kw):
             sent.update(kw)
 
-    monkeypatch.setattr(
-        "app.worker.tasks.monetization.run_daily_monetization_report", _Task
-    )
+    monkeypatch.setattr("app.worker.tasks.monetization.run_daily_monetization_report", _Task)
     out2 = await ops.trigger_monetization_report(
-        send=True, execute=False, insight_days=30, async_queue=True,
-        current_user=None, db=SimpleNamespace(),
+        send=True,
+        execute=False,
+        insight_days=30,
+        async_queue=True,
+        current_user=None,
+        db=SimpleNamespace(),
     )
     assert out2 == {"queued": True}
     assert sent == {"send": True, "execute": False}
@@ -642,10 +632,14 @@ async def test_read_with_twscrape_metrics():
     from app.services.x_web import _read_with_twscrape
 
     api = SimpleNamespace(
-        user_by_login=AsyncMock(return_value=SimpleNamespace(
-            followersCount="1,200", friendsCount=300, statusesCount=50,
-            listedCount=7,
-        )),
+        user_by_login=AsyncMock(
+            return_value=SimpleNamespace(
+                followersCount="1,200",
+                friendsCount=300,
+                statusesCount=50,
+                listedCount=7,
+            )
+        ),
     )
     out = await _read_with_twscrape(api, "handle", None, [], 0)
     assert out.followers == 1200 and out.following == 300
@@ -675,14 +669,12 @@ async def test_fetch_x_web_analytics_breaker_and_cleanup(monkeypatch, tmp_path):
     import app.services.x_web as xw
 
     monkeypatch.setattr(xw, "is_configured", lambda: True)
-    monkeypatch.setattr(
-        xw.get_settings(), "X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS", "5", raising=False
-    ) if hasattr(xw.get_settings(), "X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS") else None
+    monkeypatch.setattr(xw.get_settings(), "X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS", "5", raising=False) if hasattr(
+        xw.get_settings(), "X_WEB_ANALYTICS_MAX_TWEET_LOOKUPS"
+    ) else None
 
     guard = SimpleNamespace(
-        reserve_analytics_slot=AsyncMock(
-            return_value=SimpleNamespace(ok=True, reason="")
-        ),
+        reserve_analytics_slot=AsyncMock(return_value=SimpleNamespace(ok=True, reason="")),
         trip=AsyncMock(),
     )
 
@@ -701,8 +693,11 @@ async def test_fetch_x_web_analytics_breaker_and_cleanup(monkeypatch, tmp_path):
         return api
 
     out, reason = await xw.fetch_x_web_analytics(
-        username="x", user_id=None, guard=guard,
-        tweety_factory=tweety_factory, twscrape_factory=twscrape_factory,
+        username="x",
+        user_id=None,
+        guard=guard,
+        tweety_factory=tweety_factory,
+        twscrape_factory=twscrape_factory,
     )
     assert out is None and "twscrape" in reason
     assert not wd.exists()  # workdir cleaned in finally

@@ -1,6 +1,7 @@
 """Pin behaviour around the branches simplified from ``elif``/``isinstance``
 guards to plain ``else`` (instagram_messenger, skool_watch). The removed
 arms were unreachable; these tests lock in what the remaining arms do."""
+
 from __future__ import annotations
 
 import uuid

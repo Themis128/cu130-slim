@@ -6,6 +6,7 @@ attachments that were not produced.
 
 Reuses the DB/HTTP fakes from test_linkedin_ads_report.py; LinkedIn's API,
 the sidecar and the notebook runner are all faked."""
+
 from __future__ import annotations
 
 import sys
@@ -40,7 +41,8 @@ async def _collect(monkeypatch, responses, bundle):
     http = _Http(responses)
     monkeypatch.setattr(R.httpx, "AsyncClient", lambda **kw: http)
     monkeypatch.setattr(
-        A, "_fetch_linkedin_ad_stats",
+        A,
+        "_fetch_linkedin_ad_stats",
         AsyncMock(return_value={"urn:li:sponsoredCampaign:c1": bundle}),
     )
     m = R.CampaignMetrics(account_id="acct", campaign_id="c1")
@@ -51,8 +53,7 @@ async def _collect(monkeypatch, responses, bundle):
 @pytest.mark.asyncio
 async def test_api_group_lookup_fails_and_zero_traffic(monkeypatch):
     end_ms = 1_760_054_400_000
-    campaign = {"name": "B", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000, "end": end_ms},
-                "campaignGroup": "urn:li:adCampaignGroup:777"}
+    campaign = {"name": "B", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000, "end": end_ms}, "campaignGroup": "urn:li:adCampaignGroup:777"}
     bundle = SimpleNamespace(raw={"costLocal": "0"}, clicks=0, impressions=0, engagement=0)
     ok, m, http = await _collect(
         monkeypatch,
@@ -69,8 +70,7 @@ async def test_api_group_lookup_fails_and_zero_traffic(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_api_group_without_end_and_campaign_without_end(monkeypatch):
-    campaign = {"name": "B", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000},
-                "campaignGroup": "urn:li:adCampaignGroup:777"}
+    campaign = {"name": "B", "status": "ACTIVE", "runSchedule": {"start": 1_757_529_600_000}, "campaignGroup": "urn:li:adCampaignGroup:777"}
     bundle = SimpleNamespace(raw={"costLocal": "5"}, clicks=1, impressions=100, engagement=2)
     ok, m, _ = await _collect(
         monkeypatch,
@@ -92,8 +92,7 @@ def test_report_no_positive_deltas_omits_since_line():
 
 def test_report_zero_spend_has_no_pace_line():
     end = date.today() + timedelta(days=20)
-    m = _metrics(status="active", spend_eur=0.0, budget_eur=100.0,
-                 schedule_start=(date.today() - timedelta(days=3)).isoformat(), schedule_end=end.isoformat())
+    m = _metrics(status="active", spend_eur=0.0, budget_eur=100.0, schedule_start=(date.today() - timedelta(days=3)).isoformat(), schedule_end=end.isoformat())
     out = R.build_report_text(m, None, end)
     assert "*Pace:*" not in out
 
@@ -102,8 +101,7 @@ def test_report_credit_completed_campaign_and_unlisted_campaigns(monkeypatch):
     end = date.today() + timedelta(days=10)
     monkeypatch.setattr(R.get_settings(), "LINKEDIN_ADS_CREDIT_EUR", 200.0)
     # completed campaign: no remaining exposure from it; listing unavailable → unverified
-    m = _metrics(status="completed", spend_eur=30.0, budget_eur=0.0, account_spend_eur=30.0,
-                 campaign_id="c1", campaign_name="Boost", raw={})
+    m = _metrics(status="completed", spend_eur=30.0, budget_eur=0.0, account_spend_eur=30.0, campaign_id="c1", campaign_name="Boost", raw={})
     out = R.build_report_text(m, None, end)
     assert "Promo credit" in out and "€30 of €200" in out
     assert "unverified" in out
@@ -123,17 +121,21 @@ async def test_notebook_skips_missing_attachments(monkeypatch, tmp_path):
     text_f.write_text("body")
     present = tmp_path / "chart.png"
     present.write_bytes(b"PNG")
-    fake_nb = SimpleNamespace(run_report_notebook=lambda *a, **kw: {
-        "manifest": {"text_file": str(text_f), "attachments": [
-            {"file": str(tmp_path / "never-rendered.png"), "cid": "x"},
-            {"file": None},
-            {"file": str(present), "cid": "c", "mime": "image/png"},
-        ]},
-        "manifest_path": str(tmp_path / "manifest.json"),
-    })
+    fake_nb = SimpleNamespace(
+        run_report_notebook=lambda *a, **kw: {
+            "manifest": {
+                "text_file": str(text_f),
+                "attachments": [
+                    {"file": str(tmp_path / "never-rendered.png"), "cid": "x"},
+                    {"file": None},
+                    {"file": str(present), "cid": "c", "mime": "image/png"},
+                ],
+            },
+            "manifest_path": str(tmp_path / "manifest.json"),
+        }
+    )
     monkeypatch.setitem(sys.modules, "app.services.notebook_runner", fake_nb)
-    out = await R._render_report_notebook(campaign_id="c", status="active", end_date=None,
-                                          is_final=False, metrics=_metrics(status="active"))
+    out = await R._render_report_notebook(campaign_id="c", status="active", end_date=None, is_final=False, metrics=_metrics(status="active"))
     assert out is not None
     _, _, attachments = out
     assert [a["name"] for a in attachments] == ["chart.png"]

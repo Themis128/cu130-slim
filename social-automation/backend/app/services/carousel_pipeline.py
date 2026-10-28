@@ -35,6 +35,8 @@ from app.services.plain_english import (
 from app.services.spellcheck import auto_correct, preprocess_for_render
 
 logger = logging.getLogger(__name__)
+
+
 async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dict:
     """Load brand visual colors from the database.
 
@@ -54,6 +56,7 @@ async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dic
         return defaults
     try:
         from app.models.brand import Brand, BrandVisual
+
         brand_result = await db.execute(select(Brand).where(Brand.team_id == team_id))
         brand = brand_result.scalars().first()
         if not brand:
@@ -62,13 +65,15 @@ async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dic
         visual = visual_result.scalars().first()
         if not visual:
             return {**defaults, "brand_name": brand.name, "tagline": brand.tagline or ""}
+
         def _hex_rgb(h: str | None) -> tuple[int, int, int] | None:
             if not h:
                 return None
             h = h.lstrip("#")
             if len(h) == 3:
                 h = "".join(c * 2 for c in h)
-            return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+            return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))  # type: ignore[return-value]
+
         accent = _hex_rgb(visual.accent_color) or ACCENT
         accent2 = _hex_rgb(visual.primary_color) or ACCENT2
         return {
@@ -83,28 +88,29 @@ async def _load_brand_colors(db: AsyncSession, team_id: uuid.UUID | None) -> dic
     except Exception:
         return defaults
 
+
 DEFAULT_ORG_ACCOUNT_ID = os.environ.get(
     "CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID",
     "9c4451bb-e820-489f-8676-76ddbc788ffe",
 )
 
 # ── Brand tokens ──────────────────────────────────────────────────────────────
-BG      = (15,  15,  23)   # #0f0f17
-CARD    = (22,  22,  34)   # slightly lighter panel
-ACCENT  = (0,   255, 245)  # #00fff5  exact cloudless cyan
-ACCENT2 = (255, 100,  40)  # warm orange accent
-TEXT    = (225, 235, 245)  # near-white body copy
-SUB     = (120, 135, 160)  # muted blue-grey
-GRID    = (30,  30,  45)   # subtle grid line colour
+BG = (15, 15, 23)  # #0f0f17
+CARD = (22, 22, 34)  # slightly lighter panel
+ACCENT = (0, 255, 245)  # #00fff5  exact cloudless cyan
+ACCENT2 = (255, 100, 40)  # warm orange accent
+TEXT = (225, 235, 245)  # near-white body copy
+SUB = (120, 135, 160)  # muted blue-grey
+GRID = (30, 30, 45)  # subtle grid line colour
 
 _FONT_DIR = "/app/app/assets/fonts"
 _FONT_FILES = {
-    "bold":     os.path.join(_FONT_DIR, "WorkSans-Bold.ttf"),
+    "bold": os.path.join(_FONT_DIR, "WorkSans-Bold.ttf"),
     "semibold": os.path.join(_FONT_DIR, "WorkSans-SemiBold.ttf"),
-    "regular":  os.path.join(_FONT_DIR, "WorkSans-Regular.ttf"),
+    "regular": os.path.join(_FONT_DIR, "WorkSans-Regular.ttf"),
 }
 _FALLBACK = {
-    "bold":    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "bold": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
     "regular": "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
 }
 
@@ -190,10 +196,10 @@ def _draw_header(draw: ImageDraw.ImageDraw, index: int, total: int) -> None:
 def _draw_soft_orbs(draw: ImageDraw.ImageDraw) -> None:
     """Subtle glow orbs — brand atmosphere, no letters."""
     for cx, cy, r, fill in (
-        (980, 180, 160, (0,  42,  40)),   # top-right cyan glow
-        (100, 960, 200, (20,  20,  48)),   # bottom-left indigo
-        (990, 920, 110, (50,  20,  10)),   # bottom-right orange
-        (170, 200,  80, (0,   38,  36)),   # top-left cyan hint
+        (980, 180, 160, (0, 42, 40)),  # top-right cyan glow
+        (100, 960, 200, (20, 20, 48)),  # bottom-left indigo
+        (990, 920, 110, (50, 20, 10)),  # bottom-right orange
+        (170, 200, 80, (0, 38, 36)),  # top-left cyan hint
     ):
         draw.ellipse((cx - r, cy - r, cx + r, cy + r), fill=fill)
 
@@ -267,10 +273,10 @@ def _draw_infographic(
         # Cost breakdown: 3 clear rows with icon placeholders
         draw.text((110, 555), "What you actually pay", font=_font(24, "bold"), fill=SUB)
         items = [
-            ("Setup fee",   "$0",      ACCENT),
+            ("Setup fee", "$0", ACCENT),
             ("Monthly run", "from $29", TEXT),
-            ("Support",     "included", ACCENT),
-            ("Exit penalty","$0",       ACCENT),
+            ("Support", "included", ACCENT),
+            ("Exit penalty", "$0", ACCENT),
         ]
         for i, (label, price, color) in enumerate(items):
             y = 618 + i * 72
@@ -321,8 +327,8 @@ def _draw_infographic(
         else:
             kpis = [
                 ("< 5 min", "deploy time"),
-                ("99.9%",   "uptime SLA"),
-                ("80%",     "ops saved"),
+                ("99.9%", "uptime SLA"),
+                ("80%", "ops saved"),
             ]
         for i, (val, label) in enumerate(kpis):
             x = 110 + i * 296
@@ -507,17 +513,17 @@ def compose_branded_slide(
     draw.text((1080 - PAD - tw, 1054), tagline, font=_font(20), fill=SUB)
     return img
 
+
 # ── Ad creative composer (all LinkedIn aspect ratios) ─────────────────────────
 
 LINKEDIN_AD_SIZES: dict[str, tuple[int, int]] = {
-    "landscape": (1200, 627),   # 1.91:1 — LinkedIn recommended single image
-    "square": (1080, 1080),     # 1:1 — feed
-    "portrait": (1080, 1350),   # 4:5 — mobile feed
+    "landscape": (1200, 627),  # 1.91:1 — LinkedIn recommended single image
+    "square": (1080, 1080),  # 1:1 — feed
+    "portrait": (1080, 1350),  # 4:5 — mobile feed
 }
 
 
-def _draw_gradient_bar(draw: ImageDraw.ImageDraw, w: int, thickness: int,
-                       accent: tuple, accent2: tuple) -> None:
+def _draw_gradient_bar(draw: ImageDraw.ImageDraw, w: int, thickness: int, accent: tuple, accent2: tuple) -> None:
     for x in range(w):
         t = x / max(1, w - 1)
         color = tuple(int(accent[i] * (1 - t) + accent2[i] * t) for i in range(3))
@@ -595,7 +601,7 @@ def compose_ad_creative(
     dot_f = _font(max(22, int(38 * s)), "regular")
     lw = draw.textlength(brand_name, font=logo_f)
     draw.text((pad, pad), brand_name, font=logo_f, fill=accent)
-    draw.text((pad + lw, pad), domain[len(brand_name):] or ".gr", font=dot_f, fill=sub_c)
+    draw.text((pad + lw, pad), domain[len(brand_name) :] or ".gr", font=dot_f, fill=sub_c)
 
     # Tagline pill.
     tag_f = _font(max(16, int(21 * s)), "semibold")
@@ -603,7 +609,9 @@ def compose_ad_creative(
     ty = pad + int(64 * s)
     draw.rounded_rectangle(
         (pad, ty, pad + tw, ty + int(38 * s)),
-        radius=int(19 * s), outline=accent, width=max(1, int(2 * s)),
+        radius=int(19 * s),
+        outline=accent,
+        width=max(1, int(2 * s)),
     )
     draw.text((pad + int(17 * s), ty + int(7 * s)), tagline, font=tag_f, fill=accent)
 
@@ -616,7 +624,12 @@ def compose_ad_creative(
     if subline:
         y += int(16 * s)
         y = _draw_wrapped(
-            draw, subline, (pad, y), _font(max(18, int(28 * s))), sub_c, copy_w,
+            draw,
+            subline,
+            (pad, y),
+            _font(max(18, int(28 * s))),
+            sub_c,
+            copy_w,
         )
 
     # CTA button — accent pill.
@@ -625,10 +638,15 @@ def compose_ad_creative(
     cta_h = int(58 * s)
     cta_y = min(y + int(30 * s), height - int(120 * s) - cta_h)
     draw.rounded_rectangle(
-        (pad, cta_y, pad + cta_w, cta_y + cta_h), radius=cta_h // 2, fill=accent,
+        (pad, cta_y, pad + cta_w, cta_y + cta_h),
+        radius=cta_h // 2,
+        fill=accent,
     )
     draw.text(
-        (pad + int(28 * s), cta_y + int(12 * s)), cta, font=cta_f, fill=bg_c,
+        (pad + int(28 * s), cta_y + int(12 * s)),
+        cta,
+        font=cta_f,
+        fill=bg_c,
     )
 
     # Stat card — right column on landscape, centered band otherwise.
@@ -648,16 +666,23 @@ def compose_ad_creative(
             card_y = min(cta_y + cta_h + int(30 * s), height - card_h - int(110 * s))
         draw.rounded_rectangle(
             (card_x, card_y, card_x + card_w, card_y + card_h),
-            radius=int(18 * s), fill=CARD, outline=accent, width=max(1, int(2 * s)),
+            radius=int(18 * s),
+            fill=CARD,
+            outline=accent,
+            width=max(1, int(2 * s)),
         )
         draw.text(
             (card_x + (card_w - stat_w) // 2, card_y + int(36 * s)),
-            stat, font=stat_f, fill=accent,
+            stat,
+            font=stat_f,
+            fill=accent,
         )
         if sl_text:
             draw.text(
                 (card_x + (card_w - sl_w) // 2, card_y + card_h - int(62 * s)),
-                sl_text, font=sl_f, fill=sub_c,
+                sl_text,
+                font=sl_f,
+                fill=sub_c,
             )
 
     # Footer strip — domain left, website right.
@@ -670,7 +695,9 @@ def compose_ad_creative(
     uw = int(draw.textlength(url, font=_font(max(13, int(18 * s)))))
     draw.text(
         (width - pad - uw, height - fh + int(10 * s)),
-        url, font=_font(max(13, int(18 * s))), fill=sub_c,
+        url,
+        font=_font(max(13, int(18 * s))),
+        fill=sub_c,
     )
     return img
 
@@ -699,6 +726,7 @@ async def build_ad_brand_kit(
     # Spell-correct the copy before it renders into the creative —
     # typos land permanently on the generated image otherwise.
     from app.services.media_spellcheck import correct_text
+
     headline = await correct_text(headline)
     subline = await correct_text(subline)
     cta = await correct_text(cta)
@@ -714,19 +742,27 @@ async def build_ad_brand_kit(
     assets = []
     for name, (w, h) in (sizes or LINKEDIN_AD_SIZES).items():
         img = compose_ad_creative(
-            width=w, height=h,
-            headline=headline, subline=subline, cta=cta,
-            stat=stat, stat_label=stat_label,
-            bg_img=bg_img, brand=brand,
+            width=w,
+            height=h,
+            headline=headline,
+            subline=subline,
+            cta=cta,
+            stat=stat,
+            stat_label=stat_label,
+            bg_img=bg_img,
+            brand=brand,
         )
         buf = io.BytesIO()
         img.save(buf, format="PNG", optimize=True)
         asset = await persist_generated_image(
             db,
-            team_id=team_id, user_id=user_id,
+            team_id=team_id,
+            user_id=user_id,
             image_bytes=buf.getvalue(),
             prompt=f"ad-kit {name} {w}x{h}: {headline}",
-            source="carousel", extension=".png", max_edge=0,
+            source="carousel",
+            extension=".png",
+            max_edge=0,
             folder="brand-kit",
         )
         assets.append(asset)
@@ -796,11 +832,7 @@ async def _cf_generate_background(
     """
     style = random.choice(_PHOTO_STYLES)
     mood = random.choice(_MOODS)
-    prompt_t2i = (
-        f"{image_prompt}, {style}, {mood}, "
-        f"professional photography, high quality, sharp focus, "
-        f"no text, no letters, no words, no watermark"
-    )
+    prompt_t2i = f"{image_prompt}, {style}, {mood}, professional photography, high quality, sharp focus, no text, no letters, no words, no watermark"
 
     # 1) Try ComfyUI FLUX.1-schnell (GPU) under the media lock
     try:
@@ -938,6 +970,7 @@ Return JSON only:
     # Spell-correct generated copy before it renders onto slides —
     # typos land permanently on the image otherwise.
     from app.services.media_spellcheck import correct_text
+
     for slide in copy.get("slides", []):
         for field in ("title", "body", "highlight"):
             if slide.get(field):
@@ -956,11 +989,10 @@ def _normalize_brand_domain(node):
     links never reach render or publish."""
     if isinstance(node, str):
         import re
+
         for bad in _BRAND_WRONG_DOMAINS:
             host = bad.split("://")[-1].split("/")[0]
-            node = re.sub(
-                rf"(?<![\w.-]){re.escape(host)}(?![\w.-])",
-                host.replace(".com", ".gr"), node)
+            node = re.sub(rf"(?<![\w.-]){re.escape(host)}(?![\w.-])", host.replace(".com", ".gr"), node)
         return node
     if isinstance(node, dict):
         return {k: _normalize_brand_domain(v) for k, v in node.items()}
@@ -979,7 +1011,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
-    text_provider: str = "dmr",   # DMR primary for copy; CF Workers AI fallback
+    text_provider: str = "dmr",  # DMR primary for copy; CF Workers AI fallback
     txt2img_model: str = CF_TXT2IMG_FREE,
     target_account_id: str | None = None,
     publish: bool = True,
@@ -1016,6 +1048,7 @@ async def run_cloudless_carousel_pipeline(
         hashtags = custom_hashtags or ["cloudless", "serverless", "cloudnative", "startups", "smb"]
         # Minimal NLP report for custom slides
         from app.services.plain_english import NlpCheckReport
+
         nlp_report = NlpCheckReport(needs_fix=False, fixed=False, fields_rewritten=[], issues=[], duplicates={})
     else:
         # Architecture: CF Workers AI is primary for carousel copy (0.5s vs 57-153s
@@ -1155,6 +1188,7 @@ async def run_cloudless_carousel_pipeline(
     for _seo_attempt in (1, 2):
         try:
             from app.services import seo as _seo_service
+
             seo_result = await _seo_service.analyze_seo(
                 text=full_caption,
                 platform=account.platform,
@@ -1247,13 +1281,7 @@ async def run_cloudless_carousel_pipeline(
 
     for _ in range(40):
         await asyncio.sleep(3)
-        refreshed = (
-            await db.execute(
-                select(Post)
-                .options(selectinload(Post.targets))
-                .where(Post.id == post.id)
-            )
-        ).scalar_one()
+        refreshed = (await db.execute(select(Post).options(selectinload(Post.targets)).where(Post.id == post.id))).scalar_one()
         await db.refresh(refreshed)
         for t in refreshed.targets:
             await db.refresh(t)

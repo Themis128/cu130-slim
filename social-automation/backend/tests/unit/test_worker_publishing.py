@@ -148,11 +148,7 @@ def _patch_edges(monkeypatch):
     monkeypatch.setattr(
         W,
         "apply_publish_gate",
-        AsyncMock(
-            side_effect=lambda **kw: W.PublishGateResult(
-                passed=True, content=kw.get("content", ""), overall=100, min_score=80
-            )
-        ),
+        AsyncMock(side_effect=lambda **kw: W.PublishGateResult(passed=True, content=kw.get("content", ""), overall=100, min_score=80)),
     )
     monkeypatch.setattr(W, "flag_modified", lambda *a, **kw: None)
     monkeypatch.setattr(W, "media_duplicate_reason", AsyncMock(return_value=None))
@@ -1238,14 +1234,17 @@ def test_sync_task_wrappers(monkeypatch):
         def _fake(c):
             c.close()
             return payload
+
         return _fake
 
     # requeue_capacity_stuck_x_targets: enabled + requeued → sync
     ran = []
+
     def _record(c):
         ran.append(c)
         c.close()
         return {"requeued": ["x"], "deleted": 0}
+
     monkeypatch.setattr(W, "run_async", _record)
     monkeypatch.setattr(
         W,
@@ -1435,15 +1434,9 @@ async def test_pq_quality_gate_updates_content_then_publishes(monkeypatch):
     monkeypatch.setattr(
         W,
         "apply_publish_gate",
-        AsyncMock(
-            return_value=W.PublishGateResult(
-                passed=True, content="improved copy", overall=91, min_score=80
-            )
-        ),
+        AsyncMock(return_value=W.PublishGateResult(passed=True, content="improved copy", overall=91, min_score=80)),
     )
-    pub = AsyncMock(
-        return_value=W.PublishResult(success=True, platform_post_id="p1", platform_url="https://x/1")
-    )
+    pub = AsyncMock(return_value=W.PublishResult(success=True, platform_post_id="p1", platform_url="https://x/1"))
     monkeypatch.setattr(W, "publish_to_platform", pub)
 
     await W._process_publish_queue_async()
@@ -1478,9 +1471,7 @@ async def test_pq_quality_gate_cached_across_targets(monkeypatch):
         ]
     )
     _patch_db(monkeypatch, db)
-    gate = AsyncMock(
-        return_value=W.PublishGateResult(passed=True, content="hi there", overall=95, min_score=80)
-    )
+    gate = AsyncMock(return_value=W.PublishGateResult(passed=True, content="hi there", overall=95, min_score=80))
     monkeypatch.setattr(W, "apply_publish_gate", gate)
     pub = AsyncMock(return_value=W.PublishResult(success=True, platform_post_id="p"))
     monkeypatch.setattr(W, "publish_to_platform", pub)

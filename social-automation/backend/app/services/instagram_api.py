@@ -361,9 +361,7 @@ class InstagramAPIClient:
         ``2207051`` false-negative pattern) before a retry duplicates it.
         """
         url = f"{self.base_url}/{self.ig_user_id}/media"
-        params = self._params(
-            {"fields": "id,caption,timestamp,permalink", "limit": str(limit)}
-        )
+        params = self._params({"fields": "id,caption,timestamp,permalink", "limit": str(limit)})
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, params=params)
             self._raise_for_status(resp, url)
@@ -460,15 +458,11 @@ class InstagramAPIClient:
             raise ValueError("query is required")
         url = f"{self.base_url}/ig_hashtag_search"
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(
-                url, params=self._params({"user_id": self.ig_user_id, "q": q})
-            )
+            resp = await client.get(url, params=self._params({"user_id": self.ig_user_id, "q": q}))
             self._raise_for_status(resp, url)
             return resp.json()
 
-    async def get_hashtag_top_media(
-        self, hashtag_id: str, *, limit: int = 25
-    ) -> list[dict[str, Any]]:
+    async def get_hashtag_top_media(self, hashtag_id: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Top media for a hashtag id (official ``/{id}/top_media``)."""
         hashtag_id = _validate_id(hashtag_id, "hashtag_id")
         url = f"{self.base_url}/{hashtag_id}/top_media"
@@ -484,9 +478,7 @@ class InstagramAPIClient:
             self._raise_for_status(resp, url)
             return (resp.json() or {}).get("data") or []
 
-    async def get_hashtag_recent_media(
-        self, hashtag_id: str, *, limit: int = 25
-    ) -> list[dict[str, Any]]:
+    async def get_hashtag_recent_media(self, hashtag_id: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Recent media for a hashtag id (official ``/{id}/recent_media``)."""
         hashtag_id = _validate_id(hashtag_id, "hashtag_id")
         url = f"{self.base_url}/{hashtag_id}/recent_media"
@@ -520,9 +512,7 @@ class InstagramAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
-    async def get_follower_demographics(
-        self, *, breakdown: str = "age", timeframe: str = "this_month"
-    ) -> dict[str, Any]:
+    async def get_follower_demographics(self, *, breakdown: str = "age", timeframe: str = "this_month") -> dict[str, Any]:
         """Follower breakdowns by dimension — ``age``, ``country``,
         ``city``, ``gender`` (one breakdown per call).
 
@@ -547,9 +537,7 @@ class InstagramAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
-    async def get_engaged_audience_demographics(
-        self, *, breakdown: str = "age", timeframe: str = "this_month"
-    ) -> dict[str, Any]:
+    async def get_engaged_audience_demographics(self, *, breakdown: str = "age", timeframe: str = "this_month") -> dict[str, Any]:
         """Breakdown of accounts that engaged (``engaged_audience_
         demographics``) — same signature as ``get_follower_demographics``."""
         if breakdown not in ("age", "country", "city", "gender"):
@@ -675,9 +663,7 @@ class InstagramAPIClient:
                     f"container:{container_id}",
                 )
             await asyncio.sleep(interval)
-        raise TimeoutError(
-            f"Container {container_id} did not finish processing within {timeout}s"
-        )
+        raise TimeoutError(f"Container {container_id} did not finish processing within {timeout}s")
 
     async def create_and_publish_video(
         self,
@@ -859,10 +845,7 @@ class InstagramAPIClient:
         Returns conversation threads with the most recent message preview.
         """
         url = f"{self.base_url}/{self.ig_user_id}/conversations"
-        fields = (
-            "id,participants,scoped_thread_key,senders,"
-            "messages{id,created_time,from,message}"
-        )
+        fields = "id,participants,scoped_thread_key,senders,messages{id,created_time,from,message}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 url,
@@ -887,11 +870,7 @@ class InstagramAPIClient:
         """Mark an Instagram DM conversation as read."""
         url = f"{self.base_url}/{self.ig_user_id}/messages"
         # graph.instagram.com rejects recipient.thread_key — use recipient.id.
-        recipient = (
-            {"id": recipient_id}
-            if recipient_id
-            else {"thread_key": conversation_id}
-        )
+        recipient = {"id": recipient_id} if recipient_id else {"thread_key": conversation_id}
         payload = {
             "recipient": recipient,
             "sender_action": "mark_seen",
@@ -943,17 +922,9 @@ class InstagramWebDMClient:
             "x-csrftoken": self._csrf_token,
             "x-ig-app-id": self.IG_APP_ID,
             "x-instagram-ajax": "1",
-            "cookie": (
-                f"sessionid={self._session_id}; "
-                f"csrftoken={self._csrf_token}; "
-                f"ds_user_id={self._ds_user_id}"
-            ),
+            "cookie": (f"sessionid={self._session_id}; csrftoken={self._csrf_token}; ds_user_id={self._ds_user_id}"),
             "content-type": "application/x-www-form-urlencoded",
-            "user-agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            "user-agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
         }
 
     def _client(self) -> httpx.AsyncClient:
@@ -975,7 +946,8 @@ class InstagramWebDMClient:
             )
             if resp.status_code != 200:
                 raise InstagramAPIError(
-                    resp.status_code, resp.text[:400],
+                    resp.status_code,
+                    resp.text[:400],
                     f"{self.WEB_API_BASE}/direct_v2/inbox/",
                 )
             data = resp.json()
@@ -983,20 +955,15 @@ class InstagramWebDMClient:
             conversations = []
             for t in threads:
                 users = t.get("users", [])
-                conversations.append({
-                    "id": t.get("thread_id", ""),
-                    "participants": {
-                        "data": [
-                            {"id": str(u.get("pk", "")), "name": u.get("username", "Unknown")}
-                            for u in users
-                        ]
-                    },
-                })
+                conversations.append(
+                    {
+                        "id": t.get("thread_id", ""),
+                        "participants": {"data": [{"id": str(u.get("pk", "")), "name": u.get("username", "Unknown")} for u in users]},
+                    }
+                )
             return {"data": conversations}
 
-    async def get_dm_messages(
-        self, conversation_id: str, limit: int = 20
-    ) -> dict[str, Any]:
+    async def get_dm_messages(self, conversation_id: str, limit: int = 20) -> dict[str, Any]:
         """Fetch messages in a DM thread via the web API."""
         async with self._client() as c:
             resp = await c.get(
@@ -1004,7 +971,8 @@ class InstagramWebDMClient:
             )
             if resp.status_code != 200:
                 raise InstagramAPIError(
-                    resp.status_code, resp.text[:400],
+                    resp.status_code,
+                    resp.text[:400],
                     f"{self.WEB_API_BASE}/direct_v2/threads/{conversation_id}/",
                 )
             data = resp.json()
@@ -1014,23 +982,26 @@ class InstagramWebDMClient:
                 sender = item.get("user_id", "")
                 text = item.get("text", "") or item.get("share_text", "")
                 if text:
-                    messages.append({
-                        "id": item.get("item_id", ""),
-                        "from": {"id": str(sender)},
-                        "message": text,
-                        "created_time": item.get("timestamp", ""),
-                    })
+                    messages.append(
+                        {
+                            "id": item.get("item_id", ""),
+                            "from": {"id": str(sender)},
+                            "message": text,
+                            "created_time": item.get("timestamp", ""),
+                        }
+                    )
             return {"data": messages}
 
     async def send_dm(self, recipient_id: str, message: str) -> dict[str, Any]:
         """Send a DM via the web API."""
         import time
+
         async with self._client() as c:
             resp = await c.post(
                 f"{self.WEB_API_BASE}/direct_v2/threads/broadcast/text/",
                 data={
                     "recipient_users": f'["{recipient_id}"]',
-                    "client_context": f'{{"mutation_token":"{int(time.time()*1000)}"}}',
+                    "client_context": f'{{"mutation_token":"{int(time.time() * 1000)}"}}',
                     "text": message,
                     "action": "send_item",
                     "entry": "inbox",
@@ -1038,7 +1009,8 @@ class InstagramWebDMClient:
             )
             if resp.status_code != 200:
                 raise InstagramAPIError(
-                    resp.status_code, resp.text[:400],
+                    resp.status_code,
+                    resp.text[:400],
                     f"{self.WEB_API_BASE}/direct_v2/threads/broadcast/text/",
                 )
             return resp.json()

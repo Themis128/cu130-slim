@@ -157,9 +157,11 @@ class ThreadsAPIClient:
         threads_biography, is_verified.
         """
         url = f"{self._base_url}/{self.user_id}"
-        params = self._params({
-            "fields": "username,name,threads_profile_picture_url,threads_biography,is_verified",
-        })
+        params = self._params(
+            {
+                "fields": "username,name,threads_profile_picture_url,threads_biography,is_verified",
+            }
+        )
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(url, headers=self._headers(), params=params)
             self._raise_for_status(resp, url)
@@ -221,9 +223,7 @@ class ThreadsAPIClient:
             raise ValueError("Image URL is required for an image post")
         return await self._create_container("IMAGE", text=text, image_url=image_url)
 
-    async def create_video_container(
-        self, video_url: str, text: str = "", is_carousel_item: bool = False
-    ) -> str:
+    async def create_video_container(self, video_url: str, text: str = "", is_carousel_item: bool = False) -> str:
         """Create a video container and return the ``creation_id``.
 
         ``video_url`` must be a publicly accessible URL.
@@ -337,8 +337,7 @@ class ThreadsAPIClient:
                     400,
                     f"container {container_id} status {status}",
                     f"container:{container_id}",
-                    message=f"Threads container {container_id} processing failed ({status})"
-                    + (f": {detail}" if detail else ""),
+                    message=f"Threads container {container_id} processing failed ({status})" + (f": {detail}" if detail else ""),
                 )
             await asyncio.sleep(interval)
         raise ThreadsAPIError(

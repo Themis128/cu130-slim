@@ -11,6 +11,7 @@ Wraps dmr.chat in a structured control loop:
         max_retries=3, trim_chars=4000,     # context trim on retry
         tag="survey-subject")
 """
+
 from __future__ import annotations
 
 import logging

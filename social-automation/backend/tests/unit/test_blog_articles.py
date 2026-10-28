@@ -1,5 +1,6 @@
 """Tests for blog_articles — the markdown-ish format contract the
 cloudless.gr blog page renders, plus the social-post link cleanup."""
+
 import json
 import re
 from unittest.mock import AsyncMock
@@ -145,23 +146,20 @@ class TestR2ArticleIO:
     @pytest.mark.asyncio
     async def test_get_published_article(self, monkeypatch):
         monkeypatch.setattr(BA.settings, "DATALAKE_R2_BUCKET", "b")
-        monkeypatch.setattr(BA.r2_storage, "get_object",
-                            AsyncMock(return_value=b'{"title":"t"}'))
+        monkeypatch.setattr(BA.r2_storage, "get_object", AsyncMock(return_value=b'{"title":"t"}'))
         out = await get_published_article("s")
         assert out["title"] == "t"
 
     @pytest.mark.asyncio
     async def test_get_published_article_404(self, monkeypatch):
         monkeypatch.setattr(BA.settings, "DATALAKE_R2_BUCKET", "b")
-        monkeypatch.setattr(BA.r2_storage, "get_object",
-                            AsyncMock(side_effect=HTTPException(404)))
+        monkeypatch.setattr(BA.r2_storage, "get_object", AsyncMock(side_effect=HTTPException(404)))
         assert await get_published_article("s") is None
 
     @pytest.mark.asyncio
     async def test_get_published_article_other_error_reraises(self, monkeypatch):
         monkeypatch.setattr(BA.settings, "DATALAKE_R2_BUCKET", "b")
-        monkeypatch.setattr(BA.r2_storage, "get_object",
-                            AsyncMock(side_effect=HTTPException(502)))
+        monkeypatch.setattr(BA.r2_storage, "get_object", AsyncMock(side_effect=HTTPException(502)))
         with pytest.raises(HTTPException) as e:
             await get_published_article("s")
         assert e.value.status_code == 502
@@ -169,8 +167,7 @@ class TestR2ArticleIO:
     @pytest.mark.asyncio
     async def test_get_published_article_corrupt_json(self, monkeypatch):
         monkeypatch.setattr(BA.settings, "DATALAKE_R2_BUCKET", "b")
-        monkeypatch.setattr(BA.r2_storage, "get_object",
-                            AsyncMock(return_value=b"not json{"))
+        monkeypatch.setattr(BA.r2_storage, "get_object", AsyncMock(return_value=b"not json{"))
         assert await get_published_article("s") is None
 
     @pytest.mark.asyncio
@@ -189,9 +186,14 @@ class TestR2ArticleIO:
 
 class TestAssembleArticle:
     def _gen(self, **kw):
-        base = {"title": "T", "excerpt": "e", "category": "Analytics",
-                "readTime": "7 min read", "contentMarkdown": "intro\n\n## s\n\nbody",
-                "socialPost": "hook https://x.y #tag"}
+        base = {
+            "title": "T",
+            "excerpt": "e",
+            "category": "Analytics",
+            "readTime": "7 min read",
+            "contentMarkdown": "intro\n\n## s\n\nbody",
+            "socialPost": "hook https://x.y #tag",
+        }
         base.update(kw)
         return base
 

@@ -14,8 +14,7 @@ import app.services.whatsapp_api as W
 
 @pytest.fixture
 def client():
-    c = W.WhatsAppAPIClient(access_token="EAtok", phone_number_id="12345",
-                            business_phone="+302101234567")
+    c = W.WhatsAppAPIClient(access_token="EAtok", phone_number_id="12345", business_phone="+302101234567")
     calls: list[dict] = []
     c._calls = calls
 
@@ -23,9 +22,7 @@ def client():
         calls.append({"method": method, "path": path, **kw})
         return {"ok": 1}
 
-    c._client = SimpleNamespace(
-        request=AsyncMock(side_effect=_request),
-        get_bytes=AsyncMock(return_value=b"bytes"))
+    c._client = SimpleNamespace(request=AsyncMock(side_effect=_request), get_bytes=AsyncMock(return_value=b"bytes"))
     return c
 
 
@@ -49,8 +46,7 @@ def test_init_validation():
 
 @pytest.mark.asyncio
 async def test_send_methods(client):
-    out = await client.send_text("+302101111111", "hi", preview_url=True,
-                                 messaging_type="UPDATE")
+    out = await client.send_text("+302101111111", "hi", preview_url=True, messaging_type="UPDATE")
     assert out == {"ok": 1}
     call = client._calls[0]
     assert call["method"] == "POST" and call["path"] == "12345/messages"
@@ -60,14 +56,12 @@ async def test_send_methods(client):
     body = client._calls[1]["json_body"]
     assert body["type"] == "template" and body["template"]["name"] == "welcome"
 
-    await client.send_image("+302101111111", "https://cdn/i.png",
-                            caption="cap")
+    await client.send_image("+302101111111", "https://cdn/i.png", caption="cap")
     body = client._calls[2]["json_body"]
     assert body["image"]["link"] == "https://cdn/i.png"
     assert body["image"]["caption"] == "cap"
 
-    await client.send_document("+302101111111", "https://cdn/d.pdf",
-                               filename="f.pdf", caption="c")
+    await client.send_document("+302101111111", "https://cdn/d.pdf", filename="f.pdf", caption="c")
     body = client._calls[3]["json_body"]
     assert body["document"]["filename"] == "f.pdf"
     assert body["document"]["link"] == "https://cdn/d.pdf"
@@ -76,8 +70,7 @@ async def test_send_methods(client):
     body = client._calls[4]["json_body"]
     assert body["reaction"]["emoji"] == "👍"
 
-    await client.send_location("+302101111111", 37.9, 23.7,
-                               name="HQ", address="Athens")
+    await client.send_location("+302101111111", 37.9, 23.7, name="HQ", address="Athens")
     body = client._calls[5]["json_body"]
     assert body["location"]["latitude"] == 37.9
 
@@ -104,8 +97,7 @@ async def test_media_and_profile(client):
     assert call["data"]["type"] == "image/png"
 
     # download — info → url → bytes
-    client._client.request = AsyncMock(side_effect=[
-        {"url": "https://cdn/f.bin"}])
+    client._client.request = AsyncMock(side_effect=[{"url": "https://cdn/f.bin"}])
     out = await client.download_media("777")
     assert out == b"bytes"
     client._client.get_bytes.assert_awaited_once()
@@ -116,16 +108,14 @@ async def test_media_and_profile(client):
         await client.download_media("777")
 
     # business profile — data[0] unwrapped; missing → raw
-    client._client.request = AsyncMock(return_value={
-        "data": [{"about": "we help"}]})
+    client._client.request = AsyncMock(return_value={"data": [{"about": "we help"}]})
     assert (await client.get_business_profile())["about"] == "we help"
     client._client.request = AsyncMock(return_value={"data": []})
     assert await client.get_business_profile() == {"data": []}
 
     # update — None values dropped
     client._client.request = AsyncMock(return_value={"success": True})
-    await client.update_business_profile(
-        {"about": "new", "address": None})
+    await client.update_business_profile({"about": "new", "address": None})
     body = client._client.request.await_args.kwargs["json_body"]
     assert body == {"messaging_product": "whatsapp", "about": "new"}
 
@@ -133,12 +123,10 @@ async def test_media_and_profile(client):
 @pytest.mark.asyncio
 async def test_phone_info_and_numbers(client):
     await client.get_phone_number_info()
-    assert client._calls[0]["method"] == "GET" and "12345" in \
-        client._calls[0]["path"]
+    assert client._calls[0]["method"] == "GET" and "12345" in client._calls[0]["path"]
 
     # field-rejection → fallback request without fields
-    client._client.request = AsyncMock(side_effect=[
-        Exception("fields rejected"), {"id": "999"}])
+    client._client.request = AsyncMock(side_effect=[Exception("fields rejected"), {"id": "999"}])
     out = await client.get_phone_number_info_by_id("999")
     assert out == {"id": "999"}
     assert client._client.request.await_count == 2
@@ -150,8 +138,7 @@ async def test_phone_info_and_numbers(client):
 
     # create_phone_number happy
     client._client.request = AsyncMock(return_value={"id": "pn1"})
-    out = await client.create_phone_number(
-        "111", "30", "2109999999", "My Biz")
+    out = await client.create_phone_number("111", "30", "2109999999", "My Biz")
     assert out == {"id": "pn1"}
     body = client._client.request.await_args.kwargs["json_body"]
     assert body["cc"] == "30" and body["verified_name"] == "My Biz"
@@ -164,36 +151,28 @@ async def test_verification_flow(client):
         await client.request_verification_code("999", code_method="EMAIL")
 
     # already VERIFIED → skipped
-    client._client.request = AsyncMock(return_value={
-        "code_verification_status": "VERIFIED"})
+    client._client.request = AsyncMock(return_value={"code_verification_status": "VERIFIED"})
     out = await client.request_verification_code("999")
     assert out["skipped"] is True and out["reason"] == "already_verified"
 
     # not verified → request_code POSTed
-    client._client.request = AsyncMock(side_effect=[
-        {"code_verification_status": "NOT_VERIFIED"},
-        {"success": True}])
-    out = await client.request_verification_code("999", code_method="VOICE",
-                                                 language="el_GR")
+    client._client.request = AsyncMock(side_effect=[{"code_verification_status": "NOT_VERIFIED"}, {"success": True}])
+    out = await client.request_verification_code("999", code_method="VOICE", language="el_GR")
     assert out == {"success": True}
     call = client._client.request.await_args
     assert "request_code" in call.args[1]
     assert call.kwargs["params"]["code_method"] == "VOICE"
 
     # status check raises → fallback fetch also fails handled → proceeds
-    client._client.request = AsyncMock(side_effect=[
-        Exception("x"), {"status": "ok"}, {"success": True}])
+    client._client.request = AsyncMock(side_effect=[Exception("x"), {"status": "ok"}, {"success": True}])
     out = await client.request_verification_code("999")
     assert out == {"success": True}
 
     # WhatsAppPhoneVerificationError re-raised enriched
     from app.services.whatsapp_cloud_client import WhatsAppPhoneVerificationError
-    err = WhatsAppPhoneVerificationError(
-        status_code=400, url="u", response_text="t",
-        error={"code": 136024, "message": "already verified"},
-        rate_limit=False)
-    client._client.request = AsyncMock(side_effect=[
-        {"code_verification_status": "NOT_VERIFIED"}, err])
+
+    err = WhatsAppPhoneVerificationError(status_code=400, url="u", response_text="t", error={"code": 136024, "message": "already verified"}, rate_limit=False)
+    client._client.request = AsyncMock(side_effect=[{"code_verification_status": "NOT_VERIFIED"}, err])
     with pytest.raises(WhatsAppPhoneVerificationError):
         await client.request_verification_code("999")
 
@@ -221,12 +200,8 @@ async def test_verification_flow(client):
 
 
 def _hook(messages=None, statuses=None, contacts=None):
-    value = {"metadata": {"phone_number_id": "p1"},
-             "contacts": contacts or [],
-             "messages": messages or [],
-             "statuses": statuses or []}
-    return {"object": "whatsapp_business_account",
-            "entry": [{"changes": [{"value": value}]}]}
+    value = {"metadata": {"phone_number_id": "p1"}, "contacts": contacts or [], "messages": messages or [], "statuses": statuses or []}
+    return {"object": "whatsapp_business_account", "entry": [{"changes": [{"value": value}]}]}
 
 
 def test_parse_webhook_event_gates():
@@ -237,39 +212,19 @@ def test_parse_webhook_event_gates():
 def test_parse_webhook_event_message_types():
     contacts = [{"wa_id": "3069", "profile": {"name": "Ada"}}]
     msgs = [
-        {"type": "text", "from": "3069", "id": "m1",
-         "timestamp": "1700000000", "text": {"body": "hi"}},
-        {"type": "button", "from": "3069", "id": "m2",
-         "timestamp": "bad", "button": {"text": "b", "payload": "p"}},
-        {"type": "interactive", "from": "1", "id": "m3",
-         "timestamp": "1",
-         "interactive": {"type": "button_reply",
-                         "button_reply": {"title": "T", "id": "r1"}}},
-        {"type": "interactive", "from": "1", "id": "m4",
-         "timestamp": "1",
-         "interactive": {"type": "list_reply",
-                         "list_reply": {"title": "L", "id": "r2"}}},
-        {"type": "image", "from": "1", "id": "m5", "timestamp": "1",
-         "image": {"id": "img", "mime_type": "image/png",
-                   "caption": "cap"}},
-        {"type": "audio", "from": "1", "id": "m6", "timestamp": "1",
-         "audio": {"id": "aud", "mime_type": "audio/ogg"}},
-        {"type": "location", "from": "1", "id": "m7", "timestamp": "1",
-         "location": {"latitude": 1.0, "longitude": 2.0,
-                      "name": "Pin"}},
-        {"type": "contacts", "from": "1", "id": "m8", "timestamp": "1",
-         "contacts": [{"name": "x"}]},
-        {"type": "reaction", "from": "1", "id": "m9", "timestamp": "1",
-         "reaction": {"emoji": "❤️", "message_id": "m1"}},
-        {"type": "sticker", "from": "1", "id": "m10", "timestamp": "1",
-         "sticker": {"id": "st", "animated": True}},
-        {"type": "system", "from": "1", "id": "m11", "timestamp": "1",
-         "system": {"body": "sys msg"}},
-        {"type": "unknown", "from": "1", "id": "m12", "timestamp": "1",
-         "errors": [{"message": "unsupported!"}]},
-        {"type": "text", "from": "1", "id": "m13", "timestamp": "1",
-         "text": {"body": "reply"},
-         "context": {"id": "m1", "from": "3069"}},
+        {"type": "text", "from": "3069", "id": "m1", "timestamp": "1700000000", "text": {"body": "hi"}},
+        {"type": "button", "from": "3069", "id": "m2", "timestamp": "bad", "button": {"text": "b", "payload": "p"}},
+        {"type": "interactive", "from": "1", "id": "m3", "timestamp": "1", "interactive": {"type": "button_reply", "button_reply": {"title": "T", "id": "r1"}}},
+        {"type": "interactive", "from": "1", "id": "m4", "timestamp": "1", "interactive": {"type": "list_reply", "list_reply": {"title": "L", "id": "r2"}}},
+        {"type": "image", "from": "1", "id": "m5", "timestamp": "1", "image": {"id": "img", "mime_type": "image/png", "caption": "cap"}},
+        {"type": "audio", "from": "1", "id": "m6", "timestamp": "1", "audio": {"id": "aud", "mime_type": "audio/ogg"}},
+        {"type": "location", "from": "1", "id": "m7", "timestamp": "1", "location": {"latitude": 1.0, "longitude": 2.0, "name": "Pin"}},
+        {"type": "contacts", "from": "1", "id": "m8", "timestamp": "1", "contacts": [{"name": "x"}]},
+        {"type": "reaction", "from": "1", "id": "m9", "timestamp": "1", "reaction": {"emoji": "❤️", "message_id": "m1"}},
+        {"type": "sticker", "from": "1", "id": "m10", "timestamp": "1", "sticker": {"id": "st", "animated": True}},
+        {"type": "system", "from": "1", "id": "m11", "timestamp": "1", "system": {"body": "sys msg"}},
+        {"type": "unknown", "from": "1", "id": "m12", "timestamp": "1", "errors": [{"message": "unsupported!"}]},
+        {"type": "text", "from": "1", "id": "m13", "timestamp": "1", "text": {"body": "reply"}, "context": {"id": "m1", "from": "3069"}},
     ]
     ev = W.parse_webhook_event(_hook(messages=msgs, contacts=contacts))
     assert len(ev) == 13
@@ -291,13 +246,15 @@ def test_parse_webhook_event_message_types():
 
 
 def test_parse_webhook_event_statuses():
-    ev = W.parse_webhook_event(_hook(statuses=[
-        {"recipient_id": "3069", "id": "s1", "status": "delivered",
-         "timestamp": "1700000000"},
-        {"recipient_id": "3069", "id": "s2", "status": "read",
-         "timestamp": "junk"},
-        {"recipient_id": "3069", "id": "s3", "status": "sent",
-         "timestamp": ""}]))
+    ev = W.parse_webhook_event(
+        _hook(
+            statuses=[
+                {"recipient_id": "3069", "id": "s1", "status": "delivered", "timestamp": "1700000000"},
+                {"recipient_id": "3069", "id": "s2", "status": "read", "timestamp": "junk"},
+                {"recipient_id": "3069", "id": "s3", "status": "sent", "timestamp": ""},
+            ]
+        )
+    )
     assert ev[0]["message_type"] == "status"
     assert ev[0]["status"] == "delivered" and ev[0]["timestamp"] == 1700000000
     assert ev[1]["timestamp"] == 0 and ev[2]["timestamp"] == 0
@@ -306,10 +263,8 @@ def test_parse_webhook_event_statuses():
 @pytest.mark.asyncio
 async def test_template_components_and_validation(client):
     # send_template with components → forwarded in body (line 123)
-    out = await client.send_template("+302101111111", "promo", "en",
-                                     components=[{"type": "body"}])
-    assert client._calls[-1]["json_body"]["template"]["components"] == \
-        [{"type": "body"}]
+    out = await client.send_template("+302101111111", "promo", "en", components=[{"type": "body"}])
+    assert client._calls[-1]["json_body"]["template"]["components"] == [{"type": "body"}]
 
     # verify_code non-digit → ValueError (line 447)
     with pytest.raises(ValueError, match="numeric"):
@@ -321,7 +276,6 @@ async def test_template_components_and_validation(client):
 
     # status check fully fails (both fallback GETs raise) → outer except
     # path, request_code still attempted (lines 412-414)
-    client._client.request = AsyncMock(side_effect=[
-        Exception("a"), Exception("b"), {"success": True}])
+    client._client.request = AsyncMock(side_effect=[Exception("a"), Exception("b"), {"success": True}])
     out = await client.request_verification_code("999")
     assert out == {"success": True}

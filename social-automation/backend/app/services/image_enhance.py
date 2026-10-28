@@ -13,6 +13,7 @@ DMR-first (local, free), Cloudflare failover:
 
 All AI operations fall back to Cloudflare if DMR is unavailable.
 """
+
 from __future__ import annotations
 
 import base64
@@ -32,9 +33,11 @@ settings = get_settings()
 
 # ── Quality Scoring (local, no AI) ────────────────────────────────────────────
 
+
 @dataclass
 class ImageQualityScore:
     """Image quality assessment result."""
+
     overall: int  # 0-100
     sharpness: int  # 0-100
     brightness: int  # 0-100
@@ -58,12 +61,14 @@ def score_image_quality(image_bytes: bytes) -> ImageQualityScore:
         gray = img
 
     # Sharpness via Laplacian variance
-    laplacian = gray.filter(ImageFilter.Kernel(
-        size=(3, 3),
-        kernel=[0, -1, 0, -1, 4, -1, 0, -1, 0],
-        scale=1,
-        offset=0,
-    ))
+    laplacian = gray.filter(
+        ImageFilter.Kernel(
+            size=(3, 3),
+            kernel=[0, -1, 0, -1, 4, -1, 0, -1, 0],
+            scale=1,
+            offset=0,
+        )
+    )
     stat = ImageStat.Stat(laplacian)
     laplacian_var = stat.var[0] if stat.var else 0
     # Map variance to 0-100 (empirical thresholds)
@@ -119,6 +124,7 @@ def score_image_quality(image_bytes: bytes) -> ImageQualityScore:
 
 # ── Upscaling (local Pillow, free) ────────────────────────────────────────────
 
+
 def upscale_image(image_bytes: bytes, scale: int = 2) -> tuple[bytes, str, int, int]:
     """Upscale image using Pillow LANCZOS resampling.
 
@@ -152,6 +158,7 @@ def upscale_image(image_bytes: bytes, scale: int = 2) -> tuple[bytes, str, int, 
 
 
 # ── Background Removal (Cloudflare Workers AI) ────────────────────────────────
+
 
 async def remove_background_cf(image_bytes: bytes) -> bytes | None:
     """Remove image background using Cloudflare Workers AI.
@@ -241,6 +248,7 @@ async def remove_background(image_bytes: bytes) -> tuple[bytes, str]:
     # Fallback: try local rembg
     try:
         from rembg import remove as rembg_remove
+
         result = rembg_remove(image_bytes)
         if result is None:
             raise RuntimeError("rembg returned None")
@@ -251,6 +259,7 @@ async def remove_background(image_bytes: bytes) -> tuple[bytes, str]:
 
 
 # ── Smart Crop (AI subject detection + Pillow crop) ───────────────────────────
+
 
 async def _dmr_vision_query(data_uri: str, prompt: str, max_tokens: int = 60) -> str | None:
     """Call DMR qwen3-vl (local) for a vision query. Returns text or None.
@@ -419,6 +428,7 @@ async def smart_crop_async(
 
 
 # ── AI Alt Text Generation ────────────────────────────────────────────────────
+
 
 async def generate_alt_text(image_bytes: bytes) -> str | None:
     """Generate accessibility-focused alt text for screen readers.

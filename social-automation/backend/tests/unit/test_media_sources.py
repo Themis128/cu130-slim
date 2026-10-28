@@ -18,9 +18,12 @@ pytestmark = pytest.mark.asyncio
 
 _S = SimpleNamespace(
     NEXTCLOUD_DAV_URL="https://nc.example/remote.php/dav/files/bot/",
-    NEXTCLOUD_USERNAME="bot", NEXTCLOUD_APP_PASSWORD="pw",
-    GOOGLE_PHOTOS_CLIENT_ID="cid", GOOGLE_PHOTOS_CLIENT_SECRET="sec",
-    GOOGLE_PHOTOS_REFRESH_TOKEN="rt", GOOGLE_DRIVE_REFRESH_TOKEN="",
+    NEXTCLOUD_USERNAME="bot",
+    NEXTCLOUD_APP_PASSWORD="pw",
+    GOOGLE_PHOTOS_CLIENT_ID="cid",
+    GOOGLE_PHOTOS_CLIENT_SECRET="sec",
+    GOOGLE_PHOTOS_REFRESH_TOKEN="rt",
+    GOOGLE_DRIVE_REFRESH_TOKEN="",
 )
 
 _PROPFIND = """<?xml version="1.0"?>
@@ -66,10 +69,8 @@ async def test_nextcloud_list_parses_propfind(http):
 
     http["handler"] = h
     files = await ms.nextcloud_list("/Photos/")
-    assert seen == {"m": "PROPFIND", "url": "https://nc.example/remote.php/dav/files/bot/Photos",
-                    "depth": "1"}
-    assert [(f.name, f.is_dir, f.size, f.mime_type) for f in files] == [
-        ("a b.jpg", False, 12, "image/jpeg"), ("Sub", True, 0, "")]
+    assert seen == {"m": "PROPFIND", "url": "https://nc.example/remote.php/dav/files/bot/Photos", "depth": "1"}
+    assert [(f.name, f.is_dir, f.size, f.mime_type) for f in files] == [("a b.jpg", False, 12, "image/jpeg"), ("Sub", True, 0, "")]
     assert files[0].id == "Photos/a b.jpg"
 
 
@@ -80,8 +81,7 @@ async def test_nextcloud_list_error(http):
 
 
 async def test_nextcloud_download_mime_from_header_and_guess(http):
-    http["handler"] = lambda r: httpx.Response(
-        200, content=b"x", headers={"content-type": "image/png; q=1"})
+    http["handler"] = lambda r: httpx.Response(200, content=b"x", headers={"content-type": "image/png; q=1"})
     assert await ms.nextcloud_download("P/a.png") == (b"x", "image/png")
     http["handler"] = lambda r: httpx.Response(200, content=b"y")
     assert await ms.nextcloud_download("P/a.jpg") == (b"y", "image/jpeg")
@@ -124,11 +124,14 @@ async def test_gdrive_token_paths(http, monkeypatch):
         await ms._gdrive_token()
 
 
-@pytest.mark.parametrize(("kw", "needle"), [
-    ({"folder_id": "F"}, "'F' in parents"),
-    ({"query": "cat"}, "name contains 'cat'"),
-    ({}, "mimeType contains 'image/'"),
-])
+@pytest.mark.parametrize(
+    ("kw", "needle"),
+    [
+        ({"folder_id": "F"}, "'F' in parents"),
+        ({"query": "cat"}, "name contains 'cat'"),
+        ({}, "mimeType contains 'image/'"),
+    ],
+)
 async def test_gdrive_list_queries(http, monkeypatch, kw, needle):
     monkeypatch.setattr(ms, "_gdrive_token", AsyncMock(return_value="T"))
     seen = {}
@@ -136,10 +139,15 @@ async def test_gdrive_list_queries(http, monkeypatch, kw, needle):
     def h(req):
         seen["q"] = req.url.params["q"]
         seen["auth"] = req.headers["Authorization"]
-        return httpx.Response(200, json={"files": [
-            {"id": "1", "name": "a.jpg", "mimeType": "image/jpeg", "size": "5"},
-            {"id": "2", "name": "dir", "mimeType": "application/vnd.google-apps.folder"},
-        ]})
+        return httpx.Response(
+            200,
+            json={
+                "files": [
+                    {"id": "1", "name": "a.jpg", "mimeType": "image/jpeg", "size": "5"},
+                    {"id": "2", "name": "dir", "mimeType": "application/vnd.google-apps.folder"},
+                ]
+            },
+        )
 
     http["handler"] = h
     files = await ms.gdrive_list(**kw)
@@ -209,8 +217,7 @@ async def test_api_nextcloud_files(monkeypatch):
 
 
 async def test_api_nextcloud_import(monkeypatch):
-    monkeypatch.setattr(ms, "nextcloud_download", AsyncMock(
-        side_effect=[(b"d", "image/jpeg"), MediaSourceError("gone")]))
+    monkeypatch.setattr(ms, "nextcloud_download", AsyncMock(side_effect=[(b"d", "image/jpeg"), MediaSourceError("gone")]))
     save = AsyncMock(return_value=SimpleNamespace(id="A1"))
     monkeypatch.setattr(api, "save_uploaded_media", save)
     db = _db(team=SimpleNamespace(team_id="T1"))
@@ -222,8 +229,7 @@ async def test_api_nextcloud_import(monkeypatch):
 
 
 async def test_api_imports_without_team_400():
-    for fn, body in ((api.nextcloud_import, api.NcImport(paths=["a"])),
-                     (api.gdrive_import, api.GdImport(file_ids=["a"]))):
+    for fn, body in ((api.nextcloud_import, api.NcImport(paths=["a"])), (api.gdrive_import, api.GdImport(file_ids=["a"]))):
         with pytest.raises(HTTPException) as e:
             await fn(body, db=_db(team=None), user=_user())
         assert e.value.status_code == 400
@@ -250,15 +256,12 @@ async def test_api_gdrive_files(monkeypatch):
 
 
 async def test_api_gdrive_import(monkeypatch):
-    monkeypatch.setattr(ms, "gdrive_list", AsyncMock(return_value=[
-        RemoteFile(id="F1", name="pic.jpg", mime_type="image/jpeg", size=1, is_dir=False)]))
-    monkeypatch.setattr(ms, "gdrive_download", AsyncMock(
-        side_effect=[(b"d", "image/jpeg"), (b"e", "image/png"), MediaSourceError("x")]))
+    monkeypatch.setattr(ms, "gdrive_list", AsyncMock(return_value=[RemoteFile(id="F1", name="pic.jpg", mime_type="image/jpeg", size=1, is_dir=False)]))
+    monkeypatch.setattr(ms, "gdrive_download", AsyncMock(side_effect=[(b"d", "image/jpeg"), (b"e", "image/png"), MediaSourceError("x")]))
     save = AsyncMock(return_value=SimpleNamespace(id="A"))
     monkeypatch.setattr(api, "save_uploaded_media", save)
     db = _db()
-    out = await api.gdrive_import(api.GdImport(file_ids=["F1", "F2", "F3"]), db=db,
-                                  user=_user(team_id="T9"))
+    out = await api.gdrive_import(api.GdImport(file_ids=["F1", "F2", "F3"]), db=db, user=_user(team_id="T9"))
     assert out["imported"] == ["A", "A"] and out["errors"][0]["file_id"] == "F3"
     names = [c.kwargs["original_filename"] for c in save.await_args_list]
     assert names == ["pic.jpg", "F2"]
@@ -334,8 +337,7 @@ async def test_nc_media_sync_list_error(nc_task, monkeypatch):
     assert await nc_task.T._sync("X") == {"error": "boom"}
 
 
-@pytest.mark.parametrize(("user", "team", "why"), [
-    (None, None, "no user"), (SimpleNamespace(id="u"), None, "no team")])
+@pytest.mark.parametrize(("user", "team", "why"), [(None, None, "no user"), (SimpleNamespace(id="u"), None, "no team")])
 async def test_nc_media_sync_missing_owner(nc_task, monkeypatch, user, team, why):
     monkeypatch.setattr(ms, "nextcloud_list", AsyncMock(return_value=[]))
     nc_task.db = _sync_db([_first(user), _first(team)])
@@ -347,10 +349,8 @@ async def test_nc_media_sync_imports_new_only(nc_task, monkeypatch):
     old = RemoteFile(id="Photos/o.jpg", name="o.jpg", mime_type="image/jpeg", size=1, is_dir=False)
     bad = RemoteFile(id="Photos/b.mp4", name="b.mp4", mime_type="video/mp4", size=1, is_dir=False)
     monkeypatch.setattr(ms, "nextcloud_list", AsyncMock(return_value=[new, old, bad, _DOC, _DIR]))
-    monkeypatch.setattr(ms, "nextcloud_download", AsyncMock(
-        side_effect=[(b"d", "image/jpeg"), MediaSourceError("x")]))
-    nc_task.db = _sync_db([_first(SimpleNamespace(id="u")),
-                           _first(SimpleNamespace(team_id="t")), _all(["Photos/o.jpg"])])
+    monkeypatch.setattr(ms, "nextcloud_download", AsyncMock(side_effect=[(b"d", "image/jpeg"), MediaSourceError("x")]))
+    nc_task.db = _sync_db([_first(SimpleNamespace(id="u")), _first(SimpleNamespace(team_id="t")), _all(["Photos/o.jpg"])])
     out = await nc_task.T._sync(None)
     assert out["folder"] == "Photos" and out["new"] == ["n.jpg"] and out["skipped"] == 1
     assert out["errors"][0]["path"] == "Photos/b.mp4"

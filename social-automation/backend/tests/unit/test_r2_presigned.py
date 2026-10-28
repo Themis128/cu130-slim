@@ -1,4 +1,5 @@
 """Unit tests for R2 presigned URL helpers (stdlib SigV4 signer)."""
+
 from __future__ import annotations
 
 from unittest.mock import patch

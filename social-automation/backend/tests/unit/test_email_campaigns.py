@@ -1,4 +1,5 @@
 """Coverage for app/services/email_campaigns.py — funnel + suppression logic."""
+
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -11,11 +12,22 @@ from app.models.email_campaign import CampaignKind, CampaignStatus, RecipientSta
 
 def _campaign(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), name="Camp", kind=CampaignKind.marketing,
-        subject="S", text_body="Hi {{first_name}}", html_body=None,
-        from_name="Cloudless", reply_to=None, status=CampaignStatus.draft,
-        sent_at=None, espocrm_target_list_id=None, survey_url=None,
-        meta_data={}, created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="Camp",
+        kind=CampaignKind.marketing,
+        subject="S",
+        text_body="Hi {{first_name}}",
+        html_body=None,
+        from_name="Cloudless",
+        reply_to=None,
+        status=CampaignStatus.draft,
+        sent_at=None,
+        espocrm_target_list_id=None,
+        survey_url=None,
+        meta_data={},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
     d.update(kw)
     return SimpleNamespace(**d)
@@ -23,10 +35,17 @@ def _campaign(**kw):
 
 def _recipient(**kw):
     d = dict(
-        id=uuid.uuid4(), campaign_id=uuid.uuid4(), team_id=uuid.uuid4(),
-        lead_id=None, email="client@example.com", name="Client",
-        status=RecipientStatus.pending, error=None, token="tok123",
-        sent_at=None, created_at=datetime.now(UTC),
+        id=uuid.uuid4(),
+        campaign_id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        lead_id=None,
+        email="client@example.com",
+        name="Client",
+        status=RecipientStatus.pending,
+        error=None,
+        token="tok123",
+        sent_at=None,
+        created_at=datetime.now(UTC),
     )
     d.update(kw)
     return SimpleNamespace(**d)
@@ -102,16 +121,20 @@ class TestMergeTags:
         assert 'href="https://u/x"' in html  # unsubscribe link appended
 
     def test_build_bodies_personalizes_from_crm(self):
-        c = _campaign(
-            text_body="{{first_name}} at {{crm_company}} ({{crm_industry}}) — {{crm_entity}}"
-        )
+        c = _campaign(text_body="{{first_name}} at {{crm_company}} ({{crm_industry}}) — {{crm_entity}}")
         r = _recipient(name=None)
         text, html = S.build_bodies(
-            c, r, "https://u/x",
+            c,
+            r,
+            "https://u/x",
             crm={
-                "id": "abc", "firstName": "Maria", "lastName": "Galani",
-                "accountName": "Galani Psych", "industry": "Healthcare",
-                "phoneNumber": "+30 210 555", "doNotCall": False,
+                "id": "abc",
+                "firstName": "Maria",
+                "lastName": "Galani",
+                "accountName": "Galani Psych",
+                "industry": "Healthcare",
+                "phoneNumber": "+30 210 555",
+                "doNotCall": False,
                 "entity": "Contact",
             },
         )
@@ -127,11 +150,18 @@ class TestMergeTags:
         assert "Ana" in text and "{{crm_no_such_field}}" in text
 
     def test_crm_ctx_flattens_and_aliases(self):
-        ctx = S._crm_ctx({
-            "id": "x", "accountName": "Acme", "phoneNumber": "123",
-            "addressCity": "Athens", "assignedUserName": "Themis",
-            "doNotCall": True, "meta": {"nested": 1}, "empty": "  ",
-        })
+        ctx = S._crm_ctx(
+            {
+                "id": "x",
+                "accountName": "Acme",
+                "phoneNumber": "123",
+                "addressCity": "Athens",
+                "assignedUserName": "Themis",
+                "doNotCall": True,
+                "meta": {"nested": 1},
+                "empty": "  ",
+            }
+        )
         assert ctx["crm_account_name"] == "Acme"
         assert ctx["crm_company"] == "Acme"  # alias
         assert ctx["crm_phone"] == "123" and ctx["crm_city"] == "Athens"
@@ -147,7 +177,8 @@ class TestAudience:
         db = _DB([_Res(["old@example.com"])])  # first execute = suppression emails
         campaign = _campaign()
         recs = await S.resolve_audience(
-            db, campaign,
+            db,
+            campaign,
             explicit_emails=[
                 {"email": "new@example.com", "name": "N"},
                 {"email": "NEW@example.com"},  # dup, case-insensitive
@@ -165,12 +196,15 @@ class TestAudience:
     @pytest.mark.asyncio
     async def test_explicit_emails_link_existing_leads(self):
         lead_id = uuid.uuid4()
-        db = _DB([
-            _Res([]),  # suppression list
-            _Res([(lead_id, "known@example.com")]),  # lead lookup by email
-        ])
+        db = _DB(
+            [
+                _Res([]),  # suppression list
+                _Res([(lead_id, "known@example.com")]),  # lead lookup by email
+            ]
+        )
         recs = await S.resolve_audience(
-            db, _campaign(),
+            db,
+            _campaign(),
             explicit_emails=[
                 {"email": "known@example.com", "name": "K"},
                 {"email": "stranger@example.com"},
@@ -189,9 +223,7 @@ class TestSurveyValidation:
     ]
 
     def test_clean_answers(self):
-        clean, errors = S.validate_answers(
-            self.Q, {"sat": "5", "pick": "a", "notes": " nice ", "junk": "x"}
-        )
+        clean, errors = S.validate_answers(self.Q, {"sat": "5", "pick": "a", "notes": " nice ", "junk": "x"})
         assert errors == []
         assert clean == {"sat": 5, "pick": "a", "notes": "nice"}  # junk dropped
 
@@ -211,14 +243,18 @@ class TestSubmitSurvey:
             meta_data={"questions": [{"id": "sat", "label": "S", "type": "rating", "required": True}]},
         )
         lead = SimpleNamespace(
-            id=rec.lead_id, notes=None, meta_data={"espocrm_lead_id": "crm123"},
+            id=rec.lead_id,
+            notes=None,
+            meta_data={"espocrm_lead_id": "crm123"},
         )
         db = _DB([_Res([rec]), _Res([campaign]), _Res([]), _Res([lead])])
 
         noted = []
+
         async def fake_note(crm_id, text, entity="Lead"):
             noted.append((crm_id, text))
             return True
+
         monkeypatch.setattr(S.espocrm_client, "add_lead_note", fake_note)
 
         resp, errors = await S.submit_survey(db, rec.token, {"sat": "4"})
@@ -267,7 +303,8 @@ class TestDuplicateCampaignGate:
     @pytest.mark.asyncio
     async def test_matches_sent_campaign(self):
         sent = _campaign(
-            name="Launch promo", status=CampaignStatus.sent,
+            name="Launch promo",
+            status=CampaignStatus.sent,
             subject="Cloudless launch offer",
             text_body="Hi {{first_name}}, our free 30-minute audit closes Friday — book your slot now.",
         )
@@ -299,13 +336,15 @@ class TestDuplicateCampaignGate:
         # Identical footer/sign-off must not push two different emails over the line.
         footer = "\n\n— Themis, Cloudless\nUnsubscribe link at the bottom of every email."
         sent = _campaign(
-            status=CampaignStatus.sent, subject="Audit slots open",
+            status=CampaignStatus.sent,
+            subject="Audit slots open",
             text_body=(
                 "Your infrastructure audit slots for November are open. In thirty "
                 "minutes we map every server you run, flag what Cloudflare Workers "
                 "and Pages can absorb, and hand you a written migration plan with "
                 "real cost deltas — the same review we run on our own stack."
-            ) + footer,
+            )
+            + footer,
         )
         new = _campaign(
             subject="Survey: rate onboarding",
@@ -313,7 +352,8 @@ class TestDuplicateCampaignGate:
                 "Two questions about your first week with cloudless.gr — how did "
                 "the migration feel, and what should we document better? It takes "
                 "under a minute and feeds straight into our CRM."
-            ) + footer,
+            )
+            + footer,
         )
         db = _DB([_Res([sent])])
         dup, score = await S.find_duplicate_campaign(db, new)
@@ -322,18 +362,22 @@ class TestDuplicateCampaignGate:
     @pytest.mark.asyncio
     async def test_send_refuses_duplicate(self, monkeypatch):
         sent_prev = _campaign(
-            name="Old", status=CampaignStatus.sent,
-            subject="Launch offer", text_body="Hi {{first_name}}, grab the deal.",
+            name="Old",
+            status=CampaignStatus.sent,
+            subject="Launch offer",
+            text_body="Hi {{first_name}}, grab the deal.",
         )
         camp = _campaign(subject="Launch offer", text_body="Hi {{first_name}}, grab the deal.")
         db = _DB([_Res([camp]), _Res([sent_prev])])
 
         class _CM:
-            async def __aenter__(self): return db
-            async def __aexit__(self, *a): return False
-        monkeypatch.setattr(
-            "app.db.session.async_session_maker", lambda: _CM()
-        )
+            async def __aenter__(self):
+                return db
+
+            async def __aexit__(self, *a):
+                return False
+
+        monkeypatch.setattr("app.db.session.async_session_maker", lambda: _CM())
         result = await S.send_campaign(uuid.UUID(str(camp.id)) if not isinstance(camp.id, uuid.UUID) else camp.id)
         assert result["error"] == "duplicate_campaign"
         assert result["duplicate_of"] == str(sent_prev.id)
@@ -378,8 +422,11 @@ class TestBrandedRenderer:
             "P.S. If the timing is wrong, that is fine."
         )
         h = render_branded_html(
-            txt, subject="Subj", from_name="Cloudless",
-            preheader="preview", hero_url="https://example.com/h.png",
+            txt,
+            subject="Subj",
+            from_name="Cloudless",
+            preheader="preview",
+            hero_url="https://example.com/h.png",
         )
         assert "{{first_name}}" in h  # merge fields survive for send-time render
         assert 'src="https://example.com/h.png"' in h
@@ -393,11 +440,11 @@ class TestBrandedRenderer:
         from app.services.email_brand import render_branded_html
 
         h1 = render_branded_html("Body.\n\nCTA: Book a review | https://x.test/go")
-        assert 'border-radius:999px' in h1 and 'href="https://x.test/go"' in h1
+        assert "border-radius:999px" in h1 and 'href="https://x.test/go"' in h1
         assert "Book a review" in h1
 
         h2 = render_branded_html("Body.\n\n[See plans](https://x.test/plans)")
-        assert 'border-radius:999px' in h2 and 'href="https://x.test/plans"' in h2
+        assert "border-radius:999px" in h2 and 'href="https://x.test/plans"' in h2
 
     def test_html_escaping(self):
         from app.services.email_brand import render_branded_html
@@ -426,4 +473,4 @@ def test_parse_cta_line_rejects_bad_url():
 
     assert _parse_cta_line("CTA: Book | notaurl") is None
     assert _parse_cta_line("CTA: Book | https://x y") is None  # space in url
-    assert _parse_cta_line("CTA:  | https://ok.gr") is None   # empty label
+    assert _parse_cta_line("CTA:  | https://ok.gr") is None  # empty label

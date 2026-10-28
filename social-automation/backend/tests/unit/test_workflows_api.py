@@ -24,23 +24,38 @@ def _user() -> SimpleNamespace:
 
 def _wf(**kw) -> SimpleNamespace:
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), user_id=uuid.uuid4(),
-        prompt_text="p", n8n_workflow_json={"name": "w", "nodes": []},
-        n8n_workflow_id=None, status="draft", template_id=None,
-        variables_used={}, created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC))
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        prompt_text="p",
+        n8n_workflow_json={"name": "w", "nodes": []},
+        n8n_workflow_id=None,
+        status="draft",
+        template_id=None,
+        variables_used={},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
     d.update(kw)
     return SimpleNamespace(**d)
 
 
 def _tpl(**kw) -> SimpleNamespace:
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), user_id=uuid.uuid4(),
-        name="t", description=None, prompt_template="do {{thing}}",
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        name="t",
+        description=None,
+        prompt_template="do {{thing}}",
         n8n_workflow_json={"name": "tpl", "nodes": []},
-        category="linkedin", tags=["x"], is_public=True,
-        usage_count=0, created_at=datetime.now(UTC),
-        updated_at=datetime.now(UTC))
+        category="linkedin",
+        tags=["x"],
+        is_public=True,
+        usage_count=0,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -173,8 +188,7 @@ async def test_templates_crud():
     assert await W.list_templates(tid, "linkedin", _user(), db) == tps
 
     # create — no team → 400
-    data = W.PromptTemplateCreate(
-        name="n", prompt_template="p", n8n_workflow_json={})
+    data = W.PromptTemplateCreate(name="n", prompt_template="p", n8n_workflow_json={})
     with pytest.raises(HTTPException) as e:
         await W.create_template(data, tid, _user(), _DB())
     assert e.value.status_code == 400
@@ -193,18 +207,14 @@ async def test_templates_crud():
 
     # update — 404, allowed-fields filter
     with pytest.raises(HTTPException):
-        await W.update_template(uuid.uuid4(), {}, tid, _user(),
-                                _DB(queue=[_Res()]))
+        await W.update_template(uuid.uuid4(), {}, tid, _user(), _DB(queue=[_Res()]))
     db = _DB(queue=[_Res(one=tpl)])
-    out = await W.update_template(
-        tpl.id, {"name": "renamed", "team_id": "FORGED", "category": "x"},
-        tid, _user(), db)
+    out = await W.update_template(tpl.id, {"name": "renamed", "team_id": "FORGED", "category": "x"}, tid, _user(), db)
     assert out.name == "renamed" and out.team_id == tpl.team_id
 
     # delete — 404 + happy
     with pytest.raises(HTTPException):
-        await W.delete_template(uuid.uuid4(), tid, _user(),
-                                _DB(queue=[_Res()]))
+        await W.delete_template(uuid.uuid4(), tid, _user(), _DB(queue=[_Res()]))
     db = _DB(queue=[_Res(one=tpl)])
     await W.delete_template(tpl.id, tid, _user(), db)
     assert db.deleted == [tpl]
@@ -216,8 +226,7 @@ async def test_templates_crud():
 @pytest.mark.asyncio
 async def test_content_templates():
     tid = uuid.uuid4()
-    data = W.ContentTemplateCreate(
-        name="ct", system_prompt="s", user_prompt_template="u")
+    data = W.ContentTemplateCreate(name="ct", system_prompt="s", user_prompt_template="u")
 
     # _resolve_team_id → 404 when no team
     with pytest.raises(HTTPException) as e:
@@ -226,14 +235,22 @@ async def test_content_templates():
 
     team = _team()
     tpl = SimpleNamespace(
-        id=uuid.uuid4(), team_id=team.id, name="ct",
-        pillar_id=None, platform=None, tone=None, system_prompt="s",
-        user_prompt_template="u", variables=[], is_default=False,
-        created_at=datetime.now(UTC), updated_at=datetime.now(UTC))
+        id=uuid.uuid4(),
+        team_id=team.id,
+        name="ct",
+        pillar_id=None,
+        platform=None,
+        tone=None,
+        system_prompt="s",
+        user_prompt_template="u",
+        variables=[],
+        is_default=False,
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
 
     db = _DB(team=team, queue=[_Res(scalars=[tpl])])
-    out = await W.list_content_templates(
-        tid, uuid.uuid4(), "x", "casual", _user(), db)
+    out = await W.list_content_templates(tid, uuid.uuid4(), "x", "casual", _user(), db)
     assert out == [tpl]
 
     # create
@@ -243,8 +260,7 @@ async def test_content_templates():
 
     # update 404 + happy
     with pytest.raises(HTTPException):
-        await W.update_content_template(uuid.uuid4(), data, tid, _user(),
-                                        _DB(team=team, queue=[_Res()]))
+        await W.update_content_template(uuid.uuid4(), data, tid, _user(), _DB(team=team, queue=[_Res()]))
     db = _DB(team=team, queue=[_Res(one=tpl)])
     out = await W.update_content_template(tpl.id, data, tid, _user(), db)
     assert out.name == "ct"
@@ -278,29 +294,25 @@ async def test_generate_workflow(monkeypatch):
 
     # AI path — valid dict returned
     import app.services.inference as INF
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        return_value={"name": "ai-wf", "nodes": [{"n": 1}],
-                      "connections": {}, "settings": {}}))
+
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"name": "ai-wf", "nodes": [{"n": 1}], "connections": {}, "settings": {}}))
     req = W.WorkflowGenerateRequest(prompt="daily digest")
     db = _DB(team=team)
     out = await W.generate_workflow(req, tid, _user(), db)
     assert out.n8n_workflow_json["name"] == "ai-wf"
 
     # AI returns dict missing "nodes" → fallback
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        return_value={"name": "broken"}))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"name": "broken"}))
     out = await W.generate_workflow(req, tid, _user(), _DB(team=team))
     assert out.n8n_workflow_json["nodes"]  # fallback has nodes
 
     # AI raises → fallback
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        side_effect=RuntimeError("down")))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(side_effect=RuntimeError("down")))
     out = await W.generate_workflow(req, tid, _user(), _DB(team=team))
     assert out.n8n_workflow_json["nodes"]
 
     # non-dict AI result → fallback
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(
-        return_value="raw text"))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value="raw text"))
     out = await W.generate_workflow(req, tid, _user(), _DB(team=team))
     assert out.n8n_workflow_json["nodes"]
 
@@ -362,8 +374,7 @@ async def test_deploy_workflow(monkeypatch):
 
     wf = _wf()
     # n8n error → 500
-    http = _Http(post=AsyncMock(return_value=SimpleNamespace(
-        status_code=500, text="boom")))
+    http = _Http(post=AsyncMock(return_value=SimpleNamespace(status_code=500, text="boom")))
     _patch_http(monkeypatch, http)
     db = _DB(queue=[_Res(one=wf)])
     with pytest.raises(HTTPException) as e:
@@ -371,8 +382,7 @@ async def test_deploy_workflow(monkeypatch):
     assert e.value.status_code == 500
 
     # happy → n8n id stored, status deployed
-    http = _Http(post=AsyncMock(return_value=SimpleNamespace(
-        status_code=201, json=lambda: {"id": "n8n-123"})))
+    http = _Http(post=AsyncMock(return_value=SimpleNamespace(status_code=201, json=lambda: {"id": "n8n-123"})))
     _patch_http(monkeypatch, http)
     db = _DB(queue=[_Res(one=wf)])
     out = await W.deploy_workflow(wf.id, tid, _user(), db)
@@ -385,28 +395,23 @@ async def test_undeploy_workflow(monkeypatch):
 
     # not found → 404; not deployed → 400
     with pytest.raises(HTTPException):
-        await W.undeploy_workflow(uuid.uuid4(), tid, _user(),
-                                  _DB(queue=[_Res()]))
+        await W.undeploy_workflow(uuid.uuid4(), tid, _user(), _DB(queue=[_Res()]))
     wf = _wf(n8n_workflow_id=None)
     with pytest.raises(HTTPException) as e:
-        await W.undeploy_workflow(wf.id, tid, _user(),
-                                  _DB(queue=[_Res(one=wf)]))
+        await W.undeploy_workflow(wf.id, tid, _user(), _DB(queue=[_Res(one=wf)]))
     assert e.value.status_code == 400
 
     # n8n delete fails → 500
     wf = _wf(n8n_workflow_id="n1", status="deployed")
-    http = _Http(delete=AsyncMock(return_value=SimpleNamespace(
-        status_code=500, text="x")))
+    http = _Http(delete=AsyncMock(return_value=SimpleNamespace(status_code=500, text="x")))
     _patch_http(monkeypatch, http)
     with pytest.raises(HTTPException) as e:
-        await W.undeploy_workflow(wf.id, tid, _user(),
-                                  _DB(queue=[_Res(one=wf)]))
+        await W.undeploy_workflow(wf.id, tid, _user(), _DB(queue=[_Res(one=wf)]))
     assert e.value.status_code == 500
 
     # happy → deactivate + delete, status back to draft
     wf = _wf(n8n_workflow_id="n1", status="deployed")
-    http = _Http(delete=AsyncMock(return_value=SimpleNamespace(
-        status_code=204)))
+    http = _Http(delete=AsyncMock(return_value=SimpleNamespace(status_code=204)))
     _patch_http(monkeypatch, http)
     db = _DB(queue=[_Res(one=wf)])
     out = await W.undeploy_workflow(wf.id, tid, _user(), db)
@@ -420,24 +425,19 @@ async def test_execute_workflow(monkeypatch):
     # not deployed → 404
     wf = _wf(n8n_workflow_id=None)
     with pytest.raises(HTTPException):
-        await W.execute_workflow(wf.id, tid, _user(),
-                                 _DB(queue=[_Res(one=wf)]), {})
+        await W.execute_workflow(wf.id, tid, _user(), _DB(queue=[_Res(one=wf)]), {})
 
     # n8n failure → 500
     wf = _wf(n8n_workflow_id="n1")
-    http = _Http(post=AsyncMock(return_value=SimpleNamespace(
-        status_code=500, text="boom")))
+    http = _Http(post=AsyncMock(return_value=SimpleNamespace(status_code=500, text="boom")))
     _patch_http(monkeypatch, http)
     with pytest.raises(HTTPException):
-        await W.execute_workflow(wf.id, tid, _user(),
-                                 _DB(queue=[_Res(one=wf)]), {})
+        await W.execute_workflow(wf.id, tid, _user(), _DB(queue=[_Res(one=wf)]), {})
 
     # happy → execution id
-    http = _Http(post=AsyncMock(return_value=SimpleNamespace(
-        status_code=200, json=lambda: {"id": "exec-9"})))
+    http = _Http(post=AsyncMock(return_value=SimpleNamespace(status_code=200, json=lambda: {"id": "exec-9"})))
     _patch_http(monkeypatch, http)
-    out = await W.execute_workflow(wf.id, tid, _user(),
-                                   _DB(queue=[_Res(one=wf)]), {"a": 1})
+    out = await W.execute_workflow(wf.id, tid, _user(), _DB(queue=[_Res(one=wf)]), {"a": 1})
     assert out["execution_id"] == "exec-9"
 
 
@@ -458,13 +458,14 @@ async def test_get_workflow_executions(monkeypatch):
     assert await W.get_workflow_executions(wf.id, tid, _user(), db) == []
 
     # happy → status normalization (success/failed/running)
-    exs = {"data": [
-        {"id": "1", "status": "success", "stoppedAt": "t1"},
-        {"id": "2", "status": "error", "startedAt": "t2"},
-        {"id": "3", "status": "waiting", "startedAt": "t3"},
-    ]}
-    http = _Http(get=AsyncMock(return_value=SimpleNamespace(
-        status_code=200, json=lambda: exs)))
+    exs = {
+        "data": [
+            {"id": "1", "status": "success", "stoppedAt": "t1"},
+            {"id": "2", "status": "error", "startedAt": "t2"},
+            {"id": "3", "status": "waiting", "startedAt": "t3"},
+        ]
+    }
+    http = _Http(get=AsyncMock(return_value=SimpleNamespace(status_code=200, json=lambda: exs)))
     _patch_http(monkeypatch, http)
     db = _DB(queue=[_Res(one=wf)])
     out = await W.get_workflow_executions(wf.id, tid, _user(), db)

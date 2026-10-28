@@ -15,6 +15,7 @@ Usage (inside the social-api container):
     python scripts/import_linkedin_reports.py /path/to/reports
     python scripts/import_linkedin_reports.py report.csv [more.csv ...]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,7 +31,8 @@ from typing import Any
 _CONTAINER = "/app"
 _REPO_BACKEND = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "social-automation", "backend",
+    "social-automation",
+    "backend",
 )
 for path in (_CONTAINER, _REPO_BACKEND):
     if path not in sys.path and os.path.isdir(path):
@@ -138,9 +140,7 @@ def _report_type(path: str) -> str | None:
 
 def parse_daily(path: str, report_type: str, account_id: str) -> list[dict[str, Any]]:
     rows = _read_rows(path)
-    hdr_i = next(
-        (i for i, r in enumerate(rows) if r and r[0].strip() == _DATE_HDR), None
-    )
+    hdr_i = next((i for i, r in enumerate(rows) if r and r[0].strip() == _DATE_HDR), None)
     if hdr_i is None:
         return []
     hdr = [h.strip() for h in rows[hdr_i]]
@@ -238,13 +238,7 @@ async def _resolve_team_id() -> Any:
     from sqlalchemy import case, desc
 
     async with async_session_maker() as db:
-        tid = (
-            await db.execute(
-                select(SocialAccount.team_id)
-                .where(SocialAccount.platform == "linkedin")
-                .limit(1)
-            )
-        ).scalar_one_or_none()
+        tid = (await db.execute(select(SocialAccount.team_id).where(SocialAccount.platform == "linkedin").limit(1))).scalar_one_or_none()
         if tid:
             return tid
         rank = case(
@@ -254,9 +248,7 @@ async def _resolve_team_id() -> Any:
             (Team.plan_tier == "free", 1),
             else_=0,
         )
-        return (
-            await db.execute(select(Team.id).order_by(desc(rank)).limit(1))
-        ).scalar_one_or_none()
+        return (await db.execute(select(Team.id).order_by(desc(rank)).limit(1))).scalar_one_or_none()
 
 
 async def import_files(paths: list[str], account_id: str) -> dict[str, Any]:
@@ -273,16 +265,18 @@ async def import_files(paths: list[str], account_id: str) -> dict[str, Any]:
             if rt == "demographics":
                 rows = parse_demographics(path, account_id)
                 if rows:
-                    stmt = pg_insert(AdDemographicSegment).values(
-                        [{**r, "team_id": team_id} for r in rows]
-                    )
+                    stmt = pg_insert(AdDemographicSegment).values([{**r, "team_id": team_id} for r in rows])
                     stmt = stmt.on_conflict_do_update(
                         constraint="uq_ad_demo_segments_grain",
                         set_={
                             c: getattr(stmt.excluded, c)
                             for c in (
-                                "impressions", "clicks", "conversions",
-                                "ctr", "pct_impressions", "pct_clicks",
+                                "impressions",
+                                "clicks",
+                                "conversions",
+                                "ctr",
+                                "pct_impressions",
+                                "pct_clicks",
                                 "captured_at",
                             )
                         },
@@ -292,21 +286,31 @@ async def import_files(paths: list[str], account_id: str) -> dict[str, Any]:
             else:
                 rows = parse_daily(path, rt, account_id)
                 if rows:
-                    stmt = pg_insert(AdDailyMetric).values(
-                        [{**r, "team_id": team_id} for r in rows]
-                    )
+                    stmt = pg_insert(AdDailyMetric).values([{**r, "team_id": team_id} for r in rows])
                     stmt = stmt.on_conflict_do_update(
                         constraint="uq_ad_daily_metrics_grain",
                         set_={
                             c: getattr(stmt.excluded, c)
                             for c in (
-                                "campaign_name", "ad_set_name", "ad_name",
-                                "status", "impressions", "clicks",
-                                "engagements", "leads", "conversions", "reach",
+                                "campaign_name",
+                                "ad_set_name",
+                                "ad_name",
+                                "status",
+                                "impressions",
+                                "clicks",
+                                "engagements",
+                                "leads",
+                                "conversions",
+                                "reach",
                                 "clicks_to_landing_page",
                                 "clicks_to_linkedin_page",
-                                "spend_eur", "ctr", "cpc_eur", "cpm_eur",
-                                "engagement_rate", "budget_eur", "captured_at",
+                                "spend_eur",
+                                "ctr",
+                                "cpc_eur",
+                                "cpm_eur",
+                                "engagement_rate",
+                                "budget_eur",
+                                "captured_at",
                             )
                         },
                     )

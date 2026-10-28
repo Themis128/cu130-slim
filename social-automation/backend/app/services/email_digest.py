@@ -12,6 +12,7 @@ Providers:
 
   cloudflare — requires paid Workers Email Sending; keep unused.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,27 +41,18 @@ def _sanitize_log_text(text: str, max_len: int = 400) -> str:
     cleaned = "".join(c for c in cleaned if c == "\t" or ord(c) >= 0x20)
     return cleaned[:max_len]
 
-CF_EMAIL_SEND_URL = (
-    "https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send"
-)
+
+CF_EMAIL_SEND_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/email/sending/send"
 CF_SMTP_HOST = "smtp.mx.cloudflare.net"
 CF_SMTP_PORT = 465
 
 
 def _email_api_token(settings) -> str:
-    return (
-        (settings.CLOUDFLARE_EMAIL_API_TOKEN or "").strip()
-        or (settings.CLOUDFLARE_API_TOKEN or "").strip()
-    )
+    return (settings.CLOUDFLARE_EMAIL_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
 
 
 def _html_escape(text: str) -> str:
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 def digest_email_subject(report: DigestReport) -> str:
@@ -89,18 +81,12 @@ def _summary_line(report: DigestReport) -> str:
         lead = f"Mostly good news — {warnings} thing{'s' if warnings > 1 else ''} worth a quick look."
     else:
         lead = "Everything ran smoothly yesterday."
-    return (f"{lead} You published {published} post{'s' if published != 1 else ''} "
-            f"and reached {imp:,} impressions ({eng:,} engagements).")
+    return f"{lead} You published {published} post{'s' if published != 1 else ''} and reached {imp:,} impressions ({eng:,} engagements)."
 
 
 def digest_to_plaintext(report: DigestReport) -> str:
     md = report.to_slack_markdown()
-    body = (
-        md.replace("*", "")
-        .replace("🟢", "")
-        .replace("❌", "[NEEDS FIXING]")
-        .replace("⚠️", "[WORTH A LOOK]")
-    )
+    body = md.replace("*", "").replace("🟢", "").replace("❌", "[NEEDS FIXING]").replace("⚠️", "[WORTH A LOOK]")
     return _summary_line(report) + "\n\n" + body
 
 
@@ -110,8 +96,7 @@ def digest_to_html(report: DigestReport) -> str:
     warnings = [i for i in report.issues if i.severity == "warning"]
 
     rows = "".join(
-        f"<tr><td>{_html_escape(k)}</td>"
-        f"<td><strong>{_html_escape(str(v))}</strong></td></tr>"
+        f"<tr><td>{_html_escape(k)}</td><td><strong>{_html_escape(str(v))}</strong></td></tr>"
         for k, v in {
             "Posts total": o.get("total_posts", 0),
             "Published yesterday": o.get("published_posts", 0),
@@ -139,63 +124,28 @@ def digest_to_html(report: DigestReport) -> str:
     if g:
         items = "".join(
             f"<li>{_html_escape(str(f['platform']))}"
-            + (
-                f" @{_html_escape(str(f['account']))}"
-                if f.get("account")
-                else ""
-            )
+            + (f" @{_html_escape(str(f['account']))}" if f.get("account") else "")
             + f": <b>{f['end']}</b> followers · <b>{f['delta']:+d}</b>"
-            + (
-                f" ({f['rate']:+.1f}%)"
-                if f.get("rate") is not None
-                else ""
-            )
-            + (
-                f" (prev {f['prev_delta']:+d})"
-                if f.get("prev_delta") is not None
-                else ""
-            )
-            + (
-                f" · next ~<b>{f['forecast']}</b>"
-                if f.get("forecast")
-                else ""
-            )
+            + (f" ({f['rate']:+.1f}%)" if f.get("rate") is not None else "")
+            + (f" (prev {f['prev_delta']:+d})" if f.get("prev_delta") is not None else "")
+            + (f" · next ~<b>{f['forecast']}</b>" if f.get("forecast") else "")
             + "</li>"
             for f in g.get("followers", [])
         )
         if g.get("non_follower_reach_pct") is not None:
-            items += (
-                "<li>IG non-follower reach: "
-                f"<b>{g['non_follower_reach_pct']:.0f}%</b> this month</li>"
-            )
+            items += f"<li>IG non-follower reach: <b>{g['non_follower_reach_pct']:.0f}%</b> this month</li>"
         fa = g.get("follower_adds")
         if fa:
-            items += (
-                f"<li>New followers: <b>{fa['organic']}</b> organic · "
-                f"<b>{fa['paid']}</b> paid</li>"
-            )
+            items += f"<li>New followers: <b>{fa['organic']}</b> organic · <b>{fa['paid']}</b> paid</li>"
         if g.get("peak_hours"):
-            items += (
-                "<li>Best posting window (UTC): "
-                f"<b>{_html_escape(', '.join(str(h) for h in g['peak_hours']))}</b>"
-                "</li>"
-            )
+            items += f"<li>Best posting window (UTC): <b>{_html_escape(', '.join(str(h) for h in g['peak_hours']))}</b></li>"
         for p in g.get("funnel", []):
-            er = (
-                f" · ER <b>{p['er_pct']}%</b>"
-                if p.get("er_pct") is not None
-                else ""
-            )
+            er = f" · ER <b>{p['er_pct']}%</b>" if p.get("er_pct") is not None else ""
             items += (
-                f"<li>{_html_escape(str(p['platform']))}: "
-                f"<b>{p['impressions']}</b> imp → "
-                f"<b>{p['engagement']}</b> eng → "
-                f"<b>{p['clicks']}</b> clicks{er}</li>"
+                f"<li>{_html_escape(str(p['platform']))}: <b>{p['impressions']}</b> imp → <b>{p['engagement']}</b> eng → <b>{p['clicks']}</b> clicks{er}</li>"
             )
         if items:
-            growth_html = (
-                f"<h3>Growth (last {report.days}d)</h3><ul>{items}</ul>"
-            )
+            growth_html = f"<h3>Growth (last {report.days}d)</h3><ul>{items}</ul>"
 
     issue_html = "<p>✅ Nothing needs your attention today.</p>"
     if errors or warnings:
@@ -203,18 +153,12 @@ def digest_to_html(report: DigestReport) -> str:
         if errors:
             parts.append("<h3 style='color:#b91c1c'>Needs fixing</h3><ul>")
             for i in errors:
-                parts.append(
-                    f"<li><b>{_html_escape(i.title)}</b>"
-                    f"{(' — ' + _html_escape(i.detail)) if i.detail else ''}</li>"
-                )
+                parts.append(f"<li><b>{_html_escape(i.title)}</b>{(' — ' + _html_escape(i.detail)) if i.detail else ''}</li>")
             parts.append("</ul>")
         if warnings:
             parts.append("<h3 style='color:#a16207'>Worth a look</h3><ul>")
             for i in warnings:
-                parts.append(
-                    f"<li><b>{_html_escape(i.title)}</b>"
-                    f"{(' — ' + _html_escape(i.detail)) if i.detail else ''}</li>"
-                )
+                parts.append(f"<li><b>{_html_escape(i.title)}</b>{(' — ' + _html_escape(i.detail)) if i.detail else ''}</li>")
             parts.append("</ul>")
         issue_html = "".join(parts)
 
@@ -236,11 +180,7 @@ def digest_to_html(report: DigestReport) -> str:
 
 
 def _recipients(settings) -> list[str]:
-    return [
-        a.strip()
-        for a in (settings.DIGEST_EMAIL_TO or "").split(",")
-        if a.strip()
-    ]
+    return [a.strip() for a in (settings.DIGEST_EMAIL_TO or "").split(",") if a.strip()]
 
 
 def _filter_suppressed(addrs: list[str], settings) -> list[str]:
@@ -297,10 +237,7 @@ def send_email_smtp(
     recipients = to_addrs or _recipients(settings)
 
     if not host or not from_addr or not recipients:
-        raise RuntimeError(
-            "SMTP not configured. Set SMTP_HOST, SMTP_FROM, DIGEST_EMAIL_TO "
-            "(local Postfix: SMTP_HOST=host.docker.internal SMTP_PORT=25)"
-        )
+        raise RuntimeError("SMTP not configured. Set SMTP_HOST, SMTP_FROM, DIGEST_EMAIL_TO (local Postfix: SMTP_HOST=host.docker.internal SMTP_PORT=25)")
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -354,10 +291,7 @@ def send_email_cloudflare_smtp(
     from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
     recipients = to_addrs or _recipients(settings)
     if not token or not from_addr or not recipients:
-        raise RuntimeError(
-            "Cloudflare SMTP needs CLOUDFLARE_EMAIL_API_TOKEN (Email Sending Edit), "
-            "SMTP_FROM, and DIGEST_EMAIL_TO"
-        )
+        raise RuntimeError("Cloudflare SMTP needs CLOUDFLARE_EMAIL_API_TOKEN (Email Sending Edit), SMTP_FROM, and DIGEST_EMAIL_TO")
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -397,10 +331,7 @@ async def send_email_cloudflare_verified(
     from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
     recipients = to_addrs or _recipients(settings)
     if not account_id or not token or not recipients:
-        raise RuntimeError(
-            "Cloudflare send needs CLOUDFLARE_ACCOUNT_ID, "
-            "CLOUDFLARE_EMAIL_API_TOKEN (Email Sending Edit), and DIGEST_EMAIL_TO"
-        )
+        raise RuntimeError("Cloudflare send needs CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_EMAIL_API_TOKEN (Email Sending Edit), and DIGEST_EMAIL_TO")
 
     url = CF_EMAIL_SEND_URL.format(account_id=account_id)
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}

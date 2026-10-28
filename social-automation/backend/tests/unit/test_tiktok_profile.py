@@ -1,4 +1,5 @@
 """Coverage for app/services/tiktok_profile.py."""
+
 import time
 from types import SimpleNamespace
 
@@ -76,8 +77,7 @@ class _HTTP:
 
 
 def _resp(status, body=None, text=""):
-    return SimpleNamespace(status_code=status, text=text,
-                           json=lambda: body or {})
+    return SimpleNamespace(status_code=status, text=text, json=lambda: body or {})
 
 
 class TestPrivateClient:
@@ -160,8 +160,7 @@ class TestPrivateClient:
 class TestProfileService:
     def test_can_write(self):
         assert not TP.TikTokProfileService().can_write
-        assert TP.TikTokProfileService(
-            session_id="s", user_id=1).can_write
+        assert TP.TikTokProfileService(session_id="s", user_id=1).can_write
 
     @pytest.mark.asyncio
     async def test_get_profile_no_token(self):
@@ -173,12 +172,20 @@ class TestProfileService:
     @pytest.mark.asyncio
     async def test_get_profile_success(self, monkeypatch):
         svc = TP.TikTokProfileService(access_token="tok", open_id="oid")
-        body = {"error": {"code": "ok"},
-                "data": {"user": {
-                    "open_id": "oid", "username": "cloudless",
-                    "display_name": "Cloudless", "bio_description": "bio",
-                    "avatar_url": "http://a", "is_verified": True,
-                    "profile_deep_link": "link"}}}
+        body = {
+            "error": {"code": "ok"},
+            "data": {
+                "user": {
+                    "open_id": "oid",
+                    "username": "cloudless",
+                    "display_name": "Cloudless",
+                    "bio_description": "bio",
+                    "avatar_url": "http://a",
+                    "is_verified": True,
+                    "profile_deep_link": "link",
+                }
+            },
+        }
         c = _HTTP(_resp(200, body))
         monkeypatch.setattr(TP.httpx, "AsyncClient", lambda **kw: c)
         out = await svc.get_profile()
@@ -215,8 +222,7 @@ class TestProfileService:
     @pytest.mark.asyncio
     async def test_writes_require_private(self):
         svc = TP.TikTokProfileService()
-        for coro in (svc.update_nickname("x"), svc.update_signature("x"),
-                     svc.update_unique_id("x"), svc.check_username("x")):
+        for coro in (svc.update_nickname("x"), svc.update_signature("x"), svc.update_unique_id("x"), svc.check_username("x")):
             with pytest.raises(TP.TikTokProfileError) as ei:
                 await coro
             assert ei.value.status_code == 503

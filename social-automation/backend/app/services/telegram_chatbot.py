@@ -38,9 +38,7 @@ async def _get_redis() -> Any:
     return aioredis.from_url(url)
 
 
-async def check_cooldown(
-    account_id: str, chat_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS
-) -> bool:
+async def check_cooldown(account_id: str, chat_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS) -> bool:
     try:
         r = await _get_redis()
         key = _COOLDOWN_KEY.format(account_id=account_id, chat_id=chat_id)
@@ -50,9 +48,7 @@ async def check_cooldown(
         return True
 
 
-async def set_cooldown(
-    account_id: str, chat_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS
-) -> None:
+async def set_cooldown(account_id: str, chat_id: str, cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS) -> None:
     try:
         r = await _get_redis()
         key = _COOLDOWN_KEY.format(account_id=account_id, chat_id=chat_id)

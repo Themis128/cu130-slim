@@ -98,9 +98,21 @@ async def list_leads_for_campaign() -> list[dict[str, Any]]:
     return await list_all(
         "Lead",
         select=[
-            "id", "firstName", "lastName", "emailAddress", "accountName",
-            "status", "source", "industry", "title", "phoneNumber", "website",
-            "addressCity", "assignedUserName", "createdAt", "description",
+            "id",
+            "firstName",
+            "lastName",
+            "emailAddress",
+            "accountName",
+            "status",
+            "source",
+            "industry",
+            "title",
+            "phoneNumber",
+            "website",
+            "addressCity",
+            "assignedUserName",
+            "createdAt",
+            "description",
         ],
         where=[
             {"type": "isNotNull", "attribute": "emailAddress"},
@@ -114,9 +126,18 @@ async def list_contacts() -> list[dict[str, Any]]:
     return await list_all(
         "Contact",
         select=[
-            "id", "firstName", "lastName", "emailAddress", "accountName",
-            "accountId", "title", "phoneNumber", "addressCity", "description",
-            "doNotCall", "createdAt",
+            "id",
+            "firstName",
+            "lastName",
+            "emailAddress",
+            "accountName",
+            "accountId",
+            "title",
+            "phoneNumber",
+            "addressCity",
+            "description",
+            "doNotCall",
+            "createdAt",
         ],
         where=[{"type": "isNotNull", "attribute": "emailAddress"}],
     )
@@ -287,9 +308,7 @@ async def upsert_lead(payload: dict[str, Any]) -> str | None:
                     {
                         "maxSize": 1,
                         "select": ["id", "status", "firstName", "lastName", "description"],
-                        "where": [
-                            {"type": "equals", "attribute": "emailAddress", "value": email}
-                        ],
+                        "where": [{"type": "equals", "attribute": "emailAddress", "value": email}],
                     }
                 )
             },
@@ -333,9 +352,7 @@ async def upsert_lead(payload: dict[str, Any]) -> str | None:
             update["description"] = (old_desc + "\n" + new_desc).strip() if old_desc else new_desc
         if new_lists:
             try:
-                rel = await espo_get(
-                    f"/Lead/{lead_id}/targetLists", params={"select": "id"}
-                )
+                rel = await espo_get(f"/Lead/{lead_id}/targetLists", params={"select": "id"})
                 current = [m["id"] for m in (rel.get("list") or []) if m.get("id")]
                 update["targetListsIds"] = sorted(set(current) | set(new_lists))
             except Exception:  # noqa: BLE001 — never wipe memberships on read failure

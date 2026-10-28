@@ -46,7 +46,7 @@ class User(Base):
             "push_new_post": True,
             "push_scheduled": False,
         },
-        server_default='{}',
+        server_default="{}",
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

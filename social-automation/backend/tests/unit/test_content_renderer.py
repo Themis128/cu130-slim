@@ -216,10 +216,9 @@ class TestLinkAlreadyPresent:
 
     def test_no_match_returns_false(self):
         assert cr._link_already_present("totally unrelated copy", "cloudless.gr/x") is False
+
     def test_host_and_path_match(self):
-        assert cr._link_already_present(
-            "check www.cloudless.gr/pricing", "https://cloudless.gr/pricing"
-        ) is True
+        assert cr._link_already_present("check www.cloudless.gr/pricing", "https://cloudless.gr/pricing") is True
         assert cr._link_already_present("see mycloudless.gr", "https://cloudless.gr") is False
 
 
@@ -242,7 +241,6 @@ class TestRenderPostText:
         # no body → _link_already_present False → link appended for linkedin
         text = render_post_text(post, "linkedin")
         assert "cloudless.gr/x" in text
-
 
 
 class TestRenderHashtags:

@@ -526,17 +526,22 @@ async def test_send_card_messenger_edges(monkeypatch):
 @pytest.mark.asyncio
 async def test_build_social_url_tails():
     brand = SimpleNamespace(
-        id=uuid.uuid4(), name="B", tagline=None, mission=None, industry=None, website_url=None,
+        id=uuid.uuid4(),
+        name="B",
+        tagline=None,
+        mission=None,
+        industry=None,
+        website_url=None,
         visual=SimpleNamespace(primary_color=None, accent_color=None, logo_url=None),
         voice=SimpleNamespace(messaging_pillars=None),
     )
     accounts = [
         SimpleNamespace(platform="threads", account_type=None, username="cloudless.gr", display_name=None),
         SimpleNamespace(platform="tiktok", account_type=None, username="cloudless.gr", display_name=None),
-        SimpleNamespace(platform="instagram", account_type=None, username=None, display_name=None),          # no handle → None
-        SimpleNamespace(platform="instagram", account_type=None, username="me@x.com", display_name=None),   # email → None
+        SimpleNamespace(platform="instagram", account_type=None, username=None, display_name=None),  # no handle → None
+        SimpleNamespace(platform="instagram", account_type=None, username="me@x.com", display_name=None),  # email → None
         SimpleNamespace(platform="linkedin", account_type="personal", username="first.last", display_name=None),  # dot → None
-        SimpleNamespace(platform="skool", account_type=None, username="comm", display_name=None),            # unknown → None
+        SimpleNamespace(platform="skool", account_type=None, username="comm", display_name=None),  # unknown → None
     ]
     db = _DB(results=[_Res(first=brand), _Res(all=accounts)])
     await D.create_card_from_brand(uuid.uuid4(), _user(), db)

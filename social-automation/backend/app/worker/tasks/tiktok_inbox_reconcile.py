@@ -13,6 +13,7 @@ This task re-polls ``status/fetch`` on stored publish_ids:
 - SEND_TO_USER_INBOX older than 24h → flag the target with an actionable
   error_message (serialized to the UI) instead of pretending it is live.
 """
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -30,10 +31,7 @@ celery_app.set_default()
 celery_app.set_current()
 
 INBOX_PENDING_AFTER = timedelta(hours=24)
-INBOX_PENDING_MESSAGE = (
-    "Draft delivered to TikTok app inbox — open TikTok → Inbox → the draft "
-    "notification and finish publishing to go live"
-)
+INBOX_PENDING_MESSAGE = "Draft delivered to TikTok app inbox — open TikTok → Inbox → the draft notification and finish publishing to go live"
 
 
 _worker_db = task_session
@@ -62,10 +60,7 @@ async def _reconcile_async() -> dict:
             )
             .options(selectinload(PostTarget.post), selectinload(PostTarget.social_account))
         )
-        targets = [
-            t for t in (await db.execute(q)).scalars().all()
-            if is_tiktok_publish_id(t.platform_post_id)
-        ]
+        targets = [t for t in (await db.execute(q)).scalars().all() if is_tiktok_publish_id(t.platform_post_id)]
 
         clients: dict[str, TikTokAPIClient] = {}
         for t in targets:
@@ -92,10 +87,7 @@ async def _reconcile_async() -> dict:
                     if video_id:
                         username = account.username or ""
                         t.platform_post_id = video_id
-                        t.platform_url = (
-                            f"https://www.tiktok.com/@{username}/video/{video_id}"
-                            if username else t.platform_url
-                        )
+                        t.platform_url = f"https://www.tiktok.com/@{username}/video/{video_id}" if username else t.platform_url
                         t.error_message = None
                         if t.post is not None:
                             ps = dict(t.post.platform_specific or {})
@@ -112,10 +104,7 @@ async def _reconcile_async() -> dict:
                         _tiktok_clarify_error,
                     )
 
-                    reason = str(
-                        status_data.get("fail_reason")
-                        or ("publish_cancelled" if status_value == "CANCELLED" else status_value)
-                    )
+                    reason = str(status_data.get("fail_reason") or ("publish_cancelled" if status_value == "CANCELLED" else status_value))
                     clarified = _tiktok_clarify_error(reason)
                     if status_value == "CANCELLED" or _err_has(reason, _TT_CANCELLED_MARKERS):
                         t.status = "skipped"
@@ -127,9 +116,7 @@ async def _reconcile_async() -> dict:
                         t.error_message = f"TikTok publish {status_value.lower()}: {clarified}"
                         summary["failed"] += 1
                 elif status_value == "SEND_TO_USER_INBOX":
-                    published_at = t.published_at or (
-                        t.post.published_at if t.post else None
-                    ) or t.created_at
+                    published_at = t.published_at or (t.post.published_at if t.post else None) or t.created_at
                     age = datetime.now(UTC) - (published_at or datetime.now(UTC))
                     if age > INBOX_PENDING_AFTER and not t.error_message:
                         t.error_message = INBOX_PENDING_MESSAGE

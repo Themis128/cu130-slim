@@ -16,6 +16,7 @@ Per-platform probes use the cheapest authoritative read:
 Accounts whose ``token_expires_at`` already passed are marked ``expired``
 without a network probe. A single account failure never aborts the sweep.
 """
+
 import logging
 from datetime import UTC, datetime
 
@@ -132,12 +133,10 @@ async def _reconcile() -> dict[str, int]:
             if new_status is None or new_status == "unprobed":
                 continue
             counts[new_status] += 1
-            acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat(),
-                             "token_probe_status": new_status}
+            acc.meta_data = {**(acc.meta_data or {}), "last_verified_at": now.isoformat(), "token_probe_status": new_status}
             if acc.status != new_status:
                 if new_status == "active" and acc.status in ("expired", "revoked"):
-                    logger.info("token OK but not promoting %s %s — session health owns %s",
-                                acc.platform, acc.username, acc.status)
+                    logger.info("token OK but not promoting %s %s — session health owns %s", acc.platform, acc.username, acc.status)
                     continue
                 logger.info("drift: %s %s status %s -> %s", acc.platform, acc.username, acc.status, new_status)
                 counts["drifted"] += 1
@@ -149,9 +148,8 @@ async def _reconcile() -> dict[str, int]:
                 acc.status = new_status
                 try:
                     from app.services.db_router import db_router
-                    await db_router.execute(
-                        "UPDATE social_accounts SET status = ? WHERE id = ?",
-                        [new_status, str(acc.id)])
+
+                    await db_router.execute("UPDATE social_accounts SET status = ? WHERE id = ?", [new_status, str(acc.id)])
                 except Exception:
                     logger.debug("D1 mirror skipped for %s", acc.id, exc_info=True)
         await db.commit()

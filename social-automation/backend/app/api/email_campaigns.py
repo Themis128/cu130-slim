@@ -81,13 +81,8 @@ async def list_campaigns(
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
     rows = (
-        await db.execute(
-            select(EmailCampaign)
-            .where(EmailCampaign.team_id == team_id)
-            .order_by(desc(EmailCampaign.created_at))
-            .limit(limit)
-        )
-    ).scalars().all()
+        (await db.execute(select(EmailCampaign).where(EmailCampaign.team_id == team_id).order_by(desc(EmailCampaign.created_at)).limit(limit))).scalars().all()
+    )
     out = []
     for c in rows:
         p = svc.campaign_payload(c)
@@ -108,7 +103,8 @@ async def create_campaign(
         from app.services.email_brand import render_branded_html
 
         html_body = render_branded_html(
-            body.text_body, subject=body.subject.strip(),
+            body.text_body,
+            subject=body.subject.strip(),
             from_name=body.from_name.strip() or "Cloudless",
             hero_url=body.hero_url,
         )
@@ -140,13 +136,7 @@ async def get_campaign(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict:
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalar_one_or_none()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
     p = svc.campaign_payload(c)
@@ -173,10 +163,7 @@ async def delete_campaign(
     except ValueError:
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Only draft campaigns can be deleted — sent campaigns are kept "
-                "as the audit record and hold live unsubscribe/survey tokens."
-            ),
+            detail=("Only draft campaigns can be deleted — sent campaigns are kept as the audit record and hold live unsubscribe/survey tokens."),
         ) from None
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -193,13 +180,7 @@ async def add_audience(
 ) -> dict:
     """Resolve + queue recipients: explicit emails, SocialAuto leads, EspoCRM
     clients. Deduped, suppression-checked, each with an unsubscribe token."""
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalar_one_or_none()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
     recipients = await svc.resolve_audience(
@@ -213,9 +194,7 @@ async def add_audience(
     )
     return {
         "queued": sum(1 for r in recipients if r.status == RecipientStatus.pending),
-        "skipped_suppressed": sum(
-            1 for r in recipients if r.status == RecipientStatus.skipped_suppressed
-        ),
+        "skipped_suppressed": sum(1 for r in recipients if r.status == RecipientStatus.skipped_suppressed),
         "stats": await svc.campaign_stats(db, c.id),
     }
 
@@ -228,23 +207,14 @@ async def list_recipients(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalar_one_or_none()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
     rows = (
-        await db.execute(
-            select(EmailRecipient)
-            .where(EmailRecipient.campaign_id == campaign_id)
-            .order_by(EmailRecipient.created_at)
-            .limit(limit)
-        )
-    ).scalars().all()
+        (await db.execute(select(EmailRecipient).where(EmailRecipient.campaign_id == campaign_id).order_by(EmailRecipient.created_at).limit(limit)))
+        .scalars()
+        .all()
+    )
     return [
         {
             "email": r.email,
@@ -267,13 +237,7 @@ async def list_responses(
     """Survey funnel responses for one campaign (staff view)."""
     from app.models.email_campaign import SurveyResponse
 
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalar_one_or_none()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
     rows = (
@@ -306,13 +270,7 @@ async def responses_dashboard(
     """Staff-facing HTML dashboard — aggregate survey answers per question."""
     from app.models.email_campaign import SurveyResponse
 
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalars().first()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalars().first()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
     rows = (
@@ -325,14 +283,11 @@ async def responses_dashboard(
     ).all()
 
     questions = svc.survey_questions(c) or []
-    audit_yes = [
-        email or "—" for r, email in rows
-        if (r.answers or {}).get("audit_interest") == "Yes"
-    ]
+    audit_yes = [email or "—" for r, email in rows if (r.answers or {}).get("audit_interest") == "Yes"]
     counts: dict[str, dict[str, int]] = {}
     for q in questions:
         if q.get("type") == "choice":
-            for o in (q.get("options") or []):
+            for o in q.get("options") or []:
                 counts.setdefault(q["id"], {})[str(o)] = 0
     for r, _ in rows:
         for k, v in (r.answers or {}).items():
@@ -346,9 +301,9 @@ async def responses_dashboard(
             total = max(1, sum(counts[qid].values()))
             bars = "".join(
                 f'<div style="margin:6px 0;"><div style="color:#c6d0e2;font-size:13px;">'
-                f'{_esc(opt)} — <b>{n}</b></div>'
+                f"{_esc(opt)} — <b>{n}</b></div>"
                 f'<div style="background:#1e2a45;border-radius:4px;height:8px;margin-top:3px;">'
-                f'<div style="background:#22d3e6;height:8px;border-radius:4px;width:{int(100*n/total)}%;"></div></div></div>'
+                f'<div style="background:#22d3e6;height:8px;border-radius:4px;width:{int(100 * n / total)}%;"></div></div></div>'
                 for opt, n in counts[qid].items()
             )
             cards.append(f'<div style="{_CARD_STYLE}"><div style="{_LABEL_STYLE}">{label}</div>{bars}</div>')
@@ -358,22 +313,21 @@ async def responses_dashboard(
                 f'<b style="color:#7fe7f4;">{_esc(e or "—")}:</b> {_esc(str((r.answers or {}).get(qid, "—")))[:400]}</div>'
                 for r, e in rows
             )
-            cards.append(f'<div style="{_CARD_STYLE}"><div style="{_LABEL_STYLE}">{label}</div>{answers_txt or "<i style=color:#5f6b85>no answers yet</i>"}</div>')  # noqa: E501
+            cards.append(
+                f'<div style="{_CARD_STYLE}"><div style="{_LABEL_STYLE}">{label}</div>{answers_txt or "<i style=color:#5f6b85>no answers yet</i>"}</div>'
+            )  # noqa: E501
 
     audit_block = (
         f'<div style="{_CARD_STYLE};border-color:#22d3e6;"><div style="{_LABEL_STYLE}">'
-        f':star: Audit requests ({len(audit_yes)})</div>'
+        f":star: Audit requests ({len(audit_yes)})</div>"
         + "".join(f'<div style="color:#7fe7f4;font-size:14px;padding:2px 0;">{_esc(e)}</div>' for e in audit_yes)
         + "</div>"
-        if audit_yes else ""
+        if audit_yes
+        else ""
     )
-    body = (
-        f'{len(rows)} response(s) · {len(audit_yes)} audit request(s)'
-    )
+    body = f"{len(rows)} response(s) · {len(audit_yes)} audit request(s)"
     form = audit_block + "".join(cards)
-    return HTMLResponse(
-        _FUNNEL_HTML.format(title=f"Responses — {_esc(c.name)}", body=body, form=form)
-    )
+    return HTMLResponse(_FUNNEL_HTML.format(title=f"Responses — {_esc(c.name)}", body=body, form=form))
 
 
 @router.post("/{campaign_id}/send")
@@ -384,23 +338,21 @@ async def send_campaign(
     _user: User = Depends(get_current_user),
 ) -> dict:
     """Enqueue the campaign for delivery (worker task, per-recipient sends)."""
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalar_one_or_none()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalar_one_or_none()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
     pending = (
-        await db.execute(
-            select(EmailRecipient).where(
-                EmailRecipient.campaign_id == campaign_id,
-                EmailRecipient.status == RecipientStatus.pending,
+        (
+            await db.execute(
+                select(EmailRecipient).where(
+                    EmailRecipient.campaign_id == campaign_id,
+                    EmailRecipient.status == RecipientStatus.pending,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not pending:
         raise HTTPException(status_code=400, detail="No pending recipients — add an audience first")
 
@@ -411,17 +363,13 @@ async def send_campaign(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Duplicate content: matches sent campaign '{dup.name}' "
-                f"({score:.0%} similar, sent within the last 30 days). "
-                "Every campaign must be unique."
+                f"Duplicate content: matches sent campaign '{dup.name}' ({score:.0%} similar, sent within the last 30 days). Every campaign must be unique."
             ),
         )
 
     from app.worker.celery_app import celery_app
 
-    celery_app.send_task(
-        "app.worker.tasks.email_campaigns.send_campaign", args=[str(campaign_id)]
-    )
+    celery_app.send_task("app.worker.tasks.email_campaigns.send_campaign", args=[str(campaign_id)])
     return {"queued": True, "pending": len(pending)}
 
 
@@ -436,30 +384,23 @@ async def nudge_campaign(
     flips their recipient row back to pending for the next send."""
     from app.models.email_campaign import SurveyResponse
 
-    c = (
-        await db.execute(
-            select(EmailCampaign).where(
-                EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id
-            )
-        )
-    ).scalars().first()
+    c = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == campaign_id, EmailCampaign.team_id == team_id))).scalars().first()
     if c is None:
         raise HTTPException(status_code=404, detail="Campaign not found")
-    answered_ids = (
-        await db.execute(
-            select(SurveyResponse.recipient_id).where(
-                SurveyResponse.campaign_id == campaign_id)
-        )
-    ).all()
+    answered_ids = (await db.execute(select(SurveyResponse.recipient_id).where(SurveyResponse.campaign_id == campaign_id))).all()
     answered = {r[0] for r in answered_ids}
     recs = (
-        await db.execute(
-            select(EmailRecipient).where(
-                EmailRecipient.campaign_id == campaign_id,
-                EmailRecipient.status == RecipientStatus.sent,
+        (
+            await db.execute(
+                select(EmailRecipient).where(
+                    EmailRecipient.campaign_id == campaign_id,
+                    EmailRecipient.status == RecipientStatus.sent,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     nudged = 0
     for r in recs:
         if r.id not in answered:
@@ -478,18 +419,8 @@ async def list_suppressions(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> list[dict]:
-    rows = (
-        await db.execute(
-            select(EmailSuppression)
-            .where(EmailSuppression.team_id == team_id)
-            .order_by(desc(EmailSuppression.created_at))
-        )
-    ).scalars().all()
-    return [
-        {"email": r.email, "reason": r.reason, "source": r.source,
-         "created_at": r.created_at.isoformat()}
-        for r in rows
-    ]
+    rows = (await db.execute(select(EmailSuppression).where(EmailSuppression.team_id == team_id).order_by(desc(EmailSuppression.created_at)))).scalars().all()
+    return [{"email": r.email, "reason": r.reason, "source": r.source, "created_at": r.created_at.isoformat()} for r in rows]
 
 
 class SuppressionAdd(BaseModel):
@@ -537,9 +468,7 @@ async def crm_clients(
         "contacts": [
             {
                 "id": c.get("id"),
-                "name": " ".join(
-                    p for p in (c.get("firstName"), c.get("lastName")) if p
-                ) or c.get("accountName"),
+                "name": " ".join(p for p in (c.get("firstName"), c.get("lastName")) if p) or c.get("accountName"),
                 "email": c.get("emailAddress"),
                 "account": c.get("accountName"),
                 "title": c.get("title"),
@@ -549,9 +478,7 @@ async def crm_clients(
         "leads": [
             {
                 "id": row.get("id"),
-                "name": " ".join(
-                    p for p in (row.get("firstName"), row.get("lastName")) if p
-                ),
+                "name": " ".join(p for p in (row.get("firstName"), row.get("lastName")) if p),
                 "email": row.get("emailAddress"),
                 "status": row.get("status"),
                 "source": row.get("source"),
@@ -581,30 +508,22 @@ _FUNNEL_HTML = """<!doctype html><html><head>
 _UNSUB_HTML = _FUNNEL_HTML
 
 _BTN_STYLE = (
-    "display:block;margin:0 auto;padding:.75em 2.4em;font-size:15px;font-weight:600;"
-    "color:#0b1220;background:#22d3e6;border:0;border-radius:8px;cursor:pointer"
+    "display:block;margin:0 auto;padding:.75em 2.4em;font-size:15px;font-weight:600;color:#0b1220;background:#22d3e6;border:0;border-radius:8px;cursor:pointer"
 )
 
 
 @router.get("/unsubscribe/{token}/confirm", response_class=HTMLResponse)
 async def unsubscribe_confirm(token: str, db: AsyncSession = Depends(get_db)) -> HTMLResponse:
     """Browser GET — show a one-click confirm (GETs never mutate per RFC 9110)."""
-    rec = (
-        await db.execute(select(EmailRecipient).where(EmailRecipient.token == token))
-    ).scalar_one_or_none()
+    rec = (await db.execute(select(EmailRecipient).where(EmailRecipient.token == token))).scalar_one_or_none()
     if rec is None:
         return HTMLResponse(
             _UNSUB_HTML.format(title="Link expired", body="This unsubscribe link is invalid or already used.", form=""),
             status_code=404,
         )
     if rec.status == RecipientStatus.unsubscribed:
-        return HTMLResponse(
-            _UNSUB_HTML.format(title="Already unsubscribed", body=f"{_esc(rec.email)} is already on our do-not-contact list.", form="")
-        )
-    form = (
-        f'<form method="post" action="/u/{_esc(token)}">'
-        f'<button type="submit" style="{_BTN_STYLE}">Unsubscribe</button></form>'
-    )
+        return HTMLResponse(_UNSUB_HTML.format(title="Already unsubscribed", body=f"{_esc(rec.email)} is already on our do-not-contact list.", form=""))
+    form = f'<form method="post" action="/u/{_esc(token)}"><button type="submit" style="{_BTN_STYLE}">Unsubscribe</button></form>'
     return HTMLResponse(
         _UNSUB_HTML.format(
             title="Unsubscribe",
@@ -642,7 +561,9 @@ _RADIO_STYLE = "display:block;color:#b9c4d8;font-size:14px;margin:6px 0;text-ali
 _CARD_STYLE = "background:#0d1526;border:1px solid #1e2a45;border-radius:10px;padding:16px 18px;margin-bottom:14px;text-align:left;"
 _QNUM_STYLE = "display:inline-block;min-width:22px;height:22px;line-height:22px;text-align:center;background:#22d3e6;color:#0b1220;border-radius:50%;font-size:12px;font-weight:700;margin-right:8px;vertical-align:middle;"  # noqa: E501
 _PILL = "display:block;margin:8px 0;cursor:pointer;"
-_PILL_SPAN = "display:block;padding:11px 14px;border:1px solid #2a3a5f;border-radius:8px;color:#c6d0e2;font-size:14px;transition:border-color .15s,background .15s;"  # noqa: E501
+_PILL_SPAN = (
+    "display:block;padding:11px 14px;border:1px solid #2a3a5f;border-radius:8px;color:#c6d0e2;font-size:14px;transition:border-color .15s,background .15s;"  # noqa: E501
+)
 _PILL_CSS = (
     "input.qp{position:absolute;opacity:0;pointer-events:none}"
     "input.qp:checked+span{border-color:#22d3e6;background:rgba(34,211,230,.12);color:#fff}"
@@ -664,24 +585,23 @@ def _question_input(q: dict, num: int | None = None) -> str:
     qid = _esc(str(q["id"]))
     req = " required" if q.get("required") else ""
     reqmark = '<span class="req">*</span>' if q.get("required") else ""
-    label = (
-        f'<label for="{qid}" style="{_LABEL_STYLE}">'
-        f'<span style="{_QNUM_STYLE}">{num}</span> {_esc(str(q["label"]))}{reqmark}</label>'
-    )
+    label = f'<label for="{qid}" style="{_LABEL_STYLE}"><span style="{_QNUM_STYLE}">{num}</span> {_esc(str(q["label"]))}{reqmark}</label>'
     if q.get("type") == "choice":
         opts = "".join(
-            f'<label style="{_PILL}"><input class="qp" type="radio" name="{qid}" value="{eo}"{req}>'
-            f'<span class="pill" style="{_PILL_SPAN}">{eo}</span></label>'
+            f'<label style="{_PILL}"><input class="qp" type="radio" name="{qid}" value="{eo}"{req}><span class="pill" style="{_PILL_SPAN}">{eo}</span></label>'
             for eo in (_esc(str(o)) for o in (q.get("options") or []))
         )
         return label + opts
     if q.get("type") == "rating":
         lo, hi = int(q.get("min", 1)), int(q.get("max", 5))
-        opts = '<div class="seg">' + "".join(
-            f'<label><input class="qp" type="radio" name="{qid}" value="{n}"{req}>'
-            f'<span class="segp" style="{_SEG}">{n}</span></label>'
-            for n in range(lo, hi + 1)
-        ) + "</div>"
+        opts = (
+            '<div class="seg">'
+            + "".join(
+                f'<label><input class="qp" type="radio" name="{qid}" value="{n}"{req}><span class="segp" style="{_SEG}">{n}</span></label>'
+                for n in range(lo, hi + 1)
+            )
+            + "</div>"
+        )
         return label + opts
     return label + f'<textarea name="{qid}" rows="3" style="{_Q_STYLE}"{req} placeholder="Type your answer here…"></textarea>'
 
@@ -691,19 +611,13 @@ async def survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLRes
     """Render the funnel form for one invited recipient."""
     from app.models.email_campaign import SurveyResponse
 
-    rec = (
-        await db.execute(select(EmailRecipient).where(EmailRecipient.token == token))
-    ).scalar_one_or_none()
+    rec = (await db.execute(select(EmailRecipient).where(EmailRecipient.token == token))).scalar_one_or_none()
     if rec is None:
         return HTMLResponse(
             _SURVEY_HTML.format(title="Link expired", body="This survey link is invalid.", form=""),
             status_code=404,
         )
-    answered = (
-        await db.execute(
-            select(SurveyResponse.id).where(SurveyResponse.recipient_id == rec.id)
-        )
-    ).scalar_one_or_none()
+    answered = (await db.execute(select(SurveyResponse.id).where(SurveyResponse.recipient_id == rec.id))).scalar_one_or_none()
     if answered is not None:
         return HTMLResponse(
             _SURVEY_HTML.format(
@@ -712,9 +626,7 @@ async def survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLRes
                 form="",
             )
         )
-    campaign = (
-        await db.execute(select(EmailCampaign).where(EmailCampaign.id == rec.campaign_id))
-    ).scalar_one_or_none()
+    campaign = (await db.execute(select(EmailCampaign).where(EmailCampaign.id == rec.campaign_id))).scalar_one_or_none()
     questions = svc.survey_questions(campaign) if campaign else []
     if not questions:
         return HTMLResponse(
@@ -722,16 +634,13 @@ async def survey_form(token: str, db: AsyncSession = Depends(get_db)) -> HTMLRes
             status_code=404,
         )
     n = len(questions)
-    fields = "".join(
-        f'<div style="{_CARD_STYLE}">{_question_input(q, i + 1)}</div>'
-        for i, q in enumerate(questions)
-    )
+    fields = "".join(f'<div style="{_CARD_STYLE}">{_question_input(q, i + 1)}</div>' for i, q in enumerate(questions))
     form = (
         f'<p style="color:#5f6b85;font-size:12px;text-align:right;margin:0 0 10px;">{n} questions · ~2 min</p>'
         f'<form method="post" action="/s/{_esc(token)}">'
         f'{fields}<button type="submit" style="{_BTN_STYLE}">Send my answers</button>'
         f'<p style="color:#5f6b85;font-size:11px;text-align:center;margin:12px 0 0;">'
-        f'One-time link — your answers go straight to Themis, not a database farm.</p></form>'
+        f"One-time link — your answers go straight to Themis, not a database farm.</p></form>"
     )
     return HTMLResponse(
         _SURVEY_HTML.format(
@@ -771,6 +680,7 @@ async def survey_submit(
         )
     try:  # push-notify on each response — never blocks the submission
         from app.services.slack_notifications import post_alert_to_slack
+
         audit = " — AUDIT YES" if answers.get("audit_interest") == "Yes" else ""
         await post_alert_to_slack(
             f":clipboard: *Survey response*{audit}\n"
@@ -784,7 +694,7 @@ async def survey_submit(
     next_step = (
         '<a href="https://cloudless.gr/contact" '
         f'style="{_BTN_STYLE};text-decoration:none;display:block;margin:18px auto 0;width:fit-content;">'
-        'Book the free 30-min audit</a>'
+        "Book the free 30-min audit</a>"
         if audit_yes
         else '<p style="color:#8895ac;font-size:13px;margin:18px 0 0;text-align:center;">'
         "I'll send you the read-out once everyone's answered — no pitch, just the patterns.</p>"
@@ -792,9 +702,11 @@ async def survey_submit(
     return HTMLResponse(
         _SURVEY_HTML.format(
             title="Thank you — recorded",
-            body=("Your answers are in. Your audit slot is next — grab a time below."
-                  if audit_yes else
-                  "Your answers are in. I'll share the aggregated read-out once everyone answers."),
+            body=(
+                "Your answers are in. Your audit slot is next — grab a time below."
+                if audit_yes
+                else "Your answers are in. I'll share the aggregated read-out once everyone answers."
+            ),
             form=next_step,
         )
     )
@@ -813,9 +725,7 @@ async def short_survey_form(token: str, db: AsyncSession = Depends(get_db)) -> H
 
 
 @public_router.post("/s/{token}", response_class=HTMLResponse)
-async def short_survey_submit(
-    token: str, request: Request, db: AsyncSession = Depends(get_db)
-) -> HTMLResponse:
+async def short_survey_submit(token: str, request: Request, db: AsyncSession = Depends(get_db)) -> HTMLResponse:
     return await survey_submit(token, request, db)
 
 

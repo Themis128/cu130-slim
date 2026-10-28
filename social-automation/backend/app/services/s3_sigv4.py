@@ -8,6 +8,7 @@ SDK dependency, nothing contacts amazonaws.com.
 Spec: https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_sigv-create-signed-request.html
 R2 path-style endpoint: https://<account>.r2.cloudflarestorage.com/<bucket>/<key>
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -44,9 +45,7 @@ def _signing_key(secret: str, datestamp: str, region: str, service: str = "s3") 
 
 
 def _canonical_query(params: dict[str, str]) -> str:
-    pairs = sorted(
-        (_uri_encode(k), _uri_encode(v)) for k, v in params.items()
-    )
+    pairs = sorted((_uri_encode(k), _uri_encode(v)) for k, v in params.items())
     return "&".join(f"{k}={v}" for k, v in pairs)
 
 
@@ -95,13 +94,8 @@ def presign_url(
         "X-Amz-SignedHeaders": signed_headers,
     }
     canonical_query = _canonical_query(query)
-    canonical_request = (
-        f"{method.upper()}\n{canonical_uri}\n{canonical_query}\n"
-        f"{header_block}\n{signed_headers}\nUNSIGNED-PAYLOAD"
-    )
-    string_to_sign = (
-        f"AWS4-HMAC-SHA256\n{amzdate}\n{scope}\n{_hash(canonical_request.encode())}"
-    )
+    canonical_request = f"{method.upper()}\n{canonical_uri}\n{canonical_query}\n{header_block}\n{signed_headers}\nUNSIGNED-PAYLOAD"
+    string_to_sign = f"AWS4-HMAC-SHA256\n{amzdate}\n{scope}\n{_hash(canonical_request.encode())}"
     signature = hmac.new(
         _signing_key(secret_key, datestamp, region),
         string_to_sign.encode(),
@@ -181,14 +175,8 @@ class S3LiteClient:
                 headers[f"x-amz-meta-{k.lower()}"] = v
 
         header_block, signed_headers = _canonical_headers(headers)
-        canonical_request = (
-            f"{method.upper()}\n{canonical_uri}\n\n{header_block}\n"
-            f"{signed_headers}\n{payload_hash}"
-        )
-        string_to_sign = (
-            f"AWS4-HMAC-SHA256\n{amzdate}\n{scope}\n"
-            f"{_hash(canonical_request.encode())}"
-        )
+        canonical_request = f"{method.upper()}\n{canonical_uri}\n\n{header_block}\n{signed_headers}\n{payload_hash}"
+        string_to_sign = f"AWS4-HMAC-SHA256\n{amzdate}\n{scope}\n{_hash(canonical_request.encode())}"
         signature = hmac.new(
             _signing_key(self.secret_key, datestamp, self.region),
             string_to_sign.encode(),
@@ -196,10 +184,7 @@ class S3LiteClient:
         ).hexdigest()
 
         send_headers = {k: v for k, v in headers.items() if k != "host"}
-        send_headers["Authorization"] = (
-            f"AWS4-HMAC-SHA256 Credential={self.access_key}/{scope}, "
-            f"SignedHeaders={signed_headers}, Signature={signature}"
-        )
+        send_headers["Authorization"] = f"AWS4-HMAC-SHA256 Credential={self.access_key}/{scope}, SignedHeaders={signed_headers}, Signature={signature}"
         req = Request(url, data=body or None, headers=send_headers, method=method.upper())
         try:
             with urlopen(req, timeout=30) as resp:
@@ -222,9 +207,7 @@ class S3LiteClient:
         content_type: str,
         metadata: dict[str, str] | None = None,
     ) -> str:
-        _, resp_headers, _ = self.request(
-            "PUT", bucket, key, body=data, content_type=content_type, metadata=metadata
-        )
+        _, resp_headers, _ = self.request("PUT", bucket, key, body=data, content_type=content_type, metadata=metadata)
         return (resp_headers.get("ETag") or resp_headers.get("etag") or "").strip('"')
 
     def get_object(self, bucket: str, key: str) -> bytes:

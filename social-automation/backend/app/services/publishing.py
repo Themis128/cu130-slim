@@ -90,8 +90,6 @@ class PublishResult:
     permanent: bool = False
 
 
-
-
 # Platform-limit signatures → soft-skip (do not burn retries / reconnect).
 _FB_GROUP_MARKERS = (
     "posting to a group",
@@ -242,10 +240,7 @@ def _x_quota_skip_result(detail: str | None = None) -> PublishResult:
     return PublishResult(
         success=False,
         skipped=True,
-        error=(
-            "X free tier monthly write quota / API credits exhausted and the "
-            f"browser-bridge fallback is unavailable.{extra}"
-        ),
+        error=(f"X free tier monthly write quota / API credits exhausted and the browser-bridge fallback is unavailable.{extra}"),
     )
 
 
@@ -298,7 +293,7 @@ def _x_capacity_defer_result(detail: str | None = None, retry_at: datetime | Non
 # against ``max_video_bytes``. Keep this table and
 # notebooks/media_validation.ipynb in sync.
 
-MIN_IMAGE_BYTES = 10 * 1024   # below this it's a placeholder or truncated file
+MIN_IMAGE_BYTES = 10 * 1024  # below this it's a placeholder or truncated file
 IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp")
 VIDEO_EXTS_ALL = (".mp4", ".mov", ".webm", ".avi")
 _MB = 1024 * 1024
@@ -314,64 +309,118 @@ _PLATFORM_MEDIA_RULES: dict[str, dict[str, Any]] = {
     # dim_axis: "width" → min/max_dim bound the width only (Meta docs cap the
     #           width; height is bounded by the aspect ratio); "both" → each side.
     "instagram": {
-        "required": True, "allow_pdf": False,
+        "required": True,
+        "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png") + (".mp4", ".mov"),
-        "min_dim": 320, "max_dim": 1440, "dim_axis": "width",
-        "max_bytes": 8 * _MB, "max_video_bytes": 300 * _MB,
-        "ratio_min": 4 / 5, "ratio_max": 1.91, "max_count": 10,
+        "min_dim": 320,
+        "max_dim": 1440,
+        "dim_axis": "width",
+        "max_bytes": 8 * _MB,
+        "max_video_bytes": 300 * _MB,
+        "ratio_min": 4 / 5,
+        "ratio_max": 1.91,
+        "max_count": 10,
     },
     "tiktok": {
-        "required": True, "allow_pdf": False, "single_kind": True,
+        "required": True,
+        "allow_pdf": False,
+        "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
-        "min_dim": 360, "max_dim": 4096, "dim_axis": "both",
-        "max_bytes": 1 * _GB, "max_video_bytes": 4 * _GB,
-        "ratio_min": None, "ratio_max": None, "max_count": 35,
+        "min_dim": 360,
+        "max_dim": 4096,
+        "dim_axis": "both",
+        "max_bytes": 1 * _GB,
+        "max_video_bytes": 4 * _GB,
+        "ratio_min": None,
+        "ratio_max": None,
+        "max_count": 35,
     },
     "linkedin": {
-        "required": True, "allow_pdf": True, "max_pdf_bytes": 100 * _MB, "single_kind": True,
+        "required": True,
+        "allow_pdf": True,
+        "max_pdf_bytes": 100 * _MB,
+        "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
-        "min_dim": 200, "max_dim": 6024, "dim_axis": "both",
-        "max_bytes": 100 * _MB, "max_video_bytes": 500 * _MB,
-        "ratio_min": None, "ratio_max": None, "max_count": 20,
+        "min_dim": 200,
+        "max_dim": 6024,
+        "dim_axis": "both",
+        "max_bytes": 100 * _MB,
+        "max_video_bytes": 500 * _MB,
+        "ratio_min": None,
+        "ratio_max": None,
+        "max_count": 20,
     },
     "facebook": {
-        "required": True, "allow_pdf": False, "single_kind": True,
+        "required": True,
+        "allow_pdf": False,
+        "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
-        "min_dim": 200, "max_dim": 4096, "dim_axis": "both",
-        "max_bytes": 10 * _MB, "max_video_bytes": 2 * _GB,
-        "ratio_min": None, "ratio_max": None, "max_count": 10,
+        "min_dim": 200,
+        "max_dim": 4096,
+        "dim_axis": "both",
+        "max_bytes": 10 * _MB,
+        "max_video_bytes": 2 * _GB,
+        "ratio_min": None,
+        "ratio_max": None,
+        "max_count": 10,
     },
     "twitter": {
-        "required": True, "allow_pdf": False,
+        "required": True,
+        "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".webp") + VIDEO_EXTS_ALL,
-        "min_dim": 200, "max_dim": 8192, "dim_axis": "both",
-        "max_bytes": 5 * _MB, "max_video_bytes": 8 * _GB,
-        "ratio_min": None, "ratio_max": None, "max_count": 4,
+        "min_dim": 200,
+        "max_dim": 8192,
+        "dim_axis": "both",
+        "max_bytes": 5 * _MB,
+        "max_video_bytes": 8 * _GB,
+        "ratio_min": None,
+        "ratio_max": None,
+        "max_count": 4,
     },
     "threads": {
-        "required": True, "allow_pdf": False,
+        "required": True,
+        "allow_pdf": False,
         "formats": (".jpg", ".jpeg", ".png", ".gif") + VIDEO_EXTS_ALL,
-        "min_dim": 320, "max_dim": 1440, "dim_axis": "width",
-        "max_bytes": 8 * _MB, "max_video_bytes": 1 * _GB,
-        "ratio_min": 1 / 10, "ratio_max": 10.0, "max_count": 20,
+        "min_dim": 320,
+        "max_dim": 1440,
+        "dim_axis": "width",
+        "max_bytes": 8 * _MB,
+        "max_video_bytes": 1 * _GB,
+        "ratio_min": 1 / 10,
+        "ratio_max": 10.0,
+        "max_count": 20,
     },
     # Telegram Bot API (managed channel): sendPhoto ≤10MB via URL,
     # sendVideo/sendDocument ≤50MB; sendMediaGroup albums cap at 10 items.
     "telegram": {
-        "required": True, "allow_pdf": True, "max_pdf_bytes": 50 * _MB,
+        "required": True,
+        "allow_pdf": True,
+        "max_pdf_bytes": 50 * _MB,
         "formats": (".jpg", ".jpeg", ".png", ".webp") + (".mp4",),
-        "min_dim": 1, "max_dim": 10000, "dim_axis": "both",
-        "max_bytes": 10 * _MB, "max_video_bytes": 50 * _MB,
-        "ratio_min": None, "ratio_max": None, "max_count": 10,
+        "min_dim": 1,
+        "max_dim": 10000,
+        "dim_axis": "both",
+        "max_bytes": 10 * _MB,
+        "max_video_bytes": 50 * _MB,
+        "ratio_min": None,
+        "ratio_max": None,
+        "max_count": 10,
     },
     # AT Protocol lexicon caps: 4 images ≤2MB each, single mp4 ≤300MB.
     # Videos: embed.video accepts video/mp4 only.
     "bluesky": {
-        "required": True, "allow_pdf": False, "single_kind": True,
+        "required": True,
+        "allow_pdf": False,
+        "single_kind": True,
         "formats": (".jpg", ".jpeg", ".png", ".webp", ".gif") + (".mp4",),
-        "min_dim": 200, "max_dim": 4096, "dim_axis": "both",
-        "max_bytes": 2 * _MB, "max_video_bytes": 300 * _MB,
-        "ratio_min": None, "ratio_max": None, "max_count": 4,
+        "min_dim": 200,
+        "max_dim": 4096,
+        "dim_axis": "both",
+        "max_bytes": 2 * _MB,
+        "max_video_bytes": 300 * _MB,
+        "ratio_min": None,
+        "ratio_max": None,
+        "max_count": 4,
     },
 }
 
@@ -384,9 +433,7 @@ def _fmt_bytes(n: int) -> str:
     return f"{n // _GB}GB" if n >= _GB and n % _GB == 0 else f"{n // _MB}MB"
 
 
-def validate_media_for_platform(
-    platform: str, media_paths: list[str], expected: int = 0
-) -> PublishResult | None:
+def validate_media_for_platform(platform: str, media_paths: list[str], expected: int = 0) -> PublishResult | None:
     """Pre-flight every media file against the target platform's constraints.
 
     ``expected`` is the number of distinct media assets the post references
@@ -424,10 +471,7 @@ def validate_media_for_platform(
         return None  # pragma: no cover — every platform rule currently sets required=True
 
     if len(media_paths) > rules["max_count"]:
-        return _skipped_media_result(
-            f"{plat} accepts at most {rules['max_count']} media "
-            f"items per post — got {len(media_paths)}. Reduce the media count."
-        )
+        return _skipped_media_result(f"{plat} accepts at most {rules['max_count']} media items per post — got {len(media_paths)}. Reduce the media count.")
 
     if rules.get("single_kind"):
         videos = [p for p in media_paths if p.lower().endswith(VIDEO_EXTS_ALL)]
@@ -451,68 +495,44 @@ def validate_media_for_platform(
         is_pdf = lower.endswith(".pdf")
 
         if is_pdf and not rules["allow_pdf"]:
-            return _skipped_media_result(
-                f"{plat} does not accept PDF media ({name}). Attach an "
-                "image/video or remove the target."
-            )
+            return _skipped_media_result(f"{plat} does not accept PDF media ({name}). Attach an image/video or remove the target.")
 
         # Existence + size checks apply to EVERY media type (images, videos,
         # PDFs) — a missing or empty file must never soft-pass.
         if not os.path.exists(path):
-            return _skipped_media_result(
-                f"Media file missing from storage: {name} — "
-                "re-upload the asset or remove the target."
-            )
+            return _skipped_media_result(f"Media file missing from storage: {name} — re-upload the asset or remove the target.")
         try:
             size = os.path.getsize(path)
         except OSError as exc:
-            return _skipped_media_result(
-                f"Media file unreadable ({exc}) — re-upload the asset."
-            )
+            return _skipped_media_result(f"Media file unreadable ({exc}) — re-upload the asset.")
 
         if is_pdf:
             # LinkedIn document posts: ≤100MB, ≤300 pages (Documents API).
             if size == 0:
-                return _skipped_media_result(
-                    f"PDF {name} is empty (0 bytes) — re-upload the document."
-                )
+                return _skipped_media_result(f"PDF {name} is empty (0 bytes) — re-upload the document.")
             max_pdf = rules.get("max_pdf_bytes") or rules["max_bytes"]
             if size > max_pdf:
-                return _skipped_media_result(
-                    f"PDF {name} is {size // 1024}KB — above {plat}'s document "
-                    f"limit ({_fmt_bytes(max_pdf)}). Compress or split it."
-                )
+                return _skipped_media_result(f"PDF {name} is {size // 1024}KB — above {plat}'s document limit ({_fmt_bytes(max_pdf)}). Compress or split it.")
             try:
                 with open(path, "rb") as fh:
                     head = fh.read(5)
             except OSError as exc:
-                return _skipped_media_result(
-                    f"PDF {name} unreadable ({exc}) — re-upload the document."
-                )
+                return _skipped_media_result(f"PDF {name} unreadable ({exc}) — re-upload the document.")
             if head != b"%PDF-":
-                return _skipped_media_result(
-                    f"{name} is not a valid PDF (bad header) — re-export the document."
-                )
+                return _skipped_media_result(f"{name} is not a valid PDF (bad header) — re-export the document.")
             continue
 
         if size < MIN_IMAGE_BYTES:
-            return _skipped_media_result(
-                f"Media file {name} is only {size} bytes — "
-                "likely a truncated or placeholder upload. Re-upload the asset."
-            )
+            return _skipped_media_result(f"Media file {name} is only {size} bytes — likely a truncated or placeholder upload. Re-upload the asset.")
 
         if lower.endswith(VIDEO_EXTS_ALL):
             # Videos have their own (much larger) byte caps; the image
             # ``max_bytes`` must NOT apply here or Reels/videos get skipped.
             if not lower.endswith(rules["formats"]):
-                return _skipped_media_result(
-                    f"Media {name} has a format {plat} does not accept "
-                    f"(allowed: {', '.join(rules['formats'])}). Re-export the asset."
-                )
+                return _skipped_media_result(f"Media {name} has a format {plat} does not accept (allowed: {', '.join(rules['formats'])}). Re-export the asset.")
             if size > rules["max_video_bytes"]:
                 return _skipped_media_result(
-                    f"Video {name} is {size // _MB}MB — above {plat}'s video "
-                    f"limit ({_fmt_bytes(rules['max_video_bytes'])}). Compress or trim."
+                    f"Video {name} is {size // _MB}MB — above {plat}'s video limit ({_fmt_bytes(rules['max_video_bytes'])}). Compress or trim."
                 )
             # fps/duration/codec are validated by the dedicated paths
             # (validate_tiktok_video_constraints, browser sidecars).
@@ -520,8 +540,7 @@ def validate_media_for_platform(
 
         if size > rules["max_bytes"]:
             return _skipped_media_result(
-                f"Media {name} is {size // 1024}KB — above {plat}'s image "
-                f"limit ({_fmt_bytes(rules['max_bytes'])}). Compress or resize."
+                f"Media {name} is {size // 1024}KB — above {plat}'s image limit ({_fmt_bytes(rules['max_bytes'])}). Compress or resize."
             )
 
         try:
@@ -532,52 +551,31 @@ def validate_media_for_platform(
             with Image.open(path) as im:
                 width, height = im.size
         except Exception as exc:  # noqa: BLE001 — any parse failure is a bad asset
-            return _skipped_media_result(
-                f"Media file {name} is not a decodable image "
-                f"({type(exc).__name__}) — re-upload the asset."
-            )
+            return _skipped_media_result(f"Media file {name} is not a decodable image ({type(exc).__name__}) — re-upload the asset.")
 
         width_only = rules.get("dim_axis") == "width"
-        too_small = (
-            width < rules["min_dim"]
-            if width_only
-            else (width < rules["min_dim"] or height < rules["min_dim"])
-        )
+        too_small = width < rules["min_dim"] if width_only else (width < rules["min_dim"] or height < rules["min_dim"])
         if too_small:
             what = "width" if width_only else "minimum"
-            return _skipped_media_result(
-                f"Media {name} is {width}x{height}px — below "
-                f"{plat}'s {what} {rules['min_dim']}px. Upload a larger rendition."
-            )
-        too_big = (
-            width > rules["max_dim"]
-            if width_only
-            else (width > rules["max_dim"] or height > rules["max_dim"])
-        )
+            return _skipped_media_result(f"Media {name} is {width}x{height}px — below {plat}'s {what} {rules['min_dim']}px. Upload a larger rendition.")
+        too_big = width > rules["max_dim"] if width_only else (width > rules["max_dim"] or height > rules["max_dim"])
         if too_big:
             what = "max width" if width_only else "limit"
-            return _skipped_media_result(
-                f"Media {name} is {width}x{height}px — above "
-                f"{plat}'s {what} {rules['max_dim']}px. Downscale the rendition."
-            )
+            return _skipped_media_result(f"Media {name} is {width}x{height}px — above {plat}'s {what} {rules['max_dim']}px. Downscale the rendition.")
         ratio = width / height
-        if (rules["ratio_min"] and ratio < rules["ratio_min"]) or (
-            rules["ratio_max"] and ratio > rules["ratio_max"]
-        ):
+        if (rules["ratio_min"] and ratio < rules["ratio_min"]) or (rules["ratio_max"] and ratio > rules["ratio_max"]):
             return _skipped_media_result(
                 f"Media {name} is {width}x{height}px — {plat} "
                 f"requires aspect ratio between {rules['ratio_min']:.2f} and "
                 f"{rules['ratio_max']:.2f} (width/height). Crop or pad the image."
             )
         if not lower.endswith(rules["formats"]):
-            return _skipped_media_result(
-                f"Media {name} has a format {plat} does not accept "
-                f"(allowed: {', '.join(rules['formats'])}). Re-export the asset."
-            )
+            return _skipped_media_result(f"Media {name} has a format {plat} does not accept (allowed: {', '.join(rules['formats'])}). Re-export the asset.")
     return None
 
 
 # ── entry point ───────────────────────────────────────────────────────────────
+
 
 async def publish_to_platform(
     account: SocialAccount,
@@ -589,15 +587,12 @@ async def publish_to_platform(
     # other platforms can still publish successfully. Telegram is NOT in this
     # set — the managed channel gets feed posts via _publish_telegram.
     if account.platform in ("whatsapp", "viber"):
-        channel = {"whatsapp": "WhatsApp", "viber": "Viber"}[
-            account.platform
-        ]
+        channel = {"whatsapp": "WhatsApp", "viber": "Viber"}[account.platform]
         return PublishResult(
             success=False,
             skipped=True,
             error=(
-                f"{channel} is a messaging channel in SocialAuto and does not support feed-style post publishing. "
-                f"Use the {channel} send endpoints instead."
+                f"{channel} is a messaging channel in SocialAuto and does not support feed-style post publishing. Use the {channel} send endpoints instead."
             ),
         )
 
@@ -659,10 +654,7 @@ async def publish_to_platform(
         return PublishResult(
             success=False,
             skipped=True,
-            error=(
-                f"Duplicate content: matches published post {str(dup.id)[:8]} "
-                "from the last 30 days — refusing to re-publish."
-            ),
+            error=(f"Duplicate content: matches published post {str(dup.id)[:8]} from the last 30 days — refusing to re-publish."),
         )
 
     # UTM attribution: rewrite owned-domain links in the assembled copy and
@@ -670,9 +662,7 @@ async def publish_to_platform(
     # back to this post (AttributionCapture -> web_analytics_events -> CRM).
     campaign = (getattr(post, "meta_data", None) or {}).get("source") or "organic-social"
     content_key = str(getattr(post, "id", None) or "post")
-    text = tag_owned_links(
-        text, platform=account.platform, campaign=campaign, content=content_key
-    )
+    text = tag_owned_links(text, platform=account.platform, campaign=campaign, content=content_key)
     raw_link = getattr(post, "link_url", None)
     if raw_link:
         tagged_link = tracked_url(
@@ -695,9 +685,7 @@ async def publish_to_platform(
     # silently drops assets it cannot find locally or fetch from R2/MinIO, so
     # without it a post whose media failed to resolve would publish text-only.
     expected_media = len(dict.fromkeys(str(m) for m in (getattr(post, "media_ids", None) or [])))
-    media_check = validate_media_for_platform(
-        account.platform, media_paths, expected=expected_media
-    )
+    media_check = validate_media_for_platform(account.platform, media_paths, expected=expected_media)
     if media_check is not None:
         return media_check
 
@@ -766,17 +754,21 @@ async def _find_duplicate_post(
     candidate — same media asset or near-identical caption text."""
     since = datetime.now(UTC) - timedelta(days=_DUP_WINDOW_DAYS)
     rows = (
-        await db.execute(
-            select(Post)
-            .join(PostTarget, PostTarget.post_id == Post.id)
-            .where(
-                PostTarget.social_account_id == account.id,
-                Post.status == PostStatus.PUBLISHED,
-                Post.id != post.id,
-                Post.published_at >= since,
+        (
+            await db.execute(
+                select(Post)
+                .join(PostTarget, PostTarget.post_id == Post.id)
+                .where(
+                    PostTarget.social_account_id == account.id,
+                    Post.status == PostStatus.PUBLISHED,
+                    Post.id != post.id,
+                    Post.published_at >= since,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     media_set = {str(m) for m in (post.media_ids or [])}
     for other in rows:
@@ -812,14 +804,17 @@ async def _resolve_media_paths(post: Post, db: AsyncSession) -> list[str]:
         try:
             if backend == "r2":
                 from app.services import r2_storage
+
                 data = await r2_storage.get_object(asset.storage_path)
             elif backend == "minio":
                 from app.services import minio_storage
+
                 data = await minio_storage.get_object(asset.storage_path)
         except Exception as exc:
             logger.warning(f"[publishing] Failed to fetch {asset.storage_path} from {backend}: {exc}")
         if data:
             import tempfile
+
             ext = os.path.splitext(asset.filename or asset.storage_path or "")[1] or ".bin"
             # Save to the uploads directory so the file is accessible by
             # sidecar containers (instagram-private-api, etc.) that mount
@@ -870,14 +865,17 @@ async def _resolve_music_path(post: Post, db: AsyncSession) -> str | None:
     try:
         if backend == "r2":
             from app.services import r2_storage
+
             data = await r2_storage.get_object(asset.storage_path)
         elif backend == "minio":
             from app.services import minio_storage
+
             data = await minio_storage.get_object(asset.storage_path)
     except Exception as exc:
         logger.warning(f"[publishing] Failed to fetch music {asset.storage_path} from {backend}: {exc}")
     if data:
         import tempfile
+
         ext = os.path.splitext(asset.filename or asset.storage_path or "")[1] or ".bin"
         tmp = tempfile.NamedTemporaryFile(suffix=ext, delete=False, dir="/tmp")
         tmp.write(data)
@@ -897,21 +895,25 @@ async def _mix_audio_into_video(video_path: str, audio_path: str) -> str:
     import tempfile
 
     if not shutil.which("ffmpeg"):
-        logger.error(
-            "[publishing] ffmpeg not installed — cannot mix music_asset into video. "
-            "Install ffmpeg in social-api / worker images."
-        )
+        logger.error("[publishing] ffmpeg not installed — cannot mix music_asset into video. Install ffmpeg in social-api / worker images.")
         return video_path
 
     out_path = tempfile.NamedTemporaryFile(suffix="_mixed.mp4", delete=False).name
     cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-i", audio_path,
-        "-c:v", "copy",
-        "-c:a", "aac",
-        "-map", "0:v:0",
-        "-map", "1:a:0",
+        "ffmpeg",
+        "-y",
+        "-i",
+        video_path,
+        "-i",
+        audio_path,
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
         "-shortest",
         out_path,
     ]
@@ -950,11 +952,13 @@ class _TaggedLinkPost:
 def _build_post_text(post: Post, platform: str) -> str:
     """Delegate to content_renderer for per-platform adaptation."""
     from app.services.content_renderer import render_post_text
+
     return render_post_text(post, platform)
 
 
 def _images_to_pdf(image_paths: list[str], title: str = "Carousel") -> bytes:
     from PIL import Image
+
     pdf_bytes = io.BytesIO()
     images = [Image.open(p).convert("RGB") for p in image_paths]
     if not images:
@@ -1011,6 +1015,7 @@ def _media_public_url(storage_path: str, *, force_jpeg: bool = False) -> str | N
 # signature (TWITTER_API_KEY / API_SECRET + ACCESS_TOKEN / ACCESS_TOKEN_SECRET,
 # which must belong to the same X account) on the same v2 endpoints.
 
+
 def _oauth1_auth_header(
     method: str,
     url: str,
@@ -1031,31 +1036,33 @@ def _oauth1_auth_header(
         "oauth_version": "1.0",
     }
     all_params = {**oauth_params, **(extra_params or {})}
-    sorted_params = "&".join(
-        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(v, safe='')}"
-        for k, v in sorted(all_params.items())
+    sorted_params = "&".join(f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(v, safe='')}" for k, v in sorted(all_params.items()))
+    base_string = "&".join(
+        [
+            method.upper(),
+            urllib.parse.quote(url, safe=""),
+            urllib.parse.quote(sorted_params, safe=""),
+        ]
     )
-    base_string = "&".join([
-        method.upper(),
-        urllib.parse.quote(url, safe=""),
-        urllib.parse.quote(sorted_params, safe=""),
-    ])
     signing_key = f"{urllib.parse.quote(api_secret, safe='')}&{urllib.parse.quote(token_secret, safe='')}"
     signature = base64.b64encode(
         hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()  # type: ignore[attr-defined]
     ).decode()
     oauth_params["oauth_signature"] = signature
-    header_parts = ', '.join(
-        f'{urllib.parse.quote(k, safe="")}="{urllib.parse.quote(v, safe="")}"'
-        for k, v in sorted(oauth_params.items())
-    )
+    header_parts = ", ".join(f'{urllib.parse.quote(k, safe="")}="{urllib.parse.quote(v, safe="")}"' for k, v in sorted(oauth_params.items()))
     return f"OAuth {header_parts}"
 
 
 _X_MEDIA_SCOPE_MISSING = "missing media.write scope"
 _X_MEDIA_TYPES = {
-    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp",
-    ".gif": "image/gif", ".mp4": "video/mp4", ".m4v": "video/mp4", ".mov": "video/quicktime",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".mp4": "video/mp4",
+    ".m4v": "video/mp4",
+    ".mov": "video/quicktime",
     ".webm": "video/webm",
 }
 
@@ -1063,8 +1070,10 @@ _X_MEDIA_TYPES = {
 def _x_oauth1_media_signer():
     """OAuth 1.0a signer for the v2 media endpoints, or None if unconfigured."""
     creds = (
-        _settings.TWITTER_API_KEY, _settings.TWITTER_API_SECRET,
-        _settings.TWITTER_ACCESS_TOKEN, _settings.TWITTER_ACCESS_TOKEN_SECRET,
+        _settings.TWITTER_API_KEY,
+        _settings.TWITTER_API_SECRET,
+        _settings.TWITTER_ACCESS_TOKEN,
+        _settings.TWITTER_ACCESS_TOKEN_SECRET,
     )
     if not all(creds):
         return None
@@ -1072,8 +1081,13 @@ def _x_oauth1_media_signer():
 
     def _sign(method: str, url: str, params: dict[str, str] | None = None) -> str:
         return _oauth1_auth_header(
-            method, url, api_key=api_key, api_secret=api_secret,
-            token=token, token_secret=token_secret, extra_params=params,
+            method,
+            url,
+            api_key=api_key,
+            api_secret=api_secret,
+            token=token,
+            token_secret=token_secret,
+            extra_params=params,
         )
 
     return _sign
@@ -1119,8 +1133,7 @@ async def _twitter_upload_media(
             _X_MEDIA_SCOPE_MISSING,
             "https://api.x.com/2/media/upload",
             message=(
-                "X media upload needs the media.write OAuth 2.0 scope — reconnect the X "
-                "account (or configure TWITTER_API_KEY/SECRET + ACCESS_TOKEN/SECRET)"
+                "X media upload needs the media.write OAuth 2.0 scope — reconnect the X account (or configure TWITTER_API_KEY/SECRET + ACCESS_TOKEN/SECRET)"
             ),
         )
     with open(path, "rb") as fh:
@@ -1133,7 +1146,10 @@ async def _twitter_upload_media(
         media_id = await client.upload_media_chunked(data, media_type, "tweet_gif")
     else:
         media_id = await client.upload_media(
-            data, media_category="tweet_image", mime_type=media_type, filename=os.path.basename(path),
+            data,
+            media_category="tweet_image",
+            mime_type=media_type,
+            filename=os.path.basename(path),
         )
     logger.info("[twitter] uploaded media %s (%s)", media_id, media_type)
     if alt_text and not media_type.startswith("video/"):
@@ -1282,10 +1298,7 @@ async def _publish_twitter(
     if expected_media and len(media_paths) < expected_media:
         return PublishResult(
             success=False,
-            error=(
-                f"X post media incomplete: only {len(media_paths)}/{expected_media} media assets could be "
-                "resolved — not publishing without all media"
-            ),
+            error=(f"X post media incomplete: only {len(media_paths)}/{expected_media} media assets could be resolved — not publishing without all media"),
         )
 
     try:
@@ -1313,9 +1326,14 @@ async def _publish_twitter(
             for idx, path in enumerate(upload_paths):
                 try:
                     try:
-                        media_ids.append(await _twitter_upload_media(
-                            path, access_token=access_token, account=account, alt_text=alt_texts[idx],
-                        ))
+                        media_ids.append(
+                            await _twitter_upload_media(
+                                path,
+                                access_token=access_token,
+                                account=account,
+                                alt_text=alt_texts[idx],
+                            )
+                        )
                     except TwitterAPIError as auth_exc:
                         # Expired 2h access token: refresh once, then retry.
                         if auth_exc.status_code != 401 or refreshed:
@@ -1326,13 +1344,23 @@ async def _publish_twitter(
                             raise
                         access_token = new_token
                         client = TwitterAPIClient(access_token=access_token)
-                        media_ids.append(await _twitter_upload_media(
-                            path, access_token=access_token, account=account, alt_text=alt_texts[idx],
-                        ))
+                        media_ids.append(
+                            await _twitter_upload_media(
+                                path,
+                                access_token=access_token,
+                                account=account,
+                                alt_text=alt_texts[idx],
+                            )
+                        )
                 except TwitterAPIError as exc:
                     if _is_x_quota_error(exc):
                         return await _publish_twitter_fallbacks(
-                            account, text, tweets, post, plan, reason=f"{exc} {exc.response_text}",
+                            account,
+                            text,
+                            tweets,
+                            post,
+                            plan,
+                            reason=f"{exc} {exc.response_text}",
                             retry_at=_x_retry_at(exc),
                         )
                     if exc.response_text == _X_MEDIA_SCOPE_MISSING:
@@ -1340,11 +1368,21 @@ async def _publish_twitter(
                         # media.write, no OAuth 1.0a creds) — same as the API
                         # being unavailable for this post: free fallbacks/defer.
                         return await _publish_twitter_fallbacks(
-                            account, text, tweets, post, plan, reason=str(exc),
+                            account,
+                            text,
+                            tweets,
+                            post,
+                            plan,
+                            reason=str(exc),
                         )
                     if x_web.is_configured():
                         return await _publish_twitter_fallbacks(
-                            account, text, tweets, post, plan, reason=f"official media upload failed: {exc}",
+                            account,
+                            text,
+                            tweets,
+                            post,
+                            plan,
+                            reason=f"official media upload failed: {exc}",
                         )
                     return PublishResult(
                         success=False,
@@ -1377,7 +1415,12 @@ async def _publish_twitter(
                     )
                 # X API write credits / monthly cap — free fallbacks.
                 return await _publish_twitter_fallbacks(
-                    account, text, tweets, post, plan, reason=f"{exc} {getattr(exc, 'response_text', '')}",
+                    account,
+                    text,
+                    tweets,
+                    post,
+                    plan,
+                    reason=f"{exc} {getattr(exc, 'response_text', '')}",
                     retry_at=_x_retry_at(exc),
                 )
             if exc.status_code in (401, 403) and not refreshed:
@@ -1387,7 +1430,8 @@ async def _publish_twitter(
                     client = TwitterAPIClient(access_token=new_token)
                     try:
                         result = await client.create_tweet(
-                            text=chunk, reply_tweet_id=last_id,
+                            text=chunk,
+                            reply_tweet_id=last_id,
                             media_ids=media_ids if i == 0 else None,
                         )
                     except TwitterAPIError:
@@ -1461,9 +1505,8 @@ async def _publish_twitter_fallbacks(
         web_error = out.error  # transient — try the browser bridge next
 
     if plan.kind == "video":
-        detail = (
-            "X video posts need the X web fallback (the browser bridge cannot attach video)"
-            + (f"; X web: {web_error}" if web_error else "; set X_WEB_FALLBACK_ENABLED + X_WEB_AUTH_TOKEN/X_WEB_CT0")
+        detail = "X video posts need the X web fallback (the browser bridge cannot attach video)" + (
+            f"; X web: {web_error}" if web_error else "; set X_WEB_FALLBACK_ENABLED + X_WEB_AUTH_TOKEN/X_WEB_CT0"
         )
         # x_web transient error or unavailable: the video cannot go out any
         # other way right now — defer (bounded by the worker) instead of
@@ -1478,7 +1521,8 @@ async def _publish_twitter_fallbacks(
         # through retries/alerts instead of a silent deferral.
         if web_error:
             return dataclasses.replace(
-                browser_result, error=f"{web_error}; browser bridge: {browser_result.error}",
+                browser_result,
+                error=f"{web_error}; browser bridge: {browser_result.error}",
             )
         return browser_result
     # Browser bridge soft-unavailable (+ x_web transient error, if any):
@@ -1503,18 +1547,12 @@ async def _publish_twitter_via_browser(
     from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
     from app.services.browser_orchestrator import browser_session
 
-    image_paths = [
-        p for p in media_paths[:4]
-        if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
-    ]
+    image_paths = [p for p in media_paths[:4] if p.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))]
     if len(image_paths) != len(media_paths):
         # Never publish with a partial/missing media set.
         return PublishResult(
             success=False,
-            error=(
-                "X browser bridge can only attach up to 4 PNG/JPEG/GIF/WEBP images — "
-                "this post's media cannot be attached, not publishing without it"
-            ),
+            error=("X browser bridge can only attach up to 4 PNG/JPEG/GIF/WEBP images — this post's media cannot be attached, not publishing without it"),
         )
 
     settings = get_settings()
@@ -1544,20 +1582,11 @@ async def _publish_twitter_via_browser(
             if not state.get("logged_in"):
                 # Self-heal: drive the two-step login with stored creds.
                 # One attempt only; repeated failures risk lockout.
-                login_user = (
-                    settings.TWITTER_LOGIN_USERNAME
-                    or settings.TWITTER_LOGIN_EMAIL
-                    or account.username
-                    or ""
-                ).lstrip("@")
+                login_user = (settings.TWITTER_LOGIN_USERNAME or settings.TWITTER_LOGIN_EMAIL or account.username or "").lstrip("@")
                 if login_user and settings.TWITTER_LOGIN_PASSWORD:
-                    login_res = await client.twitter_login(
-                        login_user, settings.TWITTER_LOGIN_PASSWORD
-                    )
+                    login_res = await client.twitter_login(login_user, settings.TWITTER_LOGIN_PASSWORD)
                     if login_res.get("status") != "logged_in":
-                        return _x_quota_skip_result(
-                            f"browser login failed: {login_res.get('error')}"
-                        )
+                        return _x_quota_skip_result(f"browser login failed: {login_res.get('error')}")
                     # Re-probe so the identity check below sees the fresh session.
                     state = await client.is_twitter_logged_in()
 
@@ -1590,15 +1619,14 @@ async def _publish_twitter_via_browser(
     except Exception as exc:
         return _x_quota_skip_result(f"browser fallback failed: {exc}")
     if res.get("status") != "ok":
-        return _x_quota_skip_result(
-            f"browser fallback failed: {res.get('error') or res.get('message')}"
-        )
+        return _x_quota_skip_result(f"browser fallback failed: {res.get('error') or res.get('message')}")
     url = res.get("url") or (f"https://x.com/{account.username}" if account.username else None)
     post_id = url.rstrip("/").rsplit("/status/", 1)[-1] if url and "/status/" in url else None
     return PublishResult(success=True, platform_post_id=post_id, platform_url=url)
 
 
 # ── LinkedIn ──────────────────────────────────────────────────────────────────
+
 
 def _linkedin_author_urn(account: SocialAccount, client: LinkedInAPIClient) -> str:
     meta = account.meta_data or {}
@@ -1706,15 +1734,9 @@ async def _publish_linkedin(
 
     # Detect media types — video and PDF get dedicated upload flows;
     # everything else is treated as an image.
-    video_paths = [
-        p for p in media_paths
-        if p.lower().endswith((".mp4", ".mov", ".webm", ".avi", ".mkv"))
-    ]
+    video_paths = [p for p in media_paths if p.lower().endswith((".mp4", ".mov", ".webm", ".avi", ".mkv"))]
     pdf_paths = [p for p in media_paths if p.lower().endswith(".pdf")]
-    image_paths = [
-        p for p in media_paths
-        if p not in video_paths and not p.lower().endswith(".pdf")
-    ]
+    image_paths = [p for p in media_paths if p not in video_paths and not p.lower().endswith(".pdf")]
 
     if video_paths:
         # Native video takes precedence — a video post cannot also carry
@@ -1779,6 +1801,7 @@ async def _publish_linkedin(
 # The stored account is the Facebook user.  To post as a Page we must
 # exchange the user token for a Page access token at publish time.
 
+
 async def _facebook_page_token(user_token: str, page_id: str) -> str:
     """Return a Page access token for `page_id`, or fall back to `user_token`."""
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -1829,11 +1852,7 @@ async def _publish_facebook_via_sidecar(
     # Profile posts default to public — the growth/Stars campaign relies on
     # unconnected distribution, and Friends-only posts can't earn followers.
     # Override per-post via platform_specific.facebook_privacy.
-    privacy = str(
-        (getattr(post, "platform_specific", None) or {}).get(
-            "facebook_privacy", "public"
-        )
-    )
+    privacy = str((getattr(post, "platform_specific", None) or {}).get("facebook_privacy", "public"))
 
     try:
         # Determine post type
@@ -1888,9 +1907,7 @@ async def _publish_facebook(
     acct_type = (account.account_type or "").lower()
     meta_type = str((getattr(account, "meta_data", None) or {}).get("account_type") or "").lower()
     if acct_type == "group" or meta_type == "group":
-        return _facebook_group_skip_result(
-            f"account_type={account.account_type!r} account_id={account.account_id}"
-        )
+        return _facebook_group_skip_result(f"account_type={account.account_type!r} account_id={account.account_id}")
 
     # Personal profile (type=user) with a browser session → use sidecar.
     # Do NOT fall through to Graph on sidecar failure — Meta removed user-
@@ -1941,10 +1958,7 @@ async def _publish_facebook(
                 return PublishResult(
                     success=False,
                     skipped=True,
-                    error=(
-                        "Facebook video has no public URL (MEDIA_PUBLIC_BASE_URL unset?) — "
-                        "not publishing without its media; retrying cannot help."
-                    ),
+                    error=("Facebook video has no public URL (MEDIA_PUBLIC_BASE_URL unset?) — not publishing without its media; retrying cannot help."),
                 )
             video = await fb_client.create_video_post(video_url=video_url, description=text)
             video_id = str(video.get("id") or "")
@@ -1983,14 +1997,12 @@ async def _publish_facebook(
                 # Owner rule: never publish text-only or with a partial album.
                 return PublishResult(
                     success=False,
-                    error=(
-                        f"Facebook photo upload incomplete ({len(photo_ids)}/{expected} "
-                        "uploaded with an id) — not publishing with missing media"
-                    ),
+                    error=(f"Facebook photo upload incomplete ({len(photo_ids)}/{expected} uploaded with an id) — not publishing with missing media"),
                 )
             # Multi-photo post via /feed with attached_media
             attached = [{"media_fbid": pid} for pid in photo_ids]
             import json as _json
+
             r = await client.post(
                 f"{graph_base}/{page_id}/feed",
                 data={
@@ -2033,6 +2045,7 @@ async def _publish_facebook(
 #    Facebook Page and publicly reachable image URLs (MEDIA_PUBLIC_BASE_URL
 #    or Cloudflare Tunnel). Used when no sidecar session is available.
 
+
 async def _instagram_public_urls(
     storage_paths: list[str],
     post: Post,
@@ -2058,9 +2071,7 @@ async def _instagram_public_urls(
 
     meta_by_path: dict[str, MediaAsset] = {}
     if db is not None and post.media_ids:
-        assets = (
-            await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))
-        ).scalars().all()
+        assets = (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(post.media_ids)))).scalars().all()
         meta_by_path = {a.storage_path: a for a in assets if a.storage_path}
     r2_base = (_settings.R2_PUBLIC_URL or "").rstrip("/")
 
@@ -2161,15 +2172,9 @@ async def _publish_instagram_via_web(
 
     is_carousel = len(image_paths) > 1
 
-    cookie_header = (
-        f"sessionid={session_id}; csrftoken={csrf_token}; ds_user_id={ds_user_id}"
-    )
+    cookie_header = f"sessionid={session_id}; csrftoken={csrf_token}; ds_user_id={ds_user_id}"
     base_headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
         "X-IG-App-ID": "936619743392459",
         "x-csrftoken": csrf_token,
         "Cookie": cookie_header,
@@ -2183,6 +2188,7 @@ async def _publish_instagram_via_web(
         for idx, fp in enumerate(image_paths):
             try:
                 from PIL import Image
+
                 img = Image.open(fp)
                 width, height = img.size
             except Exception as exc:
@@ -2251,30 +2257,36 @@ async def _publish_instagram_via_web(
         if is_carousel:
             # Carousel: configure with children_metadata (include width/height per item)
             # Format matches instagram-private-api: extra, edits, device as JSON strings per child
-            device_payload = json.dumps({
-                "manufacturer": "Xiaomi",
-                "model": "MI 5",
-                "android_version": 24,
-                "android_release": "7.0",
-            })
-            children_metadata = json.dumps([
+            device_payload = json.dumps(
                 {
-                    "upload_id": uid,
-                    "width": w,
-                    "height": h,
-                    "timezone_offset": "0",
-                    "caption": None,
-                    "source_type": "4",
-                    "extra": json.dumps({"source_width": w, "source_height": h}),
-                    "edits": json.dumps({
-                        "crop_original_size": [w, h],
-                        "crop_center": [0.0, -0.0],
-                        "crop_zoom": 1.0,
-                    }),
-                    "device": device_payload,
+                    "manufacturer": "Xiaomi",
+                    "model": "MI 5",
+                    "android_version": 24,
+                    "android_release": "7.0",
                 }
-                for uid, (w, h) in zip(upload_ids, upload_dims)
-            ])
+            )
+            children_metadata = json.dumps(
+                [
+                    {
+                        "upload_id": uid,
+                        "width": w,
+                        "height": h,
+                        "timezone_offset": "0",
+                        "caption": None,
+                        "source_type": "4",
+                        "extra": json.dumps({"source_width": w, "source_height": h}),
+                        "edits": json.dumps(
+                            {
+                                "crop_original_size": [w, h],
+                                "crop_center": [0.0, -0.0],
+                                "crop_zoom": 1.0,
+                            }
+                        ),
+                        "device": device_payload,
+                    }
+                    for uid, (w, h) in zip(upload_ids, upload_dims)
+                ]
+            )
             client_sidecar_id = str(int(time.time() * 1000))
             configure_data = {
                 "_csrftoken": csrf_token,
@@ -2413,10 +2425,7 @@ async def _publish_instagram_via_sidecar(
         if exc.status_code in (401, 500) or "login_required" in detail_lower or "loginrequired" in detail_lower:
             return PublishResult(
                 success=False,
-                error=(
-                    "Instagram private API session expired. "
-                    "Re-login via the Accounts page to restore the sidecar session."
-                ),
+                error=("Instagram private API session expired. Re-login via the Accounts page to restore the sidecar session."),
             )
         return PublishResult(
             success=False,
@@ -2433,9 +2442,7 @@ async def _publish_instagram_via_sidecar(
     )
 
 
-async def _instagram_find_live(
-    client: InstagramAPIClient, caption: str, *, within_minutes: int = 30
-) -> dict[str, Any] | None:
+async def _instagram_find_live(client: InstagramAPIClient, caption: str, *, within_minutes: int = 30) -> dict[str, Any] | None:
     """Return the live media dict if a matching caption was posted recently.
 
     Meta's ``media_publish`` can return 403 ``error_subcode 2207051``
@@ -2545,10 +2552,7 @@ async def _publish_instagram_via_graph(
                 caption=caption,
             )
         else:
-            child_ids = [
-                await client.create_carousel_item(image_url=url)
-                for url in image_urls[:10]
-            ]
+            child_ids = [await client.create_carousel_item(image_url=url) for url in image_urls[:10]]
             creation_id = await client.create_carousel_container(
                 children_ids=child_ids,
                 caption=caption,
@@ -2706,10 +2710,7 @@ async def _publish_instagram(
         return PublishResult(
             success=False,
             skipped=True,
-            error=(
-                "Instagram requires at least one image or video. "
-                "Text-only posts are rejected — attach media or remove the IG target."
-            ),
+            error=("Instagram requires at least one image or video. Text-only posts are rejected — attach media or remove the IG target."),
         )
 
     meta = account.meta_data or {}
@@ -2741,7 +2742,13 @@ async def _publish_instagram(
     # and does NOT require a Facebook Page to be linked.
     if meta.get("login_type") == "business_login":
         graph_result = await _publish_instagram_via_graph(
-            access_token, text, account, post, media_paths, storage_paths, db,
+            access_token,
+            text,
+            account,
+            post,
+            media_paths,
+            storage_paths,
+            db,
         )
         if graph_result.success:
             return graph_result
@@ -2760,11 +2767,7 @@ async def _publish_instagram(
         logger.warning("instagrapi path failed: %s — trying fallback paths", ig_result.error)
 
     _decrypted_session = decrypt_field(meta.get("private_api_session_id"))
-    has_web_session = bool(
-        _decrypted_session
-        and meta.get("private_api_csrf_token")
-        and meta.get("private_api_ds_user_id")
-    )
+    has_web_session = bool(_decrypted_session and meta.get("private_api_csrf_token") and meta.get("private_api_ds_user_id"))
     has_sidecar_session = bool(_decrypted_session)
     web_result: PublishResult | None = None
 
@@ -2782,7 +2785,13 @@ async def _publish_instagram(
         if not ("session" in (result.error or "").lower() and "expired" in (result.error or "").lower()):
             graph_token = await _resolve_ig_user_token(access_token, account, db)
             graph_result = await _publish_instagram_via_graph(
-                graph_token, text, account, post, media_paths, storage_paths, db,
+                graph_token,
+                text,
+                account,
+                post,
+                media_paths,
+                storage_paths,
+                db,
             )
             if graph_result.success or graph_result.ambiguous:
                 return graph_result
@@ -2791,13 +2800,25 @@ async def _publish_instagram(
             return result
         graph_token = await _resolve_ig_user_token(access_token, account, db)
         return await _publish_instagram_via_graph(
-            graph_token, text, account, post, media_paths, storage_paths, db,
+            graph_token,
+            text,
+            account,
+            post,
+            media_paths,
+            storage_paths,
+            db,
         )
 
     # 5. Facebook Login Graph API (last resort)
     graph_token = await _resolve_ig_user_token(access_token, account, db)
     return await _publish_instagram_via_graph(
-        graph_token, text, account, post, media_paths, storage_paths, db,
+        graph_token,
+        text,
+        account,
+        post,
+        media_paths,
+        storage_paths,
+        db,
     )
 
 
@@ -2825,9 +2846,7 @@ async def _resolve_ig_user_token(
     parent_account_id = getattr(account, "parent_account_id", None)
     team_id = getattr(account, "team_id", None)
     if parent_account_id and db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.id == account.parent_account_id)
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.id == account.parent_account_id))
         parent = result.scalar_one_or_none()
         if parent and parent.platform == "facebook" and parent.account_type == "user":
             try:
@@ -2845,12 +2864,14 @@ async def _resolve_ig_user_token(
     # if the team has multiple FB user accounts.
     if db:
         result = await db.execute(
-            select(SocialAccount).where(
+            select(SocialAccount)
+            .where(
                 SocialAccount.team_id == team_id,
                 SocialAccount.platform == "facebook",
                 SocialAccount.account_type == "user",
                 SocialAccount.status == "active",
-            ).limit(1)
+            )
+            .limit(1)
         )
         fb_user = result.scalars().first()
         if fb_user:
@@ -2895,7 +2916,7 @@ async def _publish_tiktok(
 
     # Resolve public URLs for media using storage_paths (works with R2/MinIO)
     public_urls: list[str] = []
-    for sp in (storage_paths or []):
+    for sp in storage_paths or []:
         url = _media_public_url(sp)
         if url:
             public_urls.append(url)
@@ -2918,20 +2939,13 @@ async def _publish_tiktok(
         return PublishResult(
             success=False,
             skipped=True,
-            error=(
-                f"TikTok supports a single video or up to 35 photos per post — "
-                f"got {video_count} videos. Split the post or drop the extra media."
-            ),
+            error=(f"TikTok supports a single video or up to 35 photos per post — got {video_count} videos. Split the post or drop the extra media."),
         )
     local_video_path: str | None = None
     if len(media_paths) == 1 and media_paths[0].lower().endswith(_VIDEO_EXTS):
         if os.path.exists(media_paths[0]):
             local_video_path = media_paths[0]
-    is_video = local_video_path is not None or (
-        len(public_urls) == 1
-        and bool(media_paths)
-        and media_paths[0].lower().endswith(_VIDEO_EXTS)
-    )
+    is_video = local_video_path is not None or (len(public_urls) == 1 and bool(media_paths) and media_paths[0].lower().endswith(_VIDEO_EXTS))
 
     tiktok_options = (post.platform_specific or {}).get("tiktok", {}) or {}
     # App audit approved (Sep 2026) — DIRECT_POST is available and publishes
@@ -2952,25 +2966,17 @@ async def _publish_tiktok(
         # which is terminal only under MEDIA_UPLOAD.
         resume_mode = str(tiktok_options.get("publish_mode") or "").upper()
         if not resume_mode:
-            resume_mode = (
-                "MEDIA_UPLOAD"
-                if existing_publish_id.startswith(("v_inbox", "v_upload"))
-                else "DIRECT_POST"
-            )
+            resume_mode = "MEDIA_UPLOAD" if existing_publish_id.startswith(("v_inbox", "v_upload")) else "DIRECT_POST"
         logger.info(
             "[publishing] TikTok resuming status poll for existing publish_id=%s mode=%s",
             existing_publish_id,
             resume_mode,
         )
-        return await _poll_tiktok_publish_status(
-            client, existing_publish_id, resume_mode, account.username
-        )
+        return await _poll_tiktok_publish_status(client, existing_publish_id, resume_mode, account.username)
 
     # Brand account — public by default; creator_info still validates the
     # level against what the account actually allows.
-    privacy_level = str(
-        tiktok_options.get("privacy_level", "PUBLIC_TO_EVERYONE")
-    ).upper()
+    privacy_level = str(tiktok_options.get("privacy_level", "PUBLIC_TO_EVERYONE")).upper()
     direct_kwargs = _tiktok_direct_post_kwargs(tiktok_options)
     if publish_mode == "DIRECT_POST":
         creator = await client.get_creator_info()
@@ -2992,10 +2998,7 @@ async def _publish_tiktok(
         return PublishResult(
             success=False,
             skipped=True,
-            error=(
-                f"TikTok: only {len(public_urls)}/{len(media_paths)} photos have a public "
-                "URL — not publishing with missing media"
-            ),
+            error=(f"TikTok: only {len(public_urls)}/{len(media_paths)} photos have a public URL — not publishing with missing media"),
         )
 
     # 1) Initialize the post
@@ -3086,9 +3089,7 @@ async def _publish_tiktok(
         # Approved app, but the Content Posting visibility audit can lag the
         # app approval — fall back to an inbox draft rather than failing.
         if publish_mode == "DIRECT_POST" and _err_has(str(exc), _TT_UNAUDITED_MARKERS):
-            logger.warning(
-                "[publishing] TikTok DIRECT_POST gated (unaudited flag) — retrying as MEDIA_UPLOAD"
-            )
+            logger.warning("[publishing] TikTok DIRECT_POST gated (unaudited flag) — retrying as MEDIA_UPLOAD")
             publish_mode = "MEDIA_UPLOAD"
             init = await _init(publish_mode)
         else:
@@ -3098,9 +3099,7 @@ async def _publish_tiktok(
     publish_id = init.get("data", {}).get("publish_id")
     if not publish_id:
         error = init.get("error", {})
-        clarified = _tiktok_clarify_error(
-            f"{error.get('code', '')}: {error.get('message', error)}"
-        )
+        clarified = _tiktok_clarify_error(f"{error.get('code', '')}: {error.get('message', error)}")
         skip = _err_has(clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS)
         return PublishResult(success=False, skipped=skip, error=f"TikTok init failed: {clarified}")
 
@@ -3126,9 +3125,7 @@ async def _publish_tiktok(
     # 2) Poll for publish status (official statuses: PROCESSING_*,
     # SEND_TO_USER_INBOX, PUBLISH_COMPLETE, FAILED). Allow up to ~5 minutes —
     # TikTok can take a while after a successful 201 upload.
-    return await _poll_tiktok_publish_status(
-        client, publish_id, publish_mode, account.username
-    )
+    return await _poll_tiktok_publish_status(client, publish_id, publish_mode, account.username)
 
 
 async def _poll_tiktok_publish_status(
@@ -3173,9 +3170,7 @@ async def _poll_tiktok_publish_status(
             return PublishResult(
                 success=True,
                 platform_post_id=publish_id,
-                platform_url=(
-                    f"https://www.tiktok.com/@{username}" if username else None
-                ),
+                platform_url=(f"https://www.tiktok.com/@{username}" if username else None),
                 platform_meta=_meta({"status": status_value}),
             )
         if status_value == "PUBLISH_COMPLETE":
@@ -3193,20 +3188,14 @@ async def _poll_tiktok_publish_status(
                 platform_meta=_meta(
                     {
                         "status": status_value,
-                        **(
-                            {"publicaly_available_post_id": tt_post_id}
-                            if tt_post_id
-                            else {}
-                        ),
+                        **({"publicaly_available_post_id": tt_post_id} if tt_post_id else {}),
                     }
                 ),
             )
         if status_value in ("FAILED", "CANCELLED"):
             fail_reason = status_data.get("fail_reason") or "unknown"
             clarified = _tiktok_clarify_error(str(fail_reason))
-            skip = _err_has(
-                clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS + _TT_CANCELLED_MARKERS
-            )
+            skip = _err_has(clarified, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS + _TT_CANCELLED_MARKERS)
             return PublishResult(
                 success=False,
                 skipped=skip,
@@ -3233,6 +3222,7 @@ async def _poll_tiktok_publish_status(
 
 
 # ── Threads ───────────────────────────────────────────────────────────────────
+
 
 def _threads_media_kind(path: str) -> str:
     """Classify a media file as 'image' or 'video' by extension."""
@@ -3278,8 +3268,7 @@ async def _publish_threads(
             success=False,
             skipped=True,
             error=(
-                f"Threads: only {len(media_urls)}/{expected} media items have a public "
-                "URL — not publishing with missing media. Check MEDIA_PUBLIC_BASE_URL."
+                f"Threads: only {len(media_urls)}/{expected} media items have a public URL — not publishing with missing media. Check MEDIA_PUBLIC_BASE_URL."
             ),
         )
 
@@ -3411,10 +3400,7 @@ async def _publish_bluesky(
     return PublishResult(
         success=True,
         platform_post_id=at_uri,
-        platform_url=(
-            f"https://bsky.app/profile/{account.username}/post/{rkey}"
-            if account.username and rkey else None
-        ),
+        platform_url=(f"https://bsky.app/profile/{account.username}/post/{rkey}" if account.username and rkey else None),
     )
 
 
@@ -3456,9 +3442,7 @@ def _log_telegram_channel_post(
                 "chat_title": managed.get("title"),
                 "kind": kind,
                 "has_media": True,
-                "message_ids": [
-                    m.get("message_id") for m in results if isinstance(m, dict)
-                ],
+                "message_ids": [m.get("message_id") for m in results if isinstance(m, dict)],
             },
         )
     )
@@ -3480,17 +3464,10 @@ async def _publish_telegram(
         return PublishResult(
             success=False,
             skipped=True,
-            error=(
-                "Telegram: no managed channel configured — set one via "
-                "PUT /telegram/{account_id}/channel-config first."
-            ),
+            error=("Telegram: no managed channel configured — set one via PUT /telegram/{account_id}/channel-config first."),
         )
 
-    urls = [
-        (sp, u)
-        for sp in (storage_paths or [])
-        if (u := _media_public_url(sp))
-    ]
+    urls = [(sp, u) for sp in (storage_paths or []) if (u := _media_public_url(sp))]
     if media_paths and len(urls) < len(media_paths):
         return PublishResult(
             success=False,

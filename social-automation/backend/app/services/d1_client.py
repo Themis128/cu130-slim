@@ -5,6 +5,7 @@ Used as the primary database for social-api, with local PostgreSQL as failover.
 
 Free tier: 5M reads/day, 100K writes/day, 5GB storage.
 """
+
 from __future__ import annotations
 
 import json
@@ -33,7 +34,8 @@ class D1Client:
         self.db_id = (getattr(settings, "D1_SOCIAL_AUTOMATION_ID", "") or "").strip()
         # Token fallback chain: API token → AI token → Email token
         self._tokens = [
-            t for t in [
+            t
+            for t in [
                 (settings.CLOUDFLARE_API_TOKEN or "").strip(),
                 (settings.CLOUDFLARE_AI_API_TOKEN or "").strip(),
                 (getattr(settings, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
@@ -63,10 +65,7 @@ class D1Client:
     @property
     def base_url(self) -> str:
         if self._base_url is None:
-            self._base_url = (
-                f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}"
-                f"/d1/database/{self.db_id}/query"
-            )
+            self._base_url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/d1/database/{self.db_id}/query"
         return self._base_url
 
     def _headers(self) -> dict[str, str]:
@@ -139,15 +138,12 @@ class D1Client:
             if self._write_count >= self.D1_DAILY_WRITE_LIMIT - self.D1_WRITE_BUDGET_HEADROOM:
                 if not self._write_throttled:
                     logger.warning(
-                        "D1 daily write budget nearly exhausted (%d/%d writes). "
-                        "Throttling writes until UTC midnight reset.",
-                        self._write_count, self.D1_DAILY_WRITE_LIMIT,
+                        "D1 daily write budget nearly exhausted (%d/%d writes). Throttling writes until UTC midnight reset.",
+                        self._write_count,
+                        self.D1_DAILY_WRITE_LIMIT,
                     )
                     self._write_throttled = True
-                raise RuntimeError(
-                    f"D1 daily write budget exhausted ({self._write_count}/"
-                    f"{self.D1_DAILY_WRITE_LIMIT} writes). Resets at UTC midnight."
-                )
+                raise RuntimeError(f"D1 daily write budget exhausted ({self._write_count}/{self.D1_DAILY_WRITE_LIMIT} writes). Resets at UTC midnight.")
 
         body: dict[str, Any] = {"sql": sql}
         if params:
@@ -156,7 +152,8 @@ class D1Client:
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await self._try_with_token_fallback(
                 lambda token: client.post(
-                    self.base_url, json=body,
+                    self.base_url,
+                    json=body,
                     headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 )
             )
@@ -254,7 +251,8 @@ class D1Client:
             if self._write_count > 0:
                 logger.info(
                     "D1 daily write counter reset (was %d writes on %s)",
-                    self._write_count, self._write_count_date,
+                    self._write_count,
+                    self._write_count_date,
                 )
             self._write_count = 0
             self._write_count_date = today
@@ -313,9 +311,7 @@ class D1Client:
         await self.execute(sql, list(data.values()))
         return data
 
-    async def update(
-        self, table: str, data: dict[str, Any], where: str, where_params: list[Any] | None = None
-    ) -> int:
+    async def update(self, table: str, data: dict[str, Any], where: str, where_params: list[Any] | None = None) -> int:
         """Update rows in a table.
 
         Args:
@@ -333,9 +329,7 @@ class D1Client:
         await self.execute(sql, params)
         return 1  # D1 doesn't reliably return rowcount
 
-    async def delete(
-        self, table: str, where: str, where_params: list[Any] | None = None
-    ) -> int:
+    async def delete(self, table: str, where: str, where_params: list[Any] | None = None) -> int:
         """Delete rows from a table.
 
         Returns:

@@ -54,9 +54,7 @@ async def test_dmr_chat_schema_normalization(monkeypatch):
     import app.services.dmr as dmr
 
     # schema + parsed json → returns the json object
-    monkeypatch.setattr(
-        dmr, "call_dmr_chat", AsyncMock(return_value={"json": {"ok": 1}})
-    )
+    monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"json": {"ok": 1}}))
     out = await INF._call_dmr_chat("hi", schema={"type": "object"})
     assert out == {"ok": 1}
 
@@ -91,15 +89,14 @@ async def test_openai_compat_schema_and_errors():
         router.post("https://llm.example/v1/chat/completions").mock(
             return_value=httpx.Response(
                 200,
-                json={
-                    "choices": [
-                        {"message": {"content": '{"a": 1}', "role": "assistant"}}
-                    ]
-                },
+                json={"choices": [{"message": {"content": '{"a": 1}', "role": "assistant"}}]},
             )
         )
         out = await INF._call_openai_compat(
-            "p", "https://llm.example/v1", "gpt-oss-120b", "k",
+            "p",
+            "https://llm.example/v1",
+            "gpt-oss-120b",
+            "k",
             schema={"type": "object"},
         )
         assert out == {"a": 1}
@@ -110,13 +107,9 @@ async def test_openai_compat_non_200_and_reasoning():
     import respx
 
     with respx.mock(assert_all_called=False) as router:
-        router.post("https://llm.example/v1/chat/completions").mock(
-            return_value=httpx.Response(429, text="rate limited")
-        )
+        router.post("https://llm.example/v1/chat/completions").mock(return_value=httpx.Response(429, text="rate limited"))
         with pytest.raises(HTTPException) as ei:
-            await INF._call_openai_compat(
-                "p", "https://llm.example/v1", "m", "k", schema={"a": 1}
-            )
+            await INF._call_openai_compat("p", "https://llm.example/v1", "m", "k", schema={"a": 1})
         assert ei.value.status_code == 502
 
     # content=null → reasoning_content fallback (plain text path)
@@ -124,16 +117,10 @@ async def test_openai_compat_non_200_and_reasoning():
         router.post("https://llm.example/v1/chat/completions").mock(
             return_value=httpx.Response(
                 200,
-                json={
-                    "choices": [
-                        {"message": {"content": None, "reasoning_content": "deep"}}
-                    ]
-                },
+                json={"choices": [{"message": {"content": None, "reasoning_content": "deep"}}]},
             )
         )
-        out = await INF._call_openai_compat(
-            "p", "https://llm.example/v1", "o1-mini", "k"
-        )
+        out = await INF._call_openai_compat("p", "https://llm.example/v1", "o1-mini", "k")
         assert out == {"text": "deep"}
 
 
@@ -173,12 +160,8 @@ async def test_nvidia_flux_kontext_branches():
     url = "https://ai.api.nvidia.com/v1/genimg/kontext"
     # image payload + success decode
     with respx.mock(assert_all_called=False) as router:
-        post = router.post(url).mock(
-            return_value=httpx.Response(200, json={"image": _b64_png()})
-        )
-        out = await INF._call_nvidia_flux(
-            "p", url, "k", image="data:image/png;base64,xx", cfg_scale=4.0
-        )
+        post = router.post(url).mock(return_value=httpx.Response(200, json={"image": _b64_png()}))
+        out = await INF._call_nvidia_flux("p", url, "k", image="data:image/png;base64,xx", cfg_scale=4.0)
         assert out == b"\x89PNG-fake"
         assert post.calls[0].request.read()  # payload posted
 
@@ -203,12 +186,8 @@ async def test_nvidia_flux_dev_branches():
 
     url = "https://ai.api.nvidia.com/v1/genimg/dev"
     with respx.mock(assert_all_called=False) as router:
-        post = router.post(url).mock(
-            return_value=httpx.Response(200, json={"image": _b64_png()})
-        )
-        out = await INF._call_nvidia_flux_dev(
-            "p", url, "k", negative_prompt="no blur"
-        )
+        post = router.post(url).mock(return_value=httpx.Response(200, json={"image": _b64_png()}))
+        out = await INF._call_nvidia_flux_dev("p", url, "k", negative_prompt="no blur")
         assert out == b"\x89PNG-fake"
         assert "no blur" in post.calls[0].request.content.decode()
 
@@ -258,9 +237,7 @@ async def test_local_sd35_branches():
 
     # artifacts present but empty image → 502
     with respx.mock(assert_all_called=False) as router:
-        router.post(url).mock(
-            return_value=httpx.Response(200, json={"artifacts": [{"base64": ""}]})
-        )
+        router.post(url).mock(return_value=httpx.Response(200, json={"artifacts": [{"base64": ""}]}))
         with pytest.raises(HTTPException) as ei:
             await INF._call_local_sd35("p", url)
         assert ei.value.status_code == 502
@@ -270,19 +247,13 @@ async def test_local_sd35_branches():
 async def test_nvidia_flux_pipeline_branches(monkeypatch):
     import respx
 
-    monkeypatch.setattr(
-        INF, "_call_nvidia_flux_dev", AsyncMock(return_value=b"\x89PNG-init")
-    )
+    monkeypatch.setattr(INF, "_call_nvidia_flux_dev", AsyncMock(return_value=b"\x89PNG-init"))
     kurl = "https://ai.api.nvidia.com/v1/genimg/kontext-pipe"
 
     # happy path through step 2
     with respx.mock(assert_all_called=False) as router:
-        router.post(kurl).mock(
-            return_value=httpx.Response(200, json={"image": _b64_png()})
-        )
-        out = await INF._call_nvidia_flux_pipeline(
-            "p", "u1", "k1", kurl, "k2"
-        )
+        router.post(kurl).mock(return_value=httpx.Response(200, json={"image": _b64_png()}))
+        out = await INF._call_nvidia_flux_pipeline("p", "u1", "k1", kurl, "k2")
         assert out == b"\x89PNG-fake"
 
     # kontext error → 502
@@ -431,9 +402,7 @@ async def test_webhook_join_request_approved_and_failed(monkeypatch):
     # approve returns False → "approve_failed"
     acc2 = _tg_account()
     monkeypatch.setattr(T, "_client_for", lambda a: _approve_client(False))
-    out2 = await T.receive_webhook(
-        acc2.id, _WReq(dict(_JOIN_UPDATE)), _DB([acc2]), None
-    )
+    out2 = await T.receive_webhook(acc2.id, _WReq(dict(_JOIN_UPDATE)), _DB([acc2]), None)
     assert out2["join_request"] == "approve_failed"
 
 
@@ -442,9 +411,7 @@ async def test_webhook_join_request_pending_and_error(monkeypatch):
     acc = _tg_account()
     # agent disabled → pending_manual
     monkeypatch.setattr(T, "agent_enabled", lambda a: False)
-    out = await T.receive_webhook(
-        acc.id, _WReq(dict(_JOIN_UPDATE)), _DB([acc]), None
-    )
+    out = await T.receive_webhook(acc.id, _WReq(dict(_JOIN_UPDATE)), _DB([acc]), None)
     assert out["join_request"] == "pending_manual"
 
     # agent enabled but processing raises → "error"
@@ -456,9 +423,7 @@ async def test_webhook_join_request_pending_and_error(monkeypatch):
         raise RuntimeError("client build failed")
 
     monkeypatch.setattr(T, "_client_for", _boom)
-    out2 = await T.receive_webhook(
-        acc2.id, _WReq(dict(_JOIN_UPDATE)), _DB([acc2]), None
-    )
+    out2 = await T.receive_webhook(acc2.id, _WReq(dict(_JOIN_UPDATE)), _DB([acc2]), None)
     assert out2["join_request"] == "error"
 
 
@@ -467,12 +432,8 @@ async def test_webhook_member_welcome_failure(monkeypatch):
     acc = _tg_account()
     monkeypatch.setattr(T, "notify_channel_event", AsyncMock(return_value=True))
     monkeypatch.setattr(T, "_client_for", lambda a: Mock())
-    monkeypatch.setattr(
-        T, "maybe_welcome_member", AsyncMock(side_effect=RuntimeError("boom"))
-    )
-    out = await T.receive_webhook(
-        acc.id, _WReq(dict(_MEMBER_UPDATE)), _DB([acc]), None
-    )
+    monkeypatch.setattr(T, "maybe_welcome_member", AsyncMock(side_effect=RuntimeError("boom")))
+    out = await T.receive_webhook(acc.id, _WReq(dict(_MEMBER_UPDATE)), _DB([acc]), None)
     assert out["member_event"] == "member_joined"
     assert out["welcomed"] is False
 
@@ -677,16 +638,12 @@ def _daily_report_harness(monkeypatch, *, rendered, org_section_error=None, emai
     monkeypatch.setattr(R, "collect_metrics", AsyncMock(return_value=metrics))
     monkeypatch.setattr(R, "_render_report_notebook", AsyncMock(return_value=rendered))
     if org_section_error:
-        monkeypatch.setattr(
-            R, "build_org_section", AsyncMock(side_effect=RuntimeError("org fail"))
-        )
+        monkeypatch.setattr(R, "build_org_section", AsyncMock(side_effect=RuntimeError("org fail")))
     else:
         monkeypatch.setattr(R, "build_org_section", AsyncMock(return_value=""))
     monkeypatch.setattr(R, "_post_slack_text", AsyncMock(return_value=(True, None, None)))
     if email_error:
-        monkeypatch.setattr(
-            R, "send_email_smtp", Mock(side_effect=RuntimeError("smtp down"))
-        )
+        monkeypatch.setattr(R, "send_email_smtp", Mock(side_effect=RuntimeError("smtp down")))
     else:
         monkeypatch.setattr(R, "send_email_smtp", Mock())
     return db
@@ -694,9 +651,7 @@ def _daily_report_harness(monkeypatch, *, rendered, org_section_error=None, emai
 
 @pytest.mark.asyncio
 async def test_run_daily_report_rendered_tuple_path(monkeypatch):
-    _daily_report_harness(
-        monkeypatch, rendered=("report text", "<html>r</html>", [{"f": 1}])
-    )
+    _daily_report_harness(monkeypatch, rendered=("report text", "<html>r</html>", [{"f": 1}]))
     out = await R.run_daily_report()
     assert out["ok"] is True
 
@@ -770,26 +725,28 @@ async def test_get_brand_reraises_non_404(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_score_compliance_failure_maps_500(monkeypatch):
-    brand = _brand(voice=SimpleNamespace(
-        tone_dimensions={},
-        messaging_pillars=[],
-        banned_phrases=[],
-        preferred_phrases=[],
-        example_content=None,
-        voice_signature={},
-    ))
+    brand = _brand(
+        voice=SimpleNamespace(
+            tone_dimensions={},
+            messaging_pillars=[],
+            banned_phrases=[],
+            preferred_phrases=[],
+            example_content=None,
+            voice_signature={},
+        )
+    )
     monkeypatch.setattr(B, "_get_brand", AsyncMock(return_value=brand))
 
     async def _boom(**kw):
         raise RuntimeError("scorer dead")
 
-    monkeypatch.setattr(
-        "app.services.brand_compliance.score_brand_compliance", _boom
-    )
+    monkeypatch.setattr("app.services.brand_compliance.score_brand_compliance", _boom)
     with pytest.raises(HTTPException) as ei:
         await B.score_compliance(
             B.ComplianceRequest(content="c", platform="linkedin"),
-            uuid.uuid4(), None, _DB([]),
+            uuid.uuid4(),
+            None,
+            _DB([]),
         )
     assert ei.value.status_code == 500
 
@@ -916,13 +873,9 @@ async def test_x_web_publish_generic_error(monkeypatch):
     from app.services import x_web
 
     monkeypatch.setattr(x_web, "is_configured", lambda: True)
-    monkeypatch.setattr(
-        x_web, "plan_media", lambda p: SimpleNamespace(has_media=False)
-    )
+    monkeypatch.setattr(x_web, "plan_media", lambda p: SimpleNamespace(has_media=False))
     guard = SimpleNamespace(
-        reserve_post_slot=AsyncMock(
-            return_value=SimpleNamespace(ok=True, permanent=False)
-        ),
+        reserve_post_slot=AsyncMock(return_value=SimpleNamespace(ok=True, permanent=False)),
         trip=AsyncMock(),
     )
 
@@ -978,9 +931,7 @@ async def test_comfyui_generate_image_cancelled(monkeypatch):
 
     monkeypatch.setattr(CI.httpx, "AsyncClient", lambda **kw: _Client())
     monkeypatch.setattr(CI, "_cancel_prompt", _cancel)
-    monkeypatch.setattr(
-        CI.stack_ops, "keepawake", AsyncMock()
-    )
+    monkeypatch.setattr(CI.stack_ops, "keepawake", AsyncMock())
     with pytest.raises(asyncio.CancelledError):
         await CI.generate_image(prompt="x", timeout_s=5, poll_s=0)
     assert cancelled == ["pid"]
@@ -1033,9 +984,7 @@ async def test_messenger_sidecar_401_retry_fails(monkeypatch):
 
     monkeypatch.setattr(MS, "_get_admin_token", _token)
     with respx.mock(assert_all_called=False) as router:
-        router.get(f"{MS.SOCIAL_API_URL}/api/v1/accounts").mock(
-            return_value=httpx.Response(401)
-        )
+        router.get(f"{MS.SOCIAL_API_URL}/api/v1/accounts").mock(return_value=httpx.Response(401))
         assert await MS._get_account_and_config("page1") is None
 
 

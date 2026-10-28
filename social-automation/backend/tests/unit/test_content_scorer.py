@@ -1,4 +1,5 @@
 """Unit tests for content_scorer service."""
+
 from app.services.content_scorer import (
     ContentScore,
     HashtagStrategy,
@@ -76,9 +77,7 @@ class TestScoreContent:
         assert 0 < score.overall <= 100
 
     def test_to_dict(self):
-        score = ContentScore(
-            readability=80.0, engagement=70.0, hashtag_quality=60.0, length_fit=90.0
-        )
+        score = ContentScore(readability=80.0, engagement=70.0, hashtag_quality=60.0, length_fit=90.0)
         d = score.to_dict()
         assert "readability" in d
         assert "engagement" in d
@@ -116,29 +115,21 @@ class TestBuildHashtagStrategy:
         assert "#serverless" in strategy.safe
 
     def test_existing_tags(self):
-        strategy = build_hashtag_strategy(
-            "cloud computing", "instagram", existing_tags=["#customtag"]
-        )
+        strategy = build_hashtag_strategy("cloud computing", "instagram", existing_tags=["#customtag"])
         assert "#customtag" in strategy.all_tags
 
     def test_platform_limits(self):
-        strategy = build_hashtag_strategy(
-            "serverless cloud architecture devops", "twitter"
-        )
+        strategy = build_hashtag_strategy("serverless cloud architecture devops", "twitter")
         # Twitter total is 3
         assert len(strategy.all_tags) <= 3
 
     def test_to_dict(self):
-        strategy = HashtagStrategy(
-            safe=["#a"], rising=["#b"], niche=["#c"]
-        )
+        strategy = HashtagStrategy(safe=["#a"], rising=["#b"], niche=["#c"])
         d = strategy.to_dict()
         assert d["safe"] == ["#a"]
         assert d["rising"] == ["#b"]
         assert d["niche"] == ["#c"]
 
     def test_all_tags(self):
-        strategy = HashtagStrategy(
-            safe=["#a"], rising=["#b"], niche=["#c", "#d"]
-        )
+        strategy = HashtagStrategy(safe=["#a"], rising=["#b"], niche=["#c", "#d"])
         assert strategy.all_tags == ["#a", "#b", "#c", "#d"]

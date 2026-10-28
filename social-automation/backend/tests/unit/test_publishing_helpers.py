@@ -681,9 +681,7 @@ async def test_resolve_media_paths_skips_missing_storage_path(tmp_path, monkeypa
 async def test_resolve_media_paths_minio_backend(tmp_path, monkeypatch):
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
     a = SimpleNamespace(id=2, storage_path="remote/a.jpg", storage_backend="minio", filename="a.jpg")
-    monkeypatch.setattr(
-        "app.services.minio_storage.get_object", AsyncMock(return_value=b"\xff\xd8\xff")
-    )
+    monkeypatch.setattr("app.services.minio_storage.get_object", AsyncMock(return_value=b"\xff\xd8\xff"))
     out = await P._resolve_media_paths(SimpleNamespace(media_ids=[a.id]), _DB(results=[[a]]))
     assert len(out) == 1 and out[0].startswith(str(tmp_path))
 
@@ -692,9 +690,7 @@ async def test_resolve_media_paths_minio_backend(tmp_path, monkeypatch):
 async def test_resolve_media_paths_fetch_failure(tmp_path, monkeypatch):
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path))
     a = SimpleNamespace(id=3, storage_path="remote/x.jpg", storage_backend="r2", filename="x.jpg")
-    monkeypatch.setattr(
-        "app.services.r2_storage.get_object", AsyncMock(side_effect=RuntimeError("down"))
-    )
+    monkeypatch.setattr("app.services.r2_storage.get_object", AsyncMock(side_effect=RuntimeError("down")))
     out = await P._resolve_media_paths(SimpleNamespace(media_ids=[a.id]), _DB(results=[[a]]))
     assert out == []
 
@@ -798,7 +794,5 @@ def test_x_media_client_scopes_and_signer(monkeypatch):
 
 
 def test_has_facebook_browser_session():
-    assert P._has_facebook_browser_session(
-        SimpleNamespace(meta_data={"browser_storage_state": {"x": 1}})
-    ) is True
+    assert P._has_facebook_browser_session(SimpleNamespace(meta_data={"browser_storage_state": {"x": 1}})) is True
     assert P._has_facebook_browser_session(SimpleNamespace(meta_data=None)) is False

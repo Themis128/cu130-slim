@@ -97,25 +97,29 @@ def _detect_analytics(html: str) -> list[str]:
 def _seo_checks(html: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     title = re.search(r"<title[^>]*>(.*?)</title>", html, re.I | re.S)
-    title_text = (title.group(1).strip() if title else "")
+    title_text = title.group(1).strip() if title else ""
     if not title_text:
         out.append(_finding("seo_title", "warning", "Missing <title>", service="marketing"))
     elif not (20 <= len(title_text) <= 65):
-        out.append(_finding(
-            "seo_title", "info",
-            f"Title length {len(title_text)} chars (target 20-65)",
-            detail=title_text[:120], service="marketing",
-        ))
-    desc = re.search(
-        r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']*)', html, re.I
-    ) or re.search(r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+name=["\']description', html, re.I)
+        out.append(
+            _finding(
+                "seo_title",
+                "info",
+                f"Title length {len(title_text)} chars (target 20-65)",
+                detail=title_text[:120],
+                service="marketing",
+            )
+        )
+    desc = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']*)', html, re.I) or re.search(
+        r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+name=["\']description', html, re.I
+    )
     if not desc or len(desc.group(1).strip()) < 50:
         out.append(_finding("seo_desc", "warning", "Missing/short meta description", service="marketing"))
     if not re.search(r'<meta[^>]+name=["\']viewport["\']', html, re.I):
         out.append(_finding("seo_viewport", "warning", "Missing responsive viewport meta", service="serverless"))
     if not re.search(r"<h1[>\s]", html, re.I):
         out.append(_finding("seo_h1", "info", "No <h1> on the homepage", service="marketing"))
-    if not re.search(r'<html[^>]+lang=', html, re.I):
+    if not re.search(r"<html[^>]+lang=", html, re.I):
         out.append(_finding("seo_lang", "info", "<html> missing lang attribute", service="marketing"))
     if not re.search(r'rel=["\']canonical["\']', html, re.I):
         out.append(_finding("seo_canonical", "info", "No canonical link", service="marketing"))
@@ -127,23 +131,32 @@ def _geo_checks(html: str) -> list[dict[str, Any]]:
     and cite the page correctly (structured data, semantic HTML)."""
     out: list[dict[str, Any]] = []
     if not re.search(r'<script[^>]+type=["\']application/ld\+json["\']', html, re.I):
-        out.append(_finding(
-            "geo_jsonld", "warning",
-            "No JSON-LD structured data — AI engines can't cite you",
-            service="marketing",
-        ))
-    if not re.search(r'<(?:article|main|section)[\s>]', html, re.I):
-        out.append(_finding(
-            "geo_semantic", "info",
-            "Weak semantic HTML — AI summaries parse poorly",
-            service="marketing",
-        ))
+        out.append(
+            _finding(
+                "geo_jsonld",
+                "warning",
+                "No JSON-LD structured data — AI engines can't cite you",
+                service="marketing",
+            )
+        )
+    if not re.search(r"<(?:article|main|section)[\s>]", html, re.I):
+        out.append(
+            _finding(
+                "geo_semantic",
+                "info",
+                "Weak semantic HTML — AI summaries parse poorly",
+                service="marketing",
+            )
+        )
     if not re.search(r'<meta[^>]+property=["\']og:', html, re.I):
-        out.append(_finding(
-            "geo_og", "info",
-            "No OpenGraph tags — weak citation signals",
-            service="marketing",
-        ))
+        out.append(
+            _finding(
+                "geo_og",
+                "info",
+                "No OpenGraph tags — weak citation signals",
+                service="marketing",
+            )
+        )
     return out
 
 
@@ -181,9 +194,7 @@ async def run_site_audit(url: str) -> dict[str, Any]:
     safe_url = validate_public_http_url(url)
 
     started = time.monotonic()
-    async with httpx.AsyncClient(
-        follow_redirects=False, headers={"User-Agent": _UA}, timeout=_FETCH_TIMEOUT
-    ) as client:
+    async with httpx.AsyncClient(follow_redirects=False, headers={"User-Agent": _UA}, timeout=_FETCH_TIMEOUT) as client:
         try:
             resp = await client.get(safe_url)
         except httpx.HTTPError as exc:
@@ -209,53 +220,92 @@ async def run_site_audit(url: str) -> dict[str, Any]:
                         resp = final
 
         if resp.status_code != 200:
-            findings.append(_finding(
-                "http_status", "critical",
-                f"Homepage returns HTTP {resp.status_code}",
-                "Visitors and crawlers hit an error page first", "cloud",
-            ))
+            findings.append(
+                _finding(
+                    "http_status",
+                    "critical",
+                    f"Homepage returns HTTP {resp.status_code}",
+                    "Visitors and crawlers hit an error page first",
+                    "cloud",
+                )
+            )
         if safe_url.startswith("http://"):
-            findings.append(_finding(
-                "https", "critical", "Site served over plain HTTP",
-                "No TLS — traffic is interceptable and browsers warn users", "cloud",
-            ))
+            findings.append(
+                _finding(
+                    "https",
+                    "critical",
+                    "Site served over plain HTTP",
+                    "No TLS — traffic is interceptable and browsers warn users",
+                    "cloud",
+                )
+            )
 
         h = resp.headers
         for header, slug, label in _SECURITY_HEADERS:
             if header not in {k.lower() for k in h.keys()}:
-                findings.append(_finding(
-                    f"hdr_{slug}", "warning", f"Missing {label}",
-                    "Standard hardening header absent on the homepage", "cloud",
-                ))
+                findings.append(
+                    _finding(
+                        f"hdr_{slug}",
+                        "warning",
+                        f"Missing {label}",
+                        "Standard hardening header absent on the homepage",
+                        "cloud",
+                    )
+                )
         if not any(x in {k.lower() for k in h.keys()} for x in _FRAME_HEADERS):
-            findings.append(_finding(
-                "hdr_frame", "warning", "No clickjacking protection",
-                "Neither X-Frame-Options nor CSP frame-ancestors set", "cloud",
-            ))
+            findings.append(
+                _finding(
+                    "hdr_frame",
+                    "warning",
+                    "No clickjacking protection",
+                    "Neither X-Frame-Options nor CSP frame-ancestors set",
+                    "cloud",
+                )
+            )
         if "x-powered-by" in {k.lower() for k in h.keys()}:
-            findings.append(_finding(
-                "hdr_powered_by", "info", "X-Powered-By header exposed",
-                h.get("x-powered-by", "")[:80], "cloud",
-            ))
+            findings.append(
+                _finding(
+                    "hdr_powered_by",
+                    "info",
+                    "X-Powered-By header exposed",
+                    h.get("x-powered-by", "")[:80],
+                    "cloud",
+                )
+            )
 
         if elapsed_ms > 2500:
-            findings.append(_finding(
-                "ttfb", "warning", f"Slow first response ({elapsed_ms} ms)",
-                "TTFB above 2.5s — caching/edge or backend work needed", "cloud",
-            ))
+            findings.append(
+                _finding(
+                    "ttfb",
+                    "warning",
+                    f"Slow first response ({elapsed_ms} ms)",
+                    "TTFB above 2.5s — caching/edge or backend work needed",
+                    "cloud",
+                )
+            )
         elif elapsed_ms > 900:
-            findings.append(_finding(
-                "ttfb", "info", f"First response {elapsed_ms} ms",
-                "TTFB above the ~0.9s good band", "cloud",
-            ))
+            findings.append(
+                _finding(
+                    "ttfb",
+                    "info",
+                    f"First response {elapsed_ms} ms",
+                    "TTFB above the ~0.9s good band",
+                    "cloud",
+                )
+            )
 
         enc = h.get("content-encoding", "")
         size = len(resp.content)
         if not enc and size > 100_000:
-            findings.append(_finding(
-                "compression", "warning", "Uncompressed HTML payload",
-                f"{size // 1024} KB transferred without gzip/brotli", "cloud",
-            ))
+            findings.append(
+                _finding(
+                    "compression",
+                    "warning",
+                    "Uncompressed HTML payload",
+                    f"{size // 1024} KB transferred without gzip/brotli",
+                    "cloud",
+                )
+            )
 
         ctype = h.get("content-type", "")
         html = resp.text[:_MAX_HTML] if "text/html" in ctype or "text" in ctype else ""
@@ -268,10 +318,15 @@ async def run_site_audit(url: str) -> dict[str, Any]:
             findings.extend(_geo_checks(html))
             scripts = len(re.findall(r"<script\b[^>]*src=", html, re.I))
             if scripts >= 15:
-                findings.append(_finding(
-                    "script_weight", "info", f"{scripts} external scripts on the homepage",
-                    "Script weight slows first paint", "serverless",
-                ))
+                findings.append(
+                    _finding(
+                        "script_weight",
+                        "info",
+                        f"{scripts} external scripts on the homepage",
+                        "Script weight slows first paint",
+                        "serverless",
+                    )
+                )
 
         # robots.txt + sitemap.xml probes — cheap, high-signal SEO checks.
         base = f"{httpx.URL(safe_url).scheme}://{httpx.URL(safe_url).host}"

@@ -4,6 +4,7 @@ Events arrive via webhook from the site, are persisted, and optionally forwarded
  to GA4, Plausible, and Meta Conversions API so SocialAuto can act as the
  central marketing-data router for the brand.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -29,9 +30,7 @@ class WebAnalyticsConfig(Base):
         Index("ix_web_analytics_configs_domain", "domain"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("teams.id", ondelete="CASCADE"),
@@ -50,9 +49,7 @@ class WebAnalyticsConfig(Base):
     # Plausible — events API
     plausible_enabled: Mapped[bool] = mapped_column(default=False, nullable=False)
     plausible_domain: Mapped[str | None] = mapped_column(String(253), nullable=True)
-    plausible_api_url: Mapped[str | None] = mapped_column(
-        String(253), nullable=True, default="https://plausible.io/api/event"
-    )
+    plausible_api_url: Mapped[str | None] = mapped_column(String(253), nullable=True, default="https://plausible.io/api/event")
     plausible_api_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Meta Conversions API
@@ -61,9 +58,7 @@ class WebAnalyticsConfig(Base):
     meta_capi_access_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     meta: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -85,9 +80,7 @@ class WebAnalyticsEvent(Base):
         Index("ix_web_analytics_events_session", "session_id"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("teams.id", ondelete="CASCADE"),
@@ -114,12 +107,8 @@ class WebAnalyticsEvent(Base):
     payload: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
     # Forwarding results per sink: {"ga4": {"ok": true}, "plausible": {...}, ...}
     forwarded: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, index=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
     team: Mapped[Team] = relationship("Team")
     config: Mapped[WebAnalyticsConfig | None] = relationship("WebAnalyticsConfig")

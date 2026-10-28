@@ -14,6 +14,7 @@ Facets: Bluesky does NOT auto-link URLs/mentions/hashtags — they must be
 annotated as ``app.bsky.richtext.facet`` with UTF-8 *byte* offsets. Without
 facets, links render as plain text and are unclickable.
 """
+
 from __future__ import annotations
 
 import re
@@ -26,8 +27,8 @@ import httpx
 BSKY_PDS_DEFAULT = "https://bsky.social"
 MAX_GRAPHEMES = 300
 MAX_IMAGES = 4
-MAX_IMAGE_BYTES = 2_000_000          # app.bsky.embed.images lexicon
-MAX_VIDEO_BYTES = 300_000_000        # app.bsky.embed.video lexicon
+MAX_IMAGE_BYTES = 2_000_000  # app.bsky.embed.images lexicon
+MAX_VIDEO_BYTES = 300_000_000  # app.bsky.embed.video lexicon
 IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 VIDEO_MIMES = {"video/mp4"}
 
@@ -41,9 +42,7 @@ class BlueskyAPIError(Exception):
 
 
 _URL_RE = re.compile(r"https?://[^\s\u2039\u203a\u00ab\u00bb\"'<>{}()]+")
-_MENTION_RE = re.compile(
-    r"(?<![\w@])@([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+)"
-)
+_MENTION_RE = re.compile(r"(?<![\w@])@([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)+)")
 _HASHTAG_RE = re.compile(r"(?<!\w)#(\w+)")
 
 
@@ -84,19 +83,31 @@ def build_facets(text: str) -> list[dict[str, Any]]:
 
     for m in _URL_RE.finditer(text):
         url = m.group(0).rstrip(".,;:!?)")
-        _facet(m.start(), m.start() + len(url), [
-            {"$type": "app.bsky.richtext.facet#link", "uri": url},
-        ])
+        _facet(
+            m.start(),
+            m.start() + len(url),
+            [
+                {"$type": "app.bsky.richtext.facet#link", "uri": url},
+            ],
+        )
     for m in _MENTION_RE.finditer(text):
         # Placeholder did — resolved to a real DID by create_post via
         # getProfile; facets whose handle fails to resolve are dropped.
-        _facet(m.start(), m.end(), [
-            {"$type": "app.bsky.richtext.facet#mention", "did": "", "handle": m.group(1)},
-        ])
+        _facet(
+            m.start(),
+            m.end(),
+            [
+                {"$type": "app.bsky.richtext.facet#mention", "did": "", "handle": m.group(1)},
+            ],
+        )
     for m in _HASHTAG_RE.finditer(text):
-        _facet(m.start(), m.end(), [
-            {"$type": "app.bsky.richtext.facet#tag", "tag": m.group(1)},
-        ])
+        _facet(
+            m.start(),
+            m.end(),
+            [
+                {"$type": "app.bsky.richtext.facet#tag", "tag": m.group(1)},
+            ],
+        )
 
     facets.sort(key=lambda f: f["index"]["byteStart"])
     return facets

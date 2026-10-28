@@ -4,6 +4,7 @@ Finds the article whose link matches the target shortcode and clicks its
 Like button (aria-label). Comments stay human-gated and are not auto-acted.
 Skips cleanly when the shared browser is busy.
 """
+
 import asyncio
 import logging
 import os
@@ -49,22 +50,18 @@ async def act(action, db) -> dict:
     sc = action.target_post_id
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=60) as c:
         try:
-            await c.post("/session/start",
-                         json={"platform": "instagram", "force": True})
+            await c.post("/session/start", json={"platform": "instagram", "force": True})
         except Exception:
             return {"error": "browser busy", "skip": True}
         if action.action == "repost":
-            await c.post("/session/navigate",
-                         json={"url": f"https://www.instagram.com/p/{sc}/"})
+            await c.post("/session/navigate", json={"url": f"https://www.instagram.com/p/{sc}/"})
             await asyncio.sleep(6)
-            r = await c.post("/session/evaluate",
-                             json={"expression": REPOST_JS})
+            r = await c.post("/session/evaluate", json={"expression": REPOST_JS})
             res = r.json().get("result", "")
             if res == "shared-to-story":
                 return {"ok": True, "resp": {"via": "share-to-story"}}
             return {"error": res or "share sheet failed", "skip": True}
-        r = await c.post("/session/evaluate", json={
-            "expression": LIKE_JS.replace("{SC}", sc)})
+        r = await c.post("/session/evaluate", json={"expression": LIKE_JS.replace("{SC}", sc)})
         res = r.json().get("result", "")
     if res == "liked":
         return {"ok": True}

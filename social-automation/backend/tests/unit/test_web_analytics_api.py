@@ -1,4 +1,5 @@
 """Tests for app/api/web_analytics.py — config CRUD, webhook ingest, summary."""
+
 from __future__ import annotations
 
 import hashlib
@@ -76,12 +77,23 @@ def _team():
 
 def _config(**kw):
     base = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), domain="cloudless.gr",
-        webhook_secret="sec", ga4_enabled=False, ga4_measurement_id=None,
-        ga4_api_secret=None, plausible_enabled=False, plausible_domain=None,
-        plausible_api_url=None, plausible_api_key=None, meta_capi_enabled=False,
-        meta_pixel_id=None, meta_capi_access_token=None, meta={},
-        created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        domain="cloudless.gr",
+        webhook_secret="sec",
+        ga4_enabled=False,
+        ga4_measurement_id=None,
+        ga4_api_secret=None,
+        plausible_enabled=False,
+        plausible_domain=None,
+        plausible_api_url=None,
+        plausible_api_key=None,
+        meta_capi_enabled=False,
+        meta_pixel_id=None,
+        meta_capi_access_token=None,
+        meta={},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -89,11 +101,19 @@ def _config(**kw):
 
 def _body(**kw):
     base = dict(
-        domain="new.io", webhook_secret=None, ga4_enabled=False,
-        ga4_measurement_id=None, ga4_api_secret=None, plausible_enabled=False,
-        plausible_domain=None, plausible_api_url=None, plausible_api_key=None,
-        meta_capi_enabled=False, meta_pixel_id=None,
-        meta_capi_access_token=None, meta=None,
+        domain="new.io",
+        webhook_secret=None,
+        ga4_enabled=False,
+        ga4_measurement_id=None,
+        ga4_api_secret=None,
+        plausible_enabled=False,
+        plausible_domain=None,
+        plausible_api_url=None,
+        plausible_api_key=None,
+        meta_capi_enabled=False,
+        meta_pixel_id=None,
+        meta_capi_access_token=None,
+        meta=None,
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -128,9 +148,13 @@ def test_env_fallback_config(monkeypatch):
         CLOUDLESS_WEB_ANALYTICS_SECRET="sec",
         CLOUDLESS_WEB_ANALYTICS_TEAM_ID=tid,
         CLOUDLESS_WEB_ANALYTICS_DOMAIN="cloudless.gr",
-        GA4_MEASUREMENT_ID="G-1", GA4_API_SECRET="gs",
-        PLAUSIBLE_DOMAIN="p.io", PLAUSIBLE_API_URL="u", PLAUSIBLE_API_KEY="k",
-        META_PIXEL_ID="px", META_CAPI_ACCESS_TOKEN="mt",
+        GA4_MEASUREMENT_ID="G-1",
+        GA4_API_SECRET="gs",
+        PLAUSIBLE_DOMAIN="p.io",
+        PLAUSIBLE_API_URL="u",
+        PLAUSIBLE_API_KEY="k",
+        META_PIXEL_ID="px",
+        META_CAPI_ACCESS_TOKEN="mt",
     )
     monkeypatch.setattr(wa, "settings", settings)
     cfg = wa._env_fallback_config("cloudless.gr")
@@ -140,12 +164,10 @@ def test_env_fallback_config(monkeypatch):
     # wrong domain
     assert wa._env_fallback_config("other.io") is None
     # missing secret
-    monkeypatch.setattr(wa, "settings", SimpleNamespace(
-        **{**settings.__dict__, "CLOUDLESS_WEB_ANALYTICS_SECRET": ""}))
+    monkeypatch.setattr(wa, "settings", SimpleNamespace(**{**settings.__dict__, "CLOUDLESS_WEB_ANALYTICS_SECRET": ""}))
     assert wa._env_fallback_config("cloudless.gr") is None
     # bad team id
-    monkeypatch.setattr(wa, "settings", SimpleNamespace(
-        **{**settings.__dict__, "CLOUDLESS_WEB_ANALYTICS_TEAM_ID": "not-uuid"}))
+    monkeypatch.setattr(wa, "settings", SimpleNamespace(**{**settings.__dict__, "CLOUDLESS_WEB_ANALYTICS_TEAM_ID": "not-uuid"}))
     assert wa._env_fallback_config("cloudless.gr") is None
 
 
@@ -201,8 +223,14 @@ async def test_receive_event_ok(monkeypatch):
     cfg = _config()
     db = _DB([_Res(one_or_none=cfg)])
     data = SimpleNamespace(
-        domain="d.io", event="page_view", payload={}, session_id=None,
-        visitor_id=None, path="/", referrer=None, locale="en",
+        domain="d.io",
+        event="page_view",
+        payload={},
+        session_id=None,
+        visitor_id=None,
+        path="/",
+        referrer=None,
+        locale="en",
     )
     out = await wa.receive_cloudless_event(_Req(ip=None), data, db)
     assert out.event_name == "page_view"
@@ -230,8 +258,7 @@ async def test_create_config_conflict_and_ok():
     assert e.value.status_code == 409
 
     db2 = _DB([_Res(one_or_none=None)], get_result=team)
-    await wa.create_config(
-        _body(webhook_secret="mine", meta={"a": 1}), uuid.uuid4(), _user(), db2)
+    await wa.create_config(_body(webhook_secret="mine", meta={"a": 1}), uuid.uuid4(), _user(), db2)
     assert db2.added and db2.added[0].webhook_secret == "mine"
 
     # generated secret path
@@ -250,9 +277,7 @@ async def test_update_config_404_and_ok():
 
     cfg = _config(webhook_secret="old")
     db2 = _DB([_Res(one_or_none=cfg)], get_result=team)
-    await wa.update_config(
-        "cid", _body(domain="new.io", webhook_secret="newsec", meta={"k": "v"}),
-        uuid.uuid4(), _user(), db2)
+    await wa.update_config("cid", _body(domain="new.io", webhook_secret="newsec", meta={"k": "v"}), uuid.uuid4(), _user(), db2)
     assert cfg.webhook_secret == "newsec" and cfg.domain == "new.io"
     assert cfg.meta == {"k": "v"} and cfg.updated_at is not None
 
@@ -279,10 +304,13 @@ async def test_delete_config_404_and_ok():
 @pytest.mark.asyncio
 async def test_get_summary():
     team = _team()
-    db = _DB([
-        _Res(scalar=3),
-        _Res(rows=[("page_view", 2), ("click", 1)]),
-    ], get_result=team)
+    db = _DB(
+        [
+            _Res(scalar=3),
+            _Res(rows=[("page_view", 2), ("click", 1)]),
+        ],
+        get_result=team,
+    )
     out = await wa.get_summary(uuid.uuid4(), 30, _user(), db)
     assert out.total_events == 3
     assert out.top_events[0].event_name == "page_view"

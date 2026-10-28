@@ -12,9 +12,10 @@ from app.services.spellcheck import (
 
 # -- _normalize ----------------------------------------------------------------
 
+
 def test_normalize_nfkc_fullwidth():
     # Fullwidth Latin (U+FF21...) -> ASCII under NFKC.
-    text = "Ａｂｃ"   # A b c fullwidth
+    text = "Ａｂｃ"  # A b c fullwidth
     result = _normalize(text)
     assert result == "Abc"
 
@@ -56,6 +57,7 @@ def test_normalize_preserves_newlines():
 
 # -- preprocess_for_render -----------------------------------------------------
 
+
 def test_preprocess_strips_emoji():
     result = preprocess_for_render("Ship fast \U0001f680 and iterate \U0001f504")
     assert "\U0001f680" not in result
@@ -88,6 +90,7 @@ def _require_languagetool():
     import httpx
 
     from app.core.config import get_settings
+
     lt_url = get_settings().LANGUAGETOOL_URL.rstrip("/")
     try:
         httpx.get(f"{lt_url}/v2/languages", timeout=5).raise_for_status()
@@ -143,6 +146,7 @@ async def test_auto_correct_offsets_stable_after_normalize():
 
 
 # -- protected vocabulary (Redis→Regis regression, post 3f58f3c1) ----------
+
 
 def test_protected_spans_cover_configured_words():
     from app.services.spellcheck import _protected_spans
@@ -209,19 +213,14 @@ def _patch_languagetool(monkeypatch, flag_word=None, broken=False):
                 )
             return _FakeLTResponse(matches)
 
-    monkeypatch.setattr(
-        spellcheck.httpx, "AsyncClient", lambda *a, **k: _Client()
-    )
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient", lambda *a, **k: _Client())
 
 
 @pytest.mark.asyncio
 async def test_gibberish_historical_corruption(monkeypatch):
     """The exact LinkedIn incident: ``clientsget`` + ``cloudless.g GGr``."""
     _patch_languagetool(monkeypatch, flag_word="clientsget")
-    text = (
-        "Speed + security, handled edge-first We integrate Cloudflare "
-        "across our stack so cloudless.g GGr clientsget: Global CDN"
-    )
+    text = "Speed + security, handled edge-first We integrate Cloudflare across our stack so cloudless.g GGr clientsget: Global CDN"
     flagged = await detect_gibberish(text)
     assert "GGr" in flagged
     assert "clientsget" in flagged
@@ -352,10 +351,8 @@ async def test_auto_correct_applies_match_end_to_start(monkeypatch):
     # One misspelling at a known offset → replacement applied.
     text = "I havve a dog."
     idx = text.index("havve")
-    resp = _LTResp([{"offset": idx, "length": 5,
-                     "replacements": [{"value": "have"}]}])
-    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
-                        lambda *a, **k: _LTClient(resp))
+    resp = _LTResp([{"offset": idx, "length": 5, "replacements": [{"value": "have"}]}])
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient", lambda *a, **k: _LTClient(resp))
     out = await spellcheck.auto_correct(text)
     assert "have" in out and "havve" not in out
 
@@ -365,10 +362,8 @@ async def test_auto_correct_skips_match_on_protected_span(monkeypatch):
     # Match inside a URL must never apply — protection wins.
     text = "see https://ex.com/tehh"
     idx = text.index("tehh")
-    resp = _LTResp([{"offset": idx, "length": 4,
-                     "replacements": [{"value": "the"}]}])
-    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
-                        lambda *a, **k: _LTClient(resp))
+    resp = _LTResp([{"offset": idx, "length": 4, "replacements": [{"value": "the"}]}])
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient", lambda *a, **k: _LTClient(resp))
     assert await spellcheck.auto_correct(text) == text
 
 
@@ -377,13 +372,11 @@ async def test_auto_correct_no_replacements_and_lt_down(monkeypatch):
     # Match without replacements → skipped, text unchanged.
     text = "hello worlld"
     resp = _LTResp([{"offset": 6, "length": 6, "replacements": []}])
-    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
-                        lambda *a, **k: _LTClient(resp))
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient", lambda *a, **k: _LTClient(resp))
     assert await spellcheck.auto_correct(text) == text
 
     # LT down → normalized text returned, no raise.
-    monkeypatch.setattr(spellcheck.httpx, "AsyncClient",
-                        lambda *a, **k: _LTClient(None, fail=True))
+    monkeypatch.setattr(spellcheck.httpx, "AsyncClient", lambda *a, **k: _LTClient(None, fail=True))
     assert await spellcheck.auto_correct("hi  there") == "hi there"
 
 

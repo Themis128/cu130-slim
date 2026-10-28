@@ -54,12 +54,9 @@ INSIGHTS = {
         },
     },
     "recommendations": [
-        {"type": "channel_focus", "priority": "high", "platform": "linkedin",
-         "text": "linkedin is your strongest channel — keep original content here first."},
-        {"type": "timing", "priority": "medium", "platform": "linkedin",
-         "text": "Your linkedin audience engages most on Tue around 09:00 Athens time."},
-        {"type": "deprioritize", "priority": "low", "platform": "twitter",
-         "text": "twitter engagement is <40% of linkedin's — cross-post only."},
+        {"type": "channel_focus", "priority": "high", "platform": "linkedin", "text": "linkedin is your strongest channel — keep original content here first."},
+        {"type": "timing", "priority": "medium", "platform": "linkedin", "text": "Your linkedin audience engages most on Tue around 09:00 Athens time."},
+        {"type": "deprioritize", "priority": "low", "platform": "twitter", "text": "twitter engagement is <40% of linkedin's — cross-post only."},
     ],
 }
 
@@ -149,16 +146,12 @@ def test_parse_actions_rejects_short_junk():
 
 def test_parse_actions_strips_code_fence():
     text = "```\n1. Post a LinkedIn carousel about deploys at 09:00\n```"
-    assert _parse_actions(text) == [
-        "Post a LinkedIn carousel about deploys at 09:00"
-    ]
+    assert _parse_actions(text) == ["Post a LinkedIn carousel about deploys at 09:00"]
 
 
 def test_parse_actions_json_array_fallback():
     text = '["Post a LinkedIn carousel about deploys at 09:00", "ok"]'
-    assert _parse_actions(text) == [
-        "Post a LinkedIn carousel about deploys at 09:00"
-    ]
+    assert _parse_actions(text) == ["Post a LinkedIn carousel about deploys at 09:00"]
 
 
 def test_rule_actions_priority_order():
@@ -170,16 +163,12 @@ def test_rule_actions_priority_order():
 def test_rule_actions_excludes_data_gap_diagnostics():
     insights = {
         "recommendations": [
-            {"type": "data_gap", "priority": "high", "platform": "twitter",
-             "text": "twitter data collection issue: twitter stats HTTP 401"},
-            {"type": "timing", "priority": "low", "platform": "linkedin",
-             "text": "Your linkedin audience engages most on Tue around 09:00 Athens."},
+            {"type": "data_gap", "priority": "high", "platform": "twitter", "text": "twitter data collection issue: twitter stats HTTP 401"},
+            {"type": "timing", "priority": "low", "platform": "linkedin", "text": "Your linkedin audience engages most on Tue around 09:00 Athens."},
         ]
     }
     actions = _rule_actions(insights)
-    assert actions == [
-        "Your linkedin audience engages most on Tue around 09:00 Athens."
-    ]
+    assert actions == ["Your linkedin audience engages most on Tue around 09:00 Athens."]
 
 
 def test_subject_mentions_date():
@@ -207,9 +196,7 @@ def test_html_render_escapes_and_tables():
 
 def test_agent_block_parses_destination_platform():
     # "repurpose a LinkedIn post ... on Threads" must land on Threads.
-    item = _parse_playbook_item(
-        "Repurpose a top LinkedIn post as a short text update on Threads at 17:00 Athens time"
-    )
+    item = _parse_playbook_item("Repurpose a top LinkedIn post as a short text update on Threads at 17:00 Athens time")
     assert item.platform == "threads"
     assert item.time_athens == "17:00"
     assert item.format == "text"
@@ -226,18 +213,13 @@ def test_agent_block_parses_leading_platform_prefix():
     # "TikTok - 12:00 - Video - Repurpose the Instagram carousel ..." — the
     # leading platform/format is the TARGET; "Instagram carousel" is only
     # the source material and must not win platform or format.
-    item = _parse_playbook_item(
-        "TikTok - 12:00 - Video - Repurpose the Instagram carousel into a "
-        "30-second video, showcasing the speed boost."
-    )
+    item = _parse_playbook_item("TikTok - 12:00 - Video - Repurpose the Instagram carousel into a 30-second video, showcasing the speed boost.")
     assert item.platform == "tiktok"
     assert item.time_athens == "12:00"
     assert item.format == "video"
     assert item.media_required
 
-    item = _parse_playbook_item(
-        "LinkedIn, 09:00, text — Share a short post about fast websites."
-    )
+    item = _parse_playbook_item("LinkedIn, 09:00, text — Share a short post about fast websites.")
     assert item.platform == "linkedin"
     assert item.time_athens == "09:00"
     assert item.format == "text"
@@ -245,9 +227,7 @@ def test_agent_block_parses_leading_platform_prefix():
 
     # A platform name at position 0 without a separator is just prose —
     # must NOT be treated as a prefix (target is instagram via "to").
-    item = _parse_playbook_item(
-        "LinkedIn content repurposed to Instagram at 14:00 as an image"
-    )
+    item = _parse_playbook_item("LinkedIn content repurposed to Instagram at 14:00 as an image")
     assert item.platform == "instagram"
 
 
@@ -313,10 +293,10 @@ def test_empty_report_still_renders():
 
 def test_platform_limits_render_separate_from_sync_gaps():
     import copy
+
     insights = copy.deepcopy(INSIGHTS)
     insights["platforms"]["twitter"]["platform_limits"] = ["quota_exhausted"]
-    insights["platforms"]["linkedin"]["data_warnings"] = [
-        "linkedin stats HTTP 500"]
+    insights["platforms"]["linkedin"]["data_warnings"] = ["linkedin stats HTTP 500"]
 
     text = _report(insights=insights).to_text()
     warn_lines = [ln for ln in text.splitlines() if ln.strip().startswith("⚠")]
@@ -467,27 +447,17 @@ def test_compact_insights_keeps_daytime_best_hour():
 
 def test_messaging_channel_label_standalone_platforms():
     assert _messaging_channel_label("telegram", "bot", None, None, None, None) == "telegram bot"
-    assert _messaging_channel_label("whatsapp", "business", None, None, None, None) == (
-        "whatsapp business"
-    )
-    assert _messaging_channel_label("messenger", "personal", None, None, None, None) == (
-        "messenger personal"
-    )
+    assert _messaging_channel_label("whatsapp", "business", None, None, None, None) == ("whatsapp business")
+    assert _messaging_channel_label("messenger", "personal", None, None, None, None) == ("messenger personal")
 
 
 def test_messaging_channel_label_facebook_page_fallbacks():
     meta = {"messenger_setup": {"subscribed": True}}
     # Named page uses its username.
-    assert _messaging_channel_label("facebook", "page", "Cloudless.gr", "Cloudless", "1", meta) == (
-        "messenger (Cloudless.gr page)"
-    )
+    assert _messaging_channel_label("facebook", "page", "Cloudless.gr", "Cloudless", "1", meta) == ("messenger (Cloudless.gr page)")
     # Unnamed page falls back to display_name, then the Page ID — never "None".
-    assert _messaging_channel_label("facebook", "page", None, "Cloudless Page", "12345", meta) == (
-        "messenger (Cloudless Page page)"
-    )
-    assert _messaging_channel_label("facebook", "page", None, None, "12345", meta) == (
-        "messenger (12345 page)"
-    )
+    assert _messaging_channel_label("facebook", "page", None, "Cloudless Page", "12345", meta) == ("messenger (Cloudless Page page)")
+    assert _messaging_channel_label("facebook", "page", None, None, "12345", meta) == ("messenger (12345 page)")
     # A Page without Messenger subscribed is not a messaging channel.
     assert _messaging_channel_label("facebook", "page", "Cloudless.gr", "C", "1", {}) is None
     assert _messaging_channel_label("facebook", "page", "Cloudless.gr", "C", "1", None) is None
@@ -497,14 +467,12 @@ def test_messaging_channel_label_facebook_page_fallbacks():
 
 def test_best_window_dead_night_renders_baseline():
     import copy
+
     insights = copy.deepcopy(INSIGHTS)
     insights["platforms"]["linkedin"]["best_hour_athens"] = (2, 9.9)
     insights["platforms"]["linkedin"]["best_weekday_athens"] = (4, 3.0)
     html = _report(insights=insights).to_html()
-    row = next(
-        ln for ln in html.splitlines()
-        if "linkedin" in ln and "baseline" in ln
-    )
+    row = next(ln for ln in html.splitlines() if "linkedin" in ln and "baseline" in ln)
     assert "02:00" not in row
 
 
@@ -541,10 +509,12 @@ def test_agent_block_marks_rescheduled_slot():
 
     from app.services.strategy_report import _agent_playbook_block
 
-    items = _resolve_slot_conflicts([
-        _parse_playbook_item("Post a carousel on LinkedIn at 19:00 Athens time"),
-        _parse_playbook_item("Post a second carousel on LinkedIn at 19:00 Athens time"),
-    ])
+    items = _resolve_slot_conflicts(
+        [
+            _parse_playbook_item("Post a carousel on LinkedIn at 19:00 Athens time"),
+            _parse_playbook_item("Post a second carousel on LinkedIn at 19:00 Athens time"),
+        ]
+    )
     payload = _json.loads(_re.search(r"```json\n(.+)\n```", _agent_playbook_block(items, "Europe/Athens"), _re.S).group(1))
     assert payload["actions"][0]["rescheduled_from"] is None
     assert payload["actions"][1]["rescheduled_from"] == "19:00"
@@ -553,6 +523,7 @@ def test_agent_block_marks_rescheduled_slot():
 
 def test_milestone_rows_track_follower_gates():
     import copy
+
     insights = copy.deepcopy(INSIGHTS)
     insights["platforms"]["instagram"] = {
         "focus_tier": "secondary",
@@ -574,6 +545,7 @@ def test_milestone_rows_track_follower_gates():
 
 def test_milestones_render_in_text_and_html():
     import copy
+
     insights = copy.deepcopy(INSIGHTS)
     insights["platforms"]["instagram"] = {
         "follower_growth": {"current": 9, "net": 4, "accounts": 1, "anomaly": None},
@@ -615,30 +587,26 @@ async def test_llm_actions_branches(monkeypatch):
     import app.services.inference as INF
     from app.services.slack_digest import DigestReport
 
-    digest = DigestReport(
-        generated_at=NOW, timezone="Europe/Athens",
-        team_name="T", days=1,
-        overview={}, impressions_24h=10, engagement_24h=3)
+    digest = DigestReport(generated_at=NOW, timezone="Europe/Athens", team_name="T", days=1, overview={}, impressions_24h=10, engagement_24h=3)
 
     # exception → None
-    monkeypatch.setattr(INF, "call_inference",
-                        AsyncMock(side_effect=RuntimeError("x")))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(side_effect=RuntimeError("x")))
     assert await SR._llm_actions(object(), "tid", {}, digest) is None
 
     # empty text → None
-    monkeypatch.setattr(INF, "call_inference",
-                        AsyncMock(return_value={"text": "  "}))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"text": "  "}))
     assert await SR._llm_actions(object(), "tid", {}, digest) is None
 
     # "response" key fallback + unparseable → None
-    monkeypatch.setattr(INF, "call_inference",
-                        AsyncMock(return_value={"response": "x"}))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"response": "x"}))
     assert await SR._llm_actions(object(), "tid", {}, digest) is None
 
     # happy — numbered list parsed
-    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={
-        "text": "1. Post a LinkedIn carousel at 09:00 Athens tomorrow.\n"
-                "2. Share an Instagram image post at 12:00 Athens."}))
+    monkeypatch.setattr(
+        INF,
+        "call_inference",
+        AsyncMock(return_value={"text": "1. Post a LinkedIn carousel at 09:00 Athens tomorrow.\n2. Share an Instagram image post at 12:00 Athens."}),
+    )
     out = await SR._llm_actions(object(), "tid", {}, digest)
     assert out and len(out) == 2 and "LinkedIn" in out[0]
     # provider pinned to dmr with fallback allowed
@@ -652,66 +620,56 @@ async def test_llm_actions_branches(monkeypatch):
 @pytest.mark.asyncio
 async def test_load_recent_posts_by_platform(monkeypatch):
     def _res(items):
-        return SimpleNamespace(
-            scalars=lambda: SimpleNamespace(
-                unique=lambda: SimpleNamespace(all=lambda: items),
-                all=lambda: items))
+        return SimpleNamespace(scalars=lambda: SimpleNamespace(unique=lambda: SimpleNamespace(all=lambda: items), all=lambda: items))
 
     tgt_li = SimpleNamespace(
-        social_account=SimpleNamespace(platform="linkedin"),
-        status="published", published_at=None, platform_url="u1",
-        platform_post_id="x")
+        social_account=SimpleNamespace(platform="linkedin"), status="published", published_at=None, platform_url="u1", platform_post_id="x"
+    )
     tgt_fail = SimpleNamespace(
-        social_account=SimpleNamespace(platform="linkedin"),
-        status="failed", published_at=None, platform_url=None,
-        platform_post_id=None)
+        social_account=SimpleNamespace(platform="linkedin"), status="failed", published_at=None, platform_url=None, platform_post_id=None
+    )
     tgt_tt = SimpleNamespace(
-        social_account=SimpleNamespace(platform="tiktok"),
-        status="published", published_at=None, platform_url=None,
-        platform_post_id="p_pub_123")
-    tgt_noacct = SimpleNamespace(
-        social_account=None, status="published",
-        published_at=None, platform_url=None, platform_post_id=None)
-    asset = SimpleNamespace(id=uuid.uuid4(), filename="a.png",
-                            mime_type="image/png", path="p/a.png")
+        social_account=SimpleNamespace(platform="tiktok"), status="published", published_at=None, platform_url=None, platform_post_id="p_pub_123"
+    )
+    tgt_noacct = SimpleNamespace(social_account=None, status="published", published_at=None, platform_url=None, platform_post_id=None)
+    asset = SimpleNamespace(id=uuid.uuid4(), filename="a.png", mime_type="image/png", path="p/a.png")
     post = SimpleNamespace(
-        id=uuid.uuid4(), media_ids=[asset.id],
-        content_text="post body", published_at=datetime.now(UTC),
-        targets=[tgt_li, tgt_fail, tgt_tt, tgt_noacct])
+        id=uuid.uuid4(), media_ids=[asset.id], content_text="post body", published_at=datetime.now(UTC), targets=[tgt_li, tgt_fail, tgt_tt, tgt_noacct]
+    )
 
     calls = iter([_res([post]), _res([asset])])
     db = SimpleNamespace(execute=AsyncMock(side_effect=lambda *a, **k: next(calls)))
 
-    monkeypatch.setattr(SR, "_brief_media_from_assets",
-                        lambda ids, m: ["m"] if ids else [])
+    monkeypatch.setattr(SR, "_brief_media_from_assets", lambda ids, m: ["m"] if ids else [])
     out = await SR._load_recent_posts_by_platform(db, uuid.uuid4())
     assert len(out["linkedin"]) == 1  # failed + no-account skipped
     assert out["tiktok"][0].pending_inbox is True
     assert out["linkedin"][0].content_preview == "post body"
 
     # max_per_platform cap
-    many = [SimpleNamespace(
-        id=uuid.uuid4(), media_ids=[], content_text="x",
-        published_at=None,
-        targets=[SimpleNamespace(
-            social_account=SimpleNamespace(platform="x"),
-            status="published", published_at=None,
-            platform_url=None, platform_post_id=None)])]
+    many = [
+        SimpleNamespace(
+            id=uuid.uuid4(),
+            media_ids=[],
+            content_text="x",
+            published_at=None,
+            targets=[
+                SimpleNamespace(social_account=SimpleNamespace(platform="x"), status="published", published_at=None, platform_url=None, platform_post_id=None)
+            ],
+        )
+    ]
     calls = iter([_res(many * 10), _res([])])
     db = SimpleNamespace(execute=AsyncMock(side_effect=lambda *a, **k: next(calls)))
-    out = await SR._load_recent_posts_by_platform(
-        db, uuid.uuid4(), max_per_platform=2)
+    out = await SR._load_recent_posts_by_platform(db, uuid.uuid4(), max_per_platform=2)
     assert len(out["x"]) == 2
 
 
 @pytest.mark.asyncio
 async def test_load_pillar_coverage():
     rows = [(SimpleNamespace(name="P1"), 3), (SimpleNamespace(name="P2"), 0)]
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
-        all=lambda: rows)))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: rows)))
     out = await SR._load_pillar_coverage(db, uuid.uuid4(), days=30)
-    assert out == [{"name": "P1", "posts": 3},
-                   {"name": "P2", "posts": 0}]
+    assert out == [{"name": "P1", "posts": 3}, {"name": "P2", "posts": 0}]
 
 
 # ── async layer: build_strategy_report / email / run ──────────────────
@@ -722,41 +680,31 @@ async def test_build_strategy_report(monkeypatch):
     from app.services.slack_digest import DigestReport
 
     digest = DigestReport(
-        generated_at=NOW, timezone="Europe/Athens",
-        team_name="T", days=1,
-        overview={"connected_accounts": 2},
-        impressions_24h=5, engagement_24h=1)
-    monkeypatch.setattr(SR, "build_daily_digest",
-                        AsyncMock(return_value=digest))
-    monkeypatch.setattr(SR, "build_team_insights",
-                        AsyncMock(return_value={"x": 1}))
-    monkeypatch.setattr(SR, "_load_recent_posts_by_platform",
-                        AsyncMock(return_value={}))
-    monkeypatch.setattr(SR, "_load_pillar_coverage",
-                        AsyncMock(return_value=[]))
+        generated_at=NOW, timezone="Europe/Athens", team_name="T", days=1, overview={"connected_accounts": 2}, impressions_24h=5, engagement_24h=1
+    )
+    monkeypatch.setattr(SR, "build_daily_digest", AsyncMock(return_value=digest))
+    monkeypatch.setattr(SR, "build_team_insights", AsyncMock(return_value={"x": 1}))
+    monkeypatch.setattr(SR, "_load_recent_posts_by_platform", AsyncMock(return_value={}))
+    monkeypatch.setattr(SR, "_load_pillar_coverage", AsyncMock(return_value=[]))
     import app.services.growth_initiatives as GI
-    monkeypatch.setattr(GI, "initiative_summary",
-                        AsyncMock(return_value={"items": 1}))
+
+    monkeypatch.setattr(GI, "initiative_summary", AsyncMock(return_value={"items": 1}))
 
     # channel rows → messaging labels
     chan_rows = [
         ("whatsapp", "business", "wa", None, "id1", {}),
-        ("facebook", "page", "cloudless.gr", None, "id2",
-         {"messenger_setup": {"subscribed": True}}),
+        ("facebook", "page", "cloudless.gr", None, "id2", {"messenger_setup": {"subscribed": True}}),
         ("facebook", "personal", "fb", None, "id3", {}),  # not messaging
     ]
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
-        all=lambda: chan_rows)))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: chan_rows)))
     team = SimpleNamespace(id=uuid.uuid4(), name="T")
 
     # LLM actions win
-    monkeypatch.setattr(SR, "_llm_actions",
-                        AsyncMock(return_value=["a1", "a2"]))
+    monkeypatch.setattr(SR, "_llm_actions", AsyncMock(return_value=["a1", "a2"]))
     r = await SR.build_strategy_report(db, team=team)
     assert r.llm_used is True and r.actions == ["a1", "a2"]
     assert any("whatsapp" in c for c in r.messaging_channels)
-    assert any("messenger (cloudless.gr page)" in c
-               for c in r.messaging_channels)
+    assert any("messenger (cloudless.gr page)" in c for c in r.messaging_channels)
     assert not any(c.startswith("facebook") for c in r.messaging_channels)
 
     # LLM fails → rule actions
@@ -771,15 +719,13 @@ async def test_email_strategy_report(monkeypatch):
     r = _report()
 
     # no recipient configured
-    monkeypatch.setattr(SR, "get_settings",
-                        lambda: SimpleNamespace(DIGEST_EMAIL_TO=""))
+    monkeypatch.setattr(SR, "get_settings", lambda: SimpleNamespace(DIGEST_EMAIL_TO=""))
     out = await SR.email_strategy_report(r)
     assert out.email_error == "DIGEST_EMAIL_TO not set"
     assert out.emailed is False
 
     # send success
-    monkeypatch.setattr(SR, "get_settings",
-                        lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c"))
+    monkeypatch.setattr(SR, "get_settings", lambda: SimpleNamespace(DIGEST_EMAIL_TO="a@b.c"))
     send = AsyncMock()
     monkeypatch.setattr(SR, "send_email", send)
     out = await SR.email_strategy_report(_report())
@@ -787,8 +733,7 @@ async def test_email_strategy_report(monkeypatch):
     send.assert_awaited_once()
 
     # send failure → email_error captured
-    monkeypatch.setattr(SR, "send_email",
-                        AsyncMock(side_effect=RuntimeError("smtp down")))
+    monkeypatch.setattr(SR, "send_email", AsyncMock(side_effect=RuntimeError("smtp down")))
     out = await SR.email_strategy_report(_report())
     assert out.emailed is False and "smtp down" in out.email_error
 
@@ -799,37 +744,25 @@ async def test_run_strategy_report_for_all_teams(monkeypatch):
     t_full = SimpleNamespace(id=uuid.uuid4(), name="Full")
     t_skip = SimpleNamespace(id=uuid.uuid4(), name="Skip")
 
-    teams_res = SimpleNamespace(
-        scalars=lambda: SimpleNamespace(
-            all=lambda: [t_empty, t_full, t_skip]))
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=teams_res),
-        scalar=AsyncMock(side_effect=[0, 5, 5]))  # connected counts
+    teams_res = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [t_empty, t_full, t_skip]))
+    db = SimpleNamespace(execute=AsyncMock(return_value=teams_res), scalar=AsyncMock(side_effect=[0, 5, 5]))  # connected counts
 
     from app.services.slack_digest import DigestReport
-    d_active = DigestReport(
-        generated_at=NOW, timezone="Europe/Athens",
-        team_name="T", days=1,
-        overview={"connected_accounts": 3},
-        impressions_24h=1, engagement_24h=0)
-    d_inactive = DigestReport(
-        generated_at=NOW, timezone="Europe/Athens",
-        team_name="T", days=1,
-        overview={"connected_accounts": 0},
-        impressions_24h=0, engagement_24h=0)
 
-    reps = iter([
-        SR.StrategyReport(
-            generated_at=NOW, timezone="Europe/Athens",
-            team_name="Full", insights={}, digest=d_active,
-            actions=["a"], llm_used=True),
-        SR.StrategyReport(
-            generated_at=NOW, timezone="Europe/Athens",
-            team_name="Skip", insights={}, digest=d_inactive,
-            actions=[], llm_used=False),
-    ])
-    monkeypatch.setattr(SR, "build_strategy_report",
-                        AsyncMock(side_effect=lambda *a, **k: next(reps)))
+    d_active = DigestReport(
+        generated_at=NOW, timezone="Europe/Athens", team_name="T", days=1, overview={"connected_accounts": 3}, impressions_24h=1, engagement_24h=0
+    )
+    d_inactive = DigestReport(
+        generated_at=NOW, timezone="Europe/Athens", team_name="T", days=1, overview={"connected_accounts": 0}, impressions_24h=0, engagement_24h=0
+    )
+
+    reps = iter(
+        [
+            SR.StrategyReport(generated_at=NOW, timezone="Europe/Athens", team_name="Full", insights={}, digest=d_active, actions=["a"], llm_used=True),
+            SR.StrategyReport(generated_at=NOW, timezone="Europe/Athens", team_name="Skip", insights={}, digest=d_inactive, actions=[], llm_used=False),
+        ]
+    )
+    monkeypatch.setattr(SR, "build_strategy_report", AsyncMock(side_effect=lambda *a, **k: next(reps)))
     email = AsyncMock(side_effect=lambda r: r)
     monkeypatch.setattr(SR, "email_strategy_report", email)
 
@@ -854,23 +787,32 @@ def test_initiatives_text_and_html():
         {  # full card: units+month, funnel, followers, credits
             "initiative": "Invite engagers",
             "platform": "linkedin",
-            "units": 50, "units_this_month": 120, "events": 1,
-            "accepted_est": 20, "pending_est": 10, "declined": 5,
+            "units": 50,
+            "units_this_month": 120,
+            "events": 1,
+            "accepted_est": 20,
+            "pending_est": 10,
+            "declined": 5,
             "conversion_pct": 40,
-            "followers_start": 300, "followers_now": 320,
+            "followers_start": 300,
+            "followers_now": 320,
             "followers_delta": 20,
-            "credits_left": 80, "monthly_cap": 200,
+            "credits_left": 80,
+            "monthly_cap": 200,
         },
         {  # events-only path, no funnel/followers/credits
             "event_type": "Follow invites",
             "platform": "instagram",
-            "units": 0, "events": 3,
+            "units": 0,
+            "events": 3,
         },
         {  # singular event
             "event_type": "One-off",
             "platform": "facebook",
-            "units": 0, "events": 1,
-            "followers_start": 10, "followers_now": 10,
+            "units": 0,
+            "events": 1,
+            "followers_start": 10,
+            "followers_now": 10,
             "followers_delta": 0,
         },
     ]
@@ -895,10 +837,7 @@ def test_initiatives_text_and_html():
     assert "Credits: <b>~80</b>" in html and "width:40%" in html
     # None delta renders em-dash in HTML (text renderer requires int —
     # latent edge, exercised via _initiatives_html directly)
-    r3 = _report(initiatives=[{
-        "event_type": "E", "platform": "x", "units": 0, "events": 1,
-        "followers_start": 1, "followers_now": 1,
-        "followers_delta": None}])
+    r3 = _report(initiatives=[{"event_type": "E", "platform": "x", "units": 0, "events": 1, "followers_start": 1, "followers_now": 1, "followers_delta": None}])
     assert "(—)" in r3._initiatives_html(lambda x: x)
 
     # no initiatives → both sections absent
@@ -912,10 +851,15 @@ def test_initiatives_text_and_html():
 
 def _digest(issues=None):
     return DigestReport(
-        generated_at=NOW, timezone="Europe/Athens", team_name="T", days=1,
+        generated_at=NOW,
+        timezone="Europe/Athens",
+        team_name="T",
+        days=1,
         overview={"connected_accounts": 3, "total_posts": 2},
-        impressions_24h=1200, engagement_24h=87,
-        issues=issues or [])
+        impressions_24h=1200,
+        engagement_24h=87,
+        issues=issues or [],
+    )
 
 
 def test_subject_flags_digest_errors():
@@ -934,8 +878,7 @@ def test_text_render_digest_pillars_messaging_and_issues():
     r = _report(
         digest=_digest([DigestIssue("error", "IG token", "expired yesterday")]),
         messaging_channels=["whatsapp", "telegram"],
-        pillar_coverage=[{"name": "Educate", "posts": 3},
-                         {"name": "Proof", "posts": 0}],
+        pillar_coverage=[{"name": "Educate", "posts": 3}, {"name": "Proof", "posts": 0}],
     )
     t = r.to_text()
     assert "LAST 24H" in t and "Impressions 1200" in t
@@ -958,19 +901,22 @@ def test_html_render_digest_pillars_and_issues():
 
 
 def test_text_render_rescheduled_duplicate_slot():
-    r = _report(actions=[
-        "Post a LinkedIn carousel at 09:00 about the audit",
-        "Post a LinkedIn story at 09:00 about the launch",
-    ])
+    r = _report(
+        actions=[
+            "Post a LinkedIn carousel at 09:00 about the audit",
+            "Post a LinkedIn story at 09:00 about the launch",
+        ]
+    )
     t = r.to_text()
     assert "moved 09:00 → 10:30 (duplicate slot)" in t
 
 
 def test_milestone_row_reached_final_gate():
-    ins = {"platforms": {
-        "facebook": {"engagement": 5,
-                     "follower_growth": {"current": 15_000}},
-    }}
+    ins = {
+        "platforms": {
+            "facebook": {"engagement": 5, "follower_growth": {"current": 15_000}},
+        }
+    }
     r = _report(insights=ins)
     rows = r._milestone_rows()
     assert any("reached" in prog for _n, _c, prog, _to in rows)
@@ -983,27 +929,26 @@ def test_pulse_takeaway_empty_when_no_engagement():
 
 
 def test_recent_posts_unknown_and_naive_times():
-    posts = {"linkedin": [
-        BriefPost(post_id="x" * 36, content_preview="a",
-                  published_at=None),
-        BriefPost(post_id="y" * 36, content_preview="b",
-                  published_at=datetime(2026, 9, 20, 10, 0)),  # naive
-    ]}
+    posts = {
+        "linkedin": [
+            BriefPost(post_id="x" * 36, content_preview="a", published_at=None),
+            BriefPost(post_id="y" * 36, content_preview="b", published_at=datetime(2026, 9, 20, 10, 0)),  # naive
+        ]
+    }
     r = _report(recent_posts_by_platform=posts)
     t = r.to_text()
     assert "unknown time" in t
 
 
 def test_recent_posts_pending_inbox_and_urlless_media():
-    posts = {"tiktok": [
-        BriefPost(post_id="p" * 36, content_preview="draft",
-                  published_at=NOW, pending_inbox=True),
-        BriefPost(post_id="q" * 36, content_preview="vid",
-                  published_at=NOW,
-                  media=[BriefMedia(filename="v.mp4",
-                                    mime_type="video/mp4",
-                                    url=None, is_image=False)]),
-    ]}
+    posts = {
+        "tiktok": [
+            BriefPost(post_id="p" * 36, content_preview="draft", published_at=NOW, pending_inbox=True),
+            BriefPost(
+                post_id="q" * 36, content_preview="vid", published_at=NOW, media=[BriefMedia(filename="v.mp4", mime_type="video/mp4", url=None, is_image=False)]
+            ),
+        ]
+    }
     r = _report(recent_posts_by_platform=posts)
     t = r.to_text()
     assert "Draft in TikTok app inbox" in t
@@ -1014,38 +959,29 @@ def test_recent_posts_pending_inbox_and_urlless_media():
 
 def test_media_tiles_html_skips_urlless_and_empty():
     esc = lambda s: s  # noqa: E731
-    bp = BriefPost(post_id="p" * 36,
-                   media=[BriefMedia(filename="a.png", url=None,
-                                     is_image=True)])
+    bp = BriefPost(post_id="p" * 36, media=[BriefMedia(filename="a.png", url=None, is_image=True)])
     assert StrategyReport._media_tiles_html(bp, esc) == ""
     bp2 = BriefPost(post_id="p" * 36, media=[])
     assert StrategyReport._media_tiles_html(bp2, esc) == ""
 
 
 def test_bench_cell_partial_and_verdict_only():
-    assert StrategyReport._bench_cell(
-        {"platform_limits": ["member_postAnalytics_scope_missing"]}
-    ) == "— (member metrics scope missing)"
-    assert StrategyReport._bench_cell(
-        {"benchmark": {"verdict": "above median"}}) == "above median"
-    assert StrategyReport._bench_cell({"benchmark": {
-        "verdict": "above_median", "your_er_by_followers_pct": 3.1,
-        "benchmark_pct": 2.0}}) == "ER 3.1% vs 2.0% (above median)"
+    assert StrategyReport._bench_cell({"platform_limits": ["member_postAnalytics_scope_missing"]}) == "— (member metrics scope missing)"
+    assert StrategyReport._bench_cell({"benchmark": {"verdict": "above median"}}) == "above median"
+    assert (
+        StrategyReport._bench_cell({"benchmark": {"verdict": "above_median", "your_er_by_followers_pct": 3.1, "benchmark_pct": 2.0}})
+        == "ER 3.1% vs 2.0% (above median)"
+    )
 
 
 def test_er_str_branches():
     assert StrategyReport._er_str({"avg_engagement_rate": None}) == "n/a"
-    assert StrategyReport._er_str(
-        {"avg_engagement_rate": 4.2, "impressions": 10}) == "low data"
-    assert StrategyReport._er_str(
-        {"avg_engagement_rate": 4.2, "impressions": 100,
-         "platform_limits": ["x_scope_missing"]}) == "4.2% (partial)"
+    assert StrategyReport._er_str({"avg_engagement_rate": 4.2, "impressions": 10}) == "low data"
+    assert StrategyReport._er_str({"avg_engagement_rate": 4.2, "impressions": 100, "platform_limits": ["x_scope_missing"]}) == "4.2% (partial)"
 
 
 def test_mom_str_raw_counts():
-    assert StrategyReport._mom_str(
-        {"momentum_7d_engagement_pct": "n/a",
-         "engagement_7d": 12, "engagement_prev_7d": 5}) == "5→12"
+    assert StrategyReport._mom_str({"momentum_7d_engagement_pct": "n/a", "engagement_7d": 12, "engagement_prev_7d": 5}) == "5→12"
 
 
 def test_is_image_asset_filename_fallback():
@@ -1060,9 +996,6 @@ def test_brief_media_from_assets_skips_missing_and_urlless():
 
 
 def test_parse_actions_drops_near_duplicates():
-    text = (
-        "- Post a LinkedIn carousel about the audit results at 09:00\n"
-        "- Post a LinkedIn carousel about the audit results at 09:15\n"
-    )
+    text = "- Post a LinkedIn carousel about the audit results at 09:00\n- Post a LinkedIn carousel about the audit results at 09:15\n"
     actions = _parse_actions(text)
     assert len(actions) == 1

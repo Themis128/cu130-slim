@@ -43,15 +43,14 @@ router = APIRouter()
 # Helpers
 # ------------------------------------------------------------------
 
+
 async def _get_facebook_page_account(
     db: AsyncSession,
     account_id: uuid.UUID,
     user: User,
 ) -> SocialAccount:
     """Load a Facebook Page account and verify ownership."""
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == account_id)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == account_id))
     account = result.scalar_one_or_none()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -98,6 +97,7 @@ def _get_messenger_client(account: SocialAccount) -> MessengerAPIClient:
 # ------------------------------------------------------------------
 # Pydantic schemas
 # ------------------------------------------------------------------
+
 
 class MessengerSetupRequest(BaseModel):
     greeting_text: str | None = Field(None, description="Custom greeting text. {page_name} is replaced.")
@@ -172,6 +172,7 @@ class WebhookVerifyRequest(BaseModel):
 # Setup & Profile endpoints
 # ------------------------------------------------------------------
 
+
 @router.post("/{account_id}/setup", response_model=dict)
 async def setup_messenger(
     account_id: uuid.UUID,
@@ -226,8 +227,7 @@ async def setup_messenger(
             # Return partial success so the caller knows to retry profile later.
             profile_result = {
                 "result": "rate_limited",
-                "detail": "Messenger Profile API rate limit (10 calls/10 min). "
-                          "Subscription succeeded; retry profile setup later.",
+                "detail": "Messenger Profile API rate limit (10 calls/10 min). Subscription succeeded; retry profile setup later.",
             }
             logger.warning("Messenger Profile rate limited for page_id=%s", account.account_id)
         else:
@@ -380,6 +380,7 @@ async def unsubscribe_messenger(
 # Send API
 # ------------------------------------------------------------------
 
+
 @router.post("/{account_id}/send", response_model=dict)
 async def send_message(
     account_id: uuid.UUID,
@@ -435,6 +436,7 @@ async def send_quick_replies(
 # ------------------------------------------------------------------
 # Conversations API
 # ------------------------------------------------------------------
+
 
 @router.get("/{account_id}/conversations", response_model=list[ConversationResponse])
 async def list_conversations(
@@ -498,6 +500,7 @@ async def get_conversation_messages(
 # User Profile API
 # ------------------------------------------------------------------
 
+
 @router.get("/{account_id}/user/{psid}", response_model=dict)
 async def get_user_profile(
     account_id: uuid.UUID,
@@ -520,6 +523,7 @@ async def get_user_profile(
 # ------------------------------------------------------------------
 # Auto-reply configuration
 # ------------------------------------------------------------------
+
 
 @router.get("/{account_id}/auto-reply", response_model=AutoReplyConfig)
 async def get_auto_reply_config(
@@ -554,6 +558,7 @@ async def update_auto_reply_config(
 # ------------------------------------------------------------------
 # Webhook endpoints
 # ------------------------------------------------------------------
+
 
 # The verify token is used to verify the webhook endpoint with Meta.
 # It should be set in the MESSENGER_VERIFY_TOKEN env var.
@@ -624,9 +629,7 @@ async def receive_webhook(
 
             # Generate and send AI auto-reply
             try:
-                await _generate_and_send_auto_reply(
-                    account, sender_psid, message_text, auto_reply
-                )
+                await _generate_and_send_auto_reply(account, sender_psid, message_text, auto_reply)
                 processed += 1
             except Exception as e:
                 logger.error(
@@ -674,9 +677,7 @@ async def _generate_and_send_auto_reply(
         fallback_text = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")
 
         # Use Cloudflare Workers AI (free, open-source-first)
-        reply_text = await _generate_ai_response(
-            system_prompt, incoming_text, model, max_tokens, fallback_text
-        )
+        reply_text = await _generate_ai_response(system_prompt, incoming_text, model, max_tokens, fallback_text)
     except Exception as e:
         logger.error("AI response generation failed: %s", e)
         reply_text = config.get("fallback_text", "Thanks for your message! We'll get back to you soon.")

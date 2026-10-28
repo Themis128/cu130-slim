@@ -87,9 +87,7 @@ def test_unknown_ryr_tier_defaults_to_one(monkeypatch):
 
 def test_comment_tier_for_rich_fresh_post(monkeypatch):
     monkeypatch.setattr(E.random, "randint", lambda a, b: 200)
-    plan = E.score_candidate(
-        _cand(post_text=_words(70), is_connection=True, is_followed=True, in_crm=True), ryr_tier="high"
-    )
+    plan = E.score_candidate(_cand(post_text=_words(70), is_connection=True, is_followed=True, in_crm=True), ryr_tier="high")
     # 3 + 2 + 4 + 2 (high) + 4 (fresh) + 2 (rich) = 17
     assert plan.score == pytest.approx(17.0)
     assert plan.action == "comment"

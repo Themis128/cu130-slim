@@ -91,9 +91,7 @@ def test_room_routing():
 
 
 def test_room_falls_back_to_ops():
-    with patch.object(
-        TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_ROOM_ALERTS="")
-    ):
+    with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_ROOM_ALERTS="")):
         assert TALK.room_token("approvals") == "room-ops"
 
 
@@ -136,9 +134,7 @@ def test_blocks_to_text_empty():
 
 @pytest.mark.asyncio
 async def test_post_to_talk_hits_chat_endpoint():
-    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(
-        TALK.httpx, "AsyncClient", _Client
-    ):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Client):
         assert await TALK.post_to_talk("hello", purpose="digest") is True
     call = _Client.calls[0]
     assert call["url"].endswith("/ocs/v2.php/apps/spreed/api/v1/chat/room-ops")
@@ -148,17 +144,16 @@ async def test_post_to_talk_hits_chat_endpoint():
 
 @pytest.mark.asyncio
 async def test_post_to_talk_disabled_noop():
-    with patch.object(
-        TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_NOTIFY=False)
-    ):
+    with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_NOTIFY=False)):
         assert await TALK.post_to_talk("hi") is False
     assert _Client.calls == []
 
 
 @pytest.mark.asyncio
 async def test_post_to_talk_http_error_nonfatal():
-    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(
-        TALK.httpx, "AsyncClient", lambda *a, **k: _Client(resp=_Resp(500, "boom"))
+    with (
+        patch.object(TALK, "get_settings", return_value=_settings()),
+        patch.object(TALK.httpx, "AsyncClient", lambda *a, **k: _Client(resp=_Resp(500, "boom"))),
     ):
         assert await TALK.post_to_talk("hi") is False
 
@@ -177,17 +172,13 @@ def test_verify_bot_request():
 
 
 def test_verify_bot_request_no_secret():
-    with patch.object(
-        TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_BOT_SECRET="")
-    ):
+    with patch.object(TALK, "get_settings", return_value=_settings(NEXTCLOUD_TALK_BOT_SECRET="")):
         assert TALK.verify_bot_request("r", b"body", "s") is False
 
 
 @pytest.mark.asyncio
 async def test_bot_reply_signed():
-    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(
-        TALK.httpx, "AsyncClient", _Client
-    ):
+    with patch.object(TALK, "get_settings", return_value=_settings()), patch.object(TALK.httpx, "AsyncClient", _Client):
         assert await TALK.bot_reply("room-ops", "done", reply_to=7) is True
     call = _Client.calls[0]
     assert "/bot/room-ops/message" in call["url"]
@@ -196,9 +187,7 @@ async def test_bot_reply_signed():
         hdrs["X-Nextcloud-Talk-Bot-Random"],
         hdrs["X-Nextcloud-Talk-Bot-Signature"],
     )
-    expect = hmac.new(
-        b"bot-secret", rnd.encode() + call["json"]["message"].encode(), hashlib.sha256
-    ).hexdigest()
+    expect = hmac.new(b"bot-secret", rnd.encode() + call["json"]["message"].encode(), hashlib.sha256).hexdigest()
     assert sig == expect
     assert call["json"]["replyTo"] == 7
 
@@ -214,10 +203,11 @@ async def test_digest_dual_posts_to_talk():
         SLACK_ACCESS_TOKEN="",
         SLACK_CHANNEL_ID="C123",
     )
-    with patch.object(SN, "get_settings", return_value=settings), patch.object(
-        SN.httpx, "AsyncClient", _Client
-    ), patch.object(TALK, "get_settings", return_value=settings), patch.object(
-        TALK.httpx, "AsyncClient", _Client
+    with (
+        patch.object(SN, "get_settings", return_value=settings),
+        patch.object(SN.httpx, "AsyncClient", _Client),
+        patch.object(TALK, "get_settings", return_value=settings),
+        patch.object(TALK.httpx, "AsyncClient", _Client),
     ):
         ok, err, ts = await SN.post_digest_text_to_slack("daily digest")
     assert ok is True
@@ -235,9 +225,11 @@ async def test_digest_skips_talk_when_disabled():
         SLACK_ACCESS_TOKEN="",
         SLACK_CHANNEL_ID="",
     )
-    with patch.object(SN, "get_settings", return_value=settings), patch.object(
-        SN.httpx, "AsyncClient", _Client
-    ), patch.object(TALK, "get_settings", return_value=settings):
+    with (
+        patch.object(SN, "get_settings", return_value=settings),
+        patch.object(SN.httpx, "AsyncClient", _Client),
+        patch.object(TALK, "get_settings", return_value=settings),
+    ):
         ok, _, _ = await SN.post_digest_text_to_slack("hi")
     assert ok is True
     assert len(_Client.calls) == 1
@@ -264,9 +256,7 @@ def _signed_request(text: str, room: str = "room-ops"):
     }
     body = json.dumps(payload).encode()
     rnd = "rnd123"
-    sig = hmac.new(
-        b"bot-secret", rnd.encode() + body, hashlib.sha256
-    ).hexdigest()
+    sig = hmac.new(b"bot-secret", rnd.encode() + body, hashlib.sha256).hexdigest()
     return _Req(
         body,
         {
@@ -279,8 +269,7 @@ def _signed_request(text: str, room: str = "room-ops"):
 
 @pytest.mark.asyncio
 async def test_webhook_rejects_bad_signature():
-    req = _Req(b"{}", {"x-nextcloud-talk-random": "x",
-                      "x-nextcloud-talk-signature": "bad"})
+    req = _Req(b"{}", {"x-nextcloud-talk-random": "x", "x-nextcloud-talk-signature": "bad"})
     with patch.object(BOT, "verify_bot_request", return_value=False):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": False}
@@ -295,13 +284,13 @@ async def test_webhook_help_command_replies():
         replies.append((room, msg))
         return True
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(
-        BOT,
-        "get_settings",
-        return_value=_settings(
-            NEXTCLOUD_TALK_ROOM="room-ops", NEXTCLOUD_TALK_ROOM_ALERTS="room-approvals"
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(
+            BOT,
+            "get_settings",
+            return_value=_settings(NEXTCLOUD_TALK_ROOM="room-ops", NEXTCLOUD_TALK_ROOM_ALERTS="room-approvals"),
         ),
     ):
         out = await BOT.talk_bot_webhook(req)
@@ -319,9 +308,11 @@ async def test_webhook_ignores_non_commands():
         replies.append(msg)
         return True
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(BOT, "get_settings", return_value=_settings()):
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(BOT, "get_settings", return_value=_settings()),
+    ):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
     assert replies == []
@@ -337,12 +328,14 @@ async def test_webhook_ignores_foreign_room():
         replies.append(msg)
         return True
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(
-        BOT,
-        "get_settings",
-        return_value=_settings(NEXTCLOUD_TALK_ROOM="room-ops"),
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(
+            BOT,
+            "get_settings",
+            return_value=_settings(NEXTCLOUD_TALK_ROOM="room-ops"),
+        ),
     ):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
@@ -364,9 +357,7 @@ async def test_webhook_heal_dispatches_task():
     fake_celery = _Celery()
     import app.worker.celery_app as CA
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(CA, "celery_app", fake_celery):
+    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(BOT, "bot_reply", _reply), patch.object(CA, "celery_app", fake_celery):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
     assert sent == ["app.worker.tasks.session_healer.heal_sessions"]
@@ -452,10 +443,11 @@ async def test_status_command_lists_accounts_and_queue():
         replies.append(msg)
         return True
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(BOT, "get_settings", return_value=_settings()), patch.object(
-        BOT, "async_session_maker", _session_maker(db)
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(BOT, "get_settings", return_value=_settings()),
+        patch.object(BOT, "async_session_maker", _session_maker(db)),
     ):
         out = await BOT.talk_bot_webhook(_signed_request("status"))
     assert out == {"ok": True}
@@ -555,10 +547,11 @@ async def test_retry_command_via_webhook():
         replies.append(msg)
         return True
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(BOT, "get_settings", return_value=_settings()), patch.object(
-        BOT, "async_session_maker", _session_maker(db)
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(BOT, "get_settings", return_value=_settings()),
+        patch.object(BOT, "async_session_maker", _session_maker(db)),
     ):
         out = await BOT.talk_bot_webhook(_signed_request(f"retry {qid}"))
     assert out == {"ok": True}
@@ -579,9 +572,7 @@ async def test_digest_dispatches_task_with_days():
 
     import app.worker.celery_app as CA
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(CA, "celery_app", _Celery()):
+    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(BOT, "bot_reply", _reply), patch.object(CA, "celery_app", _Celery()):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": True}
     assert sent == [("app.worker.tasks.digest.send_daily_slack_digest", {"days": 1})]
@@ -596,10 +587,11 @@ async def test_webhook_replies_error_when_command_raises():
         replies.append(msg)
         return True
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(BOT, "get_settings", return_value=_settings()), patch.object(
-        BOT, "async_session_maker", _session_maker(db)
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(BOT, "get_settings", return_value=_settings()),
+        patch.object(BOT, "async_session_maker", _session_maker(db)),
     ):
         out = await BOT.talk_bot_webhook(_signed_request("status"))
     assert out == {"ok": True}
@@ -608,8 +600,7 @@ async def test_webhook_replies_error_when_command_raises():
 
 @pytest.mark.asyncio
 async def test_webhook_bad_json_body_returns_not_ok():
-    req = _Req(b"{unclosed", {"x-nextcloud-talk-random": "x",
-                              "x-nextcloud-talk-signature": "y"})
+    req = _Req(b"{unclosed", {"x-nextcloud-talk-random": "x", "x-nextcloud-talk-signature": "y"})
     with patch.object(BOT, "verify_bot_request", return_value=True):
         out = await BOT.talk_bot_webhook(req)
     assert out == {"ok": False}
@@ -624,9 +615,11 @@ async def test_webhook_empty_message_stays_silent():
         replies.append(msg)
         return True
 
-    with patch.object(BOT, "verify_bot_request", return_value=True), patch.object(
-        BOT, "bot_reply", _reply
-    ), patch.object(BOT, "get_settings", return_value=_settings()):
+    with (
+        patch.object(BOT, "verify_bot_request", return_value=True),
+        patch.object(BOT, "bot_reply", _reply),
+        patch.object(BOT, "get_settings", return_value=_settings()),
+    ):
         out = await BOT.talk_bot_webhook(_signed_request(""))
     assert out == {"ok": True}
     assert replies == []
@@ -639,8 +632,7 @@ async def test_webhook_empty_message_stays_silent():
 async def test_post_to_talk_no_room_configured():
     """talk_enabled() but no room/base → early False, no HTTP call."""
     _Client.calls = []
-    s = _settings(NEXTCLOUD_TALK_ROOM="", NEXTCLOUD_TALK_ROOM_ALERTS="",
-                  NEXTCLOUD_BASE_URL="", NEXTCLOUD_DAV_URL="")
+    s = _settings(NEXTCLOUD_TALK_ROOM="", NEXTCLOUD_TALK_ROOM_ALERTS="", NEXTCLOUD_BASE_URL="", NEXTCLOUD_DAV_URL="")
     with patch.object(TALK, "get_settings", return_value=s):
         assert await TALK.post_to_talk("hi") is False
     assert _Client.calls == []
@@ -649,9 +641,7 @@ async def test_post_to_talk_no_room_configured():
 @pytest.mark.asyncio
 async def test_post_to_talk_http_error_returns_false():
     s = _settings(NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
-    with patch.object(TALK, "get_settings", return_value=s), patch.object(
-        TALK.httpx, "AsyncClient", lambda **kw: _Client(resp=_Resp(500, "boom"), **kw)
-    ):
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", lambda **kw: _Client(resp=_Resp(500, "boom"), **kw)):
         assert await TALK.post_to_talk("hi") is False
 
 
@@ -665,9 +655,7 @@ async def test_post_to_talk_exception_returns_false():
             return False
 
     s = _settings(NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
-    with patch.object(TALK, "get_settings", return_value=s), patch.object(
-        TALK.httpx, "AsyncClient", lambda **kw: _Boom()
-    ):
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", lambda **kw: _Boom()):
         assert await TALK.post_to_talk("hi") is False
 
 
@@ -686,8 +674,7 @@ async def test_bot_reply_rejects_unconfigured_room():
     s = _settings(NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
     with patch.object(TALK, "get_settings", return_value=s):
         assert await TALK.bot_reply("attacker-room", "hi") is False
-    s2 = _settings(NEXTCLOUD_TALK_BOT_SECRET="",
-                   NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
+    s2 = _settings(NEXTCLOUD_TALK_BOT_SECRET="", NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
     with patch.object(TALK, "get_settings", return_value=s2):
         assert await TALK.bot_reply("room-ops", "hi") is False
 
@@ -713,9 +700,7 @@ async def test_bot_reply_retries_without_reply_to_on_400():
             return _Resp(400, "bad replyTo") if self._n == 1 else _Resp(201)
 
     s = _settings(NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
-    with patch.object(TALK, "get_settings", return_value=s), patch.object(
-        TALK.httpx, "AsyncClient", lambda **kw: _SeqClient(**kw)
-    ):
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", lambda **kw: _SeqClient(**kw)):
         assert await TALK.bot_reply("room-ops", "hi", reply_to=42) is True
     assert calls[0].get("replyTo") == 42
     assert "replyTo" not in calls[1]
@@ -724,9 +709,7 @@ async def test_bot_reply_retries_without_reply_to_on_400():
 @pytest.mark.asyncio
 async def test_bot_reply_http_error_and_exception_return_false():
     s = _settings(NEXTCLOUD_BASE_URL="https://cloud.cloudless.gr")
-    with patch.object(TALK, "get_settings", return_value=s), patch.object(
-        TALK.httpx, "AsyncClient", lambda **kw: _Client(resp=_Resp(500, "boom"), **kw)
-    ):
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", lambda **kw: _Client(resp=_Resp(500, "boom"), **kw)):
         assert await TALK.bot_reply("room-ops", "hi") is False
 
     class _Boom:
@@ -736,7 +719,5 @@ async def test_bot_reply_http_error_and_exception_return_false():
         async def __aexit__(self, *a):
             return False
 
-    with patch.object(TALK, "get_settings", return_value=s), patch.object(
-        TALK.httpx, "AsyncClient", lambda **kw: _Boom()
-    ):
+    with patch.object(TALK, "get_settings", return_value=s), patch.object(TALK.httpx, "AsyncClient", lambda **kw: _Boom()):
         assert await TALK.bot_reply("room-ops", "hi") is False

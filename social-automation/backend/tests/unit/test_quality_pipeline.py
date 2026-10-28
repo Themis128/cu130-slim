@@ -44,9 +44,7 @@ async def test_pipeline_gibberish_forces_improvement_round(monkeypatch):
     monkeypatch.setattr(qp, "detect_gibberish", detect)
 
     improved_content = "A much longer, fully corrected post body " * 8
-    improve = AsyncMock(
-        return_value={"content": improved_content, "hashtags": ["cloudless"]}
-    )
+    improve = AsyncMock(return_value={"content": improved_content, "hashtags": ["cloudless"]})
     monkeypatch.setattr(inference, "call_inference", improve)
 
     result = await qp.apply_quality_pipeline(
@@ -105,9 +103,7 @@ async def test_pipeline_gibberish_respects_max_iterations(monkeypatch):
 @pytest.mark.asyncio
 async def test_pipeline_detect_failure_is_advisory(monkeypatch):
     _neutral_patches(monkeypatch, seo_overall=95)
-    monkeypatch.setattr(
-        qp, "detect_gibberish", AsyncMock(side_effect=RuntimeError("boom"))
-    )
+    monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(side_effect=RuntimeError("boom")))
 
     result = await qp.apply_quality_pipeline(
         "Perfectly good content here.",
@@ -132,9 +128,7 @@ def test_quality_result_to_dict():
 @pytest.mark.asyncio
 async def test_pipeline_spellcheck_applies_and_exceptions(monkeypatch):
     monkeypatch.setattr(qp, "auto_correct", AsyncMock(return_value="fixed text"))
-    monkeypatch.setattr(
-        plain_english, "run_nlp_check_and_fix",
-        AsyncMock(side_effect=RuntimeError("nlp down")))
+    monkeypatch.setattr(plain_english, "run_nlp_check_and_fix", AsyncMock(side_effect=RuntimeError("nlp down")))
     monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(return_value=[]))
     monkeypatch.setattr(plain_english, "sofia_nlp_score", lambda t: (0, []))
 
@@ -146,8 +140,7 @@ async def test_pipeline_spellcheck_applies_and_exceptions(monkeypatch):
 
     # spellcheck exception also swallowed
     monkeypatch.setattr(qp, "auto_correct", AsyncMock(side_effect=RuntimeError("x")))
-    monkeypatch.setattr(qp, "detect_gibberish",
-                        AsyncMock(side_effect=RuntimeError("gib down")))
+    monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(side_effect=RuntimeError("gib down")))
     r2 = await qp.apply_quality_pipeline("raw", "linkedin", run_seo=False)
     assert r2.content == "raw"
     assert r2.spellcheck_applied is False
@@ -157,21 +150,15 @@ async def test_pipeline_spellcheck_applies_and_exceptions(monkeypatch):
 @pytest.mark.asyncio
 async def test_pipeline_improve_spellcheck_and_hashtags(monkeypatch):
     monkeypatch.setattr(qp, "auto_correct", AsyncMock(side_effect=lambda t: "sc:" + t))
-    monkeypatch.setattr(
-        plain_english, "run_nlp_check_and_fix",
-        AsyncMock(return_value=([], "nlp fixed", SimpleNamespace(to_dict=lambda: {"ok": 1}))))
+    monkeypatch.setattr(plain_english, "run_nlp_check_and_fix", AsyncMock(return_value=([], "nlp fixed", SimpleNamespace(to_dict=lambda: {"ok": 1}))))
     monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(return_value=["BadTok"]))
-    monkeypatch.setattr(
-        seo_service, "analyze_seo",
-        AsyncMock(return_value={"score": {"overall": 50, "recommendations": ["do better"]}}))
+    monkeypatch.setattr(seo_service, "analyze_seo", AsyncMock(return_value={"score": {"overall": 50, "recommendations": ["do better"]}}))
     monkeypatch.setattr(plain_english, "sofia_nlp_score", lambda t: (77, ["i"]))
-    monkeypatch.setattr(
-        inference, "call_inference",
-        AsyncMock(return_value={"content": "x" * 500, "hashtags": ["#one", " two ", ""]}))
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"content": "x" * 500, "hashtags": ["#one", " two ", ""]}))
 
     r = await qp.apply_quality_pipeline("short", "twitter", run_spellcheck=True, max_iterations=1)
     assert r.content == "sc:" + "x" * 500  # improved content got spellchecked
-    assert r.hashtags == ["one", "two"]    # stripped #, trimmed, empties dropped
+    assert r.hashtags == ["one", "two"]  # stripped #, trimmed, empties dropped
     assert r.improved is True
     assert r.nlp_report == {"ok": 1}
     assert r.sofia_score == 77
@@ -180,14 +167,10 @@ async def test_pipeline_improve_spellcheck_and_hashtags(monkeypatch):
 @pytest.mark.asyncio
 async def test_pipeline_seo_exception_breaks_and_sofia_exception(monkeypatch):
     monkeypatch.setattr(qp, "auto_correct", AsyncMock(side_effect=lambda t: t))
-    monkeypatch.setattr(
-        plain_english, "run_nlp_check_and_fix",
-        AsyncMock(return_value=([], "t", SimpleNamespace(to_dict=lambda: {}))))
+    monkeypatch.setattr(plain_english, "run_nlp_check_and_fix", AsyncMock(return_value=([], "t", SimpleNamespace(to_dict=lambda: {}))))
     monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(return_value=[]))
-    monkeypatch.setattr(seo_service, "analyze_seo",
-                        AsyncMock(side_effect=RuntimeError("seo down")))
-    monkeypatch.setattr(plain_english, "sofia_nlp_score",
-                        lambda t: (_ for _ in ()).throw(RuntimeError("sofia")))
+    monkeypatch.setattr(seo_service, "analyze_seo", AsyncMock(side_effect=RuntimeError("seo down")))
+    monkeypatch.setattr(plain_english, "sofia_nlp_score", lambda t: (_ for _ in ()).throw(RuntimeError("sofia")))
 
     r = await qp.apply_quality_pipeline("text", "linkedin")
     assert r.seo_score == {}
@@ -197,17 +180,11 @@ async def test_pipeline_seo_exception_breaks_and_sofia_exception(monkeypatch):
 @pytest.mark.asyncio
 async def test_pipeline_shorter_improvement_rejected_and_max_iter(monkeypatch):
     monkeypatch.setattr(qp, "auto_correct", AsyncMock(side_effect=lambda t: t))
-    monkeypatch.setattr(
-        plain_english, "run_nlp_check_and_fix",
-        AsyncMock(return_value=([], "original content here", SimpleNamespace(to_dict=lambda: {}))))
+    monkeypatch.setattr(plain_english, "run_nlp_check_and_fix", AsyncMock(return_value=([], "original content here", SimpleNamespace(to_dict=lambda: {}))))
     monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        seo_service, "analyze_seo",
-        AsyncMock(return_value={"score": {"overall": 10, "recommendations": []}}))
+    monkeypatch.setattr(seo_service, "analyze_seo", AsyncMock(return_value={"score": {"overall": 10, "recommendations": []}}))
     monkeypatch.setattr(plain_english, "sofia_nlp_score", lambda t: (0, []))
-    monkeypatch.setattr(
-        inference, "call_inference",
-        AsyncMock(return_value={"content": "tiny", "hashtags": []}))
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"content": "tiny", "hashtags": []}))
 
     r = await qp.apply_quality_pipeline("c", "linkedin", max_iterations=1)
     assert r.content == "original content here"  # shorter improvement rejected
@@ -218,19 +195,14 @@ async def test_pipeline_shorter_improvement_rejected_and_max_iter(monkeypatch):
 @pytest.mark.asyncio
 async def test_pipeline_cloudflare_model_and_no_recs_default(monkeypatch):
     monkeypatch.setattr(qp, "auto_correct", AsyncMock(side_effect=lambda t: t))
-    monkeypatch.setattr(
-        plain_english, "run_nlp_check_and_fix",
-        AsyncMock(return_value=([], "c", SimpleNamespace(to_dict=lambda: {}))))
+    monkeypatch.setattr(plain_english, "run_nlp_check_and_fix", AsyncMock(return_value=([], "c", SimpleNamespace(to_dict=lambda: {}))))
     monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(return_value=["tok"]))
-    monkeypatch.setattr(
-        seo_service, "analyze_seo",
-        AsyncMock(return_value={"score": {"overall": 10, "recommendations": []}}))
+    monkeypatch.setattr(seo_service, "analyze_seo", AsyncMock(return_value={"score": {"overall": 10, "recommendations": []}}))
     monkeypatch.setattr(plain_english, "sofia_nlp_score", lambda t: (0, []))
     improve = AsyncMock(return_value={"content": "z" * 600, "hashtags": []})
     monkeypatch.setattr(inference, "call_inference", improve)
 
-    r = await qp.apply_quality_pipeline(
-        "c", "linkedin", provider_name="cloudflare", max_iterations=0)
+    r = await qp.apply_quality_pipeline("c", "linkedin", provider_name="cloudflare", max_iterations=0)
     # max_iterations=0 -> break on iteration 0 before improve... but gibberish
     # forces the check; iteration >= max -> break, improve never called
     assert r.gibberish_tokens == ["tok"]
@@ -245,8 +217,8 @@ async def test_with_quality_dict_result(monkeypatch):
 
     async def fake_pipeline(**kw):
         seen.update(kw)
-        return qp.QualityResult(content="better", hashtags=["h"], improved=True,
-                                seo_score={"overall": 95}, nlp_report={"r": 1})
+        return qp.QualityResult(content="better", hashtags=["h"], improved=True, seo_score={"overall": 95}, nlp_report={"r": 1})
+
     monkeypatch.setattr(qp, "apply_quality_pipeline", fake_pipeline)
 
     @qp.with_quality()
@@ -265,8 +237,8 @@ async def test_with_quality_dict_result(monkeypatch):
 @pytest.mark.asyncio
 async def test_with_quality_pydantic_result_and_platform_fallback(monkeypatch):
     async def fake_pipeline(**kw):
-        return qp.QualityResult(content="q", hashtags=["x"],
-                                seo_score={}, nlp_report={})
+        return qp.QualityResult(content="q", hashtags=["x"], seo_score={}, nlp_report={})
+
     monkeypatch.setattr(qp, "apply_quality_pipeline", fake_pipeline)
 
     class _Resp:
@@ -275,8 +247,7 @@ async def test_with_quality_pydantic_result_and_platform_fallback(monkeypatch):
             self.hashtags = []
 
         def model_dump(self):
-            return {"content": self.content, "hashtags": self.hashtags,
-                    "platform": ""}
+            return {"content": self.content, "hashtags": self.hashtags, "platform": ""}
 
     @qp.with_quality()
     async def endpoint(req):
@@ -288,9 +259,11 @@ async def test_with_quality_pydantic_result_and_platform_fallback(monkeypatch):
 
     # no platform anywhere -> default "linkedin"
     captured = {}
+
     async def capture(**kw):
         captured.update(kw)
         return qp.QualityResult(content="q", hashtags=[])
+
     monkeypatch.setattr(qp, "apply_quality_pipeline", capture)
 
     @qp.with_quality()
@@ -319,17 +292,11 @@ async def test_with_quality_early_returns():
 @pytest.mark.asyncio
 async def test_pipeline_improve_spellcheck_exception(monkeypatch):
     monkeypatch.setattr(qp, "auto_correct", AsyncMock(side_effect=RuntimeError("down")))
-    monkeypatch.setattr(
-        plain_english, "run_nlp_check_and_fix",
-        AsyncMock(return_value=([], "c", SimpleNamespace(to_dict=lambda: {}))))
+    monkeypatch.setattr(plain_english, "run_nlp_check_and_fix", AsyncMock(return_value=([], "c", SimpleNamespace(to_dict=lambda: {}))))
     monkeypatch.setattr(qp, "detect_gibberish", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        seo_service, "analyze_seo",
-        AsyncMock(return_value={"score": {"overall": 10, "recommendations": []}}))
+    monkeypatch.setattr(seo_service, "analyze_seo", AsyncMock(return_value={"score": {"overall": 10, "recommendations": []}}))
     monkeypatch.setattr(plain_english, "sofia_nlp_score", lambda t: (0, []))
-    monkeypatch.setattr(
-        inference, "call_inference",
-        AsyncMock(return_value={"content": "y" * 500, "hashtags": []}))
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"content": "y" * 500, "hashtags": []}))
 
     r = await qp.apply_quality_pipeline("c", "linkedin", max_iterations=1)
     assert r.content == "y" * 500  # improved content applied despite spellcheck error
@@ -338,8 +305,8 @@ async def test_pipeline_improve_spellcheck_exception(monkeypatch):
 @pytest.mark.asyncio
 async def test_with_quality_setattr_meta_fields(monkeypatch):
     async def fake_pipeline(**kw):
-        return qp.QualityResult(content="q", hashtags=["x"], improved=True,
-                                seo_score={"overall": 90}, nlp_report={"r": 2})
+        return qp.QualityResult(content="q", hashtags=["x"], improved=True, seo_score={"overall": 90}, nlp_report={"r": 2})
+
     monkeypatch.setattr(qp, "apply_quality_pipeline", fake_pipeline)
 
     class _Resp:
@@ -404,9 +371,7 @@ async def test_gate_passes_empty_content(monkeypatch):
 @pytest.mark.asyncio
 async def test_gate_passes_at_or_above_min_score(monkeypatch):
     _gate_patches(monkeypatch, overall=80)
-    result = await qp.apply_publish_gate(
-        content="raw", platform="linkedin", min_score=80
-    )
+    result = await qp.apply_publish_gate(content="raw", platform="linkedin", min_score=80)
     assert result.passed is True
     assert result.overall == 80
     assert result.content == "fixed copy"  # improved copy is what ships
@@ -415,9 +380,7 @@ async def test_gate_passes_at_or_above_min_score(monkeypatch):
 @pytest.mark.asyncio
 async def test_gate_blocks_below_min_score(monkeypatch):
     _gate_patches(monkeypatch, overall=62)
-    result = await qp.apply_publish_gate(
-        content="raw", platform="linkedin", min_score=80
-    )
+    result = await qp.apply_publish_gate(content="raw", platform="linkedin", min_score=80)
     assert result.passed is False
     assert "62/100" in result.reason
     assert "80" in result.reason
@@ -427,9 +390,7 @@ async def test_gate_blocks_below_min_score(monkeypatch):
 async def test_gate_blocks_on_residual_gibberish(monkeypatch):
     """Score can be fine yet gibberish remains — still must not publish."""
     _gate_patches(monkeypatch, overall=95, gibberish=["GGr", "clientsget"])
-    result = await qp.apply_publish_gate(
-        content="raw", platform="linkedin", min_score=80
-    )
+    result = await qp.apply_publish_gate(content="raw", platform="linkedin", min_score=80)
     assert result.passed is False
     assert "GGr" in result.reason
 
@@ -443,9 +404,7 @@ async def test_gate_fails_open_on_pipeline_error(monkeypatch):
         "apply_quality_pipeline",
         AsyncMock(side_effect=RuntimeError("inference down")),
     )
-    result = await qp.apply_publish_gate(
-        content="raw", platform="linkedin", min_score=80
-    )
+    result = await qp.apply_publish_gate(content="raw", platform="linkedin", min_score=80)
     assert result.passed is True
     assert result.content == "raw"
     assert result.reason.startswith("gate_error:")

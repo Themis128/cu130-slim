@@ -74,9 +74,7 @@ async def _feed_team(db: AsyncSession) -> Team | None:
                 status_code=500,
                 detail="INTRANET_FEED_TEAM_ID is not a valid UUID",
             ) from None
-        return (
-            await db.execute(select(Team).where(Team.id == team_id))
-        ).scalar_one_or_none()
+        return (await db.execute(select(Team).where(Team.id == team_id))).scalar_one_or_none()
 
     # Populated team wins — empty CI/test teams have no connected accounts.
     rows = (
@@ -90,18 +88,14 @@ async def _feed_team(db: AsyncSession) -> Team | None:
     ).all()
     if not rows:
         return None
-    return (
-        await db.execute(select(Team).where(Team.id == rows[0][0]))
-    ).scalar_one_or_none()
+    return (await db.execute(select(Team).where(Team.id == rows[0][0]))).scalar_one_or_none()
 
 
 def _snippet(text: str | None, limit: int = 120) -> str:
     return " ".join((text or "").split())[:limit]
 
 
-async def _media_image_map(
-    db: AsyncSession, posts: list[Post]
-) -> dict[uuid.UUID, str]:
+async def _media_image_map(db: AsyncSession, posts: list[Post]) -> dict[uuid.UUID, str]:
     """First media asset's public_url per post — single batch query."""
     first_ids = [p.media_ids[0] for p in posts if p.media_ids]
     if not first_ids:
@@ -225,10 +219,7 @@ async def feed_digest(
     stamp = report.generated_at.isoformat()
     items = [
         FeedItem(
-            title=(
-                f"Daily digest — {o.get('published_posts', 0)} published · "
-                f"{o.get('failed_posts', 0)} need attention"
-            ),
+            title=(f"Daily digest — {o.get('published_posts', 0)} published · {o.get('failed_posts', 0)} need attention"),
             excerpt=(
                 f"Posts {o.get('total_posts', 0)} total · "
                 f"{o.get('scheduled_posts', 0)} scheduled · "
@@ -246,10 +237,7 @@ async def feed_digest(
             FeedItem(
                 title=_snippet(p.get("snippet"), 80) or f"post {p.get('post_id')}",
                 url=p.get("url") or "",
-                excerpt=(
-                    f"top post · engagement {p.get('engagement', 0)} · "
-                    f"impressions {p.get('impressions', 0)}"
-                ),
+                excerpt=(f"top post · engagement {p.get('engagement', 0)} · impressions {p.get('impressions', 0)}"),
                 date=stamp,
                 author=report.team_name,
             )
@@ -282,42 +270,32 @@ async def feed_status(
     team = await _feed_team(db)
     stamp = datetime.now(UTC).isoformat()
     if team is None:
-        return FeedResponse(
-            source="SocialAuto status", generated_at=stamp, items=[]
-        )
+        return FeedResponse(source="SocialAuto status", generated_at=stamp, items=[])
 
     queue_counts = (
-        await db.execute(
-            select(PublishQueue.status, func.count())
-            .join(PublishQueue.post)
-            .where(Post.team_id == team.id)
-            .group_by(PublishQueue.status)
-        )
+        await db.execute(select(PublishQueue.status, func.count()).join(PublishQueue.post).where(Post.team_id == team.id).group_by(PublishQueue.status))
     ).all()
-    queue = {
-        str(s.value if hasattr(s, "value") else s): c for s, c in queue_counts
-    }
+    queue = {str(s.value if hasattr(s, "value") else s): c for s, c in queue_counts}
 
     attention = (
-        await db.execute(
-            select(SocialAccount)
-            .where(
-                SocialAccount.team_id == team.id,
-                SocialAccount.status != "active",
+        (
+            await db.execute(
+                select(SocialAccount)
+                .where(
+                    SocialAccount.team_id == team.id,
+                    SocialAccount.status != "active",
+                )
+                .order_by(SocialAccount.platform)
             )
-            .order_by(SocialAccount.platform)
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     items = [
         FeedItem(
-            title=(
-                f"Publish queue — {queue.get('pending', 0)} pending · "
-                f"{queue.get('processing', 0)} processing · "
-                f"{queue.get('failed', 0)} failed"
-            ),
-            excerpt=" · ".join(f"{k} {v}" for k, v in sorted(queue.items()))
-            or "queue empty",
+            title=(f"Publish queue — {queue.get('pending', 0)} pending · {queue.get('processing', 0)} processing · {queue.get('failed', 0)} failed"),
+            excerpt=" · ".join(f"{k} {v}" for k, v in sorted(queue.items())) or "queue empty",
             date=stamp,
             author="publishing",
         )
@@ -341,9 +319,7 @@ async def feed_status(
                 author="accounts",
             )
         )
-    return FeedResponse(
-        source="SocialAuto status", generated_at=stamp, items=items
-    )
+    return FeedResponse(source="SocialAuto status", generated_at=stamp, items=items)
 
 
 @router.get("/leads", response_model=FeedResponse)
@@ -359,20 +335,11 @@ async def feed_leads(
     team = await _feed_team(db)
     stamp = datetime.now(UTC).isoformat()
     if team is None:
-        return FeedResponse(
-            source="SocialAuto leads", generated_at=stamp, items=[]
-        )
+        return FeedResponse(source="SocialAuto leads", generated_at=stamp, items=[])
 
     from app.models.lead import Lead
 
-    leads = (
-        await db.execute(
-            select(Lead)
-            .where(Lead.team_id == team.id)
-            .order_by(Lead.created_at.desc())
-            .limit(limit)
-        )
-    ).scalars().all()
+    leads = (await db.execute(select(Lead).where(Lead.team_id == team.id).order_by(Lead.created_at.desc()).limit(limit))).scalars().all()
 
     items = [
         FeedItem(
@@ -391,9 +358,7 @@ async def feed_leads(
         )
         for lead in leads
     ]
-    return FeedResponse(
-        source="SocialAuto leads", generated_at=stamp, items=items
-    )
+    return FeedResponse(source="SocialAuto leads", generated_at=stamp, items=items)
 
 
 @router.get("/clients", response_model=FeedResponse)
@@ -426,22 +391,26 @@ async def feed_clients(
     try:
         for c in (await espocrm_client.list_contacts())[:limit]:
             name = " ".join(p for p in (c.get("firstName"), c.get("lastName")) if p) or c.get("accountName") or "Contact"
-            items.append(FeedItem(
-                title=f"{name} — {c.get('accountName') or 'contact'}",
-                url=f"{crm_ui}/#Contact/view/{c.get('id')}",
-                excerpt=" · ".join(p for p in (c.get("title"), "CRM Contact") if p),
-                date=stamp,
-                author="EspoCRM",
-            ))
+            items.append(
+                FeedItem(
+                    title=f"{name} — {c.get('accountName') or 'contact'}",
+                    url=f"{crm_ui}/#Contact/view/{c.get('id')}",
+                    excerpt=" · ".join(p for p in (c.get("title"), "CRM Contact") if p),
+                    date=stamp,
+                    author="EspoCRM",
+                )
+            )
         for crm_lead in (await espocrm_client.list_leads_for_campaign())[:limit]:
             name = " ".join(p for p in (crm_lead.get("firstName"), crm_lead.get("lastName")) if p) or "Lead"
-            items.append(FeedItem(
-                title=f"{name} — {crm_lead.get('status') or 'lead'}",
-                url=f"{crm_ui}/#Lead/view/{crm_lead.get('id')}",
-                excerpt=" · ".join(p for p in (f"source: {crm_lead.get('source')}" if crm_lead.get("source") else "", "CRM Lead") if p),
-                date=str(crm_lead.get("createdAt") or stamp),
-                author="EspoCRM",
-            ))
+            items.append(
+                FeedItem(
+                    title=f"{name} — {crm_lead.get('status') or 'lead'}",
+                    url=f"{crm_ui}/#Lead/view/{crm_lead.get('id')}",
+                    excerpt=" · ".join(p for p in (f"source: {crm_lead.get('source')}" if crm_lead.get("source") else "", "CRM Lead") if p),
+                    date=str(crm_lead.get("createdAt") or stamp),
+                    author="EspoCRM",
+                )
+            )
     except Exception as exc:  # noqa: BLE001 — feed must not 500 the widget
         items.append(FeedItem(title="CRM temporarily unreachable", excerpt=type(exc).__name__, date=stamp))
     return FeedResponse(source="EspoCRM clients", generated_at=stamp, items=items)
@@ -465,38 +434,25 @@ async def feed_campaigns(
     from app.models.email_campaign import EmailCampaign, EmailRecipient, SurveyResponse
 
     campaigns = (
-        await db.execute(
-            select(EmailCampaign)
-            .where(EmailCampaign.team_id == team.id)
-            .order_by(EmailCampaign.created_at.desc())
-            .limit(limit)
-        )
-    ).scalars().all()
+        (await db.execute(select(EmailCampaign).where(EmailCampaign.team_id == team.id).order_by(EmailCampaign.created_at.desc()).limit(limit))).scalars().all()
+    )
     items: list[FeedItem] = []
     for c in campaigns:
         counts = dict(
-            (await db.execute(
-                select(EmailRecipient.status, func.count())
-                .where(EmailRecipient.campaign_id == c.id)
-                .group_by(EmailRecipient.status)
-            )).all()
+            (await db.execute(select(EmailRecipient.status, func.count()).where(EmailRecipient.campaign_id == c.id).group_by(EmailRecipient.status))).all()
         )
-        responses = (
-            await db.execute(
-                select(func.count())
-                .select_from(SurveyResponse)
-                .where(SurveyResponse.campaign_id == c.id)
-            )
-        ).scalar() or 0
+        responses = (await db.execute(select(func.count()).select_from(SurveyResponse).where(SurveyResponse.campaign_id == c.id))).scalar() or 0
         stats = " · ".join(f"{k}:{v}" for k, v in sorted((str(k), v) for k, v in counts.items()))
         if c.kind.value == "survey":
             stats = (stats + " · " if stats else "") + f"responses:{responses}"
-        items.append(FeedItem(
-            title=f"{c.name} — {c.status.value}",
-            excerpt=stats or "no recipients yet",
-            date=c.created_at.isoformat(),
-            author=c.kind.value,
-        ))
+        items.append(
+            FeedItem(
+                title=f"{c.name} — {c.status.value}",
+                excerpt=stats or "no recipients yet",
+                date=c.created_at.isoformat(),
+                author=c.kind.value,
+            )
+        )
     if not items:
         items.append(FeedItem(title="No campaigns yet", excerpt="create one via /api/v1/email-campaigns", date=stamp))
     return FeedResponse(source="Email campaigns", generated_at=stamp, items=items)

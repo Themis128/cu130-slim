@@ -72,9 +72,15 @@ async def test_track_inference_happy(sess):
     tid = uuid.uuid4()
     uid = uuid.uuid4()
     await ut.track_inference(
-        "cloudflare", "ai/llama3.2", "hello world",
-        team_id=tid, user_id=uid, endpoint="/gen",
-        latency_ms=12, success=True, estimated_cost=0.001,
+        "cloudflare",
+        "ai/llama3.2",
+        "hello world",
+        team_id=tid,
+        user_id=uid,
+        endpoint="/gen",
+        latency_ms=12,
+        success=True,
+        estimated_cost=0.001,
         meta_data={"k": uid, "other": 1},
     )
     assert len(sess.added) == 1
@@ -91,6 +97,7 @@ async def test_track_inference_swallows_db_errors(monkeypatch):
     class _Bad:
         async def __aenter__(self):
             raise RuntimeError("db down")
+
         async def __aexit__(self, *a):
             return False
 
@@ -103,8 +110,7 @@ async def test_track_inference_swallows_db_errors(monkeypatch):
 async def test_track_inference_quota_check_triggered(sess, monkeypatch):
     chk = AsyncMock()
     monkeypatch.setattr(ut, "_check_daily_quota", chk)
-    await ut.track_inference("cloudflare", "m", "p",
-                             team_id=uuid.uuid4(), actual_neurons=10)
+    await ut.track_inference("cloudflare", "m", "p", team_id=uuid.uuid4(), actual_neurons=10)
     chk.assert_awaited_once()
     chk.reset_mock()
     # No neurons or no team → no quota check
@@ -134,6 +140,7 @@ async def test_daily_usage_none_and_error(sess, monkeypatch):
     class _Bad:
         async def __aenter__(self):
             raise RuntimeError("x")
+
         async def __aexit__(self, *a):
             return False
 
@@ -166,6 +173,7 @@ async def test_quota_no_budget(sess):
 @pytest.mark.asyncio
 async def test_quota_alert_over_threshold(sess, caplog):
     import logging
+
     budget = MagicMock()
     budget.scalar.return_value = 100
     total = MagicMock()
@@ -179,6 +187,7 @@ async def test_quota_alert_over_threshold(sess, caplog):
 @pytest.mark.asyncio
 async def test_quota_under_threshold_no_alert(sess, caplog):
     import logging
+
     budget = MagicMock()
     budget.scalar.return_value = 100
     total = MagicMock()
@@ -194,7 +203,9 @@ async def test_quota_db_error_swallowed(monkeypatch):
     class _Bad:
         async def __aenter__(self):
             raise RuntimeError("db")
+
         async def __aexit__(self, *a):
             return False
+
     monkeypatch.setattr(ut, "_usage_session", lambda: _Bad())
     await ut._check_daily_quota(uuid.uuid4(), "cloudflare", 10)  # no raise

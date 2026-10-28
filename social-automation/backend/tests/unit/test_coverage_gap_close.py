@@ -1,4 +1,5 @@
 """Coverage close-out: intravox digest push, nurture sweep wrapper, publish retry sweep."""
+
 import os
 from unittest.mock import AsyncMock, MagicMock
 
@@ -37,6 +38,7 @@ class _C:
 @pytest.mark.asyncio
 async def test_intravox_digest_push_happy(monkeypatch):
     from app.worker.tasks import skool_watch as S
+
     monkeypatch.setenv("NEXTCLOUD_DAV_URL", "https://nc.example/remote.php/dav")
     monkeypatch.setenv("NEXTCLOUD_USERNAME", "u")
     monkeypatch.setenv("NEXTCLOUD_APP_PASSWORD", "p")
@@ -47,6 +49,7 @@ async def test_intravox_digest_push_happy(monkeypatch):
 @pytest.mark.asyncio
 async def test_intravox_digest_push_no_creds_returns():
     from app.worker.tasks import skool_watch as S
+
     for k in ("NEXTCLOUD_BASE_URL", "NEXTCLOUD_DAV_URL", "NEXTCLOUD_USERNAME", "NEXTCLOUD_APP_PASSWORD"):
         os.environ.pop(k, None)
     await S._push_intravox_digest([{"t": "x", "h": "/p"}])  # early return, no call
@@ -65,6 +68,7 @@ class _Sess:
 
 def test_nurture_sweep_skips_without_team(monkeypatch):
     from app.worker.tasks import nurture
+
     s = MagicMock()
     s.CLOUDLESS_WEB_ANALYTICS_TEAM_ID = ""
     monkeypatch.setattr("app.core.config.get_settings", lambda: s)
@@ -79,11 +83,9 @@ async def test_publish_retry_resets_and_skips(monkeypatch):
     from app.worker.tasks import publish_retry as P
 
     now = datetime.now(UTC)
-    non_retry = MagicMock(error_message="account not connected",
-                          updated_at=now - timedelta(hours=2), status="failed")
+    non_retry = MagicMock(error_message="account not connected", updated_at=now - timedelta(hours=2), status="failed")
     fresh = MagicMock(error_message="timeout", updated_at=now, status="failed")
-    stale = MagicMock(error_message="timeout", updated_at=now - timedelta(hours=2),
-                      status="failed", id="t1", target_id="t1", meta_data={})
+    stale = MagicMock(error_message="timeout", updated_at=now - timedelta(hours=2), status="failed", id="t1", target_id="t1", meta_data={})
 
     res = MagicMock()
     res.scalars.return_value.all.return_value = [non_retry, fresh, stale]

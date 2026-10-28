@@ -38,9 +38,7 @@ async def test_prior_window_readings_do_not_inflate_current_growth():
         _execute_result([]),  # audience events
     ]
 
-    growth = await _growth_stats(
-        db, "team-1", since, prev_since=prev_since, days=30
-    )
+    growth = await _growth_stats(db, "team-1", since, prev_since=prev_since, days=30)
 
     (row,) = growth["followers"]
     assert row["start"] == 120
@@ -66,9 +64,7 @@ async def test_account_without_current_window_readings_is_skipped():
         _execute_result([]),
     ]
 
-    growth = await _growth_stats(
-        db, "team-1", since, prev_since=prev_since, days=30
-    )
+    growth = await _growth_stats(db, "team-1", since, prev_since=prev_since, days=30)
 
     # Helper returns {} when there is nothing to report.
     assert growth.get("followers", []) == []

@@ -18,9 +18,7 @@ import pytest
 # Host runs hit the mapped port 8083; inside the social-api container the app
 # listens on 8000 directly.
 _in_container = Path("/.dockerenv").exists()
-API_URL = os.environ.get(
-    "API_URL", "http://localhost:8000" if _in_container else "http://localhost:8083"
-).rstrip("/")
+API_URL = os.environ.get("API_URL", "http://localhost:8000" if _in_container else "http://localhost:8083").rstrip("/")
 
 
 def _find_repo_root() -> Path | None:
@@ -112,10 +110,7 @@ class TestDocsCoverRealRoutes:
             norm = _normalize(doc_path)
             # docs often give prefixes (/api/v1/auth/oauth/) — any schema path
             # starting with the normalized prefix counts as covered.
-            if any(
-                sp == norm or sp.startswith(norm + "/") or norm.startswith(sp + "/")
-                for sp in schema_paths
-            ):
+            if any(sp == norm or sp.startswith(norm + "/") or norm.startswith(sp + "/") for sp in schema_paths):
                 continue
             # Not in schema: may be hidden (include_in_schema=False like
             # /api/v1/health) or a platform-param route. Live-probe — anything
@@ -136,10 +131,7 @@ class TestDocsCoverRealRoutes:
         if not inv.exists():
             pytest.fail("docs/api-surface-inventory.md missing — regenerate it")
         listed = set(re.findall(r"`(/api/v1/[^`\s]+|/health)`", inv.read_text()))
-        missing = [
-            p for p in _openapi_paths()
-            if p not in listed
-        ]
+        missing = [p for p in _openapi_paths() if p not in listed]
         assert not missing, f"routes missing from inventory: {missing}"
 
 
@@ -222,6 +214,7 @@ DUMMY_ID = "00000000-0000-0000-0000-000000000000"
 
 def _fill_params(path: str, ids: dict[str, str]) -> str:
     """Substitute {param} path params with real IDs where we have them."""
+
     def repl(m: re.Match) -> str:
         name = m.group(1)
         if name == "platform":
@@ -233,6 +226,7 @@ def _fill_params(path: str, ids: dict[str, str]) -> str:
             if name.endswith(k.removesuffix("_id")) or k.endswith(name):
                 return v
         return DUMMY_ID
+
     return re.sub(r"\{([^}]+)\}", repl, path)
 
 
@@ -256,8 +250,11 @@ def _seed_ids(token: str | None) -> dict[str, str]:
             if r.status_code != 200:
                 continue
             data = r.json()
-            items = data if isinstance(data, list) else data.get(
-                "items") or data.get("accounts") or data.get("posts") or data.get("assets") or data.get("teams") or data.get("results") or []
+            items = (
+                data
+                if isinstance(data, list)
+                else data.get("items") or data.get("accounts") or data.get("posts") or data.get("assets") or data.get("teams") or data.get("results") or []
+            )
             if items:
                 first = items[0]
                 ids[key] = str(first.get("id") or first.get("account_id") or first.get("team_id") or DUMMY_ID)
@@ -283,10 +280,7 @@ def admin_token():
 @pytest.fixture(scope="module")
 def get_routes():
     paths = _openapi_paths()
-    return [
-        p for p, ops in paths.items()
-        if "get" in ops and not SWEEP_SKIP.search(p)
-    ]
+    return [p for p, ops in paths.items() if "get" in ops and not SWEEP_SKIP.search(p)]
 
 
 class TestFullGetSweep:
@@ -347,9 +341,7 @@ class TestPostFlows:
             json={"forged": True},
             timeout=15,
         )
-        assert r.status_code not in (200, 201), (
-            f"{path} accepted an unsigned webhook → {r.status_code}"
-        )
+        assert r.status_code not in (200, 201), f"{path} accepted an unsigned webhook → {r.status_code}"
         assert r.status_code < 500, f"{path} → {r.status_code}: {r.text[:120]}"
 
     def test_login_rejects_bad_credentials(self):

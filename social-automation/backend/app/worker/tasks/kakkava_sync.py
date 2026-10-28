@@ -39,17 +39,19 @@ async def _sync_all_teams() -> dict:
             results[str(team.id)] = stats
             # Observable artifact — every run, even a quiet one, so the
             # workforce audit can verify this worker clocked in.
-            db.add(AuditLog(
-                team_id=team.id,
-                action="kakkava-sync",
-                resource_type="sweep",
-                detail=(
-                    f"files={stats.get('files', 0)} unchanged={stats.get('unchanged', 0)} "
-                    f"added={stats.get('chunks_added', 0)} removed={stats.get('chunks_removed', 0)} "
-                    f"errors={stats.get('errors', 0)}"
-                ),
-                meta=stats if isinstance(stats, dict) else {},
-            ))
+            db.add(
+                AuditLog(
+                    team_id=team.id,
+                    action="kakkava-sync",
+                    resource_type="sweep",
+                    detail=(
+                        f"files={stats.get('files', 0)} unchanged={stats.get('unchanged', 0)} "
+                        f"added={stats.get('chunks_added', 0)} removed={stats.get('chunks_removed', 0)} "
+                        f"errors={stats.get('errors', 0)}"
+                    ),
+                    meta=stats if isinstance(stats, dict) else {},
+                )
+            )
         await db.commit()
     return results
 

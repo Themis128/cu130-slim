@@ -1,4 +1,5 @@
 """Website analytics forwarding: ingest from owned sites and push to GA4, Plausible, Meta."""
+
 from __future__ import annotations
 
 import hashlib
@@ -154,9 +155,7 @@ async def forward_to_meta_capi(
         "data": [
             {
                 "event_name": meta_name,
-                "event_time": int(event.occurred_at.timestamp()) if event.occurred_at else int(
-                    datetime.now(UTC).timestamp()
-                ),
+                "event_time": int(event.occurred_at.timestamp()) if event.occurred_at else int(datetime.now(UTC).timestamp()),
                 "event_id": str(event.id),
                 "event_source_url": f"https://{event.domain}{event.path or '/'}",
                 "action_source": "website",

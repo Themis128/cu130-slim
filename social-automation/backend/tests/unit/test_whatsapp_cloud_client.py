@@ -158,11 +158,15 @@ async def test_request_verification_code_surfaces_136024_with_rate_limit():
 
 
 def test_parse_rate_limit_bad_and_missing_values():
-    r = _FakeResponse(200, {}, headers={
-        "Retry-After": "not-a-number",
-        "X-App-Usage": '{"call_count":5}',
-        "X-Business-Use-Case-Usage": "{bad json",
-    })
+    r = _FakeResponse(
+        200,
+        {},
+        headers={
+            "Retry-After": "not-a-number",
+            "X-App-Usage": '{"call_count":5}',
+            "X-Business-Use-Case-Usage": "{bad json",
+        },
+    )
     info = wac._parse_rate_limit(r)
     assert info.retry_after_s is None
     assert info.x_app_usage == {"call_count": 5}
@@ -182,13 +186,24 @@ def test_extract_meta_error_variants():
     # error not a dict → None
     assert wac._extract_meta_error(_FakeResponse(500, {"error": "x"})) is None
     # all typed fields extracted; wrong types skipped
-    r = _FakeResponse(400, {"error": {
-        "message": "m", "type": "t", "code": 1, "error_subcode": 2,
-        "fbtrace_id": "f", "is_transient": True,
-        "error_user_title": "ut", "error_user_msg": "um",
-        "error_data": {"details": "d"},
-        "code_bad": "ignored", "is_transient_bad": "no",
-    }})
+    r = _FakeResponse(
+        400,
+        {
+            "error": {
+                "message": "m",
+                "type": "t",
+                "code": 1,
+                "error_subcode": 2,
+                "fbtrace_id": "f",
+                "is_transient": True,
+                "error_user_title": "ut",
+                "error_user_msg": "um",
+                "error_data": {"details": "d"},
+                "code_bad": "ignored",
+                "is_transient_bad": "no",
+            }
+        },
+    )
     err = wac._extract_meta_error(r)
     assert err["message"] == "m" and err["code"] == 1
     assert err["error_data"] == {"details": "d"}
@@ -200,13 +215,9 @@ def test_extract_meta_error_empty_dict_is_none():
 
 def test_human_error_message_precedence():
     # error_data.details wins
-    assert wac._human_error_message(
-        {"error_data": {"details": " deep details "}, "message": "shallow"},
-        "fb") == "deep details"
+    assert wac._human_error_message({"error_data": {"details": " deep details "}, "message": "shallow"}, "fb") == "deep details"
     # user_title + user_msg second
-    assert wac._human_error_message(
-        {"error_user_title": "T", "error_user_msg": "M", "message": "m"},
-        "fb") == "T: M"
+    assert wac._human_error_message({"error_user_title": "T", "error_user_msg": "M", "message": "m"}, "fb") == "T: M"
     # plain message third
     assert wac._human_error_message({"message": " just msg "}, "fb") == "just msg"
     # empty dict / None → fallback
@@ -219,9 +230,7 @@ def test_human_error_message_precedence():
 
 def _err(code):
     e = {"message": "m", "code": code} if code is not None else None
-    return wac._classify_error(
-        status_code=400, url="u", response_text="t", error=e,
-        rate_limit=wac.RateLimitInfo(None, None, None, {}))
+    return wac._classify_error(status_code=400, url="u", response_text="t", error=e, rate_limit=wac.RateLimitInfo(None, None, None, {}))
 
 
 def test_classify_throttling_codes():
@@ -246,9 +255,12 @@ def test_error_properties_on_empty_error():
     assert e.code is None and e.error_subcode is None
     assert e.fbtrace_id == "" and e.is_transient is None
     e2 = wac.WhatsAppApiError(
-        status_code=500, url="u", response_text="t",
+        status_code=500,
+        url="u",
+        response_text="t",
         error={"error_subcode": 9, "is_transient": True, "message": "x"},
-        rate_limit=wac.RateLimitInfo(None, None, None, {}))
+        rate_limit=wac.RateLimitInfo(None, None, None, {}),
+    )
     assert e2.error_subcode == 9 and e2.is_transient is True
 
 
@@ -265,8 +277,7 @@ def test_map_upstream_status():
 @pytest.mark.asyncio
 async def test_request_success_and_network_error():
     fake = _FakeAsyncClient(_FakeResponse(200, {"ok": 1}))
-    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient",
-               return_value=fake):
+    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient", return_value=fake):
         client = wac.WhatsAppCloudClient(access_token="t")
         assert await client.request("GET", "me") == {"ok": 1}
 
@@ -287,8 +298,7 @@ class _NetFailClient:
 
 @pytest.mark.asyncio
 async def test_request_network_error_raises():
-    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient",
-               return_value=_NetFailClient()):
+    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient", return_value=_NetFailClient()):
         client = wac.WhatsAppCloudClient(access_token="t")
         with pytest.raises(wac.WhatsAppNetworkError):
             await client.request("GET", "me")
@@ -299,8 +309,7 @@ async def test_request_network_error_raises():
 @pytest.mark.asyncio
 async def test_request_200_but_not_json():
     fake = _FakeAsyncClient(_FakeResponse(200, "not json"))
-    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient",
-               return_value=fake):
+    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient", return_value=fake):
         client = wac.WhatsAppCloudClient(access_token="t")
         with pytest.raises(wac.WhatsAppApiError):
             await client.request("GET", "me")
@@ -308,12 +317,13 @@ async def test_request_200_but_not_json():
 
 @pytest.mark.asyncio
 async def test_get_bytes_success_and_error():
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, b"raw", content=b"raw-bytes"),
-        _FakeResponse(404, {"error": {"message": "x", "code": 190}}),
-    ])
-    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient",
-               return_value=fake):
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, b"raw", content=b"raw-bytes"),
+            _FakeResponse(404, {"error": {"message": "x", "code": 190}}),
+        ]
+    )
+    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient", return_value=fake):
         client = wac.WhatsAppCloudClient(access_token="t")
         assert await client.get_bytes(absolute_url="https://media") == b"raw-bytes"
         with pytest.raises(wac.WhatsAppAuthorizationError):
@@ -323,13 +333,11 @@ async def test_get_bytes_success_and_error():
 @pytest.mark.asyncio
 async def test_request_extra_headers_and_absolute_url():
     fake = _FakeAsyncClient(_FakeResponse(200, {"ok": 1}))
-    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient",
-               return_value=fake):
+    with patch("app.services.whatsapp_cloud_client.httpx.AsyncClient", return_value=fake):
         client = wac.WhatsAppCloudClient(access_token="t", api_version="/v26.0/")
-        await client.request("POST", "p", params={"a": 1}, json_body={"b": 2},
-                             data={"d": 3}, files={"f": 4},
-                             headers={"X-Extra": "yes"},
-                             absolute_url="https://abs.example/x")
+        await client.request(
+            "POST", "p", params={"a": 1}, json_body={"b": 2}, data={"d": 3}, files={"f": 4}, headers={"X-Extra": "yes"}, absolute_url="https://abs.example/x"
+        )
     c = fake.calls[0]
     assert c["url"] == "https://abs.example/x"
     assert c["headers"]["X-Extra"] == "yes"
@@ -355,4 +363,3 @@ def test_validate_wa_phone():
         wac.validate_wa_phone("abc123")
     with pytest.raises(ValueError):
         wac.validate_wa_phone("+" + "9" * 20)
-

@@ -56,12 +56,8 @@ class OrganicCampaignRequest(BaseModel):
     @model_validator(mode="after")
     def _safe_organic_request(self) -> OrganicCampaignRequest:
         if not self.media_ids:
-            raise ValueError(
-                "At least one media asset is required for Meta organic promotion"
-            )
-        if PAID_METADATA_KEYS.intersection(
-            str(key).lower() for key in self.metadata
-        ):
+            raise ValueError("At least one media asset is required for Meta organic promotion")
+        if PAID_METADATA_KEYS.intersection(str(key).lower() for key in self.metadata):
             raise ValueError("Paid promotion fields are not supported by this endpoint")
         return self
 
@@ -83,10 +79,12 @@ async def get_meta_growth_readiness(
 ) -> MetaGrowthReadiness:
     """Report what SocialAuto can do for Meta without paid promotion."""
     result = await db.execute(
-        select(SocialAccount).where(
+        select(SocialAccount)
+        .where(
             SocialAccount.team_id == team_id,
             SocialAccount.platform.in_(META_PLATFORMS),
-        ).order_by(SocialAccount.platform, SocialAccount.created_at.desc())
+        )
+        .order_by(SocialAccount.platform, SocialAccount.created_at.desc())
     )
     accounts = result.scalars().all()
     return MetaGrowthReadiness(
@@ -147,9 +145,7 @@ async def create_organic_campaign(
         SocialAccount.status == "active",
     )
     if request.target_account_ids:
-        account_query = account_query.where(
-            SocialAccount.id.in_(request.target_account_ids)
-        )
+        account_query = account_query.where(SocialAccount.id.in_(request.target_account_ids))
     result = await db.execute(account_query.order_by(SocialAccount.platform))
     accounts = result.scalars().all()
     if not accounts:

@@ -7,6 +7,7 @@ worker — the Cloudflare-side kill-switch, not a notification.
 
 Runs on the default queue every 5min via beat.
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,12 +40,17 @@ async def _rollback() -> bool:
     Only fires inside a container that has wrangler + CF credentials."""
     import asyncio
     import shutil
+
     if not shutil.which("wrangler"):
         logger.warning("wrangler not in this container — rollback is a host op")
         return False
     proc = await asyncio.create_subprocess_exec(
-        "wrangler", "rollback", "--name", "cloudless2",
-        stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        "wrangler",
+        "rollback",
+        "--name",
+        "cloudless2",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
     _, err = await proc.communicate()
     if proc.returncode != 0:
@@ -57,6 +63,7 @@ async def _rollback() -> bool:
 @shared_task
 def run_latency_watchdog() -> dict:
     import asyncio
+
     return asyncio.get_event_loop().run_until_complete(_check()) if not asyncio.get_event_loop().is_running() else asyncio.run(_check())
 
 
@@ -69,8 +76,7 @@ async def _check() -> dict:
         _breach_count = 0
         return {"latency_ms": round(ms, 1), "breach": 0, "rolled_back": False}
     _breach_count += 1
-    logger.warning("edge latency %.0fms > %.0fms SLO (breach %d/%d)",
-                   ms, _SLO_MS, _breach_count, _BREACH_THRESHOLD)
+    logger.warning("edge latency %.0fms > %.0fms SLO (breach %d/%d)", ms, _SLO_MS, _breach_count, _BREACH_THRESHOLD)
     rolled = False
     if _breach_count >= _BREACH_THRESHOLD:
         rolled = await _rollback()

@@ -6,6 +6,7 @@ Business gauges are rebuilt from cheap GROUP BY counts on every scrape —
 prometheus-client Gauges are cleared first so vanished label sets don't
 go stale.
 """
+
 import time
 
 import structlog
@@ -34,12 +35,8 @@ HTTP_LATENCY = Histogram(
 # ── Business vitals (rebuilt per scrape) ─────────────────────────────
 USERS = Gauge("socialauto_users", "Registered users", ["state"])
 TEAMS = Gauge("socialauto_teams", "Teams by plan tier", ["plan_tier"])
-SUBSCRIPTIONS = Gauge(
-    "socialauto_subscriptions", "Teams by subscription status", ["status"]
-)
-SOCIAL_ACCOUNTS = Gauge(
-    "socialauto_social_accounts", "Connected social accounts", ["platform", "status"]
-)
+SUBSCRIPTIONS = Gauge("socialauto_subscriptions", "Teams by subscription status", ["status"])
+SOCIAL_ACCOUNTS = Gauge("socialauto_social_accounts", "Connected social accounts", ["platform", "status"])
 POSTS = Gauge("socialauto_posts", "Posts by status", ["status"])
 QUEUE = Gauge("socialauto_publish_queue", "Publish queue items by status", ["status"])
 QUEUE_PLATFORM = Gauge(
@@ -49,14 +46,12 @@ QUEUE_PLATFORM = Gauge(
 )
 PUBLISHED_7D = Gauge(
     "socialauto_posts_published_7d",
-    "Publish targets actually published in the last 7 days, by platform "
-    "(post_targets.status='published', windowed on published_at)",
+    "Publish targets actually published in the last 7 days, by platform (post_targets.status='published', windowed on published_at)",
     ["platform"],
 )
 FAILURES_7D = Gauge(
     "socialauto_publish_failures_7d",
-    "Publish targets that failed in the last 7 days, by platform "
-    "(post_targets.status='failed', windowed on updated_at)",
+    "Publish targets that failed in the last 7 days, by platform (post_targets.status='failed', windowed on updated_at)",
     ["platform"],
 )
 FOLLOWERS = Gauge(
@@ -71,17 +66,11 @@ TOKEN_EXPIRY = Gauge(
 )
 MEDIA = Gauge("socialauto_media_assets", "Media assets in library")
 BILLING_EVENTS = Gauge("socialauto_billing_events", "Billing webhook events", ["type"])
-BILLING_ERRORS = Gauge(
-    "socialauto_billing_events_errors", "Billing events recorded with an error"
-)
+BILLING_ERRORS = Gauge("socialauto_billing_events_errors", "Billing events recorded with an error")
 AI_CALLS = Gauge("socialauto_ai_calls_24h", "AI calls last 24h", ["provider"])
 AI_ERRORS = Gauge("socialauto_ai_errors_24h", "Failed AI calls last 24h")
-AI_COST = Gauge(
-    "socialauto_ai_estimated_cost_usd_24h", "Estimated AI cost last 24h (USD)", ["provider"]
-)
-AI_NEURONS = Gauge(
-    "socialauto_ai_estimated_neurons_24h", "Estimated Workers-AI neurons last 24h", ["provider"]
-)
+AI_COST = Gauge("socialauto_ai_estimated_cost_usd_24h", "Estimated AI cost last 24h (USD)", ["provider"])
+AI_NEURONS = Gauge("socialauto_ai_estimated_neurons_24h", "Estimated Workers-AI neurons last 24h", ["provider"])
 REFRESH_TS = Gauge(
     "socialauto_business_metrics_timestamp_seconds",
     "Unix time of the last successful business-metric refresh",
@@ -128,11 +117,7 @@ class PrometheusMiddleware:
             # full template path (/api/v1/posts/{id}) via _ENDPOINT_PATHS.
             # Fallback: the matched route's own (leaf) path. Bounded either way.
             route = scope.get("route")
-            path = (
-                _ENDPOINT_PATHS.get(scope.get("endpoint"))
-                or getattr(route, "path", None)
-                or "unmatched"
-            )
+            path = _ENDPOINT_PATHS.get(scope.get("endpoint")) or getattr(route, "path", None) or "unmatched"
             elapsed = time.perf_counter() - start
             HTTP_REQUESTS.labels(method=method, path=path, status=status).inc()
             HTTP_LATENCY.labels(method=method, path=path).observe(elapsed)
@@ -143,75 +128,37 @@ async def refresh_business_metrics() -> None:
     must not break the scrape (Prometheus still gets HTTP/process metrics)."""
     try:
         async with async_session_maker() as db:
-            row = (
-                await db.execute(
-                    text(
-                        "SELECT count(*) AS total, "
-                        "count(*) FILTER (WHERE two_factor_enabled) AS twofa FROM users"
-                    )
-                )
-            ).one()
+            row = (await db.execute(text("SELECT count(*) AS total, count(*) FILTER (WHERE two_factor_enabled) AS twofa FROM users"))).one()
             USERS.labels(state="total").set(row.total)
             USERS.labels(state="two_factor_enabled").set(row.twofa)
 
             TEAMS.clear()
-            for tier, n in (
-                await db.execute(text("SELECT plan_tier, count(*) FROM teams GROUP BY plan_tier"))
-            ).all():
+            for tier, n in (await db.execute(text("SELECT plan_tier, count(*) FROM teams GROUP BY plan_tier"))).all():
                 TEAMS.labels(plan_tier=tier).set(n)
 
             SUBSCRIPTIONS.clear()
-            for status, n in (
-                await db.execute(
-                    text("SELECT subscription_status, count(*) FROM teams GROUP BY subscription_status")
-                )
-            ).all():
+            for status, n in (await db.execute(text("SELECT subscription_status, count(*) FROM teams GROUP BY subscription_status"))).all():
                 SUBSCRIPTIONS.labels(status=status).set(n)
 
             SOCIAL_ACCOUNTS.clear()
-            for platform, status, n in (
-                await db.execute(
-                    text(
-                        "SELECT platform, status, count(*) FROM social_accounts "
-                        "GROUP BY platform, status"
-                    )
-                )
-            ).all():
+            for platform, status, n in (await db.execute(text("SELECT platform, status, count(*) FROM social_accounts GROUP BY platform, status"))).all():
                 SOCIAL_ACCOUNTS.labels(platform=platform, status=status).set(n)
 
             POSTS.clear()
-            for status, n in (
-                await db.execute(text("SELECT status::text, count(*) FROM posts GROUP BY status"))
-            ).all():
+            for status, n in (await db.execute(text("SELECT status::text, count(*) FROM posts GROUP BY status"))).all():
                 POSTS.labels(status=status).set(n)
 
             QUEUE.clear()
-            for status, n in (
-                await db.execute(
-                    text("SELECT status::text, count(*) FROM publish_queue GROUP BY status")
-                )
-            ).all():
+            for status, n in (await db.execute(text("SELECT status::text, count(*) FROM publish_queue GROUP BY status"))).all():
                 QUEUE.labels(status=status).set(n)
 
-            MEDIA.set(
-                (await db.execute(text("SELECT count(*) FROM media_assets"))).scalar_one()
-            )
+            MEDIA.set((await db.execute(text("SELECT count(*) FROM media_assets"))).scalar_one())
 
             BILLING_EVENTS.clear()
-            for etype, n in (
-                await db.execute(
-                    text("SELECT event_type, count(*) FROM billing_events GROUP BY event_type")
-                )
-            ).all():
+            for etype, n in (await db.execute(text("SELECT event_type, count(*) FROM billing_events GROUP BY event_type"))).all():
                 BILLING_EVENTS.labels(type=etype).set(n)
 
-            BILLING_ERRORS.set(
-                (
-                    await db.execute(
-                        text("SELECT count(*) FROM billing_events WHERE error IS NOT NULL")
-                    )
-                ).scalar_one()
-            )
+            BILLING_ERRORS.set((await db.execute(text("SELECT count(*) FROM billing_events WHERE error IS NOT NULL"))).scalar_one())
 
             AI_CALLS.clear()
             AI_COST.clear()
@@ -232,14 +179,7 @@ async def refresh_business_metrics() -> None:
                 AI_NEURONS.labels(provider=provider).set(float(neurons))
 
             AI_ERRORS.set(
-                (
-                    await db.execute(
-                        text(
-                            "SELECT count(*) FROM ai_usage_logs "
-                            "WHERE created_at > now() - interval '24 hours' AND success = false"
-                        )
-                    )
-                ).scalar_one()
+                (await db.execute(text("SELECT count(*) FROM ai_usage_logs WHERE created_at > now() - interval '24 hours' AND success = false"))).scalar_one()
             )
 
             QUEUE_PLATFORM.clear()
@@ -299,9 +239,7 @@ async def refresh_business_metrics() -> None:
                     )
                 )
             ).all():
-                FOLLOWERS.labels(
-                    platform=platform, account=account, account_id=account_id
-                ).set(followers)
+                FOLLOWERS.labels(platform=platform, account=account, account_id=account_id).set(followers)
 
             TOKEN_EXPIRY.clear()
             for platform, account, account_id, ttl in (
@@ -315,9 +253,7 @@ async def refresh_business_metrics() -> None:
                     )
                 )
             ).all():
-                TOKEN_EXPIRY.labels(
-                    platform=platform, account=account, account_id=account_id
-                ).set(float(ttl))
+                TOKEN_EXPIRY.labels(platform=platform, account=account, account_id=account_id).set(float(ttl))
 
             REFRESH_TS.set(time.time())
     except Exception as exc:  # noqa: BLE001

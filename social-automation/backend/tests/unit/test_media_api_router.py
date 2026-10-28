@@ -927,9 +927,7 @@ async def test_view_unsafe_path_falls_to_remote(tmp_path, monkeypatch):
 async def test_view_minio_non404_propagates(tmp_path, monkeypatch):
     monkeypatch.setattr(media, "UPLOAD_DIR", str(tmp_path))
     monkeypatch.setattr(media.minio_storage, "minio_enabled", lambda: True)
-    monkeypatch.setattr(
-        media.minio_storage, "get_object", AsyncMock(side_effect=HTTPException(status_code=500, detail="s3 down"))
-    )
+    monkeypatch.setattr(media.minio_storage, "get_object", AsyncMock(side_effect=HTTPException(status_code=500, detail="s3 down")))
     with pytest.raises(HTTPException) as e:
         await view_media(path="remote/pic.png", format=None)
     assert e.value.status_code == 500
@@ -1033,10 +1031,7 @@ async def test_generate_image_cf_model_normalize(monkeypatch):
         "provider": "cloudflare",
     }
     cf_call = _gen_patches(monkeypatch, comfy_png=RuntimeError("gpu down"), cf_result=cf_result)
-    await generate_image(
-        MediaGenerateImageRequest(prompt="x", options=MediaGenerateOptions(model="stable-diffusion-3")),
-        team.id, _user(), _DB(team=team)
-    )
+    await generate_image(MediaGenerateImageRequest(prompt="x", options=MediaGenerateOptions(model="stable-diffusion-3")), team.id, _user(), _DB(team=team))
     assert cf_call.await_args.kwargs["model"] == "@cf/stabilityai/stable-diffusion-3"
 
 
@@ -1107,7 +1102,9 @@ async def test_generate_video_normalizes_steps_cfg_image(monkeypatch):
             prompt="x",
             options=MediaGenerateVideoOptions(steps=25, cfg_scale=3.0, image_asset_id="a1"),
         ),
-        team.id, _user(), _DB(team=team)
+        team.id,
+        _user(),
+        _DB(team=team),
     )
     assert out.task_id == "task-9"
     opts = sent[0][1][3]
@@ -1135,10 +1132,7 @@ async def test_prepare_upload_no_team():
 @pytest.mark.asyncio
 async def test_complete_upload_no_team():
     with pytest.raises(HTTPException) as e:
-        await complete_upload(
-            CompleteUploadRequest(key="t/x.png", filename="x.png", mime_type="image/png", size_bytes=1),
-            uuid.uuid4(), _user(), _DB()
-        )
+        await complete_upload(CompleteUploadRequest(key="t/x.png", filename="x.png", mime_type="image/png", size_bytes=1), uuid.uuid4(), _user(), _DB())
     assert e.value.status_code == 400
 
 
@@ -1154,10 +1148,7 @@ async def test_complete_upload_celery_fail_tolerated(monkeypatch):
 
     monkeypatch.setattr(media.celery_app, "send_task", _boom)
     db = _DB(team=team)
-    out = await complete_upload(
-        CompleteUploadRequest(key=f"{team.id}/2026/x.png", filename="x.png", mime_type="image/png", size_bytes=1),
-        team.id, _user(), db
-    )
+    out = await complete_upload(CompleteUploadRequest(key=f"{team.id}/2026/x.png", filename="x.png", mime_type="image/png", size_bytes=1), team.id, _user(), db)
     assert out.storage_backend == "r2"
 
 

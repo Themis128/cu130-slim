@@ -32,8 +32,13 @@ class _DB:
 
 def _row(**kw):
     base = dict(
-        id=uuid.uuid4(), platform="linkedin", target_author="ana", action="comment",
-        score=9.5, comment_draft="draft", status="pending_human_gate",
+        id=uuid.uuid4(),
+        platform="linkedin",
+        target_author="ana",
+        action="comment",
+        score=9.5,
+        comment_draft="draft",
+        status="pending_human_gate",
     )
     base.update(kw)
     return SimpleNamespace(**base)

@@ -56,14 +56,14 @@ def test_facets_detects_url_with_byte_offsets():
     assert f["features"][0]["$type"] == "app.bsky.richtext.facet#link"
     assert f["features"][0]["uri"] == "https://cloudless.gr/pricing"
     text = b"check https://cloudless.gr/pricing now"
-    assert text[f["index"]["byteStart"]:f["index"]["byteEnd"]].decode() == "https://cloudless.gr/pricing"
+    assert text[f["index"]["byteStart"] : f["index"]["byteEnd"]].decode() == "https://cloudless.gr/pricing"
 
 
 def test_facets_byte_offsets_with_multibyte_prefix():
     text = "αβγ https://x.com y"  # Greek chars are 2-byte in UTF-8
     facets = api.build_facets(text)
     f = facets[0]
-    assert text.encode()[f["index"]["byteStart"]:f["index"]["byteEnd"]].decode() == "https://x.com"
+    assert text.encode()[f["index"]["byteStart"] : f["index"]["byteEnd"]].decode() == "https://x.com"
 
 
 def test_facets_detects_hashtag_and_mention():
@@ -75,9 +75,7 @@ def test_facets_detects_hashtag_and_mention():
 
 def test_facets_no_false_positive_on_email():
     facets = api.build_facets("mail me at a@b.co")  # a@b.co could look like @mention
-    assert not any(
-        f["features"][0]["$type"] == "app.bsky.richtext.facet#mention" for f in facets
-    )
+    assert not any(f["features"][0]["$type"] == "app.bsky.richtext.facet#mention" for f in facets)
 
 
 def test_facets_empty_text():
@@ -89,10 +87,17 @@ def test_facets_empty_text():
 
 @pytest.mark.asyncio
 async def test_create_session_stores_jwts(client):
-    fake = _FakeAsyncClient(_FakeResponse(200, {
-        "accessJwt": "acc", "refreshJwt": "ref", "did": "did:plc:xyz",
-        "handle": "test.bsky.social",
-    }))
+    fake = _FakeAsyncClient(
+        _FakeResponse(
+            200,
+            {
+                "accessJwt": "acc",
+                "refreshJwt": "ref",
+                "did": "did:plc:xyz",
+                "handle": "test.bsky.social",
+            },
+        )
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         data = await client.create_session()
 
@@ -114,10 +119,12 @@ async def test_create_session_error_raises(client):
 
 @pytest.mark.asyncio
 async def test_create_post_with_images_and_facets(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "refreshJwt": "r", "did": "did:plc:me"}),
-        _FakeResponse(200, {"uri": "at://did:plc:me/app.bsky.feed.post/abc", "cid": "c1"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "refreshJwt": "r", "did": "did:plc:me"}),
+            _FakeResponse(200, {"uri": "at://did:plc:me/app.bsky.feed.post/abc", "cid": "c1"}),
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         result = await client.create_post(
@@ -135,10 +142,12 @@ async def test_create_post_with_images_and_facets(client):
 
 @pytest.mark.asyncio
 async def test_create_post_caps_images_at_four(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "refreshJwt": "r", "did": "did:plc:me"}),
-        _FakeResponse(200, {"uri": "u", "cid": "c"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "refreshJwt": "r", "did": "did:plc:me"}),
+            _FakeResponse(200, {"uri": "u", "cid": "c"}),
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         await client.create_post("t", images=[{"blob": {}, "alt": ""}] * 6)
@@ -181,11 +190,13 @@ async def _authed(client, fake):
 
 @pytest.mark.asyncio
 async def test_get_profile_uses_actor_or_self(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "refreshJwt": "r", "did": "did:plc:me"}),
-        _FakeResponse(200, {"did": "did:plc:me", "handle": "me"}),
-        _FakeResponse(200, {"did": "did:plc:other"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "refreshJwt": "r", "did": "did:plc:me"}),
+            _FakeResponse(200, {"did": "did:plc:me", "handle": "me"}),
+            _FakeResponse(200, {"did": "did:plc:other"}),
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         p = await client.get_profile()
@@ -197,10 +208,12 @@ async def test_get_profile_uses_actor_or_self(client):
 
 @pytest.mark.asyncio
 async def test_get_profile_error_raises(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
-        _FakeResponse(403, {"error": "blocked"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
+            _FakeResponse(403, {"error": "blocked"}),
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         with pytest.raises(api.BlueskyAPIError) as e:
@@ -210,11 +223,13 @@ async def test_get_profile_error_raises(client):
 
 @pytest.mark.asyncio
 async def test_upload_blob_roundtrip_and_error(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
-        _FakeResponse(200, {"blob": {"$link": "blob1"}}),
-        _FakeResponse(413, {"error": "too big"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
+            _FakeResponse(200, {"blob": {"$link": "blob1"}}),
+            _FakeResponse(413, {"error": "too big"}),
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         blob = await client.upload_blob(b"\x89PNG", "image/png")
@@ -233,20 +248,19 @@ async def test_upload_blob_roundtrip_and_error(client):
 
 @pytest.mark.asyncio
 async def test_create_post_resolves_mentions_drops_unresolvable(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "did": "did:plc:me"}),  # session
-        _FakeResponse(200, {"did": "did:plc:alice"}),                 # getProfile ok
-        _FakeResponse(404, {"error": "not found"}),                   # getProfile miss
-        _FakeResponse(200, {"uri": "u", "cid": "c"}),                 # createRecord
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "did": "did:plc:me"}),  # session
+            _FakeResponse(200, {"did": "did:plc:alice"}),  # getProfile ok
+            _FakeResponse(404, {"error": "not found"}),  # getProfile miss
+            _FakeResponse(200, {"uri": "u", "cid": "c"}),  # createRecord
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         await client.create_post("hi @alice.bsky.social and @ghost.bsky.social")
     record = fake.calls[3]["json"]["record"]
-    mentions = [
-        f for f in record["facets"]
-        if f["features"][0]["$type"] == "app.bsky.richtext.facet#mention"
-    ]
+    mentions = [f for f in record["facets"] if f["features"][0]["$type"] == "app.bsky.richtext.facet#mention"]
     # only the resolvable mention survives; did filled in, handle dropped
     assert len(mentions) == 1
     assert mentions[0]["features"][0]["did"] == "did:plc:alice"
@@ -255,10 +269,12 @@ async def test_create_post_resolves_mentions_drops_unresolvable(client):
 
 @pytest.mark.asyncio
 async def test_create_post_video_embed(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "did": "did:plc:me"}),
-        _FakeResponse(200, {"uri": "u", "cid": "c"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "did": "did:plc:me"}),
+            _FakeResponse(200, {"uri": "u", "cid": "c"}),
+        ]
+    )
     video = {"blob": {"$link": "vid"}, "alt": "v", "aspectRatio": {"width": 16, "height": 9}}
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
@@ -271,10 +287,12 @@ async def test_create_post_video_embed(client):
 
 @pytest.mark.asyncio
 async def test_create_post_video_embed_minimal(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
-        _FakeResponse(200, {"uri": "u", "cid": "c"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
+            _FakeResponse(200, {"uri": "u", "cid": "c"}),
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         await client.create_post("clip", video={"blob": {}})
@@ -285,10 +303,12 @@ async def test_create_post_video_embed_minimal(client):
 
 @pytest.mark.asyncio
 async def test_create_post_create_record_error(client):
-    fake = _FakeAsyncClient([
-        _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
-        _FakeResponse(400, {"error": "InvalidRecord"}),
-    ])
+    fake = _FakeAsyncClient(
+        [
+            _FakeResponse(200, {"accessJwt": "a", "did": "d"}),
+            _FakeResponse(400, {"error": "InvalidRecord"}),
+        ]
+    )
     with patch("app.services.bluesky_api.httpx.AsyncClient", return_value=fake):
         await client.create_session()
         with pytest.raises(api.BlueskyAPIError) as e:

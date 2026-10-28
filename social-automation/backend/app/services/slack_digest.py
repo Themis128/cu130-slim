@@ -3,6 +3,7 @@
 Collects analytics + operational issues and posts via Incoming Webhook
 (`SLACK_WEBHOOK_URL`) or Slack Web API (`SLACK_BOT_TOKEN` + channel).
 """
+
 from __future__ import annotations
 
 import logging
@@ -71,10 +72,7 @@ class DigestReport:
             "top_posts": self.top_posts,
             "growth": self.growth,
             "ai_usage": self.ai_usage,
-            "issues": [
-                {"severity": i.severity, "title": i.title, "detail": i.detail}
-                for i in self.issues
-            ],
+            "issues": [{"severity": i.severity, "title": i.title, "detail": i.detail} for i in self.issues],
             "posted_to_slack": self.posted_to_slack,
             "slack_error": self.slack_error,
             "emailed": self.emailed,
@@ -105,55 +103,29 @@ class DigestReport:
             lines.append("*Top posts (by engagement)*")
             for i, p in enumerate(self.top_posts[:5], 1):
                 snippet = (p.get("snippet") or "").replace("\n", " ")[:80]
-                lines.append(
-                    f"{i}. eng *{p.get('engagement', 0)}* · "
-                    f"imp *{p.get('impressions', 0)}* — {snippet or p.get('post_id')}"
-                )
+                lines.append(f"{i}. eng *{p.get('engagement', 0)}* · imp *{p.get('impressions', 0)}* — {snippet or p.get('post_id')}")
         g = self.growth
         if g:
             lines.append("")
             lines.append(f"*Growth (last {self.days}d)*")
             for f in g.get("followers", []):
-                rate = (
-                    f" ({f['rate']:+.1f}%)"
-                    if f.get("rate") is not None
-                    else ""
-                )
-                prev = (
-                    f" (prev {f['prev_delta']:+d})"
-                    if f.get("prev_delta") is not None
-                    else ""
-                )
+                rate = f" ({f['rate']:+.1f}%)" if f.get("rate") is not None else ""
+                prev = f" (prev {f['prev_delta']:+d})" if f.get("prev_delta") is not None else ""
                 fc = f" · next ~*{f['forecast']}*" if f.get("forecast") else ""
                 label = f["platform"]
                 if f.get("account"):
                     label += f" @{f['account']}"
-                lines.append(
-                    f"• {label}: *{f['end']}* followers · "
-                    f"*{f['delta']:+d}*{rate}{prev}{fc}"
-                )
+                lines.append(f"• {label}: *{f['end']}* followers · *{f['delta']:+d}*{rate}{prev}{fc}")
             if g.get("non_follower_reach_pct") is not None:
-                lines.append(
-                    "• IG non-follower reach: "
-                    f"*{g['non_follower_reach_pct']:.0f}%* this month"
-                )
+                lines.append(f"• IG non-follower reach: *{g['non_follower_reach_pct']:.0f}%* this month")
             fa = g.get("follower_adds")
             if fa:
-                lines.append(
-                    f"• New followers: *{fa['organic']}* organic · "
-                    f"*{fa['paid']}* paid"
-                )
+                lines.append(f"• New followers: *{fa['organic']}* organic · *{fa['paid']}* paid")
             if g.get("peak_hours"):
-                lines.append(
-                    "• Best posting window (UTC): "
-                    f"*{', '.join(g['peak_hours'])}*"
-                )
+                lines.append(f"• Best posting window (UTC): *{', '.join(g['peak_hours'])}*")
             for p in g.get("funnel", []):
                 er = f" · ER *{p['er_pct']}%*" if p.get("er_pct") is not None else ""
-                lines.append(
-                    f"• {p['platform']}: *{p['impressions']}* imp → "
-                    f"*{p['engagement']}* eng → *{p['clicks']}* clicks{er}"
-                )
+                lines.append(f"• {p['platform']}: *{p['impressions']}* imp → *{p['engagement']}* eng → *{p['clicks']}* clicks{er}")
 
         errors = [i for i in self.issues if i.severity == "error"]
         warnings = [i for i in self.issues if i.severity == "warning"]
@@ -168,10 +140,7 @@ class DigestReport:
                 f"Est. cost: *${ai.get('total_cost', 0):.4f}*"
             )
             for prov in ai.get("by_provider", [])[:5]:
-                lines.append(
-                    f"  - {prov.get('provider', '?')}: {prov.get('calls', 0)} calls, "
-                    f"{prov.get('neurons', 0)} neurons, ${prov.get('cost', 0):.4f}"
-                )
+                lines.append(f"  - {prov.get('provider', '?')}: {prov.get('calls', 0)} calls, {prov.get('neurons', 0)} neurons, ${prov.get('cost', 0):.4f}")
             lines.append("")
         if errors:
             lines.append(f"*Needs attention ({len(errors)})*")
@@ -325,18 +294,15 @@ async def _growth_stats(
         select(
             PostAnalyticsSnapshot.platform.label("platform"),
             func.greatest(
-                func.max(PostAnalyticsSnapshot.impressions)
-                - func.min(PostAnalyticsSnapshot.impressions),
+                func.max(PostAnalyticsSnapshot.impressions) - func.min(PostAnalyticsSnapshot.impressions),
                 0,
             ).label("imp"),
             func.greatest(
-                func.max(PostAnalyticsSnapshot.engagement)
-                - func.min(PostAnalyticsSnapshot.engagement),
+                func.max(PostAnalyticsSnapshot.engagement) - func.min(PostAnalyticsSnapshot.engagement),
                 0,
             ).label("eng"),
             func.greatest(
-                func.max(PostAnalyticsSnapshot.clicks)
-                - func.min(PostAnalyticsSnapshot.clicks),
+                func.max(PostAnalyticsSnapshot.clicks) - func.min(PostAnalyticsSnapshot.clicks),
                 0,
             ).label("clk"),
         )
@@ -455,11 +421,7 @@ async def build_daily_digest(
     since_24h = now - timedelta(hours=24)
 
     # Post status counts for period
-    post_counts = await db.execute(
-        select(Post.status, func.count(Post.id))
-        .where(Post.team_id == team.id, Post.created_at >= since)
-        .group_by(Post.status)
-    )
+    post_counts = await db.execute(select(Post.status, func.count(Post.id)).where(Post.team_id == team.id, Post.created_at >= since).group_by(Post.status))
     counts = {status: count for status, count in post_counts.all()}
 
     accounts_count = await db.execute(
@@ -476,13 +438,11 @@ async def build_daily_digest(
     per_post_delta = (
         select(
             func.greatest(
-                func.max(PostAnalyticsSnapshot.impressions)
-                - func.min(PostAnalyticsSnapshot.impressions),
+                func.max(PostAnalyticsSnapshot.impressions) - func.min(PostAnalyticsSnapshot.impressions),
                 0,
             ).label("d_imp"),
             func.greatest(
-                func.max(PostAnalyticsSnapshot.engagement)
-                - func.min(PostAnalyticsSnapshot.engagement),
+                func.max(PostAnalyticsSnapshot.engagement) - func.min(PostAnalyticsSnapshot.engagement),
                 0,
             ).label("d_eng"),
         )
@@ -582,11 +542,7 @@ async def build_daily_digest(
     policy_skipped = 0
     targets_by_post: dict[Any, list[PostTarget]] = {}
     if failed_list:
-        tgt_rows = await db.execute(
-            select(PostTarget).where(
-                PostTarget.post_id.in_([p.id for p in failed_list])
-            )
-        )
+        tgt_rows = await db.execute(select(PostTarget).where(PostTarget.post_id.in_([p.id for p in failed_list])))
         for t in tgt_rows.scalars().all():
             targets_by_post.setdefault(t.post_id, []).append(t)
     for post in failed_list:
@@ -670,30 +626,20 @@ async def build_daily_digest(
         )
     )
     latest_note = {acct: (n or "").lower() for acct, n in latest_note_rows.all()}
-    _err_keys = ("http 5", "denied", "quota", "unauthorized", "forbidden",
-                 "error", "http 4", "fail")
-    _info_markers = ("activityids", "stats_unavailable", "quota_exhausted",
-                     "needs paid tier", "organization_lifetime",
-                     "member_stats_not_implemented")
+    _err_keys = ("http 5", "denied", "quota", "unauthorized", "forbidden", "error", "http 4", "fail")
+    _info_markers = ("activityids", "stats_unavailable", "quota_exhausted", "needs paid tier", "organization_lifetime", "member_stats_not_implemented")
     for snap in bad_snaps.scalars().all():
         note = (snap.notes or "").lower()
         detail = (snap.notes or "")[:200]
         latest = latest_note.get(snap.social_account_id, "")
         # Recovered transient — skip if the account's newest snapshot is
         # clean (or only carries an informational marker).
-        if any(m in latest for m in _info_markers) or not any(
-            k in latest for k in _err_keys
-        ):
+        if any(m in latest for m in _info_markers) or not any(k in latest for k in _err_keys):
             continue
         # Soft misses that are expected states, not actionable warnings:
         # LinkedIn stale ids, no-activity markers, and X free-tier read quota
         # (persists until billing reset — a daily warning adds no signal).
-        if (
-            "activityids" in note
-            or note.startswith("stats_unavailable")
-            or "quota_exhausted" in note
-            or "needs paid tier" in note
-        ):
+        if "activityids" in note or note.startswith("stats_unavailable") or "quota_exhausted" in note or "needs paid tier" in note:
             continue
         # Meta checkpoint (OAuthException 190/459) — needs a human to log
         # into facebook.com and complete the prompt, then reconnect.
@@ -703,9 +649,7 @@ async def build_daily_digest(
                     severity="warning",
                     title="Reconnect a social account",
                     detail=(
-                        "Facebook requires a login checkpoint — open "
-                        "facebook.com, complete the prompt, then reconnect "
-                        "the account in SocialAuto → Accounts."
+                        "Facebook requires a login checkpoint — open facebook.com, complete the prompt, then reconnect the account in SocialAuto → Accounts."
                     ),
                 )
             )
@@ -760,8 +704,7 @@ async def build_daily_digest(
                     severity="warning",
                     title="More posts failed than usual",
                     detail=(
-                        "Next: check Accounts status, then retry failed posts. "
-                        f"Details: {effective_failed}/{overview['total_posts']} failed in this window."
+                        f"Next: check Accounts status, then retry failed posts. Details: {effective_failed}/{overview['total_posts']} failed in this window."
                     ),
                 )
             )
@@ -781,10 +724,7 @@ async def build_daily_digest(
         .group_by(AIUsageLog.provider)
         .order_by(func.count(AIUsageLog.id).desc())
     )
-    by_provider = [
-        {"provider": p, "calls": int(c), "neurons": int(n or 0), "cost": float(co or 0)}
-        for p, c, n, co in ai_usage_rows.all()
-    ]
+    by_provider = [{"provider": p, "calls": int(c), "neurons": int(n or 0), "cost": float(co or 0)} for p, c, n, co in ai_usage_rows.all()]
     ai_usage = {
         "total_calls": sum(p["calls"] for p in by_provider),
         "providers": len(by_provider),
@@ -796,9 +736,7 @@ async def build_daily_digest(
     growth: dict[str, Any] = {}
     if days >= 7:
         prev_since = since - timedelta(days=days) if days >= 28 else None
-        growth = await _growth_stats(
-            db, team.id, since, prev_since=prev_since, days=days
-        )
+        growth = await _growth_stats(db, team.id, since, prev_since=prev_since, days=days)
 
     return DigestReport(
         generated_at=now,
@@ -883,10 +821,7 @@ async def run_daily_digest_for_all_teams(
         # Skip empty/test teams when posting (still include in API preview).
         # Require real platform connectivity — teams that never connected an
         # account (E2E/test teams) only produce "No social accounts" noise.
-        active = (
-            report.overview.get("connected_accounts", 0) > 0
-            or report.impressions_24h > 0
-        )
+        active = report.overview.get("connected_accounts", 0) > 0 or report.impressions_24h > 0
         if active:
             if post_to_slack:
                 try:

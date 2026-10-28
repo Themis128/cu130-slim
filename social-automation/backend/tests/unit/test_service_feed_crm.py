@@ -4,6 +4,7 @@ no-team / bad-config branches of the existing feeds.
 Reuses the request/settings/DB helpers from test_service_feed.py. EspoCRM is
 mocked; the feed contract (no raw emails, never 500 the widget) is asserted.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -40,12 +41,15 @@ async def test_invalid_pinned_team_id_is_500():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("feed,source", [
-    ("feed_digest", "SocialAuto daily digest"),
-    ("feed_status", "SocialAuto status"),
-    ("feed_leads", "SocialAuto leads"),
-    ("feed_campaigns", "Email campaigns"),
-])
+@pytest.mark.parametrize(
+    "feed,source",
+    [
+        ("feed_digest", "SocialAuto daily digest"),
+        ("feed_status", "SocialAuto status"),
+        ("feed_leads", "SocialAuto leads"),
+        ("feed_campaigns", "Email campaigns"),
+    ],
+)
 async def test_feeds_without_team_are_empty(feed, source):
     db = _fake_db(team=None, team_counts=[])
     kwargs = {"db": db}
@@ -71,23 +75,32 @@ class TestClientsFeed:
     @pytest.mark.asyncio
     async def test_maps_contacts_and_leads_without_emails(self, monkeypatch):
         monkeypatch.setattr(espocrm_client, "configured", lambda: True)
-        monkeypatch.setattr(espocrm_client, "list_contacts", AsyncMock(return_value=[
-            {"id": "c1", "firstName": "Ann", "lastName": "Lee", "accountName": "Acme",
-             "title": "CTO", "emailAddress": "ann@acme.test"},
-            {"id": "c2", "accountName": "Solo", "emailAddress": "solo@x.test"},
-            {"id": "c3"},
-            {"id": "c4", "firstName": "Over", "emailAddress": "limit@x.test"},
-        ]))
-        monkeypatch.setattr(espocrm_client, "list_leads_for_campaign", AsyncMock(return_value=[
-            {"id": "l1", "firstName": "Lou", "status": "New", "source": "Web",
-             "createdAt": "2026-10-10 08:00:00", "emailAddress": "lou@x.test"},
-            {"id": "l2"},
-        ]))
+        monkeypatch.setattr(
+            espocrm_client,
+            "list_contacts",
+            AsyncMock(
+                return_value=[
+                    {"id": "c1", "firstName": "Ann", "lastName": "Lee", "accountName": "Acme", "title": "CTO", "emailAddress": "ann@acme.test"},
+                    {"id": "c2", "accountName": "Solo", "emailAddress": "solo@x.test"},
+                    {"id": "c3"},
+                    {"id": "c4", "firstName": "Over", "emailAddress": "limit@x.test"},
+                ]
+            ),
+        )
+        monkeypatch.setattr(
+            espocrm_client,
+            "list_leads_for_campaign",
+            AsyncMock(
+                return_value=[
+                    {"id": "l1", "firstName": "Lou", "status": "New", "source": "Web", "createdAt": "2026-10-10 08:00:00", "emailAddress": "lou@x.test"},
+                    {"id": "l2"},
+                ]
+            ),
+        )
         with _settings():
             out = await feed_api.feed_clients(_request(), response=Response(), limit=3)
         titles = [i.title for i in out.items]
-        assert titles == ["Ann Lee — Acme", "Solo — Solo", "Contact — contact",
-                          "Lou — New", "Lead — lead"]
+        assert titles == ["Ann Lee — Acme", "Solo — Solo", "Contact — contact", "Lou — New", "Lead — lead"]
         assert out.items[0].url == "https://espocrm.cloudless.gr/#Contact/view/c1"
         assert out.items[0].excerpt == "CTO · CRM Contact"
         assert out.items[3].url.endswith("/#Lead/view/l1")
@@ -100,8 +113,7 @@ class TestClientsFeed:
     async def test_custom_ui_url_and_outage(self, monkeypatch):
         monkeypatch.setattr(espocrm_client, "configured", lambda: True)
         monkeypatch.setattr(espocrm_client, "list_contacts", AsyncMock(side_effect=TimeoutError()))
-        settings = SimpleNamespace(INTRANET_FEED_TOKEN="s3cret", INTRANET_FEED_TEAM_ID="",
-                                   ESPOCRM_UI_URL="https://crm.example/")
+        settings = SimpleNamespace(INTRANET_FEED_TOKEN="s3cret", INTRANET_FEED_TEAM_ID="", ESPOCRM_UI_URL="https://crm.example/")
         with patch.object(feed_api, "get_settings", return_value=settings):
             out = await feed_api.feed_clients(_request(), response=Response(), limit=3)
         assert [(i.title, i.excerpt) for i in out.items] == [("CRM temporarily unreachable", "TimeoutError")]
@@ -111,21 +123,23 @@ class TestCampaignsFeed:
     @pytest.mark.asyncio
     async def test_counts_and_survey_responses(self):
         when = datetime(2026, 10, 12, tzinfo=UTC)
-        survey = SimpleNamespace(id=uuid.uuid4(), name="Onboarding survey", kind=CampaignKind.survey,
-                                 status=CampaignStatus.sent, created_at=when)
-        promo = SimpleNamespace(id=uuid.uuid4(), name="Promo", kind=CampaignKind.marketing,
-                                status=CampaignStatus.draft, created_at=when)
-        empty_survey = SimpleNamespace(id=uuid.uuid4(), name="Fresh", kind=CampaignKind.survey,
-                                       status=CampaignStatus.draft, created_at=when)
+        survey = SimpleNamespace(id=uuid.uuid4(), name="Onboarding survey", kind=CampaignKind.survey, status=CampaignStatus.sent, created_at=when)
+        promo = SimpleNamespace(id=uuid.uuid4(), name="Promo", kind=CampaignKind.marketing, status=CampaignStatus.draft, created_at=when)
+        empty_survey = SimpleNamespace(id=uuid.uuid4(), name="Fresh", kind=CampaignKind.survey, status=CampaignStatus.draft, created_at=when)
         team = SimpleNamespace(id=TEAM_ID, name="T")
         db = SimpleNamespace()
-        db.execute = AsyncMock(side_effect=[
-            _Result([team]),                          # pinned team
-            _Result([survey, promo, empty_survey]),   # campaigns
-            _Result([("sent", 5), ("failed", 1)]), _ScalarResult([3]),
-            _Result([]), _ScalarResult([None]),
-            _Result([]), _ScalarResult([0]),
-        ])
+        db.execute = AsyncMock(
+            side_effect=[
+                _Result([team]),  # pinned team
+                _Result([survey, promo, empty_survey]),  # campaigns
+                _Result([("sent", 5), ("failed", 1)]),
+                _ScalarResult([3]),
+                _Result([]),
+                _ScalarResult([None]),
+                _Result([]),
+                _ScalarResult([0]),
+            ]
+        )
         with _settings(team_id=str(TEAM_ID)):
             out = await feed_api.feed_campaigns(_request(), response=Response(), limit=20, db=db)
         assert [i.title for i in out.items] == ["Onboarding survey — sent", "Promo — draft", "Fresh — draft"]

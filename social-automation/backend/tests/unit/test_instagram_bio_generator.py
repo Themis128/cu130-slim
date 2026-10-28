@@ -1,4 +1,5 @@
 """Tests for app/scripts/instagram_bio_generator.py — Unicode fonts, bio styles, CLI."""
+
 from __future__ import annotations
 
 import sys
@@ -41,9 +42,13 @@ def test_to_small_caps():
 @pytest.mark.parametrize("style", list(gen.STYLES))
 def test_generate_bio_all_styles(style):
     bio = gen.generate_bio(
-        name="Cloudless", title="Founder @ ",
-        skills="Azure · AWS", experience="15+ yrs",
-        location="Athens", links="cloudless.gr", style=style,
+        name="Cloudless",
+        title="Founder @ ",
+        skills="Azure · AWS",
+        experience="15+ yrs",
+        location="Athens",
+        links="cloudless.gr",
+        style=style,
     )
     assert "cloudless.gr" in bio
     assert len(bio) <= 150
@@ -66,16 +71,25 @@ def test_generate_bio_location_arrow_variants():
 def test_generate_bio_over_limit_shortenings(capsys):
     long_loc = "A" * 60 + " → Worldwide"
     bio = gen.generate_bio(
-        name="N" * 40, title="T", skills="S" * 60,
-        experience="building systems and more", location=long_loc,
-        links="a | b", style="clean-arrows",
+        name="N" * 40,
+        title="T",
+        skills="S" * 60,
+        experience="building systems and more",
+        location=long_loc,
+        links="a | b",
+        style="clean-arrows",
     )
     # exercises the shortening chain; may still warn if >150
     assert isinstance(bio, str)
     # force the warning path with fields that can't be shortened enough
     gen.generate_bio(
-        name="N" * 100, title="T" * 30, skills="S" * 100,
-        experience="E" * 100, location="L" * 60, links="x", style="minimal-bullets",
+        name="N" * 100,
+        title="T" * 30,
+        skills="S" * 100,
+        experience="E" * 100,
+        location="L" * 60,
+        links="x",
+        style="minimal-bullets",
     )
     err = capsys.readouterr().err
     assert "limit 150" in err
@@ -135,8 +149,7 @@ def test_main_linkedin_about(capsys):
 
 
 def test_main_name_flow(capsys):
-    _run(["--name", "Cloudless", "--skills", "Azure", "--experience", "15y",
-          "--location", "Athens", "--links", "cloudless.gr"])
+    _run(["--name", "Cloudless", "--skills", "Azure", "--experience", "15y", "--location", "Athens", "--links", "cloudless.gr"])
     out = capsys.readouterr().out
     assert "SEO keywords" in out
 

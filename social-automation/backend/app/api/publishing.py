@@ -54,12 +54,7 @@ async def add_to_queue(
     db: AsyncSession = Depends(get_db),
 ):
     # Verify post exists and user has access
-    result = await db.execute(
-        select(Post)
-        .join(Team)
-        .join(TeamMember)
-        .where(Post.id == post_id, TeamMember.user_id == current_user.id)
-    )
+    result = await db.execute(select(Post).join(Team).join(TeamMember).where(Post.id == post_id, TeamMember.user_id == current_user.id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -68,9 +63,7 @@ async def add_to_queue(
         raise HTTPException(status_code=400, detail="Post must be scheduled or draft")
 
     # Verify social account
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.id == social_account_id)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.id == social_account_id))
     account = result.scalar_one_or_none()
     if not account or account.team_id != post.team_id:
         raise HTTPException(status_code=404, detail="Social account not found")
@@ -123,12 +116,14 @@ async def add_to_queue(
 
 
 @router.get("/queue", response_model=QueueListResponse)
-async def list_queue(team_id: TeamId,
+async def list_queue(
+    team_id: TeamId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     status_filter: QueueStatus | None = Query(None, alias="status"),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     team = await db.get(Team, team_id)
     if not team:
         return QueueListResponse(items=[], total=0, page=page, page_size=page_size)
@@ -286,11 +281,13 @@ async def _retry_queue_item_impl(
 
 
 @router.get("/history", response_model=list[dict])
-async def publish_history(team_id: TeamId,
+async def publish_history(
+    team_id: TeamId,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    db: AsyncSession = Depends(get_db),
+):
     team = await db.get(Team, team_id)
     if not team:
         return []
@@ -338,5 +335,3 @@ async def _queue_to_response(queue_item: PublishQueue, db: AsyncSession) -> Queu
         post_title=queue_item.post.content_text[:50] if queue_item.post.content_text else None,
         platform=queue_item.social_account.platform,
     )
-
-

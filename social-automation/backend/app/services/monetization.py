@@ -38,6 +38,7 @@ Threshold sources (verify before relying — programs change):
 - LinkedIn/Threads/Bluesky/messaging platforms: no creator monetization —
   funnel surfaces (Polar/audit CTA), tracked separately.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -49,7 +50,7 @@ class Criterion:
     name: str
     current: Any
     target: Any
-    met: bool | None          # None = cannot be determined via API (manual)
+    met: bool | None  # None = cannot be determined via API (manual)
     note: str = ""
 
 
@@ -71,50 +72,48 @@ PLATFORM_PROGRAMS: dict[str, dict[str, Any]] = {
         "program": "Facebook Stars (professional mode)",
         "criteria": [
             ("followers", "followers ≥ 500", 500, "professional-mode profile followers"),
-            ("days_held", "held ≥500 for 30 consecutive days", 30,
-             "computed from follower_snapshots; needs daily sync"),
-            ("country_eligible", "eligible country", True,
-             "manual — Greece is eligible; confirm in professional dashboard"),
-            ("account_standing", "community standards clean", True,
-             "manual — check professional dashboard for strikes"),
-            ("cm_invite", "Content Monetization invite (invite-only program)", True,
-             "manual — Professional dashboard → monetization; interest form"
-             " submitted — waits for an invite wave, no numeric threshold"),
+            ("days_held", "held ≥500 for 30 consecutive days", 30, "computed from follower_snapshots; needs daily sync"),
+            ("country_eligible", "eligible country", True, "manual — Greece is eligible; confirm in professional dashboard"),
+            ("account_standing", "community standards clean", True, "manual — check professional dashboard for strikes"),
+            (
+                "cm_invite",
+                "Content Monetization invite (invite-only program)",
+                True,
+                "manual — Professional dashboard → monetization; interest form submitted — waits for an invite wave, no numeric threshold",
+            ),
         ],
     },
     "tiktok": {
         "program": "TikTok Creator Rewards",
         "criteria": [
             ("followers", "followers ≥ 10,000", 10_000, "user.info stats followerCount"),
-            ("views_30d", "≥100,000 video views in last 30 days", 100_000,
-             "sum video play counts from Display API (video.list)"),
-            ("country_eligible", "eligible country", True,
-             "BLOCKED — program is restricted to US/UK/DE/JP/KR/FR/BR;"
-             " Greece is not eligible (verified 2026-10); Business"
-             " accounts are also excluded"),
+            ("views_30d", "≥100,000 video views in last 30 days", 100_000, "sum video play counts from Display API (video.list)"),
+            (
+                "country_eligible",
+                "eligible country",
+                True,
+                "BLOCKED — program is restricted to US/UK/DE/JP/KR/FR/BR; Greece is not eligible (verified 2026-10); Business accounts are also excluded",
+            ),
         ],
     },
     "twitter": {
         "program": "X Original Content Rewards",
         "criteria": [
-            ("followers", "verified followers ≥ 500", 500,
-             "users/me public_metrics — verified-only count isn't API-split; "
-             "total followers is the floor"),
-            ("premium", "X Premium / Premium+ / Premium Business active", True,
-             "manual — subscription state isn't API-readable"),
-            ("impressions_90d",
-             "≥500K Home Timeline impressions from verified users / 90 days",
-             500_000,
-             "not API-readable on free tier — check X analytics UI"),
+            ("followers", "verified followers ≥ 500", 500, "users/me public_metrics — verified-only count isn't API-split; total followers is the floor"),
+            ("premium", "X Premium / Premium+ / Premium Business active", True, "manual — subscription state isn't API-readable"),
+            (
+                "impressions_90d",
+                "≥500K Home Timeline impressions from verified users / 90 days",
+                500_000,
+                "not API-readable on free tier — check X analytics UI",
+            ),
         ],
     },
     "instagram": {
         "program": "IG Subscriptions / Gifts",
         "criteria": [
-            ("followers", "followers ≥ 10,000 (eligibility band)", 10_000,
-             "insights follower_count; programs are invite-gated"),
-            ("invite", "monetization invite received", True,
-             "manual — Professional dashboard → monetization"),
+            ("followers", "followers ≥ 10,000 (eligibility band)", 10_000, "insights follower_count; programs are invite-gated"),
+            ("invite", "monetization invite received", True, "manual — Professional dashboard → monetization"),
         ],
     },
 }
@@ -134,18 +133,18 @@ FUNNEL_ONLY: dict[str, str] = {
 _PLATFORM_PAGE_PROGRAM = {
     "program": "Page monetization (Content Monetization / Subscriptions — invite-only)",
     "criteria": [
-        ("followers", "page followers ≥ 10,000 (Subscriptions threshold band)", 10_000,
-         "page fan count; CM has no published threshold — invite-only since"
-         " in-stream ads/Ads on Reels/Performance bonus ended 2025-08-31"),
-        ("invite", "monetization invite received", True,
-         "manual — professional dashboard → monetization"),
+        (
+            "followers",
+            "page followers ≥ 10,000 (Subscriptions threshold band)",
+            10_000,
+            "page fan count; CM has no published threshold — invite-only since in-stream ads/Ads on Reels/Performance bonus ended 2025-08-31",
+        ),
+        ("invite", "monetization invite received", True, "manual — professional dashboard → monetization"),
     ],
 }
 
 
-def evaluate_program(
-    platform: str, metrics: dict[str, Any], account_type: str | None = None
-) -> ProgramReport | None:
+def evaluate_program(platform: str, metrics: dict[str, Any], account_type: str | None = None) -> ProgramReport | None:
     """Evaluate ``metrics`` (followers, views_30d, impressions_90d, days_held,
     …) against ``platform``'s creator program. Returns ``None`` for platforms
     with no program (they're funnel surfaces — see ``FUNNEL_ONLY``).
@@ -245,27 +244,20 @@ async def gather_account_metrics(db, account) -> dict[str, Any]:
         elif account.platform == "tiktok":
             from app.services.tiktok_api import TikTokAPIClient
 
-            client = TikTokAPIClient(
-                access_token=_account_token(account), open_id=account.account_id
-            )
+            client = TikTokAPIClient(access_token=_account_token(account), open_id=account.account_id)
             data = (await client.get_stats()).get("data") or {}
             live = int(data.get("follower_count") or 0) or None
         elif account.platform == "twitter":
             from app.services.twitter_api import TwitterAPIClient
 
-            data = (await TwitterAPIClient(_account_token(account)).get_me_metrics()).get(
-                "data"
-            ) or {}
+            data = (await TwitterAPIClient(_account_token(account)).get_me_metrics()).get("data") or {}
             live = int((data.get("public_metrics") or {}).get("followers_count") or 0)
     except Exception as exc:  # noqa: BLE001
         log.info("live followers failed for %s: %s", account.platform, str(exc)[:120])
 
     followers = live if live is not None else (snaps[-1][1] if snaps else None)
 
-    recent = [
-        s for s in snaps
-        if s[0] >= datetime.now(UTC) - timedelta(days=14) and s[1] > 0
-    ]
+    recent = [s for s in snaps if s[0] >= datetime.now(UTC) - timedelta(days=14) and s[1] > 0]
     # Theil-Sen slope — a single bad scrape or purge at either endpoint
     # corrupts a first→last delta but barely moves the pairwise-slope median.
     # Falls back to the endpoint delta under 3 points.
@@ -301,15 +293,11 @@ async def gather_account_metrics(db, account) -> dict[str, Any]:
         try:
             from app.services.tiktok_api import TikTokAPIClient
 
-            client = TikTokAPIClient(
-                access_token=_account_token(account), open_id=account.account_id
-            )
+            client = TikTokAPIClient(access_token=_account_token(account), open_id=account.account_id)
             ts_cutoff = datetime.now(UTC).timestamp() - 30 * 86400
             total, cursor = 0, 0
             while True:
-                data = (await client.list_videos(cursor=cursor, max_count=20)).get(
-                    "data"
-                ) or {}
+                data = (await client.list_videos(cursor=cursor, max_count=20)).get("data") or {}
                 vids = data.get("videos") or []
                 if not vids:
                     break

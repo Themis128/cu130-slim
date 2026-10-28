@@ -1,4 +1,5 @@
 """Tests for app/services/stack_ops.py — stack-ops sleeper integration."""
+
 from __future__ import annotations
 
 import time
@@ -52,9 +53,7 @@ def _reset_cache(monkeypatch):
 
 
 def _patch_http(monkeypatch, client):
-    monkeypatch.setattr(
-        stack_ops.httpx, "AsyncClient", lambda *a, **kw: client
-    )
+    monkeypatch.setattr(stack_ops.httpx, "AsyncClient", lambda *a, **kw: client)
 
 
 @pytest.mark.asyncio
@@ -82,7 +81,8 @@ async def test_statuses_non_200_and_exception(monkeypatch):
 async def test_statuses_stale_cache_returned_on_failure(monkeypatch):
     # Seed a stale cache entry — TTL expired but data survives failures.
     monkeypatch.setattr(
-        stack_ops, "_cache",
+        stack_ops,
+        "_cache",
         {"ts": time.monotonic() - 999, "data": {"svc": {"state": "running"}}},
     )
     _patch_http(monkeypatch, _FakeHTTP(get_exc=RuntimeError("x")))

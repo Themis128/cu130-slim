@@ -50,10 +50,7 @@ _NOTE_TITLE_PREFIX = "Company Brain — "
 
 
 def company_brain_enabled() -> bool:
-    return bool(
-        settings.COMPANY_BRAIN_ENABLED
-        and (settings.CHROMA_URL or "").strip()
-    )
+    return bool(settings.COMPANY_BRAIN_ENABLED and (settings.CHROMA_URL or "").strip())
 
 
 def _brain_collection(team_id) -> str:
@@ -171,9 +168,7 @@ async def _day_signals(db: AsyncSession, team_id, day: date) -> dict:
     published: dict[str, int] = {}
     failed: dict[str, list[str]] = {}
     for post in posts:
-        platforms = {
-            t.social_account.platform for t in post.targets if t.social_account
-        } or {"unknown"}
+        platforms = {t.social_account.platform for t in post.targets if t.social_account} or {"unknown"}
         for plat in platforms:
             if post.status == PostStatus.PUBLISHED:
                 published[plat] = published.get(plat, 0) + 1
@@ -199,9 +194,7 @@ async def _day_signals(db: AsyncSession, team_id, day: date) -> dict:
         )
         for platform, count in (await db.execute(sq)).all():
             cur = followers.setdefault(platform, (None, None))
-            followers[platform] = (
-                (count, cur[1]) if which == "now" else (cur[0], count)
-            )
+            followers[platform] = (count, cur[1]) if which == "now" else (cur[0], count)
 
     return {
         "published": published,
@@ -269,9 +262,7 @@ async def _write_nextcloud_note(title: str, content: str) -> bool:
                     json={"content": content, "category": NOTE_CATEGORY},
                 )
             else:
-                r = await client.post(
-                    api, json={"title": title, "content": content, "category": NOTE_CATEGORY}
-                )
+                r = await client.post(api, json={"title": title, "content": content, "category": NOTE_CATEGORY})
             r.raise_for_status()
             return True
         except Exception as exc:  # noqa: BLE001
@@ -286,9 +277,7 @@ async def write_daily_journal(db: AsyncSession, team, day: date | None = None) -
     text = _journal_text(team.name or str(team.id), day, signals)
 
     doc_id = f"journal-{day.isoformat()}"
-    memory_ok = await remember(
-        team.id, doc_id, text, metadata={"kind": "daily-journal", "day": day.isoformat()}
-    )
+    memory_ok = await remember(team.id, doc_id, text, metadata={"kind": "daily-journal", "day": day.isoformat()})
     note_ok = await _write_nextcloud_note(f"{_NOTE_TITLE_PREFIX}{day.isoformat()}", text)
     return {
         "team": str(team.id),

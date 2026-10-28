@@ -1,4 +1,5 @@
 """Media AI enhancement API — background removal, upscaling, smart crop, quality scoring, alt text, format conversion, platform presets."""
+
 import io
 import logging
 import uuid
@@ -45,6 +46,7 @@ async def _load_asset_bytes(asset: MediaAsset) -> bytes:
     if asset.storage_backend == StorageBackend.minio:
         return await minio_storage.get_object(asset.storage_path)
     from app.core.path_utils import safe_resolve
+
     return safe_resolve(UPLOAD_DIR, asset.storage_path).read_bytes()
 
 
@@ -68,6 +70,7 @@ def _stream_response(image_bytes: bytes, mime_type: str) -> StreamingResponse:
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
+
 
 class ResizeRequest(BaseModel):
     preset: str | None = None
@@ -159,6 +162,7 @@ class VideoAttachAudioRequest(BaseModel):
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
 
 @router.get("/presets", response_model=PresetsResponse)
 async def list_presets(
@@ -351,11 +355,13 @@ async def generate_alt_text_endpoint(
         raise HTTPException(status_code=503, detail="Alt text generation unavailable — AI services not configured")
     # Spellcheck the AI-generated alt text before returning.
     from app.services.media_spellcheck import correct_text
+
     corrected = await correct_text(alt_text)
     return {"alt_text": corrected or alt_text}
 
 
 # ── Batch operations ──────────────────────────────────────────────────────────
+
 
 class BatchEnhanceRequest(BaseModel):
     asset_ids: list[uuid.UUID]
@@ -385,6 +391,7 @@ async def video_trim(
     asset = await _get_asset(asset_id, current_user, db)
     await _ensure_video(asset)
     from app.services.video_ai import trim_video
+
     out = await trim_video(await _load_asset_bytes(asset), body.start, body.end, mime=asset.mime_type or "video/mp4")
     if not out:
         raise HTTPException(status_code=422, detail="Trim failed — check start/end against the video duration")
@@ -402,6 +409,7 @@ async def video_convert(
     asset = await _get_asset(asset_id, current_user, db)
     await _ensure_video(asset)
     from app.services.video_ai import convert_video
+
     out = await convert_video(await _load_asset_bytes(asset), body.format, mime=asset.mime_type or "video/mp4")
     if not out:
         raise HTTPException(status_code=422, detail="Conversion failed — unsupported target format")
@@ -427,6 +435,7 @@ async def video_attach_audio(
     if not (audio_asset.mime_type or "").startswith("audio/"):
         raise HTTPException(status_code=422, detail="audio_asset_id is not an audio asset")
     from app.services.video_ai import attach_audio
+
     out = await attach_audio(
         await _load_asset_bytes(asset),
         await _load_asset_bytes(audio_asset),
@@ -449,6 +458,7 @@ async def video_mute(
     asset = await _get_asset(asset_id, current_user, db)
     await _ensure_video(asset)
     from app.services.video_ai import mute_video
+
     out = await mute_video(await _load_asset_bytes(asset), mime=asset.mime_type or "video/mp4")
     if not out:
         raise HTTPException(status_code=422, detail="Mute failed")
@@ -465,6 +475,7 @@ async def video_extract_audio(
     asset = await _get_asset(asset_id, current_user, db)
     await _ensure_video(asset)
     from app.services.video_ai import extract_audio
+
     out = await extract_audio(await _load_asset_bytes(asset), mime=asset.mime_type or "video/mp4")
     if not out:
         raise HTTPException(status_code=422, detail="No audio track to extract")

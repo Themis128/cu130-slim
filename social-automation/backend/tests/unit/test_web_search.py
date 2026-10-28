@@ -2,6 +2,7 @@
 
 httpx transport is mocked; no network.
 """
+
 import httpx
 import pytest
 
@@ -13,10 +14,10 @@ _REAL_CLIENT = httpx.AsyncClient
 def _mock_client(handler):
     """Return an httpx.AsyncClient wired to MockTransport — patched in place
     of the real client factory used by web_search."""
+
     def factory(*args, **kwargs):
-        return _REAL_CLIENT(
-            transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout")
-        )
+        return _REAL_CLIENT(transport=httpx.MockTransport(handler), timeout=kwargs.get("timeout"))
+
     return factory
 
 
@@ -37,7 +38,8 @@ def _payload(n=3):
 @pytest.mark.asyncio
 async def test_returns_normalized_results(monkeypatch):
     monkeypatch.setattr(
-        ws.httpx, "AsyncClient",
+        ws.httpx,
+        "AsyncClient",
         _mock_client(lambda req: httpx.Response(200, json=_payload(8))),
     )
     monkeypatch.setattr(ws.settings, "SEARXNG_URL", "http://searxng:8080")
@@ -64,7 +66,8 @@ async def test_unconfigured_url_returns_empty(monkeypatch):
 @pytest.mark.asyncio
 async def test_http_error_returns_empty(monkeypatch):
     monkeypatch.setattr(
-        ws.httpx, "AsyncClient",
+        ws.httpx,
+        "AsyncClient",
         _mock_client(lambda req: httpx.Response(500, text="boom")),
     )
     monkeypatch.setattr(ws.settings, "SEARXNG_URL", "http://searxng:8080")
@@ -86,7 +89,8 @@ async def test_skips_results_without_url_and_caps(monkeypatch):
     payload = _payload(3)
     payload["results"].insert(0, {"title": "no url", "content": "x"})
     monkeypatch.setattr(
-        ws.httpx, "AsyncClient",
+        ws.httpx,
+        "AsyncClient",
         _mock_client(lambda req: httpx.Response(200, json=payload)),
     )
     monkeypatch.setattr(ws.settings, "SEARXNG_URL", "http://searxng:8080")
@@ -117,9 +121,7 @@ async def test_categories_param_forwarded(monkeypatch):
 
 
 def test_format_search_context():
-    ctx = ws.format_search_context(
-        [{"title": "T", "url": "https://x.y", "snippet": "s", "engine": "e"}], "q"
-    )
+    ctx = ws.format_search_context([{"title": "T", "url": "https://x.y", "snippet": "s", "engine": "e"}], "q")
     assert "RECENT WEB RESULTS" in ctx
     assert "https://x.y" in ctx
     assert ws.format_search_context([], "q") == ""

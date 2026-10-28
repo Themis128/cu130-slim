@@ -9,6 +9,7 @@ Run inside social-api:
   python /app/scripts/funnel_post_tool.py --funnel personal \
       --platform LinkedIn --topic "200s->10ms session polls build-log" --at 20:30
 """
+
 import argparse
 import asyncio
 import sys
@@ -28,6 +29,7 @@ ATH = ZoneInfo("Europe/Athens")
 PERSONAL = "https://cloudless.gr/links"
 BRAND_CTAS = ("https://cloudless.gr/contact", "https://social.cloudless.gr/pricing")
 
+
 async def main(a):
     async with async_session_maker() as db:
         team = (await db.scalars(select(Team))).first()
@@ -35,23 +37,19 @@ async def main(a):
             print("FAIL: no team")
             return
         if a.funnel == "personal":
-            recent = (await db.scalars(select(Post).where(
-                Post.status.in_(["published", "scheduled"]))
-                .order_by(Post.created_at.desc()).limit(20))).all()
+            recent = (await db.scalars(select(Post).where(Post.status.in_(["published", "scheduled"])).order_by(Post.created_at.desc()).limit(20))).all()
             soft = sum(1 for p in recent if "themis.baltzakis" in (p.content_text or "") or "cloudless.gr/links" in (p.content_text or ""))
             if recent and soft / len(recent) >= 1 / 3:
                 print(f"SKIP: cadence {soft}/{len(recent)} >= 1/3 — funnel saturated")
                 return
         cta = a.cta or (PERSONAL if a.funnel == "personal" else BRAND_CTAS[0])
-        tagged = tracked_url(cta, source=a.platform.lower(), medium="organic_social",
-                             campaign=f"{a.funnel}-funnel", content="funnel-post")
-        line = (f"1. {a.platform} - {a.at} - text - {a.topic}. "
-                f"Soft CTA: point readers to {tagged}")
-        rep = StrategyReport(generated_at=datetime.now(ATH), timezone="Europe/Athens",
-                             team_name=team.name)
+        tagged = tracked_url(cta, source=a.platform.lower(), medium="organic_social", campaign=f"{a.funnel}-funnel", content="funnel-post")
+        line = f"1. {a.platform} - {a.at} - text - {a.topic}. Soft CTA: point readers to {tagged}"
+        rep = StrategyReport(generated_at=datetime.now(ATH), timezone="Europe/Athens", team_name=team.name)
         rep.actions = [line]
         out = await execute_report_actions(db, team, rep)
         print("RESULT:", out)
+
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()

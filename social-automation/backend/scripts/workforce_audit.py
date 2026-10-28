@@ -217,8 +217,7 @@ WORKFORCE = [
         escalations=[
             (
                 "accounts not active",
-                "SELECT count(*) FROM social_accounts WHERE status <> 'active' "
-                "AND meta_data->>'deleted_at' IS NULL",
+                "SELECT count(*) FROM social_accounts WHERE status <> 'active' AND meta_data->>'deleted_at' IS NULL",
                 "session healing exhausted its ladder — human re-login needed",
             )
         ],
@@ -301,10 +300,12 @@ WORKFORCE = [
         fallback="send failure logged in email_logs; next sweep retries",
         # liveness = the per-sweep audit artifact; sent mail is demand-driven
         # output (zero qualifying recipients reads dark on a healthy worker)
-        evidence=[(
-            "last drip sweep",
-            "SELECT max(created_at) FROM audit_logs WHERE action='email-drip' AND resource_type='sweep'",
-        )],
+        evidence=[
+            (
+                "last drip sweep",
+                "SELECT max(created_at) FROM audit_logs WHERE action='email-drip' AND resource_type='sweep'",
+            )
+        ],
     ),
     Worker(
         "lead-research",
@@ -430,10 +431,12 @@ WORKFORCE = [
         autonomy="review",  # humans/Devin execute; codegen needs graduation
         fallback="proposal stays unplanned; next sweep retries",
         demand_driven=True,
-        evidence=[(
-            "last plan drafted",
-            "SELECT max(updated_at) FROM agency_proposals WHERE meta_data ? 'engineering_plan'",
-        )],
+        evidence=[
+            (
+                "last plan drafted",
+                "SELECT max(updated_at) FROM agency_proposals WHERE meta_data ? 'engineering_plan'",
+            )
+        ],
         pending_sql="SELECT count(*) FROM agency_proposals WHERE status='sent' AND NOT COALESCE(meta_data ? 'engineering_plan', false)",
     ),
     Worker(
@@ -722,14 +725,16 @@ async def _persist_verdicts(db, report: dict) -> None:
     if not team_id:
         return
     for w in report["workers"]:
-        db.add(AuditLog(
-            team_id=team_id,
-            action="workforce-verdict",
-            resource_type="worker",
-            resource_id=w["name"],
-            detail=w["status"],
-            meta={"status": w["status"], "autonomy": w["governance"]["autonomy"]},
-        ))
+        db.add(
+            AuditLog(
+                team_id=team_id,
+                action="workforce-verdict",
+                resource_type="worker",
+                resource_id=w["name"],
+                detail=w["status"],
+                meta={"status": w["status"], "autonomy": w["governance"]["autonomy"]},
+            )
+        )
     await db.commit()
 
 
@@ -766,21 +771,25 @@ async def _autonomy_proposals(db) -> list[dict]:
                 break
         recent_bad = [v for v in verdicts[:DEMOTE_WITHIN] if v in _BAD]
         if recent_bad and w.autonomy == "auto":
-            proposals.append({
-                "worker": name,
-                "direction": "demote",
-                "from": w.autonomy,
-                "to": "review",
-                "why": f"{len(recent_bad)} failure verdict(s) in last {DEMOTE_WITHIN} audits — narrow scope until clean",
-            })
+            proposals.append(
+                {
+                    "worker": name,
+                    "direction": "demote",
+                    "from": w.autonomy,
+                    "to": "review",
+                    "why": f"{len(recent_bad)} failure verdict(s) in last {DEMOTE_WITHIN} audits — narrow scope until clean",
+                }
+            )
         elif streak >= GRADUATE_AFTER and 0 <= tier < len(AUTONOMY_LADDER) - 1:
-            proposals.append({
-                "worker": name,
-                "direction": "graduate",
-                "from": w.autonomy,
-                "to": AUTONOMY_LADDER[tier + 1],
-                "why": f"{streak} consecutive clean audits — track record supports widening",
-            })
+            proposals.append(
+                {
+                    "worker": name,
+                    "direction": "graduate",
+                    "from": w.autonomy,
+                    "to": AUTONOMY_LADDER[tier + 1],
+                    "why": f"{streak} consecutive clean audits — track record supports widening",
+                }
+            )
     return proposals
 
 
@@ -853,10 +862,7 @@ async def push_slack(report: dict) -> None:
         if lines:
             lines.append("")
         lines.append("*Autonomy ladder — proposals (advisory)*")
-        lines += [
-            f"• `{p['worker']}` {p['direction']}: {p['from']} → {p['to']} — {p['why']}"
-            for p in props
-        ]
+        lines += [f"• `{p['worker']}` {p['direction']}: {p['from']} → {p['to']} — {p['why']}" for p in props]
     await post_alert_to_slack("\n".join(lines))
 
 

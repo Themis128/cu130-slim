@@ -28,10 +28,8 @@ from app.services import inference
 # Minimal valid 1×1 white PNG (base64) — used wherever the image pipeline
 # decodes and PIL-opens the result. Generated via:
 #   Image.new('RGB', (1, 1), (255, 255, 255)) → PNG → base64
-_PNG_1X1_B64 = (
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4"
-    "//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"
-)
+_PNG_1X1_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"
+
 
 class _FakeResp:
     def __init__(self, status_code: int, body, headers=None):
@@ -98,8 +96,7 @@ def _cf_settings(monkeypatch):
 
 
 def _clear_non_cf_keys(monkeypatch):
-    for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "MISTRAL_API_KEY",
-              "COHERE_API_KEY", "OPENROUTER_API_KEY", "NVIDIA_API_KEY"):
+    for k in ("GROQ_API_KEY", "GEMINI_API_KEY", "MISTRAL_API_KEY", "COHERE_API_KEY", "OPENROUTER_API_KEY", "NVIDIA_API_KEY"):
         monkeypatch.setattr(inference.settings, k, "")
 
 
@@ -111,8 +108,8 @@ def _clear_circuit(provider: str):
 # 1. _text_provider_chain scenarios
 # ===========================================================================
 
-class TestTextProviderChain:
 
+class TestTextProviderChain:
     @pytest.mark.asyncio
     async def test_dmr_requested_both_creds_available(self, monkeypatch):
         """DMR requested with CF creds available → DMR first, CF fallback."""
@@ -165,7 +162,9 @@ class TestTextProviderChain:
         monkeypatch.setattr(inference.settings, "DMR_URL", "")
         _cf_settings(monkeypatch)
         chain = await inference._text_provider_chain(
-            "cloudflare", None, ["cloudflare"],
+            "cloudflare",
+            None,
+            ["cloudflare"],
         )
         assert "cloudflare" in chain
         assert "dmr" not in chain
@@ -220,8 +219,8 @@ class TestTextProviderChain:
 # 2. call_inference fallback behaviour
 # ===========================================================================
 
-class TestCallInferenceFallback:
 
+class TestCallInferenceFallback:
     @pytest.mark.asyncio
     async def test_primary_succeeds_no_fallback_metadata(self, monkeypatch):
         """When primary provider succeeds, result has no _fallback key."""
@@ -257,8 +256,7 @@ class TestCallInferenceFallback:
             return {"text": "from cf"}
 
         monkeypatch.setattr(inference, "_do_call_inference", fake_do)
-        monkeypatch.setattr(inference, "_text_provider_chain",
-                            AsyncMock(return_value=["dmr", "cloudflare"]))
+        monkeypatch.setattr(inference, "_text_provider_chain", AsyncMock(return_value=["dmr", "cloudflare"]))
         monkeypatch.setattr(inference.usage_tracker, "track_inference", AsyncMock())
 
         result = await inference.call_inference("hi", provider_name="dmr", allow_fallback=True)
@@ -285,9 +283,7 @@ class TestCallInferenceFallback:
         monkeypatch.setattr(inference.usage_tracker, "track_inference", AsyncMock())
 
         with pytest.raises(HTTPException) as exc:
-            await inference.call_inference(
-                "hi", provider_name="cloudflare", allow_fallback=False
-            )
+            await inference.call_inference("hi", provider_name="cloudflare", allow_fallback=False)
         assert exc.value.status_code == 502
         assert call_order == ["cloudflare"]  # only one attempt
 
@@ -303,8 +299,7 @@ class TestCallInferenceFallback:
             raise HTTPException(status_code=502, detail=f"{provider_name} failed")
 
         monkeypatch.setattr(inference, "_do_call_inference", fake_do)
-        monkeypatch.setattr(inference, "_text_provider_chain",
-                            AsyncMock(return_value=["dmr", "cloudflare"]))
+        monkeypatch.setattr(inference, "_text_provider_chain", AsyncMock(return_value=["dmr", "cloudflare"]))
         monkeypatch.setattr(inference.usage_tracker, "track_inference", AsyncMock())
 
         with pytest.raises(HTTPException) as exc:
@@ -322,8 +317,7 @@ class TestCallInferenceFallback:
         inference._circuit_state["dmr"] = {"failures": 3, "open_until": future}
         inference._circuit_state["cloudflare"] = {"failures": 3, "open_until": future}
 
-        monkeypatch.setattr(inference, "_text_provider_chain",
-                            AsyncMock(return_value=["dmr", "cloudflare"]))
+        monkeypatch.setattr(inference, "_text_provider_chain", AsyncMock(return_value=["dmr", "cloudflare"]))
         monkeypatch.setattr(inference.usage_tracker, "track_inference", AsyncMock())
 
         with pytest.raises(HTTPException) as exc:
@@ -351,10 +345,7 @@ class TestCallInferenceFallback:
         monkeypatch.setattr(inference, "_do_call_inference", fake_do)
         monkeypatch.setattr(inference.usage_tracker, "track_inference", AsyncMock())
 
-        await inference.call_inference(
-            "Write a post", provider_name="dmr",
-            brand_context="Brand: cloudless.gr"
-        )
+        await inference.call_inference("Write a post", provider_name="dmr", brand_context="Brand: cloudless.gr")
         assert received_prompts[0].startswith("Brand: cloudless.gr")
         assert "Write a post" in received_prompts[0]
 
@@ -363,8 +354,8 @@ class TestCallInferenceFallback:
 # 3. _call_cf_image_pipeline scenarios
 # ===========================================================================
 
-class TestCfImagePipeline:
 
+class TestCfImagePipeline:
     @pytest.mark.asyncio
     async def test_local_diffusers_succeeds_no_cf_call(self, monkeypatch, cf_settings_fix):
         """If local Diffusers succeeds, CF is never called."""
@@ -387,6 +378,7 @@ class TestCfImagePipeline:
     @pytest.mark.asyncio
     async def test_local_diffusers_fails_cf_succeeds(self, monkeypatch, cf_settings_fix):
         """Local Diffusers failure → transparent fallback to CF."""
+
         async def fake_diffusers(prompt, **_kw):
             raise HTTPException(status_code=502, detail="SD not loaded")
 
@@ -402,6 +394,7 @@ class TestCfImagePipeline:
     @pytest.mark.asyncio
     async def test_local_diffusers_fails_cf_quota_allow_fallback_true(self, monkeypatch, cf_settings_fix):
         """Both local and CF quota exhausted → descriptive 502 (no other fallback)."""
+
         async def fake_diffusers(prompt, **_kw):
             raise HTTPException(status_code=502, detail="SD not loaded")
 
@@ -422,6 +415,7 @@ class TestCfImagePipeline:
     @pytest.mark.asyncio
     async def test_local_diffusers_fails_cf_quota_allow_fallback_false(self, monkeypatch, cf_settings_fix):
         """allow_fallback=False: CF quota error is re-raised immediately."""
+
         async def fake_diffusers(prompt, **_kw):
             raise HTTPException(status_code=502, detail="SD not loaded")
 
@@ -439,6 +433,7 @@ class TestCfImagePipeline:
     @pytest.mark.asyncio
     async def test_local_diffusers_fails_cf_non_quota_error_re_raises(self, monkeypatch, cf_settings_fix):
         """A non-quota CF error (e.g. 503) is re-raised as-is, not swallowed."""
+
         async def fake_diffusers(prompt, **_kw):
             raise HTTPException(status_code=502, detail="SD not loaded")
 
@@ -464,8 +459,8 @@ def cf_settings_fix(monkeypatch):
 # 4. Circuit breaker
 # ===========================================================================
 
-class TestCircuitBreaker:
 
+class TestCircuitBreaker:
     def setup_method(self):
         # Clean state before each test
         inference._circuit_state.clear()
@@ -495,9 +490,7 @@ class TestCircuitBreaker:
         for _ in range(inference._CIRCUIT_FAILURE_THRESHOLD):
             inference._circuit_record_failure("dmr")
         # Manually expire the cooldown
-        inference._circuit_state["dmr"]["open_until"] = (
-            datetime.now(UTC) - timedelta(seconds=1)
-        )
+        inference._circuit_state["dmr"]["open_until"] = datetime.now(UTC) - timedelta(seconds=1)
         assert inference._circuit_is_open("dmr") is False
         # State should be cleaned up
         assert "dmr" not in inference._circuit_state
@@ -520,8 +513,8 @@ class TestCircuitBreaker:
 # 5. _call_dmr_chat scenarios
 # ===========================================================================
 
-class TestCallDmrChat:
 
+class TestCallDmrChat:
     @pytest.mark.asyncio
     async def test_success_plain_text(self, monkeypatch):
         """Successful DMR chat returns {"text": content}."""
@@ -549,9 +542,7 @@ class TestCallDmrChat:
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
         monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
-        fake = _FakeClient(200, {
-            "choices": [{"message": {"content": '{"slides": ["a", "b"]}'}}]
-        })
+        fake = _FakeClient(200, {"choices": [{"message": {"content": '{"slides": ["a", "b"]}'}}]})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
@@ -590,9 +581,7 @@ class TestCallDmrChat:
         monkeypatch.setattr(inference.settings, "DMR_URL", "http://dmr:12434/engines/v1")
         monkeypatch.setattr(inference.settings, "DMR_TEXT_MODEL", "ai/smollm3")
         monkeypatch.setattr(inference.settings, "DMR_TINY_MODEL", "ai/smollm3")
-        fake = _FakeClient(200, {
-            "choices": [{"message": {"content": None, "reasoning_content": "I think..."}}]
-        })
+        fake = _FakeClient(200, {"choices": [{"message": {"content": None, "reasoning_content": "I think..."}}]})
         monkeypatch.setattr(dmr_mod, "_get_client", AsyncMock(return_value=fake))
         monkeypatch.setattr(dmr_mod, "_check_dmr_health", AsyncMock(return_value=True))
         monkeypatch.setattr(dmr_mod, "_has_vram_for_model", AsyncMock(return_value=True))
@@ -640,8 +629,8 @@ class TestCallDmrChat:
 # 6. _call_dmr_embedding scenarios
 # ===========================================================================
 
-class TestCallDmrEmbedding:
 
+class TestCallDmrEmbedding:
     @pytest.mark.asyncio
     async def test_success_returns_embedding_list(self, monkeypatch):
         """Successful embedding call returns the float list."""
@@ -677,8 +666,8 @@ class TestCallDmrEmbedding:
 # 7. PROVIDER_CATALOG integrity
 # ===========================================================================
 
-class TestProviderCatalog:
 
+class TestProviderCatalog:
     def test_exactly_three_providers_in_fallback_chain(self):
         """DMR, Cloudflare, and local-diffusers are the only auto-fallback providers."""
         in_chain = [p["name"] for p in inference.PROVIDER_CATALOG if p.get("in_fallback_chain")]
@@ -686,14 +675,23 @@ class TestProviderCatalog:
         assert len(in_chain) == 3
 
     def test_non_cf_cloud_providers_not_in_fallback_chain(self):
-        excluded = {"groq", "gemini", "openrouter", "sambanova", "mistral",
-                    "cohere", "nvidia", "nvidia-flux", "nvidia-flux-dev",
-                    "pixazo", "together", "huggingface"}
+        excluded = {
+            "groq",
+            "gemini",
+            "openrouter",
+            "sambanova",
+            "mistral",
+            "cohere",
+            "nvidia",
+            "nvidia-flux",
+            "nvidia-flux-dev",
+            "pixazo",
+            "together",
+            "huggingface",
+        }
         for provider in inference.PROVIDER_CATALOG:
             if provider["name"] in excluded:
-                assert provider.get("in_fallback_chain") is False, (
-                    f"{provider['name']} should have in_fallback_chain=False"
-                )
+                assert provider.get("in_fallback_chain") is False, f"{provider['name']} should have in_fallback_chain=False"
 
     def test_all_catalog_entries_have_required_fields(self):
         required = {"name", "base_url", "description", "in_fallback_chain"}
@@ -716,8 +714,8 @@ class TestProviderCatalog:
 # 8. generate_carousel_copy: CF primary with DMR fallback
 # ===========================================================================
 
-class TestCarouselCopyEnforcement:
 
+class TestCarouselCopyEnforcement:
     @pytest.mark.asyncio
     async def test_carousel_copy_uses_allow_fallback_true(self, monkeypatch):
         """generate_carousel_copy must call call_inference with allow_fallback=True
@@ -743,9 +741,7 @@ class TestCarouselCopyEnforcement:
             team_id=None,
         )
         assert calls, "call_inference was never called"
-        assert calls[0]["allow_fallback"] is True, (
-            "Carousel copy must use allow_fallback=True (CF primary → DMR fallback)"
-        )
+        assert calls[0]["allow_fallback"] is True, "Carousel copy must use allow_fallback=True (CF primary → DMR fallback)"
 
     @pytest.mark.asyncio
     async def test_carousel_copy_cf_failure_falls_back_to_dmr(self, monkeypatch):
@@ -762,16 +758,17 @@ class TestCarouselCopyEnforcement:
         monkeypatch.setattr(carousel_pipeline, "call_inference", fake_call_inference)
 
         await carousel_pipeline.generate_carousel_copy(
-            topic="AI", num_slides=5, tone="casual", include_cta=False,
+            topic="AI",
+            num_slides=5,
+            tone="casual",
+            include_cta=False,
             text_model="@cf/meta/llama-3.3-70b-instruct-fp8-fast",
             text_provider="cloudflare",
             db=MagicMock(),
             team_id=None,
         )
         assert calls, "call_inference was never called"
-        assert calls[0]["allow_fallback"] is True, (
-            "Carousel copy must allow fallback so DMR can take over if CF fails"
-        )
+        assert calls[0]["allow_fallback"] is True, "Carousel copy must allow fallback so DMR can take over if CF fails"
 
 
 class TestDmrPlatformRouting:
@@ -787,12 +784,14 @@ class TestDmrPlatformRouting:
     def test_long_form_platforms_use_text_model(self):
         from app.core.config import settings
         from app.services.dmr import _select_model_by_complexity
+
         for p in ("linkedin", "facebook", "LinkedIn"):
             assert _select_model_by_complexity("write a long post " * 20, platform=p) == settings.DMR_TEXT_MODEL
 
     def test_short_form_platforms_use_mid_model(self):
         from app.core.config import settings
         from app.services.dmr import _select_model_by_complexity
+
         for p in ("instagram", "tiktok", "twitter", "x", "threads", "youtube"):
             assert _select_model_by_complexity("write a post " * 20, platform=p) == settings.DMR_MID_MODEL
 
@@ -801,34 +800,40 @@ class TestDmrPlatformRouting:
         4B — json_object mode constrains decode so malformed JSON is impossible."""
         from app.core.config import settings
         from app.services.dmr import _select_model_by_complexity
+
         schema = {"type": "object", "properties": {"caption": {"type": "string"}}}
         assert _select_model_by_complexity("caption", schema=schema, platform="instagram") == settings.DMR_MID_MODEL
 
     def test_long_form_platform_schema_uses_text_model(self):
         from app.core.config import settings
         from app.services.dmr import _select_model_by_complexity
+
         schema = {"type": "object", "properties": {"slides": {"type": "array"}}}
         assert _select_model_by_complexity("carousel", schema=schema, platform="linkedin") == settings.DMR_TEXT_MODEL
 
     def test_schema_without_platform_uses_text_model(self):
         from app.core.config import settings
         from app.services.dmr import _select_model_by_complexity
+
         schema = {"type": "object", "properties": {"x": {"type": "string"}}}
         assert _select_model_by_complexity("anything", schema=schema) == settings.DMR_TEXT_MODEL
 
     def test_short_prompt_no_platform_uses_tiny_model(self):
         from app.core.config import settings
         from app.services.dmr import _select_model_by_complexity
+
         assert _select_model_by_complexity("hi") == settings.DMR_TINY_MODEL
 
     def test_unknown_platform_falls_back_to_length_routing(self):
         from app.core.config import settings
         from app.services.dmr import _select_model_by_complexity
+
         assert _select_model_by_complexity("hi", platform="myspace") == settings.DMR_TINY_MODEL
         assert _select_model_by_complexity("long prompt " * 50, platform="myspace") == settings.DMR_TEXT_MODEL
 
     def test_model_override_beats_platform(self):
         from app.services.dmr import _select_model_by_complexity
+
         assert _select_model_by_complexity("hi", model_override="ai/llama3.2", platform="instagram") == "ai/llama3.2"
 
     @pytest.mark.asyncio
@@ -842,6 +847,7 @@ class TestDmrPlatformRouting:
 
         import app.services.dmr as dmr_mod
         import app.services.inference as inf
+
         monkeypatch.setattr(dmr_mod, "call_dmr_chat", fake_dmr)
         # call_inference imports call_dmr_chat lazily inside _call_dmr_chat
         monkeypatch.setattr(inf, "_text_provider_chain", AsyncMock(return_value=["dmr"]))

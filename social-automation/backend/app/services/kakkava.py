@@ -46,11 +46,7 @@ _SUPPORTED = {".pdf", ".md", ".txt", ".html", ".htm"}
 
 
 def kakkava_enabled() -> bool:
-    return bool(
-        settings.KAKKAVA_SYNC_ENABLED
-        and (settings.CHROMA_URL or "").strip()
-        and Path(settings.KAKKAVA_DIR).is_dir()
-    )
+    return bool(settings.KAKKAVA_SYNC_ENABLED and (settings.CHROMA_URL or "").strip() and Path(settings.KAKKAVA_DIR).is_dir())
 
 
 def _doctrine_collection(team_id) -> str:
@@ -191,9 +187,7 @@ async def _upsert_chunks(client: httpx.AsyncClient, col_id: str, ids, embeds, do
 async def _delete_ids(client: httpx.AsyncClient, col_id: str, ids: list[str]) -> int:
     if not ids:
         return 0
-    resp = await client.post(
-        f"{_collection_base_url()}/{col_id}/delete", json={"ids": ids}
-    )
+    resp = await client.post(f"{_collection_base_url()}/{col_id}/delete", json={"ids": ids})
     return len(ids) if resp.status_code == 200 else 0
 
 
@@ -266,19 +260,13 @@ async def sync_corpus(team_id, root: Path | None = None) -> dict:
             if embeds:
                 stats["chunks_added"] += await _upsert_chunks(client, col_id, ids, embeds, docs, metas)
             # Drop stale chunks beyond the current chunk count (file shrank).
-            stale = [
-                doc_id for doc_id, m in existing.items()
-                if (m.get("chunk") or 0) >= len(chunks)
-            ]
+            stale = [doc_id for doc_id, m in existing.items() if (m.get("chunk") or 0) >= len(chunks)]
             stats["chunks_removed"] += await _delete_ids(client, col_id, stale)
 
         # Drop docs whose source file was deleted from the folder.
         try:
             all_docs = await _get_existing(client, col_id)
-            orphaned = [
-                doc_id for doc_id, m in all_docs.items()
-                if m.get("source") not in live_sources
-            ]
+            orphaned = [doc_id for doc_id, m in all_docs.items() if m.get("source") not in live_sources]
             stats["chunks_removed"] += await _delete_ids(client, col_id, orphaned)
         except Exception as exc:
             logger.warning("kakkava orphan sweep failed: %s", exc)
@@ -321,11 +309,7 @@ async def recall_doctrine(team_id, query: str, n_results: int = 4) -> list[dict]
             docs = (data.get("documents") or [[]])[0]
             metas = (data.get("metadatas") or [[]])[0]
             dists = (data.get("distances") or [[]])[0]
-            return [
-                {"text": d, "source": m.get("source", "?"), "distance": dist}
-                for d, m, dist in zip(docs, metas, dists, strict=False)
-                if d
-            ]
+            return [{"text": d, "source": m.get("source", "?"), "distance": dist} for d, m, dist in zip(docs, metas, dists, strict=False) if d]
         except Exception as exc:
             logger.warning("kakkava recall failed: %s", exc)
             return []
@@ -348,7 +332,5 @@ async def doctrine_context(team_id, query: str, n_results: int = 4, max_chars: i
         return ""
     return (
         "\n\nSOURCE DOCTRINE (Sofia Kakkava Visibility Era material — ground the "
-        "piece in these teachings, do not quote verbatim, do not name her in the copy):\n"
-        + "\n\n".join(lines)
-        + "\n"
+        "piece in these teachings, do not quote verbatim, do not name her in the copy):\n" + "\n\n".join(lines) + "\n"
     )

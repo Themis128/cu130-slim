@@ -14,30 +14,22 @@ import app.services.d1_client as D1
 
 @pytest.fixture()
 def client(monkeypatch):
-    monkeypatch.setattr(D1.settings, "CLOUDFLARE_ACCOUNT_ID", "acct",
-                        raising=False)
-    monkeypatch.setattr(D1.settings, "D1_SOCIAL_AUTOMATION_ID", "dbid",
-                        raising=False)
-    monkeypatch.setattr(D1.settings, "CLOUDFLARE_API_TOKEN", "tok1",
-                        raising=False)
-    monkeypatch.setattr(D1.settings, "CLOUDFLARE_AI_API_TOKEN", "tok2",
-                        raising=False)
-    monkeypatch.setattr(D1.settings, "CLOUDFLARE_EMAIL_API_TOKEN", "",
-                        raising=False)
+    monkeypatch.setattr(D1.settings, "CLOUDFLARE_ACCOUNT_ID", "acct", raising=False)
+    monkeypatch.setattr(D1.settings, "D1_SOCIAL_AUTOMATION_ID", "dbid", raising=False)
+    monkeypatch.setattr(D1.settings, "CLOUDFLARE_API_TOKEN", "tok1", raising=False)
+    monkeypatch.setattr(D1.settings, "CLOUDFLARE_AI_API_TOKEN", "tok2", raising=False)
+    monkeypatch.setattr(D1.settings, "CLOUDFLARE_EMAIL_API_TOKEN", "", raising=False)
     monkeypatch.setattr(D1.settings, "D1_ENABLED", True, raising=False)
     c = D1.D1Client()
     return c
 
 
 def _resp(status=200, body=None, text=""):
-    return SimpleNamespace(status_code=status, text=text,
-                           json=lambda: body if body is not None else {})
+    return SimpleNamespace(status_code=status, text=text, json=lambda: body if body is not None else {})
 
 
 def _ok(rows=None, rows_written=0):
-    return _resp(200, {"success": True, "result": [
-        {"results": rows or [],
-         "meta": {"rows_written": rows_written}}]})
+    return _resp(200, {"success": True, "result": [{"results": rows or [], "meta": {"rows_written": rows_written}}]})
 
 
 class _Http:
@@ -65,8 +57,8 @@ def _wire(monkeypatch, c, on_post):
 def _no_redis(monkeypatch):
     """Redis unavailable → local counter fallback."""
     import redis.asyncio as aioredis
-    monkeypatch.setattr(aioredis, "from_url",
-                        Mock(side_effect=ConnectionError("down")))
+
+    monkeypatch.setattr(aioredis, "from_url", Mock(side_effect=ConnectionError("down")))
 
 
 # ── config surface ────────────────────────────────────────────────────
@@ -83,14 +75,12 @@ def test_config_surface(client, monkeypatch):
     monkeypatch.setattr(D1.settings, "D1_ENABLED", True, raising=False)
 
     # missing db_id → disabled
-    monkeypatch.setattr(D1.settings, "D1_SOCIAL_AUTOMATION_ID", "",
-                        raising=False)
+    monkeypatch.setattr(D1.settings, "D1_SOCIAL_AUTOMATION_ID", "", raising=False)
     c2 = D1.D1Client()
     assert c2.enabled is False
 
     # token chain — all three present → primary is first
-    monkeypatch.setattr(D1.settings, "CLOUDFLARE_EMAIL_API_TOKEN", "tok3",
-                        raising=False)
+    monkeypatch.setattr(D1.settings, "CLOUDFLARE_EMAIL_API_TOKEN", "tok3", raising=False)
     c3 = D1.D1Client()
     assert c3._tokens == ["tok1", "tok2", "tok3"]
     assert c3.api_token == "tok1"
@@ -123,6 +113,7 @@ async def test_token_fallback(client, monkeypatch):
     async def req(token):
         calls.append(token)
         return _resp(401) if token == "tok1" else _resp(200, {"ok": 1})
+
     out = await client._try_with_token_fallback(req)
     assert out.status_code == 200 and calls == ["tok1", "tok2"]
     assert client._active_token == "tok2"
@@ -131,6 +122,7 @@ async def test_token_fallback(client, monkeypatch):
     async def req403(token):
         calls.append(token)
         return _resp(403)
+
     calls.clear()
     out = await client._try_with_token_fallback(req403)
     assert out.status_code == 403
@@ -145,6 +137,7 @@ async def test_token_fallback(client, monkeypatch):
 
     async def req401(token):
         return _resp(401)
+
     out = await client._try_with_token_fallback(req401)
     assert out.status_code == 401
 
@@ -153,16 +146,19 @@ async def test_token_fallback(client, monkeypatch):
 
     async def boom(token):
         raise ConnectionError("x")
+
     with pytest.raises(RuntimeError):
         await client._try_with_token_fallback(boom)
 
     # mixed: first raises, second succeeds
     calls2 = []
+
     async def mix(token):
         calls2.append(token)
         if token == "tok1":
             raise ConnectionError("x")
         return _resp(200)
+
     out = await client._try_with_token_fallback(mix)
     assert out.status_code == 200 and calls2 == ["tok1", "tok2"]
 
@@ -181,38 +177,33 @@ async def test_execute_paths(client, monkeypatch):
     client._enabled = True
 
     # happy SELECT → rows unwrapped, no params key when empty
-    http = _wire(monkeypatch, client,
-                 AsyncMock(return_value=_ok([{"a": 1}])))
+    http = _wire(monkeypatch, client, AsyncMock(return_value=_ok([{"a": 1}])))
     out = await client.execute("SELECT * FROM t")
     assert out == [{"a": 1}]
     assert "params" not in http.calls[0]
 
     # params serialized
-    http = _wire(monkeypatch, client,
-                 AsyncMock(return_value=_ok()))
+    http = _wire(monkeypatch, client, AsyncMock(return_value=_ok()))
     u = uuid.uuid4()
     await client.execute("SELECT ? WHERE x", [u])
     assert http.calls[0]["params"] == [str(u)]
 
     # HTTP >=400 → RuntimeError; "write limit" msg → throttled + push date
     client._write_count_date = None
-    _wire(monkeypatch, client, AsyncMock(return_value=_resp(
-        400, {"errors": [{"message": "write limit exceeded"}]})))
+    _wire(monkeypatch, client, AsyncMock(return_value=_resp(400, {"errors": [{"message": "write limit exceeded"}]})))
     with pytest.raises(RuntimeError, match="D1 HTTP 400"):
         await client.execute("SELECT 1")
     assert client._write_throttled is True
 
     # success=False → error message
-    _wire(monkeypatch, client, AsyncMock(return_value=_resp(
-        200, {"success": False, "errors": [{"message": "syntax"}]})))
+    _wire(monkeypatch, client, AsyncMock(return_value=_resp(200, {"success": False, "errors": [{"message": "syntax"}]})))
     with pytest.raises(RuntimeError, match="syntax"):
         await client.execute("SELECT bad")
 
     # write → rows_written tracked on local counter
     client._write_count = 0
     client._write_count_date = datetime.now(UTC).date()
-    _wire(monkeypatch, client, AsyncMock(return_value=_ok(
-        rows_written=3)))
+    _wire(monkeypatch, client, AsyncMock(return_value=_ok(rows_written=3)))
     await client.execute("INSERT INTO t VALUES (1)")
     assert client._write_count == 3
 
@@ -229,10 +220,9 @@ async def test_execute_paths(client, monkeypatch):
 @pytest.mark.asyncio
 async def test_redis_shared_counter(client, monkeypatch):
     # shared counter present → authoritative (overrides local)
-    r = SimpleNamespace(
-        get=AsyncMock(return_value="42"), incrby=AsyncMock(),
-        expire=AsyncMock(), aclose=AsyncMock())
+    r = SimpleNamespace(get=AsyncMock(return_value="42"), incrby=AsyncMock(), expire=AsyncMock(), aclose=AsyncMock())
     import redis.asyncio as aioredis
+
     monkeypatch.setattr(aioredis, "from_url", lambda *a, **k: r)
     client._write_count = 0
     assert await client._shared_writes_today() == 42
@@ -243,8 +233,7 @@ async def test_redis_shared_counter(client, monkeypatch):
     assert client._write_count == 47
 
     # redis down → None, local fallback
-    monkeypatch.setattr(aioredis, "from_url",
-                        Mock(side_effect=ConnectionError("x")))
+    monkeypatch.setattr(aioredis, "from_url", Mock(side_effect=ConnectionError("x")))
     assert await client._shared_writes_today() is None
     client._write_count_date = datetime.now(UTC).date() - timedelta(days=1)
     client._write_count = 9
@@ -277,8 +266,7 @@ async def test_crud_helpers(client, monkeypatch):
     monkeypatch.setattr(client, "execute", fake_exec)
 
     assert await client.query_one("SELECT 1") is None
-    monkeypatch.setattr(client, "execute",
-                        AsyncMock(return_value=[{"r": 1}]))
+    monkeypatch.setattr(client, "execute", AsyncMock(return_value=[{"r": 1}]))
     assert await client.query_one("SELECT 1") == {"r": 1}
     assert await client.query_all("SELECT 1") == [{"r": 1}]
 
@@ -308,6 +296,7 @@ async def test_crud_helpers(client, monkeypatch):
         if params == [2]:
             raise RuntimeError("row fail")
         return []
+
     monkeypatch.setattr(client, "execute", fail_second)
     assert await client.execute_many("INSERT", [[1], [2], [3]]) == 2
 
@@ -323,8 +312,7 @@ async def test_crud_helpers(client, monkeypatch):
     client._enabled = True
     monkeypatch.setattr(client, "execute", AsyncMock(return_value=[]))
     assert await client.health() is True
-    monkeypatch.setattr(client, "execute", AsyncMock(
-        side_effect=RuntimeError("x")))
+    monkeypatch.setattr(client, "execute", AsyncMock(side_effect=RuntimeError("x")))
     assert await client.health() is False
 
 
@@ -334,14 +322,15 @@ async def test_execute_error_json_and_empty_results(client, monkeypatch):
 
     # error body is not JSON → err_msg falls back to resp.text
     bad = SimpleNamespace(status_code=500, text="not-json-body")
+
     def _raise():
         raise ValueError("no json")
+
     bad.json = _raise
     _wire(monkeypatch, client, AsyncMock(return_value=bad))
     with pytest.raises(RuntimeError, match="D1 HTTP 500: not-json-body"):
         await client.execute("SELECT 1")
 
     # success but empty result list → []
-    _wire(monkeypatch, client, AsyncMock(
-        return_value=_resp(200, {"success": True, "result": []})))
+    _wire(monkeypatch, client, AsyncMock(return_value=_resp(200, {"success": True, "result": []})))
     assert await client.execute("SELECT * FROM t") == []

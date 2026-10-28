@@ -15,6 +15,7 @@ instagrapi private API is throttled (429) or proxy-blocked:
 
 Both tiers work with public profiles only. No API key, no login, no cost.
 """
+
 from __future__ import annotations
 
 import html as html_module
@@ -170,9 +171,7 @@ class FreeInstagramClient:
 
     def __init__(self) -> None:
         self._settings = get_settings()
-        self._sidecar_url = (
-            self._settings.INSTAGRAM_PRIVATE_API_URL or "http://instagram-private-api:8000"
-        ).rstrip("/")
+        self._sidecar_url = (self._settings.INSTAGRAM_PRIVATE_API_URL or "http://instagram-private-api:8000").rstrip("/")
 
     @property
     def enabled(self) -> bool:
@@ -253,8 +252,7 @@ class FreeInstagramClient:
             return result
 
         raise FreeInstagramError(
-            f"Could not fetch Instagram profile for @{username} via any free method. "
-            "The account may be private, or Instagram is blocking the request."
+            f"Could not fetch Instagram profile for @{username} via any free method. The account may be private, or Instagram is blocking the request."
         )
 
     async def get_user_by_id(self, user_id: str | int) -> dict[str, Any]:

@@ -34,13 +34,16 @@ def _report_no_issues() -> DigestReport:
 @pytest.mark.asyncio
 async def test_digest_posts_alert_when_issues_present():
     report = _report_with_issues()
-    with patch(
-        "app.services.slack_digest.post_digest_text_to_slack",
-        new=AsyncMock(return_value=(True, None, "123.456")),
-    ), patch(
-        "app.services.slack_digest.post_alert_to_slack",
-        new=AsyncMock(),
-    ) as post_alert:
+    with (
+        patch(
+            "app.services.slack_digest.post_digest_text_to_slack",
+            new=AsyncMock(return_value=(True, None, "123.456")),
+        ),
+        patch(
+            "app.services.slack_digest.post_alert_to_slack",
+            new=AsyncMock(),
+        ) as post_alert,
+    ):
         out = await post_digest_to_slack(report)
 
     assert out.posted_to_slack is True
@@ -50,15 +53,17 @@ async def test_digest_posts_alert_when_issues_present():
 @pytest.mark.asyncio
 async def test_digest_does_not_post_alert_when_no_issues():
     report = _report_no_issues()
-    with patch(
-        "app.services.slack_digest.post_digest_text_to_slack",
-        new=AsyncMock(return_value=(True, None, "123.456")),
-    ), patch(
-        "app.services.slack_digest.post_alert_to_slack",
-        new=AsyncMock(),
-    ) as post_alert:
+    with (
+        patch(
+            "app.services.slack_digest.post_digest_text_to_slack",
+            new=AsyncMock(return_value=(True, None, "123.456")),
+        ),
+        patch(
+            "app.services.slack_digest.post_alert_to_slack",
+            new=AsyncMock(),
+        ) as post_alert,
+    ):
         out = await post_digest_to_slack(report)
 
     assert out.posted_to_slack is True
     post_alert.assert_not_awaited()
-

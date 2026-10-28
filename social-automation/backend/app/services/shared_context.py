@@ -9,6 +9,7 @@ datalake agents act on the same intent instead of per-session journals.
 
 Stored in the app KV/Redis (falls back to a JSON file under /app/.state).
 """
+
 from __future__ import annotations
 
 import json

@@ -4,6 +4,7 @@ app/services/email_campaigns.py plus the Celery send task.
 Complements test_email_campaigns.py; reuses its ordered-result DB fake.
 External mail (Resend via send_email) and EspoCRM are always mocked.
 """
+
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -70,16 +71,18 @@ class TestSendCampaign:
         ok = _recipient(email="ok@x.com", name=None, token="t-ok")
         sup = _recipient(email="sup@x.com", token="t-sup")
         bad = _recipient(email="bad@x.com", token="t-bad")
-        db = _DB([
-            _Res([camp]),            # campaign lookup
-            _Res([]),                # duplicate detector: no recent campaigns
-            _Res([3]),               # _sent_today
-            _Res([ok, sup, bad]),    # pending recipients
-            _Res([]),                # suppression check for ok
-            _Res(["sup@x.com"]),     # suppression check for sup
-            _Res([]),                # suppression check for bad
-            _Res([0]),               # remaining pending
-        ])
+        db = _DB(
+            [
+                _Res([camp]),  # campaign lookup
+                _Res([]),  # duplicate detector: no recent campaigns
+                _Res([3]),  # _sent_today
+                _Res([ok, sup, bad]),  # pending recipients
+                _Res([]),  # suppression check for ok
+                _Res(["sup@x.com"]),  # suppression check for sup
+                _Res([]),  # suppression check for bad
+                _Res([0]),  # remaining pending
+            ]
+        )
         send_env["use_db"](db)
         send_env["configured"] = True
         send_env["crm"] = {"ok@x.com": {"firstName": "Olga", "accountName": "Acme"}}
@@ -118,12 +121,15 @@ class TestSendCampaign:
     async def test_budget_exhausted_keeps_rows_pending(self, send_env):
         camp = _campaign()
         r1 = _recipient(email="a@x.com")
-        db = _DB([
-            _Res([camp]), _Res([]),
-            _Res([S.DAILY_SEND_BUDGET]),  # whole daily budget already used
-            _Res([r1]),
-            _Res([1]),                    # still one pending
-        ])
+        db = _DB(
+            [
+                _Res([camp]),
+                _Res([]),
+                _Res([S.DAILY_SEND_BUDGET]),  # whole daily budget already used
+                _Res([r1]),
+                _Res([1]),  # still one pending
+            ]
+        )
         send_env["use_db"](db)
         out = await S.send_campaign(camp.id)
         assert out == {"sent": 0, "failed": 0, "skipped": 0, "budget_left": 0}
@@ -189,7 +195,11 @@ class TestResolveAudienceSources:
 
         monkeypatch.setattr(S.espocrm_client, "campaign_profiles", profiles)
         recs = await S.resolve_audience(
-            db, _campaign(), lead_sources=["website"], lead_interests=["seo"], include_espocrm=True,
+            db,
+            _campaign(),
+            lead_sources=["website"],
+            lead_interests=["seo"],
+            include_espocrm=True,
         )
         by = {r.email: r for r in recs}
         assert set(by) == {"lead@x.com", "crm@x.com", "acct@x.com"}
@@ -208,7 +218,10 @@ class TestResolveAudienceSources:
         monkeypatch.setattr(S.espocrm_client, "campaign_profiles", boom)
         db = _DB([_Res([])])
         recs = await S.resolve_audience(
-            db, _campaign(), explicit_emails=[{"email": ""}], include_espocrm=True,
+            db,
+            _campaign(),
+            explicit_emails=[{"email": ""}],
+            include_espocrm=True,
         )
         assert recs == [] and db.commits == 1
 
@@ -221,9 +234,16 @@ class TestResolveAudienceSources:
 
 class TestFunnelEdges:
     def test_survey_questions_filters_malformed(self):
-        c = _campaign(meta_data={"questions": [
-            {"id": "q1", "label": "One"}, {"id": "q2"}, "junk", {"label": "no id"},
-        ]})
+        c = _campaign(
+            meta_data={
+                "questions": [
+                    {"id": "q1", "label": "One"},
+                    {"id": "q2"},
+                    "junk",
+                    {"label": "no id"},
+                ]
+            }
+        )
         assert S.survey_questions(c) == [{"id": "q1", "label": "One"}]
         assert S.survey_questions(_campaign(meta_data=None)) == []
 
@@ -242,8 +262,7 @@ class TestFunnelEdges:
     @pytest.mark.asyncio
     async def test_submit_validation_errors_returned(self):
         rec = _recipient()
-        camp = _campaign(kind=CampaignKind.survey,
-                         meta_data={"questions": [{"id": "q", "label": "Q", "required": True}]})
+        camp = _campaign(kind=CampaignKind.survey, meta_data={"questions": [{"id": "q", "label": "Q", "required": True}]})
         db = _DB([_Res([rec]), _Res([camp]), _Res([])])
         resp, errors = await S.submit_survey(db, rec.token, None)
         assert resp is None and errors == ["q: required"] and not db.added
@@ -254,8 +273,7 @@ class TestFunnelEdges:
             raise AssertionError("CRM must not be called")
 
         monkeypatch.setattr(S.espocrm_client, "add_lead_note", never)
-        camp = _campaign(kind=CampaignKind.survey,
-                         meta_data={"questions": [{"id": "q", "label": "Q"}]})
+        camp = _campaign(kind=CampaignKind.survey, meta_data={"questions": [{"id": "q", "label": "Q"}]})
         # lead row gone
         rec = _recipient(lead_id=uuid.uuid4())
         db = _DB([_Res([rec]), _Res([camp]), _Res([]), _Res([])])
@@ -277,8 +295,7 @@ class TestStatsAndPayload:
 
     def test_payload(self):
         sent_at = datetime(2026, 10, 1, tzinfo=UTC)
-        c = _campaign(kind=CampaignKind.survey, status=CampaignStatus.sent, sent_at=sent_at,
-                      meta_data={"questions": [{"id": "q", "label": "Q"}]})
+        c = _campaign(kind=CampaignKind.survey, status=CampaignStatus.sent, sent_at=sent_at, meta_data={"questions": [{"id": "q", "label": "Q"}]})
         p = S.campaign_payload(c)
         assert p["kind"] == "survey" and p["status"] == "sent"
         assert p["sent_at"] == sent_at.isoformat() and p["questions"] == [{"id": "q", "label": "Q"}]

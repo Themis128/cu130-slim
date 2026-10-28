@@ -7,6 +7,7 @@ Each team has at most one Brand. A Brand contains:
 - BrandGuidelines (compiled, shareable document)
 - BrandAsset (logos, templates, OG images, favicons stored in media library)
 """
+
 import enum
 import uuid
 from datetime import UTC, datetime
@@ -35,9 +36,7 @@ class BrandAssetType(enum.StrEnum):
 
 class Brand(Base):
     __tablename__ = "brands"
-    __table_args__ = (
-        Index("ix_brands_team", "team_id"),
-    )
+    __table_args__ = (Index("ix_brands_team", "team_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -64,9 +63,7 @@ class Brand(Base):
 
 class BrandVoice(Base):
     __tablename__ = "brand_voices"
-    __table_args__ = (
-        Index("ix_brand_voices_brand", "brand_id"),
-    )
+    __table_args__ = (Index("ix_brand_voices_brand", "brand_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     brand_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("brands.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -84,9 +81,7 @@ class BrandVoice(Base):
 
 class BrandVisual(Base):
     __tablename__ = "brand_visuals"
-    __table_args__ = (
-        Index("ix_brand_visuals_brand", "brand_id"),
-    )
+    __table_args__ = (Index("ix_brand_visuals_brand", "brand_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     brand_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("brands.id", ondelete="CASCADE"), nullable=False, unique=True)
@@ -108,9 +103,7 @@ class BrandVisual(Base):
 
 class BrandGuidelines(Base):
     __tablename__ = "brand_guidelines"
-    __table_args__ = (
-        Index("ix_brand_guidelines_brand", "brand_id"),
-    )
+    __table_args__ = (Index("ix_brand_guidelines_brand", "brand_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     brand_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("brands.id", ondelete="CASCADE"), nullable=False, unique=True)

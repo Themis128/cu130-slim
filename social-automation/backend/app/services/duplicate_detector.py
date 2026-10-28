@@ -225,10 +225,7 @@ def resolve_slide_duplicates(slide: dict) -> tuple[dict, list[str]]:
     highlight = (out.get("highlight") or "").strip() or None
 
     # Drop highlight if it duplicates title or body.
-    if highlight and (
-        is_duplicate(highlight, title)
-        or is_duplicate(highlight, body)
-    ):
+    if highlight and (is_duplicate(highlight, title) or is_duplicate(highlight, body)):
         actions.append("cleared_duplicate_highlight")
         highlight = None
 
@@ -269,9 +266,7 @@ def resolve_cross_slide_duplicates(slides: list[dict]) -> tuple[list[dict], list
                         actions.append(f"cleared_cross_slide_body slide[{j}]~slide[{i}]")
                     else:
                         # Differentiate later title lightly if body still unique.
-                        if (right.get("body") or "").strip() and not is_duplicate(
-                            right.get("body") or "", lv, threshold=0.55
-                        ):
+                        if (right.get("body") or "").strip() and not is_duplicate(right.get("body") or "", lv, threshold=0.55):
                             # Keep later body, shorten title to avoid twin headlines.
                             words = content_tokens(right.get("body") or "")[:5]
                             right["title"] = " ".join(words).capitalize() if words else right["title"]

@@ -16,6 +16,7 @@ Covers:
 - a fenced JSON block with no closing fence
 
 Redis, the DMR HTTP API, nvidia-smi and the GPU arbiter are all faked."""
+
 from __future__ import annotations
 
 import asyncio
@@ -182,10 +183,12 @@ async def test_chat_vram_tiny_does_not_fit_keeps_model(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_chat_runner_load_failure_heals_gpu(monkeypatch):
-    post = AsyncMock(side_effect=[
-        _resp(500, text="unable to load runner: not enough GPU memory"),
-        _resp(200, {"choices": [{"message": {"content": "ok"}}]}),
-    ])
+    post = AsyncMock(
+        side_effect=[
+            _resp(500, text="unable to load runner: not enough GPU memory"),
+            _resp(200, {"choices": [{"message": {"content": "ok"}}]}),
+        ]
+    )
     _chat_env(monkeypatch, post=post)
     monkeypatch.setattr(D, "_model_is_cpu_pinned", lambda m: False)
     free = AsyncMock()
@@ -225,8 +228,7 @@ async def test_stream_skips_keepalives_and_empty_deltas(monkeypatch):
 
     monkeypatch.setattr(GA, "dmr_slot", lambda **_kw: _Slot())
     monkeypatch.setattr(D.settings, "DMR_URL", "http://dmr/v1", raising=False)
-    lines = [": keep-alive", 'data: {"choices": [{"delta": {"role": "assistant"}}]}',
-             'data: {"choices": [{"delta": {"content": "x"}}]}', "data: [DONE]"]
+    lines = [": keep-alive", 'data: {"choices": [{"delta": {"role": "assistant"}}]}', 'data: {"choices": [{"delta": {"content": "x"}}]}', "data: [DONE]"]
     client = SimpleNamespace(is_closed=False, stream=Mock(return_value=_StreamResp(lines)))
     monkeypatch.setattr(D, "_get_client", AsyncMock(return_value=client))
     assert [c async for c in D._stream_dmr_chat({"model": "m"}, 5.0)] == ["x"]

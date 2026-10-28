@@ -79,18 +79,9 @@ def _command(payload: dict) -> tuple[str, str | None, int | None]:
 async def _status() -> str:
     async with async_session_maker() as db:
         rows = (
-            await db.execute(
-                select(SocialAccount.platform, SocialAccount.status,
-                       func.count())
-                .group_by(SocialAccount.platform, SocialAccount.status)
-            )
+            await db.execute(select(SocialAccount.platform, SocialAccount.status, func.count()).group_by(SocialAccount.platform, SocialAccount.status))
         ).all()
-        q = (
-            await db.execute(
-                select(PublishQueue.status, func.count())
-                .group_by(PublishQueue.status)
-            )
-        ).all()
+        q = (await db.execute(select(PublishQueue.status, func.count()).group_by(PublishQueue.status))).all()
     lines = ["*Accounts:*"]
     for platform, status, n in sorted(rows):
         lines.append(f"  {platform}: {n} ({status})")
