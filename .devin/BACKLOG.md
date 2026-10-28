@@ -173,3 +173,13 @@
 - [ ] LinkedIn dev portal — grant "Member Data Portability API (Member)" product → li_member_snapshot.py + consent healer auto-harvests connections (PR #1046)
 - [ ] WhatsApp — standard registration via POST /{phone}/register (NOT request_code/verify_code — those are migration API; 2388091 decoded)
 - [ ] heal_consents hourly beat — twitter/linkedin/whatsapp/bridge probes, Slack alerts on state flips (PR #1049 + #1053)
+
+## 2026-10-28 — residual automation round
+
+- **IG login AUTOMATED** — `session_bootstrap.py` + `rfb-input` proven end-to-end: trusted RFB input fills email/pass, submits, gets real server response. Residual narrowed from "manual login" → "rotate `INSTAGRAM_PASSWORD` secret" (stored pass is stale; IG returns "login information incorrect"). After rotating: `python3 .devin/skills/bridge-session-ops/scripts/session_bootstrap.py instagram --bridge http://localhost:9232`.
+- **rfb.py bug** — missing `import shlex` fixed.
+- **wa_verify_daemon.py** running — WhatsApp fully unattended (hourly retry + ADB/mail poll + auto-verify).
+- **X** — `X_WEB_AUTH_TOKEN` stale (verified via onboarding redirect); no password stored anywhere → stays physical (one x.com login on noVNC).
+- **FB** — live session confirmed on shared bridge (c_user/xs extracted) — business console surface warm.
+- **LinkedIn** — OAuth URL + `LINKEDIN_COOKIE` ready; bridge frees after platform lock releases.
+- **TikTok** — `business.tiktok.com` logged in on adhoc browser; cert upload is the physical step.
