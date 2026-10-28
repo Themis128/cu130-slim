@@ -1185,9 +1185,9 @@ _BEST_PRACTICE_CONFIGS: dict[str, dict[str, Any]] = {
     # /engines/_configure replaces the whole config, so omitting it here
     # would restore the native 262144 ctx (~oversized KV allocation) on the
     # next backend push.
-    "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF": {
+    "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF": {  # keep_alive raised 60s→15m: 0.6B model, reload on every recall otherwise
         "context_size": 8192,
-        "keep_alive": "60s",
+        "keep_alive": "15m",
         "mode": "embedding",
         "runtime_flags": ["--n-gpu-layers", "0", "--threads", "8"],
     },
@@ -1689,7 +1689,10 @@ async def call_dmr_embedding(
         client = await _get_client()
         from app.services.gpu_arbiter import dmr_slot
 
-        async with _get_semaphore(), dmr_slot():
+        # Embeddings are small and have a Cloudflare BGE-M3 fallback — a
+        # 480s slot wait that ends unserialized is strictly worse than a
+        # 30s bound that fails fast into the fallback.
+        async with _get_semaphore(), dmr_slot(max_acquire_s=30.0, fail_on_timeout=True):
             resp = await client.post(
                 url,
                 json={"model": model, "input": text},

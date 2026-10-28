@@ -175,7 +175,12 @@ async def media_gpu_lock(
 
 
 @asynccontextmanager
-async def dmr_slot(*, _for_media: bool = False) -> AsyncIterator[None]:
+async def dmr_slot(
+    *,
+    _for_media: bool = False,
+    max_acquire_s: float | None = None,
+    fail_on_timeout: bool = False,
+) -> AsyncIterator[None]:
     """Cluster-wide single-flight FIFO for DMR requests.
 
     The per-process asyncio.Semaphore (DMR_MAX_CONCURRENCY) cannot serialize
@@ -206,8 +211,9 @@ async def dmr_slot(*, _for_media: bool = False) -> AsyncIterator[None]:
         yield
         return
     try:
+        acquire_s = _DMR_LOCK_ACQUIRE_S if max_acquire_s is None else max_acquire_s
         waited = 0.0
-        while waited < _DMR_LOCK_ACQUIRE_S:
+        while waited < acquire_s:
             try:
                 got = await r.set(_DMR_LOCK_KEY, token, nx=True, ex=_DMR_LOCK_TTL_S)
             except Exception as exc:
@@ -223,15 +229,24 @@ async def dmr_slot(*, _for_media: bool = False) -> AsyncIterator[None]:
             await asyncio.sleep(1.0)
             waited += 1.0
         if not acquired:
+            if fail_on_timeout:
+                # Callers with a fast fallback (embeddings → CF BGE-M3) are
+                # better served failing now than stalling then running
+                # unserialized into a contended scheduler anyway.
+                raise ConnectionError(
+                    f"DMR slot not acquired in {acquire_s:.0f}s — use cloud fallback"
+                )
             logger.warning(
                 "[gpu-arbiter] DMR slot not acquired in %.0fs — proceeding unserialized",
-                _DMR_LOCK_ACQUIRE_S,
+                acquire_s,
             )
         if not _for_media:
             # Re-check: a caller that passed await_media_idle before the
             # busy flag was set (or acquired the slot after its TTL lapsed
             # mid-render) must not run inference into an active media job.
-            await await_media_idle()
+            # Bound by the caller's acquire budget so short-budget callers
+            # (embeddings) can't stall 5min here after winning the slot.
+            await await_media_idle(max_wait_s=min(acquire_s, _DMR_WAIT_MAX_S))
         try:
             yield
         finally:

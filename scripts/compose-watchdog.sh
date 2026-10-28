@@ -74,4 +74,18 @@ async def m():
   print(s.get('logged_in'))
 asyncio.run(m())" 2>/dev/null | tail -1)
 [ "$LI" = "False" ] && ALERT "li-session" ":warning: LinkedIn sidecar session dropped — needs re-auth"
+# 5. DMR lock starvation — gpu:dmr_lock (TTL 660s) held at 3+ consecutive
+#    checks means every embed/generate call is stalling behind contention
+#    or a leaked holder. Self-heals at TTL; we surface it before that.
+if [ -n "${P:-}" ]; then
+  LK=$(docker exec redis redis-cli -a "$P" pttl gpu:dmr_lock 2>/dev/null || echo -2)
+  LKF="/tmp/wd-dmr-lock-seen"
+  if [ "${LK:-0}" -gt 0 ]; then
+    n=$(( $(cat "$LKF" 2>/dev/null || echo 0) + 1 ))
+    echo "$n" > "$LKF"
+    [ "$n" -ge 3 ] && ALERT "dmr-lock" ":warning: gpu:dmr_lock held at $n consecutive checks (~$((n*10))min) — DMR calls stalling; look for a wedged holder"
+  else
+    rm -f "$LKF"
+  fi
+fi
 exit 0
