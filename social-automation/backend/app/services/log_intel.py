@@ -9,7 +9,6 @@ step is deferred — recent-window query works without embeddings.
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
@@ -18,16 +17,18 @@ from app.services.loop_harness import llm_call, single_job_prompt
 
 logger = logging.getLogger(__name__)
 
+import os
+
 LOKI = os.environ.get("LOKI_URL", "http://192.168.1.130:3100")
 # broad selector — every service's stdout/stderr lands here
-QUERY = '{job=~".+"} |= "error" or {job=~".+"} |= "Error" or {job=~".+"} |= "warning" or {job=~".+"} |= "WARNING"'
+QUERY = '{service_name=~".+"} |~ "error|Error|ERROR|failed|exception|warning|WARNING"'
 MAX_LINES = 40
 
 
 async def _query_loki(minutes: int) -> list[str]:
     """Pull the last N minutes of error/warning lines from Loki."""
     end = int(__import__("time").time() * 1e9)
-    start = end - minutes * 60 * 1e9
+    start = end - int(minutes * 60 * 1e9)
     params = {
         "query": QUERY,
         "start": start,
@@ -62,8 +63,9 @@ async def triage_logs(minutes: int = 15) -> dict[str, Any]:
         context=context,
         constraint="be terse; no markdown tables; emoji per severity")
     try:
-        summary = await llm_call(prompt, expect=lambda t: len(t) > 20,
-                                 tag="log-triage")
+        summary = await llm_call(
+            prompt, expect=lambda t: len(t) > 20, tag="log-triage",
+            model="hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M")
     except Exception as e:
         summary = f"triage failed: {e}"
     return {"lines": len(lines), "summary": summary}
