@@ -98,3 +98,11 @@
 - cloudless.gr: umbrella #2305 landed + subsets closed; dependabot groups merged; #2308 skills+CI-path fix; #2309 links page (kept restored GSC page — PR was reverting); #2310 AI-governance offer draft live on /services.
 - Owner-gated remains (status comments + proposals posted on each): #784 test-post approval, #793 partner approvals, #794 batch size, #795 offer edits, #785 Meta evidence, #786 WA SMS (rate-limited — owner-side request best), #788 IG session bootstrap via noVNC, #789 TikTok captcha at noVNC (browser staged), #791 app-side share review.
 - New: espo_leads_tool.py CLI; owner-gate-ops + pr-sweep-ops skills.
+
+
+## 2026-10-28 — Master green-out session closeout
+
+- Master CI healthy: backend `test` 7413 passed, line 99.03%/branch 95.44% (gates 99.0/95.3), `integration-test` green, docs inventory complete.
+- Fixed en route: watch_skool_vec task-decorator drift, phantom `app.models.settings.Setting` (now SocialSecret JSON), `app.models.publish_queue`→`queue` import, datalake `tables` mirror + CF-outage isolation payloads, ruff/mypy leaks, ~200 uncovered lines over 6 test rounds, stale test fixtures (probe statuses, _PAGE, files count, side_effect leaks).
+- Docs updated: CODEMAP (reconcile, owner-gate tools, nurture warm-up), api-surface-inventory (6 new routes).
+- Remaining owner gates unchanged: Meta console evidence (#785), WA SMS (#786), app steps (#788/#789/#791), approvals (#784/#793/#794/#795).

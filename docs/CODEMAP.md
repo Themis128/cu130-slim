@@ -304,7 +304,56 @@ dedupe, New/Assigned → In Process, Slack on hits).
 
 ## Beat schedule highlights
 
-publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · NC surfaces sync 3h :25 · session heal hourly :20 · promo scan 08:00 · email drip 08:20 · monetization report 08:30 · lead research 08:40 · CRM lifecycle 08:50 · CRM engagement 30min · CRM hygiene Mon 07:30 · company-brain journal 23:45 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily · Telegram agent daily 11:00
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · account-status reconcile 6h · NC surfaces sync 3h :25 · session heal hourly :20 · promo scan 08:00 · email drip 08:20 · monetization report 08:30 · lead research 08:40 · CRM lifecycle 08:50 · CRM engagement 30min · CRM hygiene Mon 07:30 · company-brain journal 23:45 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily · Telegram agent daily 11:00
+
+## Account-status reconciliation (`account_status_reconcile.reconcile_account_status`)
+
+Beat task (default queue, every 6h) that re-reads **authoritative platform
+truth** instead of trusting the stored `social_accounts.status` flag — the
+WhatsApp row said `active` while the WABA API showed `NOT_VERIFIED`.
+
+- Per-platform probes: Meta Graph `/{account_id}`, WABA phone-number
+  `code_verification_status`, TikTok `creator_info`, LinkedIn `userinfo`,
+  X `users/me`, Telegram `getMe`, Threads Graph `/me`.
+- `meta_data.last_verified_at` + `token_probe_status` stamped each pass —
+  no migration needed (`meta_data` is JSONB).
+- Drift handling: `active→{expired,revoked}` flips status + D1 mirror +
+  Slack alert; `expired/revoked→active` is **demote-only** (never auto-
+  promotes — session health owns that direction). `inconclusive`/`unprobed`
+  results only stamp `last_verify_attempt_at`.
+- CLI diagnostics: `scripts/app_audit.py` normalizes a status table across
+  every connected developer app.
+
+## Owner-gate bridge tools (2026-10-27/28)
+
+- `scripts/wa_verify.py` — WhatsApp `request_code` → dual-poll SMS via ADB
+  `adb.exe` (WSL→Windows) + dovecot mail, then `verify_code`. Rate-limit
+  `2388367`/`2388091` decoded — each retry extends the window.
+- `scripts/linkedin_cm_tool.py` — LinkedIn Community Management API
+  (`264925843`): org posts/comments/socialActions. Stored org token
+  predates approval → re-auth via `LINKEDIN_EXTRA_SCOPES`.
+- `scripts/member_snapshot_tool.py` (linkedin) — connections export via
+  `memberSnapshotData` domain.
+- `scripts/pending_digest.py` — posts the open human-input click-list to
+  Slack on demand.
+- `scripts/espo_leads_tool.py` — EspoCRM Lead CLI (`by-source`/`by-status`/
+  `search`) used for the partner shortlist.
+- `scripts/x_webhook_register.py` — registers the X Account Activity
+  webhook + subscription (OAuth1 user-context).
+- `scripts/harvest_contacts.py` + `scripts/audience_watch.py` — LinkedIn
+  `Connections.csv` → filtered survey audience; watcher attaches drops
+  automatically.
+- `scripts/offer_survey.py` — offer-validation survey campaign (EspoCRM
+  write-back, `/s/{token}` hosted forms).
+- Browser-bridge sessions: `scripts/bridge_sessions.py` checks/seeds
+  platform logins on `browser-novnc:9223` (X seed via `X_WEB_AUTH_TOKEN`).
+
+## Newsletter nurture sidecar warm-up
+
+`scripts/newsletter_nurture.py` now waits (bounded 90s) for the LinkedIn
+sidecar's `browser_connected` before touching leads — cold-start used to
+race the idle-sleep wake and drop connections mid-batch. Dry-run remains
+the default; `--approve` requires explicit batch approval.
 
 ## cloudless.gr datalake export (`datalake_export.export_datalake`)
 
