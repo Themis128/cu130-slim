@@ -38,10 +38,12 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_session_refresh",
         "app.worker.tasks.whatsapp_verify",
         "app.worker.tasks.telegram_digest",
+        "app.worker.tasks.synigoros_status",
         "app.worker.tasks.telegram_agent",
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.auto_gates",
         "app.worker.tasks.consent_healers",
+        "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.datalake_insights",
@@ -226,6 +228,7 @@ celery_app.conf.update(
         "app.worker.tasks.digest.send_daily_strategy_report": {"queue": "default"},
         "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
+        "app.worker.tasks.synigoros_status.poll_synigoros": {"queue": "default"},
         "app.worker.tasks.telegram_agent.run_channel_agent_daily": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
@@ -541,6 +544,11 @@ celery_app.conf.update(
             "task": "app.worker.tasks.token_refresh.refresh_expiring_tokens",
             "schedule": crontab(minute="15,45"),
         },
+        # Daily Ombudsman complaint-status poll → Telegram on change
+        "synigoros-status": {
+            "task": "app.worker.tasks.synigoros_status.poll_synigoros",
+            "schedule": crontab(hour=7, minute=30),
+        },
         # Purge terminal publish_queue rows (failed/cancelled) older than 3
         # days — keeps the queue bounded and the failed-count metric
         # meaningful. Error details persist on posts/post_targets.
@@ -588,6 +596,11 @@ celery_app.conf.update(
         "survey-autosend": {
             "task": "app.worker.tasks.auto_gates.survey_autosend",
             "schedule": 900.0,  # every 15 min — fires flagged survey campaigns
+            "options": {"queue": "default"},
+        },
+        "log-intel": {
+            "task": "app.worker.tasks.log_intel.digest",
+            "schedule": 1800.0,  # 30 min — syslog→LLM triage digest
             "options": {"queue": "default"},
         },
         "consent-healers": {
