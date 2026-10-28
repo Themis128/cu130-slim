@@ -105,6 +105,7 @@ async def _bridge_health() -> str:
     import json
     import os
     import time
+    import urllib.parse
     import urllib.request
 
     tok, ct0 = os.environ.get("X_WEB_AUTH_TOKEN", ""), os.environ.get("X_WEB_CT0", "")
