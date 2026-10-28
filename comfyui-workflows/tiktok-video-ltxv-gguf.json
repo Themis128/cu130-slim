@@ -1,0 +1,24 @@
+{
+  "_meta": {
+    "name": "TikTok vertical video — LTX-Video 2B GGUF Q8 (primary)",
+    "hardware": "RTX 3070 Laptop 8GB VRAM / ComfyUI --lowvram --force-fp16",
+    "models": {
+      "unet": "models/unet/ltx-video-2b-v0.9-Q8_0.gguf (city96/LTX-Video-gguf)",
+      "clip": "models/text_encoders/t5xxl_fp8_e4m3fn_scaled.safetensors",
+      "vae": "models/vae/LTX-Video-VAE-BF16.safetensors (city96/LTX-Video-gguf)"
+    },
+    "custom_nodes": ["ComfyUI-GGUF", "ComfyUI-LTXVideo", "ComfyUI-VideoHelperSuite"],
+    "tested": "2026-10-02 — 480x832 41f @25fps, 25 steps euler/normal cfg3.0, ~24s sampling, ~98s total incl. model load",
+    "notes": "Dimensions must be multiples of 32; frame count must be 8n+1. ltxv-2b-0.9.8-distilled-fp8.safetensors produces noise on ComfyUI 0.38 (current LTXVideo pack is LTX-2.x era) — use the GGUF Q8 build instead."
+  },
+  "1": {"class_type": "UnetLoaderGGUF", "inputs": {"unet_name": "ltx-video-2b-v0.9-Q8_0.gguf"}},
+  "2": {"class_type": "CLIPLoader", "inputs": {"clip_name": "t5xxl_fp8_e4m3fn_scaled.safetensors", "type": "ltxv"}},
+  "3": {"class_type": "VAELoader", "inputs": {"vae_name": "LTX-Video-VAE-BF16.safetensors"}},
+  "4": {"class_type": "CLIPTextEncode", "inputs": {"text": "PROMPT_HERE", "clip": ["2", 0]}},
+  "5": {"class_type": "CLIPTextEncode", "inputs": {"text": "worst quality, inconsistent motion, blurry, jittery, distorted, watermark, text", "clip": ["2", 0]}},
+  "6": {"class_type": "LTXVConditioning", "inputs": {"positive": ["4", 0], "negative": ["5", 0], "frame_rate": 25.0}},
+  "14": {"class_type": "EmptyLTXVLatentVideo", "inputs": {"width": 480, "height": 832, "length": 41, "batch_size": 1}},
+  "15": {"class_type": "KSampler", "inputs": {"model": ["1", 0], "positive": ["6", 0], "negative": ["6", 1], "latent_image": ["14", 0], "seed": 0, "steps": 25, "cfg": 3.0, "sampler_name": "euler", "scheduler": "normal", "denoise": 1.0}},
+  "13": {"class_type": "VAEDecode", "inputs": {"samples": ["15", 0], "vae": ["3", 0]}},
+  "12": {"class_type": "VHS_VideoCombine", "inputs": {"frame_rate": 25, "loop_count": 0, "filename_prefix": "tiktok", "format": "video/h264-mp4", "pix_fmt": "yuv420p", "crf": 19, "save_metadata": true, "pingpong": false, "save_output": true, "images": ["13", 0]}}
+}

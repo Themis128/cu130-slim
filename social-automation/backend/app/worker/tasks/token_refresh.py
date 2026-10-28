@@ -1,0 +1,285 @@
+"""Celery task — auto-refresh expiring OAuth tokens for all social accounts.
+
+TikTok access tokens expire in 24 hours, Twitter in 2 hours, and Meta/Threads
+in ~60 days. This task runs every hour and refreshes any token that will expire
+within the next 4 hours, so accounts never go offline unexpectedly.
+"""
+import logging
+from datetime import UTC, datetime, timedelta
+
+import httpx
+from celery import shared_task
+from sqlalchemy import and_, or_, select
+
+from app.core.security import decrypt_token, encrypt_token
+from app.models.social_account import SocialAccount
+from app.services.db_sync import sync_after_worker_task
+from app.worker._async import run_async, task_session
+from app.worker.celery_app import celery_app
+
+celery_app.set_default()
+celery_app.set_current()
+
+logger = logging.getLogger(__name__)
+
+# Refresh tokens that will expire within this window
+REFRESH_WINDOW = timedelta(hours=4)
+# Don't refresh tokens more often than this
+MIN_REFRESH_INTERVAL = timedelta(hours=1)
+
+
+_worker_db = task_session
+
+
+def _get_oauth_client(platform: str):
+    """Return the OAuth2 client for a platform, or None if not refreshable."""
+    # Import here to avoid circular imports at module load time
+    from app.api.auth import (
+        facebook_client,
+        instagram_client,
+        linkedin_client,
+        threads_client,
+        tiktok_client,
+        twitter_client,
+    )
+
+    clients = {
+        "linkedin": linkedin_client,
+        "twitter": twitter_client,
+        "facebook": facebook_client,
+        "instagram": instagram_client,
+        "threads": threads_client,
+        "tiktok": tiktok_client,
+    }
+    return clients.get(platform)
+
+
+async def _refresh_instagram_business_token(access_token: str) -> dict:
+    """Refresh an Instagram Business Login long-lived token.
+
+    Business Login tokens (IGAAU*) have no refresh_token — Meta's
+    ig_refresh_token grant exchanges the access token itself for a fresh
+    60-day token on graph.instagram.com.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            "https://graph.instagram.com/refresh_access_token",
+            params={"grant_type": "ig_refresh_token", "access_token": access_token},
+        )
+    data = resp.json()
+    if resp.status_code != 200:
+        err = data.get("error", {})
+        raise RuntimeError(err.get("message") or f"ig_refresh_token HTTP {resp.status_code}")
+    return data
+
+
+async def _refresh_threads_token(access_token: str) -> dict:
+    """Refresh a Threads long-lived token.
+
+    Threads accounts store no refresh_token — Meta's th_refresh_token
+    grant exchanges the unexpired long-lived access token itself for a
+    fresh 60-day token on graph.threads.net. Per Threads API docs the
+    token must be at least 24h old and unexpired; threads_basic scope
+    suffices. Without this path the account expired when its 60-day
+    token lapsed even though Meta would have renewed it.
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(
+            "https://graph.threads.net/refresh_access_token",
+            params={"grant_type": "th_refresh_token", "access_token": access_token},
+        )
+    data = resp.json()
+    if resp.status_code != 200:
+        err = data.get("error", {})
+        raise RuntimeError(err.get("message") or f"th_refresh_token HTTP {resp.status_code}")
+    return data
+
+
+def _skip_for_recent_update(
+    token_expires_at: datetime | None,
+    updated_at: datetime | None,
+    now: datetime,
+) -> bool:
+    """True when the account was updated recently AND its token will still be
+    valid when the next hourly run happens.
+
+    A token expiring inside the next MIN_REFRESH_INTERVAL must be refreshed
+    now — otherwise it sits dead until the next run (observed 2026-09-23: a
+    token with 1.2s of validity left passed the old "still valid" check, was
+    skipped on an unrelated updated_at bump, and 401'd for ~1h). Conversely
+    a dead token is never skipped — updated_at is bumped by unrelated account
+    writes (publish attempts), which would starve it forever.
+    """
+    survives_next_run = (
+        token_expires_at is not None
+        and token_expires_at > now + MIN_REFRESH_INTERVAL
+    )
+    if not survives_next_run or not updated_at:
+        return False
+    return (now - updated_at.replace(tzinfo=UTC)) < MIN_REFRESH_INTERVAL
+
+
+@shared_task(name="app.worker.tasks.token_refresh.refresh_expiring_tokens")
+def refresh_expiring_tokens() -> dict:
+    """Refresh all social account tokens that will expire within 4 hours."""
+    result = run_async(_refresh_expiring_tokens_async())
+    # Push updated social_accounts to D1
+    if result.get("refreshed", 0) > 0:
+        run_async(sync_after_worker_task(["social_accounts"]))
+    return result
+
+
+async def _refresh_expiring_tokens_async() -> dict:
+    summary: dict = {"checked": 0, "refreshed": 0, "skipped": 0, "errors": []}
+    now = datetime.now(UTC)
+    cutoff = now + REFRESH_WINDOW
+
+    async with _worker_db() as db:
+        # Find all accounts with a refresh token that will expire soon.
+        # Include "expired" accounts unconditionally: a past refresh failure
+        # marks the account expired, but the OAuth refresh token itself is
+        # often still valid — and token_expires_at may be far in the future,
+        # so a window-based filter alone would leave the flag stuck forever.
+        # MIN_REFRESH_INTERVAL below bounds the retry rate for dead tokens.
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.status.in_(["active", "expired"]),
+                or_(
+                    SocialAccount.refresh_token_enc.isnot(None),
+                    # Instagram Business Login tokens self-refresh via
+                    # ig_refresh_token — no refresh_token is stored.
+                    and_(
+                        SocialAccount.platform == "instagram",
+                        SocialAccount.meta_data["login_type"].astext == "business_login",
+                    ),
+                    # Threads long-lived tokens self-refresh via
+                    # th_refresh_token — no refresh_token is stored.
+                    SocialAccount.platform == "threads",
+                ),
+                or_(
+                    SocialAccount.status == "expired",
+                    and_(
+                        SocialAccount.token_expires_at.isnot(None),
+                        SocialAccount.token_expires_at <= cutoff,
+                    ),
+                ),
+            )
+        )
+        accounts = result.scalars().all()
+
+        for account in accounts:
+            summary["checked"] += 1
+            platform = account.platform
+            account_label = f"{platform}/{account.username or account.account_id}"
+
+            # Skip only when refreshed/touched recently AND the token outlives
+            # the next run — see _skip_for_recent_update.
+            if _skip_for_recent_update(
+                account.token_expires_at, account.updated_at, now
+            ):
+                logger.info("Skipping %s — refreshed recently (%s)", account_label, account.updated_at)
+                summary["skipped"] += 1
+                continue
+
+            client = _get_oauth_client(platform)
+            if client is None:
+                logger.warning("No OAuth client for platform %s — skipping", platform)
+                summary["skipped"] += 1
+                continue
+
+            try:
+                if (
+                    platform == "instagram"
+                    and (account.meta_data or {}).get("login_type") == "business_login"
+                    and not account.refresh_token_enc
+                ):
+                    token = await _refresh_instagram_business_token(
+                        decrypt_token(account.access_token_enc)
+                    )
+                elif platform == "threads" and not account.refresh_token_enc:
+                    token = await _refresh_threads_token(
+                        decrypt_token(account.access_token_enc)
+                    )
+                else:
+                    refresh_token = decrypt_token(account.refresh_token_enc)
+                    token = await client.refresh_token(refresh_token)
+            except Exception as exc:
+                logger.exception("Token refresh failed for %s: %s", account_label, exc)
+                summary["errors"].append(f"{account_label}: {exc}")
+                # Mark as expired if refresh fails
+                account.status = "expired"
+                await db.commit()
+                continue
+
+            new_access = token.get("access_token", "")
+            new_refresh = token.get("refresh_token")
+            if not new_access:
+                msg = f"{account_label}: no access_token in refresh response"
+                logger.error(msg)
+                summary["errors"].append(msg)
+                account.status = "expired"
+                await db.commit()
+                continue
+
+            # Update tokens
+            account.access_token_enc = encrypt_token(new_access)
+            if new_refresh:
+                account.refresh_token_enc = encrypt_token(new_refresh)
+            account.status = "active"
+            # X returns the granted scopes on refresh — keep the stored set
+            # accurate (publishing checks it for media.write).
+            granted = token.get("scope")
+            if platform == "twitter" and isinstance(granted, str) and granted.strip():
+                account.scopes = sorted(set(granted.split()))
+
+            # Update expiry
+            expires_in = token.get("expires_in")
+            if expires_in:
+                account.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+            else:
+                # TikTok doesn't return expires_in on refresh — default to 24h
+                if platform == "tiktok":
+                    account.token_expires_at = datetime.now(UTC) + timedelta(seconds=86400)
+                # Meta long-lived tokens are 60 days
+                elif platform in ("facebook", "instagram", "threads"):
+                    account.token_expires_at = datetime.now(UTC) + timedelta(days=60)
+                else:
+                    account.token_expires_at = None
+
+            await db.commit()
+            summary["refreshed"] += 1
+            logger.info(
+                "Refreshed %s — new expiry: %s",
+                account_label,
+                account.token_expires_at,
+            )
+
+    logger.info(
+        "Token refresh complete: checked=%d refreshed=%d skipped=%d errors=%d",
+        summary["checked"],
+        summary["refreshed"],
+        summary["skipped"],
+        len(summary["errors"]),
+    )
+    if summary["errors"]:
+        try:
+            from app.core.config import get_settings
+            from app.services.slack_notifications import _post_slack_text
+
+            cfg = get_settings()
+            lines = "\n".join(f"• {e}" for e in summary["errors"])
+            await _post_slack_text(
+                webhook_url=cfg.SLACK_ALERTS_WEBHOOK_URL,
+                token=cfg.SLACK_BOT_TOKEN,
+                channel_id=cfg.SLACK_ALERTS_CHANNEL_ID,
+                purpose="token-refresh alert",
+                text=(
+                    f":warning: *Social token refresh failed* — re-auth needed\n"
+                    f"{lines}\n"
+                    f"Run `social-auth-ops/scripts/gate-check.sh` then the "
+                    f"platform's reconnect script."
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 — alerting must never break the task
+            logger.warning("Slack token-refresh alert failed: %s", exc)
+    return summary

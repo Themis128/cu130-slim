@@ -1,0 +1,2193 @@
+"""Unified profile management API.
+
+This router exposes a single set of endpoints for reading and updating
+social media profile metadata (bio, avatar, cover, name, website, etc.)
+across all supported platforms.
+
+Platform dispatch:
+    - Instagram   → aiograpi-rest sidecar (private mobile API)
+    - Facebook Page → existing FacebookAPIClient (Graph API)
+    - Facebook user → browser automation (Phase 4)
+    - LinkedIn     → browser automation (Phase 4)
+    - Twitter/X    → tweepy v1.1 API (Phase 2)
+    - TikTok       → official Display API (reads) + private mobile API (writes)
+
+Endpoints:
+    GET  /api/v1/profile/{account_id}           — get current profile
+    PUT  /api/v1/profile/{account_id}           — update profile fields
+    POST /api/v1/profile/{account_id}/picture   — upload profile picture
+    POST /api/v1/profile/{account_id}/cover     — upload cover photo
+    POST /api/v1/profile/{account_id}/login     — platform login (Instagram private API)
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import uuid
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
+
+from app.api.auth import get_current_user
+from app.core.config import settings
+from app.core.security import decrypt_field, decrypt_token, encrypt_field
+from app.db.session import get_db
+from app.models.social_account import SocialAccount
+from app.models.user import Team, TeamMember
+from app.services.browser_bridge import BrowserBridgeClient, BrowserBridgeError
+from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
+from app.services.facebook_sidecar import FacebookSidecarClient, FacebookSidecarError
+from app.services.free_instagram_client import FreeInstagramError, free_instagram_client
+from app.services.instagram_private_api import (
+    InstagramPrivateAPIClient,
+    InstagramPrivateAPIError,
+)
+from app.services.linkedin_sidecar import LinkedInSidecarClient, LinkedInSidecarError
+from app.services.secret_store import secret_store
+from app.services.tiktok_browser import TikTokBrowserError, TikTokBrowserService
+from app.services.tiktok_profile import TikTokProfileError, TikTokProfileService
+from app.services.twitter_profile import TwitterProfileError, TwitterProfileService
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+
+# ── Request / response models ────────────────────────────────────────────────
+
+
+class WorkEntry(BaseModel):
+    """A single work experience entry."""
+    employer: str
+    position: str
+    start_date: str | None = None
+    end_date: str | None = None
+    description: str | None = None
+
+
+class EducationEntry(BaseModel):
+    """A single education entry."""
+    school: str
+    degree: str | None = None
+    start_year: str | None = None
+    end_year: str | None = None
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Unified profile update request.
+
+    Only fields that are set will be updated.  Not all platforms support
+    all fields — the service layer will ignore unsupported fields per
+    platform and return a list of ignored/unsupported fields.
+    """
+    about: str | None = None
+    headline: str | None = None       # LinkedIn headline
+    biography: str | None = None      # Instagram bio
+    full_name: str | None = None      # Display name
+    website: str | None = None
+    location: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    quotes: str | None = None         # Facebook quotes
+    work: list[WorkEntry] | None = None
+    education: list[EducationEntry] | None = None
+
+
+class ProfileResponse(BaseModel):
+    """Unified profile response."""
+    platform: str
+    account_id: str
+    username: str | None = None
+    full_name: str | None = None
+    about: str | None = None
+    biography: str | None = None
+    headline: str | None = None
+    website: str | None = None
+    location: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    profile_pic_url: str | None = None
+    avatar_url: str | None = None
+    cover_url: str | None = None
+    followers: int | None = None
+    is_private: bool | None = None
+    is_verified: bool | None = None
+    raw: dict = {}
+
+
+class ProfileUpdateResponse(BaseModel):
+    """Result of a profile update."""
+    success: bool
+    updated_fields: list[str] = []
+    ignored_fields: list[str] = []
+    message: str = ""
+
+
+class InstagramLoginRequest(BaseModel):
+    """Instagram private API login request.
+
+    If username/password are omitted, the SecretStore is consulted
+    (INSTAGRAM_USERNAME / INSTAGRAM_PASSWORD).
+    """
+    username: str | None = None
+    password: str | None = None
+    verification_code: str | None = None
+
+
+class BrowserLoginRequest(BaseModel):
+    """Facebook/LinkedIn browser automation login request.
+
+    If username/password are omitted, the SecretStore is consulted
+    (FACEBOOK_USERNAME / FACEBOOK_PASSWORD or LINKEDIN_USERNAME / LINKEDIN_PASSWORD).
+    """
+    username: str | None = None
+    password: str | None = None
+    verification_code: str | None = None
+
+
+class LoginResponse(BaseModel):
+    """Unified login response for private API or browser sessions.
+
+    Session credentials (session_id, storage_state) are stored server-side
+    and intentionally never returned to the client.
+    """
+    logged_in: bool
+    two_factor_required: bool = False
+    challenge_required: bool = False
+    message: str = ""
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+async def _get_account(
+    account_id: uuid.UUID,
+    current_user,
+    db: AsyncSession,
+) -> SocialAccount:
+    """Fetch any social account owned by the current user's team."""
+    result = await db.execute(
+        select(SocialAccount).join(Team).join(TeamMember)
+        .where(
+            SocialAccount.id == account_id,
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
+def _get_meta(account: SocialAccount) -> dict:
+    """Parse the meta_data JSON column."""
+    if isinstance(account.meta_data, dict):
+        return account.meta_data
+    if isinstance(account.meta_data, str):
+        try:
+            return json.loads(account.meta_data)
+        except Exception:
+            return {}
+    return {}
+
+
+def _get_instagram_private_client() -> InstagramPrivateAPIClient:
+    return InstagramPrivateAPIClient(settings.INSTAGRAM_PRIVATE_API_URL)
+
+
+def _get_browser_bridge_client(platform: str) -> BrowserBridgeClient:
+    return BrowserBridgeClient(settings.BROWSER_BRIDGE_URL, platform=platform)
+
+
+def _get_instagram_session_id(account: SocialAccount) -> str | None:
+    """Retrieve a stored Instagram private API session ID (decrypting if needed)."""
+    meta = _get_meta(account)
+    return decrypt_field(meta.get("private_api_session_id"))
+
+
+def _set_instagram_session_id(account: SocialAccount, session_id: str) -> None:
+    """Encrypt and store an Instagram private API session ID."""
+    meta = _get_meta(account)
+    meta["private_api_session_id"] = encrypt_field(session_id)
+
+
+# ── Endpoints ────────────────────────────────────────────────────────────────
+
+
+@router.get("/{account_id}", response_model=ProfileResponse)
+async def get_profile(
+    account_id: uuid.UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the current profile metadata for any connected account."""
+    account = await _get_account(account_id, current_user, db)
+
+    if account.platform == "instagram":
+        return await _get_instagram_profile(account)
+    elif account.platform == "facebook" and account.is_business:
+        return await _get_facebook_page_profile(account)
+    elif account.platform == "facebook":
+        return await _get_facebook_user_profile(account)
+    elif account.platform == "linkedin":
+        return await _get_linkedin_profile(account)
+    elif account.platform == "twitter":
+        return await _get_twitter_profile(account)
+    elif account.platform == "tiktok":
+        return await _get_tiktok_profile(account)
+    elif account.platform == "threads":
+        return await _get_threads_profile(account)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Profile reads not supported for platform: {account.platform}",
+        )
+
+
+@router.put("/{account_id}", response_model=ProfileUpdateResponse)
+async def update_profile(
+    account_id: uuid.UUID,
+    updates: ProfileUpdateRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update profile fields for any connected account."""
+    account = await _get_account(account_id, current_user, db)
+
+    if account.platform == "instagram":
+        return await _update_instagram_profile(account, updates, db)
+    elif account.platform == "facebook" and account.is_business:
+        return await _update_facebook_page_profile(account, updates)
+    elif account.platform == "facebook":
+        return await _update_facebook_user_profile(account, updates)
+    elif account.platform == "linkedin":
+        return await _update_linkedin_profile(account, updates)
+    elif account.platform == "twitter":
+        return await _update_twitter_profile(account, updates)
+    elif account.platform == "tiktok":
+        return await _update_tiktok_profile(account, updates)
+    elif account.platform == "threads":
+        return await _update_threads_profile(account, updates)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Profile updates not supported for platform: {account.platform}",
+        )
+
+
+@router.post("/{account_id}/picture", response_model=ProfileUpdateResponse)
+async def upload_profile_picture(
+    account_id: uuid.UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Upload a new profile picture for any connected account."""
+    account = await _get_account(account_id, current_user, db)
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="No image file provided")
+
+    if account.platform == "instagram":
+        return await _upload_instagram_picture(account, image_bytes, db)
+    elif account.platform == "facebook" and account.is_business:
+        return await _upload_facebook_page_picture(account, image_bytes)
+    elif account.platform == "facebook":
+        return await _upload_facebook_user_picture(account, image_bytes)
+    elif account.platform == "linkedin":
+        return await _upload_linkedin_picture(account, image_bytes)
+    elif account.platform == "twitter":
+        return await _upload_twitter_picture(account, image_bytes)
+    elif account.platform == "tiktok":
+        return await _upload_tiktok_picture(account, image_bytes)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Profile picture upload not supported for platform: {account.platform}",
+        )
+
+
+@router.post("/{account_id}/cover", response_model=ProfileUpdateResponse)
+async def upload_cover_photo(
+    account_id: uuid.UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+):
+    """Upload a new cover photo for any connected account."""
+    account = await _get_account(account_id, current_user, db)
+    image_bytes = await file.read()
+    if not image_bytes:
+        raise HTTPException(status_code=400, detail="No image file provided")
+
+    if account.platform == "facebook" and account.is_business:
+        return await _upload_facebook_page_cover(account, image_bytes)
+    elif account.platform == "facebook":
+        return await _upload_facebook_user_cover(account, image_bytes)
+    elif account.platform == "linkedin":
+        return await _upload_linkedin_cover(account, image_bytes)
+    elif account.platform == "twitter":
+        return await _upload_twitter_banner(account, image_bytes)
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cover photo upload not supported for platform: {account.platform}",
+        )
+
+
+@router.post("/{account_id}/login", response_model=LoginResponse)
+async def platform_login(
+    account_id: uuid.UUID,
+    req: InstagramLoginRequest | BrowserLoginRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Log in to a platform's private API or browser session.
+
+    - Instagram: username + password for aiograpi-rest sidecar
+    - Facebook / LinkedIn: username + password for browser automation
+
+    The resulting session is stored in the account's meta_data for reuse.
+    """
+    account = await _get_account(account_id, current_user, db)
+
+    if account.platform == "instagram":
+        username = (
+            req.username
+            or await secret_store.get(f"INSTAGRAM_USERNAME_{account.id}")
+            or await secret_store.get("INSTAGRAM_USERNAME")
+        )
+        password = (
+            req.password
+            or await secret_store.get(f"INSTAGRAM_PASSWORD_{account.id}")
+            or await secret_store.get("INSTAGRAM_PASSWORD")
+        )
+        if not username or not password:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Instagram username and password are required. "
+                    "Provide them in the request or set INSTAGRAM_USERNAME / "
+                    "INSTAGRAM_PASSWORD (or per-account "
+                    f"INSTAGRAM_USERNAME_{account.id} / INSTAGRAM_PASSWORD_{account.id}) "
+                    "in the secret store."
+                ),
+            )
+        client = _get_instagram_private_client()
+        proxy = await secret_store.get("INSTAGRAM_PROXY")
+        try:
+            result = await client.login(
+                username=username,
+                password=password,
+                verification_code=getattr(req, "verification_code", None),
+                proxy=proxy or None,
+            )
+        except InstagramPrivateAPIError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+        session_id = result.get("session_id")
+        two_factor = result.get("two_factor_required", False)
+        challenge = result.get("challenge_required", False)
+
+        if session_id and not two_factor and not challenge:
+            _set_instagram_session_id(account, session_id)
+            # Also save settings for session restore
+            try:
+                settings = await client.get_settings(session_id)
+                meta = _get_meta(account)
+                meta["private_api_settings"] = settings
+            except Exception:
+                pass
+            account.meta_data = _get_meta(account)
+            # meta is the same object loaded from the JSONB column — without
+            # flag_modified SQLAlchemy sees no change and persists nothing.
+            flag_modified(account, "meta_data")
+            await db.commit()
+
+        return LoginResponse(
+            logged_in=bool(session_id) and not two_factor and not challenge,
+            two_factor_required=two_factor,
+            message=result.get(
+                "message",
+                "Login successful" if session_id
+                else "Challenge required" if challenge
+                else "Login failed",
+            ),
+        )
+
+    if account.platform in ("facebook", "linkedin"):
+        if account.platform == "facebook":
+            username = (
+                req.username
+                or await secret_store.get(f"FACEBOOK_USERNAME_{account.id}")
+                or await secret_store.get("FACEBOOK_USERNAME")
+            )
+            password = (
+                req.password
+                or await secret_store.get(f"FACEBOOK_PASSWORD_{account.id}")
+                or await secret_store.get("FACEBOOK_PASSWORD")
+            )
+        else:
+            username = (
+                req.username
+                or await secret_store.get(f"LINKEDIN_USERNAME_{account.id}")
+                or await secret_store.get("LINKEDIN_USERNAME")
+            )
+            password = (
+                req.password
+                or await secret_store.get(f"LINKEDIN_PASSWORD_{account.id}")
+                or await secret_store.get("LINKEDIN_PASSWORD")
+            )
+
+        if not username or not password:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    f"{account.platform.capitalize()} username and password are required. "
+                    f"Provide them in the request or set "
+                    f"{account.platform.upper()}_USERNAME / "
+                    f"{account.platform.upper()}_PASSWORD (or per-account "
+                    f"{account.platform.upper()}_USERNAME_{account.id} / "
+                    f"{account.platform.upper()}_PASSWORD_{account.id}) "
+                    f"in the secret store."
+                ),
+            )
+
+        # Use the browser sidecars for login — they have better anti-detection
+        # than the in-process Playwright in BrowserProfileService.
+        try:
+            if account.platform == "facebook":
+                fb_client = FacebookSidecarClient()
+                result = await fb_client.login(
+                    username, password, verification_code=getattr(req, "verification_code", None)
+                )
+            else:
+                li_client = LinkedInSidecarClient()
+                result = await li_client.login(
+                    username, password, verification_code=getattr(req, "verification_code", None)
+                )
+        except (FacebookSidecarError, LinkedInSidecarError) as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+        storage_state = result.get("storage_state")
+        logged_in = result.get("logged_in", False)
+        two_factor = result.get("two_factor_required", False)
+
+        if logged_in and storage_state:
+            meta = _get_meta(account)
+            meta["browser_storage_state"] = storage_state
+            account.meta_data = meta
+            # meta is the same object loaded from the JSONB column — without
+            # flag_modified SQLAlchemy sees no change and persists nothing.
+            flag_modified(account, "meta_data")
+            await db.commit()
+
+        return LoginResponse(
+            logged_in=logged_in,
+            two_factor_required=two_factor,
+            message=result.get("message", "Login successful" if logged_in else "Login failed"),
+        )
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"Private API or browser login not supported for platform: {account.platform}",
+    )
+
+
+# ── Threads profile settings (browser bridge) ───────────────────────────────
+
+
+class ThreadsSettingsResponse(BaseModel):
+    """Threads profile settings read from the Edit profile page."""
+    show_instagram_badge: bool | None = None
+    show_recent_views: bool | None = None
+
+
+class ThreadsSettingsUpdateRequest(BaseModel):
+    """Toggle Threads profile settings."""
+    show_instagram_badge: bool | None = None
+    show_recent_views: bool | None = None
+
+
+@router.get("/{account_id}/threads/settings", response_model=ThreadsSettingsResponse)
+async def get_threads_settings(
+    account_id: uuid.UUID,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Read Threads profile settings (Show Instagram badge, Show recent views).
+
+    These settings have no official Threads API — they are read from the
+    Edit profile page via the browser bridge.
+    """
+    account = await _get_account(account_id, current_user, db)
+    if account.platform != "threads":
+        raise HTTPException(status_code=400, detail="This endpoint is for Threads accounts only")
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    bridge = _get_browser_bridge_client("threads")
+    try:
+        settings = await bridge.get_threads_settings(account.username)
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads settings read failed: {e.detail}")
+
+    return ThreadsSettingsResponse(
+        show_instagram_badge=settings.get("show_instagram_badge"),
+        show_recent_views=settings.get("show_recent_views"),
+    )
+
+
+@router.put("/{account_id}/threads/settings", response_model=ProfileUpdateResponse)
+async def update_threads_settings(
+    account_id: uuid.UUID,
+    req: ThreadsSettingsUpdateRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle Threads profile settings (Show Instagram badge, Show recent views).
+
+    These settings have no official Threads API — they are toggled on the
+    Edit profile page via the browser bridge.
+    """
+    account = await _get_account(account_id, current_user, db)
+    if account.platform != "threads":
+        raise HTTPException(status_code=400, detail="This endpoint is for Threads accounts only")
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    bridge = _get_browser_bridge_client("threads")
+    try:
+        result = await bridge.update_threads_settings(
+            account.username,
+            show_instagram_badge=req.show_instagram_badge,
+            show_recent_views=req.show_recent_views,
+        )
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads settings update failed: {e.detail}")
+
+    return ProfileUpdateResponse(
+        success=result.get("status") == "updated",
+        updated_fields=result.get("updated_fields", []),
+        message="Threads settings updated via browser bridge",
+    )
+
+
+# ── Instagram (private API) ──────────────────────────────────────────────────
+
+
+async def _get_instagram_profile(account: SocialAccount) -> ProfileResponse:
+    session_id = _get_instagram_session_id(account)
+    client = _get_instagram_private_client()
+
+    # Try the sidecar first
+    if session_id:
+        try:
+            data = await client.get_account(session_id)
+            return ProfileResponse(
+                platform="instagram",
+                account_id=account.account_id,
+                username=data.get("username"),
+                full_name=data.get("full_name"),
+                biography=data.get("biography"),
+                website=data.get("external_url"),
+                phone=data.get("phone_number"),
+                email=data.get("email"),
+                profile_pic_url=data.get("profile_pic_url"),
+                is_private=data.get("is_private"),
+                is_verified=data.get("is_verified"),
+                raw=data,
+            )
+        except InstagramPrivateAPIError as e:
+            logger.warning("Instagram sidecar failed (%s) — falling back to browser bridge", e.detail)
+
+    # Fallback: browser-novnc bridge
+    bridge = _get_browser_bridge_client("instagram")
+    try:
+        data = await bridge.get_instagram_profile()
+        return ProfileResponse(
+            platform="instagram",
+            account_id=account.account_id,
+            username=data.get("username"),
+            full_name=data.get("full_name"),
+            biography=data.get("biography"),
+            website=data.get("external_url"),
+            profile_pic_url=data.get("profile_pic_url"),
+            is_private=data.get("is_private"),
+            is_verified=data.get("is_verified"),
+            raw=data,
+        )
+    except BrowserBridgeError as e:
+        if e.status_code == 400:
+            logger.warning("Browser bridge has no session — trying free Instagram client")
+        else:
+            logger.warning("Browser bridge failed (%s) — trying free Instagram client", e.detail)
+
+    # Fallback: free Instagram client (sidecar anon + HTML scraper, no API key)
+    try:
+        username = account.username or account.display_name or ""
+        if username:
+            data = await free_instagram_client.get_user_by_username(username)
+            return ProfileResponse(
+                platform="instagram",
+                account_id=account.account_id,
+                username=data.get("username"),
+                full_name=data.get("full_name"),
+                biography=data.get("biography"),
+                website=data.get("external_url"),
+                profile_pic_url=data.get("profile_pic_url"),
+                is_private=data.get("is_private"),
+                is_verified=data.get("is_verified"),
+                raw=data,
+            )
+    except FreeInstagramError as e:
+        logger.warning("Free Instagram client failed: %s", e)
+
+    raise HTTPException(
+        status_code=503,
+        detail="All Instagram profile methods failed (sidecar, browser bridge, free scraper). "
+        "Connect an account via OAuth or import a sessionid cookie.",
+    )
+
+
+async def _get_threads_profile(account: SocialAccount) -> ProfileResponse:
+    """Read the Threads profile.
+
+    Tries the official Threads Graph API first (reliable, no browser needed),
+    falls back to the browser bridge if the API token is unavailable.
+    """
+    # Try the Threads Graph API first
+    from app.core.security import decrypt_token
+    from app.services.threads_api import ThreadsAPIClient
+
+    token = decrypt_token(account.access_token_enc) if account.access_token_enc else None
+    if token and account.account_id:
+        try:
+            api = ThreadsAPIClient(access_token=token, user_id=account.account_id)
+            data = await api.get_profile()
+            return ProfileResponse(
+                platform="threads",
+                account_id=account.account_id or account.username,
+                username=data.get("username") or account.username,
+                full_name=data.get("name"),
+                biography=data.get("threads_biography"),
+                avatar_url=data.get("threads_profile_picture_url"),
+                is_verified=data.get("is_verified", False),
+                raw=data,
+            )
+        except Exception:
+            pass  # Fall through to browser bridge
+
+    # Fall back to browser bridge
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    bridge = _get_browser_bridge_client("threads")
+    try:
+        data = await bridge.get_threads_profile(account.username)
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads profile read failed: {e.detail}")
+
+    return ProfileResponse(
+        platform="threads",
+        account_id=account.account_id or account.username,
+        username=data.get("username") or account.username,
+        biography=data.get("biography"),
+        raw=data,
+    )
+
+
+async def _update_threads_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+) -> ProfileUpdateResponse:
+    """Update the Threads profile via the logged-in browser session."""
+    if not account.username:
+        raise HTTPException(status_code=400, detail="Threads account has no username")
+
+    kwargs: dict[str, str | None] = {
+        "biography": updates.biography,
+        "full_name": updates.full_name,
+        "website": updates.website,
+    }
+    ignored = [k for k, v in kwargs.items() if v is not None and k != "biography"]
+
+    bridge = _get_browser_bridge_client("threads")
+    try:
+        result = await bridge.update_threads_profile(
+            account.username,
+            biography=updates.biography,
+            full_name=updates.full_name,
+            website=updates.website,
+        )
+    except BrowserBridgeError as e:
+        raise HTTPException(status_code=503, detail=f"Threads profile update failed: {e.detail}")
+
+    return ProfileUpdateResponse(
+        success=result.get("status") == "updated",
+        updated_fields=result.get("updated_fields", []),
+        ignored_fields=result.get("ignored_fields", []) + ignored,
+        message="Threads profile updated via browser bridge",
+    )
+
+
+async def _update_instagram_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+    db: AsyncSession,
+) -> ProfileUpdateResponse:
+    session_id = _get_instagram_session_id(account)
+    client = _get_instagram_private_client()
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    # Map unified fields to Instagram fields
+    kwargs: dict[str, str] = {}
+    if updates.biography is not None:
+        kwargs["biography"] = updates.biography
+    if updates.about is not None:
+        kwargs["biography"] = updates.about  # about maps to biography on Instagram
+    if updates.full_name is not None:
+        kwargs["full_name"] = updates.full_name
+    if updates.website is not None:
+        kwargs["external_url"] = updates.website
+    if updates.phone is not None:
+        kwargs["phone_number"] = updates.phone
+    if updates.email is not None:
+        kwargs["email"] = updates.email
+
+    # Fields Instagram doesn't support
+    for field in ["headline", "location", "quotes", "work", "education"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not kwargs:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for Instagram",
+            ignored_fields=ignored,
+        )
+
+    # Try the sidecar first
+    if session_id:
+        try:
+            await client.update_account(session_id, **kwargs)
+            updated = list(kwargs.keys())
+            return ProfileUpdateResponse(
+                success=True,
+                updated_fields=updated,
+                ignored_fields=ignored,
+                message="Instagram profile updated (sidecar)",
+            )
+        except InstagramPrivateAPIError as e:
+            logger.warning("Instagram sidecar update failed (%s) — falling back to browser bridge", e.detail)
+
+    # Fallback: browser-novnc bridge
+    bridge = _get_browser_bridge_client("instagram")
+    try:
+        result = await bridge.update_instagram_profile(
+            full_name=kwargs.get("full_name"),
+            biography=kwargs.get("biography"),
+            external_url=kwargs.get("external_url"),
+        )
+        if result.get("status") == "updated":
+            updated = result.get("updated_fields", [])
+        else:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Browser bridge update failed: {result.get('response', 'unknown error')}",
+            )
+    except BrowserBridgeError as e:
+        if e.status_code == 400:
+            raise HTTPException(
+                status_code=401,
+                detail="No active browser session. Start one via the browser-login page first.",
+            )
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="Instagram profile updated (browser bridge)",
+    )
+
+
+async def _upload_instagram_picture(
+    account: SocialAccount,
+    image_bytes: bytes,
+    db: AsyncSession,
+) -> ProfileUpdateResponse:
+    session_id = _get_instagram_session_id(account)
+    if not session_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Instagram private API session not found. Call POST /login first.",
+        )
+    client = _get_instagram_private_client()
+    try:
+        await client.update_profile_picture(session_id, image_bytes)
+    except InstagramPrivateAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["profile_picture"],
+        message="Instagram profile picture updated",
+    )
+
+
+# ── Facebook Page (Graph API — existing) ─────────────────────────────────────
+
+
+async def _get_facebook_page_profile(account: SocialAccount) -> ProfileResponse:
+    token = decrypt_token(account.access_token_enc)
+    client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+    try:
+        info = await client.get_page_info()
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    return ProfileResponse(
+        platform="facebook",
+        account_id=account.account_id,
+        username=info.get("username") or info.get("name"),
+        full_name=info.get("name"),
+        about=info.get("about"),
+        website=info.get("website"),
+        phone=info.get("phone"),
+        profile_pic_url=info.get("picture", {}).get("data", {}).get("url") if isinstance(info.get("picture"), dict) else None,
+        raw=info,
+    )
+
+
+async def _update_facebook_page_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+) -> ProfileUpdateResponse:
+    token = decrypt_token(account.access_token_enc)
+    client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    kwargs: dict[str, str | None] = {}
+    if updates.about is not None:
+        kwargs["about"] = updates.about
+    if updates.website is not None:
+        kwargs["website"] = updates.website
+    if updates.phone is not None:
+        kwargs["phone"] = updates.phone
+    if updates.biography is not None:
+        kwargs["description"] = updates.biography
+
+    for field in ["headline", "full_name", "location", "email", "quotes", "work", "education"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not kwargs:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for Facebook Page",
+            ignored_fields=ignored,
+        )
+
+    try:
+        await client.update_page_info(**kwargs)
+        updated = list(kwargs.keys())
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="Facebook Page profile updated",
+    )
+
+
+async def _upload_facebook_page_picture(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    token = decrypt_token(account.access_token_enc)
+    client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+    try:
+        await client.upload_profile_picture(image_bytes)
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["profile_picture"],
+        message="Facebook Page profile picture updated",
+    )
+
+
+async def _upload_facebook_page_cover(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    token = decrypt_token(account.access_token_enc)
+    client = FacebookAPIClient(access_token=token, page_id=account.account_id)
+    try:
+        await client.upload_cover_photo(image_bytes)
+    except FacebookAPIError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["cover_photo"],
+        message="Facebook Page cover photo updated",
+    )
+
+
+# ── Facebook personal (browser automation) ───────────────────────────────────
+
+
+def _get_facebook_browser_storage(account: SocialAccount) -> dict:
+    meta = _get_meta(account)
+    storage = meta.get("browser_storage_state")
+    if not storage:
+        raise HTTPException(
+            status_code=401,
+            detail="Facebook browser session not found. Call POST /login first.",
+        )
+    return storage
+
+
+async def _get_facebook_sidecar(account: SocialAccount) -> FacebookSidecarClient:
+    """Build a FacebookSidecarClient and inject the browser storage state."""
+    storage = _get_facebook_browser_storage(account)
+    client = FacebookSidecarClient()
+    try:
+        await client.set_session(storage)
+    except FacebookSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return client
+
+
+async def _get_facebook_user_profile(account: SocialAccount) -> ProfileResponse:
+    client = await _get_facebook_sidecar(account)
+    try:
+        result = await client.get_profile()
+    except FacebookSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    profile = result.get("profile", {})
+    return ProfileResponse(
+        platform="facebook",
+        account_id=account.account_id,
+        username=profile.get("name"),
+        full_name=profile.get("name"),
+        about=profile.get("bio"),
+        website=profile.get("website"),
+        profile_pic_url=profile.get("profile_pic_url"),
+        raw=profile,
+    )
+
+
+async def _update_facebook_user_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+) -> ProfileUpdateResponse:
+    client = await _get_facebook_sidecar(account)
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    try:
+        if updates.about is not None:
+            await client.update_bio(updates.about)
+            updated.append("about")
+        if updates.website is not None:
+            await client.update_website(updates.website)
+            updated.append("website")
+        if updates.quotes is not None:
+            await client.update_quotes(updates.quotes)
+            updated.append("quotes")
+        if updates.location is not None:
+            await client.update_location(current_city=updates.location)
+            updated.append("location")
+        if updates.phone is not None or updates.email is not None:
+            await client.update_contact(email=updates.email, phone=updates.phone)
+            if updates.phone is not None:
+                updated.append("phone")
+            if updates.email is not None:
+                updated.append("email")
+        if updates.work is not None:
+            for w in updates.work:
+                await client.update_work(
+                    company=w.employer,
+                    position=w.position,
+                    description=w.description,
+                )
+            updated.append("work")
+        if updates.education is not None:
+            for e in updates.education:
+                await client.update_education(
+                    school=e.school,
+                    degree=e.degree,
+                )
+            updated.append("education")
+    except FacebookSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    for field in ["headline", "biography", "full_name"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not updated:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for Facebook personal profile",
+            ignored_fields=ignored,
+        )
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="Facebook personal profile updated",
+    )
+
+
+async def _upload_facebook_user_picture(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    client = await _get_facebook_sidecar(account)
+    try:
+        await client.upload_picture(image_bytes)
+    except FacebookSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["profile_picture"],
+        message="Facebook personal profile picture updated",
+    )
+
+
+async def _upload_facebook_user_cover(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    client = await _get_facebook_sidecar(account)
+    try:
+        await client.upload_cover(image_bytes)
+    except FacebookSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["cover"],
+        message="Facebook personal cover photo updated",
+    )
+
+
+# ── LinkedIn (browser automation) ────────────────────────────────────────────
+
+
+def _get_linkedin_browser_storage(account: SocialAccount) -> dict:
+    meta = _get_meta(account)
+    storage = meta.get("browser_storage_state")
+    if not storage:
+        raise HTTPException(
+            status_code=401,
+            detail="LinkedIn browser session not found. Call POST /login first.",
+        )
+    return storage
+
+
+async def _get_linkedin_sidecar(account: SocialAccount) -> LinkedInSidecarClient:
+    """Build a LinkedInSidecarClient and inject the browser storage state."""
+    storage = _get_linkedin_browser_storage(account)
+    client = LinkedInSidecarClient()
+    try:
+        await client.set_session(storage)
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return client
+
+
+def _is_linkedin_company(account: SocialAccount) -> bool:
+    """Heuristic: company pages have a vanity name (no @), personal profiles use email."""
+    return "@" not in (account.username or "")
+
+
+async def _get_linkedin_profile(account: SocialAccount) -> ProfileResponse:
+    client = await _get_linkedin_sidecar(account)
+    if _is_linkedin_company(account):
+        try:
+            result = await client.get_company(account.username)
+        except LinkedInSidecarError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+        profile = result.get("company", result)
+        return ProfileResponse(
+            platform="linkedin",
+            account_id=account.account_id,
+            username=account.username,
+            full_name=profile.get("name"),
+            headline=profile.get("tagline") or profile.get("headline"),
+            about=profile.get("about") or profile.get("description"),
+            website=profile.get("website"),
+            location=profile.get("location"),
+            profile_pic_url=profile.get("logo_url") or profile.get("profile_pic_url"),
+            raw=profile,
+        )
+    try:
+        result = await client.get_profile()
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    profile = result.get("profile", {})
+    return ProfileResponse(
+        platform="linkedin",
+        account_id=account.account_id,
+        username=profile.get("name"),
+        full_name=profile.get("name"),
+        headline=profile.get("headline"),
+        about=profile.get("about"),
+        website=profile.get("website"),
+        location=profile.get("location"),
+        profile_pic_url=profile.get("profile_pic_url"),
+        raw=profile,
+    )
+
+
+async def _update_linkedin_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+) -> ProfileUpdateResponse:
+    client = await _get_linkedin_sidecar(account)
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    if _is_linkedin_company(account):
+        vanity = account.username
+        try:
+            if updates.about is not None:
+                await client.update_company_about(vanity, updates.about)
+                updated.append("about")
+            if updates.website is not None:
+                await client.update_company_website(vanity, updates.website)
+                updated.append("website")
+            if updates.headline is not None:
+                await client.update_company_about(vanity, updates.headline)
+                updated.append("headline")
+        except LinkedInSidecarError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.detail)
+        for field in ["biography", "full_name", "phone", "email", "quotes", "location", "work", "education"]:
+            if getattr(updates, field, None) is not None:
+                ignored.append(field)
+        if not updated:
+            return ProfileUpdateResponse(
+                success=False,
+                message="No supported fields to update for LinkedIn Company Page",
+                ignored_fields=ignored,
+            )
+        return ProfileUpdateResponse(
+            success=True,
+            updated_fields=updated,
+            ignored_fields=ignored,
+            message="LinkedIn Company Page updated",
+        )
+
+    try:
+        if updates.headline is not None:
+            await client.update_headline(updates.headline)
+            updated.append("headline")
+        if updates.about is not None:
+            await client.update_about(updates.about)
+            updated.append("about")
+        if updates.website is not None:
+            await client.update_website(updates.website)
+            updated.append("website")
+        if updates.location is not None:
+            await client.update_location(updates.location)
+            updated.append("location")
+        if updates.work is not None:
+            for entry in updates.work:
+                await client.add_experience(
+                    title=entry.position,
+                    company=entry.employer,
+                    start_date=entry.start_date,
+                    end_date=entry.end_date,
+                    description=entry.description,
+                )
+            updated.append("work")
+        if updates.education is not None:
+            for entry in updates.education:
+                await client.add_education(
+                    school=entry.school,
+                    degree=entry.degree,
+                    start_date=entry.start_year,
+                    end_date=entry.end_year,
+                )
+            updated.append("education")
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    for field in ["biography", "full_name", "phone", "email", "quotes"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not updated:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for LinkedIn",
+            ignored_fields=ignored,
+        )
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="LinkedIn profile updated",
+    )
+
+
+async def _upload_linkedin_picture(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    client = await _get_linkedin_sidecar(account)
+    try:
+        await client.upload_picture(image_bytes)
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["profile_picture"],
+        message="LinkedIn profile picture updated",
+    )
+
+
+async def _upload_linkedin_cover(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    client = await _get_linkedin_sidecar(account)
+    try:
+        await client.upload_cover(image_bytes)
+    except LinkedInSidecarError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["cover"],
+        message="LinkedIn cover photo updated",
+    )
+
+
+# ── Twitter/X (tweepy v1.1 API) ──────────────────────────────────────────────
+
+
+async def _get_twitter_service() -> TwitterProfileService:
+    """Build a TwitterProfileService from SecretStore, falling back to settings."""
+    api_key = await secret_store.get("TWITTER_API_KEY") or settings.TWITTER_API_KEY
+    api_secret = await secret_store.get("TWITTER_API_SECRET") or settings.TWITTER_API_SECRET
+    access_token = await secret_store.get("TWITTER_ACCESS_TOKEN") or settings.TWITTER_ACCESS_TOKEN
+    access_token_secret = await secret_store.get("TWITTER_ACCESS_TOKEN_SECRET") or settings.TWITTER_ACCESS_TOKEN_SECRET
+    if not api_key or not access_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Twitter v1.1 API credentials not configured. "
+            "Set TWITTER_API_KEY, TWITTER_API_SECRET, TWITTER_ACCESS_TOKEN, "
+            "TWITTER_ACCESS_TOKEN_SECRET in the secret store or .env. "
+            "Profile writes require Twitter Basic ($100/mo) or Pro tier.",
+        )
+    return TwitterProfileService(
+        api_key=api_key,
+        api_secret=api_secret,
+        access_token=access_token,
+        access_token_secret=access_token_secret,
+    )
+
+
+async def _get_twitter_profile(account: SocialAccount) -> ProfileResponse:
+    service = await _get_twitter_service()
+    try:
+        data = service.get_profile()
+    except TwitterProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileResponse(
+        platform="twitter",
+        account_id=account.account_id,
+        username=data.get("username"),
+        full_name=data.get("full_name"),
+        biography=data.get("biography"),
+        location=data.get("location"),
+        website=data.get("website"),
+        profile_pic_url=data.get("profile_pic_url"),
+        cover_url=data.get("cover_url"),
+        followers=data.get("followers"),
+        is_verified=data.get("is_verified"),
+        raw=data.get("raw", {}),
+    )
+
+
+async def _update_twitter_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+) -> ProfileUpdateResponse:
+    service = await _get_twitter_service()
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    kwargs: dict[str, str] = {}
+    if updates.full_name is not None:
+        kwargs["name"] = updates.full_name
+    if updates.about is not None or updates.biography is not None:
+        kwargs["description"] = updates.about or updates.biography or ""
+    if updates.location is not None:
+        kwargs["location"] = updates.location
+    if updates.website is not None:
+        kwargs["url"] = updates.website
+
+    for field in ["headline", "phone", "email", "quotes", "work", "education"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not kwargs:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for Twitter",
+            ignored_fields=ignored,
+        )
+
+    try:
+        result = service.update_profile(**kwargs)
+        updated = result.get("updated_fields", list(kwargs.keys()))
+    except TwitterProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="Twitter profile updated",
+    )
+
+
+async def _upload_twitter_picture(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    service = await _get_twitter_service()
+    try:
+        service.update_profile_image(image_bytes)
+    except TwitterProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["profile_picture"],
+        message="Twitter profile picture updated",
+    )
+
+
+async def _upload_twitter_banner(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    service = await _get_twitter_service()
+    try:
+        service.update_profile_banner(image_bytes)
+    except TwitterProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=["banner"],
+        message="Twitter banner updated",
+    )
+
+
+# ── TikTok (official API for reads, private API for writes) ──────────────────
+
+
+async def _get_tiktok_service(account: SocialAccount) -> TikTokProfileService:
+    """Build a TikTokProfileService.
+
+    Reads use the official Display API (access token from the account).
+    Writes use the private mobile API (session_id + user_id from SecretStore).
+    """
+    access_token = decrypt_token(account.access_token_enc) if account.access_token_enc else None
+    open_id = account.account_id
+
+    session_id = await secret_store.get("TIKTOK_SESSION_ID")
+    user_id_str = await secret_store.get("TIKTOK_USER_ID")
+    user_id = int(user_id_str) if user_id_str else None
+
+    return TikTokProfileService(
+        access_token=access_token,
+        open_id=open_id,
+        session_id=session_id,
+        user_id=user_id,
+    )
+
+
+async def _get_tiktok_profile(account: SocialAccount) -> ProfileResponse:
+    service = await _get_tiktok_service(account)
+    try:
+        data = await service.get_profile()
+    except TikTokProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+    return ProfileResponse(
+        platform="tiktok",
+        account_id=account.account_id,
+        username=data.get("username"),
+        full_name=data.get("full_name"),
+        biography=data.get("biography"),
+        profile_pic_url=data.get("profile_pic_url"),
+        is_verified=data.get("is_verified"),
+        raw=data.get("raw", {}),
+    )
+
+
+async def _update_tiktok_profile(
+    account: SocialAccount,
+    updates: ProfileUpdateRequest,
+) -> ProfileUpdateResponse:
+    service = await _get_tiktok_service(account)
+    if not service.can_write:
+        raise HTTPException(
+            status_code=503,
+            detail="TikTok profile writes require TIKTOK_SESSION_ID and "
+            "TIKTOK_USER_ID in the secret store. Log in via the TikTok "
+            "QR-code flow to obtain a session cookie.",
+        )
+
+    updated: list[str] = []
+    ignored: list[str] = []
+
+    try:
+        if updates.full_name is not None:
+            await service.update_nickname(updates.full_name)
+            updated.append("nickname")
+        if updates.about is not None or updates.biography is not None:
+            await service.update_signature(updates.about or updates.biography or "")
+            updated.append("signature")
+    except TikTokProfileError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+    for field in ["headline", "website", "location", "phone", "email", "quotes", "work", "education"]:
+        if getattr(updates, field, None) is not None:
+            ignored.append(field)
+
+    if not updated:
+        return ProfileUpdateResponse(
+            success=False,
+            message="No supported fields to update for TikTok",
+            ignored_fields=ignored,
+        )
+
+    return ProfileUpdateResponse(
+        success=True,
+        updated_fields=updated,
+        ignored_fields=ignored,
+        message="TikTok profile updated",
+    )
+
+
+async def _upload_tiktok_picture(
+    account: SocialAccount,
+    image_bytes: bytes,
+) -> ProfileUpdateResponse:
+    # Avatar upload requires TikTok's slider captcha — not automatable.
+    # The browser sidecar skips captcha-gated operations.
+    raise HTTPException(
+        status_code=501,
+        detail="TikTok profile picture upload requires a slider captcha "
+        "that cannot be solved programmatically. Please upload the "
+        "avatar manually via the TikTok app or website.",
+    )
+
+
+# ── TikTok browser settings (Playwright sidecar) ─────────────────────────────
+# These endpoints configure TikTok settings that the official Display API
+# does not expose. They drive the tiktok-browser-sidecar container which
+# uses Playwright to automate the TikTok web UI.
+#
+# All operations are captcha-free toggles/selections. Captcha-gated writes
+# (bio, avatar, nickname) are NOT supported here.
+
+
+def _get_tiktok_browser_service() -> TikTokBrowserService:
+    return TikTokBrowserService()
+
+
+class TikTokSessionRequest(BaseModel):
+    """Inject a TikTok session cookie into the browser sidecar."""
+    session_id: str
+    user_id: str | None = None
+
+
+class TikTokToggleRequest(BaseModel):
+    """Toggle a boolean setting."""
+    enabled: bool
+
+
+class TikTokCommentsRequest(BaseModel):
+    """Set comments permission."""
+    permission: str  # "Everyone" or "Friends"
+
+
+class TikTokDirectMessagesRequest(BaseModel):
+    """Set direct messages permission."""
+    potential_connections: str | None = None
+    others: str | None = None
+
+
+class TikTokInteractionNotificationsRequest(BaseModel):
+    """Set interaction notification preferences."""
+    likes: bool | None = None
+    comments: bool | None = None
+    new_followers: bool | None = None
+    mentions_and_tags: bool | None = None
+
+
+class TikTokBusinessVerificationRequest(BaseModel):
+    """Fill the business verification form."""
+    company_name: str | None = None
+    website: str | None = None
+    country: str | None = None
+    address: str | None = None
+    industry: str | None = None
+    business_license_number: str | None = None
+
+
+@router.post("/tiktok/session")
+async def set_tiktok_browser_session(
+    req: TikTokSessionRequest,
+    current_user=Depends(get_current_user),
+):
+    """Inject the TikTok session cookie into the browser sidecar.
+
+    The session_id is the ``sessionid`` cookie from a logged-in TikTok
+    web session. After injection, the sidecar verifies the session
+    is alive by navigating to the profile page.
+    """
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_session(req.session_id, req.user_id)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/tiktok/session")
+async def check_tiktok_browser_session(current_user=Depends(get_current_user)):
+    """Check if the TikTok browser session is still alive."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.check_session()
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/tiktok/settings")
+async def get_tiktok_all_settings(current_user=Depends(get_current_user)):
+    """Read all current TikTok settings from the browser."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.read_all_settings()
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/privacy/private-account")
+async def set_tiktok_private_account(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle the TikTok private account setting."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_private_account(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/privacy/comments")
+async def set_tiktok_comments(
+    req: TikTokCommentsRequest,
+    current_user=Depends(get_current_user),
+):
+    """Set who can comment on your TikTok posts (Everyone or Friends)."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_comments(req.permission)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/privacy/direct-messages")
+async def set_tiktok_direct_messages(
+    req: TikTokDirectMessagesRequest,
+    current_user=Depends(get_current_user),
+):
+    """Set who can send you direct messages on TikTok."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_direct_messages(
+            req.potential_connections, req.others,
+        )
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/notifications/desktop")
+async def set_tiktok_desktop_notifications(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle TikTok desktop browser notifications."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_desktop_notifications(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/notifications/interactions")
+async def set_tiktok_interaction_notifications(
+    req: TikTokInteractionNotificationsRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle individual TikTok interaction notification preferences.
+
+    Only fields that are set (not None) will be toggled.
+    """
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_interaction_notifications(
+            likes=req.likes,
+            comments=req.comments,
+            new_followers=req.new_followers,
+            mentions_and_tags=req.mentions_and_tags,
+        )
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/ads/personalized")
+async def set_tiktok_personalized_ads(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle TikTok personalized ads (off-TikTok data tracking)."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_personalized_ads(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/accessibility/contrast")
+async def set_tiktok_color_contrast(
+    req: TikTokToggleRequest,
+    current_user=Depends(get_current_user),
+):
+    """Toggle TikTok increased color contrast (web accessibility)."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.set_color_contrast(req.enabled)
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/tiktok/business-verification/fill")
+async def fill_tiktok_business_verification(
+    req: TikTokBusinessVerificationRequest,
+    current_user=Depends(get_current_user),
+):
+    """Fill the TikTok business verification form.
+
+    Fills company name, website, country, address, industry, and
+    business license number. The company certification document
+    upload and final submit still require manual action.
+    """
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.fill_business_verification(
+            company_name=req.company_name,
+            website=req.website,
+            country=req.country,
+            address=req.address,
+            industry=req.industry,
+            business_license_number=req.business_license_number,
+        )
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.get("/tiktok/business-verification/status")
+async def get_tiktok_business_verification_status(
+    current_user=Depends(get_current_user),
+):
+    """Check the TikTok business verification status."""
+    svc = _get_tiktok_browser_service()
+    try:
+        result = await svc.get_business_verification_status()
+        await svc.close()
+        return result
+    except TikTokBrowserError as e:
+        await svc.close()
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+# ── Browser bridge (noVNC visual login) ──────────────────────────────────────
+
+
+def _get_browser_bridge_url() -> str:
+    return settings.INSTAGRAM_PRIVATE_API_URL  # placeholder to satisfy linter
+
+
+_BROWSER_BRIDGE_URL = os.environ.get("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
+
+
+class BrowserSessionRequest(BaseModel):
+    """Request to start a visual browser login session."""
+    platform: str
+
+
+class BrowserSessionResponse(BaseModel):
+    """Response from starting a browser session."""
+    platform: str
+    status: str
+    message: str
+    novnc_url: str
+
+
+@router.post("/browser/start", response_model=BrowserSessionResponse)
+async def start_browser_session(
+    req: BrowserSessionRequest,
+    current_user=Depends(get_current_user),
+):
+    """Start a visual browser session for a social platform.
+
+    Opens a headed Chromium browser inside the browser-novnc container.
+    The user watches and logs in via the noVNC web interface (embeddable
+    as an iframe in the frontend).  After login, cookies are extracted
+    automatically.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(
+                f"{_BROWSER_BRIDGE_URL}/session/start",
+                json={"platform": req.platform, "interactive": True},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return BrowserSessionResponse(
+                platform=data["platform"],
+                status=data["status"],
+                message=data["message"],
+                novnc_url=data.get("novnc_url", ""),
+            )
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.text,
+            )
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable. Is browser-novnc running?",
+            )
+
+
+@router.get("/browser/status")
+async def browser_session_status(
+    current_user=Depends(get_current_user),
+):
+    """Check the current browser session status."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/session/status")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.json().get("detail", e.response.text),
+            )
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+        except httpx.TimeoutException:
+            raise HTTPException(
+                status_code=504,
+                detail="Browser bridge session status timed out.",
+            )
+
+
+@router.get("/browser/cookies")
+async def browser_session_cookies(
+    current_user=Depends(get_current_user),
+):
+    """Retrieve extracted cookies from the browser session."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/session/cookies")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.json().get("detail", e.response.text),
+            )
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.post("/browser/stop")
+async def stop_browser_session(
+    current_user=Depends(get_current_user),
+):
+    """Stop the current browser session."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.post(f"{_BROWSER_BRIDGE_URL}/session/stop")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.post("/browser/extract")
+async def extract_browser_cookies(
+    current_user=Depends(get_current_user),
+):
+    """Manually extract cookies from the running browser session.
+
+    Use this after the user has logged in via noVNC but the automatic
+    URL detection hasn't triggered.
+    """
+    import httpx
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(f"{_BROWSER_BRIDGE_URL}/session/extract")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail=e.response.json().get("detail", e.response.text),
+            )
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.get("/browser/novnc-url")
+async def browser_novnc_url(
+    current_user=Depends(get_current_user),
+):
+    """Get the noVNC web URL for embedding in an iframe."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/novnc-url")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.get("/browser/platforms")
+async def browser_platforms(
+    current_user=Depends(get_current_user),
+):
+    """List all supported platforms for visual browser login."""
+    import httpx
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/platforms")
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.ConnectError:
+            raise HTTPException(
+                status_code=503,
+                detail="Browser bridge container not reachable.",
+            )
+
+
+@router.post("/browser/import-instagram-session")
+async def import_instagram_session_from_browser(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Import the Instagram sessionid from the browser bridge into the
+    aiograpi-rest sidecar and save it to the account metadata."""
+    import httpx
+
+    # 1. Get cookies from browser bridge
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        try:
+            resp = await client.get(f"{_BROWSER_BRIDGE_URL}/session/cookies")
+            resp.raise_for_status()
+            data = resp.json()
+        except httpx.HTTPStatusError as e:
+            raise HTTPException(
+                status_code=e.response.status_code,
+                detail="No cookies available. Complete the browser login first.",
+            )
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Browser bridge not reachable.")
+
+    cookies = data.get("cookies", {})
+    sessionid = cookies.get("sessionid")
+    if not sessionid:
+        raise HTTPException(
+            status_code=400,
+            detail="No sessionid cookie found. Make sure you logged into Instagram in the browser.",
+        )
+
+    # 2. Import sessionid into aiograpi-rest sidecar
+    sidecar_url = settings.INSTAGRAM_PRIVATE_API_URL or "http://instagram-private-api:8000"
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            resp = await client.post(
+                f"{sidecar_url}/auth/login/by/sessionid",
+                data={"sessionid": sessionid, "locale": "el_GR", "timezone": "10800"},
+            )
+            if resp.status_code == 200:
+                sidecar_session = resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+                if isinstance(sidecar_session, str):
+                    sidecar_session_id = sidecar_session
+                elif isinstance(sidecar_session, dict):
+                    sidecar_session_id = sidecar_session.get("session_id", sessionid)
+                else:
+                    sidecar_session_id = str(sidecar_session)
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Sidecar rejected sessionid: {resp.text[:200]}",
+                )
+        except httpx.ConnectError:
+            raise HTTPException(status_code=503, detail="Instagram sidecar not reachable.")
+
+    # 3. Save to database
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "instagram")
+    )
+    account = result.scalars().first()
+    if account:
+        _set_instagram_session_id(account, sidecar_session_id)
+        # Also save the raw sessionid cookie for reference
+        meta = _get_meta(account)
+        meta["instagram_sessionid_cookie"] = sessionid
+        account.meta_data = meta
+        flag_modified(account, "meta_data")
+        await db.commit()
+
+    return {
+        "success": True,
+        "session_id": sidecar_session_id[:20] + "...",
+        "message": "Instagram session imported into sidecar and saved to database.",
+    }
+
+
+# ── Instagram Web Session management ─────────────────────────────────────────
+# The web API path (rupload_igphoto) is the primary publishing method for
+# Instagram. It uses browser cookies directly against www.instagram.com,
+# bypassing the private mobile API which often rejects browser sessions.
+# These endpoints let the user manage the web session from the SocialAuto UI.
+
+
+class InstagramWebSessionRequest(BaseModel):
+    """Request body for setting the Instagram web session cookies."""
+
+    sessionid: str
+    csrftoken: str
+    ds_user_id: str
+
+
+@router.post("/instagram/web-session")
+async def set_instagram_web_session(
+    body: InstagramWebSessionRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Set the Instagram web session cookies (sessionid, csrftoken, ds_user_id).
+
+    These cookies are obtained from the browser's DevTools → Application →
+    Cookies → instagram.com. They are used by the web API publishing path
+    (rupload_igphoto) which is the primary Instagram publishing method.
+
+    The sessionid is invalidated by Instagram after each API upload, so this
+    endpoint should be called before each publishing session.
+    """
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "instagram")
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="No Instagram account found.")
+
+    _set_instagram_session_id(account, body.sessionid)
+    meta = _get_meta(account)
+    meta["private_api_csrf_token"] = body.csrftoken
+    meta["private_api_ds_user_id"] = body.ds_user_id
+    meta["private_api_login_type"] = "web_session"
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
+    await db.commit()
+
+    return {
+        "success": True,
+        "message": "Instagram web session saved. Ready to publish via web API.",
+        "ds_user_id": body.ds_user_id,
+    }
+
+
+@router.get("/instagram/web-session")
+async def get_instagram_web_session_status(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Check if the Instagram web session is configured and valid.
+
+    Returns the session status without exposing the actual cookie values.
+    Performs a lightweight check against the Instagram web API to verify
+    the sessionid is still accepted.
+    """
+    import httpx
+
+    result = await db.execute(
+        select(SocialAccount).where(SocialAccount.platform == "instagram")
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(status_code=404, detail="No Instagram account found.")
+
+    sessionid = _get_instagram_session_id(account)
+    meta = _get_meta(account)
+    csrftoken = meta.get("private_api_csrf_token")
+    ds_user_id = meta.get("private_api_ds_user_id")
+
+    if not sessionid or not csrftoken or not ds_user_id:
+        return {
+            "configured": False,
+            "valid": False,
+            "message": "Web session not configured. Set sessionid, csrftoken, and ds_user_id.",
+        }
+
+    # Validate the session by hitting a lightweight endpoint
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "X-IG-App-ID": "1217981644879628",
+        "x-csrftoken": csrftoken,
+        "Cookie": f"sessionid={sessionid}; csrftoken={csrftoken}; ds_user_id={ds_user_id}",
+    }
+
+    try:
+        # Use WARP proxy if available to avoid datacenter IP blocks
+        proxy = getattr(settings, "INSTAGRAM_PROXY", None) or "socks5://warp-proxy:1080"
+        async with httpx.AsyncClient(timeout=15.0, proxy=proxy) as client:
+            resp = await client.get(
+                f"https://www.instagram.com/api/v1/users/{ds_user_id}/info/",
+                headers=headers,
+                follow_redirects=False,
+            )
+    except httpx.HTTPError as exc:
+        logger.warning("Instagram session check failed: %s", type(exc).__name__)
+        return {
+            "configured": True,
+            "valid": False,
+            "message": "Session check failed",
+        }
+
+    # Instagram returns 302 redirect to login when sessionid is invalid,
+    # and sets "sessionid=deleted" in the Set-Cookie header.
+    set_cookie = resp.headers.get("set-cookie", "")
+    if resp.status_code == 302 or "deleted" in set_cookie:
+        return {
+            "configured": True,
+            "valid": False,
+            "message": "Session expired. Get a fresh sessionid from your browser.",
+        }
+
+    if resp.status_code == 200:
+        try:
+            data = resp.json()
+            user = data.get("user", {})
+            return {
+                "configured": True,
+                "valid": True,
+                "username": user.get("username"),
+                "ds_user_id": ds_user_id,
+                "message": "Session is valid.",
+            }
+        except Exception:
+            # 200 with HTML (not JSON) means the session is valid but the
+            # endpoint returned the web page — still valid.
+            return {
+                "configured": True,
+                "valid": True,
+                "ds_user_id": ds_user_id,
+                "message": "Session is valid.",
+            }
+
+    return {
+        "configured": True,
+        "valid": False,
+        "message": f"Unexpected response (HTTP {resp.status_code}). Session may be invalid.",
+    }

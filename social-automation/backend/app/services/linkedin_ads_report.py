@@ -1,0 +1,991 @@
+"""LinkedIn Ads daily report — Marketing API first, Campaign Manager sidecar
+scrape as fallback, snapshot metrics to Postgres, deliver a human-friendly
+summary to a dedicated Slack channel and by email.
+
+Primary path (since the sidecar is regularly edge-rate-limited):
+``rest/adAccounts/{acct}/adCampaigns/{id}`` for name/status/budget/schedule
+and ``rest/adAnalytics`` for spend/clicks/impressions (``r_ads`` +
+``r_ads_reporting`` scopes on the org account token). The sidecar scrape
+remains as fallback if the ad-scoped token lapses.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import re
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, date, datetime, timedelta
+from typing import Any
+from zoneinfo import ZoneInfo
+
+import httpx
+from sqlalchemy import case, desc, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.security import decrypt_token
+from app.db.session import async_session_maker
+from app.models.analytics import FollowerSnapshot, PostAnalyticsSnapshot
+from app.models.linkedin_ads import AdCampaignSnapshot
+from app.models.social_account import SocialAccount
+from app.models.user import Team
+from app.services.email_digest import send_email_smtp
+from app.services.slack_notifications import _post_slack_text
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CampaignMetrics:
+    """Numbers extracted from Campaign Manager pages."""
+
+    account_id: str
+    campaign_id: str
+    campaign_name: str = ""
+    status: str = "unknown"          # draft | active | paused | completed
+    spend_eur: float = 0.0
+    clicks: int = 0
+    cpc_eur: float = 0.0
+    engagements: int = 0
+    engagement_rate: float = 0.0     # percent, e.g. 5.45
+    ctr: float = 0.0                 # percent, e.g. 3.06
+    impressions: int = 0             # derived from clicks/ctr when not shown
+    budget_eur: float = 0.0          # lifetime/total budget
+    daily_budget_eur: float = 0.0
+    account_spend_eur: float = 0.0   # all-campaign spend — promo credit is account-level
+    schedule_start: str = ""         # ISO date from runSchedule.start
+    schedule_end: str = ""           # ISO date from campaign/group runSchedule.end
+    ad_set_statuses: dict[str, int] = field(default_factory=dict)
+    raw: dict[str, Any] = field(default_factory=dict)
+
+
+def _eur(text: str, pattern: str) -> float:
+    m = re.search(pattern, text)
+    if not m:
+        return 0.0
+    try:
+        return float(m.group(1).replace(",", ""))
+    except ValueError:
+        return 0.0
+
+
+def _int(text: str, pattern: str) -> int:
+    m = re.search(pattern, text)
+    if not m:
+        return 0
+    try:
+        return int(m.group(1).replace(",", ""))
+    except ValueError:
+        return 0
+
+
+async def _sidecar_page_text(url: str) -> str:
+    """Navigate the LinkedIn sidecar to ``url`` and return rendered page text."""
+    settings = get_settings()
+    base = settings.LINKEDIN_BROWSER_SIDECAR_URL.rstrip("/")
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.post(
+            f"{base}/debug/navigate",
+            json={"url": url},
+        )
+        r.raise_for_status()
+        # SPA needs a moment to render the metrics table.
+        import asyncio
+
+        await asyncio.sleep(10)
+        # Dismiss the cookie-consent banner (shown after fresh SSO logins) —
+        # it can cover the metrics tables and break parsing.
+        await client.post(
+            f"{base}/debug/eval",
+            json={
+                "script": "(()=>{const b=[...document.querySelectorAll('button')]"
+                ".find(b=>/^(Accept|Accept cookies|Allow all)$/i.test(b.innerText.trim()));"
+                "if(b){b.click();return 'dismissed'}return 'none'})()"
+            },
+        )
+        await asyncio.sleep(2)
+        r = await client.get(f"{base}/debug/page-text")
+        r.raise_for_status()
+        return (r.json() or {}).get("text", "")
+
+
+def _parse_overview(text: str) -> dict[str, Any]:
+    """Parse the account overview page (spend, clicks, CPC, ad-set statuses)."""
+    out: dict[str, Any] = {}
+    out["spend_eur"] = _eur(text, r"Spend by objective\s*\n\s*€([\d.,]+)")
+    out["clicks"] = _int(text, r"Clicks\s*\n\s*([\d,]+)")
+    out["cpc_eur"] = _eur(text, r"CPC\s*\n\s*€([\d.,]+)")
+    for st in ("Active", "Paused", "Completed", "Draft"):
+        n = _int(text, rf"{st}\s*\n\s*(\d+)")
+        if n or st in text:
+            out.setdefault("ad_set_statuses", {})[st.lower()] = n
+    # Content engagement table layout:
+    #   "<N>\nEngagements\n\n<ER>%\n\n+<delta>%\n\n<CTR>%\n\nActions"
+    m = re.search(r"(\d+)\s*\n\s*Engagements\s*\n\s*([\d.]+)%", text)
+    if m:
+        out["engagements"] = int(m.group(1).replace(",", ""))
+        out["engagement_rate"] = float(m.group(2))
+    m = re.search(r"([\d.]+)%\s*\n\s*Actions", text)
+    if m:
+        out["ctr"] = float(m.group(1))
+    return out
+
+
+def _parse_campaign_page(text: str, campaign_id: str) -> dict[str, Any]:
+    """Parse the campaign detail page for the tracked ad set's budget/status."""
+    out: dict[str, Any] = {}
+    out["budget_eur"] = _eur(text, r"Lifetime budget: €([\d.,]+)")
+    m = re.search(rf"{re.escape(campaign_id)} · [^\n]*?Schedule: ([\d/]+)", text)
+    if m:
+        out["schedule"] = m.group(1).strip()
+    m = re.search(rf"{re.escape(campaign_id)} · [^\n]+\n\n(\w+)", text)
+    if m:
+        out["status"] = m.group(1).strip().lower()
+    # "Cloudless boost - Sep 2026 - coupon" appears just above the id line
+    m = re.search(rf"([^\n]+)\n\n{re.escape(campaign_id)} ·", text)
+    if m:
+        out["campaign_name"] = m.group(1).strip()
+    return out
+
+
+async def _linkedin_org_token(db: AsyncSession) -> str | None:
+    """Access token of the LinkedIn org account (r_ads + r_ads_reporting)."""
+    account = (
+        await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.platform == "linkedin",
+                SocialAccount.account_type == "organization",
+                SocialAccount.status == "active",
+            ).limit(1)
+        )
+    ).scalars().first()
+    if not account or not account.access_token_enc:
+        return None
+    try:
+        return decrypt_token(account.access_token_enc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LinkedIn ads report: org token decrypt failed: %s", exc)
+        return None
+
+
+async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
+    """Populate campaign config + metrics via the Marketing API.
+
+    Uses ``rest/adAccounts/{acct}/adCampaigns/{id}`` for name/status/budget/
+    schedule and ``rest/adAnalytics`` (per-campaign daily rows) for spend,
+    clicks, impressions and engagements — the same API the analytics sync
+    already uses. Far more reliable than the Campaign Manager sidecar
+    scrape, which dies when LinkedIn rate-limits the server IP.
+    """
+    from app.services.analytics_sync import _fetch_linkedin_ad_stats, _linkedin_headers
+
+    token = await _linkedin_org_token(db)
+    if not token:
+        return False
+    headers = _linkedin_headers(token)
+    acct, camp = m.account_id, m.campaign_id
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        r = await client.get(
+            f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaigns/{camp}",
+            headers=headers,
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"adCampaigns HTTP {r.status_code}: {r.text[:200]}")
+        c = r.json() or {}
+        m.campaign_name = c.get("name") or ""
+        m.status = (c.get("status") or "unknown").lower()
+        m.raw["serving_statuses"] = c.get("servingStatuses") or []
+        total_budget = c.get("totalBudget") or {}
+        daily_budget = c.get("dailyBudget") or {}
+        if total_budget.get("amount"):
+            m.budget_eur = float(total_budget["amount"])
+        if daily_budget.get("amount"):
+            m.daily_budget_eur = float(daily_budget["amount"])
+        rs = c.get("runSchedule") or {}
+        if rs.get("start"):
+            m.schedule_start = datetime.fromtimestamp(rs["start"] / 1000, UTC).date().isoformat()
+
+        # runSchedule.end often lives on the campaign group, not the campaign.
+        group_urn = str(c.get("campaignGroup") or "")
+        group_id = group_urn.rsplit(":", 1)[-1]
+        if group_id.isdigit():
+            g = await client.get(
+                f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaignGroups/{group_id}",
+                headers=headers,
+            )
+            if g.status_code == 200:
+                gend = ((g.json() or {}).get("runSchedule") or {}).get("end")
+                if gend:
+                    m.schedule_end = datetime.fromtimestamp(gend / 1000, UTC).date().isoformat()
+        # The campaign can end before its group — either date stops delivery,
+        # so keep the earliest.
+        if rs.get("end"):
+            camp_end = datetime.fromtimestamp(rs["end"] / 1000, UTC).date().isoformat()
+            m.schedule_end = min(m.schedule_end, camp_end) if m.schedule_end else camp_end
+
+        # The promo credit is account-wide — enumerate every campaign so
+        # credit math covers (a) spend from campaigns that ran before the
+        # tracked one started, and (b) the remaining caps of any campaign
+        # that could still deliver (active/paused/draft).
+        # Raw URL — rest.li finder syntax must not be %-encoded.
+        lc = await client.get(
+            f"https://api.linkedin.com/rest/adAccounts/{acct}/adCampaigns"
+            "?q=search&search=(status:(values:List(ACTIVE,PAUSED,DRAFT,"
+            "COMPLETED,CANCELED)))&count=500",
+            headers=headers,
+        )
+        if lc.status_code == 200:
+            campaigns = []
+            for el in (lc.json() or {}).get("elements") or []:
+                el_rs = el.get("runSchedule") or {}
+                tb = (el.get("totalBudget") or {}).get("amount")
+                campaigns.append(
+                    {
+                        "id": str(el.get("id") or ""),
+                        "name": el.get("name") or "",
+                        "status": (el.get("status") or "").lower(),
+                        "budget": float(tb) if tb else None,
+                        "start_ms": el_rs.get("start"),
+                    }
+                )
+            m.raw["campaigns"] = campaigns
+        else:
+            m.raw["campaigns_note"] = f"adCampaigns list HTTP {lc.status_code}"
+
+        # Analytics window must start at the EARLIEST campaign's start —
+        # spend predating the tracked campaign still drained the credit.
+        starts = [c["start_ms"] for c in m.raw.get("campaigns", []) if c.get("start_ms")]
+        if rs.get("start"):
+            starts.append(rs["start"])
+        since = (
+            datetime.fromtimestamp(min(starts) / 1000, UTC)
+            if starts
+            else datetime.now(UTC) - timedelta(days=365)
+        )
+        stats = await _fetch_linkedin_ad_stats(client, token, acct, since=since)
+        if stats.get("_error"):
+            raise RuntimeError(f"adAnalytics: {stats['_error'].notes}")
+        # Per-campaign spend map — the credit verdict adds each resumable
+        # campaign's REMAINING cap, not just its spend so far.
+        m.raw["spend_by_campaign"] = {
+            k.rsplit(":", 1)[-1]: float(b.raw.get("costLocal") or 0.0)
+            for k, b in stats.items()
+            if not k.startswith("_")
+        }
+        m.account_spend_eur = round(sum(m.raw["spend_by_campaign"].values()), 2)
+        bundle = stats.get(f"urn:li:sponsoredCampaign:{camp}")
+        if bundle is None:
+            # A 200 with no row for the tracked campaign means metrics are
+            # unavailable right now, not €0 — fall back to the sidecar
+            # instead of reporting false zeros.
+            m.raw["api_note"] = "campaign not in adAnalytics response"
+            return False
+        else:
+            m.spend_eur = float(bundle.raw.get("costLocal") or 0.0)
+            m.clicks = bundle.clicks
+            m.impressions = bundle.impressions
+            m.engagements = sum(
+                int(d.get("totalEngagements") or 0)
+                for d in (bundle.raw.get("daily") or [])
+            ) or bundle.engagement
+            m.raw["daily"] = bundle.raw.get("daily") or []
+            m.raw["cost_usd"] = bundle.raw.get("costUsd")
+
+    if m.impressions:
+        m.ctr = round(m.clicks / m.impressions * 100, 2)
+        m.engagement_rate = round(m.engagements / m.impressions * 100, 2)
+    if m.clicks:
+        m.cpc_eur = round(m.spend_eur / m.clicks, 2)
+    m.raw["source"] = "api"
+    return True
+
+
+async def collect_metrics(db: AsyncSession) -> CampaignMetrics:
+    """Collect metrics — Marketing API first, sidecar scrape as fallback."""
+    settings = get_settings()
+    account_id = settings.LINKEDIN_AD_ACCOUNT_ID or "512642510"
+    campaign_id = settings.LINKEDIN_ADS_CAMPAIGN_ID
+    m = CampaignMetrics(account_id=account_id, campaign_id=campaign_id)
+
+    try:
+        if await _collect_api_metrics(db, m):
+            return m
+    except Exception as exc:  # noqa: BLE001 — fall through to the scrape
+        logger.warning("LinkedIn ads API metrics failed, trying sidecar: %s", exc)
+        m.raw["api_error"] = str(exc)[:300]
+
+    overview_url = (
+        f"https://www.linkedin.com/campaignmanager/accounts/{account_id}"
+        f"/overview?businessId=personal"
+    )
+    campaign_url = (
+        f"https://www.linkedin.com/campaignmanager/accounts/{account_id}"
+        f"/campaigns/{campaign_id}?businessId=personal"
+    )
+
+    try:
+        overview_text = await _sidecar_page_text(overview_url)
+        ov = _parse_overview(overview_text)
+        m.spend_eur = ov.get("spend_eur", 0.0)
+        m.clicks = ov.get("clicks", 0)
+        m.cpc_eur = ov.get("cpc_eur", 0.0)
+        m.engagements = ov.get("engagements", 0)
+        m.engagement_rate = ov.get("engagement_rate", 0.0)
+        m.ctr = ov.get("ctr", 0.0)
+        m.ad_set_statuses = ov.get("ad_set_statuses", {})
+        m.raw["overview_excerpt"] = overview_text[:2000]
+    except Exception as exc:  # noqa: BLE001 — report still goes out with what we have
+        logger.warning("LinkedIn ads overview scrape failed: %s", exc)
+        m.raw["overview_error"] = str(exc)[:300]
+
+    try:
+        campaign_text = await _sidecar_page_text(campaign_url)
+        cp = _parse_campaign_page(campaign_text, campaign_id)
+        m.campaign_name = cp.get("campaign_name", "")
+        m.status = cp.get("status", "unknown")
+        m.budget_eur = cp.get("budget_eur", 0.0)
+        m.schedule_start = cp.get("schedule", "")
+        m.raw["campaign_excerpt"] = campaign_text[:2000]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LinkedIn ads campaign scrape failed: %s", exc)
+        m.raw["campaign_error"] = str(exc)[:300]
+
+    if m.clicks and m.ctr:
+        m.impressions = round(m.clicks / (m.ctr / 100))
+    return m
+
+
+def _parse_schedule_date(schedule: str) -> date | None:
+    """Parse US-style ``M/D/YYYY`` from the CM schedule string."""
+    m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", schedule or "")
+    if not m:
+        return None
+    try:
+        return date(int(m.group(3)), int(m.group(1)), int(m.group(2)))
+    except ValueError:
+        return None
+
+
+def _fmt_money(v: float) -> str:
+    return f"€{v:,.2f}".rstrip("0").rstrip(".") if v else "€0"
+
+
+def build_report_text(
+    m: CampaignMetrics, prev: AdCampaignSnapshot | None, end_date: date | None
+) -> str:
+    """Human-friendly summary — plain language, no jargon."""
+    today = datetime.now(ZoneInfo(get_settings().APP_TIMEZONE)).date()
+    name = m.campaign_name or "Cloudless boost - Sep 2026 - coupon"
+    lines = [f"☀️ *LinkedIn ad report — {name}* ({today.isoformat()})", ""]
+
+    status_label = {
+        "active": "🟢 Running",
+        "paused": "⏸️ Paused",
+        "draft": "📝 Draft — not live yet",
+        "completed": "🏁 Finished",
+        "removed": "🗑 Removed",
+        "canceled": "🗑 Canceled",
+    }.get(m.status, m.status.title() if m.status != "unknown" else "⚠️ Unknown (check Campaign Manager)")
+    lines.append(f"*Status:* {status_label}")
+
+    if m.budget_eur:
+        pct = (m.spend_eur / m.budget_eur * 100) if m.budget_eur else 0
+        budget_bits = [f"*Spend:* {_fmt_money(m.spend_eur)} of {_fmt_money(m.budget_eur)} "
+                       f"lifetime budget ({pct:.0f}% used)"]
+        if m.daily_budget_eur:
+            budget_bits.append(f"daily cap {_fmt_money(m.daily_budget_eur)}")
+        lines.append(" — ".join(budget_bits))
+    else:
+        lines.append(f"*Spend so far:* {_fmt_money(m.spend_eur)}")
+
+    delta_bits = []
+    if prev is not None:
+        d_spend = m.spend_eur - prev.spend_eur
+        d_clicks = m.clicks - prev.clicks
+        d_eng = m.engagements - prev.engagements
+        if d_spend > 0:
+            delta_bits.append(f"+{_fmt_money(d_spend)} spend")
+        if d_clicks > 0:
+            delta_bits.append(f"+{d_clicks} clicks")
+        if d_eng > 0:
+            delta_bits.append(f"+{d_eng} engagements")
+    if delta_bits:
+        lines.append(f"*Since last report:* {', '.join(delta_bits)}")
+
+    stats = []
+    if m.clicks:
+        stats.append(f"{m.clicks} clicks")
+    if m.cpc_eur:
+        stats.append(f"CPC {_fmt_money(m.cpc_eur)}")
+    if m.ctr:
+        stats.append(f"CTR {m.ctr:.2f}%")
+    if m.engagements:
+        stats.append(f"{m.engagements} engagements")
+    if m.engagement_rate:
+        stats.append(f"ER {m.engagement_rate:.2f}%")
+    if m.impressions:
+        stats.append(f"{m.impressions:,} impressions")
+    if stats:
+        lines.append("*Totals:* " + " · ".join(stats))
+    if m.ctr:
+        verdict = "above" if m.ctr >= 0.44 else "below"
+        lines.append(f"*Benchmark:* CTR {m.ctr:.2f}% is {verdict} the LinkedIn sponsored median (~0.44%)")
+
+    lines.append("")
+    # Pace + card safety insight
+    settings = get_settings()
+    credit = settings.LINKEDIN_ADS_CREDIT_EUR
+    campaign_end = (
+        date.fromisoformat(m.schedule_end) if m.schedule_end else end_date
+    )
+    if campaign_end and m.budget_eur:
+        days_left = (campaign_end - today).days
+        if m.status == "active" and m.spend_eur:
+            headroom = m.budget_eur - m.spend_eur
+            try:
+                start = date.fromisoformat(m.schedule_start)
+            except ValueError:
+                start = _parse_schedule_date(m.schedule_start) or today
+            daily_avg = m.spend_eur / max(1, (today - start).days or 1)
+            if headroom <= 0:
+                lines.append("*Pace:* lifetime budget reached — delivery has stopped.")
+            elif daily_avg > 0:
+                days_to_cap = headroom / daily_avg
+                if days_to_cap < days_left:
+                    exhaust = today + timedelta(days=round(days_to_cap))
+                    lines.append(
+                        f"*Pace:* {_fmt_money(headroom)} left of the "
+                        f"{_fmt_money(m.budget_eur)} cap — at ~{_fmt_money(daily_avg)}/day "
+                        f"the budget exhausts ~{exhaust.isoformat()} and ads stop "
+                        f"~{days_left - round(days_to_cap)} days before the "
+                        f"{campaign_end.isoformat()} end date. Raise the cap or let it pause."
+                    )
+                else:
+                    projected = m.spend_eur + daily_avg * days_left
+                    verdict = "on track ✅" if projected <= m.budget_eur * 1.05 else "running hot ⚠️"
+                    lines.append(
+                        f"*Pace:* {verdict} — projecting ~{_fmt_money(projected)} by "
+                        f"{campaign_end.isoformat()} vs {_fmt_money(m.budget_eur)} cap "
+                        f"(burn ~{_fmt_money(daily_avg)}/day, {days_left}d left)."
+                    )
+        elif m.status == "draft":
+            lines.append(
+                "*Note:* the ad set is still a draft — it isn't spending. "
+                "Launch it in Campaign Manager when the creative is approved."
+            )
+    if credit:
+        # Credit is account-level — other campaigns share it, so charge the
+        # total account spend, not just this campaign's.
+        charged = m.account_spend_eur or m.spend_eur
+        remaining = credit - charged
+        other = charged - m.spend_eur
+        credit_note = (
+            f" ({_fmt_money(other)} spent by other campaigns in the account)"
+            if other > 0.005
+            else ""
+        )
+        lines.append(
+            f"💳 *Promo credit:* {_fmt_money(charged)} of {_fmt_money(credit)} "
+            f"used — *{_fmt_money(remaining)} left*.{credit_note}"
+        )
+        # Worst case = charged so far + the remaining lifetime exposure of
+        # EVERY campaign that can still deliver — active spends on, paused
+        # resumes in one click, drafts launch. A resumable campaign without
+        # a verified lifetime cap is unbounded → verdict is "unverified",
+        # never "safe". Same when the campaign list couldn't be fetched.
+        exposure_statuses = {"active", "paused", "draft"}
+        camps = m.raw.get("campaigns")
+        spend_by = m.raw.get("spend_by_campaign") or {}
+        uncapped = []
+        if m.status in exposure_statuses:
+            if not m.budget_eur:
+                uncapped.append(m.campaign_name or m.campaign_id)
+        this_remaining = (
+            max(0.0, m.budget_eur - m.spend_eur)
+            if m.status in exposure_statuses and m.budget_eur
+            else 0.0
+        )
+        other_remaining = 0.0
+        if isinstance(camps, list):
+            for oc in camps:
+                if oc.get("id") == m.campaign_id or oc.get("status") not in exposure_statuses:
+                    continue
+                if not oc.get("budget"):
+                    uncapped.append(oc.get("name") or oc["id"])
+                else:
+                    other_remaining += max(
+                        0.0, oc["budget"] - spend_by.get(oc["id"], 0.0)
+                    )
+        worst_case = charged + this_remaining + other_remaining
+        if uncapped or not isinstance(camps, list):
+            reason = (
+                f"{', '.join(uncapped)} has no lifetime cap — delivery is unbounded"
+                if uncapped
+                else "the full campaign list could not be verified"
+            )
+            lines.append(
+                f"⚠️ Card safety: unverified — {reason}. "
+                "The Visa on file could be charged; set a cap or monitor spend."
+            )
+        elif worst_case <= credit:
+            lines.append(
+                "Card safety: even with every resumable campaign at its full "
+                "lifetime cap, account spend stays below the credit — "
+                "the Visa on file is not expected to be charged."
+            )
+        else:
+            lines.append(
+                "⚠️ Card safety: account spend could exceed the promo credit — "
+                "the Visa on file may be charged. Review the campaign cap."
+            )
+    else:
+        lines.append(
+            "💳 *Card safety:* spend stays inside the promo credit — "
+            "the Visa on file is not expected to be charged."
+        )
+    if campaign_end:
+        lines.append(f"Campaign ends {campaign_end.isoformat()}. Report again tomorrow 10:00.")
+    return "\n".join(lines)
+
+
+def _control_blocks(status: str, campaign_id: str = "") -> list[dict[str, Any]]:
+    """Actions block with pause/resume + status buttons under the report.
+
+    Button payloads arrive at the cloudless.gr Slack app
+    (/api/slack/interactions) — ``value`` carries the campaign id so the
+    handler controls the right ad set.
+    """
+    if status == "active":
+        control = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "⏸ Pause campaign"},
+            "style": "danger",
+            "action_id": "linkedin_ads_pause",
+            "value": campaign_id,
+            "confirm": {
+                "title": {"type": "plain_text", "text": "Pause campaign?"},
+                "text": {"type": "plain_text",
+                         "text": "Spending stops until you resume it."},
+                "confirm": {"type": "plain_text", "text": "Pause"},
+                "deny": {"type": "plain_text", "text": "Keep running"},
+            },
+        }
+    else:
+        control = {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "▶️ Resume campaign"},
+            "style": "primary",
+            "action_id": "linkedin_ads_resume",
+            "value": campaign_id,
+        }
+    return [
+        {"type": "divider"},
+        {
+            "type": "actions",
+            "elements": [
+                control,
+                {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "📊 Refresh status"},
+                    "action_id": "linkedin_ads_status",
+                    "value": campaign_id,
+                },
+            ],
+        },
+    ]
+
+
+def _to_email_text(report: str) -> str:
+    """Strip Slack mrkdwn asterisks for a clean plaintext email."""
+    return report.replace("*", "")
+
+
+async def _geo_names(db: AsyncSession, geo_ids: list[str]) -> dict[str, str]:
+    """Resolve ``urn:li:geo`` ids to display names via the Geo API.
+
+    ``GET /v2/geo?ids=List(...)`` works with the org token (verified
+    2026-09-28). Returns ``{id: name}`` — empty on any failure so the
+    report degrades to raw ids instead of breaking.
+    """
+    token = await _linkedin_org_token(db)
+    clean = [g for g in geo_ids if g.isdigit()]
+    if not token or not clean:
+        return {}
+    try:
+        from app.services.analytics_sync import _linkedin_headers
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                f"https://api.linkedin.com/v2/geo?ids=List({','.join(clean)})",
+                headers=_linkedin_headers(token),
+            )
+            if r.status_code >= 400:
+                return {}
+            return {
+                gid: (v.get("defaultLocalizedName") or {}).get("value") or gid
+                for gid, v in ((r.json() or {}).get("results") or {}).items()
+            }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LinkedIn geo lookup failed: %s", exc)
+        return {}
+
+
+async def _latest_org_snapshot(db: AsyncSession, account_id: Any, source: str) -> dict[str, Any]:
+    row = (
+        await db.execute(
+            select(PostAnalyticsSnapshot.raw)
+            .where(
+                PostAnalyticsSnapshot.social_account_id == account_id,
+                PostAnalyticsSnapshot.source == source,
+            )
+            .order_by(desc(PostAnalyticsSnapshot.captured_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return row or {}
+
+
+async def build_org_section(db: AsyncSession) -> str:
+    """Human-friendly organic-page section from developer-app analytics."""
+    account = (
+        await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.platform == "linkedin",
+                SocialAccount.account_type == "organization",
+            )
+        )
+    ).scalars().first()
+    if not account:
+        return ""
+
+    followers = (
+        await db.execute(
+            select(FollowerSnapshot.followers)
+            .where(
+                FollowerSnapshot.social_account_id == account.id,
+                FollowerSnapshot.platform == "linkedin",
+            )
+            .order_by(desc(FollowerSnapshot.captured_at))
+            .limit(2)
+        )
+    ).scalars().all()
+
+    follower_stats = await _latest_org_snapshot(db, account.id, "linkedin_follower_stats")
+    page_stats = await _latest_org_snapshot(db, account.id, "linkedin_page_stats")
+    lifetime = await _latest_org_snapshot(db, account.id, "linkedin_org_lifetime")
+
+    top_post = (
+        await db.execute(
+            select(PostAnalyticsSnapshot)
+            .where(
+                PostAnalyticsSnapshot.social_account_id == account.id,
+                PostAnalyticsSnapshot.post_id.is_not(None),
+                PostAnalyticsSnapshot.impressions > 0,
+            )
+            .order_by(desc(PostAnalyticsSnapshot.impressions))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    lines = ["", "📣 *Company page (organic)*"]
+    if followers:
+        delta = followers[0] - followers[1] if len(followers) > 1 else 0
+        sign = f"+{delta}" if delta > 0 else str(delta)
+        lines.append(f"*Followers:* {followers[0]} ({sign} since last check)")
+
+    gains = follower_stats.get("follower_gains") or {}
+    if gains:
+        lines.append(
+            f"*New followers (30d):* {gains.get('organic', 0)} organic"
+            + (f" · {gains['paid']} paid" if gains.get("paid") else "")
+        )
+
+    demo = follower_stats.get("demographics") or {}
+    geo = demo.get("followerCountsByGeoCountry") or demo.get("followerCountsByGeo") or []
+    if geo:
+        top3 = sorted(
+            geo,
+            key=lambda g: (g.get("followerCounts") or {}).get("organicFollowerCount", 0),
+            reverse=True,
+        )[:3]
+        ids = [
+            str(g.get("geoCountry") or g.get("geo") or "").rsplit(":", 1)[-1]
+            for g in top3
+        ]
+        names = await _geo_names(db, ids)
+        parts = [
+            f"{names.get(gid) or gid} ({(g.get('followerCounts') or {}).get('organicFollowerCount', 0)})"
+            for g, gid in zip(top3, ids)
+        ]
+        lines.append(f"*Top follower locations:* {', '.join(parts)}")
+
+    daily = (page_stats.get("period") or {}).get("daily") or []
+    views = sum(
+        int((((el.get("totalPageStatistics") or {}).get("views") or {})
+             .get("allPageViews") or {}).get("pageViews") or 0)
+        for el in daily
+    )
+    unique = sum(
+        int((((el.get("totalPageStatistics") or {}).get("views") or {})
+             .get("allPageViews") or {}).get("uniquePageViews") or 0)
+        for el in daily
+    )
+    if views or unique:
+        lines.append(f"*Page views (30d):* {views} ({unique} unique visitors)")
+
+    stats = (lifetime.get("organizationalEntityShareStatistics") or {}).get(
+        "totalShareStatistics"
+    ) or {}
+    if stats:
+        lines.append(
+            "*All-time content:* "
+            f"{stats.get('impressionCount', 0):,} impressions · "
+            f"{stats.get('uniqueImpressionsCount', 0):,} unique viewers · "
+            f"{stats.get('clickCount', 0)} clicks · "
+            f"{stats.get('likeCount', 0)} reactions · "
+            f"{stats.get('commentCount', 0)} comments · "
+            f"{stats.get('shareCount', 0)} reposts"
+        )
+
+    if top_post:
+        lines.append(
+            f"*Top post:* {top_post.impressions:,} impressions · "
+            f"{top_post.likes} reactions · {top_post.comments} comments · "
+            f"{top_post.shares} reposts"
+        )
+    return "\n".join(lines) if len(lines) > 2 else ""
+
+
+async def _get_team_id(db: AsyncSession) -> Any:
+    """Resolve the team that owns the LinkedIn workspace — the ad account
+    belongs to it, so snapshots must be attributed there or the campaign
+    is invisible to that team's analytics. Falls back to the highest-plan
+    team, then any team."""
+    linkedin_team = (
+        await db.execute(
+            select(SocialAccount.team_id)
+            .where(
+                SocialAccount.platform == "linkedin",
+                SocialAccount.status == "active",
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if linkedin_team:
+        return linkedin_team
+    tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
+    return (
+        await db.execute(select(Team.id).order_by(desc(tier_rank)).limit(1))
+    ).scalar_one_or_none()
+
+
+async def _latest_snapshot(db: AsyncSession, campaign_id: str) -> AdCampaignSnapshot | None:
+    return (
+        await db.execute(
+            select(AdCampaignSnapshot)
+            .where(AdCampaignSnapshot.campaign_id == campaign_id)
+            .order_by(desc(AdCampaignSnapshot.captured_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def _final_sent(db: AsyncSession, campaign_id: str) -> bool:
+    row = (
+        await db.execute(
+            select(AdCampaignSnapshot.id)
+            .where(
+                AdCampaignSnapshot.campaign_id == campaign_id,
+                AdCampaignSnapshot.raw["final"].as_boolean(),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    return row is not None
+
+
+async def _render_report_notebook(
+    *,
+    campaign_id: str,
+    status: str,
+    end_date: date | None,
+    is_final: bool,
+    metrics: CampaignMetrics,
+) -> tuple[str, str | None, list[dict[str, Any]]] | None:
+    """Render the report via the ``linkedin_ads_daily`` notebook (papermill).
+
+    The notebook reads ``ad_campaign_snapshots`` (the row just committed),
+    emits plain text + HTML + trend-chart PNGs, and writes a manifest.
+    Returns ``(text, html, attachments)`` or ``None`` on any failure so the
+    caller falls back to the code-path renderer.
+    """
+    import asyncio
+    from pathlib import Path
+
+    try:
+        from app.services.notebook_runner import run_report_notebook
+
+        result = await asyncio.to_thread(
+            run_report_notebook,
+            "linkedin_ads_daily",
+            {
+                "campaign_id": campaign_id,
+                "status_hint": status,
+                "is_final": is_final,
+                "end_date": end_date.isoformat() if end_date else "",
+                # The exact metrics this run snapshotted — the notebook
+                # renders text from this instead of re-collecting, so
+                # body and charts can never disagree.
+                "metrics_json": json.dumps(asdict(metrics), default=str),
+            },
+        )
+        manifest = result.get("manifest") or {}
+        base = Path(result["manifest_path"]).parent
+
+        def _res(f: str | None) -> Path | None:
+            if not f:
+                return None
+            p = Path(f)
+            return p if p.is_absolute() else base / p
+
+        text_f, html_f = _res(manifest.get("text_file")), _res(manifest.get("html_file"))
+        if not text_f or not text_f.exists():
+            logger.warning("ads notebook manifest missing text_file: %s", manifest)
+            return None
+        attachments = []
+        for a in manifest.get("attachments") or []:
+            p = _res(a.get("file"))
+            if p and p.exists():
+                attachments.append(
+                    {"name": p.name, "data": p.read_bytes(), "cid": a.get("cid"), "mime": a.get("mime")}
+                )
+        logger.info(
+            "linkedin_ads_daily notebook rendered in %ss (artifact %s)",
+            result.get("duration_s"), result.get("notebook"),
+        )
+        return (
+            text_f.read_text(),
+            html_f.read_text() if html_f and html_f.exists() else None,
+            attachments,
+        )
+    except Exception as exc:  # noqa: BLE001 — code-path renderer is the fallback
+        logger.warning("LinkedIn ads notebook render failed, using code path: %s", exc)
+        return None
+
+
+async def run_daily_report() -> dict[str, Any]:
+    """Collect → snapshot → report → deliver. Runs daily until campaign end."""
+    settings = get_settings()
+    tz = ZoneInfo(settings.APP_TIMEZONE)
+    today = datetime.now(tz).date()
+    end_date: date | None = None
+    if settings.LINKEDIN_ADS_END_DATE:
+        try:
+            end_date = date.fromisoformat(settings.LINKEDIN_ADS_END_DATE)
+        except ValueError:
+            logger.warning("Bad LINKEDIN_ADS_END_DATE: %r", settings.LINKEDIN_ADS_END_DATE)
+
+    async with async_session_maker() as db:
+        team_id = await _get_team_id(db)
+        if not team_id:
+            return {"ok": False, "error": "no team"}
+
+        campaign_id = settings.LINKEDIN_ADS_CAMPAIGN_ID
+        finished_before = await _final_sent(db, campaign_id)
+        if finished_before and end_date and today > end_date:
+            return {"ok": True, "skipped": "campaign finished, final report already sent"}
+
+        prev = await _latest_snapshot(db, campaign_id)
+        metrics = await collect_metrics(db)
+
+        is_final = bool(end_date and today >= end_date)
+        snapshot = AdCampaignSnapshot(
+            team_id=team_id,
+            platform="linkedin",
+            account_id=metrics.account_id,
+            campaign_id=metrics.campaign_id,
+            campaign_name=metrics.campaign_name,
+            status=metrics.status,
+            impressions=metrics.impressions,
+            clicks=metrics.clicks,
+            engagements=metrics.engagements,
+            spend_eur=metrics.spend_eur,
+            ctr=metrics.ctr,
+            engagement_rate=metrics.engagement_rate,
+            cpc_eur=metrics.cpc_eur,
+            budget_eur=metrics.budget_eur,
+            raw={**metrics.raw, "final": is_final},
+        )
+        db.add(snapshot)
+        # Persist before rendering — the notebook reads snapshots in its own
+        # session, so the row must be committed for it to see today's metrics.
+        await db.commit()
+
+        rendered = await _render_report_notebook(
+            campaign_id=campaign_id,
+            status=metrics.status,
+            end_date=end_date,
+            is_final=is_final,
+            metrics=metrics,
+        )
+        report_html: str | None = None
+        report_attachments: list[dict[str, Any]] = []
+        if rendered is not None:
+            report, report_html, report_attachments = rendered
+        else:
+            report = build_report_text(metrics, prev, end_date)
+            try:
+                report += await build_org_section(db)
+            except Exception as exc:  # noqa: BLE001 — organic section is best-effort
+                logger.warning("LinkedIn org insights section failed: %s", exc)
+            if is_final:
+                report += "\n\n🏁 *Final report* — the campaign schedule has ended."
+
+        # Slack: dedicated ads channel webhook/token, falling back to the
+        # default digest webhook so reports are never lost. Interactive
+        # pause/resume buttons POST to the app's Interactivity Request URL
+        # (/api/v1/slack/interactions) once it is configured on the Slack app.
+        slack_ok, slack_err, _ = await _post_slack_text(
+            text=report,
+            webhook_url=settings.SLACK_ADS_WEBHOOK_URL or settings.SLACK_WEBHOOK_URL,
+            token=(settings.SLACK_BOT_TOKEN or settings.SLACK_ACCESS_TOKEN or "").strip(),
+            channel_id=settings.SLACK_ADS_CHANNEL_ID or settings.SLACK_CHANNEL_ID,
+            purpose="linkedin-ads",
+            blocks=_control_blocks(metrics.status, metrics.campaign_id),
+        )
+
+        email_err = None
+        try:
+            send_email_smtp(
+                subject=f"LinkedIn ad report — {today.isoformat()}",
+                text_body=_to_email_text(report),
+                html_body=report_html,
+                attachments=report_attachments or None,
+                to_addrs=[a for a in (settings.LINKEDIN_ADS_EMAIL_TO or settings.DIGEST_EMAIL_TO).split(",") if a.strip()],
+            )
+        except Exception as exc:  # noqa: BLE001
+            email_err = str(exc)[:300]
+            logger.warning("LinkedIn ads report email failed: %s", exc)
+
+        await db.commit()
+        return {
+            "ok": True,
+            "final": is_final,
+            "metrics": {
+                "spend_eur": metrics.spend_eur,
+                "clicks": metrics.clicks,
+                "engagements": metrics.engagements,
+                "ctr": metrics.ctr,
+                "status": metrics.status,
+            },
+            "posted_to_slack": slack_ok,
+            "slack_error": slack_err,
+            "email_error": email_err,
+        }

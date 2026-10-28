@@ -1,0 +1,21 @@
+# Dependency Review Configuration
+# This file configures the dependency-review-action to fail on vulnerable dependencies
+
+# Fail the build if any vulnerabilities of this severity or higher are found
+fail-on-severity: high
+
+# Allow specific vulnerabilities by GHSA ID (use sparingly with justification)
+# allow-ghsas:
+#   - GHSA-xxxx-xxxx-xxxx  # Justification: ...
+
+# Custom vulnerability severity overrides
+# severity-overrides:
+#   GHSA-xxxx-xxxx-xxxx: moderate
+
+# Scope of dependencies to review
+# review-scope: 'all'  # or 'production', 'development'
+
+# Custom labels for categorizing dependencies
+# labels:
+#   - 'security'
+#   - 'license'

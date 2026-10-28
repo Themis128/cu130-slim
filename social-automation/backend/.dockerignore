@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+.env
+
+# Testing
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+
+# Git
+.git
+.gitignore
+
+# Misc
+*.log
+*.md
+docs/
+
+# Local tool artifacts (never ship)
+.venv-test/
+.mypy_cache/
+.ruff_cache/
+.ruff_cache.*/
+.trivyignore
+social_automation_api.egg-info/

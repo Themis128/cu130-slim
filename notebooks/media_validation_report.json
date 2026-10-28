@@ -1,0 +1,43 @@
+{
+  "platform": "instagram",
+  "post_id": null,
+  "generated_at": "2026-10-05T07:24:41.401847Z",
+  "results": [
+    {
+      "path": "2026/10/04/97a63d3443aa4f26.jpg",
+      "size": 768,
+      "height": 768,
+      "verdict": "pass",
+      "reasons": [],
+      "dmr_description": "This digital illustration depicts two stylized, glowing hands shaking against a black background, with one hand emerging from a screen displaying code and the other from a screen showing abstract data streams, symbolizing a technological or digital collaboration."
+    },
+    {
+      "path": "2026/10/04/74d56e0dcbc242eb.png",
+      "size": 768,
+      "height": 432,
+      "verdict": "fail",
+      "reasons": [
+        "file only 1647 bytes \u2014 truncated/placeholder"
+      ]
+    },
+    {
+      "path": "2026/10/04/86b1314a993544ba.png",
+      "size": 768,
+      "height": 432,
+      "verdict": "fail",
+      "reasons": [
+        "file only 1647 bytes \u2014 truncated/placeholder"
+      ]
+    },
+    {
+      "path": "2026/10/04/d65b5d6268eb49b6.png",
+      "size": 768,
+      "height": 432,
+      "verdict": "fail",
+      "reasons": [
+        "file only 1647 bytes \u2014 truncated/placeholder"
+      ]
+    }
+  ],
+  "all_pass": false
+}

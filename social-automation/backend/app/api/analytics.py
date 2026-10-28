@@ -1,0 +1,2362 @@
+"""Analytics API — metrics from self-hosted Postgres (AnalyticsEvent), no cloud analytics APIs."""
+from __future__ import annotations
+
+import asyncio
+import re
+import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import Integer, case, cast, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.auth import get_current_user
+from app.api.deps import TeamId
+from app.core.config import settings
+from app.core.security import decrypt_token
+from app.db.session import get_db
+from app.models.analytics import AnalyticsEvent, FollowerSnapshot, PostAnalyticsSnapshot
+from app.models.content import Post, PostStatus, PostTarget
+from app.models.queue import PublishQueue, QueueStatus
+from app.models.social_account import SocialAccount
+from app.models.user import Team, TeamMember, User
+from app.services.analytics_sync import sync_team_analytics
+from app.services.insights_engine import build_team_insights
+from app.services.linkedin_api import LinkedInAPIClient
+from app.services.meta_graph import facebook_graph_url
+from app.worker.tasks.analytics import sync_team_analytics_task
+
+router = APIRouter()
+
+ENGAGEMENT_TYPES = ("like", "comment", "share", "click")
+
+def _event_count_expr():
+    """Prefer meta_data.count (platform sync); else each row counts as 1."""
+    return func.coalesce(cast(AnalyticsEvent.meta_data["count"].astext, Integer), 1)
+
+
+
+
+async def _team_for_user(db: AsyncSession, team_id: uuid.UUID) -> Team | None:
+    """Resolve the request's active team (JWT ``team_id`` claim via ``TeamId`` dep)."""
+    return await db.get(Team, team_id)
+
+
+
+def _athens_day_expr(column=None):
+    """Calendar day of an event in APP_TIMEZONE (Europe/Athens)."""
+    col = column or AnalyticsEvent.occurred_at
+    return func.date_trunc(
+        "day",
+        func.timezone(settings.APP_TIMEZONE, col),
+    )
+
+def _engagement_sum(event_counts: dict[str, int]) -> int:
+    return sum(event_counts.get(e, 0) for e in ENGAGEMENT_TYPES)
+
+def _engagement_rate(engagement: int, impressions: int, reach: int = 0) -> float:
+    """ERR convention: prefer impressions; fall back to reach when the
+    platform doesn't report impressions (X free tier, some scrapes).
+    Zero denominator → 0.0, never a fabricated percentage."""
+    denominator = impressions if impressions > 0 else reach
+    return engagement / denominator if denominator > 0 else 0.0
+
+_SCRAPE_POSTED_RE = re.compile(r"^\d+\s*(?:mo|[smhdwy])\b.*•", re.IGNORECASE)
+_SCRAPE_CHROME_RE = re.compile(
+    r"^(feed post number \d+|.+\b(?:reposted|likes|celebrates|loves|supports)\b.*this\b.*|"
+    r"follow|.*•\s*(?:1st|2nd|3rd\+?)\s*$|[\d.,]+\s*[km]?\s*followers)$",
+    re.IGNORECASE,
+)
+
+
+def _strip_feed_card_chrome(text: str) -> str:
+    """Extract post body from a scraped LinkedIn feed-card blob.
+
+    Feed cards look like::
+
+        Feed post number 3
+        <viewer> reposted this
+        <author>
+           • 3rd+                (or "5,593,434 followers")
+        <headline>
+        6mo • Edited •
+        Follow
+        <post body...>
+
+    The post body begins after the posted-time line (and an optional
+    "Follow" line). Falls back to dropping known chrome lines when no
+    time line is present.
+    """
+    lines = [line.strip() for line in text.splitlines()]
+    for i, line in enumerate(lines):
+        if _SCRAPE_POSTED_RE.match(line):
+            rest = [line for line in lines[i + 1:] if line]
+            if rest and rest[0].lower() == "follow":
+                rest = rest[1:]
+            body = " ".join(rest).strip()
+            if body:
+                return body
+    kept = [line for line in lines if line and not _SCRAPE_CHROME_RE.match(line)]
+    return " ".join(kept).strip() or text.strip()
+
+
+def _snapshot_content_text(raw: dict | None) -> str:
+    """Best-effort post text from a PostAnalyticsSnapshot.raw payload.
+
+    Each sync source stores text under a different key:
+    linkedin_org → discovery.commentary / discovery.post.commentary,
+    instagram → discovery.caption, twitter/tweety → text,
+    linkedin member scrape → scrape.text (feed-card chrome included).
+    """
+    raw = raw or {}
+    discovery = raw.get("discovery") or {}
+    text = (
+        discovery.get("commentary")
+        or (discovery.get("post") or {}).get("commentary")
+        or discovery.get("caption")
+        or raw.get("text")
+        or ""
+    )
+    if isinstance(text, str) and text.strip():
+        return text.strip()
+    scrape_text = (raw.get("scrape") or {}).get("text")
+    if isinstance(scrape_text, str) and scrape_text.strip():
+        return _strip_feed_card_chrome(scrape_text)
+    return ""
+
+
+def _snapshot_external_url(platform: str | None, raw: dict | None, platform_post_id: str | None) -> str | None:
+    """Public platform URL for a snapshot that has no editable Post row."""
+    raw = raw or {}
+    discovery = raw.get("discovery") or {}
+    post = discovery.get("post") or {}
+    for url in (raw.get("share_url"), discovery.get("permalink"), post.get("permalink")):
+        if isinstance(url, str) and url.startswith("http"):
+            return url
+    for urn in (post.get("id"), (raw.get("scrape") or {}).get("urn")):
+        if isinstance(urn, str) and urn.startswith("urn:li:"):
+            return f"https://www.linkedin.com/feed/update/{urn}"
+    if platform in ("twitter", "x"):
+        tweet_id = raw.get("id") or platform_post_id
+        if tweet_id:
+            return f"https://x.com/i/status/{tweet_id}"
+    if platform == "facebook" and platform_post_id and "_" in platform_post_id:
+        page_id, fb_post_id = platform_post_id.split("_", 1)
+        return f"https://www.facebook.com/{page_id}/posts/{fb_post_id}"
+    return None
+
+
+def _org_urn(account: SocialAccount) -> str:
+    """Build the LinkedIn organization URN for a Company Page account."""
+    meta = account.meta_data or {}
+    if meta.get("author_urn") and str(meta["author_urn"]).startswith("urn:li:organization:"):
+        return str(meta["author_urn"])
+    return f"urn:li:organization:{account.account_id}"
+
+async def _linkedin_follower_count(account: SocialAccount) -> int:
+    """Fetch live follower count for a LinkedIn Company Page account.
+
+    Member accounts have no follower-statistics endpoint — return -1 so
+    the caller skips the snapshot and the browser-sidecar scrape (in
+    sync_linkedin_account) remains the authoritative row.
+    organizationalEntityFollowerStatistics only returns segmented
+    demographics (followerCountsByFunction/Seniority/…) with no total —
+    reading a bucket as the count corrupted the series, so it is not a
+    fallback.
+    """
+    if account.platform != "linkedin":
+        return 0
+    org_urn = _org_urn(account)
+    if "organization:" not in org_urn or not org_urn.rsplit(":", 1)[-1].isdigit():
+        return -1
+    try:
+        token = decrypt_token(account.access_token_enc)
+        client = LinkedInAPIClient(access_token=token)
+        count = await client.get_follower_count(org_urn)
+        if count:
+            return count
+    except Exception:
+        pass
+    return -1
+
+
+async def _twitter_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a Twitter/X account via API v2.
+
+    Returns -1 on API failure (e.g. free-tier credits depleted) so the
+    caller skips the snapshot — a false 0 would otherwise overwrite the
+    browser-scrape count written during sync.
+    """
+    if account.platform != "twitter":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        headers = {"Authorization": f"Bearer {token}"}
+        # Use the account_id (Twitter user ID) to fetch user info
+        user_id = account.account_id
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://api.x.com/2/users/{user_id}",
+                headers=headers,
+                params={"user.fields": "public_metrics"},
+            )
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data", {})
+                return int((data.get("public_metrics") or {}).get("followers_count", 0) or 0)
+    except Exception:
+        pass
+    return -1
+
+
+async def _facebook_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a Facebook Page or personal profile.
+
+    Pages: Graph API ``followers_count``. Personal (pro-mode) profiles expose
+    no follower edge on the Graph API — the count only exists in the UI, so
+    it is scraped from the profile page via the facebook browser sidecar.
+    """
+    if account.platform != "facebook":
+        return 0
+    meta = account.meta_data or {}
+    if meta.get("account_type") == "user":
+        try:
+            from app.services.facebook_sidecar import FacebookSidecarClient
+
+            stats = await FacebookSidecarClient(timeout=90).get_profile_stats(
+                expected_name=account.username
+            )
+            if stats.get("followers"):
+                return int(stats["followers"])
+        except Exception:
+            pass
+        return -1
+    try:
+        import httpx
+        token = meta.get("page_token") or decrypt_token(account.access_token_enc)
+        page_id = account.account_id
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                facebook_graph_url(str(page_id)),
+                params={"fields": "followers_count,fan_count", "access_token": token},
+            )
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                if data.get("followers_count") is not None:
+                    return int(data["followers_count"])
+                if data.get("fan_count") is not None:
+                    return int(data["fan_count"])
+    except Exception:
+        pass
+    return -1
+
+
+async def _instagram_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for an Instagram Business/Creator account.
+
+    Instagram Login tokens (IGAAU* prefix) must call graph.instagram.com;
+    Facebook Login tokens use graph.facebook.com.
+    """
+    if account.platform != "instagram":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        ig_user_id = account.account_id
+        url = (
+            f"https://graph.instagram.com/v26.0/{ig_user_id}"
+            if token.startswith("IGAAU")
+            else facebook_graph_url(str(ig_user_id))
+        )
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                url,
+                params={"fields": "followers_count", "access_token": token},
+            )
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                if data.get("followers_count") is not None:
+                    return int(data["followers_count"])
+    except Exception:
+        pass
+    return -1
+
+
+async def _threads_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a Threads profile via /threads_insights.
+
+    The Threads user node does not support fields=followers_count directly
+    (returns 500). The documented edge is /threads_insights with
+    metric=followers_count, which returns ``total_value.value``.
+    """
+    if account.platform != "threads":
+        return 0
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        threads_user_id = account.account_id
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"https://graph.threads.net/v1.0/{threads_user_id}/threads_insights",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"metric": "followers_count"},
+            )
+            if resp.status_code == 200:
+                data = resp.json() or {}
+                for item in data.get("data", []):
+                    if item.get("name") == "followers_count":
+                        total = item.get("total_value") or {}
+                        if "value" in total:
+                            return int(total.get("value") or 0)
+                        for val in item.get("values", []):
+                            return int(val.get("value", 0) or 0)
+    except Exception:
+        pass
+    return -1
+
+
+async def _tiktok_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count for a TikTok account.
+
+    Tries the Display API first; if that fails or returns nothing (e.g.
+    missing user.info.basic scope), falls back to the browser sidecar's
+    profile-page stats which render fine even in headless mode.
+    """
+    if account.platform != "tiktok":
+        return -1
+    try:
+        import httpx
+        token = decrypt_token(account.access_token_enc)
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://open.tiktokapis.com/v2/user/info/",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"fields": "follower_count"},
+            )
+            if resp.status_code == 200:
+                data = (resp.json() or {}).get("data", {})
+                followers = (data.get("user") or {}).get("follower_count")
+                if followers is not None:
+                    return int(followers)
+    except Exception:
+        pass
+    # Sidecar fallback — profile page renders followers without API scope.
+    try:
+        import httpx
+
+        from app.core.config import get_settings
+
+        username = (account.username or "").lstrip("@")
+        if not username:
+            return -1
+        async with httpx.AsyncClient(timeout=90.0) as client:
+            resp = await client.get(
+                f"{get_settings().TIKTOK_BROWSER_SIDECAR_URL}/profile/videos",
+                params={"username": username},
+            )
+        if resp.status_code == 200:
+            followers = (resp.json().get("stats") or {}).get("followers")
+            if followers is not None:
+                return int(followers)
+    except Exception:
+        pass
+    return -1
+
+
+async def _follower_count(account: SocialAccount) -> int:
+    """Dispatch to the correct platform follower count function."""
+    dispatch = {
+        "linkedin": _linkedin_follower_count,
+        "twitter": _twitter_follower_count,
+        "facebook": _facebook_follower_count,
+        "instagram": _instagram_follower_count,
+        "threads": _threads_follower_count,
+        "tiktok": _tiktok_follower_count,
+    }
+    fn = dispatch.get(account.platform)
+    if fn is None:
+        # No follower surface for this platform — -1 (skip), not a fake 0.
+        return -1
+    return await fn(account)
+
+
+def _latest_snapshot_ids_subq(
+    team_id,
+    since: datetime | None = None,
+    *,
+    posts_only: bool = False,
+    until: datetime | None = None,
+):
+    """IDs of the newest snapshot per platform_post_id by captured_at."""
+    filters = [PostAnalyticsSnapshot.team_id == team_id]
+    if since is not None:
+        filters.append(PostAnalyticsSnapshot.captured_at >= since)
+    if until is not None:
+        filters.append(PostAnalyticsSnapshot.captured_at < until)
+    if posts_only:
+        # Exclude org-lifetime aggregates from post rankings
+        filters.append(PostAnalyticsSnapshot.source != "linkedin_org_lifetime")
+        filters.append(PostAnalyticsSnapshot.platform_post_id.isnot(None))
+        # Repost/reshare cards carry the ORIGINAL author's counters —
+        # flagged raw.is_repost by the sync pre-processing gate.
+        filters.append(
+            PostAnalyticsSnapshot.raw["is_repost"].astext.is_distinct_from("true")
+        )
+        # X scrapes persisted before author detection carry foreign
+        # timeline stats with no attribution — only post-fix rows (which
+        # always store raw.author) are trustworthy.
+        filters.append(
+            or_(
+                PostAnalyticsSnapshot.source.notlike("x_web_%"),
+                PostAnalyticsSnapshot.raw.has_key("author"),  # noqa: W601
+            )
+        )
+    ranked = (
+        select(
+            PostAnalyticsSnapshot.id,
+            func.row_number()
+            .over(
+                partition_by=(
+                    PostAnalyticsSnapshot.social_account_id,
+                    PostAnalyticsSnapshot.platform_post_id,
+                ),
+                order_by=PostAnalyticsSnapshot.captured_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(*filters)
+        .subquery()
+    )
+    return select(ranked.c.id).where(ranked.c.rn == 1)
+
+
+class OverviewMetrics(BaseModel):
+    total_posts: int
+    published_posts: int
+    scheduled_posts: int
+    draft_posts: int
+    failed_posts: int
+    connected_accounts: int
+    total_followers: int
+    total_engagement: int
+    total_impressions: int = 0
+    last_sync_at: datetime | None = None
+
+
+class PostMetrics(BaseModel):
+    post_id: uuid.UUID
+    platform: str
+    impressions: int
+    clicks: int
+    likes: int
+    comments: int
+    shares: int
+    engagement_rate: float
+
+
+class AccountMetrics(BaseModel):
+    account_id: uuid.UUID
+    platform: str
+    username: str
+    followers: int
+    posts_count: int
+    total_impressions: int
+    total_engagement: int
+    avg_engagement_rate: float
+    impressions_change_pct: float = 0.0
+    engagement_change_pct: float = 0.0
+
+
+class TopPost(BaseModel):
+    post_id: uuid.UUID
+    content_text: str | None
+    platform: str
+    impressions: int
+    engagement: int
+    engagement_rate: float
+    published_at: datetime | None
+    external_url: str | None = None
+
+
+class EngagementPoint(BaseModel):
+    date: str
+    impressions: int = 0
+    likes: int
+    comments: int
+    shares: int
+    clicks: int
+    total: int
+
+
+class FollowerPoint(BaseModel):
+    platform: str
+    followers: int
+    change: int
+    captured_at: datetime | None = None
+
+
+class FollowerSeriesPoint(BaseModel):
+    date: str
+    followers: int
+
+
+class FollowerSeries(BaseModel):
+    platform: str
+    account: str = ""
+    current: int
+    change: int
+    series: list[FollowerSeriesPoint]
+
+
+class PlatformMetrics(BaseModel):
+    platform: str
+    posts_count: int
+    published_count: int
+    scheduled_count: int
+    total_engagement: int
+    total_impressions: int
+    engagement_rate: float | None
+
+
+class PipelineQueueStats(BaseModel):
+    pending: int
+    processing: int
+    stuck_processing: int
+    published_period: int
+    failed_period: int
+
+
+class PipelinePlatformStat(BaseModel):
+    platform: str
+    published: int
+    failed: int
+    pending: int
+    success_rate: float | None
+    last_published_at: datetime | None
+    last_error: str | None
+
+
+class PipelineDayPoint(BaseModel):
+    date: str
+    platform: str
+    published: int
+
+
+class PipelineAccountHealth(BaseModel):
+    platform: str
+    username: str | None
+    status: str
+    token_expires_at: datetime | None
+
+
+class UpcomingScheduledPost(BaseModel):
+    post_id: uuid.UUID
+    content_preview: str
+    scheduled_at: datetime | None
+    platforms: list[str]
+
+
+class PublishPipelineOut(BaseModel):
+    queue: PipelineQueueStats
+    platforms: list[PipelinePlatformStat]
+    daily: list[PipelineDayPoint]
+    accounts: list[PipelineAccountHealth]
+    upcoming: list[UpcomingScheduledPost]
+
+
+@router.get("/overview", response_model=OverviewMetrics)
+async def get_overview(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    post_counts = await db.execute(
+        select(Post.status, func.count(Post.id))
+        .where(Post.team_id == team.id, Post.created_at >= since)
+        .group_by(Post.status)
+    )
+    counts = {status: count for status, count in post_counts.all()}
+
+    # Scheduled posts are forward-looking (calendar), not "created in the last N days".
+    # Count upcoming scheduled posts regardless of when they were created.
+    now = datetime.now(UTC)
+    scheduled_row = await db.execute(
+        select(func.count(Post.id)).where(
+            Post.team_id == team.id,
+            Post.status == PostStatus.SCHEDULED,
+            Post.scheduled_at.isnot(None),
+            Post.scheduled_at >= now,
+        )
+    )
+    scheduled_upcoming = int(scheduled_row.scalar() or 0)
+
+    accounts_count = await db.execute(
+        select(func.count(SocialAccount.id)).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.status == "active",
+        )
+    )
+
+    # Fetch live follower counts from LinkedIn for active accounts
+    accounts_result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.status == "active",
+        )
+    )
+    accounts = accounts_result.scalars().all()
+
+    # Follower counts come from the latest follower_snapshots row per
+    # account — the periodic analytics sync already populates it. Live
+    # platform calls are only made (in parallel) for accounts that have
+    # never been synced, so the dashboard stays fast.
+    latest_followers = (
+        select(
+            FollowerSnapshot.social_account_id,
+            FollowerSnapshot.followers,
+            func.row_number()
+            .over(
+                partition_by=FollowerSnapshot.social_account_id,
+                order_by=FollowerSnapshot.captured_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(FollowerSnapshot.team_id == team.id)
+        .subquery()
+    )
+    snap_rows = await db.execute(
+        select(latest_followers.c.social_account_id, latest_followers.c.followers).where(
+            latest_followers.c.rn == 1
+        )
+    )
+    followers_by_account = {row.social_account_id: row.followers for row in snap_rows.all()}
+
+    unsynced = [a for a in accounts if a.id not in followers_by_account]
+    live_counts: dict = {}
+    if unsynced:
+        results = await asyncio.gather(
+            *(_follower_count(a) for a in unsynced), return_exceptions=True
+        )
+        live_counts = {
+            a.id: max(0, c) for a, c in zip(unsynced, results) if isinstance(c, int)
+        }
+
+    total_followers = sum(
+        max(0, followers_by_account.get(a.id, live_counts.get(a.id, 0)))
+        for a in accounts
+    )
+
+    # Prefer latest snapshots when present; else event counters (with meta_data.count)
+    snap_eng = await db.execute(
+        select(func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0)).where(
+            PostAnalyticsSnapshot.id.in_(
+                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
+            ),
+        )
+    )
+    total_from_snaps = int(snap_eng.scalar() or 0)
+    if total_from_snaps == 0:
+        engagement_result = await db.execute(
+            select(func.coalesce(func.sum(_event_count_expr()), 0)).where(
+                AnalyticsEvent.team_id == team.id,
+                AnalyticsEvent.occurred_at >= since,
+                AnalyticsEvent.event_type.in_(list(ENGAGEMENT_TYPES)),
+            )
+        )
+        total_engagement = int(engagement_result.scalar() or 0)
+    else:
+        total_engagement = total_from_snaps
+
+    # Total impressions from latest snapshots
+    snap_imp = await db.execute(
+        select(func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0)).where(
+            PostAnalyticsSnapshot.id.in_(
+                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
+            ),
+        )
+    )
+    total_impressions = int(snap_imp.scalar() or 0)
+
+    # Data freshness: most recent snapshot capture time
+    last_sync_row = await db.execute(
+        select(func.max(PostAnalyticsSnapshot.captured_at)).where(
+            PostAnalyticsSnapshot.team_id == team.id
+        )
+    )
+    last_sync_at = last_sync_row.scalar()
+
+    return OverviewMetrics(
+        total_posts=sum(counts.values()),
+        published_posts=counts.get(PostStatus.PUBLISHED, 0),
+        scheduled_posts=scheduled_upcoming,
+        draft_posts=counts.get(PostStatus.DRAFT, 0),
+        failed_posts=counts.get(PostStatus.FAILED, 0),
+        connected_accounts=accounts_count.scalar() or 0,
+        total_followers=total_followers,
+        total_engagement=total_engagement,
+        total_impressions=total_impressions,
+        last_sync_at=last_sync_at,
+    )
+
+
+@router.get("/posts/{post_id}/metrics", response_model=list[PostMetrics])
+async def get_post_metrics(
+    post_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Post)
+        .join(Team)
+        .join(TeamMember)
+        .where(Post.id == post_id, TeamMember.user_id == current_user.id)
+        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
+    )
+    post = result.scalar_one_or_none()
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    events = await db.execute(
+        select(
+            AnalyticsEvent.social_account_id,
+            AnalyticsEvent.event_type,
+            func.sum(_event_count_expr()),
+        )
+        .where(AnalyticsEvent.post_id == post_id)
+        .group_by(AnalyticsEvent.social_account_id, AnalyticsEvent.event_type)
+    )
+    by_account: dict[uuid.UUID, dict[str, int]] = {}
+    for account_id, event_type, cnt in events.all():
+        by_account.setdefault(account_id, {})[event_type] = cnt
+
+    metrics: list[PostMetrics] = []
+    for target in post.targets:
+        event_counts = by_account.get(target.social_account_id, {})
+        impressions = event_counts.get("impression", 0)
+        likes = event_counts.get("like", 0)
+        comments = event_counts.get("comment", 0)
+        shares = event_counts.get("share", 0)
+        clicks = event_counts.get("click", 0)
+        engagement = likes + comments + shares + clicks
+        metrics.append(
+            PostMetrics(
+                post_id=post_id,
+                platform=target.social_account.platform,
+                impressions=impressions,
+                clicks=clicks,
+                likes=likes,
+                comments=comments,
+                shares=shares,
+                engagement_rate=_engagement_rate(engagement, impressions),
+            )
+        )
+    return metrics
+
+
+@router.get("/accounts/{account_id}/metrics", response_model=AccountMetrics)
+async def get_account_metrics(
+    account_id: uuid.UUID,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
+        .where(SocialAccount.id == account_id, TeamMember.user_id == current_user.id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    # Window-scoped published count — matches /platforms semantics (was
+    # all-time, which diverged from every other analytics surface).
+    posts_count = (
+        await db.execute(
+            select(func.count(Post.id.distinct()))
+            .join(PostTarget, PostTarget.post_id == Post.id)
+            .where(
+                PostTarget.social_account_id == account_id,
+                Post.status == PostStatus.PUBLISHED,
+                Post.created_at >= since,
+            )
+        )
+    ).scalar() or 0
+
+    # Prefer latest-per-post snapshots — the same source /overview and
+    # /platforms use — so this endpoint agrees with them. Fall back to
+    # AnalyticsEvent counters only when the account has no snapshots.
+    snap = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0),
+                func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0),
+            ).where(
+                PostAnalyticsSnapshot.id.in_(
+                    _latest_snapshot_ids_subq(account.team_id, since, posts_only=True)
+                ),
+                PostAnalyticsSnapshot.social_account_id == account.id,
+            )
+        )
+    ).one()
+    prev_start = since - timedelta(days=days)
+    prev_snap = (
+        await db.execute(
+            select(
+                func.coalesce(func.sum(PostAnalyticsSnapshot.impressions), 0),
+                func.coalesce(func.sum(PostAnalyticsSnapshot.engagement), 0),
+            ).where(
+                PostAnalyticsSnapshot.id.in_(
+                    _latest_snapshot_ids_subq(
+                        account.team_id, prev_start, posts_only=True, until=since
+                    )
+                ),
+                PostAnalyticsSnapshot.social_account_id == account.id,
+            )
+        )
+    ).one()
+
+    if snap[0] or snap[1]:
+        impressions, engagement = int(snap[0]), int(snap[1])
+        prev_impressions, prev_engagement = int(prev_snap[0]), int(prev_snap[1])
+    else:
+        events = await db.execute(
+            select(AnalyticsEvent.event_type, func.sum(_event_count_expr()))
+            .where(
+                AnalyticsEvent.social_account_id == account_id,
+                AnalyticsEvent.occurred_at >= since,
+            )
+            .group_by(AnalyticsEvent.event_type)
+        )
+        event_counts = {event_type: int(count or 0) for event_type, count in events.all()}
+        impressions = event_counts.get("impression", 0)
+        engagement = _engagement_sum(event_counts)
+        prev_events = await db.execute(
+            select(AnalyticsEvent.event_type, func.sum(_event_count_expr()))
+            .where(
+                AnalyticsEvent.social_account_id == account_id,
+                AnalyticsEvent.occurred_at >= prev_start,
+                AnalyticsEvent.occurred_at < since,
+            )
+            .group_by(AnalyticsEvent.event_type)
+        )
+        prev_counts = {t: int(c or 0) for t, c in prev_events.all()}
+        prev_impressions = prev_counts.get("impression", 0)
+        prev_engagement = _engagement_sum(prev_counts)
+
+    impressions_change_pct = (
+        round((impressions - prev_impressions) / prev_impressions * 100, 1)
+        if prev_impressions > 0
+        else 0.0
+    )
+    engagement_change_pct = (
+        round((engagement - prev_engagement) / prev_engagement * 100, 1)
+        if prev_engagement > 0
+        else 0.0
+    )
+
+    # Followers from the latest FollowerSnapshot (populated by the periodic
+    # sync — same source /overview uses). Live platform call only when the
+    # account was never synced.
+    latest_followers = (
+        await db.execute(
+            select(FollowerSnapshot.followers)
+            .where(
+                FollowerSnapshot.team_id == account.team_id,
+                FollowerSnapshot.social_account_id == account.id,
+            )
+            .order_by(FollowerSnapshot.captured_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if latest_followers is not None:
+        followers = max(0, latest_followers)
+    else:
+        followers = max(0, await _follower_count(account))
+
+    return AccountMetrics(
+        account_id=account_id,
+        platform=account.platform,
+        username=account.username or "",
+        followers=followers,
+        posts_count=posts_count,
+        total_impressions=impressions,
+        total_engagement=engagement,
+        avg_engagement_rate=_engagement_rate(engagement, impressions),
+        impressions_change_pct=impressions_change_pct,
+        engagement_change_pct=engagement_change_pct,
+    )
+
+
+@router.get("/accounts/{account_id}/insights")
+async def get_account_insights(
+    account_id: uuid.UUID,
+    days: int = Query(90, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Account-level insights: latest insights/demographics/profile events
+    collected by analytics sync, plus the follower trend for the window."""
+    result = await db.execute(
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
+        .where(SocialAccount.id == account_id, TeamMember.user_id == current_user.id)
+    )
+    account = result.scalar_one_or_none()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+    rows = await db.execute(
+        select(AnalyticsEvent)
+        .where(
+            AnalyticsEvent.social_account_id == account_id,
+            AnalyticsEvent.event_type.in_(
+                ["account_insights", "audience_demographics", "profile_sync",
+                 "profile_dashboard"]
+            ),
+            AnalyticsEvent.occurred_at >= since,
+        )
+        .order_by(AnalyticsEvent.occurred_at.desc())
+    )
+    events = rows.scalars().all()
+
+    latest: dict[str, Any] = {}
+    history: dict[str, list[dict[str, Any]]] = {}
+    for ev in events:
+        entry = {"occurred_at": ev.occurred_at.isoformat(), **(ev.meta_data or {})}
+        history.setdefault(ev.event_type, []).append(entry)
+        if ev.event_type not in latest:
+            latest[ev.event_type] = entry
+
+    followers = await db.execute(
+        select(FollowerSnapshot.captured_at, FollowerSnapshot.followers)
+        .where(
+            FollowerSnapshot.social_account_id == account_id,
+            FollowerSnapshot.captured_at >= since,
+        )
+        .order_by(FollowerSnapshot.captured_at)
+    )
+    follower_series = [
+        {"date": ts.isoformat(), "followers": int(n)} for ts, n in followers.all()
+    ]
+
+    return {
+        "account_id": str(account_id),
+        "platform": account.platform,
+        "username": account.username or "",
+        "days": days,
+        "latest": latest,
+        "history": history,
+        "follower_trend": follower_series,
+    }
+
+
+@router.get("/insights")
+async def get_team_insights(team_id: TeamId,
+    days: int = Query(90, ge=7, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Cross-platform insights engine: per-platform performance, best posting
+    windows, content-type performance, follower trends, momentum — plus
+    rule-based recommendations (where/when/what to post, ads guidance)
+    grounded in each platform's documented best practices."""
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+    return await build_team_insights(db, team.id, days=days)
+
+
+@router.get("/top-posts", response_model=list[TopPost])
+async def get_top_posts(team_id: TeamId,
+    limit: int = Query(10, ge=1, le=50),
+    platform: str | None = None,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    # Prefer latest platform-synced snapshots when available
+    snap_q = (
+        select(PostAnalyticsSnapshot, Post.content_text)
+        .outerjoin(Post, Post.id == PostAnalyticsSnapshot.post_id)
+        .where(
+            PostAnalyticsSnapshot.id.in_(
+                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
+            )
+        )
+        .order_by(PostAnalyticsSnapshot.engagement.desc())
+        .limit(limit)
+    )
+    if platform:
+        snap_q = snap_q.where(PostAnalyticsSnapshot.platform == platform)
+    snap_rows = (await db.execute(snap_q)).all()
+    if snap_rows:
+        return [
+            TopPost(
+                post_id=snap.post_id or snap.id,
+                content_text=content_text or _snapshot_content_text(snap.raw),
+                platform=snap.platform,
+                impressions=snap.impressions,
+                engagement=snap.engagement,
+                engagement_rate=_engagement_rate(
+                    snap.engagement, snap.impressions, snap.reach or 0
+                ),
+                published_at=None,
+                external_url=None
+                if snap.post_id
+                else _snapshot_external_url(snap.platform, snap.raw, snap.platform_post_id),
+            )
+            for snap, content_text in snap_rows
+            if snap.source != "linkedin_org_lifetime"
+        ]
+
+    impressions_col = func.sum(
+        case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0)
+    ).label("impressions")
+    engagement_col = func.sum(
+        case(
+            (AnalyticsEvent.event_type.in_(list(ENGAGEMENT_TYPES)), _event_count_expr()),
+            else_=0,
+        )
+    ).label("engagement")
+
+    query = (
+        select(
+            Post.id,
+            Post.content_text,
+            SocialAccount.platform,
+            PostTarget.published_at,
+            impressions_col,
+            engagement_col,
+        )
+        .join(PostTarget, PostTarget.post_id == Post.id)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .outerjoin(
+            AnalyticsEvent,
+            (AnalyticsEvent.post_id == Post.id)
+            & (AnalyticsEvent.social_account_id == PostTarget.social_account_id)
+            & (AnalyticsEvent.occurred_at >= since),
+        )
+        .where(
+            Post.team_id == team.id,
+            Post.status == PostStatus.PUBLISHED,
+            Post.created_at >= since,
+        )
+        .group_by(Post.id, Post.content_text, SocialAccount.platform, PostTarget.published_at)
+        .order_by(engagement_col.desc().nulls_last())
+        .limit(limit)
+    )
+    if platform:
+        query = query.where(SocialAccount.platform == platform)
+
+    rows = await db.execute(query)
+    top: list[TopPost] = []
+    for post_id, content_text, plat, published_at, impressions, engagement in rows.all():
+        imp = int(impressions or 0)
+        eng = int(engagement or 0)
+        top.append(
+            TopPost(
+                post_id=post_id,
+                content_text=content_text,
+                platform=plat,
+                impressions=imp,
+                engagement=eng,
+                engagement_rate=_engagement_rate(eng, imp),
+                published_at=published_at,
+            )
+        )
+    return top
+
+
+@router.get("/engagement", response_model=list[EngagementPoint])
+async def get_engagement_trends(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    platform: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
+    if not team:
+        return []
+
+    since = datetime.now(UTC) - timedelta(days=days)
+    day_expr = _athens_day_expr()
+
+    query = select(
+        day_expr.label("day"),
+        AnalyticsEvent.event_type,
+        func.coalesce(func.sum(_event_count_expr()), 0).label("cnt"),
+    ).where(AnalyticsEvent.team_id == team.id, AnalyticsEvent.occurred_at >= since)
+
+    if platform:
+        query = query.join(
+            SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id
+        ).where(SocialAccount.platform == platform)
+
+    query = query.group_by("day", AnalyticsEvent.event_type).order_by("day")
+
+    rows = await db.execute(query)
+    by_day: dict[str, dict[str, int]] = {}
+    for day, event_type, cnt in rows.all():
+        key = day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)[:10]
+        if key not in by_day:
+            by_day[key] = {"impressions": 0, "likes": 0, "comments": 0, "shares": 0, "clicks": 0}
+        mapped = {
+            "impression": "impressions",
+            "like": "likes",
+            "comment": "comments",
+            "share": "shares",
+            "click": "clicks",
+        }.get(event_type)
+        if mapped:
+            by_day[key][mapped] = int(cnt or 0)
+
+    # Also pull per-day impressions from snapshots (covers platforms that
+    # have views but zero engagement events, e.g. Threads, TikTok)
+    snap_day_expr = _athens_day_expr(PostAnalyticsSnapshot.captured_at)
+    snap_q = select(
+        snap_day_expr.label("day"),
+        func.sum(PostAnalyticsSnapshot.impressions).label("imp"),
+    ).where(
+        PostAnalyticsSnapshot.team_id == team.id,
+        PostAnalyticsSnapshot.captured_at >= since,
+        PostAnalyticsSnapshot.post_id.isnot(None),
+    )
+    if platform:
+        snap_q = snap_q.where(PostAnalyticsSnapshot.platform == platform)
+    snap_q = snap_q.group_by("day").order_by("day")
+    snap_rows = await db.execute(snap_q)
+    for day, imp in snap_rows.all():
+        key = day.strftime("%Y-%m-%d") if hasattr(day, "strftime") else str(day)[:10]
+        if key not in by_day:
+            by_day[key] = {"impressions": 0, "likes": 0, "comments": 0, "shares": 0, "clicks": 0}
+        by_day[key]["impressions"] = int(imp or 0)
+
+    return [
+        EngagementPoint(
+            date=d,
+            impressions=v["impressions"],
+            likes=v["likes"],
+            comments=v["comments"],
+            shares=v["shares"],
+            clicks=v["clicks"],
+            total=v["likes"] + v["comments"] + v["shares"] + v["clicks"],
+        )
+        for d, v in sorted(by_day.items())
+    ]
+
+
+@router.get("/followers", response_model=list[FollowerSeries])
+async def get_follower_counts(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Return follower-growth time series per platform from persisted snapshots.
+
+    Each platform gets: current count, net change over the period, and a
+    daily-resolution series of ``{date, followers}`` points.  Snapshots are
+    a change log, so the latest row before the window is used as the
+    baseline (first point).  When no snapshots exist at all, the series
+    contains only the live count.
+    """
+    team = await _team_for_user(db, team_id)
+    if not team:
+        return []
+
+    accounts_result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team.id, SocialAccount.status == "active"
+        )
+    )
+    accounts = accounts_result.scalars().all()
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    # All snapshots for the window in one query, grouped by account —
+    # instead of a per-account SELECT plus a live external call each
+    # (the previous shape took ~22s for 11 accounts).
+    snap_rows = await db.execute(
+        select(
+            FollowerSnapshot.social_account_id,
+            FollowerSnapshot.captured_at,
+            FollowerSnapshot.followers,
+        )
+        .where(
+            FollowerSnapshot.social_account_id.in_([a.id for a in accounts]),
+            FollowerSnapshot.captured_at >= since,
+        )
+        .order_by(FollowerSnapshot.captured_at.asc())
+    )
+    snaps_by_account: dict[uuid.UUID, list] = {}
+    for account_id, captured_at, followers in snap_rows.all():
+        snaps_by_account.setdefault(account_id, []).append((captured_at, followers))
+
+    # Baseline: the latest snapshot *before* the window, per account.
+    # Since #307 follower_snapshots is a change log (a row per delta plus
+    # a weekly heartbeat), so the window alone often lacks the starting
+    # value — without this, ``change`` reads 0 and the chart has no
+    # start point.
+    pre_window = (
+        select(
+            FollowerSnapshot.social_account_id,
+            FollowerSnapshot.followers,
+            func.row_number()
+            .over(
+                partition_by=FollowerSnapshot.social_account_id,
+                order_by=FollowerSnapshot.captured_at.desc(),
+            )
+            .label("rn"),
+        )
+        .where(
+            FollowerSnapshot.social_account_id.in_([a.id for a in accounts]),
+            FollowerSnapshot.captured_at < since,
+        )
+        .subquery()
+    )
+    baseline_rows = await db.execute(
+        select(pre_window.c.social_account_id, pre_window.c.followers).where(
+            pre_window.c.rn == 1
+        )
+    )
+    baselines: dict[uuid.UUID, int] = {
+        account_id: followers for account_id, followers in baseline_rows.all()
+    }
+
+    # Live platform calls only for accounts that have never been synced
+    # (no snapshot at all, in or before the window) — in parallel, like
+    # get_overview.
+    unsynced = [
+        a for a in accounts
+        if not snaps_by_account.get(a.id) and a.id not in baselines
+    ]
+    live_counts: dict[uuid.UUID, int] = {}
+    if unsynced:
+        results = await asyncio.gather(
+            *(_follower_count(a) for a in unsynced), return_exceptions=True
+        )
+        for a, r in zip(unsynced, results, strict=False):
+            live_counts[a.id] = r if isinstance(r, int) else -1
+
+    now = datetime.now(UTC)
+    result: list[FollowerSeries] = []
+    for account in accounts:
+        built = _build_follower_series(
+            snaps_by_account.get(account.id, []),
+            baselines.get(account.id),
+            since,
+            now,
+        )
+        if built is not None:
+            current, change, series = built
+        else:
+            live = live_counts.get(account.id, 0)
+            if live < 0:
+                live = 0
+            current = live
+            series = [FollowerSeriesPoint(
+                date=now.strftime("%Y-%m-%d"),
+                followers=live,
+            )]
+            change = 0
+
+        result.append(FollowerSeries(
+            platform=account.platform,
+            account=account.username or "",
+            current=current,
+            change=change,
+            series=series,
+        ))
+    return result
+
+
+def _build_follower_series(
+    snaps: list[tuple[datetime, int]],
+    baseline: int | None,
+    since: datetime,
+    now: datetime,
+) -> tuple[int, int, list[FollowerSeriesPoint]] | None:
+    """Build ``(current, change, series)`` from change-log snapshots.
+
+    ``snaps`` are the in-window rows (ascending); ``baseline`` is the
+    latest count recorded before ``since``.  The baseline becomes the
+    first point (dated at ``since``) and the series is carried forward
+    to ``now`` because a change log implies the last value still holds.
+    Returns ``None`` when the account has no snapshots at all.
+    """
+    points: list[tuple[datetime, int]] = []
+    if baseline is not None:
+        points.append((since, baseline))
+    points.extend(snaps)
+    if not points:
+        return None
+
+    current = points[-1][1]
+    change = current - points[0][1]
+
+    def _day(ts: datetime) -> str:
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
+        return ts.astimezone(UTC).strftime("%Y-%m-%d")
+
+    series = [
+        FollowerSeriesPoint(date=_day(ts), followers=count) for ts, count in points
+    ]
+    today = _day(now)
+    if series[-1].date != today:
+        series.append(FollowerSeriesPoint(date=today, followers=current))
+    return current, change, series
+
+
+@router.get("/platforms", response_model=list[PlatformMetrics])
+async def get_platform_metrics(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
+    if not team:
+        return []
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    accounts_result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.status != "revoked",
+        )
+    )
+    accounts = accounts_result.scalars().all()
+    platforms_seen = {a.platform for a in accounts}
+    if not platforms_seen:
+        return []
+
+    # One grouped query for post status counts per platform
+    status_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            Post.status,
+            func.count(Post.id.distinct()),
+        )
+        .join(PostTarget, PostTarget.social_account_id == SocialAccount.id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(SocialAccount.team_id == team.id, Post.created_at >= since)
+        .group_by(SocialAccount.platform, Post.status)
+    )
+    status_by_platform: dict[str, dict] = {}
+    for plat, status, cnt in status_rows.all():
+        bucket = status_by_platform.setdefault(plat, {"posts": 0, "published": 0, "scheduled": 0})
+        bucket["posts"] += cnt
+        if status == PostStatus.PUBLISHED:
+            bucket["published"] += cnt
+        elif status == PostStatus.SCHEDULED:
+            bucket["scheduled"] += cnt
+
+    event_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            AnalyticsEvent.event_type,
+            func.sum(_event_count_expr()),
+        )
+        .join(SocialAccount, SocialAccount.id == AnalyticsEvent.social_account_id)
+        .where(
+            SocialAccount.team_id == team.id,
+            AnalyticsEvent.occurred_at >= since,
+        )
+        .group_by(SocialAccount.platform, AnalyticsEvent.event_type)
+    )
+    events_by_platform: dict[str, dict[str, int]] = {}
+    for plat, event_type, cnt in event_rows.all():
+        events_by_platform.setdefault(plat, {})[event_type] = int(cnt or 0)
+
+    # Also pull impressions + engagement from latest snapshots per platform
+    snap_rows = await db.execute(
+        select(
+            PostAnalyticsSnapshot.platform,
+            func.sum(PostAnalyticsSnapshot.impressions).label("imp"),
+            func.sum(PostAnalyticsSnapshot.reach).label("reach"),
+            func.sum(PostAnalyticsSnapshot.engagement).label("eng"),
+        ).where(
+            PostAnalyticsSnapshot.id.in_(
+                _latest_snapshot_ids_subq(team.id, since, posts_only=True)
+            ),
+        ).group_by(PostAnalyticsSnapshot.platform)
+    )
+    snap_by_platform: dict[str, dict[str, int]] = {}
+    for plat, imp, reach, eng in snap_rows.all():
+        snap_by_platform[plat] = {
+            "impressions": int(imp or 0),
+            "reach": int(reach or 0),
+            "engagement": int(eng or 0),
+        }
+
+    metrics: list[PlatformMetrics] = []
+    for platform in platforms_seen:
+        counts = status_by_platform.get(platform, {"posts": 0, "published": 0, "scheduled": 0})
+        event_counts = events_by_platform.get(platform, {})
+        snaps = snap_by_platform.get(platform, {})
+        # Prefer snapshot data (more complete); fall back to events
+        impressions = snaps.get("impressions") or event_counts.get("impression", 0)
+        engagement = snaps.get("engagement") or _engagement_sum(event_counts)
+        metrics.append(
+            PlatformMetrics(
+                platform=platform,
+                posts_count=counts["posts"],
+                published_count=counts["published"],
+                scheduled_count=counts["scheduled"],
+                total_engagement=engagement,
+                total_impressions=impressions,
+                # Null when no platform denominator exists — the UI shows
+                # "—" rather than a fabricated 0%.
+                engagement_rate=(
+                    _engagement_rate(engagement, impressions, snaps.get("reach", 0))
+                    if impressions > 0 or snaps.get("reach", 0) > 0
+                    else None
+                ),
+            )
+        )
+    return metrics
+
+
+@router.get("/pipeline", response_model=PublishPipelineOut)
+async def get_publish_pipeline(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Live publishing-pipeline health: queue depth, per-platform delivery
+    stats, daily publish volume, account/token health, upcoming schedule.
+
+    This is the operational view — it answers "is my post actually going
+    out?" rather than engagement performance.
+    """
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    now = datetime.now(UTC)
+    since = now - timedelta(days=days)
+
+    # ── Live queue depth (team-scoped via posts join) ──────────────────
+    queue_rows = await db.execute(
+        select(PublishQueue.status, func.count())
+        .select_from(PublishQueue)
+        .join(Post, Post.id == PublishQueue.post_id)
+        .where(Post.team_id == team.id)
+        .group_by(PublishQueue.status)
+    )
+    queue_counts = {s: int(c) for s, c in queue_rows.all()}
+
+    stuck_row = await db.execute(
+        select(func.count(PublishQueue.id))
+        .select_from(PublishQueue)
+        .join(Post, Post.id == PublishQueue.post_id)
+        .where(
+            Post.team_id == team.id,
+            PublishQueue.status == QueueStatus.PROCESSING,
+            PublishQueue.locked_at < now - timedelta(minutes=15),
+        )
+    )
+
+    # ── Per-platform delivery stats for the period (from post_targets) ─
+    target_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            PostTarget.status,
+            func.count(PostTarget.post_id),
+        )
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            Post.team_id == team.id,
+            Post.created_at >= since,
+            Post.status != PostStatus.ARCHIVED,
+        )
+        .group_by(SocialAccount.platform, PostTarget.status)
+    )
+    stats: dict[str, dict[str, int]] = {}
+    for platform, status, cnt in target_rows.all():
+        stats.setdefault(platform, {})[status] = int(cnt)
+
+    last_pub_rows = await db.execute(
+        select(SocialAccount.platform, func.max(PostTarget.published_at))
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(Post.team_id == team.id, PostTarget.status == "published")
+        .group_by(SocialAccount.platform)
+    )
+    last_pub = {p: ts for p, ts in last_pub_rows.all()}
+
+    # Latest failure per platform (most recent post wins)
+    err_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            PostTarget.error_message,
+            Post.created_at,
+        )
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            Post.team_id == team.id,
+            PostTarget.status == "failed",
+            PostTarget.error_message.isnot(None),
+            Post.created_at >= since,
+        )
+        .order_by(Post.created_at.desc())
+    )
+    last_err: dict[str, str] = {}
+    for platform, err, _created in err_rows.all():
+        last_err.setdefault(platform, err[:200])
+
+    platform_stats = []
+    for platform, counts in sorted(stats.items()):
+        published = counts.get("published", 0)
+        failed = counts.get("failed", 0)
+        total_done = published + failed
+        platform_stats.append(
+            PipelinePlatformStat(
+                platform=platform,
+                published=published,
+                failed=failed,
+                pending=counts.get("pending", 0),
+                success_rate=(published / total_done) if total_done else None,
+                last_published_at=last_pub.get(platform),
+                last_error=last_err.get(platform),
+            )
+        )
+
+    # ── Daily publish volume per platform ──────────────────────────────
+    day_expr = func.date_trunc("day", PostTarget.published_at)
+    daily_rows = await db.execute(
+        select(day_expr.label("day"), SocialAccount.platform, func.count())
+        .select_from(PostTarget)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .join(Post, Post.id == PostTarget.post_id)
+        .where(
+            Post.team_id == team.id,
+            PostTarget.status == "published",
+            PostTarget.published_at >= since,
+        )
+        .group_by(day_expr, SocialAccount.platform)
+        .order_by(day_expr)
+    )
+    daily = [
+        PipelineDayPoint(date=day.date().isoformat(), platform=platform, published=int(cnt))
+        for day, platform, cnt in daily_rows.all()
+        if day is not None
+    ]
+
+    # ── Connected-account health ───────────────────────────────────────
+    acct_rows = await db.execute(
+        select(
+            SocialAccount.platform,
+            SocialAccount.username,
+            SocialAccount.status,
+            SocialAccount.token_expires_at,
+        ).where(
+            SocialAccount.team_id == team.id,
+            SocialAccount.status != "revoked",
+        )
+        .order_by(SocialAccount.platform)
+    )
+    accounts = [
+        PipelineAccountHealth(
+            platform=p, username=u, status=s, token_expires_at=exp
+        )
+        for p, u, s, exp in acct_rows.all()
+    ]
+
+    # ── Upcoming scheduled posts ───────────────────────────────────────
+    upcoming_rows = await db.execute(
+        select(Post)
+        .where(
+            Post.team_id == team.id,
+            Post.status == PostStatus.SCHEDULED,
+            Post.scheduled_at.isnot(None),
+            Post.scheduled_at >= now,
+        )
+        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
+        .order_by(Post.scheduled_at.asc())
+        .limit(5)
+    )
+    upcoming = []
+    for post in upcoming_rows.scalars().all():
+        platforms = sorted({t.social_account.platform for t in post.targets if t.social_account})
+        upcoming.append(
+            UpcomingScheduledPost(
+                post_id=post.id,
+                content_preview=(post.content_text or "")[:100],
+                scheduled_at=post.scheduled_at,
+                platforms=platforms,
+            )
+        )
+
+    return PublishPipelineOut(
+        queue=PipelineQueueStats(
+            pending=queue_counts.get(QueueStatus.PENDING, 0),
+            processing=queue_counts.get(QueueStatus.PROCESSING, 0),
+            stuck_processing=int(stuck_row.scalar() or 0),
+            published_period=sum(s.get("published", 0) for s in stats.values()),
+            failed_period=sum(s.get("failed", 0) for s in stats.values()),
+        ),
+        platforms=platform_stats,
+        daily=daily,
+        accounts=accounts,
+        upcoming=upcoming,
+    )
+
+
+@router.get("/reports/export")
+async def export_report(team_id: TeamId,
+    format: str = Query("csv", pattern="^(csv|json)$"),
+    days: int = Query(30, ge=1, le=365),
+    platform: str | None = Query(None, description="Filter by platform (linkedin, twitter, etc.)"),
+    account_id: uuid.UUID | None = Query(None, description="Filter by social account ID"),
+    post_id: uuid.UUID | None = Query(None, description="Export a single post's metrics"),
+    start_date: datetime | None = Query(None, description="ISO start date (overrides days)"),
+    end_date: datetime | None = Query(None, description="ISO end date (overrides days)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    if start_date and end_date:
+        since = start_date
+        until = end_date
+    else:
+        since = datetime.now(UTC) - timedelta(days=days)
+        until = datetime.now(UTC)
+
+    impressions_col = func.sum(
+        case((AnalyticsEvent.event_type == "impression", _event_count_expr()), else_=0)
+    )
+    likes_col = func.sum(case((AnalyticsEvent.event_type == "like", _event_count_expr()), else_=0))
+    comments_col = func.sum(case((AnalyticsEvent.event_type == "comment", _event_count_expr()), else_=0))
+    shares_col = func.sum(case((AnalyticsEvent.event_type == "share", _event_count_expr()), else_=0))
+    clicks_col = func.sum(case((AnalyticsEvent.event_type == "click", _event_count_expr()), else_=0))
+
+    query = (
+        select(
+            Post.id,
+            SocialAccount.platform,
+            Post.status,
+            Post.scheduled_at,
+            PostTarget.published_at,
+            impressions_col,
+            likes_col,
+            comments_col,
+            shares_col,
+            clicks_col,
+        )
+        .join(PostTarget, PostTarget.post_id == Post.id)
+        .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+        .outerjoin(
+            AnalyticsEvent,
+            (AnalyticsEvent.post_id == Post.id)
+            & (AnalyticsEvent.social_account_id == PostTarget.social_account_id)
+            & (AnalyticsEvent.occurred_at >= since)
+            & (AnalyticsEvent.occurred_at <= until),
+        )
+        .where(Post.team_id == team.id, Post.created_at >= since, Post.created_at <= until)
+    )
+    if platform:
+        query = query.where(SocialAccount.platform == platform)
+    if account_id:
+        query = query.where(PostTarget.social_account_id == account_id)
+    if post_id:
+        query = query.where(Post.id == post_id)
+    query = query.group_by(
+        Post.id,
+        SocialAccount.platform,
+        Post.status,
+        Post.scheduled_at,
+        PostTarget.published_at,
+    )
+
+    result = await db.execute(query)
+
+    rows = []
+    for (
+        post_id,
+        platform,
+        status,
+        scheduled_at,
+        published_at,
+        impressions,
+        likes,
+        comments,
+        shares,
+        clicks,
+    ) in result.all():
+        imp = int(impressions or 0)
+        like_n = int(likes or 0)
+        comment_n = int(comments or 0)
+        share_n = int(shares or 0)
+        click_n = int(clicks or 0)
+        rows.append(
+            {
+                "post_id": str(post_id),
+                "platform": platform,
+                "status": status.value if hasattr(status, "value") else str(status),
+                "scheduled_at": scheduled_at.isoformat() if scheduled_at else None,
+                "published_at": published_at.isoformat() if published_at else None,
+                "impressions": imp,
+                "likes": like_n,
+                "comments": comment_n,
+                "shares": share_n,
+                "clicks": click_n,
+                "engagement_rate": _engagement_rate(
+                    like_n + comment_n + share_n + click_n, imp
+                ),
+            }
+        )
+
+    if format == "csv":
+        import csv
+        import io
+
+        output = io.StringIO()
+        if rows:
+            writer = csv.DictWriter(output, fieldnames=rows[0].keys())
+            writer.writeheader()
+            writer.writerows(rows)
+        filename = f"analytics_{datetime.now(UTC).strftime('%Y%m%d')}.csv"
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    import json as json_mod
+
+    filename = f"analytics_{datetime.now(UTC).strftime('%Y%m%d')}.json"
+    return Response(
+        content=json_mod.dumps(rows, indent=2, default=str),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+class SyncAnalyticsRequest(BaseModel):
+    days: int = 365
+    async_mode: bool = True
+
+
+class SyncAnalyticsResponse(BaseModel):
+    status: str
+    synced: int = 0
+    skipped: int = 0
+    errors: list[str] = []
+    task_id: str | None = None
+    snapshots: list[str] = []
+
+
+class SnapshotOut(BaseModel):
+    id: uuid.UUID
+    post_id: uuid.UUID | None
+    social_account_id: uuid.UUID
+    platform: str
+    platform_post_id: str | None
+    impressions: int
+    clicks: int
+    likes: int
+    comments: int
+    shares: int
+    reach: int
+    engagement: int
+    engagement_rate: float
+    source: str
+    notes: str | None
+    captured_at: datetime
+    raw: dict
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.post("/sync", response_model=SyncAnalyticsResponse)
+async def trigger_analytics_sync(team_id: TeamId,
+    body: SyncAnalyticsRequest | None = None,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Pull LinkedIn (and future platforms) post metrics into Postgres snapshots."""
+    body = body or SyncAnalyticsRequest()
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    if body.async_mode:
+        async_result = sync_team_analytics_task.delay(str(team.id), body.days)
+        return SyncAnalyticsResponse(status="queued", task_id=str(async_result.id))
+
+    result = await sync_team_analytics(db, team.id, days=body.days)
+    return SyncAnalyticsResponse(
+        status="completed",
+        synced=result.synced,
+        skipped=result.skipped,
+        errors=result.errors,
+        snapshots=result.snapshots,
+    )
+
+
+@router.get("/snapshots", response_model=list[SnapshotOut])
+async def list_analytics_snapshots(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    post_id: uuid.UUID | None = None,
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """List stored post metric snapshots for further processing / export."""
+    team = await _team_for_user(db, team_id)
+    if not team:
+        return []
+    since = datetime.now(UTC) - timedelta(days=days)
+    q = (
+        select(PostAnalyticsSnapshot)
+        .where(
+            PostAnalyticsSnapshot.team_id == team.id,
+            PostAnalyticsSnapshot.captured_at >= since,
+        )
+        .order_by(PostAnalyticsSnapshot.captured_at.desc())
+        .limit(limit)
+    )
+    if post_id:
+        q = q.where(PostAnalyticsSnapshot.post_id == post_id)
+    rows = (await db.execute(q)).scalars().all()
+    return rows
+
+
+# ── TikTok Display API: video listing & per-video analytics ──────────────────
+
+
+class TikTokVideoOut(BaseModel):
+    """A single TikTok video with engagement metrics from the Display API."""
+    id: str
+    create_time: int | None = None
+    title: str | None = None
+    share_url: str | None = None
+    view_count: int = 0
+    like_count: int = 0
+    comment_count: int = 0
+    share_count: int = 0
+
+
+class TikTokVideoListOut(BaseModel):
+    videos: list[TikTokVideoOut]
+    cursor: int = 0
+    has_more: bool = False
+
+
+@router.get("/tiktok/videos", response_model=TikTokVideoListOut)
+async def list_tiktok_videos(team_id: TeamId,
+    account_id: uuid.UUID = Query(..., description="TikTok social account ID"),
+    cursor: int = Query(0, ge=0),
+    max_count: int = Query(20, ge=1, le=20),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """List the TikTok creator's videos with engagement metrics via Display API.
+
+    Requires the ``video.list`` scope on the connected TikTok account.
+    Returns view/like/comment/share counts for each video.
+    """
+    from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
+
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=404, detail="Team not found")
+
+    acct = (
+        await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.id == account_id,
+                SocialAccount.team_id == team.id,
+                SocialAccount.platform == "tiktok",
+            )
+        )
+    ).scalar_one_or_none()
+    if not acct:
+        raise HTTPException(status_code=404, detail="TikTok account not found")
+
+    token = decrypt_token(acct.access_token_enc)
+    client = TikTokAPIClient(access_token=token, open_id=acct.account_id)
+    try:
+        data = await client.list_videos(cursor=cursor, max_count=max_count)
+    except TikTokAPIError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc))
+
+    videos: list[TikTokVideoOut] = []
+    for v in (data.get("data") or {}).get("videos") or []:
+        videos.append(
+            TikTokVideoOut(
+                id=str(v.get("id", "")),
+                create_time=v.get("create_time"),
+                title=v.get("title"),
+                share_url=v.get("share_url"),
+                view_count=int(v.get("view_count", 0) or 0),
+                like_count=int(v.get("like_count", 0) or 0),
+                comment_count=int(v.get("comment_count", 0) or 0),
+                share_count=int(v.get("share_count", 0) or 0),
+            )
+        )
+    return TikTokVideoListOut(
+        videos=videos,
+        cursor=int((data.get("data") or {}).get("cursor", cursor) or cursor),
+        has_more=bool((data.get("data") or {}).get("has_more", False)),
+    )
+
+
+# ── Bot Analytics ────────────────────────────────────────────────────
+
+
+class BotAnalyticsSummary(BaseModel):
+    total_replies: int
+    successful_replies: int
+    failed_replies: int
+    guardrail_triggers: int
+    pricing_guardrail_triggers: int
+    greek_replies: int
+    english_replies: int
+    avg_latency_ms: int | None
+    by_provider: list[dict]
+    by_account: list[dict]
+    by_day: list[dict]
+
+
+class CloudflareAIUsage(BaseModel):
+    total_requests: int
+    total_neurons: int
+    total_errors: int
+    free_tier_limit: int
+    free_tier_remaining: int
+    by_model: list[dict]
+    by_day: list[dict]
+
+
+class CloudflareOverview(BaseModel):
+    workers_ai: dict
+    workers: dict
+    r2: dict
+    d1: dict
+    kv: dict
+    vectorize: dict
+
+
+@router.get("/bots/summary", response_model=BotAnalyticsSummary)
+async def get_bot_analytics_summary(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Bot reply analytics from local PostgreSQL (AnalyticsEvent).
+
+    Tracks: total replies, success/failure rate, guardrail triggers,
+    language breakdown (Greek/English), latency, per-provider and
+    per-account breakdowns, and daily time series.
+    """
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+
+    events = await db.execute(
+        select(
+            AnalyticsEvent.meta_data["provider"].astext.label("provider"),
+            AnalyticsEvent.meta_data["language"].astext.label("language"),
+            AnalyticsEvent.meta_data["guardrail"].astext.label("guardrail"),
+            AnalyticsEvent.meta_data["success"].astext.label("success"),
+            AnalyticsEvent.meta_data["latency_ms"].astext.cast(Integer).label("latency_ms"),
+            AnalyticsEvent.social_account_id,
+            func.date_trunc(
+                "day", func.timezone(settings.APP_TIMEZONE, AnalyticsEvent.occurred_at)
+            ).label("day"),
+            func.count().label("reply_count"),
+        )
+        .where(
+            AnalyticsEvent.team_id == team.id,
+            AnalyticsEvent.event_type == "bot_reply",
+            AnalyticsEvent.occurred_at >= since,
+        )
+        .group_by(
+            "provider", "language", "guardrail", "success", "latency_ms",
+            AnalyticsEvent.social_account_id, "day",
+        )
+    )
+
+    rows = events.all()
+    total_replies = 0
+    successful = 0
+    failed = 0
+    guardrail_triggers = 0
+    pricing_triggers = 0
+    greek = 0
+    english = 0
+    latencies: list[int] = []
+    by_provider: dict[str, dict] = {}
+    by_account: dict[str, dict] = {}
+    by_day: dict[str, dict] = {}
+
+    for row in rows:
+        reply_count = int(row.reply_count or 0)
+        provider = row.provider or "unknown"
+        language = row.language or "english"
+        guardrail = row.guardrail or ""
+        success = row.success == "true"
+        latency = row.latency_ms or 0
+        acct = str(row.social_account_id) if row.social_account_id else "unknown"
+        day = row.day.isoformat() if row.day else ""
+
+        total_replies += reply_count
+        if success:
+            successful += reply_count
+        else:
+            failed += reply_count
+        if guardrail:
+            guardrail_triggers += reply_count
+            if guardrail == "pricing":
+                pricing_triggers += reply_count
+        if language == "greek":
+            greek += reply_count
+        else:
+            english += reply_count
+        if latency > 0:
+            latencies.extend([latency] * reply_count)
+
+        if provider not in by_provider:
+            by_provider[provider] = {
+                "provider": provider, "replies": 0, "errors": 0,
+            }
+        by_provider[provider]["replies"] += reply_count if success else 0
+        by_provider[provider]["errors"] += reply_count if not success else 0
+
+        if acct not in by_account:
+            by_account[acct] = {
+                "account_id": acct, "replies": 0, "errors": 0,
+            }
+        by_account[acct]["replies"] += reply_count if success else 0
+        by_account[acct]["errors"] += reply_count if not success else 0
+
+        if day:
+            if day not in by_day:
+                by_day[day] = {
+                    "date": day, "replies": 0, "errors": 0, "guardrails": 0,
+                }
+            by_day[day]["replies"] += reply_count if success else 0
+            by_day[day]["errors"] += reply_count if not success else 0
+            by_day[day]["guardrails"] += reply_count if guardrail else 0
+
+    avg_latency = (
+        int(sum(latencies) / len(latencies)) if latencies else None
+    )
+
+    return BotAnalyticsSummary(
+        total_replies=total_replies,
+        successful_replies=successful,
+        failed_replies=failed,
+        guardrail_triggers=guardrail_triggers,
+        pricing_guardrail_triggers=pricing_triggers,
+        greek_replies=greek,
+        english_replies=english,
+        avg_latency_ms=avg_latency,
+        by_provider=sorted(
+            by_provider.values(), key=lambda x: x["replies"], reverse=True
+        ),
+        by_account=sorted(
+            by_account.values(), key=lambda x: x["replies"], reverse=True
+        ),
+        by_day=sorted(by_day.values(), key=lambda x: x["date"]),
+    )
+
+
+@router.get("/bots/cloudflare-ai", response_model=CloudflareAIUsage)
+async def get_cloudflare_ai_usage(
+    days: int = Query(7, ge=1, le=90),
+    current_user: User = Depends(get_current_user),
+):
+    """Workers AI usage from Cloudflare GraphQL Analytics API (free).
+
+    Shows: total requests, neurons consumed, errors, free-tier limit
+    (10,000 neurons/day), per-model breakdown, and daily time series.
+    """
+    from app.services.cf_analytics import get_workers_ai_usage
+
+    usage = await get_workers_ai_usage(days=days)
+    free_limit = 10000 * days
+    return CloudflareAIUsage(
+        total_requests=usage["total_requests"],
+        total_neurons=usage["total_neurons"],
+        total_errors=usage["total_errors"],
+        free_tier_limit=free_limit,
+        free_tier_remaining=max(0, free_limit - usage["total_neurons"]),
+        by_model=usage["by_model"],
+        by_day=usage["by_day"],
+    )
+
+
+@router.get("/bots/cloudflare-overview", response_model=CloudflareOverview)
+async def get_cloudflare_overview(
+    days: int = Query(7, ge=1, le=90),
+    current_user: User = Depends(get_current_user),
+):
+    """Combined Cloudflare analytics overview (free GraphQL API).
+
+    Aggregates Workers AI, Workers invocations, R2, D1, KV, and
+    Vectorize metrics into a single response for dashboards.
+    """
+    from app.services.cf_analytics import get_cf_overview
+
+    return await get_cf_overview(days=days)
+
+
+class AdCampaignPoint(BaseModel):
+    captured_at: datetime
+    spend_eur: float
+    impressions: int
+    clicks: int
+    engagements: int
+    ctr: float
+    cpc_eur: float
+    engagement_rate: float
+
+
+class AdCampaignLatest(AdCampaignPoint):
+    budget_eur: float
+
+
+class AdCampaignOut(BaseModel):
+    campaign_id: str
+    campaign_name: str
+    platform: str
+    status: str
+    latest: AdCampaignLatest | None
+    series: list[AdCampaignPoint]
+
+
+class AdCampaignTotals(BaseModel):
+    campaigns: int
+    spend_eur: float
+    impressions: int
+    clicks: int
+    engagements: int
+    ctr: float
+    cpc_eur: float
+
+
+class AdCampaignsOut(BaseModel):
+    campaigns: list[AdCampaignOut]
+    totals: AdCampaignTotals
+
+
+@router.get("/ad-campaigns", response_model=AdCampaignsOut)
+async def get_ad_campaigns(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Ad campaign metrics from ``ad_campaign_snapshots`` (LinkedIn Campaign
+    Manager daily scrape). Returns latest metrics + full time series per
+    campaign so the dashboard can chart spend/CTR/CPC over time."""
+    from app.models.linkedin_ads import AdCampaignSnapshot
+
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    since = datetime.now(UTC) - timedelta(days=days)
+    rows = (
+        await db.execute(
+            select(AdCampaignSnapshot)
+            .where(
+                AdCampaignSnapshot.team_id == team.id,
+                AdCampaignSnapshot.captured_at >= since,
+            )
+            .order_by(AdCampaignSnapshot.campaign_id, AdCampaignSnapshot.captured_at)
+        )
+    ).scalars().all()
+
+    grouped: dict[str, list[AdCampaignSnapshot]] = {}
+    for s in rows:
+        grouped.setdefault(s.campaign_id, []).append(s)
+
+    campaigns: list[AdCampaignOut] = []
+    tot_spend = tot_imp = tot_clicks = tot_eng = 0.0
+    for cid, snaps in grouped.items():
+        series = [
+            AdCampaignPoint(
+                captured_at=s.captured_at,
+                spend_eur=s.spend_eur,
+                impressions=s.impressions,
+                clicks=s.clicks,
+                engagements=s.engagements,
+                ctr=s.ctr,
+                cpc_eur=s.cpc_eur,
+                engagement_rate=s.engagement_rate,
+            )
+            for s in snaps
+        ]
+        last = snaps[-1]
+        latest = AdCampaignLatest(**series[-1].model_dump(), budget_eur=last.budget_eur)
+        campaigns.append(
+            AdCampaignOut(
+                campaign_id=cid,
+                campaign_name=last.campaign_name,
+                platform=last.platform,
+                status=last.status,
+                latest=latest,
+                series=series,
+            )
+        )
+        # Metrics are cumulative-to-date on LinkedIn — a failed/transferred
+        # scrape can record zeros as the last row, so aggregate the campaign
+        # maximum, not the last snapshot.
+        tot_spend += max(s.spend_eur for s in snaps)
+        tot_imp += max(s.impressions for s in snaps)
+        tot_clicks += max(s.clicks for s in snaps)
+        tot_eng += max(s.engagements for s in snaps)
+
+    campaigns.sort(key=lambda c: (c.latest.captured_at if c.latest else datetime.min.replace(tzinfo=UTC)), reverse=True)
+    totals = AdCampaignTotals(
+        campaigns=len(campaigns),
+        spend_eur=round(tot_spend, 2),
+        impressions=int(tot_imp),
+        clicks=int(tot_clicks),
+        engagements=int(tot_eng),
+        ctr=round(tot_clicks / tot_imp * 100, 2) if tot_imp else 0.0,
+        cpc_eur=round(tot_spend / tot_clicks, 2) if tot_clicks else 0.0,
+    )
+    return AdCampaignsOut(campaigns=campaigns, totals=totals)
+
+
+class InitiativeEventIn(BaseModel):
+    event_type: str = "linkedin_page_invite"
+    platform: str = "linkedin"
+    social_account_id: uuid.UUID | None = None
+    units: int = 1
+    note: str | None = None
+    # LinkedIn invite-window readings (all optional — see LinkedIn Help
+    # a547492): the credit balance shown in the page admin "Invite
+    # connections" window, invites known declined/withdrawn, and the
+    # monthly pool size (bigger on Premium Company Pages).
+    credits_left: int | None = None
+    declined: int | None = None
+    monthly_cap: int | None = None
+
+
+class InitiativeOut(BaseModel):
+    event_type: str
+    initiative: str
+    platform: str
+    social_account_id: str | None
+    events: int
+    units: int
+    units_this_month: int
+    first_at: datetime | None
+    last_at: datetime | None
+    followers_start: int | None
+    followers_now: int | None
+    followers_delta: int | None
+    conversion_pct: float | None
+    accepted_est: int | None
+    declined: int
+    pending_est: int | None
+    monthly_cap: int
+    credits_left: int | None
+
+
+@router.post("/initiative-events", response_model=InitiativeOut)
+async def record_initiative_event(
+    body: InitiativeEventIn, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Record a growth-initiative action (e.g. "sent 40 LinkedIn page
+    invites"). Events land in ``analytics_events`` with ``post_id=NULL`` so
+    they export to the datalake as account-events automatically."""
+    from app.services.growth_initiatives import (
+        INITIATIVE_TYPES,
+        initiative_summary,
+        record_initiative_event,
+    )
+
+    if body.event_type not in INITIATIVE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown event_type — expected one of {sorted(INITIATIVE_TYPES)}",
+        )
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    if body.social_account_id:
+        account = (
+            await db.execute(
+                select(SocialAccount.id).where(
+                    SocialAccount.id == body.social_account_id,
+                    SocialAccount.team_id == team.id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not account:
+            raise HTTPException(status_code=404, detail="Account not found in team")
+    else:
+        # Default to the team's org/business page for the platform —
+        # initiatives like Page invites always target the page account.
+        org = (
+            await db.execute(
+                select(SocialAccount.id)
+                .where(
+                    SocialAccount.team_id == team.id,
+                    SocialAccount.platform == body.platform,
+                    SocialAccount.status == "active",
+                )
+                .order_by(
+                    case(
+                        (SocialAccount.meta_data["account_type"].astext == "organization", 0),
+                        else_=1,
+                    )
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        body.social_account_id = org
+    await record_initiative_event(
+        db,
+        team.id,
+        body.event_type,
+        platform=body.platform,
+        account_id=body.social_account_id,
+        units=body.units,
+        note=body.note,
+        credits_left=body.credits_left,
+        declined=body.declined,
+        monthly_cap=body.monthly_cap,
+    )
+    summary = await initiative_summary(db, team.id)
+    return next(s for s in summary if s["event_type"] == body.event_type and s["platform"] == body.platform)
+
+
+@router.get("/initiatives", response_model=list[InitiativeOut])
+async def list_initiatives(team_id: TeamId,
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Growth-initiative rollup: units sent and follower delta on the
+    linked account since the initiative started."""
+    from app.services.growth_initiatives import initiative_summary
+
+    team = await _team_for_user(db, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    return await initiative_summary(db, team.id, days=days)

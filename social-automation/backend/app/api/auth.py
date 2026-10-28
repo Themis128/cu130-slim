@@ -1,0 +1,2513 @@
+import json
+import logging
+import uuid
+from datetime import UTC, datetime
+
+import httpx
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from httpx_oauth.clients.facebook import FacebookOAuth2
+from httpx_oauth.clients.linkedin import LinkedInOAuth2
+from httpx_oauth.oauth2 import BaseOAuth2, GetAccessTokenError, OAuth2Token
+from pydantic import BaseModel, ConfigDict, EmailStr
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.limiter import limiter
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    encrypt_token,
+    hash_password,
+    verify_password,
+)
+from app.db.session import get_db
+from app.models.social_account import SocialAccount
+from app.models.user import Team, TeamMember, User, UserRole
+from app.services.facebook_api import _sanitize_log_text
+from app.services.meta_graph import facebook_graph_url
+
+settings = get_settings()
+
+router = APIRouter()
+logger = logging.getLogger(__name__)
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_PREFIX}/auth/login")
+
+
+# ── Brute-force lockout + refresh-token rotation (Redis, fail-open) ──────────
+#
+# The lockout is keyed per-account (email) and complements the per-IP
+# slowapi limit: rotating IPs can't hammer one account. The counter expires
+# from the FIRST failure, so an attacker cannot keep a victim locked out
+# forever — the window always lapses.
+#
+# Refresh tokens carry a ``jti``. On use, the jti is burned for the token's
+# remaining lifetime; a 60s grace mapping returns the same replacement pair
+# for retries/races (the frontend single-flights refresh anyway).
+
+_LOGIN_MAX_FAILURES = 10
+_LOGIN_LOCKOUT_S = 900
+_REFRESH_GRACE_S = 60
+
+
+async def _redis_client():
+    import redis.asyncio as aioredis
+
+    return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+
+
+def _login_fail_key(email: str) -> str:
+    return f"auth:login_fail:{email.strip().lower()}"
+
+
+async def _login_lockout_remaining(email: str) -> int:
+    """Seconds left on the account lockout; 0 when login may proceed."""
+    try:
+        r = await _redis_client()
+        key = _login_fail_key(email)
+        count = await r.get(key)
+        if not count or int(count) < _LOGIN_MAX_FAILURES:
+            return 0
+        ttl = await r.ttl(key)
+        return ttl if ttl and ttl > 0 else _LOGIN_LOCKOUT_S
+    except Exception:
+        return 0  # fail open — a Redis outage must not block every login
+
+
+async def _record_login_failure(email: str) -> None:
+    try:
+        r = await _redis_client()
+        key = _login_fail_key(email)
+        if await r.incr(key) == 1:
+            await r.expire(key, _LOGIN_LOCKOUT_S)
+    except Exception:
+        logger.warning("login-failure counter unavailable", exc_info=True)
+
+
+async def _clear_login_failures(email: str) -> None:
+    try:
+        r = await _redis_client()
+        await r.delete(_login_fail_key(email))
+    except Exception:
+        pass
+
+
+async def _replay_rotated_refresh(jti: str) -> "TokenResponse | None":
+    """Handle a previously-used refresh token.
+
+    Inside the grace window the stored replacement pair is returned so
+    racing/retried refreshes succeed; after it, a burned jti means token
+    theft or a stale client — reject with 401.
+    """
+    try:
+        r = await _redis_client()
+        cached = await r.get(f"auth:rt_rotated:{jti}")
+        if cached:
+            return TokenResponse(**json.loads(cached))
+        if await r.get(f"auth:rt_used:{jti}"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token already used",
+            )
+        return None
+    except HTTPException:
+        raise
+    except Exception:
+        logger.warning("refresh-rotation check unavailable", exc_info=True)
+        return None
+
+
+async def _record_refresh_rotation(jti: str, pair: "TokenResponse", token_exp: int) -> None:
+    """Burn ``jti`` for its remaining lifetime; keep the pair for the grace."""
+    try:
+        r = await _redis_client()
+        ttl = max(token_exp - int(datetime.now(UTC).timestamp()), _REFRESH_GRACE_S)
+        await r.set(f"auth:rt_rotated:{jti}", pair.model_dump_json(), ex=_REFRESH_GRACE_S)
+        await r.set(f"auth:rt_used:{jti}", "1", ex=ttl)
+    except Exception:
+        logger.warning("refresh-rotation store unavailable", exc_info=True)
+
+
+class TikTokOAuth2(BaseOAuth2):
+    """TikTok uses client_key (not client_id) in token and refresh requests."""
+
+    async def get_access_token(
+        self, code: str, redirect_uri: str, code_verifier: str | None = None
+    ) -> OAuth2Token:
+        async with self.get_httpx_client() as client:
+            data: dict = {
+                "client_key": self.client_id,
+                "client_secret": self.client_secret,
+                "grant_type": "authorization_code",
+                "code": code,
+                "redirect_uri": redirect_uri,
+            }
+            if code_verifier:
+                data["code_verifier"] = code_verifier
+            request = client.build_request(
+                "POST",
+                self.access_token_endpoint,
+                data=data,
+                headers=self.request_headers,
+            )
+            response = await self.send_request(
+                client, request, auth=None, exc_class=GetAccessTokenError
+            )
+            return OAuth2Token(self.get_json(response, exc_class=GetAccessTokenError))
+
+    async def refresh_token(
+        self, refresh_token: str, refresh_token_endpoint: str | None = None
+    ) -> OAuth2Token:
+        async with self.get_httpx_client() as client:
+            data = {
+                "client_key": self.client_id,
+                "client_secret": self.client_secret,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+            }
+            request = client.build_request(
+                "POST",
+                refresh_token_endpoint or self.refresh_token_endpoint,
+                data=data,
+                headers=self.request_headers,
+            )
+            response = await self.send_request(
+                client, request, auth=None, exc_class=GetAccessTokenError
+            )
+            return OAuth2Token(self.get_json(response, exc_class=GetAccessTokenError))
+
+
+linkedin_client = LinkedInOAuth2(settings.LINKEDIN_CLIENT_ID, settings.LINKEDIN_CLIENT_SECRET)
+
+# Human-readable env var that holds the client id for each OAuth platform.
+# Used only for clear error messages when a platform is not configured.
+# TikTok's identifier is its "client key" (TIKTOK_CLIENT_KEY), which is passed
+# to the client as the client_id positional argument for the authorize URL.
+_OAUTH_CLIENT_ID_ENV_VAR: dict[str, str] = {
+    "linkedin": "LINKEDIN_CLIENT_ID",
+    "facebook": "FACEBOOK_CLIENT_ID",
+    "instagram": "INSTAGRAM_CLIENT_ID",
+    "instagram2": "INSTAGRAM2_CLIENT_ID",
+    "threads": "THREADS_CLIENT_ID",
+    "twitter": "TWITTER_CLIENT_ID",
+    "tiktok": "TIKTOK_CLIENT_KEY",
+}
+
+# LinkedIn OAuth scopes — shared between the authorize request and the callback
+# so the two can never drift. Requested from the consent screen on connect.
+#   - openid / profile / email       : "Sign In with LinkedIn" product — gives us
+#     the v2/userinfo profile + the personal author URN (urn:li:person:{sub}).
+#   - w_member_social                : "Share on LinkedIn" product — post as the
+#     member's personal profile.
+#   - w_organization_social          : "Community Management API" — post as a
+#     Company Page (required by the cloudless.gr carousel pipeline).
+#   - r_organization_social          : "Community Management API" — read company
+#     page data.
+#   - r_organization_admin           : Legacy Organizations API — REQUIRED to
+#     query /rest/organizationAcls so we can discover the Company Pages the
+#     member administers. Do not drop it unless org discovery is intentionally
+#     disabled.
+#   - rw_organization_admin          : Community Management API — manage
+#     organization page details (description, specialties, etc). Requires
+#     ADMINISTRATOR role on the page. Needed for programmatic profile updates.
+#     NOT requested by default — causes "Page not found" on the LinkedIn
+#     consent screen if the app does not have the Community Management API
+#     product approved with write access. Add it back only after LinkedIn
+#     approves the tier upgrade (see linkedin-api-upgrade skill).
+#     Keep the requested list small: a degraded or denied consent screen from
+#     LinkedIn is frequently caused by requesting a scope (or enabling a
+#     Product below) that the app does not actually have approved.
+LINKEDIN_SCOPES: list[str] = [
+    "openid",
+    "profile",
+    "email",
+    "w_member_social",
+    "w_organization_social",
+    "r_organization_admin",
+    # Community Management API read — needed for organizationalEntity*
+    # statistics endpoints (share/follower stats feed the insights engine).
+    "r_organization_social",
+]
+
+
+def _linkedin_scopes() -> list[str]:
+    """LINKEDIN_SCOPES plus opt-in extras from LINKEDIN_EXTRA_SCOPES.
+
+    Extras (e.g. ``r_ads_reporting`` for Advertising Reporting API) must only
+    be configured after the matching product is enabled on the developer app —
+    requesting an unapproved scope degrades the consent screen.
+    """
+    scopes = list(LINKEDIN_SCOPES)
+    extra = (get_settings().LINKEDIN_EXTRA_SCOPES or "").replace(",", " ").split()
+    return scopes + [s for s in extra if s not in scopes]
+
+
+# X (Twitter) OAuth 2.0 scopes (docs.x.com OAuth 2.0 Authorization Code with
+# PKCE). Shared by every authorize path so they can never drift:
+#   - tweet.read / users.read : GET /2/users/me + reads (POST /2/tweets needs
+#     tweet.read + tweet.write + users.read)
+#   - tweet.write            : POST /2/tweets (posts, replies/threads)
+#   - media.write            : POST /2/media/upload (+ chunked + metadata/alt
+#     text) — without it v2 media upload 403s
+#   - offline.access         : issue a refresh token (access tokens live 2h)
+#   - dm.read / dm.write     : unified inbox (requires app permission
+#     "Read and write and Direct message" in the developer console)
+TWITTER_SCOPES: list[str] = [
+    "tweet.read",
+    "tweet.write",
+    "users.read",
+    "media.write",
+    "offline.access",
+    "dm.read",
+    "dm.write",
+    "like.write",
+    "like.read",
+    "follows.write",
+    "bookmark.read",
+]
+
+
+def _granted_scopes(token: dict, requested: list[str]) -> list[str]:
+    """Scopes actually granted, from the token response ``scope`` field.
+
+    X returns the granted set as a space-separated string; fall back to the
+    requested list when the provider omits it.
+    """
+    raw = token.get("scope") if isinstance(token, dict) else None
+    if isinstance(raw, str) and raw.strip():
+        return sorted(set(raw.replace(",", " ").split()))
+    if isinstance(raw, list) and raw:
+        return sorted({str(x) for x in raw})
+    return list(requested)
+
+
+# Canonical per-platform OAuth scope lists — shared between the authorize
+# endpoint and accounts.py connect/connect-link flows so the two can never
+# drift. A sparse duplicate here previously downgraded reconnects (e.g. a
+# facebook reconnect dropped read_insights, silently killing Page Insights).
+PLATFORM_SCOPES: dict[str, list[str]] = {
+    "linkedin": _linkedin_scopes(),
+    "twitter": TWITTER_SCOPES,
+    "facebook": [
+        "public_profile",
+        "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+        "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
+        "read_insights",
+        "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
+        "instagram_manage_messages",
+    ],
+    "instagram": [
+        "instagram_basic", "instagram_content_publish", "instagram_manage_messages",
+        "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+    ],
+    "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
+    "instagram2": ["user_profile", "user_media"],
+    "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats",
+               "video.publish", "video.upload", "video.list"],
+}
+
+# Instagram2 client (Instagram API with Instagram Login)
+instagram2_client = BaseOAuth2(
+    client_id=settings.INSTAGRAM2_CLIENT_ID,
+    client_secret=settings.INSTAGRAM2_CLIENT_SECRET,
+    authorize_endpoint="https://www.instagram.com/oauth/authorize",
+    access_token_endpoint="https://api.instagram.com/oauth/access_token",
+)
+
+
+async def _sync_linkedin_organizations(
+    *,
+    db: AsyncSession,
+    team_id: uuid.UUID,
+    access_token: str,
+    refresh_token: str | None,
+    scopes: list[str],
+    http: httpx.AsyncClient,
+) -> list[SocialAccount]:
+    """Upsert LinkedIn Company Pages the member can administer / post as."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Linkedin-Version": "202608",
+        "X-Restli-Protocol-Version": "2.0.0",
+    }
+    # Prefer REST organizationAcls; fall back to v2 if needed.
+    acl_urls = [
+        "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
+        "https://api.linkedin.com/v2/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
+        "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&state=APPROVED",
+    ]
+    elements: list[dict] = []
+    for url in acl_urls:
+        resp = await http.get(url, headers=headers)
+        if resp.status_code == 200:
+            elements = (resp.json() or {}).get("elements") or []
+            if elements:
+                break
+
+    synced: list[SocialAccount] = []
+    for el in elements:
+        org_urn = el.get("organization") or el.get("organizationalTarget") or ""
+        if not isinstance(org_urn, str) or "organization:" not in org_urn:
+            continue
+        org_id = org_urn.rsplit(":", 1)[-1]
+        if not org_id:
+            continue
+
+        display_name = f"LinkedIn Page {org_id}"
+        username = None
+        avatar_url = None
+        vanity = None
+        for org_url in (
+            f"https://api.linkedin.com/rest/organizations/{org_id}",
+            f"https://api.linkedin.com/v2/organizations/{org_id}",
+        ):
+            org_resp = await http.get(org_url, headers=headers)
+            if org_resp.status_code != 200:
+                continue
+            org = org_resp.json() or {}
+            name_field = org.get("localizedName") or org.get("name")
+            if isinstance(name_field, str) and name_field.strip():
+                display_name = name_field.strip()
+            elif isinstance(name_field, dict):
+                localized = name_field.get("localized") if isinstance(name_field.get("localized"), dict) else name_field
+                if isinstance(localized, dict) and localized:
+                    display_name = str(localized.get("en_US") or next(iter(localized.values())))
+            vanity = org.get("vanityName") or vanity
+            username = vanity or username
+            break
+
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.team_id == team_id,
+                SocialAccount.platform == "linkedin",
+                SocialAccount.account_id == org_id,
+            )
+        )
+        account = result.scalar_one_or_none()
+        meta = {
+            "account_type": "organization",
+            "author_urn": f"urn:li:organization:{org_id}",
+            "vanity_name": vanity,
+            "role": el.get("role"),
+        }
+        if account:
+            account.access_token_enc = encrypt_token(access_token)
+            if refresh_token:
+                account.refresh_token_enc = encrypt_token(refresh_token)
+            account.scopes = scopes
+            account.status = "active"
+            account.username = username
+            account.display_name = display_name
+            account.avatar_url = avatar_url
+            account.account_type = "organization"
+            account.is_business = True
+            account.meta_data = {**(account.meta_data or {}), **meta}
+        else:
+            account = SocialAccount(
+                team_id=team_id,
+                platform="linkedin",
+                account_id=org_id,
+                username=username,
+                display_name=display_name,
+                avatar_url=avatar_url,
+                access_token_enc=encrypt_token(access_token),
+                refresh_token_enc=encrypt_token(refresh_token) if refresh_token else None,
+                scopes=scopes,
+                status="active",
+                account_type="organization",
+                is_business=True,
+                meta_data=meta,
+            )
+            db.add(account)
+        synced.append(account)
+
+    if synced:
+        await db.flush()
+    return synced
+
+
+# Twitter OAuth2 (using BaseOAuth2)
+twitter_client: BaseOAuth2 = BaseOAuth2(
+    settings.TWITTER_CLIENT_ID,
+    settings.TWITTER_CLIENT_SECRET,
+    authorize_endpoint="https://x.com/i/oauth2/authorize",
+    access_token_endpoint="https://api.x.com/2/oauth2/token",
+    refresh_token_endpoint="https://api.x.com/2/oauth2/token",
+    base_scopes=TWITTER_SCOPES,
+    name="twitter",
+    token_endpoint_auth_method="client_secret_basic",
+)
+facebook_client = FacebookOAuth2(settings.FACEBOOK_CLIENT_ID, settings.FACEBOOK_CLIENT_SECRET)
+# Threads OAuth 2.0
+threads_client: BaseOAuth2 = BaseOAuth2(
+    settings.THREADS_CLIENT_ID,
+    settings.THREADS_CLIENT_SECRET,
+    authorize_endpoint="https://threads.net/oauth/authorize",
+    access_token_endpoint="https://graph.threads.net/oauth/access_token",
+    refresh_token_endpoint="https://graph.threads.net/oauth/access_token",
+    base_scopes=["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
+    name="threads",
+)
+# Instagram via Facebook Graph API (Basic Display API deprecated Dec 2024)
+instagram_client = BaseOAuth2(
+    settings.INSTAGRAM_CLIENT_ID,
+    settings.INSTAGRAM_CLIENT_SECRET,
+    authorize_endpoint="https://www.facebook.com/dialog/oauth",
+    access_token_endpoint=facebook_graph_url("oauth/access_token"),
+    refresh_token_endpoint=facebook_graph_url("oauth/access_token"),
+    base_scopes=["instagram_basic", "instagram_content_publish", "instagram_manage_messages", "pages_show_list"],
+    name="instagram",
+)
+# TikTok OAuth 2.0 — uses client_key (not client_id) and custom token endpoint
+tiktok_client = TikTokOAuth2(
+    settings.TIKTOK_CLIENT_KEY,
+    settings.TIKTOK_CLIENT_SECRET,
+    authorize_endpoint="https://www.tiktok.com/v2/auth/authorize/",
+    access_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
+    refresh_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
+    base_scopes=["user.info.basic", "user.info.profile", "user.info.stats",
+                 "video.publish", "video.upload", "video.list"],
+    name="tiktok",
+    token_endpoint_auth_method="client_secret_post",
+)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str | None = None
+    discount_code: str | None = None
+
+
+class UserResponse(BaseModel):
+    id: uuid.UUID
+    email: str
+    name: str | None
+    avatar_url: str | None
+    timezone: str
+    two_factor_enabled: bool = False
+    onboarding_completed: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User:
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    return user
+
+
+async def get_current_user_optional(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return None
+
+    token = auth_header.split(" ")[1]
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        return None
+
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    return result.scalar_one_or_none()
+
+
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
+async def register(request: Request, user_data: UserCreate, db: AsyncSession = Depends(get_db)):
+    existing = await db.execute(select(User).where(User.email == user_data.email))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
+
+    user = User(
+        email=user_data.email,
+        password_hash=hash_password(user_data.password),
+        name=user_data.name,
+        timezone=settings.APP_TIMEZONE,
+    )
+    db.add(user)
+    await db.flush()
+
+    # Create default team — keep the signup discount code so billing
+    # checkout can resolve it to a Polar discount and auto-apply it.
+    team = Team(
+        name=f"{user.name or user.email}'s Team",
+        owner_id=user.id,
+        polar_discount_code=(user_data.discount_code or "").strip().upper() or None,
+    )
+    db.add(team)
+    await db.flush()
+
+    membership = TeamMember(team_id=team.id, user_id=user.id, role=UserRole.OWNER)
+    db.add(membership)
+
+    await db.commit()
+    await db.refresh(user)
+
+    # Send welcome email (fire-and-forget, non-blocking)
+    try:
+        import asyncio
+
+        from app.services.email_templates import send_welcome_email
+
+        asyncio.create_task(send_welcome_email(user))
+    except Exception:
+        logger.warning("Failed to queue welcome email for %s", user.email)
+
+    return user
+
+
+@router.post("/login", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def login(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db),
+    otp: str | None = Form(None),
+):
+    lockout = await _login_lockout_remaining(form_data.username)
+    if lockout:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed attempts — try again in {lockout // 60 + 1} min",
+        )
+
+    result = await db.execute(select(User).where(User.email == form_data.username))
+    user = result.scalar_one_or_none()
+
+    if not user or not verify_password(form_data.password, user.password_hash):
+        await _record_login_failure(form_data.username)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if user.two_factor_enabled:
+        if not otp:
+            # Correct password but TOTP pending — the frontend shows the code
+            # step and resubmits with ``otp``. No token is issued yet.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="two_factor_required",
+            )
+        if not user.two_factor_secret or not _verify_totp(user.two_factor_secret, otp):
+            await _record_login_failure(form_data.username)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid 2FA code")
+
+    await _clear_login_failures(form_data.username)
+
+    # Auto-resolve the user's team so the JWT is team-scoped on login.
+    # Prefer teams the user owns, then higher plan tiers (enterprise > free).
+    from sqlalchemy import case
+
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
+    team_result = await db.execute(
+        select(Team.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user.id)
+        .order_by(
+            (TeamMember.role == UserRole.OWNER).desc(),
+            _tier_rank.desc(),
+        )
+    )
+    team_id = team_result.scalars().first()
+    token_data: dict[str, str] = {"sub": str(user.id), "email": user.email}
+    if team_id:
+        token_data["team_id"] = str(team_id)
+
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_db)):
+    payload = decode_token(request.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+
+    jti = payload.get("jti")
+    if jti:
+        replay = await _replay_rotated_refresh(jti)
+        if replay is not None:
+            return replay
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+
+    # Auto-resolve team (same priority as login).
+    from sqlalchemy import case
+
+    _tier_rank = case(
+        (Team.plan_tier == "enterprise", 4),
+        (Team.plan_tier == "business", 3),
+        (Team.plan_tier == "pro", 2),
+        (Team.plan_tier == "free", 1),
+        else_=0,
+    )
+    team_result = await db.execute(
+        select(Team.id)
+        .join(TeamMember, TeamMember.team_id == Team.id)
+        .where(TeamMember.user_id == user.id)
+        .order_by(
+            (TeamMember.role == UserRole.OWNER).desc(),
+            _tier_rank.desc(),
+        )
+    )
+    team_id = team_result.scalars().first()
+    token_data: dict[str, str] = {"sub": str(user.id), "email": user.email}
+    if team_id:
+        token_data["team_id"] = str(team_id)
+
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+
+    response = TokenResponse(access_token=access_token, refresh_token=refresh_token)
+    if jti:
+        # Burn the presented jti for the rest of its lifetime so a stolen
+        # refresh token dies after the first legitimate (or attacker) use.
+        await _record_refresh_rotation(jti, response, int(payload.get("exp", 0)))
+    return response
+
+
+@router.get("/me", response_model=UserResponse)
+async def get_me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+class SwitchTeamRequest(BaseModel):
+    team_id: uuid.UUID
+
+
+@router.post("/switch-team", response_model=TokenResponse)
+async def switch_team(
+    data: SwitchTeamRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Switch the active team for the current user.
+
+    Verifies the user is a member of the target team, then issues a new
+    access token that carries ``team_id`` so downstream dependencies can
+    resolve the active team from the JWT.
+    """
+    result = await db.execute(
+        select(TeamMember).where(
+            TeamMember.team_id == data.team_id,
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    membership = result.scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not a member of this team",
+        )
+
+    access_token = create_access_token(
+        {"sub": str(current_user.id), "email": current_user.email, "team_id": str(data.team_id)}
+    )
+    refresh_token = create_refresh_token({"sub": str(current_user.id)})
+
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+class UpdateProfileRequest(BaseModel):
+    full_name: str | None = None
+    email: str | None = None
+    avatar_url: str | None = None
+    timezone: str | None = None
+    onboarding_completed: bool | None = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.patch("/me", response_model=UserResponse)
+async def update_profile(
+    data: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if data.full_name is not None:
+        current_user.name = data.full_name
+    if data.email is not None:
+        current_user.email = data.email
+    if data.avatar_url is not None:
+        current_user.avatar_url = data.avatar_url
+    if data.timezone is not None:
+        current_user.timezone = data.timezone
+    if data.onboarding_completed is not None:
+        current_user.onboarding_completed = data.onboarding_completed
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.post("/change-password")
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.core.security import hash_password, verify_password
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    current_user.password_hash = hash_password(data.new_password)
+    await db.commit()
+    return {"message": "Password updated"}
+
+
+# ── 2FA (TOTP) ────────────────────────────────────────────────────────────────
+
+class TwoFactorSetupResponse(BaseModel):
+    secret: str
+    qr_uri: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    code: str
+
+
+@router.post("/2fa/setup", response_model=TwoFactorSetupResponse)
+async def setup_2fa(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Generate a TOTP secret and QR URI for 2FA setup."""
+    import base64
+    import os
+
+    # Generate a random secret (20 bytes = 160 bits, per RFC 4226)
+    secret_bytes = os.urandom(20)
+    secret = base64.b32encode(secret_bytes).decode("utf-8").rstrip("=")
+
+    # Store secret temporarily (not yet enabled — user must verify first)
+    current_user.two_factor_secret = secret
+    await db.commit()
+
+    # Build otpauth URI
+    issuer = "SocialAuto"
+    label = f"{issuer}:{current_user.email}"
+    qr_uri = f"otpauth://totp/{label}?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30"
+
+    return TwoFactorSetupResponse(secret=secret, qr_uri=qr_uri)
+
+
+@router.post("/2fa/verify")
+async def verify_2fa(
+    data: TwoFactorVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify a TOTP code and enable 2FA."""
+    if not current_user.two_factor_secret:
+        raise HTTPException(status_code=400, detail="2FA setup not initiated")
+
+    if not _verify_totp(current_user.two_factor_secret, data.code):
+        raise HTTPException(status_code=400, detail="Invalid verification code")
+
+    current_user.two_factor_enabled = True
+    await db.commit()
+
+    return {"message": "Two-factor authentication enabled", "enabled": True}
+
+
+class TwoFactorDisableRequest(BaseModel):
+    current_password: str
+
+
+@router.delete("/2fa")
+async def disable_2fa(
+    data: TwoFactorDisableRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Disable 2FA (requires password confirmation)."""
+    from app.core.security import verify_password
+
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect")
+
+    current_user.two_factor_enabled = False
+    current_user.two_factor_secret = None
+    await db.commit()
+
+    return {"message": "Two-factor authentication disabled", "enabled": False}
+
+
+def _verify_totp(secret: str, code: str, window: int = 1) -> bool:
+    """Verify a TOTP code against the secret using a ±1 time window."""
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    import time
+
+    # Decode the base32 secret
+    padding = "=" * (8 - len(secret) % 8) if len(secret) % 8 else ""
+    try:
+        key = base64.b32decode(secret + padding)
+    except Exception:
+        return False
+
+    # Check current time and ±window steps
+    now = int(time.time())
+    for offset in range(-window, window + 1):
+        timestep = (now // 30) + offset
+        msg = struct.pack(">Q", timestep)
+        h = hmac.new(key, msg, hashlib.sha1).digest()
+        offset_byte = h[-1] & 0x0F
+        truncated = struct.unpack(">I", h[offset_byte:offset_byte + 4])[0] & 0x7FFFFFFF
+        expected = str(truncated % 1000000).zfill(6)
+        if hmac.compare_digest(expected, str(code).strip()):
+            return True
+    return False
+
+
+# ── Notification preferences ──────────────────────────────────────────────────
+
+class NotificationPreferencesRequest(BaseModel):
+    email_new_post: bool = True
+    email_scheduled: bool = True
+    email_analytics: bool = False
+    email_on_quota: bool = True
+    email_on_invite: bool = True
+    email_account_connected: bool = True
+    push_new_post: bool = True
+    push_scheduled: bool = False
+
+
+class NotificationPreferencesResponse(BaseModel):
+    email_new_post: bool
+    email_scheduled: bool
+    email_analytics: bool
+    email_on_quota: bool
+    email_on_invite: bool
+    email_account_connected: bool
+    push_new_post: bool
+    push_scheduled: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+@router.get("/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def get_notification_preferences(
+    current_user: User = Depends(get_current_user),
+):
+    """Get the user's notification preferences."""
+    prefs = current_user.notification_preferences or {}
+    return NotificationPreferencesResponse(
+        email_new_post=prefs.get("email_new_post", True),
+        email_scheduled=prefs.get("email_scheduled", True),
+        email_analytics=prefs.get("email_analytics", False),
+        email_on_quota=prefs.get("email_on_quota", True),
+        email_on_invite=prefs.get("email_on_invite", True),
+        email_account_connected=prefs.get("email_account_connected", True),
+        push_new_post=prefs.get("push_new_post", True),
+        push_scheduled=prefs.get("push_scheduled", False),
+    )
+
+
+@router.put("/notifications/preferences", response_model=NotificationPreferencesResponse)
+async def update_notification_preferences(
+    data: NotificationPreferencesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update the user's notification preferences."""
+    current_user.notification_preferences = data.model_dump()
+    await db.commit()
+    await db.refresh(current_user)
+    return NotificationPreferencesResponse(**current_user.notification_preferences)
+
+
+# ── Data export ───────────────────────────────────────────────────────────────
+
+@router.get("/export-data")
+async def export_user_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    token: str = Depends(oauth2_scheme),
+):
+    """Export all user data (posts, media metadata, analytics) as JSON."""
+    from app.api.deps import get_user_team
+    from app.models.analytics import PostAnalyticsSnapshot
+    from app.models.content import MediaAsset, Post
+    from app.models.social_account import SocialAccount
+
+    # Honor the active ``team_id`` JWT claim (same rule as TeamId dep); fall
+    # back to the primary team for legacy tokens without the claim.
+    team = None
+    payload = decode_token(token)
+    if payload and payload.get("team_id"):
+        candidate = uuid.UUID(payload["team_id"])
+        membership = await db.execute(
+            select(TeamMember).where(
+                TeamMember.team_id == candidate,
+                TeamMember.user_id == current_user.id,
+            )
+        )
+        if membership.scalar_one_or_none() is not None:
+            team = await db.get(Team, candidate)
+    if team is None:
+        team = await get_user_team(db, current_user)
+    if not team:
+        return {"user": {"email": current_user.email}, "posts": [], "media": [], "accounts": [], "analytics": []}
+
+    # Posts
+    posts_result = await db.execute(
+        select(Post).where(Post.team_id == team.id).order_by(Post.created_at.desc())
+    )
+    posts = posts_result.scalars().all()
+
+    # Media assets
+    media_result = await db.execute(
+        select(MediaAsset).where(MediaAsset.team_id == team.id).order_by(MediaAsset.created_at.desc())
+    )
+    media = media_result.scalars().all()
+
+    # Social accounts
+    accounts_result = await db.execute(
+        select(SocialAccount).where(SocialAccount.team_id == team.id)
+    )
+    accounts = accounts_result.scalars().all()
+
+    # Analytics snapshots
+    analytics_result = await db.execute(
+        select(PostAnalyticsSnapshot).where(PostAnalyticsSnapshot.team_id == team.id).order_by(PostAnalyticsSnapshot.captured_at.desc()).limit(500)
+    )
+    snapshots = analytics_result.scalars().all()
+
+    return {
+        "user": {
+            "email": current_user.email,
+            "name": current_user.name,
+            "timezone": current_user.timezone,
+            "created_at": current_user.created_at.isoformat(),
+        },
+        "posts": [
+            {
+                "id": str(p.id),
+                "content_text": p.content_text,
+                "status": p.status.value if hasattr(p.status, "value") else str(p.status),
+                "created_at": p.created_at.isoformat(),
+                "scheduled_at": p.scheduled_at.isoformat() if p.scheduled_at else None,
+            }
+            for p in posts
+        ],
+        "media": [
+            {
+                "id": str(m.id),
+                "filename": m.filename,
+                "mime_type": m.mime_type,
+                "size_bytes": m.size_bytes,
+                "alt_text": m.alt_text,
+                "tags": m.tags,
+                "ai_tags": m.ai_tags,
+                "ai_caption": m.ai_caption,
+                "created_at": m.created_at.isoformat(),
+            }
+            for m in media
+        ],
+        "accounts": [
+            {
+                "platform": a.platform,
+                "username": a.username,
+                "display_name": a.display_name,
+                "status": a.status,
+            }
+            for a in accounts
+        ],
+        "analytics": [
+            {
+                "platform": s.platform,
+                "impressions": s.impressions,
+                "clicks": s.clicks,
+                "likes": s.likes,
+                "comments": s.comments,
+                "shares": s.shares,
+                "engagement": s.engagement,
+                "engagement_rate": s.engagement_rate,
+                "captured_at": s.captured_at.isoformat(),
+            }
+            for s in snapshots
+        ],
+    }
+
+
+# ── Delete account ────────────────────────────────────────────────────────────
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
+@router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_account(
+    data: DeleteAccountRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete the user's account and all associated data."""
+    from app.core.security import verify_password
+
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect")
+
+    # The cascade="all, delete-orphan" on Team relationships will clean up
+    # posts, media, accounts, workflows, etc. when the team is deleted.
+    result = await db.execute(
+        select(Team).where(Team.owner_id == current_user.id)
+    )
+    owned_teams = result.scalars().all()
+
+    for team in owned_teams:
+        await db.delete(team)
+
+    # Remove team memberships
+    result = await db.execute(
+        select(TeamMember).where(TeamMember.user_id == current_user.id)
+    )
+    memberships = result.scalars().all()
+    for membership in memberships:
+        await db.delete(membership)
+
+    await db.delete(current_user)
+    await db.commit()
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+@router.post("/forgot-password")
+@limiter.limit("5/minute")
+async def forgot_password(request: Request, data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+    from app.core.security import create_reset_token
+    result = await db.execute(select(User).where(User.email == data.email))
+    user = result.scalar_one_or_none()
+
+    # Always return success to prevent email enumeration
+    if not user:
+        return {"message": "If the email exists, a password reset link has been sent"}
+
+    reset_token = create_reset_token({"sub": str(user.id), "email": user.email})
+
+    # Build the reset link from the configured frontend URL
+    frontend_url = ""
+    cors_origins = settings.CORS_ORIGINS
+    for origin in cors_origins:
+        if "8082" in origin or "3000" in origin or "3001" in origin:
+            frontend_url = origin.rstrip("/")
+            break
+    if not frontend_url and cors_origins:
+        frontend_url = cors_origins[0].rstrip("/")
+    reset_link = f"{frontend_url}/reset-password?token={reset_token}"
+
+    # Send password reset email via the transactional template (logs to email_logs)
+    try:
+        import asyncio
+
+        from app.services.email_templates import send_password_reset_email
+
+        asyncio.create_task(send_password_reset_email(user, reset_link))
+    except Exception:
+        logger.warning("Failed to send password reset email to %s", user.email)
+
+    # In debug mode, return the token for testing
+    if settings.DEBUG:
+        return {"message": "If the email exists, a password reset link has been sent", "debug_token": reset_token}
+
+    return {"message": "If the email exists, a password reset link has been sent"}
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(request: Request, data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
+    from app.core.security import decode_token, hash_password
+    payload = decode_token(data.token)
+    if not payload or payload.get("type") != "reset":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+    user_id = payload.get("sub")
+    result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired reset token")
+
+    user.password_hash = hash_password(data.new_password)
+    await db.commit()
+
+    return {"message": "Password has been reset successfully"}
+
+
+# OAuth endpoints
+@router.get("/oauth/{platform}/authorize")
+async def oauth_authorize(platform: str, team_id: uuid.UUID, current_user: User = Depends(get_current_user)):
+    if platform == "instagram2":
+        # Instagram Business Login uses a custom flow
+        return await instagram2_authorize(team_id, current_user)
+
+    if platform == "instagram-onboarding":
+        # Facebook Login for Business with IG API Onboarding uses a custom flow
+        return await instagram_onboarding_authorize(team_id, current_user)
+
+    redirect_uri = getattr(settings, f"{platform.upper()}_REDIRECT_URI")
+    client = globals()[f"{platform}_client"]
+
+    # Fail fast: with an empty client_id the authorize URL would be built as
+    # "…/authorize?client_id=&…", which the provider rejects (e.g. LinkedIn:
+    # "You need to pass the 'client_id' parameter"). Never emit a broken URL.
+    if not getattr(client, "client_id", None):
+        env_var = _OAUTH_CLIENT_ID_ENV_VAR.get(platform, f"{platform.upper()}_CLIENT_ID")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"OAuth for '{platform}' is not configured: {env_var} is empty, "
+                "so no client_id can be included in the authorization URL. "
+                f"Set {env_var} in .env (or the Env Manager) and restart social-api, then retry."
+            ),
+        )
+    if platform == "linkedin" and not getattr(client, "client_secret", None):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "OAuth for 'linkedin' is not configured: LINKEDIN_CLIENT_SECRET is empty. "
+                "Copy the Client Secret from the LinkedIn developer app Auth tab into .env, "
+                "recreate social-api, then reconnect LinkedIn."
+            ),
+        )
+
+    # TikTok requires client_key and comma-separated scopes in the authorize URL
+    extra_params: dict = {}
+    oauth_scopes: list[str] | None = PLATFORM_SCOPES.get(platform)
+    if platform == "tiktok":
+        extra_params["client_key"] = settings.TIKTOK_CLIENT_KEY
+        extra_params["scope"] = ",".join(PLATFORM_SCOPES.get(platform, []))
+        oauth_scopes = None  # Don't let the library join with spaces
+
+    # Twitter and TikTok both require PKCE (code_challenge) in the authorize URL
+    code_verifier: str | None = None
+    code_challenge: str | None = None
+    if platform in ("twitter", "tiktok"):
+        import base64 as _b64
+        import hashlib as _hashlib
+        import secrets as _secrets
+        code_verifier = _secrets.token_urlsafe(64)
+        code_challenge = (
+            _b64.urlsafe_b64encode(_hashlib.sha256(code_verifier.encode()).digest())
+            .rstrip(b"=")
+            .decode()
+        )
+
+    # Encode state with PKCE verifier so the callback can use it for token exchange
+    # State is HMAC-signed to prevent CSRF and tampering.
+    from app.core.security import sign_oauth_state
+
+    state_payload: dict = {"t": str(team_id)}
+    if code_verifier:
+        state_payload["cv"] = code_verifier
+    state = sign_oauth_state(state_payload)
+
+    authorization_url = await client.get_authorization_url(
+        redirect_uri,
+        state=state,
+        scope=oauth_scopes,
+        code_challenge=code_challenge,
+        code_challenge_method="S256" if code_challenge else None,
+        extras_params=extra_params,
+    )
+
+    return {"authorization_url": authorization_url}
+
+
+def _platform_account_type(platform: str, account_id: str, token: dict, ctx: dict) -> tuple[str, bool]:
+    """Determine account_type and is_business for a platform after OAuth.
+
+    Returns (account_type, is_business):
+      - LinkedIn person: ("person", False) — organizations handled by _sync_linkedin_organizations
+      - Facebook page: ("page", True) — user timeline posting not supported by Graph API
+      - Instagram business: ("business", True) — only business/creator accounts can publish
+      - Twitter/Threads/TikTok: ("person", False) — no business distinction in posting API
+    """
+    if platform == "linkedin":
+        return ("person", False)
+    if platform == "facebook":
+        # If account_id differs from the FB user id, it's a Page
+        fb_user_id = (ctx.get("fb_info") or {}).get("id")
+        if fb_user_id and account_id != fb_user_id:
+            return ("page", True)
+        return ("user", False)
+    if platform == "instagram":
+        # IG publishing requires a business/creator account
+        return ("business", True)
+    if platform == "whatsapp":
+        return ("business", True)
+    if platform == "tiktok":
+        return ("person", False)
+    # twitter, threads, and any future platform
+    return ("person", False)
+
+
+@router.get("/oauth/{platform}/callback")
+async def oauth_callback(
+    platform: str,
+    state: str,
+    db: AsyncSession = Depends(get_db),
+    code: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+    granted_scopes: str | None = Query(None, alias="scopes"),
+):
+    if platform == "instagram2":
+        # Instagram Business Login uses a custom callback handler
+        return await instagram2_callback(state=state, db=db, code=code, error=error, error_description=error_description)
+    if platform == "instagram-onboarding":
+        # IG onboarding flows through the Facebook callback, not here
+        raise HTTPException(status_code=400, detail="Instagram onboarding callback must go through /oauth/facebook/callback")
+    if error:
+        raise HTTPException(status_code=400, detail=f"OAuth error from {platform}: {error} — {error_description}")
+    if not code:
+        raise HTTPException(status_code=400, detail=f"No authorization code returned by {platform}")
+    # Verify signed state — reject unsigned/legacy state for security
+    from app.core.security import verify_oauth_state
+
+    state_data = verify_oauth_state(state)
+    if state_data is None:
+        raise HTTPException(status_code=400, detail="Invalid or tampered OAuth state parameter")
+    team_id = uuid.UUID(state_data["t"])
+    code_verifier: str | None = state_data.get("cv")
+    # The state may carry the original platform alias (e.g. "whatsapp" uses Facebook OAuth)
+    original_platform: str | None = state_data.get("p")
+
+    # Instagram onboarding uses Facebook Login for Business with IG_API_ONBOARDING
+    # extras. The callback comes through the Facebook OAuth path, but we need to
+    # treat it as an Instagram connection and discover the IG business account
+    # that was linked during the onboarding flow.
+    is_ig_onboarding = original_platform == "instagram-onboarding"
+
+    # Resolve the OAuth client and redirect URI.
+    # WhatsApp and Messenger use the Facebook OAuth client and redirect URI.
+    oauth_platform = "facebook" if platform in ("whatsapp", "messenger") else platform
+    redirect_uri = getattr(settings, f"{oauth_platform.upper()}_REDIRECT_URI")
+    client = globals()[f"{oauth_platform}_client"]
+
+    try:
+        token = await client.get_access_token(code, redirect_uri, code_verifier=code_verifier)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Token exchange failed for {platform}: {exc}",
+        ) from exc
+
+    # Get user info from platform
+    access_token = token["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+    async with httpx.AsyncClient() as http:
+        if platform == "linkedin":
+            resp = await http.get("https://api.linkedin.com/v2/userinfo", headers=headers)
+            if resp.status_code != 200:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "LinkedIn profile fetch failed "
+                        f"(HTTP {resp.status_code}): {resp.text[:300]}"
+                    ),
+                )
+            user_info = resp.json()
+            account_id = user_info["sub"]
+            username = user_info.get("email")
+            display_name = f"{user_info.get('given_name', '')} {user_info.get('family_name', '')}".strip()
+            avatar_url = user_info.get("picture")
+            scopes = _linkedin_scopes()
+            # Discover company pages this member can post as (e.g. cloudless.gr).
+            # Best-effort: a transient LinkedIn API / ACL failure must not fail the
+            # whole connect after the user already granted consent on the OAuth page
+            # (this is the #1 "connect just worked on LinkedIn but the app errors"
+            # failure mode — re-connecting should still succeed and store the
+            # personal account; /accounts/linkedin/sync-organizations can retry).
+            try:
+                await _sync_linkedin_organizations(
+                    db=db,
+                    team_id=team_id,
+                    access_token=access_token,
+                    refresh_token=token.get("refresh_token"),
+                    scopes=scopes,
+                    http=http,
+                )
+            except Exception:
+                logger.exception(
+                    "LinkedIn organization sync failed after consent; "
+                    "continuing with personal account"
+                )
+        elif platform == "twitter":
+            resp = await http.get(
+                "https://api.x.com/2/users/me",
+                headers=headers,
+                params={"user.fields": "profile_image_url"},
+            )
+            if resp.status_code != 200:
+                body = resp.text[:300]
+                if resp.status_code == 402:
+                    detail = (
+                        "X sign-in succeeded but the X API refused GET /2/users/me with "
+                        "HTTP 402 (pay-per-use credits depleted). The developer app needs "
+                        "credits at console.x.com before the account can be connected; "
+                        f"reconnecting again will not help. Upstream: {body}"
+                    )
+                else:
+                    detail = f"X profile fetch failed (HTTP {resp.status_code}): {body}"
+                raise HTTPException(status_code=400, detail=detail)
+            user_data = (resp.json() or {}).get("data") or {}
+            if not user_data.get("id"):
+                raise HTTPException(status_code=400, detail="X profile fetch returned no user id")
+            account_id = user_data["id"]
+            username = user_data.get("username")
+            display_name = user_data.get("name") or username
+            avatar_url = user_data.get("profile_image_url")
+            # Store the scopes X actually granted (token ``scope`` field) so
+            # e.g. a missing media.write is visible and publishing can pick the
+            # right media-upload auth.
+            scopes = _granted_scopes(token, TWITTER_SCOPES)
+        elif platform == "facebook":
+            resp = await http.get(
+                facebook_graph_url("me"),
+                headers=headers,
+                params={"fields": "id,name,email,picture"},
+            )
+            user_info = resp.json()
+            if "error" in user_info:
+                raise HTTPException(status_code=400, detail=f"Facebook /me failed: {user_info['error'].get('message')}")
+
+            # Exchange short-lived user token for long-lived token (~60 days)
+            ll_resp = await http.get(
+                facebook_graph_url("oauth/access_token"),
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": settings.FACEBOOK_CLIENT_ID,
+                    "client_secret": settings.FACEBOOK_CLIENT_SECRET,
+                    "fb_exchange_token": access_token,
+                },
+            )
+            ll_data = ll_resp.json()
+            long_lived_token = ll_data.get("access_token", access_token)
+
+            # If this is an Instagram onboarding flow, handle it as an Instagram
+            # connection. The IG_API_ONBOARDING extras flow creates/links a
+            # Facebook Page to the Instagram account, so the Page's
+            # instagram_business_account field should now return the IG account.
+            if is_ig_onboarding:
+                # Query pages for the linked Instagram business account
+                ig_resp = await http.get(
+                    facebook_graph_url("me/accounts"),
+                    params={
+                        "fields": "id,name,access_token,instagram_business_account{id,ig_id,username,profile_picture_url,name}",
+                        "access_token": long_lived_token,
+                    },
+                )
+                ig_data = ig_resp.json()
+                ig_account = None
+                page_token = None
+
+                for page in ig_data.get("data", []):
+                    if page.get("instagram_business_account"):
+                        ig_account = page["instagram_business_account"]
+                        page_token = page.get("access_token")
+                        break
+
+                # Fallback: check page_backed_instagram_accounts
+                if not ig_account:
+                    for page in ig_data.get("data", []):
+                        pt = page.get("access_token", long_lived_token)
+                        pbi_resp = await http.get(
+                            facebook_graph_url(f"{page['id']}/page_backed_instagram_accounts"),
+                            params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": pt},
+                        )
+                        for acct in pbi_resp.json().get("data", []):
+                            if acct.get("id"):
+                                ig_account = acct
+                                page_token = pt
+                                break
+                        if ig_account:
+                            break
+
+                if ig_account:
+                    account_id = ig_account["id"]
+                    username = ig_account.get("username")
+                    display_name = ig_account.get("name") or ig_account.get("username", "")
+                    avatar_url = ig_account.get("profile_picture_url")
+                    access_token = page_token or long_lived_token
+                    platform = "instagram"
+                    scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_messages", "pages_show_list", "pages_read_engagement"]
+                    fb_pages = []
+                    fb_info = {"id": user_info["id"]}
+                else:
+                    # IG onboarding didn't link an IG account — fall through to
+                    # normal Facebook handling but flag the error
+                    logger.warning(
+                        "Instagram onboarding flow completed but no IG business account found. "
+                        "Falling back to Facebook user account."
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail=(
+                            "Instagram onboarding completed but no Instagram Business account was found "
+                            "linked to your Facebook Pages. Ensure your Instagram account is a Professional "
+                            "account and try reconnecting."
+                        ),
+                    )
+            else:
+                # Normal Facebook Login flow
+                # Fetch managed pages — page tokens are permanent and required for posting
+                pages_resp = await http.get(
+                    facebook_graph_url("me/accounts"),
+                    params={"fields": "id,name,access_token,picture,category", "access_token": long_lived_token},
+                )
+                pages = pages_resp.json().get("data", [])
+                # Store the USER account as the main account (with user token)
+                # so sync-business-accounts can call /me/accounts later.
+                # Page accounts are stored as separate business accounts below.
+                account_id = user_info["id"]
+                username = user_info.get("email") or user_info.get("name")
+                display_name = user_info.get("name", "")
+                avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
+                access_token = long_lived_token
+                # Stash pages for later storage as business accounts
+                fb_pages = pages
+                fb_info = {"id": user_info["id"]}
+                # Use the scopes requested (Facebook returns them in the token response as a comma/space-separated string)
+                _raw_scope = token.get("scope", "")
+                if isinstance(_raw_scope, str) and _raw_scope:
+                    scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
+                else:
+                    scopes = [
+                        "public_profile", "email",
+                        "user_about_me", "user_birthday", "user_hometown", "user_location",
+                        "user_website", "user_work_history", "user_education_history",
+                        "user_relationships", "user_religion_politics", "user_likes",
+                        "user_posts", "user_photos", "user_videos", "user_friends",
+                        "pages_show_list", "pages_read_engagement", "pages_manage_posts",
+                        "pages_manage_engagement", "pages_manage_metadata", "pages_messaging",
+                        "pages_read_user_content", "read_insights",
+                        "ads_management", "ads_read", "business_management",
+                        "instagram_basic", "instagram_manage_insights", "instagram_content_publish",
+                        "instagram_manage_messages",
+                    ]
+
+            # If this was a WhatsApp connect, fetch WABA and phone numbers
+            if original_platform == "whatsapp":
+                # Get the user's businesses (WABA is nested under business)
+                biz_resp = await http.get(
+                    facebook_graph_url("me/businesses"),
+                    params={"access_token": long_lived_token, "fields": "id,name"},
+                )
+                businesses = biz_resp.json().get("data", [])
+                waba_id = None
+                waba_phone_numbers = []
+
+                for biz in businesses:
+                    biz_id = biz["id"]
+                    # Try to get the WABA for this business
+                    waba_resp = await http.get(
+                        facebook_graph_url(f"{biz_id}/owned_whatsapp_business_accounts"),
+                        params={"access_token": long_lived_token},
+                    )
+                    if waba_resp.status_code == 200:
+                        waba_data = waba_resp.json().get("data", [])
+                        if waba_data:
+                            waba_id = waba_data[0]["id"]
+                            # Get phone numbers for this WABA
+                            phones_resp = await http.get(
+                                facebook_graph_url(f"{waba_id}/phone_numbers"),
+                                params={
+                                    "access_token": long_lived_token,
+                                    "fields": "id,display_phone_number,verified_name,quality_rating",
+                                },
+                            )
+                            if phones_resp.status_code == 200:
+                                waba_phone_numbers = phones_resp.json().get("data", [])
+                            break
+
+                # Store as a WhatsApp account
+                account_id = user_info["id"]
+                username = user_info.get("email") or user_info.get("name")
+                display_name = "Cloudless WhatsApp"
+                avatar_url = (user_info.get("picture") or {}).get("data", {}).get("url")
+                access_token = long_lived_token
+                # Override platform to "whatsapp" for storage
+                platform = "whatsapp"
+                scopes = [
+                    "whatsapp_business_messaging", "whatsapp_business_management",
+                    "business_management", "pages_show_list",
+                ]
+                # Stash WABA info for the account metadata
+                wa_info = {
+                    "waba_id": waba_id,
+                    "phone_numbers": waba_phone_numbers,
+                    "businesses": businesses,
+                }
+                fb_pages = []  # Don't create Facebook Page accounts for WhatsApp connect
+        elif platform == "threads":
+            # Threads token response includes user_id — use it if /me fails
+            threads_user_id = token.get("user_id")
+            # Exchange short-lived token for long-lived (~60 days)
+            ll_resp = await http.get(
+                "https://graph.threads.net/access_token",
+                params={
+                    "grant_type": "th_exchange_token",
+                    "client_secret": settings.THREADS_CLIENT_SECRET,
+                    "access_token": access_token,
+                },
+            )
+            ll_data = ll_resp.json()
+            if "access_token" in ll_data:
+                access_token = ll_data["access_token"]
+                headers = {"Authorization": f"Bearer {access_token}"}
+                # Carry the long-lived expiry (seconds) into the token dict so the
+                # downstream token_expires_at calculation uses it instead of the
+                # short-lived response (which has no expires_in field).
+                if "expires_in" in ll_data:
+                    token["expires_in"] = ll_data["expires_in"]
+            else:
+                # Long-lived exchange failed — surface the error instead of
+                # silently storing a ~1h short-lived token that will expire
+                # before the next publishing run.
+                logger.error(
+                    "Threads long-lived token exchange failed: "
+                    "HTTP %s response=%s",
+                    ll_resp.status_code,
+                    str(ll_data)[:500],
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Threads long-lived token exchange failed "
+                        f"(HTTP {ll_resp.status_code}): {str(ll_data)[:300]}"
+                    ),
+                )
+            resp = await http.get(
+                "https://graph.threads.net/me",
+                headers=headers,
+                params={"fields": "id,username,name,threads_profile_picture_url"},
+            )
+            user_info = resp.json()
+            if "id" not in user_info:
+                # /me failed — fall back to user_id from token response
+                if threads_user_id:
+                    user_info["id"] = str(threads_user_id)
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Threads /me returned no id: {resp.status_code} {user_info}",
+                    )
+            account_id = str(user_info["id"])
+            username = user_info.get("username")
+            display_name = user_info.get("name") or username or ""
+            avatar_url = user_info.get("threads_profile_picture_url")
+            scopes = ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"]
+        elif platform == "instagram":
+            resp = await http.get(
+                facebook_graph_url("me"),
+                headers=headers,
+                params={"fields": "id,name,picture"},
+            )
+            fb_info = resp.json()
+
+            # Exchange for long-lived token (~60 days)
+            ll_resp = await http.get(
+                facebook_graph_url("oauth/access_token"),
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": settings.FACEBOOK_CLIENT_ID,
+                    "client_secret": settings.FACEBOOK_CLIENT_SECRET,
+                    "fb_exchange_token": access_token,
+                },
+            )
+            long_lived_token = ll_resp.json().get("access_token", access_token)
+
+            # Fetch all pages with page tokens + IG business account link
+            ig_resp = await http.get(
+                facebook_graph_url("me/accounts"),
+                params={
+                    "fields": "id,name,access_token,instagram_business_account{id,ig_id,username,profile_picture_url,name}",
+                    "access_token": long_lived_token,
+                },
+            )
+            ig_data = ig_resp.json()
+            ig_account = None
+            page_token = None
+
+            for page in ig_data.get("data", []):
+                if page.get("instagram_business_account"):
+                    ig_account = page["instagram_business_account"]
+                    page_token = page.get("access_token")
+                    break
+
+            # Fallback: check page_backed_instagram_accounts on each page
+            if not ig_account:
+                for page in ig_data.get("data", []):
+                    pt = page.get("access_token", long_lived_token)
+                    pbi_resp = await http.get(
+                        facebook_graph_url(f"{page['id']}/page_backed_instagram_accounts"),
+                        params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": pt},
+                    )
+                    for acct in pbi_resp.json().get("data", []):
+                        if acct.get("id"):
+                            ig_account = acct
+                            page_token = pt
+                            break
+                    if ig_account:
+                        break
+
+            # Fallback: check Business Manager owned pages
+            if not ig_account:
+                biz_resp = await http.get(
+                    facebook_graph_url("me/businesses"),
+                    params={"access_token": long_lived_token},
+                )
+                for biz in biz_resp.json().get("data", []):
+                    biz_ig = await http.get(
+                        facebook_graph_url(f"{biz['id']}/instagram_accounts"),
+                        params={"fields": "id,ig_id,username,profile_picture_url,name", "access_token": long_lived_token},
+                    )
+                    for acct in biz_ig.json().get("data", []):
+                        if acct.get("id"):
+                            ig_account = acct
+                            page_token = long_lived_token
+                            break
+                    if ig_account:
+                        break
+
+            if ig_account:
+                account_id = ig_account["id"]
+                username = ig_account.get("username")
+                display_name = ig_account.get("name") or ig_account.get("username", "")
+                avatar_url = ig_account.get("profile_picture_url")
+                access_token = page_token or long_lived_token
+            else:
+                account_id = fb_info["id"]
+                username = fb_info.get("name")
+                display_name = fb_info.get("name", "")
+                avatar_url = fb_info.get("picture", {}).get("data", {}).get("url")
+                access_token = long_lived_token
+            scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_messages", "pages_show_list"]
+        elif platform == "tiktok":
+            # TikTok token response includes open_id alongside access_token
+            open_id = token.get("open_id", "")
+            # Prefer scopes actually granted (callback query or token response).
+            # Hardcoding used to drop video.list even when TikTok authorized it.
+            _raw_scope = granted_scopes or token.get("scope") or ""
+            if isinstance(_raw_scope, list | tuple):
+                scopes = [str(s).strip() for s in _raw_scope if str(s).strip()]
+            elif isinstance(_raw_scope, str) and _raw_scope.strip():
+                scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
+            else:
+                scopes = ["user.info.basic", "video.publish", "video.upload", "video.list"]
+            # Fetch user info — only request fields whose scope was granted,
+            # otherwise TikTok rejects the whole call with scope_not_authorized.
+            tt_fields = ["open_id", "union_id", "avatar_url", "display_name"]
+            if "user.info.profile" in scopes:
+                tt_fields += ["bio_description", "profile_deep_link", "is_verified", "username"]
+            if "user.info.stats" in scopes:
+                tt_fields += ["follower_count", "following_count", "likes_count", "video_count"]
+            resp = await http.get(
+                "https://open.tiktokapis.com/v2/user/info/",
+                params={"fields": ",".join(tt_fields)},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            tt_info = resp.json().get("data", {}).get("user", {})
+            account_id = open_id or tt_info.get("open_id", "")
+            username = tt_info.get("username") or tt_info.get("display_name") or account_id
+            display_name = tt_info.get("display_name", "")
+            avatar_url = tt_info.get("avatar_url")
+        else:
+            raise HTTPException(status_code=400, detail="Unsupported platform")
+
+    # Save or update social account
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team_id,
+            SocialAccount.platform == platform,
+            SocialAccount.account_id == account_id,
+        )
+    )
+    account = result.scalar_one_or_none()
+
+    if account:
+        account.access_token_enc = encrypt_token(access_token)
+        if "refresh_token" in token:
+            account.refresh_token_enc = encrypt_token(token["refresh_token"])
+        expires_in = token.get("expires_in")
+        if expires_in:
+            from datetime import datetime, timedelta
+            account.token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+        else:
+            account.token_expires_at = None
+        account.scopes = scopes
+        account.status = "active"
+        account.username = username
+        account.display_name = display_name
+        account.avatar_url = avatar_url
+        # Set account_type and is_business per platform
+        _acct_type, _is_biz = _platform_account_type(platform, account_id, token, locals())
+        account.account_type = _acct_type
+        account.is_business = _is_biz
+        if platform == "linkedin":
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "account_type": "person",
+                "author_urn": f"urn:li:person:{account_id}",
+            }
+        elif platform == "tiktok":
+            _tt_info = locals().get("tt_info") or {}
+            # Drop scope-gated fields the new grant no longer covers so
+            # revoked permissions don't leave stale stats in meta_data.
+            _tt_meta = dict(account.meta_data or {})
+            if "user.info.profile" not in scopes:
+                for _k in ("bio_description", "profile_deep_link", "is_verified"):
+                    _tt_meta.pop(_k, None)
+            if "user.info.stats" not in scopes:
+                for _k in ("follower_count", "following_count", "likes_count", "video_count"):
+                    _tt_meta.pop(_k, None)
+            account.meta_data = {
+                **_tt_meta,
+                "open_id": token.get("open_id", account_id),
+                **{k: v for k, v in {
+                    "bio_description": _tt_info.get("bio_description"),
+                    "profile_deep_link": _tt_info.get("profile_deep_link"),
+                    "is_verified": _tt_info.get("is_verified"),
+                    "follower_count": _tt_info.get("follower_count"),
+                    "following_count": _tt_info.get("following_count"),
+                    "likes_count": _tt_info.get("likes_count"),
+                    "video_count": _tt_info.get("video_count"),
+                }.items() if v is not None},
+            }
+        elif platform == "facebook":
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "account_type": _acct_type,
+                "page_id": account_id if _is_biz else None,
+            }
+        elif platform == "whatsapp":
+            wa_info = locals().get("wa_info", {})
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "account_type": "business",
+                "waba_id": wa_info.get("waba_id"),
+                "phone_numbers": wa_info.get("phone_numbers", []),
+                "display_phone_number": "+306977777838",
+                "phone_number_id": "",
+                "access_token": "",
+            }
+        elif platform == "instagram":
+            account.meta_data = {
+                **(account.meta_data or {}),
+                "account_type": _acct_type,
+                "login_type": "fb_onboarding" if is_ig_onboarding else (account.meta_data or {}).get("login_type"),
+            }
+    else:
+        _meta: dict = {}
+        if platform == "linkedin":
+            _meta = {"account_type": "person", "author_urn": f"urn:li:person:{account_id}"}
+        elif platform == "tiktok":
+            _tt_info = locals().get("tt_info") or {}
+            _meta = {
+                "open_id": token.get("open_id", account_id),
+                **{k: v for k, v in {
+                    "bio_description": _tt_info.get("bio_description"),
+                    "profile_deep_link": _tt_info.get("profile_deep_link"),
+                    "is_verified": _tt_info.get("is_verified"),
+                    "follower_count": _tt_info.get("follower_count"),
+                    "following_count": _tt_info.get("following_count"),
+                    "likes_count": _tt_info.get("likes_count"),
+                    "video_count": _tt_info.get("video_count"),
+                }.items() if v is not None},
+            }
+        elif platform == "facebook":
+            _meta = {"account_type": "page" if account_id != locals().get("fb_info", {}).get("id") else "user"}
+        elif platform == "whatsapp":
+            wa_info = locals().get("wa_info", {})
+            _meta = {
+                "account_type": "business",
+                "waba_id": wa_info.get("waba_id"),
+                "phone_numbers": wa_info.get("phone_numbers", []),
+                "display_phone_number": "+306977777838",
+                "phone_number_id": "",
+                "access_token": "",
+            }
+        elif platform == "instagram":
+            _meta = {"account_type": "business", "login_type": "fb_onboarding" if is_ig_onboarding else "facebook_login"}
+        _expires_in = token.get("expires_in")
+        _token_expires_at = None
+        if _expires_in:
+            from datetime import datetime, timedelta
+            _token_expires_at = datetime.now(UTC) + timedelta(seconds=int(_expires_in))
+        _acct_type, _is_biz = _platform_account_type(platform, account_id, token, locals())
+        account = SocialAccount(
+            team_id=team_id,
+            platform=platform,
+            account_id=account_id,
+            username=username,
+            display_name=display_name,
+            avatar_url=avatar_url,
+            access_token_enc=encrypt_token(access_token),
+            refresh_token_enc=encrypt_token(token["refresh_token"]) if "refresh_token" in token else None,
+            token_expires_at=_token_expires_at,
+            scopes=scopes,
+            status="active",
+            account_type=_acct_type,
+            is_business=_is_biz,
+            meta_data=_meta,
+        )
+        db.add(account)
+
+    await db.commit()
+
+    # For Facebook, also create/update Page accounts as business accounts
+    if platform == "facebook" and locals().get("fb_pages"):
+        for page in fb_pages:
+            page_id = page["id"]
+            page_token = page.get("access_token", access_token)
+            page_result = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.team_id == team_id,
+                    SocialAccount.platform == "facebook",
+                    SocialAccount.account_id == page_id,
+                )
+            )
+            page_account = page_result.scalar_one_or_none()
+            page_meta = {
+                "account_type": "page",
+                "page_token": page_token,
+                "category": page.get("category"),
+                "tasks": page.get("tasks", []),
+            }
+            if page_account:
+                page_account.access_token_enc = encrypt_token(page_token)
+                page_account.status = "active"
+                page_account.username = page.get("name")
+                page_account.display_name = page.get("name")
+                page_account.is_business = True
+                page_account.account_type = "page"
+                page_account.parent_account_id = account.id
+                page_account.meta_data = {**(page_account.meta_data or {}), **page_meta}
+            else:
+                page_account = SocialAccount(
+                    team_id=team_id,
+                    platform="facebook",
+                    account_id=page_id,
+                    username=page.get("name"),
+                    display_name=page.get("name"),
+                    access_token_enc=encrypt_token(page_token),
+                    status="active",
+                    account_type="page",
+                    is_business=True,
+                    parent_account_id=account.id,
+                    meta_data=page_meta,
+                )
+                db.add(page_account)
+        await db.commit()
+
+    # Send account-connected email (fire-and-forget)
+    try:
+        import asyncio
+
+        from app.services.email_templates import send_account_connected_email
+
+        # Resolve the team owner to send the notification to
+        owner_result = await db.execute(
+            select(User).join(TeamMember, TeamMember.user_id == User.id).where(
+                TeamMember.team_id == team_id, TeamMember.role == UserRole.OWNER
+            )
+        )
+        owner = owner_result.scalars().first()
+        if owner:
+            # Respect notification preferences — default to True if unset.
+            prefs = owner.notification_preferences or {}
+            if prefs.get("email_account_connected", True):
+                asyncio.create_task(send_account_connected_email(owner, platform.capitalize()))
+    except Exception:
+        logger.warning("Failed to queue account-connected email")
+
+    return {"message": f"{platform} account connected successfully", "account_id": str(account.id)}
+
+
+# ── Instagram Business Login (Instagram API with Instagram Login) ─────────────
+# Separate path from the Facebook-Login flow above. Uses graph.instagram.com
+# and an Instagram user token (no Facebook Page required).
+
+# Two flows are supported:
+#   1. Pure Instagram Business Login (instagram2) — requires the Instagram
+#      product to be added to the Meta app with "API setup with Instagram
+#      login". Uses a separate Instagram App ID and graph.instagram.com.
+#   2. Facebook Login for Business with IG API Onboarding (instagram-onboarding)
+#      — works with the existing Facebook Login app. The extras parameter
+#      {"setup":{"channel":"IG_API_ONBOARDING"}} triggers an Instagram-first
+#      onboarding flow that creates/links a Facebook Page automatically,
+#      solving the error #10 (Page-Instagram linkage) problem.
+
+@router.get("/oauth/instagram-onboarding/authorize")
+async def instagram_onboarding_authorize(
+    team_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+):
+    """Initiate Facebook Login for Business with IG API Onboarding.
+
+    This flow works with the existing Facebook Login app configuration.
+    It shows an Instagram-first login window that:
+    - Lets the user log in with Instagram credentials
+    - Creates a Facebook Page if needed
+    - Links the Instagram account to the Page
+    - Returns a Facebook user token with instagram_content_publish scope
+
+    This solves the error (#10) permission issue by automatically creating
+    the Page-Instagram linkage that the normal Facebook Login flow misses.
+    """
+    if not settings.FACEBOOK_CLIENT_ID:
+        raise HTTPException(status_code=400, detail="Facebook OAuth not configured (FACEBOOK_CLIENT_ID missing)")
+
+    import json as _json
+    from urllib.parse import quote
+
+    from app.core.security import sign_oauth_state
+
+    state_b64 = sign_oauth_state({"t": str(team_id), "p": "instagram-onboarding"})
+
+    # Facebook Login for Business with IG API Onboarding
+    # https://developers.facebook.com/docs/instagram-platform/instagram-api-with-facebook-login/business-login-for-instagram/
+    extras = _json.dumps({"setup": {"channel": "IG_API_ONBOARDING"}})
+    scope = "instagram_basic,instagram_content_publish,instagram_manage_messages,pages_show_list,pages_read_engagement"
+    redirect_uri = settings.FACEBOOK_REDIRECT_URI
+
+    auth_url = (
+        f"https://www.facebook.com/dialog/oauth"
+        f"?client_id={settings.FACEBOOK_CLIENT_ID}"
+        f"&redirect_uri={redirect_uri}"
+        f"&response_type=code"
+        f"&scope={scope}"
+        f"&state={state_b64}"
+        f"&display=page"
+        f"&extras={quote(extras)}"
+    )
+    return {"authorization_url": auth_url}
+
+
+@router.get("/oauth/instagram2/authorize")
+async def instagram2_authorize(
+    team_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+):
+    """Initiate Instagram Business Login OAuth flow."""
+    if not settings.INSTAGRAM2_CLIENT_ID:
+        raise HTTPException(status_code=400, detail="Instagram Business Login not configured (INSTAGRAM2_CLIENT_ID missing)")
+
+    from app.core.security import sign_oauth_state
+
+    state_b64 = sign_oauth_state({"t": str(team_id)})
+
+    scope = (
+        "instagram_business_basic,instagram_business_content_publish,"
+        "instagram_business_manage_comments,instagram_business_manage_messages,"
+        "instagram_business_manage_insights"
+    )
+    auth_url = (
+        f"https://www.instagram.com/oauth/authorize"
+        f"?client_id={settings.INSTAGRAM2_CLIENT_ID}"
+        f"&redirect_uri={settings.INSTAGRAM2_REDIRECT_URI}"
+        f"&scope={scope}"
+        f"&response_type=code"
+        f"&state={state_b64}"
+    )
+    return {"authorization_url": auth_url}
+
+
+@router.get("/oauth/instagram2/callback")
+async def instagram2_callback(
+    state: str,
+    db: AsyncSession = Depends(get_db),
+    code: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+):
+    """Handle Instagram Business Login callback."""
+    if error:
+        raise HTTPException(status_code=400, detail=f"OAuth error from Instagram: {error} — {error_description}")
+    if not code:
+        raise HTTPException(status_code=400, detail="No authorization code returned by Instagram")
+
+    # Verify signed state
+    from app.core.security import verify_oauth_state
+
+    state_data = verify_oauth_state(state)
+    if state_data is None:
+        raise HTTPException(status_code=400, detail="Invalid or tampered OAuth state parameter")
+    team_id = uuid.UUID(state_data["t"])
+
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        # Exchange code for short-lived user token
+        token_resp = await http.post(
+            "https://api.instagram.com/oauth/access_token",
+            data={
+                "client_id": settings.INSTAGRAM2_CLIENT_ID,
+                "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
+                "grant_type": "authorization_code",
+                "redirect_uri": settings.INSTAGRAM2_REDIRECT_URI,
+                "code": code,
+            },
+        )
+        if token_resp.status_code != 200:
+            raise HTTPException(status_code=400, detail=f"Instagram token exchange failed: {token_resp.text[:400]}")
+        token_data = token_resp.json()
+
+        ig_user_id = token_data.get("user_id")
+        access_token = token_data.get("access_token")
+
+        # Exchange for long-lived token (valid ~60 days, refreshable)
+        # NOTE: Meta changed this endpoint from GET to POST in 2025, and the
+        # unversioned POST path is routed as an object ID ("Object with ID
+        # 'access_token' does not exist"). Use the versioned path first, then
+        # fall back to the documented GET form.
+        ll_data: dict = {}
+        for attempt in (
+            lambda: http.post(
+                "https://graph.instagram.com/v21.0/access_token",
+                data={
+                    "grant_type": "ig_exchange_token",
+                    "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
+                    "access_token": access_token,
+                },
+            ),
+            lambda: http.get(
+                "https://graph.instagram.com/access_token",
+                params={
+                    "grant_type": "ig_exchange_token",
+                    "client_secret": settings.INSTAGRAM2_CLIENT_SECRET,
+                    "access_token": access_token,
+                },
+            ),
+        ):
+            ll_resp = await attempt()
+            try:
+                ll_data = ll_resp.json()
+            except Exception:
+                ll_data = {}
+            if ll_data.get("access_token"):
+                break
+            logger.warning(
+                "ig_exchange_token attempt failed (%s): %s",
+                ll_resp.status_code,
+                ll_resp.text[:200],
+            )
+        long_lived_token = ll_data.get("access_token")
+        expires_in = ll_data.get("expires_in")
+        if not long_lived_token:
+            # Never silently store the ~1h short-lived token — it dies within
+            # hours and the account looks "active" until the first publish.
+            logger.error(
+                "ig_exchange_token failed (%s): %s",
+                ll_resp.status_code,
+                ll_resp.text[:300],
+            )
+            raise HTTPException(
+                status_code=502,
+                detail=f"Instagram long-lived token exchange failed: {ll_resp.text[:300]}",
+            )
+
+        # Get user profile info
+        profile_resp = await http.get(
+            f"https://graph.instagram.com/{ig_user_id}",
+            params={"fields": "id,username,account_type,media_count", "access_token": long_lived_token},
+        )
+        profile = profile_resp.json() if profile_resp.status_code == 200 else {}
+
+    # Store the account
+    account_id = str(ig_user_id)
+    username = profile.get("username", "")
+    display_name = profile.get("username", "")
+    scopes = [
+        "instagram_business_basic",
+        "instagram_business_content_publish",
+        "instagram_business_manage_comments",
+        "instagram_business_manage_messages",
+        "instagram_business_manage_insights",
+    ]
+
+    # Compute expiry
+    token_expires_at = None
+    if expires_in:
+        from datetime import datetime, timedelta
+        token_expires_at = datetime.now(UTC) + timedelta(seconds=int(expires_in))
+
+    # Upsert
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.team_id == team_id,
+            SocialAccount.platform == "instagram",
+            SocialAccount.account_id == account_id,
+        )
+    )
+    account = result.scalar_one_or_none()
+
+    ig_account_type = profile.get("account_type", "BUSINESS")
+    is_biz = ig_account_type.upper() in ("BUSINESS", "CREATOR")
+
+    if account:
+        account.access_token_enc = encrypt_token(long_lived_token)
+        account.token_expires_at = token_expires_at
+        account.scopes = scopes
+        account.status = "active"
+        account.username = username
+        account.display_name = display_name
+        account.account_type = ig_account_type.lower()
+        account.is_business = is_biz
+        merged_meta = dict(account.meta_data or {})
+        for stale_key in (
+            "instagram_token_status",
+            "instagram_token_error",
+            "instagram_token_checked_at",
+            "reconnect_required",
+        ):
+            merged_meta.pop(stale_key, None)
+        if token_expires_at:
+            merged_meta["instagram_token_expires_at"] = token_expires_at.isoformat()
+        merged_meta.update(
+            {
+                "account_type": ig_account_type,
+                "ig_business_id": account_id,
+                "login_type": "business_login",
+            }
+        )
+        account.meta_data = merged_meta
+    else:
+        account = SocialAccount(
+            team_id=team_id,
+            platform="instagram",
+            account_id=account_id,
+            username=username,
+            display_name=display_name,
+            access_token_enc=encrypt_token(long_lived_token),
+            token_expires_at=token_expires_at,
+            scopes=scopes,
+            status="active",
+            account_type=ig_account_type.lower(),
+            is_business=is_biz,
+            meta_data={
+                "account_type": ig_account_type,
+                "ig_business_id": account_id,
+                "login_type": "business_login",
+            },
+        )
+        db.add(account)
+
+    await db.commit()
+
+    return {"message": "instagram account connected successfully", "account_id": str(account.id)}
+
+
+@router.post("/linkedin/sync-orgs")
+async def linkedin_sync_orgs(
+    db: AsyncSession = Depends(get_db),
+    current_user: "User" = Depends(get_current_user),
+):
+    """Re-sync LinkedIn organization pages for the current user's team."""
+    from app.core.security import decrypt_token
+
+    result = await db.execute(
+        select(SocialAccount).where(
+            SocialAccount.platform == "linkedin",
+        )
+    )
+    accounts = result.scalars().all()
+    personal = next(
+        (a for a in accounts if (a.meta_data or {}).get("account_type") == "person"),
+        accounts[0] if accounts else None,
+    )
+    if not personal:
+        raise HTTPException(status_code=404, detail="No LinkedIn account connected")
+
+    try:
+        raw_enc = bytes(personal.access_token_enc)
+        access_token = decrypt_token(raw_enc)
+        refresh_raw = bytes(personal.refresh_token_enc) if personal.refresh_token_enc else None
+        refresh_token = decrypt_token(refresh_raw) if refresh_raw else None
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Token decrypt failed: {exc}")
+
+    # Probe what scopes LinkedIn actually accepted
+    async with httpx.AsyncClient(timeout=15.0) as http:
+        probe = await http.get(
+            "https://api.linkedin.com/rest/organizationAcls?q=roleAssignee&role=ADMINISTRATOR&state=APPROVED",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Linkedin-Version": "202608",
+                "X-Restli-Protocol-Version": "2.0.0",
+            },
+        )
+        raw = probe.json()
+
+    if probe.status_code != 200:
+        raise HTTPException(
+            status_code=probe.status_code,
+            detail=f"LinkedIn org ACL query failed ({probe.status_code}): {raw}",
+        )
+
+    async with httpx.AsyncClient(timeout=30.0) as http:
+        synced = await _sync_linkedin_organizations(
+            db=db,
+            team_id=personal.team_id,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            scopes=personal.scopes or [],
+            http=http,
+        )
+    await db.commit()
+
+    return {
+        "synced": len(synced),
+        "organizations": [{"id": str(a.id), "display_name": a.display_name, "account_id": a.account_id} for a in synced],
+        "raw_acl_response": raw,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Phase 7 — RBAC role enforcement + audit logging helpers
+# ---------------------------------------------------------------------------
+
+# Role hierarchy: owner > admin > editor > viewer
+_ROLE_LEVEL = {UserRole.VIEWER: 0, UserRole.EDITOR: 1, UserRole.ADMIN: 2, UserRole.OWNER: 3}
+
+
+async def get_user_role(user: User, db: AsyncSession) -> UserRole:
+    """Return the user's role in their team (defaults to VIEWER)."""
+    result = await db.execute(
+        select(TeamMember.role).where(TeamMember.user_id == user.id).limit(1)
+    )
+    role = result.scalars().first()
+    return role or UserRole.VIEWER
+
+
+def require_role(min_role: UserRole):
+    """FastAPI dependency factory: require the user to have at least ``min_role``."""
+
+    async def _check(
+        current_user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        role = await get_user_role(current_user, db)
+        if _ROLE_LEVEL.get(role, 0) < _ROLE_LEVEL[min_role]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Requires {min_role.value} role or higher",
+            )
+        return current_user
+
+    return _check
+
+
+# Convenience dependencies
+require_owner = require_role(UserRole.OWNER)
+require_admin = require_role(UserRole.ADMIN)
+require_editor = require_role(UserRole.EDITOR)
+
+
+async def log_action(
+    db: AsyncSession,
+    *,
+    user: User,
+    action: str,
+    resource_type: str,
+    resource_id: str | None = None,
+    detail: str | None = None,
+    ip_address: str | None = None,
+    meta: dict | None = None,
+) -> None:
+    """Write an audit log entry."""
+    from app.models.user import AuditLog
+    # Resolve team
+    result = await db.execute(
+        select(TeamMember.team_id).where(TeamMember.user_id == user.id).limit(1)
+    )
+    team_id = result.scalar_one_or_none()
+    if not team_id:
+        return
+    entry = AuditLog(
+        team_id=team_id,
+        user_id=user.id,
+        user_email=user.email,
+        action=action,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        detail=detail,
+        ip_address=ip_address,
+        meta=meta or {},
+    )
+    db.add(entry)
+
+
+# ---------------------------------------------------------------------------
+# Meta Data Deletion Callback
+# ---------------------------------------------------------------------------
+# Meta requires apps to provide a data deletion callback endpoint that receives
+# a signed request when a user removes the app from their Facebook/Instagram
+# settings. The request contains a user identifier so we can delete their data.
+# See: https://developers.facebook.com/docs/development/create-an-app/data-deletion-callback
+
+
+@router.post("/data-deletion")
+async def meta_data_deletion_callback(request: Request):
+    """Handle Meta's data deletion callback.
+
+    Meta sends a signed request when a user removes the app from their
+    Facebook/Instagram settings. The request body is a JSON object with:
+    - algorithm: HMAC-SHA256
+    - issued_at: timestamp
+    - user_id: the Facebook user ID
+    - page_id: (optional) the Page ID if applicable
+
+    We verify the signature using the Facebook App Secret, then delete all
+    data associated with the user's social accounts.
+    """
+    import base64
+    import hashlib
+    import hmac
+
+    body = await request.body()
+    app_secret = settings.FACEBOOK_APP_SECRET or settings.FACEBOOK_CLIENT_SECRET
+
+    if not app_secret:
+        logger.error("FACEBOOK_APP_SECRET not configured for data deletion callback")
+        raise HTTPException(status_code=500, detail="Data deletion callback not configured")
+
+    # Parse the signed request
+    try:
+        payload = json.loads(body)
+        signed_request = payload.get("signed_request", "")
+        if not signed_request:
+            raise ValueError("No signed_request in payload")
+    except Exception as exc:
+        logger.warning("Data deletion callback: invalid payload: %s", exc)
+        raise HTTPException(status_code=400, detail="Invalid payload") from exc
+
+    # Verify the signed request (HMAC-SHA256)
+    try:
+        encoded_sig, encoded_payload = signed_request.split(".", 1)
+        # Facebook uses base64url encoding without padding
+        def _b64decode(s: str) -> bytes:
+            padded = s + "=" * (4 - len(s) % 4)
+            return base64.urlsafe_b64decode(padded)
+
+        sig = _b64decode(encoded_sig)
+        expected_sig = hmac.new(
+            app_secret.encode("utf-8"),
+            encoded_payload.encode("utf-8"),
+            hashlib.sha256,
+        ).digest()
+
+        if not hmac.compare_digest(sig, expected_sig):
+            raise ValueError("Signature mismatch")
+
+        data = json.loads(_b64decode(encoded_payload))
+    except Exception as exc:
+        logger.warning("Data deletion callback: signature verification failed: %s", exc)
+        raise HTTPException(status_code=403, detail="Invalid signature") from exc
+
+    user_id = data.get("user_id")
+    page_id = data.get("page_id")
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="No user_id in signed request")
+
+    # Generate a confirmation code
+    confirmation_code = f"deleted_{uuid.uuid4().hex[:16]}"
+
+    # Delete data asynchronously (don't block the response)
+    # Meta requires a response within seconds
+    import asyncio
+
+    async def _delete_user_data():
+        from app.db.session import async_session_maker
+        async with async_session_maker() as db:
+            # Find social accounts linked to this Facebook user
+            result = await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.platform == "facebook",
+                    SocialAccount.account_id == str(user_id),
+                )
+            )
+            accounts = result.scalars().all()
+            for account in accounts:
+                await db.delete(account)
+
+            # Also check Page accounts if page_id is provided
+            if page_id:
+                result = await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "facebook",
+                        SocialAccount.account_id == str(page_id),
+                    )
+                )
+                page_accounts = result.scalars().all()
+                for account in page_accounts:
+                    await db.delete(account)
+
+            await db.commit()
+            logger.info(
+                "Data deletion callback: deleted %d accounts for user_id=%s page_id=%s",
+                len(accounts),
+                _sanitize_log_text(str(user_id)),
+                _sanitize_log_text(str(page_id)),
+            )
+
+    asyncio.create_task(_delete_user_data())
+
+    # Return the confirmation code immediately (Meta requirement)
+    return {"url": confirmation_code, "confirmation_code": confirmation_code}

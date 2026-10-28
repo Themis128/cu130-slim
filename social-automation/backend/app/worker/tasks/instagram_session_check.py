@@ -1,0 +1,206 @@
+"""Celery task — check Instagram private-API sidecar session health.
+
+Runs every 6 hours. ``business_login`` accounts are validated against the
+Graph API with their OAuth token (the private-API sidecar is only a
+fallback for those). Other accounts with a ``private_api_session_id`` in
+``meta_data`` are checked via the aiograpi-rest sidecar's ``GET /account``
+endpoint. If the relevant session is expired or unreachable, the account
+status is set to ``expired`` and an alert email is sent to the team owner.
+
+The task is non-fatal — a single account failure does not abort the loop.
+"""
+import logging
+from datetime import UTC, datetime
+
+import httpx
+from celery import shared_task
+from sqlalchemy import select
+
+from app.core.config import get_settings
+from app.core.security import decrypt_field, decrypt_token
+from app.models.social_account import SocialAccount
+from app.models.user import Team, User
+from app.services.slack_notifications import post_alert_to_slack, session_heal_buttons
+from app.worker._async import run_async, task_session
+from app.worker.celery_app import celery_app
+
+celery_app.set_default()
+celery_app.set_current()
+
+logger = logging.getLogger(__name__)
+
+# Alert cooldown — don't email the same owner more than once per day per account.
+_ALERT_COOLDOWN_HOURS = 24
+
+
+_worker_db = task_session
+
+
+async def _check_sidecar_session(session_id: str, sidecar_url: str) -> bool:
+    """Return True if the session is valid (GET /account succeeds)."""
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                f"{sidecar_url.rstrip('/')}/account",
+                headers={"X-Session-ID": session_id},
+            )
+            return resp.status_code == 200
+    except Exception as exc:
+        logger.warning("Instagram sidecar unreachable: %s", exc)
+        return False
+
+
+async def _check_sidecar_health(sidecar_url: str) -> bool:
+    """Return True if the sidecar process itself is up."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{sidecar_url.rstrip('/')}/health")
+            return resp.status_code == 200
+    except Exception:
+        return False
+
+
+async def _check_graph_token(account: SocialAccount) -> bool:
+    """Return True if the account's Business Login OAuth token is valid.
+
+    ``business_login`` accounts publish via graph.instagram.com with their
+    OAuth access token — the private-API sidecar session is only a fallback,
+    so probing the sidecar would wrongly flag a healthy account as expired.
+    A cheap ``/me`` read is enough to prove the token works.
+    """
+    try:
+        token = decrypt_token(account.access_token_enc)
+    except Exception:
+        return False
+    if not token:
+        return False
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://graph.instagram.com/v26.0/me",
+                params={"fields": "id", "access_token": token},
+            )
+            return resp.status_code == 200
+    except Exception as exc:
+        logger.warning("IG Graph token check failed for @%s: %s", account.username, exc)
+        return False
+
+
+async def _send_alert(owner: User, account_username: str, reason: str) -> None:
+    """Send an alert email about an expired Instagram session. Cooldown 24h."""
+    try:
+        from app.models.email_log import EmailLog
+
+        # Check cooldown — skip if we already alerted in the last 24h.
+        async with task_session() as db:
+            from datetime import timedelta
+
+            cutoff = datetime.now(UTC) - timedelta(hours=_ALERT_COOLDOWN_HOURS)
+            from sqlalchemy import func
+
+            recent = await db.execute(
+                select(func.count(EmailLog.id)).where(
+                    EmailLog.recipient == owner.email,
+                    EmailLog.template == "instagram_session_alert",
+                    EmailLog.created_at >= cutoff,
+                )
+            )
+            if recent.scalar_one() > 0:
+                logger.info("Skipping IG alert for %s — within cooldown", owner.email)
+                return
+
+        # Slack alert (best-effort; uses same cooldown gating as email).
+        alert_text = "\n".join(
+            [
+                "*Instagram needs you to reconnect*",
+                f"• Account: `@{account_username}`",
+                "• What to do next: go to Settings → Accounts and re-connect Instagram.",
+                f"• What happened: {(reason or '').replace(chr(10), ' ').strip()[:300] or 'Session check failed'}",
+                "_Cloudless · Clear skies. Zero friction._",
+            ]
+        )[:2000]
+        await post_alert_to_slack(
+            alert_text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}]
+            + session_heal_buttons(),
+        )
+
+        from app.services.email_templates import send_instagram_session_alert_email
+
+        await send_instagram_session_alert_email(
+            owner_email=owner.email,
+            owner_name=owner.name or "",
+            account_username=account_username,
+            reason=reason,
+        )
+    except Exception:
+        logger.debug("IG alert email failed (non-fatal)", exc_info=True)
+
+
+async def _run_check() -> dict:
+    """Check all Instagram sessions and return a summary."""
+    settings = get_settings()
+    sidecar_url = settings.INSTAGRAM_PRIVATE_API_URL
+    summary = {"checked": 0, "healthy": 0, "expired": 0, "sidecar_up": False}
+
+    summary["sidecar_up"] = await _check_sidecar_health(sidecar_url)
+    if not summary["sidecar_up"]:
+        logger.error("Instagram sidecar at %s is not responding", sidecar_url)
+
+    async with _worker_db() as db:
+        result = await db.execute(
+            select(SocialAccount).where(SocialAccount.platform == "instagram")
+        )
+        accounts = result.scalars().all()
+
+        for account in accounts:
+            meta = account.meta_data or {}
+            session_id_enc = meta.get("private_api_session_id")
+            session_id = (decrypt_field(session_id_enc) or "") if session_id_enc else ""
+
+            healthy: bool | None = None
+            if meta.get("login_type") == "business_login":
+                # Primary path is the Graph API OAuth token — check it first,
+                # then fall back to the sidecar session if one is stored.
+                healthy = await _check_graph_token(account)
+                if not healthy and session_id:
+                    healthy = await _check_sidecar_session(session_id, sidecar_url)
+            elif session_id:
+                healthy = await _check_sidecar_session(session_id, sidecar_url)
+            if healthy is None:
+                continue
+
+            summary["checked"] += 1
+            if healthy:
+                summary["healthy"] += 1
+                if account.status == "expired":
+                    account.status = "active"
+                    await db.commit()
+                logger.info("IG session for @%s is healthy", account.username)
+            else:
+                summary["expired"] += 1
+                if account.status != "expired":
+                    account.status = "expired"
+                    await db.commit()
+                logger.warning("IG session for @%s is expired", account.username)
+
+                # Alert the team owner.
+                owner_result = await db.execute(
+                    select(User).join(Team, Team.owner_id == User.id).where(Team.id == account.team_id)
+                )
+                owner = owner_result.scalar_one_or_none()
+                if owner is not None:
+                    if meta.get("login_type") == "business_login":
+                        reason = "OAuth token rejected by Instagram Graph API"
+                    else:
+                        reason = "sidecar unreachable" if not summary["sidecar_up"] else "session rejected"
+                    await _send_alert(owner, account.username or "unknown", reason)
+
+    logger.info("Instagram session check complete: %s", summary)
+    return summary
+
+
+@shared_task(name="app.worker.tasks.instagram_session_check.check_instagram_sessions")
+def check_instagram_sessions() -> dict:
+    """Periodic task — check all Instagram sidecar sessions (every 6h)."""
+    return run_async(_run_check())

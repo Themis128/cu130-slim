@@ -1,0 +1,23 @@
+# QLoRA trainer on the cu130-slim ComfyUI image (torch 2.6 + cu118 + CUDA
+# libs already installed; avoids a multi-GB pytorch base pull).
+FROM ghcr.io/themis128/cu130-slim:comfyui-latest
+
+# llama.cpp build deps for the merge->GGUF step (unsloth shells out to
+# llama-quantize; without these it prompts interactively and EOFs).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake libcurl4-openssl-dev git \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir \
+    "torch==2.6.0" "torchvision==0.21.0" "triton==3.2.0" \
+    "unsloth[cu118-torch260]==2025.10.9" \
+    "unsloth_zoo==2025.10.10" \
+    "trl==0.21.0" \
+    "datasets==3.6.0" \
+    "bitsandbytes==0.47.0" \
+    "accelerate==1.10.1" \
+ && pip uninstall -y torchao \
+ && python3 -c "from transformers import PreTrainedModel; from trl import SFTConfig, SFTTrainer; print('trainer imports OK')"
+
+WORKDIR /work
+ENTRYPOINT ["python3", "scripts/train_lora.py"]

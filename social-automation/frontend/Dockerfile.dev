@@ -1,0 +1,32 @@
+FROM node:22-alpine
+
+WORKDIR /app
+
+RUN apk update && apk upgrade --available
+
+# Install deps from package.json only — source is volume-mounted at runtime.
+# Include TypeScript + types (devDeps) so Next.js dev mode doesn't try to
+# auto-install them at runtime (npm is removed below).
+COPY package*.json ./
+RUN npm ci --legacy-peer-deps --omit=dev && \
+    npm install --legacy-peer-deps --no-save \
+        typescript@^5.3.3 @types/react@^18.2.43 @types/node@^20.10.0
+
+# Copy the custom server (WebSocket proxy for noVNC) into the image.
+# This is baked in rather than volume-mounted so it's always available
+# even if the volume mount fails or is delayed.
+COPY novnc-server.cjs ./novnc-server.cjs
+
+# Remove bundled npm/corepack; they are not needed at runtime and carry
+# CVE-heavy packages such as tar and sigstore.
+RUN rm -rf /usr/local/lib/node_modules/npm \
+           /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm \
+           /usr/local/bin/npx \
+           /usr/local/bin/corepack
+
+EXPOSE 8083
+
+# Custom server: proxies noVNC WebSocket upgrades to browser-novnc:6080
+# (Next.js rewrites don't support WS upgrades — see issue #23147).
+CMD ["node", "novnc-server.cjs"]

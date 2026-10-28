@@ -1,0 +1,17 @@
+# Auth proxy in front of Tempo OTLP/HTTP (port 4319 -> tempo:4318).
+# Only accepts requests carrying the shared X-OTLP-Token header — the
+# Cloudflare OTLP destination sends it on every export batch.
+# Copy to tempo-proxy.conf and replace <OTLP_TOKEN> with the live token
+# (kept in ~/.cache/cf-ops/otlp-token.json — never commit it).
+server {
+    listen 4319;
+    location /v1/traces {
+        if ($http_x_otlp_token != "<OTLP_TOKEN>") {
+            return 403;
+        }
+        proxy_pass http://tempo:4318;
+        proxy_set_header Host $host;
+        client_max_body_size 20m;
+    }
+    location / { return 404; }
+}

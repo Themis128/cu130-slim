@@ -1,0 +1,447 @@
+export interface User {
+  id: string
+  email: string
+  name: string | null
+  avatar_url: string | null
+  timezone: string
+  two_factor_enabled: boolean
+  onboarding_completed?: boolean
+  created_at: string
+}
+
+export interface Team {
+  id: string
+  name: string
+  owner_id: string
+  created_at: string
+  updated_at: string
+}
+
+export interface TeamMember {
+  id: string
+  team_id: string
+  user_id: string
+  role: 'owner' | 'admin' | 'editor' | 'viewer'
+  created_at: string
+}
+
+export interface SocialAccount {
+  id: string
+  team_id: string
+  platform: 'linkedin' | 'twitter' | 'instagram' | 'facebook' | 'threads' | 'tiktok' | 'messenger' | 'whatsapp' | 'telegram'
+  account_id: string
+  username: string | null
+  display_name: string | null
+  avatar_url: string | null
+  status: 'active' | 'expired' | 'error' | 'disconnected'
+  scopes: string[]
+  token_expires_at: string | null
+  last_sync_at: string | null
+  error_message: string | null
+  created_at: string
+  updated_at: string
+  account_type: 'person' | 'organization' | 'page' | 'business' | 'creator' | 'user' | string
+  is_business: boolean
+  parent_account_id: string | null
+  meta_data?: Record<string, unknown>
+}
+
+export interface Post {
+  id: string
+  team_id: string
+  user_id: string | null
+  status: 'draft' | 'review' | 'approved' | 'scheduled' | 'publishing' | 'published' | 'failed' | 'archived'
+  content_text: string | null
+  media_ids: string[]
+  platform_specific: Record<string, unknown>
+  hashtags: string[]
+  mention_accounts: string[]
+  link_url: string | null
+  link_preview_override: Record<string, unknown> | null
+  scheduled_at: string | null
+  published_at: string | null
+  failed_at: string | null
+  failure_reason: string | null
+  workflow_id: string | null
+  workflow_run_id: string | null
+  metadata: Record<string, unknown>
+  pillar_id?: string | null
+  content_brief_id?: string | null
+  comments?: Array<{ id: string; author_name: string; body: string; action?: string; created_at: string }>
+  created_at: string
+  updated_at: string
+  targets?: PostTarget[]
+}
+
+export interface PostTarget {
+  post_id: string
+  social_account_id: string
+  platform?: string
+  username?: string
+  platform_post_id: string | null
+  platform_url: string | null
+  status: 'pending' | 'published' | 'failed' | 'skipped'
+  error_message: string | null
+  published_at: string | null
+  social_account?: SocialAccount
+}
+
+export interface MediaAsset {
+  id: string
+  team_id: string
+  user_id: string | null
+  collection_id: string | null
+  filename: string | null
+  mime_type: string | null
+  size_bytes: number | null
+  storage_path: string
+  width: number | null
+  height: number | null
+  duration_seconds: number | null
+  alt_text: string | null
+  tags: string[]
+  ai_caption: string | null
+  source: 'upload' | 'comfyui' | 'url' | 'ai-generated' | 'ai-logo' | 'ai-favicon' | 'n8n-cf-pipe'
+  generation_prompt: string | null
+  comfyui_workflow_json: Record<string, unknown> | null
+  created_at: string
+}
+
+export interface PromptTemplate {
+  id: string
+  team_id: string
+  user_id: string | null
+  name: string
+  description: string | null
+  prompt_template: string
+  n8n_workflow_json: Record<string, unknown>
+  category: string | null
+  tags: string[]
+  is_public: boolean
+  usage_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface GeneratedWorkflow {
+  id: string
+  team_id: string
+  user_id: string | null
+  template_id: string | null
+  prompt_text: string
+  n8n_workflow_json: Record<string, unknown>
+  variables_used: Record<string, unknown>
+  status: 'draft' | 'deployed' | 'active' | 'archived'
+  n8n_workflow_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PublishQueueItem {
+  id: string
+  team_id: string
+  post_id: string
+  social_account_id: string
+  status: 'pending' | 'processing' | 'completed' | 'failed' | 'retrying'
+  attempt: number
+  max_attempts: number
+  scheduled_at: string
+  started_at: string | null
+  completed_at: string | null
+  error_message: string | null
+  response_data: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AnalyticsEvent {
+  id: string
+  team_id: string
+  post_id: string | null
+  social_account_id: string | null
+  event_type: 'impression' | 'click' | 'like' | 'comment' | 'share' | 'reach' | 'engagement' | 'follower_change'
+  platform: string
+  platform_event_id: string | null
+  value: number
+  metadata: Record<string, unknown>
+  occurred_at: string
+  created_at: string
+}
+
+export interface OverviewMetrics {
+  total_posts: number
+  published_posts: number
+  scheduled_posts: number
+  draft_posts: number
+  failed_posts: number
+  connected_accounts: number
+  total_followers: number
+  total_engagement: number
+  total_impressions: number
+  last_sync_at?: string | null
+}
+
+export interface PlatformMetrics {
+  platform: string
+  posts_count: number
+  published_count: number
+  scheduled_count: number
+  total_impressions: number
+  total_engagement: number
+  /** Ratio 0–1 from API — null when the platform reports no impressions/reach denominator */
+  engagement_rate: number | null
+}
+
+/** Live publishing pipeline from GET /analytics/pipeline */
+export interface PublishPipeline {
+  queue: {
+    pending: number
+    processing: number
+    stuck_processing: number
+    published_period: number
+    failed_period: number
+  }
+  platforms: Array<{
+    platform: string
+    published: number
+    failed: number
+    pending: number
+    success_rate: number | null
+    last_published_at: string | null
+    last_error: string | null
+  }>
+  daily: Array<{ date: string; platform: string; published: number }>
+  accounts: Array<{
+    platform: string
+    username: string | null
+    status: string
+    token_expires_at: string | null
+  }>
+  upcoming: Array<{
+    post_id: string
+    content_preview: string
+    scheduled_at: string | null
+    platforms: string[]
+  }>
+}
+
+/** Top posts from GET /analytics/top-posts */
+export interface TopPost {
+  post_id: string
+  content_text: string | null
+  platform: string
+  impressions: number
+  engagement: number
+  engagement_rate: number
+  published_at: string | null
+  /** Public platform URL when the snapshot has no editable Post row */
+  external_url?: string | null
+}
+
+/** Daily engagement from GET /analytics/engagement */
+export interface EngagementPoint {
+  date: string
+  impressions: number
+  likes: number
+  comments: number
+  shares: number
+  clicks: number
+  total: number
+}
+
+/** Per-target metrics from GET /analytics/posts/{id}/metrics */
+export interface PostAnalytics {
+  post_id: string
+  platform: string
+  impressions: number
+  clicks: number
+  likes: number
+  comments: number
+  shares: number
+  engagement_rate: number
+}
+
+/** Bot reply analytics from GET /analytics/bots/summary */
+export interface BotAnalyticsSummary {
+  total_replies: number
+  successful_replies: number
+  failed_replies: number
+  guardrail_triggers: number
+  pricing_guardrail_triggers: number
+  greek_replies: number
+  english_replies: number
+  avg_latency_ms: number | null
+  by_provider: Array<{ provider: string; replies: number; errors: number }>
+  by_account: Array<{ account_id: string; replies: number; errors: number }>
+  by_day: Array<{ date: string; replies: number; errors: number; guardrails: number }>
+}
+
+/** Cloudflare Workers AI usage from GET /analytics/bots/cloudflare-ai */
+export interface CloudflareAIUsage {
+  total_requests: number
+  total_neurons: number
+  total_errors: number
+  free_tier_limit: number
+  free_tier_remaining: number
+  by_model: Array<{ model: string; requests: number; neurons: number; errors: number }>
+  by_day: Array<{ date: string; requests: number; neurons: number }>
+}
+
+/** Combined Cloudflare overview from GET /analytics/bots/cloudflare-overview */
+export interface CloudflareOverview {
+  workers_ai: {
+    total_requests: number
+    total_neurons: number
+    free_tier_limit: number
+    free_tier_remaining: number
+    by_model: Array<{ model: string; requests: number; neurons: number; errors: number }>
+    by_day: Array<{ date: string; requests: number; neurons: number }>
+  }
+  workers: {
+    total_requests: number
+    total_errors: number
+    by_script: Array<{ script: string; requests: number; errors: number; cpu_time_p50: number; cpu_time_p99: number }>
+  }
+  r2: {
+    total_operations: number
+    total_storage_bytes: number
+    by_bucket: Array<{ bucket: string; operations: number; storage_bytes: number }>
+    by_action: Array<{ action: string; requests: number }>
+  }
+  d1: {
+    total_queries: number
+    by_database: Array<{ database: string; queries: number }>
+  }
+  kv: {
+    total_operations: number
+    by_action: Array<{ action: string; requests: number }>
+  }
+  vectorize: {
+    total_queries: number
+    by_index: Array<{ index: string; queries: number }>
+  }
+  ai_gateway: {
+    total_requests: number
+    by_gateway: Array<{
+      gateway: string
+      requests: number
+      models: Array<{ model: string; requests: number }>
+      cached_tokens: number
+      uncached_tokens: number
+    }>
+    by_provider: Array<{ provider: string; requests: number }>
+  }
+}
+
+export interface AuthState {
+  user: User | null
+  access_token: string | null
+  refresh_token: string | null
+  isAuthenticated: boolean
+  isLoading: boolean
+}
+
+export interface LoginCredentials {
+  email: string
+  password: string
+  otp?: string
+}
+
+export interface RegisterData {
+  email: string
+  password: string
+  name: string
+  discount_code?: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  refresh_token: string
+  token_type: string
+}
+
+export interface ApiError {
+  detail: string | Array<{
+    loc: (string | number)[]
+    msg: string
+    type: string
+  }>
+}
+// Unified inbox
+export interface UnifiedConversation {
+  platform: string // messenger | personal_messenger | instagram | whatsapp
+  account_id: string
+  account_name: string
+  thread_id: string | null
+  sender_name: string
+  preview: string
+  unread: boolean
+  timestamp: string | null
+  url: string | null
+  e2ee: boolean
+}
+
+export interface UnifiedInboxResponse {
+  conversations: UnifiedConversation[]
+  total: number
+  by_platform: Record<string, number>
+}
+
+/** Ad campaign metrics — GET /analytics/ad-campaigns (LinkedIn Campaign Manager scrape) */
+export interface AdCampaignPoint {
+  captured_at: string
+  spend_eur: number
+  impressions: number
+  clicks: number
+  engagements: number
+  ctr: number
+  cpc_eur: number
+  engagement_rate: number
+}
+
+export interface AdCampaignLatest extends AdCampaignPoint {
+  budget_eur: number
+}
+
+export interface AdCampaign {
+  campaign_id: string
+  campaign_name: string
+  platform: string
+  status: string
+  latest: AdCampaignLatest | null
+  series: AdCampaignPoint[]
+}
+
+export interface AdCampaignsResponse {
+  campaigns: AdCampaign[]
+  totals: {
+    campaigns: number
+    spend_eur: number
+    impressions: number
+    clicks: number
+    engagements: number
+    ctr: number
+    cpc_eur: number
+  }
+}
+
+export interface GrowthInitiative {
+  event_type: string
+  initiative: string
+  platform: string
+  social_account_id: string | null
+  events: number
+  units: number
+  units_this_month: number
+  first_at: string | null
+  last_at: string | null
+  followers_start: number | null
+  followers_now: number | null
+  followers_delta: number | null
+  conversion_pct: number | null
+  accepted_est: number | null
+  declined: number
+  pending_est: number | null
+  monthly_cap: number
+  credits_left: number | null
+}

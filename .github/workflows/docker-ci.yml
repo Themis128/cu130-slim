@@ -1,0 +1,188 @@
+name: Docker CI
+# Secondary GHCR build path. Prefer .github/workflows/build-and-push.yml.
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'Dockerfile'
+      - '**/Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/docker-ci.yml'
+      - '.github/test.env'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'Dockerfile'
+      - '**/Dockerfile*'
+      - 'docker-compose*.yml'
+      - '.github/workflows/docker-ci.yml'
+      - '.github/test.env'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: comfyui
+            context: .
+            dockerfile: Dockerfile
+          - name: env-manager-backend
+            context: env-manager/backend
+            dockerfile: env-manager/backend/Dockerfile
+          - name: env-manager-frontend
+            context: env-manager/frontend
+            dockerfile: env-manager/frontend/Dockerfile
+          - name: social-api
+            context: social-automation/backend
+            dockerfile: social-automation/backend/Dockerfile
+            target: api
+            build_contexts: browser=browser-novnc
+          - name: social-worker-publishing
+            context: social-automation/backend
+            dockerfile: social-automation/backend/Dockerfile
+            target: worker
+            build_contexts: browser=browser-novnc
+          - name: social-frontend
+            context: social-automation/frontend
+            dockerfile: social-automation/frontend/Dockerfile
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Free up disk space
+        if: matrix.service.name == 'comfyui'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
+            /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
+            /usr/local/.ghcup /opt/az /usr/lib/jvm /opt/microsoft 2>/dev/null || true
+          docker system prune -af
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        if: |
+          github.event_name == 'push' &&
+          (
+            github.ref == 'refs/heads/master' ||
+            startsWith(github.ref, 'refs/tags/v')
+          )
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute version tag
+        id: version
+        run: echo "tag=v2.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve GHCR namespace
+        id: hub
+        run: |
+          # GHCR requires lowercase owner names.
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "user=ghcr.io/${OWNER}" >> "$GITHUB_OUTPUT"
+          echo "Using GHCR namespace: ghcr.io/${OWNER}"
+
+      - name: Extract metadata for ${{ matrix.service.name }}
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.hub.outputs.user }}/cu130-slim
+          tags: |
+            type=raw,value=${{ matrix.service.name }}-latest,enable={{is_default_branch}}
+            type=raw,value=${{ matrix.service.name }}-${{ steps.version.outputs.tag }},enable={{is_default_branch}}
+            type=raw,value=${{ matrix.service.name }}-{{sha}}
+            type=ref,event=branch,prefix=${{ matrix.service.name }}-
+            type=ref,event=pr,prefix=${{ matrix.service.name }}-
+            # The worker stage is shared: the publishing build also backs the
+            # social-worker-* tags used by social-worker-default/media/messenger
+            # and celery-beat (mirrors build-and-push.yml).
+            type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-worker-${{ steps.version.outputs.tag }},enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-worker-{{sha}},enable=${{ matrix.service.name == 'social-worker-publishing' }}
+
+      - name: Build and push ${{ matrix.service.name }}
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.service.context }}
+          file: ${{ matrix.service.dockerfile }}
+          target: ${{ matrix.service.target || '' }}
+          build-contexts: ${{ matrix.service.build_contexts || '' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: |
+            type=docker,dest=/tmp/image.tar,compression=zstd,compression-level=3,force-compression=true
+            ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) && 'type=image,push=true,compression=zstd,compression-level=3' || '' }}
+
+      - name: Resolve primary image tag
+        id: image
+        if: github.event_name == 'push'
+        env:
+          META_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          TAG="$(printf '%s\n' "$META_TAGS" | head -n1)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Report high vulnerabilities for ${{ matrix.service.name }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          input: /tmp/image.tar
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'HIGH'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Scan ${{ matrix.service.name }} for critical vulnerabilities
+        if: matrix.service.name != 'comfyui'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          input: /tmp/image.tar
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          severity: 'CRITICAL'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Scan comfyui for critical vulnerabilities (non-blocking)
+        if: matrix.service.name == 'comfyui'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          input: /tmp/image.tar
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL'
+          scanners: 'vuln'
+          timeout: '900s'

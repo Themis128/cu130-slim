@@ -1,0 +1,608 @@
+"""Celery task — Instagram DM chatbot via Instagram Messaging API.
+
+Instagram uses the same Messenger Platform API as Facebook Pages for DMs.
+Requires the `instagram_business_manage_messages` permission and a
+connected Instagram Business/Creator account with an access token.
+
+For personal Instagram accounts without API access, this task gracefully
+skips (no token = no API calls).
+
+Flow:
+    1. Find Instagram accounts with auto-reply enabled
+    2. For each account with an access token:
+       a. Fetch recent conversations via InstagramAPIClient
+       b. For each conversation with new messages:
+          - Read messages
+          - Find last inbound message
+          - Check if already replied (seen tracking)
+          - Check per-conversation cooldown (Redis)
+          - Generate AI reply (Cloudflare Workers AI)
+          - Send reply via API
+          - Mark as seen + set cooldown
+    3. For accounts without a token: skip gracefully (log info)
+
+State tracking:
+    ``meta_data.instagram_auto_reply`` stores bot config
+    ``meta_data.instagram_messenger_seen`` stores {conversation_id: last_text}
+
+The task runs every 3 minutes via Celery beat.
+"""
+import asyncio
+import logging
+import re
+from datetime import UTC, datetime
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.security import decrypt_token
+from app.models.social_account import SocialAccount
+from app.services.browser_bridge import BrowserBridgeClient
+from app.services.browser_orchestrator import browser_session
+from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
+from app.services.messenger_chatbot import (
+    IG_APP_LIMIT_BACKOFF_SECONDS,
+    check_cooldown,
+    detect_intent,
+    generate_contextual_reply,
+    is_frustrated_message,
+    is_instagram_app_rate_limited,
+    is_thread_paused,
+    pause_thread,
+    retrieve_brand_context,
+    set_cooldown,
+    set_instagram_app_rate_limited,
+    store_message_memory,
+)
+from app.worker._async import run_async, task_session
+from app.worker.celery_app import celery_app
+
+celery_app.set_default()
+celery_app.set_current()
+
+# Meta rate-limit codes: 4 = app-level limit, 32 = page-level limit,
+# 613 = custom limit (calls too high). IG messaging adds subcode 1349210.
+_IG_RATE_LIMIT_CODE = re.compile(r'"code"\s*:\s*(4|32|613)\b|"error_subcode"\s*:\s*1349210')
+
+
+def _is_app_rate_limit(exc: InstagramAPIError) -> bool:
+    """True when Meta signals an app/page-level rate limit (not a hard auth error)."""
+    text = exc.response_text or ""
+    return exc.status_code in (400, 403, 429) and (
+        "request limit reached" in text.lower() or bool(_IG_RATE_LIMIT_CODE.search(text))
+    )
+
+logger = logging.getLogger(__name__)
+
+
+_worker_db = task_session
+
+
+def _run_async(coro):
+    """Run an async coroutine in a sync Celery context."""
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import threading
+
+            result = {}
+            def _runner():
+                new_loop = asyncio.new_event_loop()
+                try:
+                    result["value"] = new_loop.run_until_complete(coro)
+                except Exception as exc:
+                    result["error"] = exc
+                finally:
+                    new_loop.close()
+            t = threading.Thread(target=_runner)
+            t.start()
+            t.join()
+            if "error" in result:
+                raise result["error"]
+            return result.get("value")
+    except RuntimeError:
+        pass
+    return run_async(coro)
+
+
+@celery_app.task(name="app.worker.tasks.instagram_messenger.poll_instagram_messenger")
+def poll_instagram_messenger() -> dict:
+    """Poll Instagram DM conversations and send AI auto-replies."""
+    return _run_async(_poll_instagram_messenger_async())
+
+
+async def _poll_instagram_messenger_async() -> dict:
+    """Async implementation of the Instagram DM poller."""
+    stats = {"accounts_checked": 0, "replies_sent": 0, "errors": 0, "skipped_no_token": 0}
+    settings = get_settings()
+
+    cf_token = getattr(settings, "CLOUDFLARE_API_TOKEN", "")
+    cf_account = getattr(settings, "CLOUDFLARE_ACCOUNT_ID", "")
+    dmr_url = getattr(settings, "DMR_BASE_URL", "http://host.docker.internal:12435")
+
+    async with _worker_db() as db:
+        result = await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.platform == "instagram",
+                SocialAccount.status == "active",
+            )
+        )
+        accounts = result.scalars().all()
+
+        for account in accounts:
+            meta = account.meta_data or {}
+            auto_reply = meta.get("instagram_auto_reply", {})
+            if not auto_reply.get("enabled", False):
+                continue
+
+            # Check for access token — Instagram DMs require API access
+            if not account.access_token_enc:
+                stats["skipped_no_token"] += 1
+                logger.info(
+                    "Instagram DM: account %s (%s) has no access token — "
+                    "connect via OAuth with instagram_business_manage_messages scope. Skipping.",
+                    account.id, account.display_name,
+                )
+                continue
+
+            stats["accounts_checked"] += 1
+            seen = meta.get("instagram_messenger_seen", {})
+
+            try:
+                replies = await _process_account(
+                    db, account, auto_reply, seen,
+                    cf_token, cf_account, dmr_url,
+                )
+                stats["replies_sent"] += replies
+
+                meta["instagram_messenger_seen"] = seen
+                meta["instagram_messenger_last_checked"] = datetime.now(UTC).isoformat()
+                account.meta_data = meta
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(account, "meta_data")
+                await db.commit()
+            except Exception as exc:
+                stats["errors"] += 1
+                logger.error(
+                    "Instagram DM poll failed for account %s: %s",
+                    account.id, exc, exc_info=True,
+                )
+
+    logger.info("Instagram DM poll complete: %s", stats)
+    return stats
+
+
+async def _notify_human_handoff(
+    account: SocialAccount,
+    convo_name: str,
+    thread_id: str,
+    inbound_text: str,
+) -> None:
+    """Slack alert when the bot pauses a thread for human takeover."""
+    settings = get_settings()
+    try:
+        from app.services.slack_notifications import _post_slack_text
+
+        webhook = (
+            (getattr(settings, "SLACK_LEADS_WEBHOOK_URL", "") or "").strip()
+            or (settings.SLACK_WEBHOOK_URL or "").strip()
+        )
+        token = (settings.SLACK_BOT_TOKEN or "").strip() or (settings.SLACK_ACCESS_TOKEN or "").strip()
+        channel = (
+            (getattr(settings, "SLACK_LEADS_CHANNEL_ID", "") or "").strip()
+            or (settings.SLACK_CHANNEL_ID or "").strip()
+        )
+        if not webhook and not (token and channel):
+            return
+        text = (
+            "*IG DM needs a human* :rotating_light:\n"
+            f"- Account: `{account.display_name or account.id}`\n"
+            f"- From: `{convo_name}` (thread `{thread_id[:24]}…`)\n"
+            f"- Message: {inbound_text[:300]}\n"
+            "- Bot is paused on this thread until resumed."
+        )
+        await _post_slack_text(
+            text=text,
+            webhook_url=webhook,
+            token=token,
+            channel_id=channel,
+            purpose="dm-handoff",
+        )
+    except Exception:
+        logger.debug("DM handoff Slack notify failed (non-fatal)", exc_info=True)
+
+    try:
+        if not (settings.DIGEST_EMAIL_TO or "").strip():
+            return
+        from app.services.email_digest import send_email
+
+        await send_email(
+            subject=f"[SocialAuto] IG DM needs a human: {convo_name}",
+            text_body=(
+                "The Instagram bot paused a thread for human takeover.\n\n"
+                f"Account: {account.display_name or account.id}\n"
+                f"From: {convo_name} (thread {thread_id[:24]}…)\n"
+                f"Message: {inbound_text[:300]}\n\n"
+                "Resume the bot from the SocialAuto admin inbox when done."
+            ),
+        )
+    except Exception:
+        logger.debug("DM handoff email notify failed (non-fatal)", exc_info=True)
+
+
+async def _process_account(
+    db: AsyncSession,
+    account: SocialAccount,
+    config: dict,
+    seen: dict,
+    cf_token: str,
+    cf_account: str,
+    dmr_url: str,
+) -> int:
+    """Process a single Instagram account — poll DMs and reply.
+
+    Uses InstagramAPIClient (Instagram Messaging API / Graph API v23.0).
+    """
+    meta = account.meta_data or {}
+    ig_user_id = account.account_id or ""
+    replies_sent = 0
+    account_name = account.display_name or account.username or "us"
+
+    # Try Graph API first (business/creator accounts with App Review).
+    # Skip entirely while the app-level rate-limit breaker is open — probing
+    # again just keeps the Meta bucket saturated.
+    client = None
+    graph_igsid = ""
+    if await is_instagram_app_rate_limited():
+        logger.info(
+            "Instagram DM: app-level rate limit active — browser bridge only for %s",
+            account.id,
+        )
+    else:
+        try:
+            token = decrypt_token(account.access_token_enc)
+            graph_client = InstagramAPIClient(
+                access_token=token,
+                ig_user_id=ig_user_id,
+                use_business_login_api=meta.get("login_type") == "business_login",
+            )
+            # Probe with a 1-conversation fetch to detect capability errors
+            await graph_client.get_conversations(limit=1)
+            client = graph_client
+            # Participants and message `from` ids are IGSIDs, not the app-scoped
+            # account_id — resolve ours so outbound detection works.
+            try:
+                me = await graph_client.get_me()
+                graph_igsid = str(me.get("user_id") or "")
+            except Exception:
+                pass
+        except Exception as exc:
+            if isinstance(exc, InstagramAPIError) and _is_app_rate_limit(exc):
+                await set_instagram_app_rate_limited()
+                logger.warning(
+                    "Instagram DM: app-level rate limit hit for %s — "
+                    "backing off Graph API for %ds",
+                    account.id, IG_APP_LIMIT_BACKOFF_SECONDS,
+                )
+            else:
+                logger.info(
+                    "Instagram Graph API unavailable for %s: %s — trying web API fallback",
+                    account.id, exc,
+                )
+            client = None
+
+    # Fall back to browser bridge (uses logged-in Instagram web session)
+    bridge = None
+    if client is None:
+        settings = get_settings()
+        bridge_url = getattr(settings, "BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
+        bridge = BrowserBridgeClient(base_url=bridge_url, platform='instagram')
+        try:
+            await bridge.ensure_session("instagram")
+            logger.info("Instagram DM: using browser bridge fallback for %s", account.id)
+        except Exception as exc:
+            logger.warning(
+                "Instagram DM: browser bridge unavailable for %s: %s. "
+                "Login via noVNC (http://localhost:6080) to enable DM bot.",
+                account.id, exc,
+            )
+            return 0
+
+    # 1. Fetch conversations
+    try:
+        if client is not None:
+            convos_result = await client.get_conversations(limit=25)
+        elif bridge is not None:
+            # Use orchestrator for exclusive browser access
+            async with browser_session("instagram", bridge) as b:
+                bridge_result = await b.get_instagram_dm_conversations()
+            if "error" in bridge_result:
+                logger.warning("Instagram DM browser bridge error: %s", bridge_result["error"])
+                return 0
+            convos_result = {"data": [
+                {
+                    "id": c.get("id", ""),
+                    "participants": {
+                        "data": [
+                            {"id": c.get("participant_id", ""), "name": c.get("name", "Unknown")}
+                        ]
+                    },
+                }
+                for c in bridge_result.get("conversations", [])
+            ]}
+        else:  # pragma: no cover — client is None only when bridge is set or we returned above
+            return 0
+    except InstagramAPIError as exc:
+        if _is_app_rate_limit(exc):
+            await set_instagram_app_rate_limited()
+            logger.warning(
+                "Instagram DM: app-level rate limit hit for %s — "
+                "backing off Graph API for %ds",
+                account.id, IG_APP_LIMIT_BACKOFF_SECONDS,
+            )
+        else:
+            logger.warning("Instagram DM API error for account %s: %s", account.id, exc)
+        return 0
+    except Exception as exc:
+        logger.warning("Instagram DM fetch failed for account %s: %s", account.id, exc)
+        return 0
+
+    conversations = convos_result.get("data", [])
+    if not conversations:
+        return 0
+
+    for convo in conversations[:20]:
+        convo_id = convo.get("id", "")
+        if not convo_id:
+            continue
+
+        # Get participant info — pick the participant that isn't us.
+        # Graph returns `username` (not `name`) and `id` is the IGSID.
+        my_ids = {str(i) for i in (graph_igsid, ig_user_id, meta.get("private_api_ds_user_id")) if i}
+        participants = convo.get("participants", {}).get("data", [])
+        others = [p for p in participants if str(p.get("id", "")) not in my_ids]
+        other = others[0] if others else (participants[0] if participants else {})
+        convo_name = other.get("username") or other.get("name") or "Unknown"
+        recipient_id = str(other.get("id") or "")
+
+        if not recipient_id:
+            continue
+
+        try:
+            # 2. Read messages in this conversation.
+            # Graph's conversations list already embeds the latest message —
+            # skip the per-conversation fetch (app-level rate limit is shared
+            # and tight) when it shows nothing new inbound: latest message is
+            # ours, or its text matches the last one we processed.
+            if client is not None:
+                embedded = convo.get("messages", {}).get("data", [])
+                latest = embedded[0] if embedded else {}
+                latest_from = str(latest.get("from", {}).get("id", "")) if isinstance(latest.get("from"), dict) else ""
+                latest_text = (latest.get("message") or "").strip()
+                if not latest or latest_from in my_ids or latest_text == seen.get(str(convo_id), ""):
+                    continue
+                msgs_result = await client.get_dm_messages(convo_id, limit=20)
+                messages = msgs_result.get("data", [])
+                sender_key = "from"
+                sender_field = "id"
+                text_field = "message"
+            else:  # bridge is always set when client is None
+                async with browser_session("instagram", bridge) as b:
+                    bridge_msgs = await b.get_instagram_dm_messages(convo_id)
+                if "error" in bridge_msgs:
+                    continue
+                messages = bridge_msgs.get("messages", [])
+                sender_key = "is_sent_by_viewer"
+                sender_field = None
+                text_field = "text"
+
+            if not messages:
+                continue
+
+            # 3. Find ALL unread inbound messages (not from us)
+            seen_key = str(convo_id)
+            last_seen_text = seen.get(seen_key, "")
+
+            # Collect all inbound messages (not sent by viewer)
+            inbound_messages = []
+            for msg in reversed(messages):
+                if sender_field:
+                    sender = msg.get(sender_key, {})
+                    sender_id = sender.get(sender_field, "") if isinstance(sender, dict) else str(sender)
+                    is_outbound = str(sender_id) in my_ids
+                elif sender_key == "is_sent_by_viewer":
+                    is_outbound = bool(msg.get(sender_key, False))
+                else:  # pragma: no cover — sender_key is only ever "from" or "is_sent_by_viewer"
+                    sender_id = msg.get(sender_key, "")
+                    is_outbound = str(sender_id) in my_ids
+                if not is_outbound and msg.get(text_field):
+                    msg_text = (msg.get(text_field) or "").strip()
+                    if msg_text:
+                        inbound_messages.append(msg_text)
+
+            if not inbound_messages:
+                continue
+
+            # 5. Combine all unread inbound messages for context
+            # If there are multiple unread messages, combine them so the bot
+            # can address ALL the user's queries, not just the last one.
+            if len(inbound_messages) > 1:
+                text = "\n".join(inbound_messages)
+                logger.info(
+                    "Instagram DM: %d unread messages from '%s', combining for context",
+                    len(inbound_messages), convo_name,
+                )
+            else:
+                text = inbound_messages[0]
+
+            if not text:  # pragma: no cover — inbound_messages only holds non-empty stripped text
+                continue
+
+            # 4. Check if already replied — compare the combined text
+            # Compare against the full combined text, not just the latest message,
+            # to prevent duplicate replies when multiple messages are unread.
+            if last_seen_text == text:
+                continue
+
+            # 5. Check cooldown
+            cooldown_seconds = config.get("cooldown_seconds", 300)
+            if not await check_cooldown(account.id, seen_key, cooldown_seconds):
+                continue
+
+            # 6. Check human handoff
+            if await is_thread_paused(account.id, seen_key):
+                continue
+
+            # 6b. Frustrated message → pause the bot on this thread and
+            # alert a human on Slack. A bot answering an angry user makes
+            # things worse; silence + fast human response is correct.
+            if is_frustrated_message(text):
+                await pause_thread(account.id, seen_key, reason="negative_sentiment")
+                await _notify_human_handoff(account, convo_name, seen_key, text)
+                continue
+
+            # Lead capture (scaffold): intercept and run a simple qualification flow.
+            try:
+                from app.models.lead import LeadSource
+                from app.services.lead_capture import handle_lead_capture_message
+
+                lead_reply = await handle_lead_capture_message(
+                    db,
+                    team_id=account.team_id,
+                    source=LeadSource.instagram_dm,
+                    social_account_id=account.id,
+                    thread_id=seen_key,
+                    inbound_text=text,
+                    postback_payload="",
+                    meta_data={
+                        "instagram_conversation_id": convo_id,
+                        "instagram_recipient_id": recipient_id,
+                    },
+                )
+                if lead_reply:
+                    if client is not None:
+                        await client.send_dm(recipient_id, lead_reply.text)
+                    else:
+                        assert bridge is not None  # always set when client is None
+                        await bridge.send_instagram_dm_message(recipient_id, lead_reply.text)
+                    try:
+                        if client is not None:
+                            await client.mark_dm_read(convo_id, recipient_id=recipient_id)
+                    except Exception:
+                        pass
+
+                    await store_message_memory(account.team_id, account.id, seen_key, "them", text)
+                    await store_message_memory(account.team_id, account.id, seen_key, "me", lead_reply.text)
+                    seen[seen_key] = text
+                    await set_cooldown(account.id, seen_key, cooldown_seconds)
+                    replies_sent += 1
+                    await asyncio.sleep(2)
+                    continue
+            except Exception as exc:
+                logger.debug("Instagram lead capture handler failed (non-fatal): %s", exc)
+
+            # 7. Send typing indicator (feels more natural)
+            try:
+                if client is not None:
+                    await client.send_typing_indicator(recipient_id)
+            except Exception:
+                pass  # Non-fatal
+
+            # 8. Detect intent and retrieve brand context (RAG)
+            intent = await detect_intent(text, cf_token, cf_account, dmr_url)
+            brand_context = await retrieve_brand_context(text)
+
+            # 9. Generate AI reply
+            reply_text = await generate_contextual_reply(
+                config, text, account_name,
+                account.id, seen_key,
+                cf_token, cf_account, dmr_url,
+                intent=intent,
+                brand_context=brand_context, team_id=account.team_id,
+            )
+
+            if not reply_text:
+                reply_text = config.get("fallback_text", "Thanks for your message! I'll get back to you soon.")
+
+            # Guard: if the AI just echoed the user's message (8B model sometimes
+            # does this), use the fallback instead to avoid a confusing reply.
+            if reply_text.strip().lower() == text.strip().lower() or (
+                len(inbound_messages) == 1 and reply_text.strip().lower() == inbound_messages[0].strip().lower()
+            ):
+                logger.warning(
+                    "Instagram DM: AI echoed user message, using fallback. "
+                    "User: %r, AI: %r",
+                    text[:50], reply_text[:50],
+                )
+                reply_text = config.get("fallback_text", "Thanks for your message! I'm the Cloudless bot. How can I help you today?")
+
+            # 9. Send reply via Instagram Messaging API
+            send_ok = False
+            try:
+                if client is not None:
+                    await client.send_dm(recipient_id, reply_text)
+                    send_ok = True
+                else:
+                    async with browser_session("instagram", bridge) as b:
+                        send_result = await b.send_instagram_dm_message(recipient_id, reply_text)
+                    if isinstance(send_result, dict) and send_result.get("error"):
+                        logger.warning(
+                            "Instagram DM send failed for %s: %s",
+                            account.id, send_result["error"],
+                        )
+                    else:
+                        send_ok = True
+            except Exception as exc:
+                logger.warning("Instagram DM send failed for %s: %s", account.id, exc)
+
+            if not send_ok:
+                continue  # Don't mark as seen if send failed
+
+            # 10. Mark conversation as read
+            try:
+                if client is not None:
+                    await client.mark_dm_read(convo_id, recipient_id=recipient_id)
+            except Exception:
+                pass  # Non-fatal
+
+            # 11. Store in memory
+            await store_message_memory(
+                account.team_id, account.id, seen_key,
+                "them", text,
+            )
+            await store_message_memory(
+                account.team_id, account.id, seen_key,
+                "me", reply_text,
+            )
+
+            # 12. Mark seen + cooldown
+            seen[seen_key] = text
+            await set_cooldown(account.id, seen_key, cooldown_seconds)
+            replies_sent += 1
+            logger.info(
+                "Instagram auto-reply sent to '%s' (conversation %s) for account %s",
+                convo_name, convo_id, account.id,
+            )
+
+            await asyncio.sleep(3)
+
+        except InstagramAPIError as exc:
+            if _is_app_rate_limit(exc):
+                await set_instagram_app_rate_limited()
+                logger.warning(
+                    "Instagram app-level rate limit — backing off Graph API for %ds, "
+                    "stopping for account %s",
+                    IG_APP_LIMIT_BACKOFF_SECONDS, account.id,
+                )
+            else:
+                logger.warning("Instagram DM API error in conversation %s: %s", convo_id, exc)
+            if exc.status_code == 429 or _is_app_rate_limit(exc):
+                break
+        except Exception as exc:
+            logger.error(
+                "Error processing Instagram conversation %s: %s",
+                convo_id, exc, exc_info=True,
+            )
+
+    return replies_sent

@@ -1,0 +1,15 @@
+---
+description: Conventions for social-automation backend carousel / publishing code
+globs: social-automation/backend/app/**/*.{py}
+alwaysApply: false
+---
+
+# social-automation backend
+
+- CF carousel entrypoints: `run-carousel-and-publish`, `generate-carousel-pipeline`.
+- NLP: `app/services/plain_english.py` — force_fix for carousels.
+- Images: FLUX schnell uses `steps` only; prefer FLUX.2 klein-4b for enhance.
+- `MediaAsset.source` is `String(20)` — keep source labels short.
+- LinkedIn org posts: `_linkedin_author_urn` when `account_type == organization`.
+- After changing `publishing.py` or Celery tasks: remind to restart `social-worker`.
+- Follow skill `cloudless-carousel-pipeline` for pipeline changes.

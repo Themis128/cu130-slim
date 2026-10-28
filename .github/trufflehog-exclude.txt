@@ -1,0 +1,9 @@
+# Binary / model artifacts that confuse TruffleHog chunk readers and produce
+# unverified entropy hits without being real secrets.
+storage-models/.*
+.*\.pth$
+.*\.safetensors$
+.*\.ckpt$
+.*\.bin$
+.*\.onnx$
+.*\.pt$

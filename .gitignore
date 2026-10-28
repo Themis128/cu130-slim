@@ -1,0 +1,158 @@
+# Environment files
+.env
+.env.local
+.env.*.local
+# All .env variants (backups, env-specific) — keep example/template + CI fixture tracked
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+!.github/test.env
+
+# Secrets and credentials — never track
+.secrets/
+*.pem
+*.key
+*.credentials
+n8n-export/credentials.json
+
+# Devin local config / secrets
+.devin/mcp_config.local.json
+.devin/config.local.json
+
+# Backup / debug artifacts
+*.backup
+*.bak
+*.fixed*
+
+# Docker
+docker-compose.override.yml
+
+# Build outputs
+storage/
+ollama/cache/
+
+# ComfyUI runtime state
+ops/comfyui/storage/custom_nodes/ComfyUI-Replicate/
+
+# Node.js
+node_modules/
+dist/
+build/
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Metabase
+metabase-data/metabase.db.mv.db
+metabase-data/metabase.db.mv.db.trace.db
+
+# N8N runtime state (logs, generated encryption key, local db)
+n8n-data/*.sqlite*
+n8n-data/crash.journal
+n8n-data/n8nEventLog*.log
+n8n-data/config
+
+# Ollama models
+ollama/models/
+ollama/id_ed25519
+# Backup files
+*.backup*
+*.orig
+*.baseupdate
+
+# Local MCP configs
+cline_mcp_settings.json
+brave-search-mcp-server/
+
+# AI agent / tooling session state
+.mimosa/
+.playwright-mcp/
+
+# Runtime uploads
+social-automation/uploads/
+
+# Slack CLI local auth state (contains OAuth credentials)
+slack-apps/*/.slack/
+.playwright-data/
+
+# Local demo auth JWTs (never commit)
+.tiktok-demo-auth.json
+*.demo-auth.json
+
+# Local Diffusers model cache (downloaded HF weights, ~2GB)
+diffusers-server/models/
+
+# Meta App Review support artifacts (screenshots, screencasts, icons)
+meta-support-screenshots/
+screencast-frames/
+cloudless-screencast.mp4
+cloudless-app-icon.png
+actionlint
+.cursor/tmp-tiktok-pw/
+
+# User-generated media (runtime artifacts, not source)
+storage-user/
+tiktok-qr.png
+notebooks/output/
+
+# Tool caches
+.ruff_cache/
+
+# Runtime data dirs (bind mounts / backups — never commit)
+n8n-data/
+n8n-data-backup-*/
+metabase-data/
+
+# Generated artifacts
+meta-support-report-package.tar.gz
+
+# Model weights — never commit multi-GB binaries (keep put_*_here placeholders)
+storage-models/**/*.safetensors
+storage-models/**/*.gguf
+storage-models/**/*.ckpt
+storage-models/**/*.pt
+storage-models/**/*.pth
+storage-models/**/*.bin
+metabase-mcp.env

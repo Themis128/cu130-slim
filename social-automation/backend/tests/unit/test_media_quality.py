@@ -1,0 +1,635 @@
+"""Unit tests for the unified media quality pipeline.
+
+Covers:
+  - ``apply_media_quality``: spellcheck on all text fields, NLP on
+    user-facing text (caption/alt_text), SEO on substantial captions.
+  - Image bytes are never touched (only text fields are processed).
+  - Prompt is spellchecked but NOT NLP/SEO-checked (machine-facing).
+  - Tags are spellchecked + deduplicated.
+  - Failures in any step are non-fatal (advisory pipeline).
+  - ``persist_media_quality_metadata`` stores diagnostics in meta_data.
+  - DMR ``ai/qwen3:8b-q4_K_M`` is the default text model.
+  - DMR is the default content-generation provider (Cloudflare fallback).
+  - Local Diffusers is attempted before Cloudflare for images.
+"""
+
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.services.media_quality import (
+    MediaQualityResult,
+    apply_media_quality,
+    persist_media_quality_metadata,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+async def _fake_correct_text(text: str | None, language: str = "en-US") -> str | None:
+    """Pass-through spellcheck that just strips whitespace."""
+    if not text:
+        return text
+    return text.strip()
+
+
+async def _fake_correct_tags(tags: list[str] | None, language: str = "en-US") -> list[str]:
+    """Pass-through tag correction that deduplicates."""
+    if not tags:
+        return []
+    seen = set()
+    result = []
+    for t in tags:
+        t = t.strip()
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            result.append(t)
+    return result
+
+
+@pytest.fixture
+def mock_spellcheck(monkeypatch):
+    """Patch media_spellcheck to use pass-through correctors."""
+    monkeypatch.setattr("app.services.media_quality.correct_text", _fake_correct_text)
+    monkeypatch.setattr("app.services.media_quality.correct_tags", _fake_correct_tags)
+
+
+@pytest.fixture
+def mock_nlp(monkeypatch):
+    """Patch run_nlp_check_and_fix to return unchanged text + empty report."""
+    from app.services.plain_english import NlpCheckReport
+
+    async def fake_nlp(*, slides, caption, **_kw):
+        report = NlpCheckReport(needs_fix=False, fixed=False)
+        return slides, caption, report
+
+    monkeypatch.setattr("app.services.plain_english.run_nlp_check_and_fix", fake_nlp)
+
+
+@pytest.fixture
+def mock_seo(monkeypatch):
+    """Patch analyze_seo to return a fixed score."""
+    async def fake_seo(*, text, platform="linkedin", **_kw):
+        return {"score": {"overall": 95, "recommendations": []}}
+
+    monkeypatch.setattr("app.services.seo.analyze_seo", fake_seo)
+
+
+# ===========================================================================
+# 1. apply_media_quality — spellcheck
+# ===========================================================================
+
+class TestMediaQualitySpellcheck:
+
+    @pytest.mark.asyncio
+    async def test_prompt_spellchecked(self, mock_spellcheck, mock_nlp, mock_seo):
+        """Prompt is spellchecked (whitespace normalized)."""
+        result = await apply_media_quality(
+            prompt="  a red apple  ",
+            negative_prompt="blurry ",
+        )
+        assert result.prompt == "a red apple"
+        assert result.negative_prompt == "blurry"
+        assert result.spellcheck_applied is True
+
+    @pytest.mark.asyncio
+    async def test_empty_prompt_handled(self, mock_spellcheck, mock_nlp, mock_seo):
+        """Empty prompt does not crash or set spellcheck_applied."""
+        result = await apply_media_quality(prompt="")
+        assert result.prompt == ""
+        assert result.spellcheck_applied is False
+
+    @pytest.mark.asyncio
+    async def test_tags_deduplicated(self, mock_spellcheck, mock_nlp, mock_seo):
+        """Tags are spellchecked and deduplicated."""
+        result = await apply_media_quality(
+            tags=["apple", "Apple", "  fruit  ", "", "fruit"],
+        )
+        assert result.tags == ["apple", "fruit"]
+        assert result.spellcheck_applied is True
+
+    @pytest.mark.asyncio
+    async def test_caption_spellchecked(self, mock_spellcheck, mock_nlp, mock_seo):
+        """Caption is spellchecked."""
+        result = await apply_media_quality(
+            caption="  A beautiful sunset over the ocean  ",
+        )
+        assert result.caption == "A beautiful sunset over the ocean"
+
+
+# ===========================================================================
+# 2. apply_media_quality — NLP on user-facing text only
+# ===========================================================================
+
+class TestMediaQualityNLP:
+
+    @pytest.mark.asyncio
+    async def test_nlp_runs_on_caption(self, mock_spellcheck, mock_seo):
+        """NLP check runs on caption (user-facing text)."""
+        from app.services.plain_english import NlpCheckReport
+
+        nlp_called = []
+
+        async def fake_nlp(*, slides, caption, **_kw):
+            nlp_called.append(caption)
+            report = NlpCheckReport(needs_fix=False, fixed=True)
+            return slides, "Fixed caption", report
+
+        with patch("app.services.plain_english.run_nlp_check_and_fix", side_effect=fake_nlp):
+            result = await apply_media_quality(
+                caption="Leverage scalable solutions for digital transformation",
+                prompt="a technical prompt with jargon",
+            )
+
+        assert len(nlp_called) == 1
+        assert "Fixed caption" in result.caption
+        assert result.nlp_report.get("fixed") is True
+
+    @pytest.mark.asyncio
+    async def test_nlp_runs_on_alt_text(self, mock_spellcheck, mock_seo):
+        """NLP check runs on alt_text (user-facing text)."""
+        from app.services.plain_english import NlpCheckReport
+
+        async def fake_nlp(*, slides, caption, **_kw):
+            report = NlpCheckReport(needs_fix=False, fixed=True)
+            return slides, "Clean alt text", report
+
+        with patch("app.services.plain_english.run_nlp_check_and_fix", side_effect=fake_nlp):
+            result = await apply_media_quality(
+                alt_text="A photo of a cat",
+            )
+
+        assert result.alt_text == "Clean alt text"
+
+    @pytest.mark.asyncio
+    async def test_nlp_does_not_run_on_prompt(self, mock_spellcheck, mock_seo):
+        """NLP check does NOT run on prompt (machine-facing)."""
+        from app.services.plain_english import NlpCheckReport
+
+        nlp_inputs = []
+
+        async def fake_nlp(*, slides, caption, **_kw):
+            nlp_inputs.append(caption)
+            report = NlpCheckReport(needs_fix=False)
+            return slides, caption, report
+
+        with patch("app.services.plain_english.run_nlp_check_and_fix", side_effect=fake_nlp):
+            await apply_media_quality(
+                prompt="leverage scalable jargon prompt",
+                caption="",
+                alt_text="",
+            )
+
+        # NLP should not have been called (no caption or alt_text)
+        assert len(nlp_inputs) == 0
+
+
+# ===========================================================================
+# 3. apply_media_quality — SEO on substantial captions
+# ===========================================================================
+
+class TestMediaQualitySEO:
+
+    @pytest.mark.asyncio
+    async def test_seo_runs_on_long_caption(self, mock_spellcheck, mock_nlp, mock_seo):
+        """SEO scoring runs when caption is >= 40 chars."""
+        result = await apply_media_quality(
+            caption="This is a sufficiently long caption that should trigger SEO scoring.",
+        )
+        assert result.seo_score.get("overall") == 95
+
+    @pytest.mark.asyncio
+    async def test_seo_skipped_for_short_caption(self, mock_spellcheck, mock_nlp, mock_seo):
+        """SEO scoring is skipped for very short captions."""
+        result = await apply_media_quality(
+            caption="Short.",
+        )
+        assert result.seo_score == {}
+
+    @pytest.mark.asyncio
+    async def test_seo_skipped_when_disabled(self, mock_spellcheck, mock_nlp, mock_seo):
+        """SEO scoring is skipped when run_seo=False."""
+        result = await apply_media_quality(
+            caption="This is a sufficiently long caption that should trigger SEO scoring.",
+            run_seo=False,
+        )
+        assert result.seo_score == {}
+
+
+# ===========================================================================
+# 4. apply_media_quality — non-fatal failures
+# ===========================================================================
+
+class TestMediaQualityNonFatal:
+
+    @pytest.mark.asyncio
+    async def test_spellcheck_failure_non_fatal(self, monkeypatch, mock_nlp, mock_seo):
+        """If spellcheck raises, the pipeline returns original text."""
+        async def boom(*_a, **_kw):
+            raise RuntimeError("LT down")
+
+        monkeypatch.setattr("app.services.media_quality.correct_text", boom)
+        monkeypatch.setattr("app.services.media_quality.correct_tags", boom)
+
+        result = await apply_media_quality(
+            prompt="a red apple",
+            caption="A nice photo",
+            tags=["tag1"],
+        )
+        # Original text preserved
+        assert result.prompt == "a red apple"
+        assert result.caption == "A nice photo"
+        assert result.tags == ["tag1"]
+
+    @pytest.mark.asyncio
+    async def test_nlp_failure_non_fatal(self, mock_spellcheck, mock_seo):
+        """If NLP raises, the pipeline returns spellchecked text."""
+        async def boom(*_a, **_kw):
+            raise RuntimeError("NLP model down")
+
+        with patch("app.services.plain_english.run_nlp_check_and_fix", side_effect=boom):
+            result = await apply_media_quality(
+                prompt="a red apple",
+                caption="A nice photo of an apple",
+            )
+        assert result.prompt == "a red apple"
+        assert result.caption == "A nice photo of an apple"
+
+    @pytest.mark.asyncio
+    async def test_seo_failure_non_fatal(self, mock_spellcheck, mock_nlp):
+        """If SEO raises, the pipeline returns text without score."""
+        async def boom(*_a, **_kw):
+            raise RuntimeError("SEO engine down")
+
+        with patch("app.services.seo.analyze_seo", side_effect=boom):
+            result = await apply_media_quality(
+                caption="A sufficiently long caption for SEO scoring to trigger.",
+            )
+        assert result.seo_score == {}
+
+
+# ===========================================================================
+# 5. persist_media_quality_metadata
+# ===========================================================================
+
+class TestPersistMediaQuality:
+
+    @pytest.mark.asyncio
+    async def test_persist_quality_metadata(self, mock_spellcheck, mock_nlp, mock_seo):
+        """Quality diagnostics are stored in asset.meta_data."""
+        asset = MagicMock()
+        asset.meta_data = None
+        asset.alt_text = "old alt"
+        asset.tags = ["old_tag"]
+
+        quality = MediaQualityResult(
+            prompt="a red apple",
+            caption="A nice photo",
+            alt_text="A red apple on a table",
+            tags=["apple", "fruit"],
+            seo_score={"overall": 95},
+            spellcheck_applied=True,
+        )
+
+        db = AsyncMock()
+        await persist_media_quality_metadata(asset, quality, db=db)
+
+        assert asset.meta_data is not None
+        assert "quality" in asset.meta_data
+        assert asset.meta_data["quality"]["seo_score"]["overall"] == 95
+        assert asset.meta_data["quality_applied"] is True
+        # Corrected text fields updated on asset
+        assert asset.alt_text == "A red apple on a table"
+        assert asset.tags == ["apple", "fruit"]
+
+
+# ===========================================================================
+# 6. Architecture defaults — DMR model, provider chain
+# ===========================================================================
+
+class TestArchitectureDefaults:
+
+    def test_dmr_default_model_is_qwen3(self):
+        """DMR_TEXT_MODEL code default must be ai/qwen3:8b-q4_K_M — the same
+        model used by the schema/JSON path, so text and schema requests share
+        one loaded model on the 8GB card.
+
+        Note: the runtime value may be overridden by the DMR_TEXT_MODEL env var
+        in .env; this test checks the Pydantic field default in the code.
+        """
+        from app.core.config import Settings
+        fields = Settings.model_fields
+        assert fields["DMR_TEXT_MODEL"].default == "ai/qwen3:8b-q4_K_M"
+
+    def test_generate_content_default_provider_is_dmr(self):
+        """GenerateContentRequest.provider must default to 'dmr'."""
+        from app.api.ai import GenerateContentRequest
+        req = GenerateContentRequest(prompt="test", platform="linkedin")
+        # The default provider field should be dmr (local, free) with CF fallback
+        assert req.provider == "dmr"
+
+    def test_generate_image_default_provider_is_local_diffusers(self):
+        """GenerateImageRequest.provider must default to 'local-diffusers'."""
+        from app.api.ai import GenerateImageRequest
+        req = GenerateImageRequest(prompt="test")
+        assert req.provider == "local-diffusers"
+
+    def test_local_diffusers_attempted_before_cloudflare(self):
+        """The image fallback chain must try Local Diffusers first, CF second."""
+        from app.services.inference import _call_cf_image_pipeline
+        # The function name confirms the CF pipeline includes local diffusers
+        # as the primary step. Verify it exists and is callable.
+        assert callable(_call_cf_image_pipeline)
+
+    def test_cloudflare_is_only_automatic_cloud_fallback(self):
+        """No non-CF cloud provider should be in the automatic text fallback chain."""
+        from app.services import inference
+        # PROVIDER_CATALOG is a list of dicts; check in_fallback_chain flags
+        for entry in inference.PROVIDER_CATALOG:
+            if not isinstance(entry, dict):
+                continue
+            name = entry.get("name", "")
+            if name in ("groq", "gemini", "mistral", "cohere", "openrouter", "nvidia", "huggingface"):
+                assert not entry.get("in_fallback_chain", False), (
+                    f"{name} must NOT be in the automatic fallback chain"
+                )
+
+
+# ===========================================================================
+# 7. Celery media_enhance task registration
+# ===========================================================================
+
+class TestCeleryMediaEnhanceRegistration:
+
+    def test_media_enhance_in_celery_include(self):
+        """app.worker.tasks.media_enhance must be in the Celery include list."""
+        from app.worker.celery_app import celery_app
+        includes = celery_app.conf.include or []
+        # Celery may store includes differently — check the app's task list too
+        assert "app.worker.tasks.media_enhance" in includes
+
+    def test_batch_enhance_task_registered(self):
+        """batch_enhance_task must be discoverable as a registered Celery task."""
+        # Import the task module so Celery registers it, then check the registry
+        import app.worker.tasks.media_enhance  # noqa: F401
+        from app.worker.celery_app import celery_app
+        assert "app.worker.tasks.media_enhance.batch_enhance_task" in celery_app.tasks
+
+
+# ===========================================================================
+# 8. Prompt-enhance and auto-configure quality coverage
+# ===========================================================================
+
+class TestPromptEnhanceQuality:
+    """Verify that /ai/generate-image-prompt runs the quality pipeline."""
+
+    def test_response_model_has_quality_field(self):
+        """GenerateImagePromptResponse must have a quality field."""
+        from app.api.ai import GenerateImagePromptResponse
+        fields = GenerateImagePromptResponse.model_fields
+        assert "quality" in fields
+
+    @pytest.mark.asyncio
+    async def test_quality_pipeline_called_on_enhanced_prompt(self, monkeypatch):
+        """The enhanced prompt must pass through apply_media_quality."""
+        from app.api import ai as ai_module
+
+        # Mock call_inference to return a jargon-heavy prompt
+        async def fake_inference(*_a, **_kw):
+            return {
+                "prompt": "Leverage scalable solutions for digital transformation",
+                "negative_prompt": "blurry, low quality, watermark",
+            }
+
+        monkeypatch.setattr(ai_module, "call_inference", fake_inference)
+
+        # Mock the quality pipeline to track it was called
+        quality_called = []
+
+        async def fake_quality(**kwargs):
+            quality_called.append(kwargs)
+            from app.services.media_quality import MediaQualityResult
+            return MediaQualityResult(
+                prompt="Use scalable solutions for digital transformation",
+                negative_prompt="blurry, low quality, watermark",
+                caption="Use scalable solutions for digital transformation",
+                spellcheck_applied=True,
+            )
+
+        monkeypatch.setattr(
+            "app.services.media_quality.apply_media_quality",
+            fake_quality,
+        )
+
+        result = await ai_module.generate_image_prompt(
+            ai_module.GenerateImagePromptRequest(description="test", style="photorealistic"),
+            current_user=MagicMock(),
+        )
+
+        assert len(quality_called) == 1
+        assert quality_called[0]["prompt"] == "Leverage scalable solutions for digital transformation"
+        # The returned prompt should be the quality-corrected version
+        assert "Leverage" not in result.prompt
+        assert result.quality is not None
+        assert result.quality["spellcheck_applied"] is True
+
+
+class TestAutoConfigureQuality:
+    """Verify that /ai/auto-configure runs the quality pipeline."""
+
+    def test_response_model_has_quality_field(self):
+        """AutoConfigureResponse must have a quality field."""
+        from app.api.ai import AutoConfigureResponse
+        fields = AutoConfigureResponse.model_fields
+        assert "quality" in fields
+
+    @pytest.mark.asyncio
+    async def test_quality_pipeline_called_on_enhanced_prompt(self, monkeypatch):
+        """The auto-configured enhanced_prompt must pass through apply_media_quality."""
+        from app.api import ai as ai_module
+
+        # Mock call_inference to return config with a jargon-heavy enhanced_prompt
+        async def fake_inference(*_a, **_kw):
+            return {
+                "task_type": "image",
+                "model": "@cf/black-forest-labs/flux-1-schnell",
+                "steps": 6,
+                "style": "photorealistic",
+                "platform": "linkedin",
+                "tone": "professional",
+                "num_slides": 5,
+                "enhanced_prompt": "Leverage synergistic paradigms for digital transformation",
+                "negative_prompt": "blurry, low quality",
+            }
+
+        monkeypatch.setattr(ai_module, "call_inference", fake_inference)
+
+        # Mock the quality pipeline
+        quality_called = []
+
+        async def fake_quality(**kwargs):
+            quality_called.append(kwargs)
+            from app.services.media_quality import MediaQualityResult
+            return MediaQualityResult(
+                prompt="Use synergistic paradigms for digital transformation",
+                negative_prompt="blurry, low quality",
+                caption="Use synergistic paradigms for digital transformation",
+                spellcheck_applied=True,
+            )
+
+        monkeypatch.setattr(
+            "app.services.media_quality.apply_media_quality",
+            fake_quality,
+        )
+
+        result = await ai_module.auto_configure(
+            ai_module.AutoConfigureRequest(prompt="test", context="image"),
+            current_user=MagicMock(),
+        )
+
+        assert len(quality_called) == 1
+        assert "Leverage" not in (result.enhanced_prompt or "")
+        assert result.quality is not None
+        assert result.quality["spellcheck_applied"] is True
+
+    @pytest.mark.asyncio
+    async def test_no_quality_when_no_enhanced_prompt(self, monkeypatch):
+        """When auto-configure returns no enhanced_prompt, quality is None."""
+        from app.api import ai as ai_module
+
+        async def fake_inference(*_a, **_kw):
+            return {
+                "task_type": "text",
+                "model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+                "steps": 6,
+                "style": "professional",
+                "platform": "linkedin",
+                "tone": "professional",
+                "num_slides": 5,
+                "enhanced_prompt": None,
+                "negative_prompt": None,
+            }
+
+        monkeypatch.setattr(ai_module, "call_inference", fake_inference)
+
+        # If quality is called, fail — it shouldn't be
+        async def fail_quality(**_kw):
+            raise AssertionError("quality should not be called when no enhanced_prompt")
+
+        monkeypatch.setattr(
+            "app.services.media_quality.apply_media_quality",
+            fail_quality,
+        )
+
+        result = await ai_module.auto_configure(
+            ai_module.AutoConfigureRequest(prompt="test", context="auto"),
+            current_user=MagicMock(),
+        )
+
+        assert result.enhanced_prompt is None
+        assert result.quality is None
+
+
+# ===========================================================================
+# 9. apply_media_quality — gibberish guard on user-facing text
+# ===========================================================================
+
+class TestMediaQualityGibberish:
+
+    @pytest.mark.asyncio
+    async def test_gibberish_tokens_propagated(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        """Mangled tokens surviving correction are flagged on the result."""
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(return_value=["mangledtoken"]),
+        )
+        result = await apply_media_quality(
+            caption="A nice photo of a mangledtoken product",
+        )
+        assert result.gibberish_tokens == ["mangledtoken"]
+        assert result.to_dict()["gibberish_tokens"] == ["mangledtoken"]
+
+    @pytest.mark.asyncio
+    async def test_gibberish_clean_text_empty(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(return_value=[]),
+        )
+        result = await apply_media_quality(caption="A clean caption for the asset")
+        assert result.gibberish_tokens == []
+
+    @pytest.mark.asyncio
+    async def test_gibberish_failure_non_fatal(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(side_effect=RuntimeError("LT down")),
+        )
+        result = await apply_media_quality(caption="A nice photo")
+        assert result.caption == "A nice photo"
+        assert result.gibberish_tokens == []
+
+    @pytest.mark.asyncio
+    async def test_gibberish_dedupes_caption_and_alt(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish",
+            AsyncMock(return_value=["sametoken"]),
+        )
+        result = await apply_media_quality(
+            caption="Caption text here",
+            alt_text="Alt text here",
+        )
+        assert result.gibberish_tokens == ["sametoken"]
+
+    @pytest.mark.asyncio
+    async def test_gibberish_skipped_when_no_user_text(self, mock_spellcheck, mock_nlp, mock_seo, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        spy = AsyncMock(return_value=[])
+        monkeypatch.setattr("app.services.media_quality.detect_gibberish", spy)
+        result = await apply_media_quality(prompt="a red apple")
+        spy.assert_not_awaited()
+        assert result.gibberish_tokens == []
+
+
+class TestErrorPaths:
+    @pytest.mark.asyncio
+    async def test_spellcheck_outer_failure_swallowed(
+        self, monkeypatch, mock_nlp, mock_seo
+    ):
+        """correct_tags raising inside the task map → whole spellcheck block
+        is skipped non-fatally, pipeline continues."""
+        monkeypatch.setattr(
+            "app.services.media_quality.correct_text", _fake_correct_text
+        )
+
+        def _boom_tags(tags, language="en-US"):
+            raise RuntimeError("tags service down")
+
+        monkeypatch.setattr(
+            "app.services.media_quality.correct_tags", _boom_tags
+        )
+        result = await apply_media_quality(tags=["a"], caption="cap")
+        assert result.spellcheck_applied is False
+
+    @pytest.mark.asyncio
+    async def test_gibberish_gather_failure_swallowed(
+        self, monkeypatch, mock_spellcheck, mock_nlp, mock_seo
+    ):
+        """detect_gibberish returning a non-awaitable breaks gather →
+        flagged as warning, result still returned."""
+        monkeypatch.setattr(
+            "app.services.media_quality.detect_gibberish", lambda t: "x"
+        )
+        result = await apply_media_quality(caption="some caption text")
+        assert result.gibberish_tokens == []

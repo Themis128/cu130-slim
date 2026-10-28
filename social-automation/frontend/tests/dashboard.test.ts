@@ -1,0 +1,53 @@
+import { test, expect } from './helpers/auth';
+
+test.describe('Dashboard Page — real backend', () => {
+  test('should render dashboard with real metrics for authenticated user', async ({ authenticatedPage: page }) => {
+    await page.goto('/dashboard');
+    await expect(page).toHaveURL('/dashboard');
+
+    // Greeting (time-based: Good morning/afternoon/evening) renders in a <p>
+    await expect(page.getByText(/good (morning|afternoon|evening)/i)).toBeVisible({ timeout: 15000 });
+
+    // Stat cards (Published / Scheduled / Drafts / Failed)
+    await expect(page.getByText('Published', { exact: true })).toBeVisible();
+    await expect(page.getByText('Scheduled', { exact: true })).toBeVisible();
+    await expect(page.getByText('Drafts', { exact: true })).toBeVisible();
+    await expect(page.getByText('Failed', { exact: true })).toBeVisible();
+
+    // Week calendar + best-time-to-post cards
+    await expect(page.getByText(/this week/i)).toBeVisible();
+    await expect(page.getByText(/best time to post/i)).toBeVisible();
+
+    // Top posts + quick actions
+    await expect(page.getByText(/top performing posts/i)).toBeVisible();
+    await expect(page.getByText(/quick actions/i)).toBeVisible();
+
+    // Quick action links
+    await expect(page.getByRole('link', { name: /create post/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /open calendar/i })).toBeVisible();
+    await expect(page.getByRole('link', { name: /upload media/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /connect (accounts|channels)/i }).first()).toBeVisible();
+    await expect(page.getByRole('link', { name: /view analytics/i })).toBeVisible();
+  });
+
+  test('should show empty state for top posts on a fresh account', async ({ authenticatedPage: page }) => {
+    await page.goto('/dashboard');
+    // Wait for the Top Performing Posts section to load (skeleton clears first)
+    await expect(page.getByText('Top Performing Posts')).toBeVisible({ timeout: 15000 });
+    // Fresh test user has zero published posts — wait for empty state
+    await expect(page.getByText(/no published posts yet/i)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('link', { name: /create a post/i })).toBeVisible();
+  });
+
+  test('should redirect unauthenticated users to /login', async ({ page }) => {
+    // Clear any tokens first
+    await page.goto('/login');
+    await page.evaluate(() => {
+      localStorage.removeItem('access_token');
+      localStorage.removeItem('refresh_token');
+    });
+    await page.goto('/dashboard');
+    // Dashboard layout redirects to /login when not authenticated
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
+  });
+});

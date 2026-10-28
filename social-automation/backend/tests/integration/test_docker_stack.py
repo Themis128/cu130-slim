@@ -1,0 +1,375 @@
+"""Docker container integration tests.
+
+Verifies that all containers in the cu130-slim stack are running, healthy,
+and can communicate with each other. These tests require the full Docker
+Compose stack to be up (``docker compose up -d``).
+
+Run with:
+    pytest tests/integration/test_docker_stack.py -v -m integration
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import httpx
+import pytest
+import redis.asyncio as aioredis
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
+
+
+def _has_docker() -> bool:
+    return shutil.which("docker") is not None
+
+
+def _running_in_gha() -> bool:
+    """GitHub Actions has the docker CLI but not the full compose stack."""
+    return os.environ.get("GITHUB_ACTIONS") == "true" or os.environ.get("CI") == "true"
+
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not _has_docker(), reason="docker CLI not available (run on Docker host)"),
+    pytest.mark.skipif(
+        _running_in_gha(),
+        reason="full Docker Compose stack is not available in GitHub Actions",
+    ),
+]
+
+def _default_compose_dir() -> str:
+    """Find the repo root containing docker-compose.yml.
+
+    Host layout: .../cu130-slim/social-automation/backend/tests/integration/
+    Container layout: /app/tests/integration/ — falls back to the last
+    existing ancestor; docker-stack tests skip in-container anyway.
+    """
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "docker-compose.yml").exists():
+            return str(parent)
+    return str(here.parents[-1]) if here.parents else "/"
+
+
+COMPOSE_DIR = os.environ.get("COMPOSE_DIR") or _default_compose_dir()
+
+# Compose-internal hostnames don't resolve from the Docker host — map them to
+# the published localhost ports when a test runs outside the compose network.
+_HOST_PORT_MAP = {
+    "social-postgres:5432": "localhost:5433",
+    "redis:6379": "localhost:6379",
+    "minio:9000": "localhost:9100",
+    "n8n:5678": "localhost:5678",
+    "chroma:8000": "localhost:8001",
+}
+
+
+def _host_url(url: str) -> str:
+    for internal, mapped in _HOST_PORT_MAP.items():
+        url = url.replace(internal, mapped)
+    return url
+
+API_URL = os.environ.get("API_URL", "http://localhost:8083")
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:8082")
+N8N_URL = _host_url(os.environ.get("N8N_URL", "http://localhost:5678"))
+
+
+_compose_ps_cache: list[dict] | None = None
+
+
+def _docker_compose_ps() -> list[dict]:
+    """Cached ``docker compose ps`` — the first call can take >30s while the
+    Docker Desktop CLI warms up; subsequent container-name lookups reuse it."""
+    global _compose_ps_cache
+    if _compose_ps_cache is not None:
+        return _compose_ps_cache
+    if not _has_docker():
+        return []
+    result = subprocess.run(
+        ["docker", "compose", "ps", "--format", "json"],
+        capture_output=True,
+        text=True,
+        cwd=COMPOSE_DIR,
+        timeout=120,
+    )
+    containers = []
+    for line in result.stdout.strip().split("\n"):
+        line = line.strip()
+        if line:
+            containers.append(json.loads(line))
+    _compose_ps_cache = containers
+    return containers
+
+
+def _get_container_state(name: str) -> str | None:
+    containers = _docker_compose_ps()
+    for c in containers:
+        service = c.get("Service", c.get("name", ""))
+        if name in service:
+            return c.get("State", c.get("status", ""))
+    return None
+
+
+class TestContainersRunning:
+    REQUIRED_CONTAINERS = [
+        "social-api",
+        "social-worker",
+        "social-frontend",
+        "social-postgres",
+        "redis",
+        "n8n",
+        "chroma",
+        "minio",
+        "languagetool",
+    ]
+
+    @pytest.mark.parametrize("container_name", REQUIRED_CONTAINERS)
+    def test_container_running(self, container_name: str):
+        state = _get_container_state(container_name)
+        assert state is not None, f"Container '{container_name}' not found"
+        assert state == "running", f"Container '{container_name}' is '{state}', expected 'running'"
+
+
+class TestSocialAPI:
+    @pytest.mark.asyncio
+    async def test_health_endpoint(self):
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{API_URL}/health", timeout=10)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] == "ok"
+        assert "service" in data
+        assert "version" in data
+
+    @pytest.mark.asyncio
+    async def test_openapi_schema_accessible(self):
+        # Schema generation is heavy; retry once on transient disconnects.
+        resp = None
+        async with httpx.AsyncClient() as client:
+            for _ in range(3):
+                try:
+                    resp = await client.get(f"{API_URL}/openapi.json", timeout=30)
+                    break
+                except (httpx.RemoteProtocolError, httpx.ReadTimeout):
+                    continue
+        assert resp is not None, "openapi.json unreachable after 3 attempts"
+        assert resp.status_code == 200
+        schema = resp.json()
+        assert "paths" in schema
+        assert len(schema["paths"]) > 10
+
+    @pytest.mark.asyncio
+    async def test_cf_db_health(self):
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{API_URL}/api/v1/cf-db/health", timeout=15)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "d1" in data
+        assert "kv" in data
+        assert "vectorize" in data
+        assert "router" in data
+
+
+class TestSocialWorker:
+    def test_celery_ping(self):
+        result = subprocess.run(
+            [
+                "docker", "compose", "exec", "-T", "social-worker-publishing",
+                "celery", "-A", "app.worker.celery_app", "inspect", "ping",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=COMPOSE_DIR,
+            timeout=30,
+        )
+        assert result.returncode == 0, f"Celery ping failed: {result.stderr}"
+        assert "pong" in result.stdout.lower(), f"Expected 'pong': {result.stdout}"
+
+
+class TestPostgres:
+    @pytest.mark.asyncio
+    async def test_database_connection(self):
+        db_url = _host_url(os.environ.get("DATABASE_URL") or (
+            "postgresql+asyncpg://"
+            f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
+            f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
+            f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
+        ))
+        engine = create_async_engine(db_url)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(text("SELECT 1 as test"))
+                row = result.fetchone()
+                assert row is not None
+                assert row[0] == 1
+        finally:
+            await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_tables_exist(self):
+        db_url = _host_url(os.environ.get("DATABASE_URL") or (
+            "postgresql+asyncpg://"
+            f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
+            f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
+            f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
+        ))
+        engine = create_async_engine(db_url)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = 'public' ORDER BY table_name"
+                    )
+                )
+                tables = [row[0] for row in result.fetchall()]
+                required = ["users", "teams", "team_members", "social_accounts", "posts"]
+                for table in required:
+                    assert table in tables, f"Table '{table}' not found. Found: {tables}"
+        finally:
+            await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_alembic_version_head(self):
+        db_url = _host_url(os.environ.get("DATABASE_URL") or (
+            "postgresql+asyncpg://"
+            f"{os.environ.get('SOCIAL_POSTGRES_USER', 'social_user')}:"
+            f"{os.environ.get('SOCIAL_POSTGRES_PASSWORD', 'postgres')}"
+            f"@localhost:5433/{os.environ.get('SOCIAL_POSTGRES_DB', 'social_automation')}"
+        ))
+        engine = create_async_engine(db_url)
+        try:
+            async with engine.connect() as conn:
+                result = await conn.execute(text("SELECT version_num FROM alembic_version"))
+                version = result.fetchone()
+                assert version is not None, "No alembic version found"
+                assert len(version[0]) > 0
+        finally:
+            await engine.dispose()
+
+
+class TestRedis:
+    @pytest.mark.asyncio
+    async def test_redis_connection(self):
+        redis_url = _host_url(os.environ.get("REDIS_URL") or f"redis://:{os.environ.get('REDIS_PASSWORD', '')}@localhost:6379/0")
+        r = aioredis.from_url(redis_url)
+        try:
+            pong = await r.ping()
+            assert pong is True
+        finally:
+            await r.aclose()
+
+    @pytest.mark.asyncio
+    async def test_redis_set_get(self):
+        redis_url = _host_url(os.environ.get("REDIS_URL") or f"redis://:{os.environ.get('REDIS_PASSWORD', '')}@localhost:6379/0")
+        r = aioredis.from_url(redis_url)
+        try:
+            await r.set("test_key", "test_value", ex=10)
+            value = await r.get("test_key")
+            assert value == b"test_value"
+            await r.delete("test_key")
+        finally:
+            await r.aclose()
+
+
+class TestN8N:
+    @pytest.mark.asyncio
+    async def test_n8n_web_ui_accessible(self):
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(N8N_URL, timeout=15, follow_redirects=True)
+            except httpx.ConnectError:
+                pytest.skip(f"n8n unreachable at {N8N_URL} (host port proxy down?)")
+        assert resp.status_code in (200, 302, 307)
+
+    @pytest.mark.asyncio
+    async def test_n8n_api_health(self):
+        n8n_api_key = os.environ.get("N8N_API_KEY", "")
+        if not n8n_api_key:
+            pytest.skip("N8N_API_KEY not set")
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(
+                    f"{N8N_URL}/api/v1/workflows",
+                    headers={"X-N8N-API-KEY": n8n_api_key},
+                    timeout=15,
+                )
+            except httpx.ConnectError:
+                pytest.skip(f"n8n unreachable at {N8N_URL} (host port proxy down?)")
+        assert resp.status_code in (200, 401, 403)
+
+
+class TestFrontend:
+    @pytest.mark.asyncio
+    async def test_frontend_accessible(self):
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(FRONTEND_URL, timeout=15, follow_redirects=True)
+        assert resp.status_code == 200
+        assert "html" in resp.headers.get("content-type", "").lower()
+
+
+class TestChroma:
+    @pytest.mark.asyncio
+    async def test_chroma_heartbeat(self):
+        chroma_url = _host_url(os.environ.get("CHROMA_URL", "http://localhost:8001"))
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(f"{chroma_url}/api/v2/heartbeat", timeout=10)
+            except httpx.ConnectError:
+                pytest.skip(f"Chroma unreachable at {chroma_url}")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "nanosecond heartbeat" in data
+
+
+class TestMinIO:
+    @pytest.mark.asyncio
+    async def test_minio_api_accessible(self):
+        minio_api = _host_url(os.environ.get("MINIO_API_URL") or "http://localhost:9100")
+        async with httpx.AsyncClient() as client:
+            try:
+                resp = await client.get(minio_api, timeout=10)
+            except httpx.ConnectError:
+                pytest.skip(f"MinIO API unreachable at {minio_api} (host port proxy down?)")
+        # S3 anonymous root → 403 (newer builds may 307 to the console)
+        assert resp.status_code in (307, 400, 403)
+
+
+class TestLanguageTool:
+    @pytest.mark.asyncio
+    async def test_languagetool_accessible(self):
+        lt_url = os.environ.get("LANGUAGETOOL_URL", "http://localhost:8010")
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{lt_url}/v2/languages", timeout=10)
+        assert resp.status_code == 200
+
+
+class TestComposeConfig:
+    def test_compose_config_valid(self):
+        result = subprocess.run(
+            ["docker", "compose", "config", "--quiet"],
+            capture_output=True,
+            text=True,
+            cwd=COMPOSE_DIR,
+            timeout=30,
+        )
+        assert result.returncode == 0, f"docker compose config failed: {result.stderr}"
+
+
+class TestInterServiceCommunication:
+    @pytest.mark.asyncio
+    async def test_api_can_reach_database(self):
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{API_URL}/health", timeout=10)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
+    @pytest.mark.asyncio
+    async def test_api_can_reach_redis(self):
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{API_URL}/api/v1/workflows", timeout=10)
+        assert resp.status_code in (200, 401)

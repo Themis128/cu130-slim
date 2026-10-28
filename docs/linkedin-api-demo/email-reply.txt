@@ -1,0 +1,39 @@
+Hi Rajeshwari,
+
+Thank you for the update on our upgrade request.
+
+Business use case:
+
+Cloudless operates SocialAuto, a social media automation platform that helps businesses manage their presence across LinkedIn, Facebook, Instagram, Threads, Twitter/X, and TikTok from a single dashboard.
+
+Our LinkedIn integration leverages the following API products:
+
+1. Share on LinkedIn (w_member_social) — allows users to create and publish organic posts on their personal LinkedIn profiles, including text posts, multi-image posts, and article posts.
+
+2. Community Management API (w_organization_social, r_organization_social) — allows users to create and publish organic posts on behalf of LinkedIn Company Pages they administer, and read post analytics (impressions, clicks, engagement rates) and organization-level statistics (follower counts, lifetime analytics).
+
+3. Organizations API (r_organization_admin) — allows us to discover which Company Pages a member administers so they can select the correct page when publishing.
+
+Our platform does NOT create, edit, or manage LinkedIn Ads or sponsored content. We do not use the rw_ads or r_ads scopes. Our use case is entirely organic content publishing and analytics.
+
+We are requesting the standard tier upgrade to support managing more than 5 Company Pages for organic posting, as we work with multiple business clients who each have their own LinkedIn Company Page.
+
+Demo video:
+[INSERT GOOGLE DRIVE LINK HERE]
+
+The video shows:
+- SocialAuto dashboard with connected accounts overview
+- LinkedIn Company Page (cloudless-gr) connected and active
+- LinkedIn content creation with AI-powered post generation
+- Post editor with LinkedIn platform selection and live preview
+- Draft saving and content calendar
+- LinkedIn analytics (impressions, engagement, follower stats)
+- Brand identity system for consistent voice and tone
+- AI provider settings (13 configured providers)
+
+Please let me know if you need any additional information.
+
+Best regards,
+Themistoklis Baltzakis
+Cloudless
+https://cloudless.gr

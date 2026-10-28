@@ -1,0 +1,1326 @@
+import io
+import logging
+import os
+import pathlib
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse, Response
+from PIL import Image
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy import or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
+
+from app.api.auth import get_current_user
+from app.api.deps import TeamId
+from app.core.config import settings
+from app.core.path_utils import safe_resolve
+from app.db.session import get_db
+from app.models.content import MediaAsset, MediaCollection
+from app.models.user import Team, User
+from app.services import minio_storage, r2_presigned, r2_storage
+from app.services.media_ai import get_similar_assets
+from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
+from app.services.media_spellcheck import correct_tags, correct_text
+from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
+from app.worker.celery_app import celery_app
+
+logger = logging.getLogger(__name__)
+router = APIRouter()
+
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "/app/uploads")
+
+# Formats every modern browser can render natively inside an <img> tag.
+BROWSER_NATIVE_IMAGE_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+    "image/apng",
+    "image/avif",
+    "image/bmp",
+    "image/x-icon",
+    "image/vnd.microsoft.icon",
+    "image/heic",  # Safari only, but pass through rather than re-encode
+}
+
+# Register Pillow plugins for formats the browser can't display (HEIC/HEIF
+# from iPhones, AVIF on older stacks).  Imported defensively: the media API
+# keeps working — those formats just fall back to a download prompt — if a
+# plugin is unavailable in the environment.
+try:
+    from pillow_heif import register_heif_opener
+
+    register_heif_opener()
+except ImportError:  # pragma: no cover - environment-dependent
+    pass
+try:
+    import pillow_avif  # noqa: F401  (registers the AVIF codec on import)
+except ImportError:  # pragma: no cover - environment-dependent
+    pass
+
+
+def _reencode_image_bytes(data: bytes, *, out_format: str = "PNG") -> tuple[bytes, str]:
+    """Re-encode image bytes for browser/platform consumption.
+
+    ``out_format`` is ``PNG`` (default, preserves alpha) or ``JPEG``
+    (Instagram Graph / Meta ``image_url`` requires JPEG or PNG; WebP/HEIC/AVIF
+    commonly fail with IG error 36001 / subcode 2207083).
+    """
+    img = Image.open(io.BytesIO(data))
+    img.load()
+    fmt = (out_format or "PNG").upper()
+    if fmt == "JPEG":
+        if img.mode in ("RGBA", "LA", "P"):
+            rgba = img.convert("RGBA")
+            bg = Image.new("RGB", rgba.size, (255, 255, 255))
+            bg.paste(rgba, mask=rgba.getchannel("A"))
+            rgb = bg
+        else:
+            rgb = img.convert("RGB") if img.mode != "RGB" else img
+        buf = io.BytesIO()
+        rgb.save(buf, format="JPEG", quality=90, optimize=True)
+        return buf.getvalue(), "image/jpeg"
+    out = img if img.mode in ("RGB", "RGBA", "L") else img.convert("RGBA")
+    buf = io.BytesIO()
+    out.save(buf, format="PNG")
+    return buf.getvalue(), "image/png"
+
+
+class MediaAssetResponse(BaseModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    collection_id: uuid.UUID | None
+    filename: str | None
+    mime_type: str | None
+    size_bytes: int | None
+    storage_backend: str
+    storage_path: str
+    public_url: str | None
+    width: int | None
+    height: int | None
+    duration_seconds: int | None
+    alt_text: str | None
+    tags: list[str]
+    ai_tags: list[str]
+    ai_caption: str | None
+    source: str
+    generation_prompt: str | None
+    is_favorite: bool
+    is_archived: bool
+    usage_count: int
+    meta_data: dict | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class MediaListResponse(BaseModel):
+    assets: list[MediaAssetResponse]
+    total: int
+    page: int
+    page_size: int
+
+# ---------------------------------------------------------------------------
+# Image quality gate
+# ---------------------------------------------------------------------------
+
+async def _score_and_store_quality(
+    asset: MediaAsset,
+    image_bytes: bytes,
+    db: AsyncSession,
+) -> None:
+    """Score image quality and store the result in ``asset.meta_data``.
+
+    - Images with sharpness below ``MIN_IMAGE_SHARPNESS`` are marked
+      ``quality_failed=True`` (blurry/broken).
+    - Images with overall score below ``MIN_IMAGE_QUALITY_SCORE`` are also
+      flagged, but still stored — the flag is informational so the UI can
+      surface a warning badge.
+    - The full score breakdown is stored under ``meta_data.quality_score``.
+    """
+    from app.services.image_enhance import score_image_quality
+
+    try:
+        score = score_image_quality(image_bytes)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"[media/quality] scoring failed for {asset.id}: {exc}")
+        return
+
+    if asset.meta_data is None:
+        asset.meta_data = {}
+    asset.meta_data["quality_score"] = {
+        "overall": score.overall,
+        "sharpness": score.sharpness,
+        "brightness": score.brightness,
+        "contrast": score.contrast,
+        "blur_detected": score.blur_detected,
+        "too_dark": score.too_dark,
+        "too_bright": score.too_bright,
+        "issues": score.issues,
+    }
+
+    min_sharp = settings.MIN_IMAGE_SHARPNESS
+    min_overall = settings.MIN_IMAGE_QUALITY_SCORE
+    asset.meta_data["quality_failed"] = (
+        score.sharpness < min_sharp or score.overall < min_overall
+    )
+    asset.meta_data["quality_threshold"] = {
+        "min_overall": min_overall,
+        "min_sharpness": min_sharp,
+    }
+
+    flag_modified(asset, "meta_data")
+    await db.commit()
+
+@router.post("/upload", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
+async def upload_media(team_id: TeamId,
+    file: UploadFile = File(...),
+    alt_text: str = Form(None),
+    tags: str = Form(""),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    # Validate and sanitize user-supplied filename and extension.
+    raw_name = file.filename or "upload"
+    raw_ext = pathlib.Path(raw_name).suffix.lower()
+    allowed_exts = {
+        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".heic",
+        ".mp4", ".webm", ".mov", ".mkv", ".avi",
+        ".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac",
+    }
+    if raw_ext not in allowed_exts:
+        raise HTTPException(status_code=400, detail="Unsupported file extension")
+
+    # Read file content and downscale images for the library.
+    content = await file.read()
+    mime = file.content_type
+    width = None
+    height = None
+    if mime and mime.startswith("image/"):
+        content, width, height = downscale_image_bytes(content)
+
+    asset = await save_uploaded_media(
+        db,
+        team_id=team.id,
+        user_id=current_user.id,
+        original_filename=file.filename or "upload",
+        content=content,
+        mime_type=mime,
+        alt_text=alt_text,
+        tags=[t.strip() for t in (tags or "").split(",") if t.strip()],
+        width=width,
+        height=height,
+    )
+
+    # Quality gate: score images and store the result in meta_data.
+    if mime and mime.startswith("image/"):
+        await _score_and_store_quality(asset, content, db)
+
+    # Video metadata probe: fill duration/resolution up-front so platform
+    # validators (TikTok duration caps, IG reel specs) and the library UI
+    # don't wait on the async tag task. Full frame analysis runs in the
+    # auto-tag Celery task.
+    if mime and mime.startswith("video/"):
+        try:
+            from app.services import video_ai
+
+            probe = await video_ai.probe_video(content)
+            if probe:
+                if asset.duration_seconds is None and probe.get("duration_seconds"):
+                    asset.duration_seconds = probe["duration_seconds"]
+                if asset.width is None and probe.get("width"):
+                    asset.width = probe["width"]
+                    asset.height = probe.get("height")
+                meta = dict(asset.meta_data or {})
+                meta["video"] = probe
+                asset.meta_data = meta
+                flag_modified(asset, "meta_data")
+                await db.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[media/upload] video probe failed for {asset.id}: {exc}")
+
+    return asset
+
+@router.get("/view")
+async def view_media(
+    path: str = Query(..., description="Relative storage path or object key of the asset"),
+    format: str | None = Query(
+        None,
+        description=(
+            "Optional output format override. Use ``jpeg`` when the consumer is a "
+            "platform fetch (Instagram Graph image_url) that rejects WebP/HEIC/AVIF."
+        ),
+    ),
+):
+    """Serve any stored media for display, converting non-web formats to PNG.
+
+    Unauthenticated by design — mirrors the public ``/api/v1/uploads`` static
+    mount so ``<img>`` tags can render assets without auth headers.  Formats
+    browsers cannot render natively (TIFF, PSD, HEIC on Chromium, …) are
+    transparently re-encoded to PNG with Pillow.
+
+    Pass ``format=jpeg`` to force a JPEG response (RGB, quality 90). Instagram
+    Graph ``image_url`` rejects WebP/HEIC/AVIF with error 36001/2207083; the
+    publisher appends this query param for IG public media URLs.
+
+    Tries local disk first, then MinIO, then R2 — so assets stored on any
+    backend can be served through this single endpoint.
+    """
+    ext_mime = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".svg": "image/svg+xml",
+        ".avif": "image/avif",
+        ".bmp": "image/bmp",
+        ".ico": "image/x-icon",
+        ".tif": "image/tiff",
+        ".tiff": "image/tiff",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".mkv": "video/x-matroska",
+        ".avi": "video/x-msvideo",
+        ".pdf": "application/pdf",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".aac": "audio/aac",
+        ".m4a": "audio/mp4",
+        ".ogg": "audio/ogg",
+        ".flac": "audio/flac",
+    }
+
+    # Determine the file extension / mime type from the path (works for all backends).
+    ext = pathlib.Path(path).suffix.lower()
+    mime = ext_mime.get(ext, "application/octet-stream")
+    force_jpeg = (format or "").strip().lower() in {"jpeg", "jpg"}
+
+    # Formats that browsers can display/download directly without Pillow conversion.
+    DIRECT_SERVE_TYPES = BROWSER_NATIVE_IMAGE_TYPES | {
+        "video/mp4", "video/webm", "video/quicktime",
+        "application/pdf",
+        "audio/mpeg", "audio/wav", "audio/aac", "audio/mp4", "audio/ogg", "audio/flac",
+    }
+
+    def _serve_image_bytes(data: bytes) -> Response:
+        if force_jpeg and str(mime).startswith("image/"):
+            try:
+                raw, out_mime = _reencode_image_bytes(data, out_format="JPEG")
+            except Exception:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Cannot convert this image to JPEG for platform publishing.",
+                )
+            return Response(content=raw, media_type=out_mime)
+        if mime in DIRECT_SERVE_TYPES:
+            return Response(content=data, media_type=mime)
+        try:
+            raw, out_mime = _reencode_image_bytes(data, out_format="PNG")
+        except Exception:
+            raise HTTPException(
+                status_code=415,
+                detail="This format cannot be previewed in the browser.",
+            )
+        return Response(content=raw, media_type=out_mime)
+
+    # --- Try local disk first ---
+    try:
+        target = safe_resolve(UPLOAD_DIR, path)
+        if target.is_file():
+            if force_jpeg and str(mime).startswith("image/"):
+                return _serve_image_bytes(target.read_bytes())
+            if mime in DIRECT_SERVE_TYPES:
+                return FileResponse(str(target), media_type=mime)
+            return _serve_image_bytes(target.read_bytes())
+    except ValueError:
+        pass  # path not valid for local filesystem — try remote backends
+    except HTTPException:
+        raise
+
+    # --- Try MinIO ---
+    if minio_storage.minio_enabled():
+        try:
+            data = await minio_storage.get_object(path)
+            if data:
+                return _serve_image_bytes(data)
+        except HTTPException as exc:
+            if exc.status_code == 404:
+                pass  # not in MinIO — try R2
+            else:
+                raise
+
+    # --- Try R2 ---
+    try:
+        data = await r2_storage.get_object(path)
+        if data:
+            return _serve_image_bytes(data)
+    except HTTPException:
+        pass
+
+    raise HTTPException(status_code=404, detail="Media file not found on any storage backend")
+
+
+@router.get("/assets", response_model=MediaListResponse)
+async def list_media(team_id: TeamId,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    type: str | None = Query(None, description="Filter: 'image' | 'video' | 'generated' (AI Generated)"),
+    source: str | None = Query(None, description="Filter by exact source (e.g. 'upload', 'comfyui', 'ai-generated')"),
+    sort: str | None = Query(None, description="Sort: 'newest' | 'oldest' | 'largest' | 'smallest' | 'name_asc' | 'name_desc'"),
+    search: str | None = Query(None, description="Search filename, alt_text, and generation_prompt"),
+    collection_id: uuid.UUID | None = Query(None, description="Filter to assets belonging to a specific collection"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        return MediaListResponse(assets=[], total=0, page=page, page_size=page_size)
+
+    query = select(MediaAsset).where(MediaAsset.team_id == team.id)
+    if source:
+        query = query.where(MediaAsset.source == source)
+
+    # Friendly type filters used by the Media Library UI.
+    if type == "image":
+        query = query.where(MediaAsset.mime_type.like("image/%"))
+    elif type == "video":
+        query = query.where(MediaAsset.mime_type.like("video/%"))
+    elif type in ("generated", "ai-generated"):
+        query = query.where(MediaAsset.source.in_(["ai-generated", "comfyui"]))
+
+    if collection_id is not None:
+        query = query.where(MediaAsset.collection_id == collection_id)
+
+    if search:
+        pattern = f"%{search}%"
+        query = query.where(
+            or_(
+                MediaAsset.filename.ilike(pattern),
+                MediaAsset.alt_text.ilike(pattern),
+                MediaAsset.generation_prompt.ilike(pattern),
+            )
+        )
+
+    from sqlalchemy import func
+
+    count_query = select(func.count()).select_from(query.subquery())
+    total = await db.scalar(count_query) or 0
+
+    sort_map = {
+        "oldest": MediaAsset.created_at.asc(),
+        "largest": MediaAsset.size_bytes.desc().nulls_last(),
+        "smallest": MediaAsset.size_bytes.asc().nulls_last(),
+        "name_asc": MediaAsset.filename.asc().nulls_last(),
+        "name_desc": MediaAsset.filename.desc().nulls_last(),
+    }
+    order = sort_map.get(sort or "", MediaAsset.created_at.desc())
+    query = query.order_by(order).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    assets = result.scalars().all()
+
+    return MediaListResponse(assets=assets, total=total, page=page, page_size=page_size)
+
+class MediaAssetUpdateRequest(BaseModel):
+    filename: str | None = None
+    alt_text: str | None = None
+    tags: list[str] | None = None
+    collection_id: uuid.UUID | None = None
+    is_favorite: bool | None = None
+    is_archived: bool | None = None
+
+@router.get("/assets/{asset_id}", response_model=MediaAssetResponse)
+async def get_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id)
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    return asset
+
+@router.patch("/assets/{asset_id}", response_model=MediaAssetResponse)
+async def update_media(
+    asset_id: uuid.UUID,
+    body: MediaAssetUpdateRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id)
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    if body.filename is not None:
+        asset.filename = (await correct_text(body.filename)) or body.filename
+    if body.alt_text is not None:
+        asset.alt_text = await correct_text(body.alt_text)
+    if body.tags is not None:
+        asset.tags = await correct_tags(body.tags)
+    if body.collection_id is not None:
+        asset.collection_id = body.collection_id
+    if body.is_favorite is not None:
+        asset.is_favorite = body.is_favorite
+    if body.is_archived is not None:
+        asset.is_archived = body.is_archived
+
+    await db.commit()
+    await db.refresh(asset)
+    return asset
+
+@router.delete("/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_media(asset_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(MediaAsset).where(MediaAsset.id == asset_id, MediaAsset.team_id == team_id))
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Delete file from local disk, R2, or MinIO.
+    try:
+        if asset.storage_backend == "r2":
+            await r2_storage.delete_object(asset.storage_path)
+        elif asset.storage_backend == "minio":
+            await minio_storage.delete_object(asset.storage_path)
+        else:
+            file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
+            if file_path.is_file():
+                file_path.unlink()
+    except (ValueError, HTTPException):
+        pass
+
+    await db.delete(asset)
+    await db.commit()
+
+class BulkDeleteRequest(BaseModel):
+    ids: list[uuid.UUID]
+
+@router.post("/assets/bulk-delete", status_code=status.HTTP_200_OK)
+async def bulk_delete_media(
+    body: BulkDeleteRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id.in_(body.ids),
+            MediaAsset.team_id == team.id,
+        )
+    )
+    assets = result.scalars().all()
+    deleted = 0
+    for asset in assets:
+        try:
+            if asset.storage_backend == "r2":
+                await r2_storage.delete_object(asset.storage_path)
+            elif asset.storage_backend == "minio":
+                await minio_storage.delete_object(asset.storage_path)
+            else:
+                file_path = safe_resolve(UPLOAD_DIR, asset.storage_path)
+                if file_path.is_file():
+                    file_path.unlink()
+        except (ValueError, HTTPException):
+            pass
+        await db.delete(asset)
+        deleted += 1
+    await db.commit()
+    return {"deleted": deleted}
+
+class MediaGenerateOptions(BaseModel):
+    width: int | None = None
+    height: int | None = None
+    model: str | None = None
+    negative_prompt: str = ""
+    steps: int = 4
+    cfg_scale: float = 3.5
+
+class MediaGenerateImageRequest(BaseModel):
+    prompt: str
+    options: MediaGenerateOptions | None = None
+    workflow_json: str | dict | None = None  # legacy ComfyUI field — ignored
+
+@router.post("/generate-image", response_model=MediaAssetResponse)
+async def generate_image(
+    body: MediaGenerateImageRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Generate an image via Local Diffusers (primary) with Cloudflare Workers AI fallback.
+
+    Fallback chain (first success wins):
+        1. Local Diffusers (SD 1.5, GPU) — local, free, no quota
+        2. Cloudflare Workers AI (FLUX schnell) — cloud, the ONLY fallback
+    """
+    import base64
+
+    from app.services.cf_models import CF_TXT2IMG_FREE
+    from app.services.inference import (
+        _call_workers_ai_image,
+    )
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    # ── Quality pipeline: spellcheck prompt + negative prompt before generation.
+    # Full NLP/SEO runs after generation on caption/alt_text (user-facing text).
+    opts = body.options or MediaGenerateOptions()
+    quality_pre = await apply_media_quality(
+        prompt=body.prompt,
+        negative_prompt=opts.negative_prompt,
+        platform="instagram",  # media library default platform for SEO
+        db=db,
+        team_id=team.id,
+        run_nlp=False,  # NLP/SEO deferred to post-generation
+        run_seo=False,
+    )
+    prompt = quality_pre.prompt or body.prompt
+    negative_prompt = quality_pre.negative_prompt or opts.negative_prompt
+
+    width = opts.width or 1024
+    height = opts.height or 1024
+    steps = opts.steps or 4
+
+    # ── Infographic detection: if the prompt asks for an infographic, poster,
+    # or text-heavy visual, generate a text-free background and overlay
+    # correctly-spelled text via PIL. AI image models cannot spell.
+    from app.services.infographic_renderer import (
+        generate_infographic_content,
+        is_infographic_request,
+        render_infographic,
+        sanitize_prompt_for_background,
+    )
+
+    # ── Prompt expansion: terse input → detailed visual prompt (DMR, warm
+    # mid model — runs before the GPU lock is taken by generation).
+    from app.services.media_ai import expand_visual_prompt
+    user_prompt = prompt  # original intent, used by the semantic QA judge
+    prompt = await expand_visual_prompt(prompt, media_type="image")
+
+    is_infographic = is_infographic_request(prompt)
+    infographic_content = None
+    bg_prompt = prompt
+    if is_infographic:
+        logger.info("[media/generate] Infographic detected — generating text-free background + PIL text overlay")
+        # Generate structured text content via LLM
+        try:
+            infographic_content = await generate_infographic_content(prompt, platform="instagram")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[media/generate] Infographic content generation failed: {exc}")
+            is_infographic = False
+
+        if is_infographic:
+            # Sanitize prompt: tell AI model to NOT render text
+            bg_prompt = sanitize_prompt_for_background(prompt)
+            negative_prompt = (
+                f"{negative_prompt}, text, words, letters, writing, typography, labels, numbers, signs, characters, fonts, glyphs"
+                if negative_prompt
+                else "text, words, letters, writing, typography, labels, numbers, signs, characters, fonts, glyphs"
+            )
+
+    generated = None
+    png_bytes = None
+
+    # 1. ComfyUI FLUX.1-schnell GGUF — PRIMARY local (SD 1.5 retired 2026-10-05)
+    try:
+        from app.services.comfyui_image import generate_image as comfyui_generate_image
+        from app.services.gpu_arbiter import media_gpu_lock
+
+        logger.info("[media/generate] Trying ComfyUI FLUX.1-schnell")
+        async with media_gpu_lock():
+            png_bytes, flux_meta = await comfyui_generate_image(
+                prompt=bg_prompt,
+                width=width,
+                height=height,
+                steps=max(1, min(steps, 8)),
+            )
+        generated = {
+            "image_base64": base64.b64encode(png_bytes).decode(),
+            "model": flux_meta.get("model", "flux1-schnell"),
+            "provider": "comfyui-flux",
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[media/generate] ComfyUI FLUX failed: %s", type(exc).__name__)
+
+    # 2. Cloudflare Workers AI — ONLY cloud fallback
+    if generated is None:
+        cf_model = opts.model or CF_TXT2IMG_FREE
+        if cf_model and not cf_model.startswith("@cf/"):
+            cf_model = f"@cf/stabilityai/{cf_model}" if "stable-diffusion" in cf_model else CF_TXT2IMG_FREE
+        try:
+            logger.info("[media/generate] Trying Cloudflare Workers AI")
+            generated = await _call_workers_ai_image(
+                prompt=bg_prompt,
+                model=cf_model,
+                negative_prompt=negative_prompt,
+                width=width,
+                height=height,
+                steps=steps,
+                cfg_scale=opts.cfg_scale or 3.5,
+            )
+        except HTTPException as exc:
+            logger.warning("[media/generate] CF failed (%s)", exc.status_code)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[media/generate] CF failed: %s", type(exc).__name__)
+
+    if generated is None:
+        raise HTTPException(
+            status_code=502,
+            detail="Image generation failed: ComfyUI FLUX and Cloudflare Workers AI both unavailable.",
+        )
+
+    image_b64 = generated.get("image_base64") or ""
+    if not image_b64:
+        raise HTTPException(status_code=502, detail="Image generation returned empty payload")
+
+    # ── Semantic QA: qwen3-vl captions the result and judges it against the
+    # user's intent. Mismatch → one regeneration with the QA reason folded
+    # back into the prompt. Runs outside the GPU lock (DMR reloads its own
+    # model — the arbiter busy flag is already cleared).
+    from app.services.media_ai import verify_media_semantics
+
+    qa = await verify_media_semantics(base64.b64decode(image_b64), user_prompt)
+    if not qa["match"]:
+        logger.warning("[media/generate] semantic QA mismatch (%s) — retrying once", qa.get("reason"))
+        retry_prompt = f"{prompt}. Depict: {user_prompt}. Avoid: {qa.get('reason', 'wrong subject')}"
+        try:
+            if generated.get("provider") == "comfyui-flux":
+                from app.services.comfyui_image import generate_image as comfyui_generate_image
+                from app.services.gpu_arbiter import media_gpu_lock
+
+                async with media_gpu_lock():
+                    png_bytes, _m = await comfyui_generate_image(
+                        prompt=retry_prompt, width=width, height=height, steps=max(1, min(steps, 8)))
+                generated = {"image_base64": base64.b64encode(png_bytes).decode(),
+                             "model": _m.get("model", "flux1-schnell"), "provider": "comfyui-flux"}
+            else:
+                generated = await _call_workers_ai_image(
+                    prompt=retry_prompt, model=opts.model or CF_TXT2IMG_FREE,
+                    negative_prompt=negative_prompt, width=width, height=height,
+                    steps=steps, cfg_scale=opts.cfg_scale or 3.5)
+            image_b64 = generated.get("image_base64") or image_b64
+            qa = await verify_media_semantics(base64.b64decode(image_b64), user_prompt)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[media/generate] semantic-QA retry failed: %s", type(exc).__name__)
+
+    # ── Infographic text overlay: composite correctly-spelled text via PIL.
+    if is_infographic and infographic_content:
+        try:
+            final_bytes = render_infographic(
+                infographic_content,
+                base64.b64decode(image_b64),
+                width=width,
+                height=height,
+            )
+            image_b64 = base64.b64encode(final_bytes).decode()
+            logger.info("[media/generate] Infographic text overlay applied successfully")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"[media/generate] Infographic overlay failed, using raw background: {exc}")
+
+    # Record which provider generated this image
+    gen_model = generated.get("model", "")
+
+    asset = await persist_generated_image(
+        db,
+        team_id=team.id,
+        user_id=current_user.id,
+        image_bytes=base64.b64decode(image_b64),
+        prompt=prompt,
+        source="ai-generated",
+    )
+
+    # Store the provider info in meta_data for provenance tracking
+    if asset.meta_data is None:
+        asset.meta_data = {}
+    asset.meta_data["inference_provider"] = generated.get("provider") or (
+        "comfyui-flux" if "schnell" in gen_model else "cloudflare"
+    )
+    asset.meta_data["inference_model"] = gen_model
+    asset.meta_data["semantic_qa"] = qa
+    flag_modified(asset, "meta_data")
+    await db.commit()
+
+    # Quality gate: score the generated image and store the result.
+    await _score_and_store_quality(asset, base64.b64decode(image_b64), db)
+
+    # ── Media quality pipeline: NLP plain-English + SEO on user-facing text.
+    # Runs on alt_text/caption/tags (never touches image bytes). The prompt
+    # was already spellchecked before generation; here we process the
+    # AI-generated alt_text and tags that persist_generated_image created.
+    quality_post = await apply_media_quality(
+        prompt=asset.generation_prompt or prompt,
+        caption=asset.ai_caption or "",
+        alt_text=asset.alt_text or "",
+        tags=asset.tags or [],
+        platform="instagram",
+        db=db,
+        team_id=team.id,
+        run_spellcheck=True,  # re-check persisted text
+        run_nlp=True,
+        run_seo=True,
+    )
+    await persist_media_quality_metadata(asset, quality_post, db)
+
+    return asset
+
+
+# ---------------------------------------------------------------------------
+# Video generation (ComfyUI LTX-Video on the local GPU node)
+# ---------------------------------------------------------------------------
+
+class MediaGenerateVideoOptions(BaseModel):
+    width: int = 704            # Wan2.2-5B native res is 704x1280 (TikTok 9:16)
+    height: int = 1280
+    num_frames: int = 81        # must be 4n+1 (Wan2.2)
+    frame_rate: int = 24
+    steps: int = 20
+    cfg_scale: float = 5.0
+    seed: int | None = None
+    negative_prompt: str = ""
+    duration_seconds: int | None = None  # >0 → multi-segment long-form (max 60)
+    scene_prompts: list[str] | None = None  # explicit per-segment shot list
+    model: str = "wan22"        # wan22 only — Wan2.2 TI2V-5B, beat ltxv/wan21 on A/B
+    image_asset_id: str | None = None    # set → Wan2.2 image-to-video on this asset
+    i2v_strength: float = 1.0            # first-frame conditioning strength
+    tags: list[str] | None = None
+    alt_text: str | None = None
+
+class MediaGenerateVideoRequest(BaseModel):
+    prompt: str
+    options: MediaGenerateVideoOptions | None = None
+
+class MediaGenerateVideoResponse(BaseModel):
+    task_id: str
+    status: str = "queued"
+    poll_url: str
+
+class MediaGenerateVideoStatus(BaseModel):
+    task_id: str
+    status: str
+    asset_id: str | None = None
+    error: str | None = None
+
+
+@router.post("/generate-video", response_model=MediaGenerateVideoResponse, status_code=status.HTTP_202_ACCEPTED)
+async def generate_video(body: MediaGenerateVideoRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    """Enqueue a text-to-video job on the local ComfyUI node (LTX-Video 2B GGUF).
+
+    Returns a Celery task id; poll ``GET /media/generate-video/{task_id}``
+    until ``status=SUCCESS`` and ``asset_id`` is populated.
+    """
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    if not (body.prompt or "").strip():
+        raise HTTPException(status_code=400, detail="prompt is required")
+
+    opts = (body.options or MediaGenerateVideoOptions()).model_dump()
+    if opts["model"] != "wan22":
+        raise HTTPException(status_code=400, detail="model must be 'wan22'")
+    # Normalize to Wan2.2-5B constraints (4n+1, 24fps, uni_pc @ cfg 5).
+    if opts["num_frames"] % 4 != 1:
+        opts["num_frames"] = 81
+    if opts["frame_rate"] == 25:
+        opts["frame_rate"] = 24
+    if opts["steps"] == 25:
+        opts["steps"] = 20
+    if opts["cfg_scale"] == 3.0:
+        opts["cfg_scale"] = 5.0
+    try:
+        # Validate the graph constraints before queueing a doomed task.
+        from app.services.comfyui_video import build_wan22_prompt
+
+        builder = build_wan22_prompt
+        kwargs = dict(
+            prompt=body.prompt,
+            negative_prompt=opts["negative_prompt"] or None,
+            width=opts["width"], height=opts["height"],
+            num_frames=opts["num_frames"], frame_rate=opts["frame_rate"],
+            steps=opts["steps"], cfg=opts["cfg_scale"], seed=opts["seed"],
+        )
+        if opts["image_asset_id"]:
+            kwargs["image_name"] = "x.png"
+        builder(**kwargs)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    max_seconds = 60  # ~37 LTX segments; keeps the media task under its time limit
+    if opts["duration_seconds"] and opts["duration_seconds"] > max_seconds:
+        raise HTTPException(status_code=400, detail=f"duration_seconds must be ≤ {max_seconds}")
+    if opts["scene_prompts"] and len(opts["scene_prompts"]) > 40:
+        raise HTTPException(status_code=400, detail="scene_prompts limited to 40 segments")
+
+    task = celery_app.send_task(
+        "app.worker.tasks.media.generate_video_asset_task",
+        args=[str(team.id), str(current_user.id), body.prompt, opts],
+    )
+    return MediaGenerateVideoResponse(
+        task_id=task.id,
+        poll_url=f"/api/v1/media/generate-video/{task.id}",
+    )
+
+
+@router.get("/generate-video/{task_id}", response_model=MediaGenerateVideoStatus)
+async def generate_video_status(task_id: str, team_id: TeamId,
+    current_user: User = Depends(get_current_user)):
+    """Poll a queued/running video generation task."""
+    from celery.result import AsyncResult
+    res = AsyncResult(task_id, app=celery_app)
+    out = MediaGenerateVideoStatus(task_id=task_id, status=res.status)
+    if res.successful():
+        out.asset_id = str(res.result)
+    elif res.failed():
+        out.error = str(res.result)[:500]
+    return out
+
+# ---------------------------------------------------------------------------
+# Presigned R2 upload flow
+# ---------------------------------------------------------------------------
+
+class PresignedUploadRequest(BaseModel):
+    filename: str
+    mime_type: str
+    size_bytes: int
+    alt_text: str | None = None
+    tags: list[str] | None = None
+
+class PresignedUploadResponse(BaseModel):
+    key: str
+    upload_url: str
+    public_url: str | None
+
+class CompleteUploadRequest(BaseModel):
+    key: str
+    filename: str
+    mime_type: str
+    size_bytes: int
+    width: int | None = None
+    height: int | None = None
+    alt_text: str | None = None
+    tags: list[str] | None = None
+
+@router.post("/upload/prepare", response_model=PresignedUploadResponse)
+async def prepare_upload(
+    body: PresignedUploadRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    url = r2_presigned.presigned_upload_url(
+        team_id=str(team.id),
+        filename=body.filename,
+        mime_type=body.mime_type,
+        size_bytes=body.size_bytes,
+    )
+    if not url:
+        # Fall back to MinIO presigned URL if R2 S3 credentials are not configured
+        url = minio_storage.presigned_upload_url(
+            team_id=str(team.id),
+            filename=body.filename,
+            mime_type=body.mime_type,
+            size_bytes=body.size_bytes,
+        )
+    if not url:
+        raise HTTPException(
+            status_code=503,
+            detail="Neither R2 nor MinIO S3 credentials are configured. Use the server-side /upload endpoint instead.",
+        )
+    return url
+
+@router.post("/upload/complete", response_model=MediaAssetResponse, status_code=status.HTTP_201_CREATED)
+async def complete_upload(
+    body: CompleteUploadRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    # Validate that the uploaded object key belongs to this team to
+    # prevent users from completing uploads for arbitrary keys they do
+    # not own. R2/MinIO keys are formatted as ``{team_id}/{date}/{file}``.
+    expected_prefix = f"{team.id}/"
+    if not body.key.startswith(expected_prefix):
+        raise HTTPException(
+            status_code=403,
+            detail="Upload key does not belong to your team",
+        )
+
+    corrected_alt = await correct_text(body.alt_text)
+    corrected_tags = await correct_tags(body.tags or [])
+    public_url = r2_presigned._public_url(body.key)
+
+    asset = MediaAsset(
+        team_id=team.id,
+        user_id=current_user.id,
+        filename=body.filename,
+        mime_type=body.mime_type,
+        size_bytes=body.size_bytes,
+        storage_backend="r2",
+        storage_path=body.key,
+        public_url=public_url,
+        width=body.width,
+        height=body.height,
+        alt_text=corrected_alt,
+        tags=corrected_tags,
+        source="upload",
+    )
+    db.add(asset)
+    await db.commit()
+    await db.refresh(asset)
+    try:
+        celery_app.send_task("app.worker.tasks.media.auto_tag_asset_task", args=[str(asset.id)])
+    except Exception:
+        pass
+    return asset
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+
+class MediaCollectionCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    cover_asset_id: uuid.UUID | None = None
+
+class MediaCollectionUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    cover_asset_id: uuid.UUID | None = None
+
+class MediaCollectionResponse(BaseModel):
+    id: uuid.UUID
+    team_id: uuid.UUID
+    user_id: uuid.UUID | None
+    name: str
+    description: str | None
+    cover_asset_id: uuid.UUID | None
+    asset_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class CollectionListResponse(BaseModel):
+    collections: list[MediaCollectionResponse]
+    total: int
+
+@router.post("/collections", response_model=MediaCollectionResponse, status_code=status.HTTP_201_CREATED)
+async def create_collection(
+    body: MediaCollectionCreateRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    corrected_name = (await correct_text(body.name)) or body.name
+    collection = MediaCollection(
+        team_id=team.id,
+        user_id=current_user.id,
+        name=corrected_name,
+        description=body.description,
+        cover_asset_id=body.cover_asset_id,
+    )
+    db.add(collection)
+    await db.commit()
+    await db.refresh(collection)
+
+    response = MediaCollectionResponse.model_validate(collection)
+    response.asset_count = 0
+    return response
+
+@router.get("/collections", response_model=CollectionListResponse)
+async def list_collections(team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.team_id == team.id)
+    )
+    collections = result.scalars().all()
+
+    items = []
+    for col in collections:
+        count = await db.execute(
+            select(MediaAsset).where(MediaAsset.collection_id == col.id)
+        )
+        item = MediaCollectionResponse.model_validate(col)
+        item.asset_count = len(count.scalars().all())
+        items.append(item)
+
+    return CollectionListResponse(collections=items, total=len(items))
+
+@router.get("/collections/{collection_id}", response_model=MediaCollectionResponse)
+async def get_collection(
+    collection_id: uuid.UUID, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.id == collection_id, MediaCollection.team_id == team_id)
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    count = await db.execute(
+        select(MediaAsset).where(MediaAsset.collection_id == collection_id)
+    )
+    response = MediaCollectionResponse.model_validate(collection)
+    response.asset_count = len(count.scalars().all())
+    return response
+
+@router.patch("/collections/{collection_id}", response_model=MediaCollectionResponse)
+async def update_collection(
+    collection_id: uuid.UUID,
+    body: MediaCollectionUpdateRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.id == collection_id, MediaCollection.team_id == team_id)
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    if body.name is not None:
+        collection.name = (await correct_text(body.name)) or body.name
+    if body.description is not None:
+        collection.description = body.description
+    if body.cover_asset_id is not None:
+        collection.cover_asset_id = body.cover_asset_id
+
+    await db.commit()
+    await db.refresh(collection)
+
+    count = await db.execute(
+        select(MediaAsset).where(MediaAsset.collection_id == collection_id)
+    )
+    response = MediaCollectionResponse.model_validate(collection)
+    response.asset_count = len(count.scalars().all())
+    return response
+
+@router.delete("/collections/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_collection(
+    collection_id: uuid.UUID, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection).where(MediaCollection.id == collection_id, MediaCollection.team_id == team_id)
+    )
+    collection = result.scalar_one_or_none()
+    if not collection:
+        raise HTTPException(status_code=404, detail="Collection not found")
+
+    await db.delete(collection)
+    await db.commit()
+
+class CollectionAssetRequest(BaseModel):
+    asset_id: uuid.UUID
+
+@router.post("/collections/{collection_id}/assets", response_model=MediaAssetResponse)
+async def add_asset_to_collection(
+    collection_id: uuid.UUID,
+    body: CollectionAssetRequest, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaCollection, MediaAsset)
+        .join(MediaAsset, MediaAsset.id == body.asset_id)
+        .where(
+            MediaCollection.id == collection_id,
+            MediaCollection.team_id == team_id,
+            MediaCollection.team_id == MediaAsset.team_id,
+        )
+    )
+    row = result.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Collection or asset not found or not in the same team")
+
+    collection, asset = row
+    asset.collection_id = collection.id
+    await db.commit()
+    await db.refresh(asset)
+    return asset
+
+@router.delete("/collections/{collection_id}/assets/{asset_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_asset_from_collection(
+    collection_id: uuid.UUID,
+    asset_id: uuid.UUID, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.collection_id == collection_id,
+            MediaAsset.team_id == team_id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found in collection")
+
+    asset.collection_id = None
+    await db.commit()
+
+# ---------------------------------------------------------------------------
+# Search
+# ---------------------------------------------------------------------------
+
+@router.get("/search", response_model=MediaListResponse)
+async def search_media(team_id: TeamId,
+    q: str | None = Query(None),
+    mime_type: str | None = Query(None),
+    source: str | None = Query(None),
+    collection_id: uuid.UUID | None = Query(None),
+    tags: list[str] | None = Query(None),
+    is_favorite: bool | None = Query(None),
+    is_archived: bool | None = Query(None),
+    sort: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    query = select(MediaAsset).where(MediaAsset.team_id == team.id)
+
+    if q:
+        query = query.where(
+            or_(
+                MediaAsset.filename.ilike(f"%{q}%"),
+                MediaAsset.alt_text.ilike(f"%{q}%"),
+                MediaAsset.ai_caption.ilike(f"%{q}%"),
+                MediaAsset.tags.any(q),
+                MediaAsset.ai_tags.any(q),
+            )
+        )
+
+    if mime_type:
+        query = query.where(MediaAsset.mime_type.ilike(f"%{mime_type}%"))
+    if source:
+        query = query.where(MediaAsset.source == source)
+    if collection_id:
+        query = query.where(MediaAsset.collection_id == collection_id)
+    if is_favorite is not None:
+        query = query.where(MediaAsset.is_favorite == is_favorite)
+    if is_archived is not None:
+        query = query.where(MediaAsset.is_archived == is_archived)
+    if tags:
+        query = query.where(MediaAsset.tags.overlap(tags))
+
+    count_result = await db.execute(query.with_only_columns(MediaAsset.id))
+    total = len(count_result.scalars().all())
+
+    sort_map = {
+        "newest": MediaAsset.created_at.desc(),
+        "oldest": MediaAsset.created_at.asc(),
+        "name": MediaAsset.filename.asc(),
+        "size": MediaAsset.size_bytes.desc(),
+    }
+    order = sort_map.get(sort or "", MediaAsset.created_at.desc())
+    query = query.order_by(order).offset((page - 1) * page_size).limit(page_size)
+    result = await db.execute(query)
+    assets = result.scalars().all()
+
+    return MediaListResponse(assets=assets, total=total, page=page, page_size=page_size)
+
+# ---------------------------------------------------------------------------
+# AI auto-tagging and similarity
+# ---------------------------------------------------------------------------
+
+class SimilarAssetResponse(BaseModel):
+    asset_id: uuid.UUID | None
+    ai_caption: str | None
+
+@router.post("/assets/{asset_id}/tag", response_model=MediaAssetResponse)
+async def retag_asset(
+    asset_id: uuid.UUID, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.team_id == team.id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    try:
+        celery_app.send_task("app.worker.tasks.media.auto_tag_asset_task", args=[str(asset.id)])
+    except Exception:
+        pass
+    return asset
+
+@router.get("/assets/{asset_id}/similar", response_model=list[SimilarAssetResponse])
+async def similar_assets(
+    asset_id: uuid.UUID, team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)):
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+
+    result = await db.execute(
+        select(MediaAsset).where(
+            MediaAsset.id == asset_id,
+            MediaAsset.team_id == team.id,
+        )
+    )
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    similar = await get_similar_assets(team.id, asset.id)
+    if not similar:
+        return []
+
+    ids = []
+    for s in similar:
+        emb = s.get("embedding_id")
+        if not emb:
+            continue
+        try:
+            ids.append(uuid.UUID(emb))
+        except (ValueError, AttributeError, TypeError):
+            continue
+    result = await db.execute(
+        select(MediaAsset.id, MediaAsset.ai_caption).where(
+            MediaAsset.id.in_(ids),
+            MediaAsset.team_id == team.id,
+        )
+    )
+    rows = result.all()
+    return [SimilarAssetResponse(asset_id=row[0], ai_caption=row[1]) for row in rows]
+
+# Need to import User

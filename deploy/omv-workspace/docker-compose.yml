@@ -1,0 +1,244 @@
+services:
+  nextcloud-db:
+    image: postgres:16-alpine
+    container_name: nextcloud-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${NEXTCLOUD_DB_NAME}
+      - POSTGRES_USER=${NEXTCLOUD_DB_USER}
+      - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    dns: [1.1.1.1, 8.8.8.8]
+
+  redis:
+    image: redis:7-alpine
+    container_name: nextcloud-redis
+    restart: unless-stopped
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    dns: [1.1.1.1, 8.8.8.8]
+
+  nextcloud:
+    image: nextcloud:35.0.2-apache
+    container_name: nextcloud
+    restart: unless-stopped
+    extra_hosts:
+      - "mail.cloudless.gr:192.168.1.130"
+    depends_on:
+      nextcloud-db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - POSTGRES_HOST=nextcloud-db
+      - POSTGRES_DB=${NEXTCLOUD_DB_NAME}
+      - POSTGRES_USER=${NEXTCLOUD_DB_USER}
+      - POSTGRES_PASSWORD=${NEXTCLOUD_DB_PASSWORD}
+      - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER}
+      - NEXTCLOUD_ADMIN_PASSWORD=${NEXTCLOUD_ADMIN_PASSWORD}
+      - NEXTCLOUD_TRUSTED_DOMAINS=cloud.cloudless.gr 192.168.1.200 localhost
+      - OVERWRITEPROTOCOL=https
+      - OVERWRITEHOST=cloud.cloudless.gr
+      - TRUSTED_PROXIES=172.16.0.0/12 192.168.0.0/16 10.0.0.0/8
+      - APACHE_DISABLE_REWRITE_IP=1
+      - PHP_MEMORY_LIMIT=1024M
+      - PHP_UPLOAD_LIMIT=10G
+      - PHP_OPCACHE_MEMORY_CONSUMPTION=256
+      - PHP_MAX_TIME=3600
+      - TZ=Europe/Athens
+    tmpfs:
+      - /var/cache/fontconfig
+      # Mask system trees inside /omv-storage so Nextcloud never lists or
+      # writes them: containerd/k3s runtime data (symlink spam → DAV 500s),
+      # compose env files (secrets), and the workspace dir that contains
+      # Nextcloud's own html/data (self-reference).
+      - /omv-storage/omv-ai-cluster
+      - /omv-storage/k3s-data
+      - /omv-storage/workspace
+      - /omv-storage/compose-files
+      - /omv-storage/tempo-data
+    # gid 100 = host "users" group — grants www-data read/write of the
+    # OMV SSD tree bound at /omv-storage (replaces the flaky self-SFTP
+    # external-storage mount). NOTE: Apache workers drop supplementary
+    # groups via initgroups() — read/write in DAV actually comes from the
+    # g:www-data:rwX ACLs on the data dirs (see README); group_add only
+    # covers occ/exec paths.
+    group_add:
+      - "100"
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - ./php-conf.d/zz-jit-off.ini:/usr/local/etc/php/conf.d/zz-jit-off.ini:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
+      # lost+found mask needs an explicit mode — plain `tmpfs:` entries
+      # inherit the underlying dir's 2770 root:root, which scans log as
+      # Permission denied. mode 0755 = readable-but-empty.
+      - type: tmpfs
+        target: /omv-storage/lost+found
+        tmpfs:
+          mode: 0o755
+    ports:
+      - "11000:80"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost/status.php || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    dns: [1.1.1.1, 8.8.8.8]
+
+  nextcloud-cron:
+    image: nextcloud:35.0.2-apache
+    container_name: nextcloud-cron
+    restart: unless-stopped
+    depends_on:
+      - nextcloud
+    tmpfs:
+      - /var/cache/fontconfig
+      - /omv-storage/omv-ai-cluster
+      - /omv-storage/k3s-data
+      - /omv-storage/workspace
+      - /omv-storage/compose-files
+      - /omv-storage/tempo-data
+    group_add:
+      - "100"
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - ./php-conf.d/zz-jit-off.ini:/usr/local/etc/php/conf.d/zz-jit-off.ini:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
+      - type: tmpfs
+        target: /omv-storage/lost+found
+        tmpfs:
+          mode: 0o755
+    entrypoint: /cron.sh
+    dns: [1.1.1.1, 8.8.8.8]
+    extra_hosts:
+      - "mail.cloudless.gr:192.168.1.130"
+
+  # Dedicated TaskProcessing (AI) worker — clears the admin-panel warning
+  # "Task Processing worker does not seem to be running" and processes
+  # AI tasks (Assistant/DMR) immediately instead of on the 5-min cron tick.
+  nextcloud-worker:
+    image: nextcloud:35.0.2-apache
+    container_name: nextcloud-worker
+    restart: unless-stopped
+    depends_on:
+      - nextcloud
+    tmpfs:
+      - /var/cache/fontconfig
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data
+      - ./php-conf.d/zz-jit-off.ini:/usr/local/etc/php/conf.d/zz-jit-off.ini:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage
+    user: www-data
+    entrypoint: php
+    command: ["-f", "/var/www/html/occ", "taskprocessing:worker"]
+    dns: [1.1.1.1, 8.8.8.8]
+    extra_hosts:
+      - "mail.cloudless.gr:192.168.1.130"
+
+  collabora:
+    image: collabora/code:26.04.4.2.1
+    container_name: collabora
+    restart: unless-stopped
+    ports:
+      - "9980:9980"
+    environment:
+      - aliasgroup1=https://cloud\\.cloudless\\.gr:443
+      - server_name=office.cloudless.gr
+      - username=tbaltzakis@cloudless.gr
+      - password=${COLLABORA_ADMIN_PASSWORD}
+      - DONT_GEN_SSL_CERT=true
+      - extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:net.proto=IPv4 --o:welcome.enable=false --o:home_mode.enable=true --o:help_url=https://cloudless.gr
+      - TZ=Europe/Athens
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/branding/toolbar-bg-logo.svg:/usr/share/coolwsd/browser/dist/nextcloud/images/toolbar-bg-logo.svg:ro
+    dns: [1.1.1.1, 8.8.8.8]
+
+  talk-hpb:
+    image: nextcloud/aio-talk:20261014_095932
+    container_name: nextcloud-talk-hpb
+    restart: unless-stopped
+    init: true
+    environment:
+      - NC_DOMAIN=cloud.cloudless.gr
+      - TALK_HOST=signal.cloudless.gr
+      - TALK_PORT=3478
+      - TURN_SECRET=${TALK_TURN_SECRET}
+      - SIGNALING_SECRET=${TALK_SIGNALING_SECRET}
+      - INTERNAL_SECRET=${TALK_INTERNAL_SECRET}
+      - TZ=Europe/Athens
+    ports:
+      - "8090:8081"
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+    dns: [1.1.1.1, 8.8.8.8]
+
+  talk-recording:
+    image: nextcloud/aio-talk-recording:latest
+    container_name: nextcloud-talk-recording
+    restart: unless-stopped
+    init: true
+    depends_on:
+      - talk-hpb
+    environment:
+      - NC_DOMAIN=cloud.cloudless.gr
+      - INTERNAL_SECRET=${TALK_INTERNAL_SECRET}
+      - RECORDING_SECRET=${TALK_RECORDING_SECRET}
+      - TZ=Europe/Athens
+    dns: [1.1.1.1, 8.8.8.8]
+
+  appapi-harp:
+    image: ghcr.io/nextcloud/nextcloud-appapi-harp:release
+    container_name: nextcloud-appapi-harp
+    restart: unless-stopped
+    environment:
+      - HP_SHARED_KEY=${APPAPI_HARP_KEY}
+      - NC_INSTANCE_URL=http://nextcloud
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/appapi-certs:/certs
+    dns: [1.1.1.1, 8.8.8.8]
+
+  notify-push:
+    image: nextcloud:35.0.2-apache
+    container_name: nextcloud-notify-push
+    restart: unless-stopped
+    depends_on:
+      - nextcloud
+    tmpfs:
+      - /var/cache/fontconfig
+      - /omv-storage/omv-ai-cluster
+      - /omv-storage/k3s-data
+      - /omv-storage/workspace
+      - /omv-storage/compose-files
+      - /omv-storage/tempo-data
+    group_add:
+      - "100"
+    volumes:
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-html:/var/www/html:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/nextcloud-data:/var/www/html/data:ro
+      - /srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7:/omv-storage:ro
+      - type: tmpfs
+        target: /omv-storage/lost+found
+        tmpfs:
+          mode: 0o755
+    entrypoint: /var/www/html/custom_apps/notify_push/bin/aarch64/notify_push --bind 0.0.0.0 --port 7867 /var/www/html/config/config.php
+    environment:
+      - NEXTCLOUD_URL=http://nextcloud
+    ports:
+      - "7867:7867"
+    dns: [1.1.1.1, 8.8.8.8]

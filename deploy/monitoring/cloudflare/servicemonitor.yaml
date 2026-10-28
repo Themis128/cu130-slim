@@ -1,0 +1,25 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cloudflare-exporter
+  namespace: monitoring
+  labels:
+    app: cloudflare-exporter
+    release: kube-prom
+spec:
+  selector:
+    matchLabels:
+      app: cloudflare-exporter
+      component: metrics
+  namespaceSelector:
+    matchNames:
+      - monitoring
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 60s
+      scrapeTimeout: 30s
+      honorLabels: true
+      relabelings:
+        - targetLabel: job
+          replacement: cloudflare-analytics

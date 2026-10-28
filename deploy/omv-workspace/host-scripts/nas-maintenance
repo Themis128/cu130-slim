@@ -1,0 +1,102 @@
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+LOG="/var/log/nas-maintenance.log"
+ALERT_EMAIL="tbaltzakis@cloudless.gr"
+HOSTNAME=$(hostname)
+REPORT=""
+log() {
+    local msg="$1"
+    printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$msg" >> "$LOG"
+    REPORT="${REPORT}\n${msg}"
+}
+smart_attr() {
+    local dev="$1" attr="$2"
+    smartctl -A "$dev" 2>/dev/null | awk -v a="$attr" '$2==a{print $10+0; exit}'
+}
+log "============ Weekly Maintenance Started ============"
+log "--- APT Updates ---"
+apt-get update -qq >> "$LOG" 2>&1
+UPGRADABLE=$(apt-get --simulate upgrade 2>/dev/null | grep -c "^Inst" || true)
+log "Packages available for upgrade: ${UPGRADABLE}"
+apt-get -y -qq upgrade --with-new-pkgs >> "$LOG" 2>&1
+apt-get -y -qq autoremove >> "$LOG" 2>&1
+apt-get -y -qq autoclean >> "$LOG" 2>&1
+log "System packages updated and cleaned"
+log "--- Filesystem Check ---"
+for DEV in /dev/sda1 /dev/sdb1; do
+    FS_RESULT=0
+    e2fsck -n "$DEV" >> "$LOG" 2>&1 || FS_RESULT=$?
+    if [ "$FS_RESULT" -ne 0 ] && [ "$FS_RESULT" -ne 4 ]; then
+        log "WARNING: Filesystem check $DEV returned code $FS_RESULT"
+    else
+        log "Filesystem $DEV: OK"
+    fi
+done
+log "--- SMART Analysis ---"
+for DEV in /dev/sda /dev/sdb; do
+    smartctl -H "$DEV" >> "$LOG" 2>&1
+    POWER_ON=$(smart_attr "$DEV" "Power_On_Hours")
+    TEMP=$(smart_attr "$DEV" "Temperature_Celsius")
+    [ -z "$TEMP" ] && TEMP=$(smart_attr "$DEV" "Airflow_Temperature_Cel")
+    REALLOC=$(smart_attr "$DEV" "Reallocated_Sector_Ct")
+    PENDING=$(smart_attr "$DEV" "Current_Pending_Sector")
+    [ -z "${POWER_ON}" ] && POWER_ON="n/a"
+    [ -z "${TEMP}" ] && TEMP="n/a"
+    [ -z "${REALLOC}" ] && REALLOC="n/a"
+    [ -z "${PENDING}" ] && PENDING="n/a"
+    WARN=""
+    [ -n "$TEMP"    ] && [ "$TEMP"    -gt 50 ] 2>/dev/null && WARN="${WARN} [HIGH TEMP]"
+    [ -n "$REALLOC" ] && [ "$REALLOC" -gt 0  ] 2>/dev/null && WARN="${WARN} [REALLOC!]"
+    [ -n "$PENDING" ] && [ "$PENDING" -gt 0  ] 2>/dev/null && WARN="${WARN} [PENDING!]"
+    log "${DEV} power-on: ${POWER_ON}h | Temp: ${TEMP}°C | Reallocated: ${REALLOC} | Pending: ${PENDING}${WARN}"
+    smartctl -A "$DEV" >> "$LOG" 2>&1
+done
+log "--- Disk Usage ---"
+df -h >> "$LOG" 2>&1
+NAS_PATH="/srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7"
+if [ -d "$NAS_PATH" ]; then
+    DOC_SIZE=$(du -sh "$NAS_PATH/Documents"  2>/dev/null | awk '{print $1}')
+    MEDIA_SIZE=$(du -sh "$NAS_PATH/Media"    2>/dev/null | awk '{print $1}')
+    BACKUP_SIZE=$(du -sh "$NAS_PATH/Backups" 2>/dev/null | awk '{print $1}')
+    DOWN_SIZE=$(du -sh "$NAS_PATH/Downloads" 2>/dev/null | awk '{print $1}')
+    log "Share sizes: Documents=${DOC_SIZE:-n/a} | Media=${MEDIA_SIZE:-n/a} | Backups=${BACKUP_SIZE:-n/a} | Downloads=${DOWN_SIZE:-n/a}"
+fi
+log "--- Log Cleanup ---"
+journalctl --vacuum-time=90d >> "$LOG" 2>&1
+find /var/log -name "*.gz" -mtime +90 -delete 2>/dev/null
+find /var/log -name "*.1"  -mtime +90 -delete 2>/dev/null
+JOURNAL_SIZE=$(journalctl --disk-usage 2>/dev/null | grep -oP '[0-9.]+[MG]B?')
+log "Journal size after cleanup: ${JOURNAL_SIZE}"
+log "--- Samba Check ---"
+SHARES=$(testparm -s 2>/dev/null | grep -c "[\[")
+log "Samba shares configured: ${SHARES:-0}"
+SMB_CONNECTIONS=$(smbstatus --brief 2>/dev/null | awk 'NR>2 && /^[0-9]/{c++} END{print c+0}')
+log "Active SMB connections: ${SMB_CONNECTIONS}"
+log "--- Backup Integrity ---"
+BACKUP_DIR="$NAS_PATH/Backups/daily-snapshot"
+if [ -d "$BACKUP_DIR/Documents" ]; then
+    SRC_COUNT=$(find "$NAS_PATH/Documents"   -type f 2>/dev/null | wc -l)
+    BAK_COUNT=$(find "$BACKUP_DIR/Documents" -type f 2>/dev/null | wc -l)
+    log "Documents: source=${SRC_COUNT} files, backup=${BAK_COUNT} files"
+    [ "$SRC_COUNT" -ne "$BAK_COUNT" ] && log "WARNING: Backup file count mismatch!"
+fi
+log "--- SD Card Stats ---"
+if [ -f /sys/block/mmcblk0/stat ]; then
+    read -r SD_READS _ _ _ SD_WRITES _ < /sys/block/mmcblk0/stat
+    log "SD card I/O: reads=${SD_READS} writes=${SD_WRITES}"
+else
+    log "SD card I/O: mmcblk0 not found"
+fi
+log "--- Network ---"
+GATEWAY_PING=$(ping -c 3 -W 2 192.168.1.1 2>/dev/null | awk '/packet loss/{for(i=1;i<=NF;i++) if($i=="packet") print $(i-1)}')
+DNS_PING=$(ping -c 3 -W 2 8.8.8.8       2>/dev/null | awk '/packet loss/{for(i=1;i<=NF;i++) if($i=="packet") print $(i-1)}')
+log "Gateway ping loss: ${GATEWAY_PING} | DNS ping loss: ${DNS_PING}"
+log "--- Security ---"
+FAILED_SSH=$(journalctl -u ssh --since "7 days ago" --no-pager 2>/dev/null | grep -c "Failed password" || echo 0)
+BANNED_TOTAL=$(fail2ban-client status sshd 2>/dev/null | awk '/Total banned/{gsub(/[^0-9]/,"",$NF); print $NF}')
+BANNED_TOTAL=${BANNED_TOTAL:-0}
+log "Failed SSH attempts (7d): ${FAILED_SSH} | Total IPs banned: ${BANNED_TOTAL}"
+log "============ Weekly Maintenance Complete ============"
+printf "Subject: [OMV] Weekly Maintenance Report - %s\n\n%b\n" "$HOSTNAME" "$REPORT" | sendmail "$ALERT_EMAIL"

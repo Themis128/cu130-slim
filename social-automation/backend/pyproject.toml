@@ -1,0 +1,194 @@
+[project]
+name = "social-automation-api"
+version = "0.1.0"
+description = "Social Media Automation Platform API"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.130.0,<0.150.0",
+    "uvicorn[standard]>=0.29.0,<1.0.0",
+    "sqlalchemy>=2.0.30,<2.1",
+    "alembic>=1.13.1,<2.0.0",
+    "asyncpg>=0.29.0,<1.0.0",
+    "pydantic>=2.9.0,<3.0.0",
+    "pydantic-settings>=2.3.3,<3.0.0",
+    "pydantic[email]>=2.9.0,<3.0.0",
+    "PyJWT>=2.8.0",
+    "passlib[argon2]>=1.7.4",
+    "python-multipart>=0.0.12",
+    "httpx[socks]>=0.27.0,<1.0.0",
+    "redis>=7.0.0,<8.0.0",
+    "celery>=5.4.0,<6.0.0",
+    "python-dotenv>=1.2.2",
+    "cryptography>=43.0.0",
+    "msgpack>=1.2.1",
+    "httpx-oauth==0.17.0",
+    "pgvector==0.2.3",
+    "structlog==24.1.0",
+    "aiofiles==24.1.0",
+    "slowapi>=0.1.9",
+    # Security: pin jaraco.context to fix path traversal via tar archives (GHSA)
+    "jaraco.context>=6.1.0",
+    "Pillow>=13.0.0",
+    # Extended image-format support for the media library viewer:
+    # HEIC/HEIF (iPhone photos) and AVIF are re-encoded server-side by
+    # /api/v1/media/view so every browser can display them.
+    "pillow-heif>=0.13.0",
+    "pillow-avif-plugin>=1.4.6",
+    # Perceptual hashing for media dedup (media_dedup.py). Meta's PDQ
+    # (facebook/ThreatExchange) needs a C++ toolchain absent from the slim
+    # image; imagehash is the pure-Python equivalent.
+    "imagehash>=4.3.1",
+    # Official Meta Business SDK — used by the meta-graph-ops skill tooling
+    # for token introspection, page insights, and IG account discovery.
+    "facebook-business>=21.0.0",
+    # Official LinkedIn Rest.li client — used by scripts/linkedin_tool.py for
+    # token introspection (AuthClient.introspect_access_token) and as the
+    # reference client for new versioned-API work.
+    "linkedin-api-client>=0.3.0",
+    # Security: pin setuptools and wheel for vulnerability fixes
+    "setuptools>=78.1.1",
+    "wheel>=0.46.2",
+    # Security: pin starlette to fix DoS/SSRF (CVE-2024-xxxx)
+    "starlette>=0.52.2",
+    # Used for robust emoji stripping in image rendering
+    "emoji>=2.14.0",
+    # Prometheus scrape endpoint (/metrics) — HTTP + business vitals
+    "prometheus-client>=0.21,<1.0",
+    # OpenTelemetry tracing — OTLP/HTTP export to self-hosted Tempo on omv.
+    # Continues the Cloudflare edge trace via forwarded traceparent headers.
+    "opentelemetry-api>=1.27.0,<2.0",
+    "opentelemetry-sdk>=1.27.0,<2.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.27.0,<2.0",
+    "opentelemetry-instrumentation-fastapi>=0.48b0,<1.0",
+    "opentelemetry-instrumentation-httpx>=0.48b0,<1.0",
+    # TikTok profile-grid scraping for analytics gap-fill (MEDIA_UPLOAD
+    # posts have no Display API video id; cookies from account meta_data)
+    "yt-dlp==2026.08.19",
+    # HTML parsing for the AI Brand Kit Extractor (website → brand profile)
+    "beautifulsoup4>=4.12.0,<5.0.0",
+    "lxml>=6.1.0,<7.0.0",
+    # Twitter/X profile updates via v1.1 API (needs Basic/Pro tier)
+    "tweepy>=4.14.0,<5.0.0",
+    # Free X web fallback (app/services/x_web.py) — cookie-auth x.com GraphQL.
+    # tweety (MIT): PyPI 2.4.1 is stale, so pin a main-branch commit archive
+    # (2026-09-13, after the 2026-08-26 fix merges #278/#292/#293/#297).
+    "tweety-ns @ https://github.com/mahrtayyab/tweety/archive/f6bfc8610bd3ec8af2fe000076bc1b53a6327e7d.zip",
+    # twscrape (MIT): read-only secondary for tweet/user metrics.
+    "twscrape==0.20.1",
+    # TikTok profile updates via private mobile API (signing server)
+    "tiktok-private-api>=0.4.3",
+    # NOTE: no playwright/patchright here — all browser automation runs in the
+    # dedicated sidecar containers; the backend talks to them over HTTP.
+    # Instagram private API (instagrapi) is NOT a resolved dependency: every
+    # release >=2.6.9 (the GHSA-ggxf-37hm-9wqf fix) hard-pins Pillow<13, which
+    # conflicts with our Pillow>=13.0.0 security floor. The runtime image
+    # installs it --no-deps (see Dockerfile); the client lazy-imports it, so
+    # test/CI envs work without it.
+    # PDF libraries — carousel PDF generation, page extraction, and rendering
+    "PyMuPDF>=1.24.0",        # primary: fast PDF read/render (fitz)
+    "pypdf>=4.0.0",           # lightweight PDF read/merge/split
+    "reportlab>=4.0.0",       # PDF generation from scratch
+    "pdfplumber>=0.11.0",     # text/table extraction from PDFs
+    "pdf2image>=1.17.0",      # PDF page -> PIL Image (needs poppler-utils)
+    "mcp>=2.2.0",             # MCP stdio server (app.mcp.server)
+    # Notebook-driven reporting — papermill executes report notebooks in the
+    # worker env (inherits DATABASE_URL, AI + Slack secrets, /app imports);
+    # executed outputs land in ./notebooks/output for the Jupyter UI.
+    "papermill>=2.6.0,<3.0.0",
+    "ipykernel>=6.29.0,<7.0.0",
+    "pandas>=2.2.0,<3.0.0",
+    "matplotlib>=3.8.0,<4.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.3",
+    "pytest-asyncio>=0.23.7",
+    "pytest-cov==5.0.0",
+    "patchright>=1.55.2",
+    "playwright>=1.55.0",
+    "respx>=0.23.1",
+    "respx>=0.22.0",
+    "ruff==0.4.3",
+    "mypy==1.10.0",
+    # test-only: browser-novnc/browser-bridge.py is loaded via importlib in
+    # test_bridge_warm_ownership.py — needs the playwright fallback import.
+    "playwright>=1.40.0",
+]
+
+[build-system]
+requires = ["setuptools>=78.1.1", "wheel>=0.46.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 160
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "W"]
+ignore = [
+    "F821",  # undefined-name: false positives from SQLAlchemy cross-model forward refs
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+explicit_package_bases = true
+# SQLAlchemy Result.scalars().first() is poorly typed without the mypy plugin;
+# attr-defined/arg-type noise dominates CI without blocking real bugs.
+disable_error_code = ["no-any-return", "no-untyped-def", "var-annotated", "misc", "attr-defined", "arg-type", "assignment"]
+
+[[tool.mypy.overrides]]
+module = ["app.models.*"]
+disable_error_code = ["name-defined"]
+
+[[tool.mypy.overrides]]
+# Third-party packages without complete typing support:
+# - aiofiles: no inline types / stubs installed
+# - numpy: ships PEP-695 `type` statement stubs incompatible with python_version 3.11 target
+# - emoji: no type stubs installed
+module = ["aiofiles.*", "numpy.*", "emoji.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# - papermill: no type stubs; installed only on worker images
+# - passlib: types-passlib stub package not installed
+# - celery: ships no py.typed marker; types-celery stubs not installed
+module = ["papermill", "passlib.*", "celery", "celery.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+filterwarnings = [
+    "ignore::DeprecationWarning:passlib",
+    "ignore:'crypt' is deprecated:DeprecationWarning",
+    "ignore:Accessing argon2.__version__ is deprecated:DeprecationWarning",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow tests",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*", "*/migrations/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

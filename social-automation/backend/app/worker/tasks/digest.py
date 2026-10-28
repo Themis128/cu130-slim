@@ -1,0 +1,97 @@
+"""Celery task: daily SocialAuto digest → Slack #socialauto + email."""
+from __future__ import annotations
+
+from typing import Any
+
+from celery import shared_task
+
+from app.services.slack_digest import run_daily_digest_for_all_teams
+from app.worker._async import run_async, task_session
+from app.worker.celery_app import celery_app
+
+celery_app.set_default()
+celery_app.set_current()
+
+
+_worker_db = task_session
+
+
+@shared_task(name="app.worker.tasks.digest.send_daily_slack_digest")
+def send_daily_slack_digest(
+    days: int = 1,
+    post_to_slack: bool = True,
+    post_to_email: bool = True,
+) -> dict[str, Any]:
+    """Build and deliver the SocialAuto daily analytics + issues digest."""
+    return run_async(
+        _send_digest_async(
+            days=days, post_to_slack=post_to_slack, post_to_email=post_to_email
+        )
+    )
+
+
+@shared_task(name="app.worker.tasks.digest.send_daily_strategy_report")
+def send_daily_strategy_report(
+    insight_days: int = 30,
+    send: bool = True,
+) -> dict[str, Any]:
+    """End-of-day strategy brief — insights engine → actions → email."""
+    return run_async(_send_strategy_async(insight_days=insight_days, send=send))
+
+
+@shared_task(name="app.worker.tasks.digest.send_weekly_slack_digest")
+def send_weekly_slack_digest(
+    days: int = 7,
+    post_to_slack: bool = True,
+    post_to_email: bool = False,
+) -> dict[str, Any]:
+    """Weekly rollup digest (defaults to last 7 days) posted to Slack #socialauto."""
+    return run_async(
+        _send_digest_async(
+            days=days, post_to_slack=post_to_slack, post_to_email=post_to_email
+        )
+    )
+
+
+async def _send_digest_async(
+    *, days: int, post_to_slack: bool, post_to_email: bool
+) -> dict[str, Any]:
+    async with _worker_db() as db:
+        reports = await run_daily_digest_for_all_teams(
+            db,
+            days=days,
+            post_to_slack=post_to_slack,
+            post_to_email=post_to_email,
+        )
+    return {
+        "teams": len(reports),
+        "posted_slack": sum(1 for r in reports if r.get("posted_to_slack")),
+        "emailed": sum(1 for r in reports if r.get("emailed")),
+        "errors": [
+            r.get("slack_error") or r.get("email_error")
+            for r in reports
+            if r.get("slack_error") or r.get("email_error")
+        ],
+        "issue_counts": [
+            {
+                "team": r.get("team_name"),
+                "issues": len(r.get("issues") or []),
+            }
+            for r in reports
+        ],
+    }
+
+
+async def _send_strategy_async(*, insight_days: int, send: bool) -> dict[str, Any]:
+    from app.services.strategy_report import run_strategy_report_for_all_teams
+
+    async with _worker_db() as db:
+        reports = await run_strategy_report_for_all_teams(
+            db, insight_days=insight_days, send=send
+        )
+    return {
+        "teams": len(reports),
+        "emailed": sum(1 for r in reports if r.get("emailed")),
+        "llm_used": sum(1 for r in reports if r.get("llm_used")),
+        "errors": [r.get("email_error") for r in reports if r.get("email_error")],
+    }

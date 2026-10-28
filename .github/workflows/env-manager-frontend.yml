@@ -1,0 +1,100 @@
+---
+name: Env Manager CI
+
+"on":
+  push:
+    branches: [master]
+    paths:
+      - 'env-manager/**'
+  pull_request:
+    branches: [master]
+    paths:
+      - 'env-manager/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-test:
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache Python dependencies
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('env-manager/backend/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          cd env-manager/backend
+          pip install -r requirements.txt
+          pip install ruff mypy
+
+      - name: Run linting
+        run: |
+          cd env-manager/backend
+          ruff check .
+
+      - name: Run type checking
+        run: |
+          cd env-manager/backend
+          mypy main.py --ignore-missing-imports
+
+  frontend-test:
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Cache node modules
+        uses: actions/cache@v6
+        with:
+          path: env-manager/frontend/node_modules
+          key: ${{ runner.os }}-node22-${{ hashFiles('env-manager/frontend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node22-
+
+      - name: Install dependencies
+        run: |
+          cd env-manager/frontend
+          npm ci
+
+      - name: Run linting
+        run: |
+          cd env-manager/frontend
+          npm run lint
+
+      - name: Run type checking
+        run: |
+          cd env-manager/frontend
+          npm run typecheck
+
+      - name: Run tests
+        run: |
+          cd env-manager/frontend
+          npm run test
+
+      - name: Build
+        run: |
+          cd env-manager/frontend
+          npm run build

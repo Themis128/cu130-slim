@@ -1,0 +1,16 @@
+{
+  "name": "linkedin-browser-sidecar",
+  "version": "1.0.0",
+  "description": "Playwright-based REST API for LinkedIn browser automation (personal + company profile management)",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.5.0",
+    "patchright": "^1.62.1"
+  }
+}

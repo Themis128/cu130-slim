@@ -1,0 +1,554 @@
+{
+  "name": "Weekly Cloud Computing Post",
+  "active": false,
+  "id": "weekly-cloud-computing-post",
+  "nodes": [
+    {
+      "name": "Weekly Monday 09:00 Athens",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9 * * 1"
+            }
+          ]
+        }
+      },
+      "typeVersion": 1.2,
+      "id": "5e822793-f148-4120-8ec8-fdcfcbda1be9"
+    },
+    {
+      "name": "Resolve Weekly Post Config",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        280,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nreturn [{\n  json: {\n    title: body.title || 'Weekly Cloud Computing Trends',\n    description: body.description || 'Stay up-to-date on the latest cloud computing trends and technologies.',\n    link: body.link || 'https://cloudless.gr/blog',\n    type: body.type || 'post',\n    article_topic: body.article_topic || 'Weekly Cloud Computing Trends',\n    target_account_id: body.target_account_id || '9c4451bb-e820-489f-8676-76ddbc788ffe',\n    publish: body.publish !== undefined ? body.publish : true\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "id": "13e7bf8b-87b8-466d-970b-22a44ef484d4"
+    },
+    {
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        520,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            },
+            {
+              "name": "otp",
+              "value": "={{ $('Generate TOTP').item.json.otp }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "typeVersion": 4.2,
+      "id": "ea377717-7c6b-4b6d-97a6-8b47e4ac422a",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        740,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "typeVersion": 2.2,
+      "id": "9870e3e4-fd73-414e-93c4-66e9318ac786"
+    },
+    {
+      "name": "Run Weekly Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        980,
+        -140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"media_ids\": {{ JSON.stringify([$('Generate Image (CF FLUX)').item.json.asset_id]) }},\n  \"content_text\": {{ JSON.stringify($('Generate Blog Article').item.json.social_post || (($('Generate Blog Article').item.json.title || $('Resolve Weekly Post Config').item.json.title) + '\\n\\n' + ($('Generate Blog Article').item.json.excerpt || $('Resolve Weekly Post Config').item.json.description))) }},\n  \"link_url\": {{ JSON.stringify($('Generate Blog Article').item.json.url || $('Resolve Weekly Post Config').item.json.link) }},\n  \"target_account_ids\": {{ JSON.stringify([$('Resolve Weekly Post Config').item.json.target_account_id]) }}\n}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "typeVersion": 4.2,
+      "id": "9d4f3d5e-ec30-4a74-97bc-7ba4ebdf8820",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Publish?",
+      "type": "n8n-nodes-base.if",
+      "position": [
+        1220,
+        -140
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "should-publish",
+              "leftValue": "={{ String($('Resolve Weekly Post Config').item.json.publish) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "has-post-id",
+              "leftValue": "={{ $json.id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "typeVersion": 2.2,
+      "id": "publish-if-9c2e"
+    },
+    {
+      "name": "Publish Now",
+      "type": "n8n-nodes-base.httpRequest",
+      "position": [
+        1460,
+        -200
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts/' + $json.id + '/publish-now' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "typeVersion": 4.2,
+      "id": "publish-now-7f1a",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "position": [
+        1700,
+        -140
+      ],
+      "parameters": {
+        "jsCode": "const raw = $json;\nconst ok = !!(raw && raw.id);\nlet art = {};\ntry { art = $('Generate Blog Article').item.json || {}; } catch (e) {}\nreturn [{\n  json: {\n    ok,\n    brand: 'cloudless.gr',\n    post_id: raw.id || null,\n    status: raw.status || (ok ? 'created' : 'failed'),\n    article_slug: art.slug || null,\n    article_url: art.url || null,\n    article_created: art.created === true,\n    error: ok ? null : (raw.message || raw.detail || raw.error || 'post_creation_failed'),\n  }\n}];"
+      },
+      "typeVersion": 2,
+      "id": "0d298c35-5103-41b2-91eb-7aba9940a842"
+    },
+    {
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "position": [
+        980,
+        140
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "hint",
+              "name": "hint",
+              "value": "Check SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD on the n8n container",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "typeVersion": 3.4,
+      "id": "fdbd62f8-2a25-4026-a4c9-6cf21760e6d8"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "id": "6118600a-14f1-47df-b622-65ef067261ba",
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-blog-article' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Resolve Weekly Post Config').item.json.article_topic) }},\n  \"publish\": true\n}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "id": "a1b2c3d4-weekly-article-0001",
+      "name": "Generate Blog Article",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1420,
+        300
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/generate-image' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Login Social API').item.json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Weekly Post Config').item.json.article_topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
+        "options": {
+          "timeout": 600000
+        }
+      },
+      "name": "Generate Image (CF FLUX)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1500,
+        320
+      ],
+      "id": "b5bde41f-95c2-48ca-999c-d07e13946ace",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "content-and-media",
+              "leftValue": "={{ !!($('Generate Blog Article').item.json.social_post || $('Generate Blog Article').item.json.title) && !!($('Generate Image (CF FLUX)').item.json.asset_id) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Content Guard",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1720,
+        320
+      ],
+      "id": "6efeed21-2d8c-451c-a19a-63e376a8bee0"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "empty_content_or_media — skipped (owner rule: never post without media)",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Guard Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1940,
+        480
+      ],
+      "id": "3e2436ee-90ae-40c8-892b-28baf521e147"
+    }
+  ],
+  "connections": {
+    "Weekly Monday 09:00 Athens": {
+      "main": [
+        [
+          {
+            "node": "Resolve Weekly Post Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Weekly Post Config": {
+      "main": [
+        [
+          {
+            "node": "Generate TOTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "Generate Blog Article",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Weekly Post": {
+      "main": [
+        [
+          {
+            "node": "Publish?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish?": {
+      "main": [
+        [
+          {
+            "node": "Publish Now",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish Now": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TOTP": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Blog Article": {
+      "main": [
+        [
+          {
+            "node": "Generate Image (CF FLUX)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image (CF FLUX)": {
+      "main": [
+        [
+          {
+            "node": "Content Guard",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Content Guard": {
+      "main": [
+        [
+          {
+            "node": "Run Weekly Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guard Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 1500,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "notify-failures"
+  },
+  "tags": [
+    {
+      "name": "cloudless"
+    },
+    {
+      "name": "linkedin"
+    },
+    {
+      "name": "weekly"
+    }
+  ]
+}

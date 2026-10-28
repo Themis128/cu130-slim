@@ -1,0 +1,836 @@
+"""SocialAuto MCP Server — exposes SocialAuto's API to AI agents.
+
+Run with: python -m app.mcp.server
+
+Environment variables:
+- SOCIALAUTO_URL: Base URL of the SocialAuto API (default: http://localhost:8083)
+- SOCIALAUTO_TOKEN: Bearer token for authentication
+- SOCIALAUTO_ADMIN_EMAIL: Admin email for auto-login (alternative to SOCIALAUTO_TOKEN)
+- SOCIALAUTO_ADMIN_PASSWORD: Admin password for auto-login
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+from typing import Any
+
+import httpx
+
+from mcp.server import Server
+from mcp.server.stdio import stdio_server
+from mcp.types import (
+    CallToolRequestParams,
+    CallToolResult,
+    ListToolsResult,
+    PaginatedRequestParams,
+    TextContent,
+    Tool,
+)
+
+server = Server("socialauto")
+
+API_URL = os.environ.get("SOCIALAUTO_URL", "http://localhost:8083")
+API_TOKEN = os.environ.get("SOCIALAUTO_TOKEN", "")
+
+
+async def _get_token() -> str:
+    """Get API token from env or auto-login."""
+    global API_TOKEN
+    if API_TOKEN:
+        return API_TOKEN
+    email = os.environ.get("SOCIALAUTO_ADMIN_EMAIL") or os.environ.get(
+        "SOCIAL_ADMIN_EMAIL", ""
+    )
+    password = os.environ.get("SOCIALAUTO_ADMIN_PASSWORD") or os.environ.get(
+        "SOCIAL_ADMIN_PASSWORD", ""
+    )
+    if not email or not password:
+        raise RuntimeError(
+            "Set SOCIALAUTO_TOKEN or SOCIALAUTO_ADMIN_EMAIL+SOCIALAUTO_ADMIN_PASSWORD"
+        )
+    async with httpx.AsyncClient() as client:
+        payload = {"username": email, "password": password}
+        resp = await client.post(
+            f"{API_URL}/api/v1/auth/login",
+            data=payload,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+        if resp.status_code == 401 and resp.json().get("detail") == "two_factor_required":
+            payload["otp"] = await _totp_code(email)
+            resp = await client.post(
+                f"{API_URL}/api/v1/auth/login",
+                data=payload,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        resp.raise_for_status()
+        API_TOKEN = resp.json()["access_token"]
+    return API_TOKEN
+
+
+async def _totp_code(email: str) -> str:
+    """Fetch the user's TOTP secret from the DB and generate the current code."""
+    import base64
+    import hashlib
+    import hmac
+    import struct
+    import time
+
+    from sqlalchemy import select
+
+    from app.db.session import async_session_maker
+    from app.models.user import User
+
+    async with async_session_maker() as db:
+        secret = (
+            await db.execute(select(User.two_factor_secret).where(User.email == email))
+        ).scalar_one_or_none()
+    if not secret:
+        raise RuntimeError("2FA required but no TOTP secret found for this user")
+
+    padding = "=" * (8 - len(secret) % 8) if len(secret) % 8 else ""
+    key = base64.b32decode(secret + padding)
+    msg = struct.pack(">Q", int(time.time()) // 30)
+    digest = hmac.new(key, msg, hashlib.sha1).digest()
+    offset = digest[-1] & 0x0F
+    code = (struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF) % 10**6
+    return f"{code:06d}"
+
+
+async def _api_request(
+    method: str,
+    path: str,
+    json_body: dict | None = None,
+    params: dict | None = None,
+) -> dict | list:
+    """Make an authenticated API request."""
+    token = await _get_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=120) as client:
+        if method == "GET":
+            resp = await client.get(f"{API_URL}{path}", headers=headers, params=params)
+        elif method == "POST":
+            headers["Content-Type"] = "application/json"
+            resp = await client.post(f"{API_URL}{path}", headers=headers, json=json_body)
+        elif method == "PUT":
+            headers["Content-Type"] = "application/json"
+            resp = await client.put(f"{API_URL}{path}", headers=headers, json=json_body)
+        elif method == "DELETE":
+            resp = await client.delete(f"{API_URL}{path}", headers=headers)
+        elif method == "PATCH":
+            headers["Content-Type"] = "application/json"
+            resp = await client.patch(f"{API_URL}{path}", headers=headers, json=json_body)
+        else:
+            raise ValueError(f"Unsupported method: {method}")
+        resp.raise_for_status()
+        return resp.json() if resp.content else {}
+
+
+TOOLS: list[Tool] = [
+    Tool(
+        name="list_accounts",
+        description="List all connected social media accounts (LinkedIn, Twitter, Facebook, Instagram, Threads, TikTok)",
+        input_schema={"type": "object", "properties": {}, "required": []},
+    ),
+    Tool(
+        name="get_account",
+        description="Get details of a specific social account by ID",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="create_post",
+        description="Create a social media post (draft or scheduled)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Post text content"},
+                "platforms": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Platforms: linkedin, twitter, facebook, instagram, threads, tiktok, telegram",
+                },
+                "account_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific social account IDs to target (overrides platforms)",
+                },
+                "scheduled_at": {"type": "string", "description": "ISO 8601 datetime (optional)"},
+                "media_ids": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["content"],
+        },
+    ),
+    Tool(
+        name="list_posts",
+        description="List social media posts with optional status filter",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "Filter: draft, scheduled, published, failed"},
+                "limit": {"type": "integer", "description": "Max results (default 20)"},
+            },
+        },
+    ),
+    Tool(
+        name="publish_post",
+        description="Publish a draft post immediately to all its target platforms",
+        input_schema={
+            "type": "object",
+            "properties": {"post_id": {"type": "string", "description": "Post UUID"}},
+            "required": ["post_id"],
+        },
+    ),
+    Tool(
+        name="generate_content",
+        description="Generate AI content for a social media post",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "topic": {"type": "string", "description": "Topic or prompt"},
+                "platform": {"type": "string", "description": "Target platform"},
+                "tone": {"type": "string", "description": "Tone: professional, casual, etc."},
+            },
+            "required": ["topic", "platform"],
+        },
+    ),
+    Tool(
+        name="suggest_hashtags",
+        description="Suggest hashtags for content based on topic and platform",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Content to generate hashtags for"},
+                "platform": {"type": "string", "description": "Target platform"},
+                "max_hashtags": {"type": "integer", "description": "Max hashtags (default 5)"},
+            },
+            "required": ["content", "platform"],
+        },
+    ),
+    Tool(
+        name="score_content",
+        description="Score content on readability, engagement, hashtag quality, and length fit (no AI call needed)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "Post text content"},
+                "platform": {"type": "string", "description": "Target platform"},
+                "hashtags": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["content", "platform"],
+        },
+    ),
+    Tool(
+        name="get_analytics",
+        description="Get analytics overview for the team",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "description": "Days to look back (default 30)"},
+            },
+        },
+    ),
+    Tool(
+        name="list_media",
+        description="List media assets in the library",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "description": "Max results (default 20)"},
+                "type": {"type": "string", "description": "Filter: image, video, generated"},
+            },
+        },
+    ),
+    Tool(
+        name="get_profile",
+        description="Get the profile of a connected social account",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="get_brand",
+        description="Get the brand profile (name, tagline, mission, values, visual identity)",
+        input_schema={"type": "object", "properties": {}, "required": []},
+    ),
+    # ── Messenger Platform tools ──────────────────────────────────────
+    Tool(
+        name="messenger_setup",
+        description="Set up Messenger on a Facebook Page (subscribe to webhooks + configure default profile with greeting, Get Started, persistent menu)",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "greeting_text": {"type": "string", "description": "Custom greeting text (optional)"},
+            },
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_get_profile",
+        description="Get the Messenger Profile for a Facebook Page (greeting, menu, domains, subscription)",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook Page account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_update_profile",
+        description="Update Messenger Profile properties. At least one field required.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "greeting": {"type": "array", "items": {"type": "object"}, "description": "Greeting messages (deprecated by Meta, use ice_breakers)"},
+                "get_started": {"type": "object", "description": "Get Started button config, e.g. {\"payload\": \"GET_STARTED\"}"},
+                "persistent_menu": {"type": "array", "items": {"type": "object"}, "description": "Persistent menu config"},
+                "whitelisted_domains": {"type": "array", "items": {"type": "string"}, "description": "Allowed domains for Messenger Extensions"},
+                "ice_breakers": {"type": "array", "items": {"type": "object"}, "description": "Ice breaker questions"},
+            },
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_send_message",
+        description="Send a text or image message to a person on Messenger. Must be within 24 hours of their last message (RESPONSE messaging type).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "recipient_psid": {"type": "string", "description": "Page-Scoped ID of the recipient"},
+                "text": {"type": "string", "description": "Text message content"},
+                "image_url": {"type": "string", "description": "Image URL to send"},
+                "messaging_type": {"type": "string", "description": "RESPONSE (default), UPDATE, MESSAGE_TAG"},
+            },
+            "required": ["account_id", "recipient_psid"],
+        },
+    ),
+    Tool(
+        name="messenger_list_conversations",
+        description="List Messenger conversations for a Facebook Page",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "limit": {"type": "integer", "description": "Max results (default 25)"},
+                "platform": {"type": "string", "description": "Filter: messenger (default), instagram"},
+            },
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_get_messages",
+        description="Get messages in a specific conversation thread",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "conversation_id": {"type": "string", "description": "Conversation thread ID"},
+                "limit": {"type": "integer", "description": "Max messages (default 20)"},
+            },
+            "required": ["account_id", "conversation_id"],
+        },
+    ),
+    Tool(
+        name="messenger_get_auto_reply",
+        description="Get the AI auto-reply configuration for a Messenger account",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook Page account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_set_auto_reply",
+        description="Enable/disable or configure AI auto-reply for Messenger. Uses Cloudflare Workers AI (free) with DMR (local) fallback.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook Page account UUID"},
+                "enabled": {"type": "boolean", "description": "Enable or disable auto-reply"},
+                "system_prompt": {"type": "string", "description": "System prompt for AI (supports {page_name} placeholder)"},
+                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-3.1-8b-instruct)"},
+                "fallback_text": {"type": "string", "description": "Fallback text if AI fails"},
+                "max_tokens": {"type": "integer", "description": "Max response tokens (default 200)"},
+            },
+            "required": ["account_id", "enabled"],
+        },
+    ),
+    Tool(
+        name="messenger_unsubscribe",
+        description="Remove the app's Messenger subscription from a Facebook Page",
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook Page account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    # ── Personal Messenger tools (browser bridge) ──────────────────────
+    Tool(
+        name="messenger_list_all_accounts",
+        description=(
+            "List all Messenger-capable accounts (Facebook Pages with "
+            "Messenger Platform API + personal Facebook accounts with "
+            "browser bridge). Returns account type, setup status, and "
+            "which method to use."
+        ),
+        input_schema={"type": "object", "properties": {}, "required": []},
+    ),
+    Tool(
+        name="messenger_personal_conversations",
+        description=(
+            "List personal Messenger conversations for a Facebook personal "
+            "(user) account via the browser bridge. Requires a logged-in "
+            "Facebook browser session (noVNC)."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook personal (user) account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_personal_messages",
+        description="Get messages from a personal Messenger conversation thread via the browser bridge. Requires a logged-in Facebook browser session.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook personal (user) account UUID"},
+                "thread_id": {"type": "string", "description": "Conversation thread ID (from messenger_personal_conversations)"},
+            },
+            "required": ["account_id", "thread_id"],
+        },
+    ),
+    Tool(
+        name="messenger_personal_send",
+        description="Send a message in a personal Messenger conversation via the browser bridge. Requires a logged-in Facebook browser session.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook personal (user) account UUID"},
+                "thread_id": {"type": "string", "description": "Conversation thread ID"},
+                "text": {"type": "string", "description": "Message text to send"},
+            },
+            "required": ["account_id", "thread_id", "text"],
+        },
+    ),
+    Tool(
+        name="messenger_personal_get_auto_reply",
+        description=(
+            "Get AI auto-reply configuration for a personal Messenger "
+            "account (browser bridge). Returns enabled state, system "
+            "prompt, model, and last-checked timestamp."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {"account_id": {"type": "string", "description": "Facebook personal (user) account UUID"}},
+            "required": ["account_id"],
+        },
+    ),
+    Tool(
+        name="messenger_personal_set_auto_reply",
+        description=(
+            "Enable or configure AI auto-reply for a personal Messenger "
+            "account (browser bridge). When enabled, a Celery task polls "
+            "conversations every 2 minutes and sends AI-generated replies "
+            "to new inbound messages."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Facebook personal (user) account UUID"},
+                "enabled": {"type": "boolean", "description": "Enable or disable auto-reply"},
+                "system_prompt": {"type": "string", "description": "AI system prompt ({page_name} is replaced)"},
+                "model": {"type": "string", "description": "AI model (default: @cf/meta/llama-3.1-8b-instruct)"},
+                "fallback_text": {"type": "string", "description": "Fallback if AI fails"},
+                "max_tokens": {"type": "integer", "description": "Max response tokens (default: 200)"},
+            },
+            "required": ["account_id", "enabled"],
+        },
+    ),
+    Tool(
+        name="telegram_list_channels",
+        description=(
+            "List channels/groups the Telegram bot has been added to "
+            "(discovered from webhook membership events). Use to find the "
+            "chat_id of a newly created channel after adding the bot as admin."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+        },
+    ),
+    Tool(
+        name="telegram_chat_info",
+        description=(
+            "Get a Telegram chat's details, member count, and whether the "
+            "bot is an administrator. Requires the bot to be in the chat."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_chat_admins",
+        description="List administrators of a Telegram chat (verify bot/owner admin rights).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_member_count",
+        description="Member count for a Telegram chat/channel the bot can see.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_set_chat_description",
+        description="Set a Telegram channel/group description (bot must be admin; max 255 chars).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "description": {"type": "string", "description": "Description text (max 255 chars)"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id", "description"],
+        },
+    ),
+    Tool(
+        name="telegram_create_invite_link",
+        description=(
+            "Create a named Telegram invite link for join-source attribution "
+            "(e.g. name='ig'/'threads'/'website'). With no options, returns "
+            "the existing primary invite link via getChat (non-destructive). "
+            "Set regenerate=true to export a new primary invite link "
+            "(destructive — revokes the previous one). Bot must be admin with invite rights."
+        ),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "name": {"type": "string", "description": "Link label, max 32 chars (e.g. 'ig')"},
+                "expire_date": {"type": "integer", "description": "Unix timestamp when link expires"},
+                "member_limit": {"type": "integer", "description": "Max joins via this link (1-99999)"},
+                "creates_join_request": {"type": "boolean", "description": "Require admin approval to join"},
+                "regenerate": {"type": "boolean", "description": "Export a new primary invite link (revokes previous primary link)"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id"],
+        },
+    ),
+    Tool(
+        name="telegram_send_message",
+        description="Send a text message to a Telegram chat/channel (bot must be member/admin).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "text": {"type": "string", "description": "Message text (max 4096 chars)"},
+                "parse_mode": {"type": "string", "description": "'HTML' or 'MarkdownV2'"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id", "text"],
+        },
+    ),
+    Tool(
+        name="telegram_pin_message",
+        description="Pin a message in a Telegram chat/channel (bot must be admin with pin rights).",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "chat_id": {"type": ["integer", "string"], "description": "Chat ID or @username"},
+                "message_id": {"type": "integer", "description": "Message ID to pin"},
+                "account_id": {"type": "string", "description": "Telegram account UUID (auto-detected if omitted)"},
+            },
+            "required": ["chat_id", "message_id"],
+        },
+    ),
+]
+
+
+async def _handle_list_tools(ctx: Any, params: PaginatedRequestParams | None) -> ListToolsResult:
+    """Handle tools/list request."""
+    return ListToolsResult(tools=TOOLS)
+
+
+async def _telegram_account_id(provided: str | None = None) -> str:
+    """Resolve the Telegram social-account UUID (explicit or first active one)."""
+    if provided:
+        return provided
+    accounts = await _api_request("GET", "/api/v1/accounts")
+    for account in accounts:
+        if account.get("platform", "").lower() == "telegram" and account.get("status") == "active":
+            return account["id"]
+    raise ValueError("No active Telegram account connected")
+
+
+async def _handle_telegram_tool(name: str, arguments: dict) -> dict | list:
+    """Dispatch telegram_* tools to /api/v1/telegram endpoints."""
+    account_id = await _telegram_account_id(arguments.get("account_id"))
+    base = f"/api/v1/telegram/{account_id}"
+    chat_id = arguments.get("chat_id")
+    if name == "telegram_list_channels":
+        return await _api_request("GET", f"{base}/channels")
+    if name == "telegram_chat_info":
+        return await _api_request("GET", f"{base}/chat-info", params={"chat_id": chat_id})
+    if name == "telegram_chat_admins":
+        return await _api_request("GET", f"{base}/chat-admins", params={"chat_id": chat_id})
+    if name == "telegram_member_count":
+        return await _api_request("GET", f"{base}/chat-members", params={"chat_id": chat_id})
+    if name == "telegram_set_chat_description":
+        body: dict = {"chat_id": chat_id, "description": arguments["description"]}
+        return await _api_request("PUT", f"{base}/chat-description", json_body=body)
+    if name == "telegram_create_invite_link":
+        body = {"chat_id": chat_id}
+        for opt in ("name", "expire_date", "member_limit", "creates_join_request", "regenerate"):
+            if opt in arguments:
+                body[opt] = arguments[opt]
+        return await _api_request("POST", f"{base}/invite-link", json_body=body)
+    if name == "telegram_send_message":
+        body = {"chat_id": chat_id, "text": arguments["text"]}
+        if "parse_mode" in arguments:
+            body["parse_mode"] = arguments["parse_mode"]
+        return await _api_request("POST", f"{base}/send", json_body=body)
+    if name == "telegram_pin_message":
+        body = {"chat_id": chat_id, "message_id": arguments["message_id"]}
+        return await _api_request("POST", f"{base}/pin", json_body=body)
+    raise ValueError(f"Unknown telegram tool: {name}")
+
+
+async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallToolResult:
+    """Handle tools/call request."""
+    name = params.name
+    arguments = params.arguments or {}
+
+    try:
+        if name == "list_accounts":
+            result = await _api_request("GET", "/api/v1/accounts")
+        elif name == "get_account":
+            result = await _api_request("GET", f"/api/v1/accounts/{arguments['account_id']}")
+        elif name == "create_post":
+            body = {"content_text": arguments["content"]}
+            if "media_ids" in arguments:
+                body["media_ids"] = arguments["media_ids"]
+            if "scheduled_at" in arguments:
+                body["scheduled_at"] = arguments["scheduled_at"]
+            account_ids = list(arguments.get("account_ids") or [])
+            platforms = arguments.get("platforms") or []
+            if platforms and not account_ids:
+                # Resolve each requested platform to its active account(s).
+                accounts = await _api_request("GET", "/api/v1/accounts")
+                wanted = {p.lower() for p in platforms}
+                for p in sorted(wanted):
+                    matches = [a for a in accounts if a.get("platform", "").lower() == p and a.get("status") == "active"]
+                    if p == "facebook":
+                        # Prefer business Pages (Graph API) over the personal
+                        # profile (browser-sidecar fallback) when one exists.
+                        pages = [a for a in matches if a.get("account_type") == "page" or a.get("is_business")]
+                        if pages:
+                            matches = pages
+                    account_ids.extend(a["id"] for a in matches)
+            if account_ids:
+                body["target_account_ids"] = account_ids
+            result = await _api_request("POST", "/api/v1/content/posts", json_body=body)
+        elif name == "list_posts":
+            query: dict = {}
+            if "status" in arguments:
+                query["status"] = arguments["status"]
+            if "limit" in arguments:
+                query["page_size"] = arguments["limit"]
+            result = await _api_request("GET", "/api/v1/content/posts", params=query)
+        elif name == "publish_post":
+            result = await _api_request("POST", f"/api/v1/content/posts/{arguments['post_id']}/publish-now")
+        elif name == "generate_content":
+            body = {
+                "prompt": arguments["topic"],
+                "platform": arguments["platform"],
+                "tone": arguments.get("tone", "professional"),
+            }
+            result = await _api_request("POST", "/api/v1/ai/generate-content", json_body=body)
+        elif name == "suggest_hashtags":
+            body = {
+                "content": arguments["content"],
+                "platform": arguments["platform"],
+                "max_hashtags": arguments.get("max_hashtags", 5),
+            }
+            result = await _api_request("POST", "/api/v1/ai/generate-hashtags", json_body=body)
+        elif name == "score_content":
+            body = {
+                "content": arguments["content"],
+                "platform": arguments["platform"],
+                "hashtags": arguments.get("hashtags", []),
+            }
+            result = await _api_request("POST", "/api/v1/ai/score-content", json_body=body)
+        elif name == "get_analytics":
+            query = {"days": arguments.get("days", 30)}
+            result = await _api_request("GET", "/api/v1/analytics/overview", params=query)
+        elif name == "list_media":
+            query = {"page_size": arguments.get("limit", 20)}
+            if "type" in arguments:
+                query["type"] = arguments["type"]
+            result = await _api_request("GET", "/api/v1/media/assets", params=query)
+        elif name == "get_profile":
+            result = await _api_request("GET", f"/api/v1/profile/{arguments['account_id']}")
+        elif name == "get_brand":
+            result = await _api_request("GET", "/api/v1/brand")
+        # ── Messenger Platform handlers ───────────────────────────────
+        elif name == "messenger_setup":
+            account_id = arguments["account_id"]
+            body = {}
+            if "greeting_text" in arguments:
+                body["greeting_text"] = arguments["greeting_text"]
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/setup", json_body=body)
+        elif name == "messenger_get_profile":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/profile")
+        elif name == "messenger_update_profile":
+            account_id = arguments["account_id"]
+            body = {k: v for k, v in arguments.items() if k != "account_id" and v is not None}
+            result = await _api_request("PUT", f"/api/v1/messenger/{account_id}/profile", json_body=body)
+        elif name == "messenger_send_message":
+            account_id = arguments["account_id"]
+            body = {
+                "recipient_psid": arguments["recipient_psid"],
+                "messaging_type": arguments.get("messaging_type", "RESPONSE"),
+            }
+            if "text" in arguments:
+                body["text"] = arguments["text"]
+            if "image_url" in arguments:
+                body["image_url"] = arguments["image_url"]
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/send", json_body=body)
+        elif name == "messenger_list_conversations":
+            account_id = arguments["account_id"]
+            query = {"limit": arguments.get("limit", 25), "platform": arguments.get("platform", "messenger")}
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations", params=query)
+        elif name == "messenger_get_messages":
+            account_id = arguments["account_id"]
+            conv_id = arguments["conversation_id"]
+            query = {"limit": arguments.get("limit", 20)}
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/conversations/{conv_id}", params=query)
+        elif name == "messenger_get_auto_reply":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/auto-reply")
+        elif name == "messenger_set_auto_reply":
+            account_id = arguments["account_id"]
+            body = {
+                "enabled": arguments["enabled"],
+                "system_prompt": arguments.get("system_prompt", "You are a helpful assistant for {page_name}. Reply concisely and professionally."),
+                "model": arguments.get("model", "@cf/meta/llama-3.1-8b-instruct"),
+                "fallback_text": arguments.get("fallback_text", "Thanks for your message! We'll get back to you soon."),
+                "max_tokens": arguments.get("max_tokens", 200),
+            }
+            result = await _api_request("PUT", f"/api/v1/messenger/{account_id}/auto-reply", json_body=body)
+        elif name == "messenger_unsubscribe":
+            account_id = arguments["account_id"]
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/unsubscribe")
+        # ── Personal Messenger handlers (browser bridge) ────────────────
+        elif name == "messenger_list_all_accounts":
+            accounts = await _api_request("GET", "/api/v1/accounts")
+            if isinstance(accounts, dict):
+                accounts = accounts.get("data", accounts.get("accounts", []))
+            messenger_accounts = []
+            for acct in accounts:
+                if acct.get("platform") != "facebook":
+                    continue
+                meta = acct.get("meta_data", {})
+                if acct.get("account_type") == "page":
+                    ms = meta.get("messenger_setup", {})
+                    messenger_accounts.append({
+                        "id": acct.get("id"),
+                        "name": acct.get("display_name") or acct.get("username"),
+                        "type": "page",
+                        "method": "Messenger Platform API",
+                        "messenger_subscribed": ms.get("subscribed", False),
+                        "page_id": acct.get("account_id"),
+                    })
+                elif acct.get("account_type") == "user":
+                    messenger_accounts.append({
+                        "id": acct.get("id"),
+                        "name": acct.get("display_name") or acct.get("username"),
+                        "type": "personal",
+                        "method": "Browser Bridge (noVNC login required)",
+                        "browser_logged_in": bool(meta.get("browser_storage_state")),
+                        "facebook_user_id": acct.get("account_id"),
+                    })
+            result = {"accounts": messenger_accounts, "count": len(messenger_accounts)}
+        elif name == "messenger_personal_conversations":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/personal/conversations")
+        elif name == "messenger_personal_messages":
+            account_id = arguments["account_id"]
+            thread_id = arguments["thread_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/personal/conversations/{thread_id}")
+        elif name == "messenger_personal_send":
+            account_id = arguments["account_id"]
+            body = {"thread_id": arguments["thread_id"], "text": arguments["text"]}
+            result = await _api_request("POST", f"/api/v1/messenger/{account_id}/personal/send", json_body=body)
+        elif name == "messenger_personal_get_auto_reply":
+            account_id = arguments["account_id"]
+            result = await _api_request("GET", f"/api/v1/messenger/{account_id}/personal/auto-reply")
+        elif name == "messenger_personal_set_auto_reply":
+            account_id = arguments["account_id"]
+            body = {"enabled": arguments["enabled"]}
+            for opt in ("system_prompt", "model", "fallback_text", "max_tokens"):
+                if opt in arguments:
+                    body[opt] = arguments[opt]
+            result = await _api_request("PUT", f"/api/v1/messenger/{account_id}/personal/auto-reply", json_body=body)
+        elif name.startswith("telegram_"):
+            result = await _handle_telegram_tool(name, arguments)
+        else:
+            return CallToolResult(
+                content=[TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))],
+                is_error=True,
+            )
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
+        )
+    except httpx.HTTPError as exc:
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps({"error": str(exc)}))],
+            is_error=True,
+        )
+    except Exception as exc:
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps({"error": f"{type(exc).__name__}: {exc}"}))],
+            is_error=True,
+        )
+
+
+# Register handlers
+server.add_request_handler("tools/list", PaginatedRequestParams, _handle_list_tools)
+server.add_request_handler("tools/call", CallToolRequestParams, _handle_call_tool)
+
+
+async def main() -> None:
+    """Run the MCP server over stdio."""
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(read_stream, write_stream, server.create_initialization_options())
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

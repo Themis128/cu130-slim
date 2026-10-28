@@ -1,0 +1,332 @@
+---
+name: Trivy Security Scan
+
+"on":
+  push:
+    branches: [master, main]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'docker-compose*.yml'
+      - '.github/workflows/trivy-scan.yml'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'social-automation/**'
+      - 'env-manager/**'
+      - 'docker-compose*.yml'
+      - '.github/workflows/trivy-scan.yml'
+  schedule:
+    # Run daily at 3 AM UTC to catch new vulnerabilities
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      severity:
+        description: 'Minimum severity to fail build'
+        required: true
+        default: 'HIGH'
+        type: choice
+        options:
+          - CRITICAL
+          - HIGH
+          - MEDIUM
+          - LOW
+
+env:
+  # Trivy configuration
+  TRIVY_VERSION: '0.58.1'
+  # Prefer GHCR — public.ecr.aws frequently rate-limits (TOOMANYREQUESTS) on GHA.
+  TRIVY_DB_REPOSITORY: 'ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2'
+  TRIVY_JAVA_DB_REPOSITORY: 'ghcr.io/aquasecurity/trivy-java-db:1,public.ecr.aws/aquasecurity/trivy-java-db:1'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  trivy-filesystem:
+    timeout-minutes: 60
+    name: Trivy Filesystem Scan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Run Trivy vulnerability scanner (filesystem)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-fs-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          trivyignores: '.trivyignore'
+          exit-code: '0'  # Don't fail on fs scan, just report
+
+      - name: Upload Trivy filesystem results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: trivy-fs-results.sarif
+          category: trivy-filesystem
+          wait-for-processing: false
+
+  trivy-images:
+    timeout-minutes: 60
+    name: Trivy Image Scan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - comfyui
+          - env-manager-backend
+          - env-manager-frontend
+          - social-api
+          - social-worker-publishing
+          - social-frontend
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Free up disk space
+        if: matrix.service == 'comfyui'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
+            /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
+            /usr/local/.ghcup /opt/az /usr/lib/jvm /opt/microsoft 2>/dev/null || true
+          docker system prune -af
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull or build published comfyui image
+        if: matrix.service == 'comfyui'
+        run: |
+          set -euo pipefail
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services.comfyui.image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            REF="ghcr.io/${OWNER}/cu130-slim:comfyui-latest"
+          fi
+          echo "Target image: $REF"
+          if docker pull "$REF"; then
+            echo "Pulled $REF from registry"
+          elif docker pull ghcr.io/themis128/cu130-slim:comfyui-latest; then
+            docker tag ghcr.io/themis128/cu130-slim:comfyui-latest "$REF"
+            echo "Retagged :latest -> $REF"
+          else
+            echo "Registry pull failed (private/missing tag). Building comfyui locally..."
+            docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
+          fi
+          docker image inspect "$REF" >/dev/null
+
+      - name: Build ${{ matrix.service }} image
+        if: matrix.service != 'comfyui'
+        run: |
+          docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache "${{ matrix.service }}"
+
+      - name: Resolve image ref
+        id: image
+        run: |
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services["${{ matrix.service }}"].image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            REF="ghcr.io/themis128/cu130-slim:${{ matrix.service }}-latest"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Scanning image: $REF"
+          docker images
+
+      - name: Run Trivy vulnerability scanner (Docker image)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'sarif'
+          output: 'trivy-${{ matrix.service }}-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM,LOW'
+          ignore-unfixed: true
+          exit-code: '0'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Fail on CRITICAL and HIGH for core services
+        if: matrix.service != 'comfyui'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          ignore-policy: '.github/trivy-ignore.rego'
+          exit-code: '1'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Report CRITICAL/HIGH for comfyui (non-blocking)
+        if: matrix.service == 'comfyui'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          ignore-policy: '.github/trivy-ignore.rego'
+          exit-code: '0'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Upload Trivy image results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        continue-on-error: true
+        with:
+          sarif_file: 'trivy-${{ matrix.service }}-results.sarif'
+          category: 'trivy-docker-image-${{ matrix.service }}'
+          wait-for-processing: false
+
+  trivy-sbom:
+    timeout-minutes: 60
+    name: Generate SBOM
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Free up disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
+            /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
+            /usr/local/.ghcup /opt/az /usr/lib/jvm /opt/microsoft 2>/dev/null || true
+          docker system prune -af
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Pull or build published ComfyUI image
+        run: |
+          set -euo pipefail
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services.comfyui.image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            REF="ghcr.io/${OWNER}/cu130-slim:comfyui-latest"
+          fi
+          echo "Target image: $REF"
+          if docker pull "$REF"; then
+            echo "Pulled $REF from registry"
+          elif docker pull ghcr.io/themis128/cu130-slim:comfyui-latest; then
+            docker tag ghcr.io/themis128/cu130-slim:comfyui-latest "$REF"
+          else
+            echo "Registry pull failed. Building comfyui locally..."
+            docker compose --project-name cu130-slim --env-file .github/test.env build --no-cache comfyui
+          fi
+          docker image inspect "$REF" >/dev/null
+
+      - name: Resolve ComfyUI image ref
+        id: image
+        run: |
+          REF=$(docker compose --project-name cu130-slim --env-file .github/test.env config --format json \
+            | jq -r '.services.comfyui.image // empty')
+          if [ -z "$REF" ] || [ "$REF" = "null" ]; then
+            REF="ghcr.io/themis128/cu130-slim:comfyui-latest"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM with Trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'cyclonedx'
+          output: 'sbom-cyclonedx.json'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Generate SBOM in SPDX format
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
+        with:
+          scan-type: 'image'
+          image-ref: ${{ steps.image.outputs.ref }}
+          format: 'spdx-json'
+          output: 'sbom-spdx.json'
+          scanners: 'vuln'
+          timeout: '900s'
+
+      - name: Upload SBOM as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: |
+            sbom-cyclonedx.json
+            sbom-spdx.json
+          retention-days: 90
+
+      - name: Attach SBOM to Docker image (if pushing to registry)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        run: |
+          echo "SBOM generated. To attach to registry, use:"
+          echo "  oras attach ghcr.io/${{ github.repository }}/cu130-slim:${{ github.sha }} --artifact-type application/vnd.cncf.cyclonedx+json sbom-cyclonedx.json"
+
+  dependency-review:
+    timeout-minutes: 60
+    name: Dependency Review
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Review dependencies
+        # Requires Dependency graph (Settings → Code security). Public repos
+        # get this free; if the feature is off the action fails fast.
+        continue-on-error: true
+        uses: actions/dependency-review-action@v5
+        with:
+          config-file: '.github/dependency-review-config.yml'
+          fail-on-severity: 'high'

@@ -1,0 +1,523 @@
+'use client'
+
+import { useState, useEffect, useRef } from 'react'
+import { Loader2, Save, Upload, Image as ImageIcon, RefreshCw, User } from 'lucide-react'
+import { Button } from '@/components/ui/Button'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Textarea } from '@/components/ui/Textarea'
+import { Label } from '@/components/ui/Label'
+import { Badge } from '@/components/ui/Badge'
+import toast from 'react-hot-toast'
+import type { SocialAccount } from '@/types'
+import { profileApi } from '@/services/api'
+import {
+  useProfile,
+  useUpdateProfile,
+  useUploadProfileProfilePicture,
+  useUploadProfileCoverPhoto,
+  useProfileLogin,
+  useSetSecret,
+} from '@/hooks/useQueries'
+
+interface ProfileEditorProps {
+  account: SocialAccount
+  onClose?: () => void
+}
+
+const PLATFORM_LABELS: Record<string, string> = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  linkedin: 'LinkedIn',
+  twitter: 'X / Twitter',
+  tiktok: 'TikTok',
+  threads: 'Threads',
+}
+
+export function ProfileEditor({ account, onClose }: ProfileEditorProps) {
+  const accountId = account.id
+  const platform = account.platform
+  const isBusiness = account.is_business
+
+  const { data: profileData, isLoading, refetch } = useProfile(accountId)
+  const updateMutation = useUpdateProfile()
+  const pictureMutation = useUploadProfileProfilePicture()
+  const coverMutation = useUploadProfileCoverPhoto()
+  const loginMutation = useProfileLogin()
+  const setSecretMutation = useSetSecret()
+
+  const profile = profileData ?? {}
+
+  const [about, setAbout] = useState('')
+  const [biography, setBiography] = useState('')
+  const [headline, setHeadline] = useState('')
+  const [fullName, setFullName] = useState('')
+  const [website, setWebsite] = useState('')
+  const [location, setLocation] = useState('')
+  const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [quotes, setQuotes] = useState('')
+
+  const [loginUsername, setLoginUsername] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginVerificationCode, setLoginVerificationCode] = useState('')
+  const [saveCredentials, setSaveCredentials] = useState(true)
+  const [showLogin, setShowLogin] = useState(false)
+
+  const profilePicRef = useRef<HTMLInputElement>(null)
+  const coverRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (profile) {
+      setAbout(profile.about || '')
+      setBiography(profile.biography || '')
+      setHeadline(profile.headline || '')
+      setFullName(profile.full_name || '')
+      setWebsite(profile.website || '')
+      setLocation(profile.location || '')
+      setPhone(profile.phone || '')
+      setEmail(profile.email || '')
+      setQuotes(profile.quotes || '')
+    }
+  }, [profile])
+
+  const needsLogin = platform === 'instagram' || (platform === 'facebook' && !isBusiness) || platform === 'linkedin'
+  // Threads: bio and name are editable via browser bridge (no API write support)
+  // TikTok: no profile update API at all — truly read-only
+  const READ_ONLY_PLATFORMS = new Set(['tiktok'])
+  const isReadOnlyPlatform = READ_ONLY_PLATFORMS.has(platform)
+  // Threads profile picture is synced from Instagram — cannot upload directly
+  const NO_PICTURE_UPLOAD = new Set(['tiktok', 'threads'])
+  const NO_COVER_UPLOAD = new Set(['tiktok', 'instagram', 'threads'])
+  const canUploadPicture = !NO_PICTURE_UPLOAD.has(platform)
+  const canUploadCover = !NO_COVER_UPLOAD.has(platform)
+
+  const handleSave = async () => {
+    const data: Record<string, string> = {}
+    if (about !== (profile.about || '')) data.about = about
+    if (biography !== (profile.biography || '')) data.biography = biography
+    if (headline !== (profile.headline || '')) data.headline = headline
+    if (fullName !== (profile.full_name || '')) data.full_name = fullName
+    if (website !== (profile.website || '')) data.website = website
+    if (location !== (profile.location || '')) data.location = location
+    if (phone !== (profile.phone || '')) data.phone = phone
+    if (email !== (profile.email || '')) data.email = email
+    if (quotes !== (profile.quotes || '')) data.quotes = quotes
+
+    if (Object.keys(data).length === 0) {
+      toast('No changes to save')
+      return
+    }
+
+    await updateMutation.mutateAsync({ id: accountId, data })
+    refetch()
+  }
+
+  const handlePicture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error('Image must be under 4MB')
+      return
+    }
+    await pictureMutation.mutateAsync({ id: accountId, file })
+    if (profilePicRef.current) profilePicRef.current.value = ''
+    refetch()
+  }
+
+  const handleCover = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 4 * 1024 * 1024) {
+      toast.error('Image must be under 4MB')
+      return
+    }
+    await coverMutation.mutateAsync({ id: accountId, file })
+    if (coverRef.current) coverRef.current.value = ''
+    refetch()
+  }
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    const platformUpper = platform.toUpperCase()
+    const credentialPrefix = platformUpper === 'INSTAGRAM' ? 'INSTAGRAM' : platformUpper
+
+    if (loginUsername && saveCredentials) {
+      await setSecretMutation.mutateAsync({
+        key: `${credentialPrefix}_USERNAME`,
+        value: loginUsername,
+        description: `${platformUpper} username`,
+      })
+    }
+    if (loginPassword && saveCredentials) {
+      await setSecretMutation.mutateAsync({
+        key: `${credentialPrefix}_PASSWORD`,
+        value: loginPassword,
+        description: `${platformUpper} password`,
+      })
+    }
+
+    const data: { username?: string; password?: string; verification_code?: string } = {}
+    if (loginUsername) data.username = loginUsername
+    if (loginPassword) data.password = loginPassword
+    if (loginVerificationCode) data.verification_code = loginVerificationCode
+
+    await loginMutation.mutateAsync({ id: accountId, data })
+    setShowLogin(false)
+    setLoginPassword('')
+    setLoginVerificationCode('')
+    refetch()
+  }
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-8 flex items-center justify-center">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  return (
+    <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-slate-800">
+              <User className="h-5 w-5 text-white" />
+            </div>
+            <div>
+              <CardTitle className="text-base">
+                {PLATFORM_LABELS[platform] || platform} Profile
+                {isBusiness ? ' (Page)' : ' (Personal)'}
+              </CardTitle>
+              <CardDescription className="text-xs">
+                {account.username || account.display_name || account.account_id}
+              </CardDescription>
+            </div>
+          </div>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="icon" onClick={() => refetch()} title="Refresh">
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            {onClose && (
+              <Button variant="ghost" size="icon" onClick={onClose} title="Close">
+                ×
+              </Button>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-5">
+        {needsLogin && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-sm">Session</Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowLogin(!showLogin)}
+              >
+                {showLogin ? 'Cancel' : 'Log in'}
+              </Button>
+            </div>
+            {showLogin && (
+              <form onSubmit={handleLogin} className="space-y-2 p-3 border rounded-md bg-muted/30">
+                <Input
+                  placeholder="Username / email"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                />
+                <Input
+                  type="password"
+                  placeholder="Password"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                />
+                <Input
+                  placeholder="2FA / verification code (if required)"
+                  value={loginVerificationCode}
+                  onChange={(e) => setLoginVerificationCode(e.target.value)}
+                />
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={saveCredentials}
+                    onChange={(e) => setSaveCredentials(e.target.checked)}
+                  />
+                  Save credentials to the Cloudflare secret store
+                </label>
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={loginMutation.isPending || setSecretMutation.isPending}
+                >
+                  {(loginMutation.isPending || setSecretMutation.isPending) ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Log in'}
+                </Button>
+              </form>
+            )}
+          </div>
+        )}
+
+        {isReadOnlyPlatform ? (
+          <div className="text-sm text-muted-foreground">
+            TikTok does not support profile updates through the API.
+          </div>
+        ) : (
+          <>
+            <div className="relative rounded-lg overflow-hidden border">
+              <div className="h-32 bg-muted relative">
+                {profile.cover_url ? (
+                  <img src={profile.cover_url} alt="Cover" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
+                    No cover photo
+                  </div>
+                )}
+                {canUploadCover && (
+                  <button
+                    onClick={() => coverRef.current?.click()}
+                    disabled={coverMutation.isPending}
+                    className="absolute bottom-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded px-2 py-1 text-xs flex items-center gap-1 transition-colors"
+                  >
+                    {coverMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                    Upload Cover
+                  </button>
+                )}
+                <input ref={coverRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handleCover} />
+              </div>
+              <div className="px-4 pb-4 flex items-end gap-4 -mt-8">
+                <div className="relative">
+                  <div className="w-16 h-16 rounded-full border-4 border-background bg-muted overflow-hidden">
+                    {profile.profile_pic_url ? (
+                      <img src={profile.profile_pic_url} alt="Profile" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="flex items-center justify-center h-full">
+                        <ImageIcon className="h-6 w-6 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                  {canUploadPicture && (
+                    <button
+                      onClick={() => profilePicRef.current?.click()}
+                      disabled={pictureMutation.isPending}
+                      className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground rounded-full p-1 hover:bg-primary/90"
+                    >
+                      {pictureMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+                    </button>
+                  )}
+                  <input ref={profilePicRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={handlePicture} />
+                </div>
+                <div className="pb-1">
+                  <Badge variant="secondary" className="text-xs capitalize">
+                    {platform}
+                  </Badge>
+                  {platform === 'threads' && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Profile picture synced from Instagram
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {(platform === 'linkedin' || platform === 'twitter' || platform === 'tiktok' || platform === 'threads') && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Full Name / Nickname</Label>
+                  <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Display name" />
+                  {platform === 'threads' && (
+                    <p className="text-xs text-muted-foreground">
+                      Threads allows name changes only twice per 14 days.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {platform === 'linkedin' && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Headline</Label>
+                  <Input value={headline} onChange={(e) => setHeadline(e.target.value)} placeholder="Professional headline" />
+                </div>
+              )}
+
+              {(platform === 'facebook' || platform === 'instagram' || platform === 'tiktok' || platform === 'threads') && (
+                <div className="space-y-1">
+                  <Label className="text-sm">{platform === 'facebook' ? 'About' : 'Biography'}</Label>
+                  <Textarea
+                    value={platform === 'facebook' ? about : biography}
+                    onChange={(e) => platform === 'facebook' ? setAbout(e.target.value) : setBiography(e.target.value)}
+                    placeholder={platform === 'facebook' ? 'About text' : 'Bio text'}
+                    rows={3}
+                  />
+                  {platform === 'threads' && (
+                    <p className="text-xs text-muted-foreground">
+                      Bio is updated via the browser bridge (no official write API).
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {platform === 'facebook' && !isBusiness && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Quotes</Label>
+                  <Input value={quotes} onChange={(e) => setQuotes(e.target.value)} placeholder="Favorite quotes" />
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <Label className="text-sm">Website</Label>
+                <Input value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." />
+              </div>
+
+              {(platform === 'twitter' || platform === 'facebook') && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Location</Label>
+                  <Input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="City, Country" />
+                </div>
+              )}
+
+              {(platform === 'facebook' || platform === 'instagram') && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Phone</Label>
+                  <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone number" />
+                </div>
+              )}
+
+              {platform === 'instagram' && (
+                <div className="space-y-1">
+                  <Label className="text-sm">Email</Label>
+                  <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" />
+                </div>
+              )}
+            </div>
+
+            <Button
+              onClick={handleSave}
+              disabled={updateMutation.isPending}
+              className="w-full"
+            >
+              {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save Profile
+            </Button>
+
+            {platform === 'threads' && <ThreadsSettings accountId={accountId} />}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+
+// Threads profile settings (Show Instagram badge, Show recent views)
+function ThreadsSettings({ accountId }: { accountId: string }) {
+  const [showInstagramBadge, setShowInstagramBadge] = useState<boolean | null>(null)
+  const [showRecentViews, setShowRecentViews] = useState<boolean | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  const loadSettings = async () => {
+    setLoading(true)
+    try {
+      const resp = await profileApi.getThreadsSettings(accountId)
+      setShowInstagramBadge(resp.data.show_instagram_badge)
+      setShowRecentViews(resp.data.show_recent_views)
+    } catch (err) {
+      // Settings may not be available if browser bridge is not running
+      const msg = err instanceof Error ? err.message : 'Failed to load Threads settings'
+      toast.error(msg)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadSettings()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId])
+
+  const handleToggle = async (field: 'show_instagram_badge' | 'show_recent_views', value: boolean) => {
+    setSaving(true)
+    try {
+      await profileApi.updateThreadsSettings(accountId, { [field]: value })
+      if (field === 'show_instagram_badge') setShowInstagramBadge(value)
+      if (field === 'show_recent_views') setShowRecentViews(value)
+      toast.success('Threads setting updated')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to update Threads setting'
+      toast.error(msg)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-3 pt-4 border-t">
+      <div className="flex items-center justify-between">
+        <Label className="text-sm font-medium">Threads Profile Settings</Label>
+        <Button variant="ghost" size="sm" onClick={loadSettings} disabled={loading}>
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        These settings are managed through the Threads Edit profile page via the browser bridge.
+      </p>
+
+      {/* Show Instagram badge toggle */}
+      <div className="flex items-center justify-between p-3 rounded-lg border">
+        <div className="space-y-0.5">
+          <div className="text-sm font-medium">Show Instagram badge</div>
+          <div className="text-xs text-muted-foreground">
+            Display the Instagram badge on your Threads profile
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showInstagramBadge ?? false}
+          disabled={saving || showInstagramBadge === null}
+          onClick={() => handleToggle('show_instagram_badge', !showInstagramBadge)}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+            showInstagramBadge ? 'bg-primary' : 'bg-muted'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow-lg ring-0 transition-transform ${
+              showInstagramBadge ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Show recent views toggle */}
+      <div className="flex items-center justify-between p-3 rounded-lg border">
+        <div className="space-y-0.5">
+          <div className="text-sm font-medium">Show recent views</div>
+          <div className="text-xs text-muted-foreground">
+            This will be public on your profile when you get 10K+ recent views.
+          </div>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={showRecentViews ?? false}
+          disabled={saving || showRecentViews === null}
+          onClick={() => handleToggle('show_recent_views', !showRecentViews)}
+          className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+            showRecentViews ? 'bg-primary' : 'bg-muted'
+          } disabled:opacity-50 disabled:cursor-not-allowed`}
+        >
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-background shadow-lg ring-0 transition-transform ${
+              showRecentViews ? 'translate-x-4' : 'translate-x-0'
+            }`}
+          />
+        </button>
+      </div>
+    </div>
+  )
+}

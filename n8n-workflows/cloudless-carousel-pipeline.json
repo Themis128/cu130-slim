@@ -1,0 +1,425 @@
+{
+  "id": "cloudless-cf-carousel-linkedin",
+  "name": "Cloudless CF Carousel → LinkedIn Company",
+  "active": true,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "days",
+              "daysInterval": 2,
+              "triggerAtHour": 19,
+              "triggerAtMinute": 0
+            }
+          ]
+        }
+      },
+      "id": "sched-cloudless-carousel",
+      "name": "Every 2 Days 19:00 Athens",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "15 3 28 8 *"
+            }
+          ]
+        }
+      },
+      "id": "sched-cf-quota-reset-once",
+      "name": "Once 28 Aug 03:15 Athens (CF reset)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cloudless-carousel",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "wh-cloudless-carousel",
+      "name": "Manual Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        280
+      ],
+      "webhookId": "cloudless-carousel"
+    },
+    {
+      "parameters": {
+        "jsCode": "const envTopic = $env.CLOUDLESS_CAROUSEL_TOPIC;\nconst body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst numSlides = Number(body.num_slides || $env.CLOUDLESS_CAROUSEL_SLIDES || 7);\nconst publish = body.publish === false ? false : true;\nconst waitForPublish = body.wait_for_publish === true;\nconst accountId = body.target_account_id\n  || $env.CLOUDLESS_LINKEDIN_ORG_ACCOUNT_ID\n  || '9c4451bb-e820-489f-8676-76ddbc788ffe';\nreturn [{\n  json: {\n    // Explicit override only — the fresh-topic pick happens in\n    // \"Pick Fresh Topic\" after fetching recent published posts.\n    topic_override: body.topic || envTopic || null,\n    num_slides: Math.max(3, Math.min(10, numSlides || 7)),\n    publish,\n    wait_for_publish: waitForPublish,\n    target_account_id: accountId,\n    tone: body.tone || 'clear and friendly',\n    brand: 'cloudless.gr',\n    pipeline: 'cf-txt2img-img2img-nlp-spellcheck-seo',\n  }\n}];"
+      },
+      "id": "resolve-config",
+      "name": "Resolve Cloudless Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/auth/login' }}",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "username",
+              "value": "={{ $env.SOCIAL_ADMIN_EMAIL }}"
+            },
+            {
+              "name": "password",
+              "value": "={{ $env.SOCIAL_ADMIN_PASSWORD }}"
+            },
+            {
+              "name": "otp",
+              "value": "={{ $('Generate TOTP').item.json.otp }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "login-social",
+      "name": "Login Social API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        520,
+        140
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-token",
+              "leftValue": "={{ $json.access_token }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "if-logged-in",
+      "name": "Login OK?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        740,
+        140
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/ai/run-carousel-and-publish' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"topic\": {{ JSON.stringify($('Pick Fresh Topic').item.json.topic) }},\n  \"num_slides\": {{ $('Resolve Cloudless Config').item.json.num_slides }},\n  \"tone\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.tone) }},\n  \"include_cta\": true,\n  \"text_provider\": \"cloudflare\",\n  \"text_model\": \"@cf/meta/llama-3.2-3b-instruct\",\n  \"txt2img_model\": \"@cf/black-forest-labs/flux-1-schnell\",\n  \"img2img_model\": \"@cf/runwayml/stable-diffusion-v1-5-img2img\",\n  \"strength\": 0.42,\n  \"target_account_id\": {{ JSON.stringify($('Resolve Cloudless Config').item.json.target_account_id) }},\n  \"publish\": {{ $('Resolve Cloudless Config').item.json.publish }},\n  \"wait_for_publish\": {{ $('Resolve Cloudless Config').item.json.wait_for_publish }}\n}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "run-pipeline",
+      "name": "Run CF Carousel + Publish",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1240,
+        40
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Resolve Cloudless Config').item.json;\nconst raw = $json;\nconst ok = !!(raw && raw.post_id);\nreturn [{\n  json: {\n    ok,\n    brand: 'cloudless.gr',\n    account: (raw.target_account && raw.target_account.display_name) || 'cloudless.gr',\n    account_type: (raw.target_account && raw.target_account.account_type) || 'organization',\n    post_id: raw.post_id || null,\n    status: raw.status || (ok ? 'queued' : 'failed'),\n    platform_url: raw.platform_url || null,\n    media_count: Array.isArray(raw.media_ids) ? raw.media_ids.length : 0,\n    topic: ($('Pick Fresh Topic') && $('Pick Fresh Topic').item.json.topic) || cfg.topic_override || cfg.topic,\n    num_slides: cfg.num_slides,\n    publish: cfg.publish,\n    pipeline: cfg.pipeline,\n    nlp_fixed: !!(raw.nlp_report && raw.nlp_report.fixed),\n    queue_warning: raw.queue_warning || null,\n    error: ok ? null : (raw.message || raw.detail || raw.error || 'pipeline_failed'),\n  }\n}];"
+      },
+      "id": "normalize-ok",
+      "name": "Normalize Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1220,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ok",
+              "name": "ok",
+              "value": false,
+              "type": "boolean"
+            },
+            {
+              "id": "error",
+              "name": "error",
+              "value": "social_api_login_failed",
+              "type": "string"
+            },
+            {
+              "id": "brand",
+              "name": "brand",
+              "value": "cloudless.gr",
+              "type": "string"
+            },
+            {
+              "id": "hint",
+              "name": "hint",
+              "value": "Check SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD on the n8n container",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "login-failed",
+      "name": "Login Failed",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        980,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst secret = ($env.SOCIAL_TOTP_SECRET || '').trim().replace(/\\s+/g, '').toUpperCase();\nconst ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';\nconst clean = secret.replace(/=+$/, '');\nlet bits = 0, value = 0;\nconst bytes = [];\nfor (const ch of clean) {\n  const idx = ALPHABET.indexOf(ch);\n  if (idx === -1) throw new Error('Invalid base32 char in SOCIAL_TOTP_SECRET');\n  value = (value << 5) | idx;\n  bits += 5;\n  if (bits >= 8) { bytes.push((value >>> (bits - 8)) & 0xff); bits -= 8; }\n}\nconst key = Buffer.from(bytes);\nconst msg = Buffer.alloc(8);\nmsg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));\nconst digest = crypto.createHmac('sha1', key).update(msg).digest();\nconst offset = digest[digest.length - 1] & 0x0f;\nconst otp = ((digest.readUInt32BE(offset) & 0x7fffffff) % 1000000).toString().padStart(6, '0');\nreturn [{ json: { otp } }];"
+      },
+      "id": "2ede1fbe-d185-4c7c-93a5-e5c7a49168a9",
+      "name": "Generate TOTP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ ($env.SOCIAL_API_URL || 'http://social-api:8000') + '/api/v1/content/posts?status=published&page_size=15' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $json.access_token }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "fetch-recent-posts",
+      "name": "Fetch Recent Posts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        980,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('Resolve Cloudless Config').item.json;\nconst access_token = $('Login Social API').item.json.access_token || null;\nconst raw = $input.first().json;\nconst posts = Array.isArray(raw.posts) ? raw.posts : (Array.isArray(raw) ? raw : []);\n\n// Topic pool — 24 genuinely different angles (~48-day rotation at the\n// every-2-days cadence, comfortably outside the 30-day dedup window).\nconst topics = [\n  'How cloudless.gr helps teams ship serverless apps without managing servers',\n  'Clear skies for your stack: Cloudflare Workers with cloudless.gr',\n  'Stop babysitting servers — ship on the edge with cloudless.gr',\n  'From idea to production on Cloudflare, guided by cloudless.gr',\n  'Plain-English cloud: what cloudless.gr builds for Greek and EU teams',\n  'Workers, R2, and AI on Cloudflare — without the ops headache (cloudless.gr)',\n  'A practical path to serverless for SMEs with cloudless.gr',\n  'Cut your cloud bill: fixed-scope Cloudflare builds with cloudless.gr',\n  'Edge security done right: WAF, DDoS, and Zero Trust for small teams',\n  'Greek SMEs going digital: cloud that just works, without the jargon',\n  'EU data residency and GDPR-friendly hosting on the edge',\n  'Migrating from AWS to Cloudflare: what teams actually save',\n  'D1, KV, and Queues: edge data without a database ops team',\n  'AI at the edge: Workers AI for real products, not demos',\n  'Backups, monitoring, and uptime — the boring work cloudless.gr automates',\n  'Faster sites, happier users: performance wins on Cloudflare Pages',\n  'Why agencies charge months for what a fixed-scope build ships in weeks',\n  'The real monthly cost of self-hosting vs managed cloud for a startup',\n  'Static-first architecture: when you do not need a server at all',\n  'Bot protection and Turnstile: stopping abuse before it costs you',\n  'Hybrid done right: self-hosted NAS behind a Cloudflare tunnel',\n  'Observability on a budget: logs and analytics without the SaaS tax',\n  'Cron, queues, and scheduled jobs at the edge — automation that ships',\n  'E-commerce on Cloudflare: fast checkouts, low infra spend',\n];\n\nconst STOP = new Set(('the a an and or for to in on with of your you we our it is are be at by as that this from without not do does can'.split(' ')));\nfunction tokset(s) {\n  return new Set(String(s || '').toLowerCase().replace(/[^a-z0-9\\s]/g, ' ')\n    .split(/\\s+/).filter(w => w.length > 2 && !STOP.has(w)));\n}\n// containment of the topic's tokens inside a post's token set\nfunction overlap(tset, pset) {\n  if (!tset.size) return 0;\n  let hit = 0;\n  for (const t of tset) if (pset.has(t)) hit++;\n  return hit / tset.size;\n}\n\nconst recentSets = posts\n  .map(p => tokset(p.content_text || p.content || ''))\n  .filter(s => s.size);\n\n// Explicit override (webhook/env) always wins.\nif (cfg.topic_override) {\n  return [{ json: { ...cfg, access_token, topic: cfg.topic_override, topic_source: 'override' } }];\n}\n\nconst dayBucket = Math.floor(Date.now() / 86400000);\nconst start = dayBucket % topics.length;\nlet chosen = null, best = null, bestScore = Infinity;\nfor (let i = 0; i < topics.length; i++) {\n  const idx = (start + i) % topics.length;\n  const t = topics[idx];\n  const score = Math.max(0, ...recentSets.map(r => overlap(tokset(t), r)));\n  if (score < bestScore) { bestScore = score; best = t; }\n  if (score <= 0.3) { chosen = t; break; }\n}\nreturn [{\n  json: {\n    ...cfg,\n    topic: chosen || best,\n    access_token,\n    topic_source: chosen ? 'fresh' : 'least-similar-fallback',\n    recent_posts_checked: recentSets.length,\n    best_overlap_score: Number(bestScore.toFixed(3)),\n  }\n}];"
+      },
+      "id": "pick-fresh-topic",
+      "name": "Pick Fresh Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        980,
+        180
+      ]
+    }
+  ],
+  "connections": {
+    "Every 2 Days 19:00 Athens": {
+      "main": [
+        [
+          {
+            "node": "Resolve Cloudless Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Once 28 Aug 03:15 Athens (CF reset)": {
+      "main": [
+        [
+          {
+            "node": "Resolve Cloudless Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Webhook": {
+      "main": [
+        [
+          {
+            "node": "Resolve Cloudless Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Cloudless Config": {
+      "main": [
+        [
+          {
+            "node": "Generate TOTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Social API": {
+      "main": [
+        [
+          {
+            "node": "Login OK?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login OK?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Posts",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Login Failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run CF Carousel + Publish": {
+      "main": [
+        [
+          {
+            "node": "Normalize Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate TOTP": {
+      "main": [
+        [
+          {
+            "node": "Login Social API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent Posts": {
+      "main": [
+        [
+          {
+            "node": "Pick Fresh Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Fresh Topic": {
+      "main": [
+        [
+          {
+            "node": "Run CF Carousel + Publish",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Athens",
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 1500,
+    "saveManualExecutions": true,
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "notify-failures"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "name": "cloudless"
+    },
+    {
+      "name": "linkedin"
+    },
+    {
+      "name": "carousel"
+    }
+  ],
+  "pinData": {}
+}

@@ -1,0 +1,91 @@
+{
+  "mcpServers": {
+    "playwright": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "--health-cmd",
+        "node -e 'process.exit(require(\"fs\").readdirSync(\"/proc\").some(d=>/^\\d+$/.test(d)&&require(\"fs\").readFileSync(\"/proc/\"+d+\"/cmdline\",\"utf8\").includes(\"cli.js\"))?0:1)'",
+        "--health-interval",
+        "30s",
+        "--health-timeout",
+        "10s",
+        "--health-retries",
+        "3",
+        "--label",
+        "com.cloudless.managed-by=mcp",
+        "--label",
+        "com.cloudless.mcp-server=playwright",
+        "--network",
+        "host",
+        "--shm-size=2g",
+        "-v",
+        "/home/tbaltzakis/cu130-slim:/workspace",
+        "-v",
+        "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
+        "-v",
+        "/home/tbaltzakis/cu130-slim/.playwright-data/ms-browsers:/ms-playwright",
+        "-w",
+        "/workspace",
+        "mcr.microsoft.com/playwright/mcp:v0.0.82",
+        "--config",
+        "/workspace/.playwright-data/pw-mcp-config.json",
+        "--user-data-dir",
+        "/home/pwuser/.playwright-data/profile",
+        "--browser",
+        "chromium",
+        "--init-script",
+        "/workspace/.playwright-data/init-script.js",
+        "--ignore-https-errors",
+        "--timeout-action",
+        "15000",
+        "--timeout-navigation",
+        "120000",
+        "--timeout-settle",
+        "1500"
+      ]
+    },
+    "platform": {
+      "command": "python3",
+      "args": [
+        "/home/tbaltzakis/cu130-slim/.devin/skills/social-stack-ops/scripts/platform-mcp-server.py"
+      ],
+      "env": {
+        "CU130_ROOT": "/home/tbaltzakis/cu130-slim"
+      }
+    },
+    "linkedin": {
+      "url": "http://127.0.0.1:9227/mcp"
+    },
+    "airbyte": {
+      "url": "http://127.0.0.1:9228/mcp"
+    },
+    "slack": {
+      "command": "/home/tbaltzakis/.local/bin/node",
+      "args": [
+        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "https://mcp.slack.com/mcp",
+        "3118",
+        "--callback-path",
+        "/callback",
+        "--static-oauth-client-info",
+        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
+      ]
+    },
+    "slack-cloudless": {
+      "command": "/home/tbaltzakis/.local/bin/node",
+      "args": [
+        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "https://mcp.slack.com/mcp?workspace=wwwcloudlessgr",
+        "3118",
+        "--callback-path",
+        "/callback",
+        "--static-oauth-client-info",
+        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
+      ]
+    }
+  }
+}

@@ -1,0 +1,1482 @@
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
+import type { TokenResponse, ApiError, UnifiedInboxResponse } from '@/types'
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1'
+
+/** Return a displayable URL for any media asset storage_path (abs or relative). */
+export function mediaUrl(storagePath?: string | null): string {
+  if (!storagePath) return ''
+  // If already a full URL or API path, return as-is to avoid double-encoding
+  if (storagePath.startsWith('http')) return storagePath
+  if (storagePath.startsWith('/api/v1/media/view')) return storagePath
+  return `${API_BASE}/media/view?path=${encodeURIComponent(storagePath)}`
+}
+
+const api = axios.create({
+  baseURL: API_BASE,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+})
+
+let accessToken: string | null = null
+let refreshToken: string | null = null
+
+const getInitialAccessToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('access_token')
+  }
+  return null
+}
+
+const getInitialRefreshToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('refresh_token')
+  }
+  return null
+}
+
+accessToken = getInitialAccessToken()
+refreshToken = getInitialRefreshToken()
+let isRefreshing = false
+let failedQueue: Array<{
+  resolve: (token: string) => void
+  reject: (error: Error) => void
+}> = []
+
+const processQueue = (error: Error | null, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error)
+    } else {
+      prom.resolve(token!)
+    }
+  })
+  failedQueue = []
+}
+
+api.interceptors.request.use(
+  (config: InternalAxiosRequestConfig) => {
+    // Always read the freshest token — module-level var may be null if the module
+    // initialised before login (e.g. SSR context or pre-auth import).
+    const token = accessToken || (typeof window !== 'undefined' ? localStorage.getItem('access_token') : null)
+    if (token) {
+      accessToken = token  // keep module var in sync
+      config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+  },
+  (error) => Promise.reject(error)
+)
+
+api.interceptors.response.use(
+  (response) => response,
+  async (error: AxiosError<ApiError>) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      // Read the freshest refresh token — same staleness issue as access token
+      const currentRefreshToken = refreshToken || (typeof window !== 'undefined' ? localStorage.getItem('refresh_token') : null)
+
+      if (!currentRefreshToken) {
+        // No refresh token → user was never authenticated (e.g. wrong login
+        // credentials).  Don't hard-redirect; just reject so the caller can
+        // show the appropriate error toast.
+        return Promise.reject(error)
+      }
+
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject })
+        })
+          .then((token) => {
+            originalRequest.headers.Authorization = `Bearer ${token}`
+            return api(originalRequest)
+          })
+          .catch((err) => Promise.reject(err))
+      }
+
+      originalRequest._retry = true
+      isRefreshing = true
+
+      try {
+        const response = await axios.post<TokenResponse>(`${API_BASE}/auth/refresh`, {
+          refresh_token: currentRefreshToken,
+        })
+
+        accessToken = response.data.access_token
+        refreshToken = response.data.refresh_token
+        localStorage.setItem('access_token', accessToken)
+        localStorage.setItem('refresh_token', refreshToken)
+
+        processQueue(null, accessToken)
+
+        originalRequest.headers.Authorization = `Bearer ${accessToken}`
+        return api(originalRequest)
+      } catch (refreshError) {
+        processQueue(refreshError as Error, null)
+        logout()
+        return Promise.reject(refreshError)
+      } finally {
+        isRefreshing = false
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
+
+export const setTokens = (access: string, refresh: string) => {
+  accessToken = access
+  refreshToken = refresh
+  if (typeof window !== 'undefined') {
+    localStorage.setItem('access_token', access)
+    localStorage.setItem('refresh_token', refresh)
+  }
+}
+
+export const clearTokens = () => {
+  accessToken = null
+  refreshToken = null
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('access_token')
+    localStorage.removeItem('refresh_token')
+  }
+}
+
+export const logout = () => {
+  clearTokens()
+  if (typeof window !== 'undefined') {
+    window.location.href = '/login'
+  }
+}
+
+export const getAccessToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('access_token')
+  }
+  return accessToken
+}
+
+export const getRefreshToken = () => {
+  if (typeof window !== 'undefined') {
+    return localStorage.getItem('refresh_token')
+  }
+  return refreshToken
+}
+
+// Auth endpoints
+export const authApi = {
+  register: (data: { email: string; password: string; name: string; discount_code?: string }) =>
+    api.post('/auth/register', data),
+  login: (data: { email: string; password: string; otp?: string }) => {
+    const body = new URLSearchParams({ username: data.email, password: data.password })
+    if (data.otp) body.set('otp', data.otp)
+    return api.post('/auth/login', body, {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    })
+  },
+  refresh: (refresh_token: string) =>
+    api.post('/auth/refresh', { refresh_token }),
+  me: () => api.get('/auth/me'),
+  updateProfile: (data: { full_name?: string; email?: string; avatar_url?: string; timezone?: string; onboarding_completed?: boolean; metadata?: Record<string, unknown> }) =>
+    api.patch('/auth/me', data),
+  changePassword: (data: { current_password: string; new_password: string }) =>
+    api.post('/auth/change-password', data),
+  oauthAuthorize: (platform: string, teamId: string) =>
+    api.get(`/auth/oauth/${platform}/authorize`, { params: { team_id: teamId } }),
+  oauthCallback: (platform: string, code: string, state: string) =>
+    api.get(`/auth/oauth/${platform}/callback`, { params: { code, state } }),
+  setup2FA: () => api.post<{ secret: string; qr_uri: string }>('/auth/2fa/setup'),
+  verify2FA: (code: string) => api.post('/auth/2fa/verify', { code }),
+  disable2FA: (password: string) => api.delete('/auth/2fa', { data: { current_password: password } }),
+  getNotificationPreferences: () => api.get('/auth/notifications/preferences'),
+  updateNotificationPreferences: (data: {
+    email_new_post: boolean; email_scheduled: boolean; email_analytics: boolean;
+    email_on_quota: boolean; email_on_invite: boolean; email_account_connected: boolean;
+    push_new_post: boolean; push_scheduled: boolean;
+  }) => api.put('/auth/notifications/preferences', data),
+  exportData: () => api.get('/auth/export-data'),
+  deleteAccount: (password: string) => api.delete('/auth/account', { data: { password } }),
+  switchTeam: (teamId: string) =>
+    api.post('/auth/switch-team', { team_id: teamId }),
+}
+
+// Team endpoints
+export const teamsApi = {
+  list: () => api.get('/teams'),
+  create: (name: string) => api.post('/teams', { name }),
+  get: (teamId: string) => api.get(`/teams/${teamId}`),
+  update: (teamId: string, name: string) => api.patch(`/teams/${teamId}`, { name }),
+  delete: (teamId: string) => api.delete(`/teams/${teamId}`),
+  invite: (teamId: string, email: string, role?: string) =>
+    api.post(`/teams/${teamId}/invite`, { email, role: role || 'editor' }),
+  acceptInvite: (token: string) =>
+    api.post('/teams/accept-invite', { token }),
+  addMember: (teamId: string, userId: string, role?: string) =>
+    api.post(`/teams/${teamId}/members/${userId}`, { role: role || 'editor' }),
+  changeRole: (teamId: string, userId: string, role: string) =>
+    api.patch(`/teams/${teamId}/members/${userId}`, { role }),
+  removeMember: (teamId: string, userId: string) =>
+    api.delete(`/teams/${teamId}/members/${userId}`),
+}
+
+// Billing endpoints (Paddle)
+export const billingApi = {
+  config: () => api.get('/billing/config'),
+  plans: () => api.get('/billing/plans'),
+  subscription: () => api.get('/billing/subscription'),
+  checkout: (tier: string, discountCode?: string) =>
+    api.post('/billing/checkout', { tier, ...(discountCode ? { discount_code: discountCode } : {}) }),
+  portal: () => api.post('/billing/portal'),
+  cancel: () => api.post('/billing/cancel'),
+  sync: () => api.post('/billing/sync'),
+  discount: () => api.get('/billing/discount'),
+  setDiscount: (code: string) => api.put('/billing/discount', { code }),
+  clearDiscount: () => api.delete('/billing/discount'),
+}
+
+// Content endpoints
+export const contentApi = {
+  listPosts: (params?: { status?: string; platform?: string; page?: number; page_size?: number }) => {
+    const p = { ...params }
+    if (!p.status) delete p.status
+    if (!p.platform) delete p.platform
+    return api.get('/content/posts', { params: p })
+  },
+  getPost: (id: string) => api.get(`/content/posts/${id}`),
+  createPost: (data: {
+    content_text?: string
+    media_ids?: string[]
+    platform_specific?: Record<string, unknown>
+    hashtags?: string[]
+    mention_accounts?: string[]
+    link_url?: string
+    link_preview_override?: Record<string, unknown>
+    scheduled_at?: string
+    target_account_ids?: string[]
+    targets?: Array<{ social_account_id: string }>
+    metadata?: Record<string, unknown>
+    music_asset_id?: string
+    pillar_id?: string | null
+    content_brief_id?: string | null
+  }) => {
+    const { targets, target_account_ids, ...rest } = data
+    const accountIds =
+      target_account_ids ??
+      targets?.map((t) => t.social_account_id) ??
+      []
+    return api.post('/content/posts', {
+      ...rest,
+      target_account_ids: accountIds,
+    })
+  },
+  updatePost: (id: string, data: Partial<{
+    content_text: string
+    media_ids: string[]
+    platform_specific: Record<string, unknown>
+    hashtags: string[]
+    mention_accounts: string[]
+    link_url: string
+    link_preview_override: Record<string, unknown>
+    scheduled_at: string
+    status: string
+    music_asset_id: string | null
+    pillar_id: string | null
+    content_brief_id: string | null
+  }>) => api.patch(`/content/posts/${id}`, data),
+  deletePost: (id: string) => api.delete(`/content/posts/${id}`),
+  duplicatePost: (id: string) => api.post(`/content/posts/${id}/duplicate`),
+  publishNow: (id: string) => api.post(`/content/posts/${id}/publish-now`),
+  schedulePost: (id: string, scheduled_at: string) =>
+    api.post(`/content/posts/${id}/schedule`, { scheduled_at }),
+  // Approval workflow
+  submitForReview: (id: string) => api.post(`/content/posts/${id}/submit-review`),
+  approvePost: (id: string, body?: string) =>
+    api.post(`/content/posts/${id}/approve`, body ? { body } : undefined),
+  rejectPost: (id: string, body?: string) =>
+    api.post(`/content/posts/${id}/reject`, body ? { body } : undefined),
+  addComment: (id: string, body: string, action?: string) =>
+    api.post(`/content/posts/${id}/comments`, { body, action }),
+  getLinkPreview: (url: string) =>
+    api.get(`/content/link-preview`, { params: { url } }),
+  // Pillars
+  listPillars: () => api.get('/content/pillars'),
+  createPillar: (data: { name: string; description?: string; color?: string; sort_order?: number }) =>
+    api.post('/content/pillars', data),
+  updatePillar: (id: string, data: { name: string; description?: string; color?: string; sort_order?: number }) =>
+    api.patch(`/content/pillars/${id}`, data),
+  deletePillar: (id: string) => api.delete(`/content/pillars/${id}`),
+  // Content briefs
+  listBriefs: () => api.get('/content/briefs'),
+  createBrief: (data: { title: string; outline?: string; pillar_id?: string; target_platforms?: string[]; tone?: string }) =>
+    api.post('/content/briefs', data),
+  deleteBrief: (id: string) => api.delete(`/content/briefs/${id}`),
+  getMedia: (params?: { page?: number; page_size?: number; type?: string }) =>
+    api.get('/content/media', { params }),
+  uploadMedia: (file: File, alt_text?: string, tags?: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (alt_text) formData.append('alt_text', alt_text)
+    if (tags) formData.append('tags', tags)
+    return api.post('/content/media/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  deleteMedia: (id: string) => api.delete(`/content/media/${id}`),
+}
+
+// Media endpoints
+export const mediaApi = {
+  list: (params?: { page?: number; page_size?: number; type?: string; sort?: string; search?: string; collection_id?: string }) => {
+    const p: Record<string, unknown> = { ...params }
+    if (!p.type) delete p.type
+    if (!p.sort) delete p.sort
+    if (!p.search) delete p.search
+    if (!p.collection_id) delete p.collection_id
+    return api.get('/media/assets', { params: p })
+  },
+  bulkDelete: (ids: string[]) => api.post('/media/assets/bulk-delete', { ids }),
+  upload: (file: File, alt_text?: string, tags?: string) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (alt_text) formData.append('alt_text', alt_text)
+    if (tags) formData.append('tags', tags)
+    return api.post('/media/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  delete: (id: string) => api.delete(`/media/assets/${id}`),
+  getAsset: (id: string) => api.get(`/media/assets/${id}`),
+  generateImage: (prompt: string, options?: {
+    width?: number
+    height?: number
+    model?: string
+    provider?: string
+    negative_prompt?: string
+    steps?: number
+    cfg_scale?: number
+  }) =>
+    api.post('/ai/generate-image', {
+      prompt,
+      provider: options?.provider ?? 'cloudflare',
+      model: options?.model,
+      negative_prompt: options?.negative_prompt ?? '',
+      steps: options?.steps ?? 4,
+      cfg_scale: options?.cfg_scale ?? 3.5,
+      ...(options?.width != null ? { width: options.width } : {}),
+      ...(options?.height != null ? { height: options.height } : {}),
+    }),
+  generateVideo: (prompt: string, options?: {
+    width?: number
+    height?: number
+    num_frames?: number
+    frame_rate?: number
+    steps?: number
+    cfg_scale?: number
+    seed?: number
+    negative_prompt?: string
+    tags?: string[]
+    alt_text?: string
+    duration_seconds?: number
+    scene_prompts?: string[]
+  }) =>
+    api.post('/media/generate-video', { prompt, options }),
+  getVideoGenerationStatus: (taskId: string) =>
+    api.get(`/media/generate-video/${taskId}`),
+}
+
+// Workflow endpoints
+export const workflowApi = {
+  listTemplates: (category?: string) =>
+    api.get('/workflows/templates', { params: { category } }),
+  getTemplate: (id: string) => api.get(`/workflows/templates/${id}`),
+  createTemplate: (data: {
+    name: string
+    description?: string
+    prompt_template: string
+    n8n_workflow_json: Record<string, unknown>
+    category?: string
+    tags?: string[]
+    is_public?: boolean
+  }) => api.post('/workflows/templates', data),
+  updateTemplate: (id: string, data: Partial<{
+    name: string
+    description: string
+    prompt_template: string
+    n8n_workflow_json: Record<string, unknown>
+    category: string
+    tags: string[]
+    is_public: boolean
+  }>) => api.patch(`/workflows/templates/${id}`, data),
+  deleteTemplate: (id: string) => api.delete(`/workflows/templates/${id}`),
+  generateWorkflow: (data: { prompt: string; template_id?: string; model?: string; complexity?: string }) =>
+    api.post('/workflows/generate', data),
+  listWorkflows: (params?: { status?: string }) =>
+    api.get('/workflows', { params }),
+  getWorkflow: (id: string) => api.get(`/workflows/${id}`),
+  deployWorkflow: (id: string) => api.post(`/workflows/deploy/${id}`),
+  deleteWorkflow: (id: string) => api.delete(`/workflows/${id}`),
+  undeployWorkflow: (id: string) => api.post(`/workflows/${id}/undeploy`),
+  getExecutions: (id: string, limit = 10) => api.get(`/workflows/${id}/executions`, { params: { limit } }),
+  // Content prompt templates (Phase 5)
+  listContentTemplates: (params?: { pillar_id?: string; platform?: string; tone?: string }) =>
+    api.get('/workflows/content-templates', { params }),
+  createContentTemplate: (data: { name: string; pillar_id?: string; platform?: string; tone?: string; system_prompt: string; user_prompt_template: string; variables?: string[]; is_default?: boolean }) =>
+    api.post('/workflows/content-templates', data),
+  updateContentTemplate: (id: string, data: { name: string; pillar_id?: string; platform?: string; tone?: string; system_prompt: string; user_prompt_template: string; variables?: string[]; is_default?: boolean }) =>
+    api.patch(`/workflows/content-templates/${id}`, data),
+  deleteContentTemplate: (id: string) => api.delete(`/workflows/content-templates/${id}`),
+}
+
+// Accounts endpoints
+export const accountsApi = {
+  list: () => api.get('/accounts'),
+  get: (id: string) => api.get(`/accounts/${id}`),
+  connect: (platform: string, teamId: string) =>
+    api.post('/accounts/connect', { platform, team_id: teamId }),
+  disconnect: (id: string) => api.delete(`/accounts/${id}`),
+  refresh: (id: string) => api.post(`/accounts/${id}/refresh`),
+  validate: (id: string) => api.get(`/accounts/${id}/validate`),
+  test: (id: string) => api.post(`/accounts/${id}/test`),
+  syncBusinessAccounts: (id: string) =>
+    api.post(`/accounts/${id}/sync-business-accounts`),
+  setBusinessAccount: (id: string, businessAccountId: string) =>
+    api.post(`/accounts/${id}/set-business-account`, { business_account_id: businessAccountId }),
+  // Facebook Page profile management
+  getPageProfile: (id: string) =>
+    api.get(`/accounts/${id}/page-profile`),
+  updatePageProfile: (id: string, data: { about?: string; description?: string; website?: string; phone?: string }) =>
+    api.put(`/accounts/${id}/page-profile`, data),
+  uploadProfilePicture: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/accounts/${id}/page-profile/picture`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  uploadCoverPhoto: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/accounts/${id}/page-profile/cover`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  assignManageTask: (id: string, businessId: string, businessUserId?: string) =>
+    api.post(`/accounts/${id}/page-profile/assign-manage-task`, { business_id: businessId, business_user_id: businessUserId }),
+}
+
+// Free Meta organic-growth endpoints. Paid promotion is intentionally not
+// represented here; these calls only schedule owned-account publishing.
+export const metaGrowthApi = {
+  readiness: () => api.get('/meta-growth/readiness'),
+  createOrganicCampaign: (data: {
+    content_text: string
+    media_ids: string[]
+    link_url?: string
+    target_account_ids?: string[]
+    scheduled_at?: string
+    hashtags?: string[]
+    metadata?: Record<string, unknown>
+  }) => api.post('/meta-growth/organic-campaign', data),
+}
+
+// Unified profile management endpoints
+export const profileApi = {
+  getProfile: (id: string) => api.get(`/profile/${id}`),
+  updateProfile: (id: string, data: { about?: string; headline?: string; biography?: string; full_name?: string; website?: string; location?: string; phone?: string; email?: string; quotes?: string }) =>
+    api.put(`/profile/${id}`, data),
+  uploadProfilePicture: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/profile/${id}/picture`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  uploadCoverPhoto: (id: string, file: File) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return api.post(`/profile/${id}/cover`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  login: (id: string, data: { username?: string; password?: string; verification_code?: string }) =>
+    api.post(`/profile/${id}/login`, data),
+  getThreadsSettings: (id: string) =>
+    api.get(`/profile/${id}/threads/settings`),
+  updateThreadsSettings: (id: string, data: { show_instagram_badge?: boolean; show_recent_views?: boolean }) =>
+    api.put(`/profile/${id}/threads/settings`, data),
+}
+
+// Browser bridge endpoints (noVNC visual login)
+export const browserApi = {
+  startSession: (platform: string) =>
+    api.post('/profile/browser/start', { platform }),
+  getStatus: () => api.get('/profile/browser/status'),
+  getCookies: () => api.get('/profile/browser/cookies'),
+  stopSession: () => api.post('/profile/browser/stop'),
+  extractCookies: () => api.post('/profile/browser/extract'),
+  getNovncUrl: () => api.get('/profile/browser/novnc-url'),
+  getPlatforms: () => api.get('/profile/browser/platforms'),
+  importInstagramSession: () => api.post('/profile/browser/import-instagram-session'),
+  importTiktokSession: (sessionId: string, userId?: string) =>
+    api.post('/profile/tiktok/session', { session_id: sessionId, user_id: userId }),
+  checkTiktokSession: () => api.get('/profile/tiktok/session'),
+  getTiktokSettings: () => api.get('/profile/tiktok/settings'),
+}
+
+// TikTok management — Content Posting + Display API (official TikTok docs)
+export const tiktokApi = {
+  health: (accountId: string) =>
+    api.get(`/tiktok/accounts/${accountId}/health`),
+  creatorInfo: (accountId: string) =>
+    api.get(`/tiktok/accounts/${accountId}/creator-info`),
+  listVideos: (accountId: string, params?: { cursor?: number; max_count?: number }) =>
+    api.get(`/tiktok/accounts/${accountId}/videos`, { params }),
+  queryVideos: (accountId: string, videoIds: string[]) =>
+    api.post(`/tiktok/accounts/${accountId}/videos/query`, { video_ids: videoIds }),
+  publishStatus: (accountId: string, publishId: string) =>
+    api.post(`/tiktok/accounts/${accountId}/publish/status`, { publish_id: publishId }),
+  publishCancel: (accountId: string, publishId: string) =>
+    api.post(`/tiktok/accounts/${accountId}/publish/cancel`, { publish_id: publishId }),
+  listUploads: (accountId: string, params?: { hours?: number; live_status?: boolean }) =>
+    api.get(`/tiktok/accounts/${accountId}/uploads`, { params }),
+}
+
+// Threads-specific endpoints (profile, insights, posts, replies)
+export const threadsApi = {
+  getProfile: (accountId: string) =>
+    api.get('/threads/profile', { params: { account_id: accountId } }),
+  updateProfile: (accountId: string, data: { biography?: string; full_name?: string; website?: string }) =>
+    api.put('/threads/profile', data, { params: { account_id: accountId } }),
+  getInsights: (accountId: string, metric?: string) =>
+    api.get('/threads/insights', { params: { account_id: accountId, metric: metric || 'views' } }),
+  getFollowers: (accountId: string) =>
+    api.get('/threads/followers', { params: { account_id: accountId } }),
+  getQuota: (accountId: string) =>
+    api.get('/threads/quota', { params: { account_id: accountId } }),
+  listPosts: (accountId: string, limit?: number, after?: string) =>
+    api.get('/threads/posts', { params: { account_id: accountId, limit: limit || 25, after } }),
+  getPostInsights: (mediaId: string, accountId: string, metric?: string) =>
+    api.get(`/threads/posts/${mediaId}/insights`, { params: { account_id: accountId, metric: metric || 'views' } }),
+  replyToPost: (mediaId: string, accountId: string, text: string) =>
+    api.post(`/threads/posts/${mediaId}/reply`, { text }, { params: { account_id: accountId } }),
+  deletePost: (mediaId: string, accountId: string) =>
+    api.delete(`/threads/posts/${mediaId}`, { params: { account_id: accountId } }),
+}
+
+// Secret store endpoints (Cloudflare-first credentials)
+export const secretsApi = {
+  list: () => api.get('/secrets'),
+  get: (key: string) => api.get(`/secrets/${key}`),
+  set: (key: string, value: string, description?: string) =>
+    api.post(`/secrets/${key}`, { value, description }),
+}
+
+// Messenger Platform endpoints
+export const messengerApi = {
+  setup: (accountId: string, data?: { greeting_text?: string; enable_persistent_menu?: boolean; enable_get_started?: boolean }) =>
+    api.post(`/messenger/${accountId}/setup`, data || {}),
+  getProfile: (accountId: string) =>
+    api.get(`/messenger/${accountId}/profile`),
+  updateProfile: (accountId: string, data: Partial<{ greeting: unknown[]; get_started: Record<string, unknown>; persistent_menu: unknown[]; whitelisted_domains: string[]; ice_breakers: unknown[] }>) =>
+    api.put(`/messenger/${accountId}/profile`, data),
+  deleteProfileFields: (accountId: string, fields: string[]) =>
+    api.delete(`/messenger/${accountId}/profile`, { params: { fields: fields.join(',') } }),
+  unsubscribe: (accountId: string) =>
+    api.post(`/messenger/${accountId}/unsubscribe`),
+  sendMessage: (accountId: string, data: { recipient_psid: string; text?: string; image_url?: string; messaging_type?: string }) =>
+    api.post(`/messenger/${accountId}/send`, data),
+  sendQuickReplies: (accountId: string, data: { recipient_psid: string; text: string; quick_replies: unknown[] }) =>
+    api.post(`/messenger/${accountId}/send-quick-replies`, data),
+  getConversations: (accountId: string, limit?: number) =>
+    api.get(`/messenger/${accountId}/conversations`, { params: { limit: limit || 25 } }),
+  getConversationMessages: (accountId: string, conversationId: string, limit?: number) =>
+    api.get(`/messenger/${accountId}/conversations/${conversationId}`, { params: { limit: limit || 20 } }),
+  getUserProfile: (accountId: string, psid: string) =>
+    api.get(`/messenger/${accountId}/user/${psid}`),
+  getAutoReplyConfig: (accountId: string) =>
+    api.get(`/messenger/${accountId}/auto-reply`),
+  updateAutoReplyConfig: (accountId: string, data: { enabled: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number }) =>
+    api.put(`/messenger/${accountId}/auto-reply`, data),
+  getSidecarStatus: () =>
+    api.get('/messenger/sidecar/status'),
+  // Browser bridge orchestrator (coordinates browser access across workers)
+  getOrchestratorStatus: () =>
+    api.get('/ops/browser-orchestrator'),
+  releaseOrchestratorLock: () =>
+    api.post('/ops/browser-orchestrator/release'),
+  // Personal Messenger (browser bridge)
+  getPersonalConversations: (accountId: string) =>
+    api.get(`/messenger/${accountId}/personal/conversations`),
+  getPersonalMessages: (accountId: string, threadId: string, isE2ee: boolean = false) =>
+    api.get(`/messenger/${accountId}/personal/conversations/${threadId}`, { params: { is_e2ee: isE2ee } }),
+  sendPersonalMessage: (accountId: string, data: { thread_id: string; text: string; is_e2ee?: boolean }) =>
+    api.post(`/messenger/${accountId}/personal/send`, data),
+  getPersonalAutoReply: (accountId: string) =>
+    api.get(`/messenger/${accountId}/personal/auto-reply`),
+  updatePersonalAutoReply: (accountId: string, data: { enabled: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number }) =>
+    api.put(`/messenger/${accountId}/personal/auto-reply`, data),
+  // Bot Builder
+  createBot: (accountId: string, data: { name?: string; personality?: string; language?: string; business_hours_start?: string; business_hours_end?: string; custom_prompt?: string }) =>
+    api.post(`/messenger/${accountId}/bot/create`, data),
+  getBot: (accountId: string) =>
+    api.get(`/messenger/${accountId}/bot`),
+  updateBot: (accountId: string, data: { name?: string; enabled?: boolean; system_prompt?: string; model?: string; fallback_text?: string; max_tokens?: number; temperature?: number; cooldown_seconds?: number; business_hours_start?: string | null; business_hours_end?: string | null; paused_threads?: string[]; reply_to_spam?: boolean; reply_to_greetings?: boolean; quick_replies?: unknown[] }) =>
+    api.put(`/messenger/${accountId}/bot`, data),
+  activateBot: (accountId: string) =>
+    api.post(`/messenger/${accountId}/bot/activate`),
+  deactivateBot: (accountId: string) =>
+    api.post(`/messenger/${accountId}/bot/deactivate`),
+  pauseBotThread: (accountId: string, threadId: string) =>
+    api.post(`/messenger/${accountId}/bot/pause-thread/${threadId}`),
+  resumeBotThread: (accountId: string, threadId: string) =>
+    api.post(`/messenger/${accountId}/bot/resume-thread/${threadId}`),
+  getBotPersonalities: (accountId: string) =>
+    api.get(`/messenger/${accountId}/bot/personalities`),
+}
+
+// WhatsApp Business Cloud API endpoints
+export const whatsappApi = {
+  // Setup & credentials
+  setup: (accountId: string, data?: { greeting_text?: string }) =>
+    api.post(`/whatsapp/${accountId}/setup`, data || {}),
+  updateCredentials: (accountId: string, data: {
+    access_token: string
+    phone_number_id: string
+    waba_id?: string
+    display_phone_number?: string
+    subscribe_webhooks?: boolean
+  }) => api.put(`/whatsapp/${accountId}/credentials`, data),
+  getSetupStatus: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/setup-status`),
+
+  // Business profile
+  getProfile: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/profile`),
+  updateProfile: (accountId: string, data: {
+    about?: string
+    address?: string
+    description?: string
+    email?: string
+    websites?: string[]
+    vertical?: string
+  }) => api.put(`/whatsapp/${accountId}/profile`, data),
+
+  // Phone number registration (4-step flow)
+  createNumber: (data: { waba_id: string; cc: string; phone_number: string; verified_name: string }) =>
+    api.post('/whatsapp/register/create-number', data),
+  requestCode: (data: { phone_number_id: string; code_method?: string; language?: string }) =>
+    api.post('/whatsapp/register/request-code', data),
+  verifyCode: (data: { phone_number_id: string; code: string }) =>
+    api.post('/whatsapp/register/verify-code', data),
+  registerNumber: (data: { phone_number_id: string; pin: string }) =>
+    api.post('/whatsapp/register/number', data),
+  deregisterNumber: (data: { phone_number_id: string }) =>
+    api.post('/whatsapp/register/deregister', data),
+
+  // Per-account phone registration
+  requestPhoneCode: (accountId: string, data: { code_method?: string; language?: string }) =>
+    api.post(`/whatsapp/${accountId}/phone/request-code`, data),
+  verifyPhoneCode: (accountId: string, data: { code: string }) =>
+    api.post(`/whatsapp/${accountId}/phone/verify-code`, data),
+  registerPhone: (accountId: string, data: { pin: string }) =>
+    api.post(`/whatsapp/${accountId}/phone/register`, data),
+  getPhoneStatus: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/phone/status`),
+
+  // Webhook subscriptions
+  subscribeWebhooks: (data: { waba_id: string }) =>
+    api.post('/whatsapp/webhooks/subscribe', data),
+  getWebhookSubscriptions: (wabaId: string) =>
+    api.get(`/whatsapp/webhooks/subscriptions/${wabaId}`),
+  unsubscribeWebhooks: (data: { waba_id: string }) =>
+    api.delete('/whatsapp/webhooks/subscribe', { params: data }),
+
+  // Messaging
+  sendMessage: (accountId: string, data: {
+    to: string
+    text?: string
+    image_url?: string
+    document_url?: string
+    filename?: string
+    caption?: string
+    preview_url?: boolean
+    messaging_type?: string
+  }) => api.post(`/whatsapp/${accountId}/send`, data),
+  sendTemplate: (accountId: string, data: {
+    to: string
+    template_name: string
+    language_code?: string
+    components?: unknown[]
+  }) => api.post(`/whatsapp/${accountId}/send-template`, data),
+
+  // AI auto-reply
+  getAutoReply: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/auto-reply`),
+  updateAutoReply: (accountId: string, data: {
+    enabled: boolean
+    system_prompt?: string
+    model?: string
+    fallback_text?: string
+    max_tokens?: number
+  }) => api.put(`/whatsapp/${accountId}/auto-reply`, data),
+
+  // Bot management
+  createBot: (accountId: string, data: { name?: string; personality?: string; language?: string; custom_prompt?: string }) =>
+    api.post(`/whatsapp/${accountId}/bot/create`, data),
+  getBot: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/bot`),
+  updateBot: (accountId: string, data: {
+    name?: string
+    enabled?: boolean
+    system_prompt?: string
+    model?: string
+    fallback_text?: string
+    max_tokens?: number
+    temperature?: number
+    cooldown_seconds?: number
+    business_hours_start?: string | null
+    business_hours_end?: string | null
+    reply_to_spam?: boolean
+    reply_to_greetings?: boolean
+    quick_replies?: unknown[]
+  }) => api.put(`/whatsapp/${accountId}/bot`, data),
+  activateBot: (accountId: string) =>
+    api.post(`/whatsapp/${accountId}/bot/activate`),
+  deactivateBot: (accountId: string) =>
+    api.post(`/whatsapp/${accountId}/bot/deactivate`),
+  getBotPersonalities: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/bot/personalities`),
+
+  // Thread management
+  pauseThread: (accountId: string, data: { phone: string }) =>
+    api.post(`/whatsapp/${accountId}/threads/pause`, data),
+  resumeThread: (accountId: string, data: { phone: string }) =>
+    api.post(`/whatsapp/${accountId}/threads/resume`, data),
+  getThreadConfig: (accountId: string, phone: string) =>
+    api.get(`/whatsapp/${accountId}/threads/${phone}/config`),
+  updateThreadConfig: (accountId: string, phone: string, data: Record<string, unknown>) =>
+    api.put(`/whatsapp/${accountId}/threads/${phone}/config`, data),
+  getThreadMemory: (accountId: string, phone: string) =>
+    api.get(`/whatsapp/${accountId}/threads/${phone}/memory`),
+  getThreadWindow: (accountId: string, phone: string) =>
+    api.get(`/whatsapp/${accountId}/threads/${phone}/window`),
+
+  // Brand indexing for RAG
+  indexBrand: (accountId: string) =>
+    api.post(`/whatsapp/${accountId}/index-brand`),
+
+  // WhatsApp Flows
+  listFlows: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/flows`),
+  getFlow: (accountId: string, flowId: string) =>
+    api.get(`/whatsapp/${accountId}/flows/${flowId}`),
+  createFlow: (accountId: string, data: { name: string; categories: string[]; endpoint_uri?: string }) =>
+    api.post(`/whatsapp/${accountId}/flows`, data),
+  updateFlow: (accountId: string, flowId: string, data: { name?: string; categories?: string[]; endpoint_uri?: string }) =>
+    api.put(`/whatsapp/${accountId}/flows/${flowId}`, data),
+  updateFlowJson: (accountId: string, flowId: string, data: Record<string, unknown>) =>
+    api.put(`/whatsapp/${accountId}/flows/${flowId}/json`, data),
+  getFlowJson: (accountId: string, flowId: string) =>
+    api.get(`/whatsapp/${accountId}/flows/${flowId}/json`),
+  validateFlow: (accountId: string, flowId: string) =>
+    api.post(`/whatsapp/${accountId}/flows/${flowId}/validate`),
+  publishFlow: (accountId: string, flowId: string) =>
+    api.post(`/whatsapp/${accountId}/flows/${flowId}/publish`),
+  deleteFlow: (accountId: string, flowId: string) =>
+    api.delete(`/whatsapp/${accountId}/flows/${flowId}`),
+  sendFlow: (accountId: string, data: { to: string; flow_id: string; flow_token: string; flow_action?: string; flow_action_payload?: Record<string, unknown> }) =>
+    api.post(`/whatsapp/${accountId}/flows/send`, data),
+  listFlowTemplates: (accountId: string) =>
+    api.get(`/whatsapp/${accountId}/flows/templates/list`),
+  createFlowFromTemplate: (accountId: string, data: { template_id: string; name: string }) =>
+    api.post(`/whatsapp/${accountId}/flows/from-template`, data),
+}
+
+// Telegram Bot API — credentials, webhook, send, auto-reply
+export const telegramApi = {
+  connect: (data: { bot_token: string; set_webhook?: boolean }) =>
+    api.post('/telegram/connect', data),
+  updateCredentials: (accountId: string, data: { bot_token: string; set_webhook?: boolean }) =>
+    api.put(`/telegram/${accountId}/credentials`, data),
+  getSetupStatus: (accountId: string) =>
+    api.get(`/telegram/${accountId}/setup-status`),
+  setupWebhook: (accountId: string) =>
+    api.post(`/telegram/${accountId}/setup-webhook`),
+  deleteWebhook: (accountId: string) =>
+    api.post(`/telegram/${accountId}/delete-webhook`),
+  sendMessage: (accountId: string, data: {
+    chat_id: number | string
+    text: string
+    parse_mode?: string
+    disable_notification?: boolean
+  }) => api.post(`/telegram/${accountId}/send`, data),
+  getAutoReply: (accountId: string) =>
+    api.get(`/telegram/${accountId}/auto-reply`),
+  updateAutoReply: (accountId: string, data: {
+    enabled: boolean
+    system_prompt?: string
+    model?: string
+    fallback_text?: string
+    max_tokens?: number
+    temperature?: number
+    cooldown_seconds?: number
+    reply_to_spam?: boolean
+    reply_to_greetings?: boolean
+  }) => api.put(`/telegram/${accountId}/auto-reply`, data),
+  createBot: (accountId: string, data: {
+    name?: string
+    personality?: string
+    language?: string
+    custom_prompt?: string
+  }) => api.post(`/telegram/${accountId}/bot/create`, data),
+  getBot: (accountId: string) =>
+    api.get(`/telegram/${accountId}/bot`),
+  updateBot: (accountId: string, data: Record<string, unknown>) =>
+    api.put(`/telegram/${accountId}/bot`, data),
+  activateBot: (accountId: string) =>
+    api.post(`/telegram/${accountId}/bot/activate`),
+  deactivateBot: (accountId: string) =>
+    api.post(`/telegram/${accountId}/bot/deactivate`),
+  pauseThread: (accountId: string, data: { chat_id: string }) =>
+    api.post(`/telegram/${accountId}/threads/pause`, data),
+  resumeThread: (accountId: string, data: { chat_id: string }) =>
+    api.post(`/telegram/${accountId}/threads/resume`, data),
+  getGroupWatch: (accountId: string) =>
+    api.get(`/telegram/${accountId}/group-watch`),
+  updateGroupWatch: (accountId: string, data: Record<string, unknown>) =>
+    api.put(`/telegram/${accountId}/group-watch`, data),
+  addWatchedChat: (accountId: string, data: { chat_id: string; title?: string; type?: string }) =>
+    api.post(`/telegram/${accountId}/group-watch/add-chat`, data),
+  digestNow: (accountId: string) =>
+    api.post(`/telegram/${accountId}/group-watch/digest-now`),
+  getGroupWatchActivity: (accountId: string, params?: { chat_id?: string; limit?: number }) =>
+    api.get(`/telegram/${accountId}/group-watch/activity`, { params }),
+  setupGroupWatchLinks: (accountId: string) =>
+    api.post(`/telegram/${accountId}/group-watch/setup-links`),
+
+  // Channel administration
+  listChannels: (accountId: string) =>
+    api.get(`/telegram/${accountId}/channels`),
+  getChatInfo: (accountId: string, chatId: string | number) =>
+    api.get(`/telegram/${accountId}/chat-info`, { params: { chat_id: chatId } }),
+  getChatAdmins: (accountId: string, chatId: string | number) =>
+    api.get(`/telegram/${accountId}/chat-admins`, { params: { chat_id: chatId } }),
+  setChatDescription: (accountId: string, data: { chat_id: string | number; description: string }) =>
+    api.put(`/telegram/${accountId}/chat-description`, data),
+  createInviteLink: (accountId: string, data: {
+    chat_id: string | number
+    name?: string
+    expire_date?: number
+    member_limit?: number
+    creates_join_request?: boolean
+    regenerate?: boolean
+  }) => api.post(`/telegram/${accountId}/invite-link`, data),
+  pinMessage: (accountId: string, data: { chat_id: string | number; message_id: number }) =>
+    api.post(`/telegram/${accountId}/pin`, data),
+  getChannelConfig: (accountId: string) =>
+    api.get(`/telegram/${accountId}/channel-config`),
+  setChannelConfig: (accountId: string, data: { chat_id: string | number }) =>
+    api.put(`/telegram/${accountId}/channel-config`, data),
+  getNotifyConfig: (accountId: string) =>
+    api.get(`/telegram/${accountId}/notify-config`),
+}
+
+// Publishing endpoints
+export const publishingApi = {
+  listQueue: (params?: { status?: string; page?: number; page_size?: number }) =>
+    api.get('/publishing/queue', { params }),
+  getQueueItem: (id: string) => api.get(`/publishing/queue/${id}`),
+  retryQueueItem: (id: string) => api.post(`/publishing/queue/${id}/retry`),
+  cancelQueueItem: (id: string) => api.post(`/publishing/queue/${id}/cancel`),
+  getHistory: (params?: { page?: number; page_size?: number }) =>
+    api.get('/publishing/history', { params }),
+}
+
+// Analytics endpoints (self-hosted social-api → Postgres)
+export const analyticsApi = {
+  getOverview: (params?: { days?: number; platform?: string }) =>
+    api.get('/analytics/overview', { params }),
+  getPlatformMetrics: (params?: { days?: number }) =>
+    api.get('/analytics/platforms', { params }),
+  getPostAnalytics: (postId: string) =>
+    api.get(`/analytics/posts/${postId}/metrics`),
+  getEngagementTrends: (params?: { days?: number; platform?: string }) =>
+    api.get('/analytics/engagement', { params }),
+  getFollowerGrowth: (params?: { days?: number; platform?: string }) =>
+    api.get('/analytics/followers', { params }),
+  getTopPosts: (params?: { limit?: number; platform?: string; days?: number }) =>
+    api.get('/analytics/top-posts', { params }),
+  exportReport: (params: {
+    format: 'csv' | 'json'
+    days?: number
+    platform?: string
+    account_id?: string
+    post_id?: string
+    start_date?: string
+    end_date?: string
+  }) =>
+    api.get('/analytics/reports/export', { params, responseType: 'blob' }),
+  syncFromPlatforms: (data?: { days?: number; async_mode?: boolean }) =>
+    api.post('/analytics/sync', data || { days: 365, async_mode: true }),
+  listSnapshots: (params?: { days?: number; post_id?: string; limit?: number }) =>
+    api.get('/analytics/snapshots', { params }),
+  // Bot analytics
+  getBotSummary: (params?: { days?: number }) =>
+    api.get('/analytics/bots/summary', { params }),
+  getCloudflareAIUsage: (params?: { days?: number }) =>
+    api.get('/analytics/bots/cloudflare-ai', { params }),
+  getCloudflareOverview: (params?: { days?: number }) =>
+    api.get('/analytics/bots/cloudflare-overview', { params }),
+  getPublishPipeline: (params?: { days?: number }) =>
+    api.get('/analytics/pipeline', { params }),
+  getAdCampaigns: (params?: { days?: number }) =>
+    api.get('/analytics/ad-campaigns', { params }),
+  getInitiatives: (params?: { days?: number }) =>
+    api.get('/analytics/initiatives', { params }),
+  recordInitiativeEvent: (body: {
+    event_type?: string
+    platform?: string
+    social_account_id?: string
+    units?: number
+    note?: string
+    credits_left?: number
+    declined?: number
+    monthly_cap?: number
+  }) => api.post('/analytics/initiative-events', body),
+}
+
+// AI endpoints
+export const aiProvidersApi = {
+  getCatalog: () => api.get('/ai-providers/catalog'),
+  list: () => api.get('/ai-providers'),
+  upsert: (name: string, data: {
+    display_name?: string
+    api_key?: string
+    base_url?: string
+    default_model?: string
+    is_enabled?: boolean
+    is_default?: boolean
+    fallbacks?: string
+    timeout_seconds?: number
+    max_retries?: number
+    daily_neuron_budget?: number
+  }) => api.put(`/ai-providers/${name}`, data),
+  delete: (name: string) => api.delete(`/ai-providers/${name}`),
+  test: (name: string) => api.post(`/ai-providers/${name}/test`),
+  listModels: (name: string) => api.get(`/ai-providers/${name}/models`),
+  getUsage: (params?: { days?: number }) => api.get('/ai-providers/usage', { params }),
+  resetCircuit: (name: string) => api.post(`/ai-providers/${name}/reset-circuit`),
+}
+
+export const aiApi = {
+  generateContent: (data: {
+    prompt: string
+    platform: string
+    tone?: string
+    length?: 'short' | 'medium' | 'long'
+    include_hashtags?: boolean
+    include_emojis?: boolean
+    target_audience?: string
+    brand_voice?: string
+    template_id?: string
+    provider?: string
+  }) =>
+    api.post('/ai/generate-content', {
+      // Interactive callers default to Workers AI — the local DMR chain
+      // (generate → rewrite → compliance → quality loop) exceeds the API
+      // gateway's 300s proxy timeout on CPU-bound hardware.
+      provider: 'cloudflare',
+      ...data,
+    }),
+  improveContent: (data: {
+    content: string
+    platform: string
+    goal?: string
+    instruction?: string
+  }) =>
+    api.post('/ai/improve-content', {
+      content: data.content,
+      platform: data.platform,
+      goal: data.goal || data.instruction || 'engagement',
+    }),
+  generateHashtags: (data: { content: string; platform: string; count?: number; max_hashtags?: number }) =>
+    api.post('/ai/generate-hashtags', {
+      content: data.content,
+      platform: data.platform,
+      max_hashtags: data.max_hashtags ?? data.count ?? 10,
+    }),
+  generateImagePrompt: (data: { description: string; style?: string }) =>
+    api.post('/ai/generate-image-prompt', data),
+  analyzeContent: (data: { content: string; platform: string }) =>
+    api.post('/ai/analyze-content', data),
+  generateCarousel: (data: {
+    topic: string
+    num_slides?: number
+    platform?: string
+    tone?: string
+    include_cta?: boolean
+    provider?: string
+  }) => api.post('/ai/generate-carousel', data),
+  generateCarouselPipeline: (data: {
+    topic: string
+    num_slides?: number
+    platform?: string
+    tone?: string
+    include_cta?: boolean
+    text_model?: string
+    txt2img_model?: string
+  }) => api.post('/ai/generate-carousel-pipeline', data),
+  enhanceImagePrompt: (description: string, style?: string) =>
+    api.post('/ai/generate-image-prompt', { description, style: style ?? 'photorealistic' }),
+  getDmrStatus: () => api.get('/ai/dmr/status'),
+  autoConfigurePrompt: (prompt: string, context?: 'image' | 'carousel' | 'auto') =>
+    api.post('/ai/auto-configure', { prompt, context: context ?? 'auto' }),
+  saveGenerationTemplate: (data: {
+    name: string
+    category?: string
+    prompt_template: string
+    settings?: Record<string, unknown>
+    tags?: string[]
+    is_public?: boolean
+  }) => api.post('/ai/save-generation-template', data),
+  getWorkflowConfig: (contentType: string) =>
+    api.get(`/ai/workflow-config/${contentType}`),
+  seedDefaultWorkflows: () => api.post('/ai/seed-default-workflows'),
+  transcribeAudio: (file: File, model?: string) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (model) form.append('model', model)
+    return api.post('/ai/transcribe', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+  /** Queue a batch of requests against a Workers AI model (?queueRequest=true). */
+  submitBatchInference: (data: {
+    model: string
+    requests: Array<Record<string, unknown> & { external_reference?: string }>
+  }) => api.post('/ai/workers-ai/batch', data),
+  /** Poll/retrieve results of a previously submitted batch request. */
+  retrieveBatchInference: (data: { model: string; request_id: string }) =>
+    api.post('/ai/workers-ai/batch/retrieve', data),
+  analyzeSeo: (data: {
+    content: string
+    platform?: string
+    title?: string
+  }) => api.post('/ai/seo', data),
+  /** Deterministic NLP score (plain-English + Sofia copy rules) — no AI call. */
+  nlpCheck: (data: { content: string; platform?: string }) =>
+    api.post<{
+      score: number
+      avg_sentence_words: number
+      issue_count: number
+      issues: Array<{ field: string; reason: string; snippet: string; matches: string[] }>
+      recommendations: string[]
+    }>('/ai/nlp-check', data),
+  spellcheck: (text: string, language = 'en-US') =>
+    api.post<{
+      matches: Array<{
+        message: string
+        offset: number
+        length: number
+        replacements: string[]
+        rule_id: string
+        context: string
+      }>
+      language: string
+    }>('/ai/spellcheck', { text, language }),
+}
+
+// LinkedIn endpoints
+export const linkedinApi = {
+  generatePost: (data: {
+    topic: string
+    tone?: string
+    length?: 'short' | 'medium' | 'long'
+    include_hashtags?: boolean
+    include_site_link?: boolean
+    site?: string
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-post', data),
+  generateArticle: (data: {
+    topic: string
+    tone?: string
+    sections?: number
+    include_takeaways?: boolean
+    include_cta?: boolean
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-article', data),
+  generateHashtags: (data: {
+    content: string
+    count?: number
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-hashtags', data),
+  improvePost: (data: {
+    content: string
+    goal?: string
+    tone?: string
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/improve-post', data),
+  generateComment: (data: {
+    post_text: string
+    reply_context?: string
+    tone?: string
+    length?: string
+    provider?: string
+    model?: string | null
+  }) => api.post('/linkedin/generate-comment', data),
+  bestTime: (account_type?: string) =>
+    api.get('/linkedin/best-time', { params: { account_type } }),
+  validateAccount: (accountId: string) =>
+    api.get(`/linkedin/accounts/${accountId}/validate`),
+  followers: (accountId: string) =>
+    api.get(`/linkedin/accounts/${accountId}/followers`),
+  postAnalytics: (postUrn: string, accountId: string) =>
+    api.get(`/linkedin/analytics/post/${encodeURIComponent(postUrn)}`, { params: { account_id: accountId } }),
+  organizationAnalytics: (accountId: string) =>
+    api.get('/linkedin/analytics/organization', { params: { account_id: accountId } }),
+  publish: (data: {
+    account_id: string
+    commentary: string
+    link_url?: string
+    link_title?: string
+    link_description?: string
+    visibility?: string
+  }) => api.post('/linkedin/publish', data),
+  comment: (data: {
+    account_id: string
+    post_urn: string
+    text: string
+  }) => api.post('/linkedin/comment', data),
+  companyPageUrl: (accountId: string) =>
+    api.get('/linkedin/company-page-url', { params: { account_id: accountId } }),
+}
+
+// Brand endpoints
+export const brandApi = {
+  get: () => api.get('/brand'),
+  create: (data: {
+    name: string
+    industry?: string
+    positioning_statement?: string
+    mission?: string
+    values?: string[]
+    target_audience?: Record<string, unknown>
+    competitor_names?: string[]
+    tagline?: string
+    website_url?: string
+  }) => api.post('/brand', data),
+  update: (data: {
+    name?: string
+    industry?: string
+    positioning_statement?: string
+    mission?: string
+    values?: string[]
+    target_audience?: Record<string, unknown>
+    competitor_names?: string[]
+    tagline?: string
+    website_url?: string
+  }) => api.put('/brand', data),
+  delete: () => api.delete('/brand'),
+
+  // Voice
+  getVoice: () => api.get('/brand/voice'),
+  updateVoice: (data: {
+    tone_dimensions?: Record<string, number>
+    messaging_pillars?: Array<{ pillar: string; description: string }>
+    banned_phrases?: string[]
+    preferred_phrases?: string[]
+    example_content?: string
+    voice_signature?: Record<string, unknown>
+  }) => api.put('/brand/voice', data),
+
+  // Visual
+  getVisual: () => api.get('/brand/visual'),
+  updateVisual: (data: {
+    primary_color?: string
+    accent_color?: string
+    neutral_colors?: string[]
+    font_heading?: string
+    font_body?: string
+    type_scale?: Record<string, number>
+    logo_url?: string
+    logo_variants?: Record<string, string>
+    image_style?: string
+    photography_direction?: string
+  }) => api.put('/brand/visual', data),
+
+  // Guidelines
+  getGuidelines: () => api.get('/brand/guidelines'),
+  getGuidelinesByToken: (token: string) => api.get(`/brand/guidelines/share/${token}`),
+  compileGuidelines: () => api.post('/brand/guidelines/compile'),
+
+  // Assets
+  listAssets: () => api.get('/brand/assets'),
+  createAsset: (data: {
+    asset_type?: string
+    name: string
+    media_asset_id?: string
+    file_url?: string
+    asset_metadata?: Record<string, unknown>
+  }) => api.post('/brand/assets', data),
+  deleteAsset: (id: string) => api.delete(`/brand/assets/${id}`),
+
+  // AI Brand Kit Extractor — extract brand identity from a website URL
+  extractFromUrl: (data: { url: string }) =>
+    api.post('/brand/extract', data, { timeout: 60000 }),
+
+  // AI Voice Analyzer — analyze content samples and return voice signature
+  analyzeVoice: (data: { samples: string[] }) =>
+    api.post('/brand/analyze-voice', data, { timeout: 60000 }),
+
+  // Brand compliance score — check content against brand guidelines
+  scoreCompliance: (data: { content: string; platform?: string }) =>
+    api.post('/brand/compliance', data),
+
+  // AI Logo Generator — generate a brand logo from brand context
+  generateLogo: (data: { description?: string; style?: string; color_scheme?: string }) =>
+    api.post('/brand/generate-logo', data, { timeout: 90000 }),
+
+  // AI Favicon Generator — generate a favicon from the brand logo
+  generateFavicon: () =>
+    api.post('/brand/generate-favicon', {}, { timeout: 90000 }),
+
+  // Brand Monitoring — mentions, competitors, health
+  listMentions: (params?: { platform?: string; limit?: number }) =>
+    api.get('/brand/mentions', { params }),
+  collectMentions: () => api.post('/brand/mentions/collect', {}, { timeout: 60000 }),
+  listCompetitors: () => api.get('/brand/competitors'),
+  snapshotCompetitor: (data: { competitor_name: string; platform?: string }) =>
+    api.post('/brand/competitors/snapshot', null, { params: data }),
+  getHealth: () => api.get('/brand/health'),
+
+  // Autonomous Brand Content (Phase 6)
+  runAutopilot: (params?: { days?: number; min_compliance_score?: number }) =>
+    api.post('/brand/autopilot/run', null, { params, timeout: 120000 }),
+  getTrends: () => api.get('/brand/trends', { timeout: 30000 }),
+
+  // Digital Business Card (legacy brand-based)
+  getDigitalCard: () => api.get('/brand/digital-card'),
+  getDigitalCardPublic: (token: string) => api.get(`/brand/digital-card/${token}`),
+}
+
+// Digital Business Cards (standalone CRUD)
+export const digitalCardApi = {
+  list: () => api.get('/digital-cards'),
+  get: (id: string) => api.get(`/digital-cards/${id}`),
+  create: (data: Record<string, unknown>) => api.post('/digital-cards', data),
+  createFromBrand: () => api.post('/digital-cards/from-brand', null),
+  update: (id: string, data: Record<string, unknown>) => api.patch(`/digital-cards/${id}`, data),
+  delete: (id: string) => api.delete(`/digital-cards/${id}`),
+  downloadVCard: (id: string) =>
+    api.get(`/digital-cards/${id}/vcard`, { responseType: 'blob' }),
+  getPublic: (token: string) => api.get(`/digital-cards/public/${token}`),
+  trackAction: (token: string, action: string) =>
+    api.post(`/digital-cards/public/${token}/track`, null, { params: { action } }),
+  send: (id: string, data: { to_phone?: string; platform: string; message?: string }) =>
+    api.post(`/digital-cards/${id}/send`, data),
+}
+
+// Media AI enhancement endpoints
+export const mediaEnhanceApi = {
+  getPresets: () => api.get('/media/enhance/presets'),
+  getInfo: (assetId: string) => api.get(`/media/enhance/assets/${assetId}/info`),
+  getQuality: (assetId: string) => api.get(`/media/enhance/assets/${assetId}/quality`),
+  resize: (assetId: string, data: {
+    preset?: string; width?: number; height?: number; fit?: string; format?: string; quality?: number
+  }) => api.post(`/media/enhance/assets/${assetId}/resize`, data, { responseType: 'blob' }),
+  crop: (assetId: string, data: { x: number; y: number; width: number; height: number; format?: string; quality?: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/crop`, data, { responseType: 'blob' }),
+  convert: (assetId: string, data: { format: string; quality?: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/convert`, data, { responseType: 'blob' }),
+  compress: (assetId: string, data: { target_size_kb?: number; format?: string; min_quality?: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/compress`, data, { responseType: 'blob' }),
+  watermark: (assetId: string, data: {
+    text: string; position?: string; opacity?: number; font_size?: number; color?: number[]; format?: string; quality?: number
+  }) => api.post(`/media/enhance/assets/${assetId}/watermark`, data, { responseType: 'blob' }),
+  upscale: (assetId: string, data: { scale: number }) =>
+    api.post(`/media/enhance/assets/${assetId}/upscale`, data, { responseType: 'blob' }),
+  removeBackground: (assetId: string) =>
+    api.post(`/media/enhance/assets/${assetId}/remove-background`, {}, { responseType: 'blob' }),
+  smartCrop: (assetId: string, data: { target_width: number; target_height: number; use_ai?: boolean }) =>
+    api.post(`/media/enhance/assets/${assetId}/smart-crop`, data, { responseType: 'blob' }),
+  generateAltText: (assetId: string) =>
+    api.post<{ alt_text: string }>(`/media/enhance/assets/${assetId}/alt-text`),
+  batch: (data: { asset_ids: string[]; operation: string; params?: Record<string, unknown> }) =>
+    api.post<{ task_id: string; status: string; asset_count: number }>('/media/enhance/batch', data),
+}
+
+export const auditApi = {
+  list: (params?: { action?: string; resource_type?: string; start_date?: string; end_date?: string; page?: number; page_size?: number }) =>
+    api.get('/audit/audit-logs', { params }),
+}
+
+export const inboxApi = {
+  getInbox: () => api.get<UnifiedInboxResponse>('/inbox/inbox'),
+}
+
+export interface ReportNotebook {
+  name: string
+  size_bytes: number
+  modified: string
+}
+
+export interface ReportRun {
+  run: string
+  notebook: string
+  subject: string | null
+  html_file: string | null
+  files: string[]
+  created: string
+}
+
+export const reportsApi = {
+  listNotebooks: () => api.get<{ notebooks: ReportNotebook[] }>('/reports/notebooks'),
+  list: (params?: { limit?: number; notebook?: string }) =>
+    api.get<{ reports: ReportRun[] }>('/reports', { params }),
+  fileUrl: (name: string) => `${API_BASE}/reports/files/${encodeURIComponent(name)}`,
+  getFile: (name: string) => api.get<string>(`/reports/files/${encodeURIComponent(name)}`, { responseType: 'text' }),
+  run: (notebook: string, parameters: Record<string, unknown> = {}, send = false) =>
+    api.post<{ queued: boolean; task_id: string; notebook: string }>('/reports/run', { notebook, parameters, send }),
+}
+
+export interface OpsServiceStatus {
+  name: string
+  online: boolean
+  detail: string
+}
+
+export interface OpsConsoleAccount {
+  id: string
+  platform: string
+  username: string | null
+  display_name: string | null
+  status: string
+  account_type: string
+  token_expires_at: string | null
+  audit: Record<string, unknown> | null
+}
+
+export interface OpsConsoleResponse {
+  checked_at: string
+  services: OpsServiceStatus[]
+  accounts: OpsConsoleAccount[]
+  publish_queue: Record<string, number>
+  media: { ai_generated_assets?: number; comfyui_queue?: { pending?: number; running?: number } }
+  browser_orchestrator: {
+    current_platform: string | null
+    queue_length: number
+    lock_held: boolean
+    message: string
+  }
+  tiktok_audit: Record<string, unknown> | null
+}
+
+export const opsApi = {
+  getConsole: () => api.get<OpsConsoleResponse>('/ops/console'),
+  getBrowserOrchestrator: () => api.get('/ops/browser-orchestrator'),
+  releaseBrowserLock: () => api.post('/ops/browser-orchestrator/release'),
+  sessionHeal: () => api.post<Record<string, unknown>>('/ops/session-heal'),
+  updateTikTokAudit: (data: { status: string; reference?: string; detail?: string }) =>
+    api.put('/ops/tiktok-audit', data),
+  triggerDigest: (params?: { days?: number; async_queue?: boolean }) =>
+    api.post('/ops/daily-digest', null, { params: { async_queue: true, ...params } }),
+}
+
+// ── Email campaigns (EspoCRM-connected marketing + survey funnel) ─────────
+
+export interface EmailCampaign {
+  id: string
+  name: string
+  kind: 'marketing' | 'survey'
+  subject: string
+  status: 'draft' | 'sending' | 'sent' | 'partial'
+  survey_url: string | null
+  sent_at: string | null
+  created_at: string
+  questions?: SurveyQuestion[]
+  stats?: Record<string, number>
+  text_body?: string
+  html_body?: string | null
+}
+
+export interface SurveyQuestion {
+  id: string
+  label: string
+  type: 'text' | 'choice' | 'rating'
+  options?: string[] | null
+  required?: boolean
+  min?: number
+  max?: number
+}
+
+export interface CampaignRecipient {
+  email: string
+  name: string | null
+  status: string
+  sent_at: string | null
+  error: string | null
+}
+
+export interface SurveyResponseRow {
+  email: string | null
+  lead_id: string | null
+  answers: Record<string, unknown>
+  espocrm_noted: boolean
+  submitted_at: string
+}
+
+export interface CrmClient {
+  id: string
+  name: string
+  email: string | null
+  account?: string | null
+  title?: string | null
+  status?: string | null
+  source?: string | null
+}
+
+export const emailCampaignsApi = {
+  list: () => api.get<EmailCampaign[]>('/email-campaigns'),
+  get: (id: string) => api.get<EmailCampaign>(`/email-campaigns/${id}`),
+  create: (data: {
+    name: string
+    kind: 'marketing' | 'survey'
+    subject: string
+    text_body: string
+    html_body?: string | null
+    from_name?: string
+    reply_to?: string | null
+    survey_url?: string | null
+    questions?: SurveyQuestion[]
+  }) => api.post<EmailCampaign>('/email-campaigns', data),
+  addAudience: (
+    id: string,
+    data: {
+      emails?: { email: string; name?: string }[]
+      include_socialauto_leads?: boolean
+      lead_sources?: string[] | null
+      lead_interests?: string[] | null
+      include_espocrm?: boolean
+    },
+  ) => api.post<{ queued: number; skipped_suppressed: number; stats: Record<string, number> }>(
+    `/email-campaigns/${id}/audience`, data),
+  send: (id: string) => api.post<{ queued: boolean; pending: number }>(`/email-campaigns/${id}/send`),
+  delete: (id: string) => api.delete<{ deleted: boolean }>(`/email-campaigns/${id}`),
+  recipients: (id: string) => api.get<CampaignRecipient[]>(`/email-campaigns/${id}/recipients`),
+  responses: (id: string) => api.get<SurveyResponseRow[]>(`/email-campaigns/${id}/responses`),
+  nudge: (id: string) => api.post<{ nudged: number }>(`/email-campaigns/${id}/nudge`),
+  suppressions: () => api.get<{ email: string; reason: string; source: string; created_at: string }[]>('/email-campaigns/suppressions/list'),
+  addSuppression: (email: string, reason?: string) =>
+    api.post('/email-campaigns/suppressions/list', { email, reason }),
+  crmSummary: () => api.get<{ configured: boolean; counts: Record<string, number> }>('/email-campaigns/crm/summary'),
+  crmClients: (limit = 100) =>
+    api.get<{ contacts: CrmClient[]; leads: CrmClient[] }>('/email-campaigns/crm/clients', { params: { limit } }),
+}
+
+export default api

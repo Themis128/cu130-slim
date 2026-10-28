@@ -1,0 +1,120 @@
+---
+name: Docker Compose Validation
+
+"on":
+  push:
+    branches: [master]
+    paths:
+      - 'docker-compose*.yml'
+      - '.github/workflows/docker-compose-validation.yml'
+      - '.github/test.env'
+      - '.env.example'
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    timeout-minutes: 30
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate docker-compose.yml syntax
+        run: |
+          docker compose --env-file .github/test.env -f docker-compose.yml config > /dev/null && echo "docker-compose.yml is valid"
+
+      - name: Check for required environment variables
+        run: |
+          python3 scripts/validate-compose-env.py
+
+      - name: Check service definitions
+        run: |
+          echo "Services defined in docker-compose.yml:"
+          docker compose --env-file .github/test.env config --services
+
+      - name: Check for port conflicts
+        run: |
+          docker compose --env-file .github/test.env config --format json | python3 scripts/check-compose-ports.py
+
+      - name: Validate pre-built image references
+        run: |
+          echo "Checking pre-built image references..."
+          # All CI-built images use ghcr.io/themis128/cu130-slim:<service>-latest
+          # with pull_policy: always, so every `compose up` picks up the newest build.
+          # CI pushes <service>-latest plus immutable <service>-sha-<sha> tags for rollbacks.
+          PACKAGE="ghcr.io/themis128/cu130-slim"
+          expected_services=(
+            "comfyui"
+            "env-manager-backend"
+            "env-manager-frontend"
+            "social-api"
+            "social-frontend"
+            "cloudflared"
+          )
+
+          config_output=$(docker compose --env-file .github/test.env config --format json)
+
+          for service_name in "${expected_services[@]}"; do
+            expected_image="${PACKAGE}:${service_name}-latest"
+            if echo "$config_output" | jq -e --arg s "$service_name" '.services[$s]' > /dev/null 2>&1; then
+              actual_image=$(echo "$config_output" | jq -r --arg s "$service_name" '.services[$s].image')
+              if [[ "$actual_image" == "$expected_image" ]]; then
+                echo "✅ $service_name uses correct image: $actual_image"
+              else
+                echo "❌ $service_name has incorrect image: $actual_image (expected: $expected_image)"
+                exit 1
+              fi
+            else
+              echo "⚠️  Service $service_name not found in docker-compose.yml"
+            fi
+          done
+
+          # Publishing worker uses its own tag; other workers share social-worker-*.
+          if echo "$config_output" | jq -e '.services["social-worker-publishing"]' > /dev/null 2>&1; then
+            actual_image=$(echo "$config_output" | jq -r '.services["social-worker-publishing"].image')
+            expected_image="${PACKAGE}:social-worker-publishing-latest"
+            if [[ "$actual_image" == "$expected_image" ]]; then
+              echo "✅ social-worker-publishing uses correct image: $actual_image"
+            else
+              echo "❌ social-worker-publishing has incorrect image: $actual_image (expected: $expected_image)"
+              exit 1
+            fi
+          fi
+          for worker_service in social-worker-media social-worker-default social-worker-messenger; do
+            if echo "$config_output" | jq -e --arg s "$worker_service" '.services[$s]' > /dev/null 2>&1; then
+              actual_image=$(echo "$config_output" | jq -r --arg s "$worker_service" '.services[$s].image')
+              expected_image="${PACKAGE}:social-worker-latest"
+              if [[ "$actual_image" == "$expected_image" ]]; then
+                echo "✅ $worker_service uses correct image: $actual_image"
+              else
+                echo "❌ $worker_service has incorrect image: $actual_image (expected: $expected_image)"
+                exit 1
+              fi
+            else
+              echo "⚠️  Service $worker_service not found in docker-compose.yml"
+            fi
+          done
+
+          # CI-built services must pull the freshest image on every `up`/`create`.
+          # Require: always. Reject: if_not_present/missing (stale images) and never.
+          for service in comfyui env-manager-backend env-manager-frontend social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger social-frontend celery-beat cloudflared; do
+            if echo "$config_output" | jq -e --arg s "$service" '.services[$s].image' > /dev/null 2>&1; then
+              pull_policy=$(echo "$config_output" | jq -r --arg s "$service" '.services[$s].pull_policy // "missing"')
+              if [[ "$pull_policy" == "always" ]]; then
+                echo "✅ $service has pull_policy: always"
+              else
+                echo "❌ $service has pull_policy: $pull_policy (expected: always)"
+                exit 1
+              fi
+            fi
+          done
+
+          echo "✅ All pre-built image references validated"

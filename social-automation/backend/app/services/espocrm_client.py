@@ -1,0 +1,359 @@
+"""Read-side EspoCRM client — SocialAuto pulls client/contact info for campaigns.
+
+EspoCRM runs on the omv k3s cluster (``espocrm`` namespace). The public URL
+``espocrm.cloudless.gr`` sits behind Cloudflare Access, so the backend talks to
+the cluster NodePort (``http://192.168.1.200:30700``) with a dedicated
+``socialauto`` API user (``X-Api-Key``). Both values come from env:
+
+    ESPOCRM_BASE_URL   e.g. http://192.168.1.200:30700
+    ESPOCRM_API_KEY    ApiKey of the dedicated socialauto API user
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any
+
+import httpx
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+
+_TIMEOUT = 15.0
+_PAGE = 200
+
+
+def _cfg() -> tuple[str, str]:
+    settings = get_settings()
+    base = (getattr(settings, "ESPOCRM_BASE_URL", "") or "").strip().rstrip("/")
+    key = (getattr(settings, "ESPOCRM_API_KEY", "") or "").strip()
+    return base, key
+
+
+def configured() -> bool:
+    base, key = _cfg()
+    return bool(base and key)
+
+
+async def espo_get(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """GET ``{base}/api/v1{path}``. Raises on transport failure, returns the
+    decoded body otherwise — including non-2xx, which callers inspect."""
+    base, key = _cfg()
+    if not base or not key:
+        raise RuntimeError("EspoCRM not configured (ESPOCRM_BASE_URL/ESPOCRM_API_KEY)")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(
+            f"{base}/api/v1{path}",
+            headers={"X-Api-Key": key},
+            params=params or {},
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"EspoCRM GET {path} → {resp.status_code}: {resp.text[:200]}")
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise RuntimeError(f"EspoCRM GET {path} → non-JSON body") from exc
+    return data if isinstance(data, dict) else {"data": data}
+
+
+async def list_all(
+    entity: str,
+    *,
+    select: list[str] | None = None,
+    where: list[dict[str, Any]] | None = None,
+    order_by: str = "createdAt",
+    order: str = "desc",
+    max_items: int = 5000,
+) -> list[dict[str, Any]]:
+    """Walk an EspoCRM list endpoint with offset/maxSize pagination."""
+    items: list[dict[str, Any]] = []
+    offset = 0
+    while len(items) < max_items:
+        search: dict[str, Any] = {
+            "offset": offset,
+            "maxSize": min(_PAGE, max_items - len(items)),
+            "orderBy": order_by,
+            "order": order,
+        }
+        if select:
+            search["select"] = select  # EspoCRM searchParams takes a JSON array
+        if where:
+            search["where"] = where
+        data = await espo_get(f"/{entity}", params={"searchParams": json.dumps(search)})
+        page = data.get("list") or []
+        items.extend(page)
+        if len(page) < _PAGE:
+            break
+        offset += len(page)
+    return items[:max_items]
+
+
+async def list_leads_for_campaign() -> list[dict[str, Any]]:
+    """Leads eligible for marketing mail — not Converted/Dead, has an email.
+
+    The select list doubles as the personalization surface: every field here
+    is exposed to campaign templates as ``crm_<snake_case>`` merge tags."""
+    return await list_all(
+        "Lead",
+        select=[
+            "id", "firstName", "lastName", "emailAddress", "accountName",
+            "status", "source", "industry", "title", "phoneNumber", "website",
+            "addressCity", "assignedUserName", "createdAt", "description",
+        ],
+        where=[
+            {"type": "isNotNull", "attribute": "emailAddress"},
+            {"type": "notEquals", "attribute": "status", "value": "Dead"},
+            {"type": "notEquals", "attribute": "status", "value": "Converted"},
+        ],
+    )
+
+
+async def list_contacts() -> list[dict[str, Any]]:
+    return await list_all(
+        "Contact",
+        select=[
+            "id", "firstName", "lastName", "emailAddress", "accountName",
+            "accountId", "title", "phoneNumber", "addressCity", "description",
+            "doNotCall", "createdAt",
+        ],
+        where=[{"type": "isNotNull", "attribute": "emailAddress"}],
+    )
+
+
+async def campaign_profiles() -> dict[str, dict[str, Any]]:
+    """email → CRM record map for per-recipient campaign personalization.
+
+    Contacts win over Leads on the same address — they are the confirmed,
+    richer records — while lead fields still fill gaps the contact lacks.
+    """
+    profiles: dict[str, dict[str, Any]] = {}
+    for lead in await list_leads_for_campaign():
+        email = str(lead.get("emailAddress") or "").strip().lower()
+        if email:
+            profiles[email] = {**lead, "entity": "Lead"}
+    for contact in await list_contacts():
+        email = str(contact.get("emailAddress") or "").strip().lower()
+        if not email:
+            continue
+        merged = {**contact, "entity": "Contact"}
+        if email in profiles:
+            merged = {
+                **profiles[email],
+                **{k: v for k, v in merged.items() if v not in (None, "", [])},
+            }
+        profiles[email] = merged
+    return profiles
+
+
+async def list_accounts() -> list[dict[str, Any]]:
+    return await list_all(
+        "Account",
+        select=["id", "name", "website", "industry", "type", "emailAddress", "createdAt"],
+    )
+
+
+async def espo_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """POST ``{base}/api/v1{path}`` — used for CRM activity writes (Notes)."""
+    base, key = _cfg()
+    if not base or not key:
+        raise RuntimeError("EspoCRM not configured (ESPOCRM_BASE_URL/ESPOCRM_API_KEY)")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.post(
+            f"{base}/api/v1{path}",
+            headers={"X-Api-Key": key, "Content-Type": "application/json"},
+            json=payload,
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"EspoCRM POST {path} → {resp.status_code}: {resp.text[:200]}")
+    try:
+        data = resp.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {"data": data}
+
+
+async def espo_patch(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """PATCH ``{base}/api/v1{path}`` — field updates (status, dedupe marks)."""
+    base, key = _cfg()
+    if not base or not key:
+        raise RuntimeError("EspoCRM not configured (ESPOCRM_BASE_URL/ESPOCRM_API_KEY)")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.patch(
+            f"{base}/api/v1{path}",
+            headers={"X-Api-Key": key, "Content-Type": "application/json"},
+            json=payload,
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError(f"EspoCRM PATCH {path} → {resp.status_code}: {resp.text[:200]}")
+    try:
+        data = resp.json()
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {"data": data}
+
+
+async def add_lead_note(espocrm_lead_id: str, note: str, *, entity: str = "Lead") -> bool:
+    """Attach a Note to a CRM Lead/Contact — the survey-response activity
+    record. Returns False instead of raising so a CRM outage never blocks a
+    survey submission."""
+    if not espocrm_lead_id or not configured():
+        return False
+    try:
+        await espo_post(
+            "/Note",
+            {
+                # Post-type Notes carry their body in `post` (not `note`).
+                "type": "Post",
+                "post": note[:10000],
+                "parentType": entity,
+                "parentId": espocrm_lead_id,
+            },
+        )
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM note attach failed for %s %s", entity, espocrm_lead_id)
+        return False
+
+
+async def target_list_id(name: str) -> str | None:
+    """Resolve a TargetList display name → id (None when missing)."""
+    if not name or not configured():
+        return None
+    try:
+        data = await espo_get(
+            "/TargetList",
+            params={
+                "searchParams": json.dumps(
+                    {
+                        "maxSize": 1,
+                        "select": ["id"],
+                        "where": [{"type": "equals", "attribute": "name", "value": name}],
+                    }
+                )
+            },
+        )
+        rows = data.get("list") or []
+        return rows[0].get("id") if rows else None
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM TargetList lookup failed for %r", name)
+        return None
+
+
+async def link_lead_to_target_list(lead_id: str, list_name: str) -> bool:
+    """Enrol a Lead in a named TargetList — union semantics, never removes
+    existing memberships. ``targetListsIds`` is set-replacing and is not
+    returned by ``select``, so current memberships come from the relation
+    endpoint. Returns False (never raises) on any failure."""
+    if not lead_id or not configured():
+        return False
+    try:
+        list_id = await target_list_id(list_name)
+        if not list_id:
+            return False
+        rel = await espo_get(f"/Lead/{lead_id}/targetLists", params={"select": "id"})
+        current = [m["id"] for m in (rel.get("list") or []) if m.get("id")]
+        if list_id in current:
+            return True
+        await espo_patch(f"/Lead/{lead_id}", {"targetListsIds": [*current, list_id]})
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM TargetList link failed for lead %s → %r", lead_id, list_name)
+        return False
+
+
+async def upsert_lead(payload: dict[str, Any]) -> str | None:
+    """Email-dedup Lead create/update. Returns the Lead id or None.
+
+    Mirrors the cloudless.gr ``createLead`` contract:
+    - new email → POST (``status`` starts ``New``, lists applied via
+      ``targetListsIds``)
+    - existing email → PATCH that never resets ``status``, never writes
+      empty first/last names, merges ``description`` lines (old content
+      survives), and unions ``targetListsIds`` with current memberships
+      read from ``/Lead/{id}/targetLists`` (the ids attr is set-replacing
+      and not ``select``-able — a failed relation read means "don't
+      touch", never wipe).
+    """
+    email = str(payload.get("emailAddress") or "").strip().lower()
+    if not email or not configured():
+        return None
+    try:
+        found = await espo_get(
+            "/Lead",
+            params={
+                "searchParams": json.dumps(
+                    {
+                        "maxSize": 1,
+                        "select": ["id", "status", "firstName", "lastName", "description"],
+                        "where": [
+                            {"type": "equals", "attribute": "emailAddress", "value": email}
+                        ],
+                    }
+                )
+            },
+        )
+        rows = found.get("list") or []
+        new_lists = list(payload.get("targetListsIds") or [])
+
+        if not rows:
+            body = {k: v for k, v in payload.items() if v not in (None, "", [])}
+            body["emailAddress"] = email
+            body.setdefault("status", "New")
+            created = await espo_post("/Lead", body)
+            return created.get("id")
+
+        existing = rows[0]
+        lead_id = existing.get("id")
+        if not lead_id:
+            return None
+        update: dict[str, Any] = {"emailAddress": email}
+        for key in ("firstName", "lastName"):
+            val = payload.get(key) or existing.get(key)
+            if val:
+                update[key] = val
+        for key in (
+            "source",
+            "utmSource",
+            "utmMedium",
+            "utmCampaign",
+            "utmContent",
+            "utmTerm",
+            "leadMagnet",
+            "phoneNumber",
+            "campaignName",
+        ):
+            val = payload.get(key)
+            if val:
+                update[key] = val
+        old_desc = str(existing.get("description") or "")
+        new_desc = str(payload.get("description") or "")
+        if new_desc and new_desc not in old_desc:
+            update["description"] = (old_desc + "\n" + new_desc).strip() if old_desc else new_desc
+        if new_lists:
+            try:
+                rel = await espo_get(
+                    f"/Lead/{lead_id}/targetLists", params={"select": "id"}
+                )
+                current = [m["id"] for m in (rel.get("list") or []) if m.get("id")]
+                update["targetListsIds"] = sorted(set(current) | set(new_lists))
+            except Exception:  # noqa: BLE001 — never wipe memberships on read failure
+                logger.exception("EspoCRM targetLists read failed for %s", lead_id)
+        await espo_patch(f"/Lead/{lead_id}", update)
+        return lead_id
+    except Exception:  # noqa: BLE001
+        logger.exception("EspoCRM upsert_lead failed for %s", email)
+        return None
+
+
+async def lead_counts() -> dict[str, int]:
+    """Counts by entity for the CRM access surface."""
+    out: dict[str, int] = {}
+    for entity in ("Lead", "Contact", "Account", "Opportunity"):
+        try:
+            data = await espo_get(f"/{entity}", params={"searchParams": '{"maxSize":0}'})
+            out[entity.lower()] = int(data.get("total", 0))
+        except Exception:  # noqa: BLE001
+            out[entity.lower()] = -1
+    return out

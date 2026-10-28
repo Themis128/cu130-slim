@@ -1,0 +1,537 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import logging
+import uuid
+from datetime import UTC, datetime
+from typing import Any
+
+import httpx
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
+
+logger = logging.getLogger(__name__)
+
+_SYNTHETIC_EMAIL_DOMAINS = {"messenger.local", "instagram.local"}
+
+
+def _norm_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def _is_synthetic_email(email: str) -> bool:
+    e = _norm_email(email)
+    if "@" not in e:
+        return False
+    _local, _, domain = e.partition("@")
+    return domain in _SYNTHETIC_EMAIL_DOMAINS
+
+
+def synthetic_email_for_messenger_psid(psid: str) -> str:
+    """Deterministic placeholder email for Messenger leads (no email available via PSID)."""
+    raw = (psid or "").strip()
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:24] if raw else uuid.uuid4().hex[:24]
+    return f"psid.{digest}@messenger.local"
+
+
+def is_valid_email(email: str) -> bool:
+    """Linear-time email shape check (avoids polynomial ReDoS regexes)."""
+    e = _norm_email(email)
+    if not e or len(e) > 320 or e.count("@") != 1:
+        return False
+    if any(ch.isspace() for ch in e):
+        return False
+    local, _, domain = e.partition("@")
+    if not local or not domain or "." not in domain:
+        return False
+    if domain.startswith(".") or domain.endswith(".") or ".." in domain:
+        return False
+    return True
+
+
+def coerce_company_size(value: str | None) -> LeadCompanySize | None:
+    if not value:
+        return None
+    v = value.strip()
+    for item in LeadCompanySize:
+        if v == item.value:
+            return item
+    return None
+
+
+def coerce_interest(value: str | None) -> LeadInterest | None:
+    if not value:
+        return None
+    v = value.strip().lower()
+    for item in LeadInterest:
+        if v == item.value:
+            return item
+    return None
+
+
+def _lead_payload(lead: Lead) -> dict[str, Any]:
+    return {
+        "id": str(lead.id),
+        "source": lead.source.value,
+        "name": lead.name,
+        "email": lead.email,
+        "interest": lead.interest.value if lead.interest else None,
+        "company_size": lead.company_size.value if lead.company_size else None,
+        "notes": lead.notes,
+        "thread_id": lead.thread_id,
+        "social_account_id": str(lead.social_account_id) if lead.social_account_id else None,
+        "meta_data": lead.meta_data or {},
+        "created_at": lead.created_at.isoformat() if getattr(lead, "created_at", None) else None,
+        "updated_at": lead.updated_at.isoformat() if getattr(lead, "updated_at", None) else None,
+    }
+
+
+def _fire_and_forget(coro, *, label: str) -> None:
+    """Schedule best-effort async work without blocking lead capture."""
+
+    async def _runner() -> None:
+        try:
+            await coro
+        except Exception:
+            logger.debug("%s failed (non-fatal)", label, exc_info=True)
+
+    try:
+        asyncio.create_task(_runner())
+    except RuntimeError:
+        # No running loop (shouldn't happen in FastAPI/Celery async paths).
+        logger.debug("%s skipped (no running event loop)", label)
+
+
+async def _post_cloudless_leads_webhook(payload: dict[str, Any]) -> None:
+    """Best-effort POST to the Cloudless app webhook, if configured."""
+    settings = get_settings()
+    webhook_url = (getattr(settings, "CLOUDLESS_LEADS_WEBHOOK_URL", "") or "").strip()
+    if not webhook_url:
+        return
+
+    secret = (getattr(settings, "CLOUDLESS_LEADS_WEBHOOK_SECRET", "") or "").strip()
+    headers: dict[str, str] = {}
+    if secret:
+        headers["X-SocialAuto-Webhook-Secret"] = secret
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(webhook_url, json=payload, headers=headers)
+    except Exception:
+        logger.debug("Cloudless leads webhook POST failed (non-fatal) url=%s", webhook_url, exc_info=True)
+        return
+
+    # Persist the returned EspoCRM lead id — datalake exports count a lead as
+    # synced only when meta_data.espocrm_lead_id is set, and ignoring the
+    # response left the flag false forever even when the sync succeeded.
+    espo_id = _espo_lead_id_from_response(resp)
+    lead_id = (payload.get("lead") or {}).get("id")
+    if espo_id and lead_id:
+        await _record_espo_lead_id(str(lead_id), espo_id)
+
+
+def _espo_lead_id_from_response(resp: httpx.Response) -> str | None:
+    """Pull the created EspoCRM lead id out of the webhook result array."""
+    if resp.status_code >= 400:
+        logger.debug(
+            "Cloudless leads webhook rejected (%s): %s", resp.status_code, resp.text[:200]
+        )
+        return None
+    try:
+        results = (resp.json() or {}).get("results") or []
+    except ValueError:
+        return None
+    for r in results:
+        if isinstance(r, dict) and r.get("ok") and r.get("espocrm_lead_id"):
+            return str(r["espocrm_lead_id"])
+    return None
+
+
+async def _record_espo_lead_id(lead_id: str, espo_id: str) -> None:
+    """Write the EspoCRM lead id onto the local Lead row (best-effort)."""
+    try:
+        lid = uuid.UUID(lead_id)
+    except (ValueError, TypeError, AttributeError):
+        return
+    try:
+        from app.db.session import async_session_maker
+
+        async with async_session_maker() as db:
+            lead = (
+                await db.execute(select(Lead).where(Lead.id == lid))
+            ).scalar_one_or_none()
+            if lead is None:
+                return
+            md = dict(lead.meta_data or {})
+            if md.get("espocrm_lead_id") == espo_id:
+                return
+            md["espocrm_lead_id"] = espo_id
+            lead.meta_data = md
+            await db.commit()
+    except Exception:
+        logger.debug("espocrm_lead_id write-back failed (non-fatal)", exc_info=True)
+
+
+async def upsert_lead(
+    db: AsyncSession,
+    *,
+    team_id: uuid.UUID,
+    source: LeadSource,
+    name: str,
+    email: str,
+    company_size: LeadCompanySize | None = None,
+    interest: LeadInterest | None = None,
+    notes: str | None = None,
+    social_account_id: uuid.UUID | None = None,
+    thread_id: str | None = None,
+    meta_data: dict[str, Any] | None = None,
+    dedupe_on_email: bool = True,
+    dedupe_on_thread_id: bool = True,
+    overwrite_interest: bool = False,
+) -> Lead:
+    """Create or update a lead, preferring thread-based dedupe for DM channels.
+
+    Used for:
+    - Messenger postbacks without a real email (synthetic email + thread_id dedupe)
+    - Later qualification flows attaching a real email to the same thread_id
+    """
+    email_n = _norm_email(email)
+    if not is_valid_email(email_n):
+        raise ValueError("Invalid email")
+    name_n = (name or "").strip()
+    if not name_n:
+        raise ValueError("Name is required")
+
+    if dedupe_on_thread_id and thread_id:
+        existing = (
+            await db.execute(
+                select(Lead).where(
+                    Lead.team_id == team_id,
+                    Lead.source == source,
+                    Lead.thread_id == thread_id,
+                ).limit(1)
+            )
+        ).scalars().first()
+        if existing:
+            changed = False
+
+            if email_n and existing.email != email_n:
+                if _is_synthetic_email(existing.email) and not _is_synthetic_email(email_n):
+                    existing.email = email_n
+                    changed = True
+
+            if name_n and (not (existing.name or "").strip() or (existing.name or "").lower().startswith("messenger ")):
+                existing.name = name_n
+                changed = True
+
+            if company_size and not existing.company_size:
+                existing.company_size = company_size
+                changed = True
+
+            if interest:
+                if overwrite_interest or not existing.interest:
+                    existing.interest = interest
+                    changed = True
+
+            if notes and not existing.notes:
+                existing.notes = notes
+                changed = True
+
+            if social_account_id and not existing.social_account_id:
+                existing.social_account_id = social_account_id
+                changed = True
+
+            if meta_data:
+                md = dict(existing.meta_data or {})
+                md.update(meta_data)
+                existing.meta_data = md
+                changed = True
+
+            if changed:
+                existing.updated_at = datetime.now(UTC)
+                await db.commit()
+                payload = {
+                    "event": "lead.upserted",
+                    "operation": "updated",
+                    "lead": _lead_payload(existing),
+                }
+                _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
+            return existing
+
+    if dedupe_on_email:
+        existing = (
+            await db.execute(
+                select(Lead).where(
+                    Lead.team_id == team_id,
+                    Lead.source == source,
+                    Lead.email == email_n,
+                ).limit(1)
+            )
+        ).scalars().first()
+        if existing:
+            changed = False
+
+            if not existing.name and name_n:
+                existing.name = name_n
+                changed = True
+            if not existing.company_size and company_size:
+                existing.company_size = company_size
+                changed = True
+            if interest and (overwrite_interest or not existing.interest):
+                existing.interest = interest
+                changed = True
+            if not existing.notes and notes:
+                existing.notes = notes
+                changed = True
+            if social_account_id and not existing.social_account_id:
+                existing.social_account_id = social_account_id
+                changed = True
+            if thread_id and not existing.thread_id:
+                existing.thread_id = thread_id
+                changed = True
+            if meta_data:
+                md = dict(existing.meta_data or {})
+                md.update(meta_data)
+                existing.meta_data = md
+                changed = True
+
+            if changed:
+                existing.updated_at = datetime.now(UTC)
+                await db.commit()
+                payload = {
+                    "event": "lead.upserted",
+                    "operation": "updated",
+                    "lead": _lead_payload(existing),
+                }
+                _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
+            return existing
+
+    lead = Lead(
+        id=uuid.uuid4(),
+        team_id=team_id,
+        source=source,
+        social_account_id=social_account_id,
+        thread_id=thread_id,
+        name=name_n,
+        email=email_n,
+        company_size=company_size,
+        interest=interest,
+        notes=notes,
+        meta_data=meta_data or {},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    db.add(lead)
+    await db.commit()
+
+    payload = {
+        "event": "lead.upserted",
+        "operation": "created",
+        "lead": _lead_payload(lead),
+    }
+    _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
+
+    try:
+        _fire_and_forget(notify_lead_created(lead), label="lead notifications")
+    except Exception:
+        logger.debug("Lead notifications failed (non-fatal)", exc_info=True)
+
+    return lead
+
+
+async def create_lead(
+    db: AsyncSession,
+    *,
+    team_id: uuid.UUID,
+    source: LeadSource,
+    name: str,
+    email: str,
+    company_size: LeadCompanySize | None = None,
+    interest: LeadInterest | None = None,
+    notes: str | None = None,
+    social_account_id: uuid.UUID | None = None,
+    thread_id: str | None = None,
+    meta_data: dict[str, Any] | None = None,
+    dedupe_on_email: bool = True,
+) -> Lead:
+    """Persist a lead and optionally notify external automation (best-effort).
+
+    `dedupe_on_email` is deliberately conservative: within a team + source, keep
+    only one row per email to avoid spammy duplicates from retries/webhooks.
+    """
+    email_n = _norm_email(email)
+    if not is_valid_email(email_n):
+        raise ValueError("Invalid email")
+    name_n = (name or "").strip()
+    if not name_n:
+        raise ValueError("Name is required")
+
+    if dedupe_on_email:
+        existing = (
+            await db.execute(
+                select(Lead).where(
+                    Lead.team_id == team_id,
+                    Lead.source == source,
+                    Lead.email == email_n,
+                ).limit(1)
+            )
+        ).scalars().first()
+        if existing:
+            # Best-effort: enrich missing fields
+            changed = False
+            if not existing.name and name_n:
+                existing.name = name_n
+                changed = True
+            if not existing.company_size and company_size:
+                existing.company_size = company_size
+                changed = True
+            if not existing.interest and interest:
+                existing.interest = interest
+                changed = True
+            if not existing.notes and notes:
+                existing.notes = notes
+                changed = True
+            if social_account_id and not existing.social_account_id:
+                existing.social_account_id = social_account_id
+                changed = True
+            if thread_id and not existing.thread_id:
+                existing.thread_id = thread_id
+                changed = True
+            if meta_data:
+                md = dict(existing.meta_data or {})
+                md.update(meta_data)
+                existing.meta_data = md
+                changed = True
+            if changed:
+                existing.updated_at = datetime.now(UTC)
+                await db.commit()
+                payload = {
+                    "event": "lead.upserted",
+                    "operation": "updated",
+                    "lead": _lead_payload(existing),
+                }
+                _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
+            return existing
+
+    lead = Lead(
+        id=uuid.uuid4(),
+        team_id=team_id,
+        source=source,
+        social_account_id=social_account_id,
+        thread_id=thread_id,
+        name=name_n,
+        email=email_n,
+        company_size=company_size,
+        interest=interest,
+        notes=notes,
+        meta_data=meta_data or {},
+        created_at=datetime.now(UTC),
+        updated_at=datetime.now(UTC),
+    )
+    db.add(lead)
+    await db.commit()
+
+    payload = {
+        "event": "lead.upserted",
+        "operation": "created",
+        "lead": _lead_payload(lead),
+    }
+    _fire_and_forget(_post_cloudless_leads_webhook(payload), label="cloudless leads webhook")
+
+    # Non-blocking integrations.
+    try:
+        _fire_and_forget(notify_lead_created(lead), label="lead notifications")
+    except Exception:
+        logger.debug("Lead notifications failed (non-fatal)", exc_info=True)
+
+    return lead
+
+
+async def notify_lead_created(lead: Lead) -> None:
+    settings = get_settings()
+
+    # 1) Slack (optional) — prefer dedicated lead webhook, fallback to digest webhook.
+    slack_webhook = (getattr(settings, "SLACK_LEADS_WEBHOOK_URL", "") or "").strip() or (settings.SLACK_WEBHOOK_URL or "").strip()
+    slack_token = (settings.SLACK_BOT_TOKEN or "").strip() or (settings.SLACK_ACCESS_TOKEN or "").strip()
+    slack_channel = (getattr(settings, "SLACK_LEADS_CHANNEL_ID", "") or "").strip() or (settings.SLACK_CHANNEL_ID or "").strip()
+
+    if slack_webhook or slack_token:
+        try:
+            from app.services.slack_notifications import _post_slack_text
+
+            interest = lead.interest.value if lead.interest else "—"
+            size = lead.company_size.value if lead.company_size else "—"
+            text = (
+                "*New lead captured*\n"
+                f"- Source: `{lead.source.value}`\n"
+                f"- Name: {lead.name}\n"
+                f"- Email: {lead.email}\n"
+                f"- Company size: `{size}`\n"
+                f"- Interest: `{interest}`\n"
+            )
+            if lead.notes:
+                text += f"- Notes: {lead.notes[:500]}\n"
+
+            await _post_slack_text(
+                text=text,
+                webhook_url=slack_webhook,
+                token=slack_token,
+                channel_id=slack_channel,
+                purpose="leads",
+            )
+        except Exception:
+            logger.debug("Slack lead notify failed (non-fatal)", exc_info=True)
+
+    # 1b) Email (optional) — same alert to the digest mailbox via SMTP.
+    if (settings.DIGEST_EMAIL_TO or "").strip():
+        try:
+            from app.services.email_digest import send_email
+
+            interest = lead.interest.value if lead.interest else "—"
+            size = lead.company_size.value if lead.company_size else "—"
+            body = (
+                "New lead captured\n\n"
+                f"Source: {lead.source.value}\n"
+                f"Name: {lead.name}\n"
+                f"Email: {lead.email}\n"
+                f"Company size: {size}\n"
+                f"Interest: {interest}\n"
+            )
+            if lead.notes:
+                body += f"Notes: {lead.notes[:500]}\n"
+            await send_email(
+                subject=f"[SocialAuto] New lead: {lead.name} ({lead.source.value})",
+                text_body=body,
+            )
+        except Exception:
+            logger.debug("Email lead notify failed (non-fatal)", exc_info=True)
+
+    # 2) Generic webhook (optional) — ideal for n8n workflows.
+    webhook_url = (getattr(settings, "LEAD_CREATED_WEBHOOK_URL", "") or "").strip()
+    if webhook_url:
+        payload = {
+            "event": "lead.created",
+            "lead": {
+                "id": str(lead.id),
+                "team_id": str(lead.team_id),
+                "source": lead.source.value,
+                "social_account_id": str(lead.social_account_id) if lead.social_account_id else None,
+                "thread_id": lead.thread_id,
+                "name": lead.name,
+                "email": lead.email,
+                "company_size": lead.company_size.value if lead.company_size else None,
+                "interest": lead.interest.value if lead.interest else None,
+                "notes": lead.notes,
+                "created_at": lead.created_at.isoformat() if lead.created_at else None,
+            },
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(webhook_url, json=payload)
+        except Exception:
+            logger.debug("Lead webhook notify failed (non-fatal)", exc_info=True)
+
