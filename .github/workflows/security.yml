@@ -245,7 +245,8 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
-          queries: security-and-quality
+          # `queries:` + `config-file:` together made init report
+          # "3 configurations not found" — the config owns the suite.
           config-file: ./.github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis
