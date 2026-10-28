@@ -230,3 +230,13 @@
 ## Session 2026-10-28 (cont.) — publish-kill root cause: task soft_time_limit
 
 - LinkedIn test publish kept dying mid-flight: `process_publish_queue` had `soft_time_limit: 900` but a LinkedIn org image publish legitimately takes ~15-25min (quality gate → LanguageTool wake → image init/PUT/poll → post → D1 sync). SoftTimeLimitExceeded killed it mid-flow, stranding the row 'processing' — the "wedge" was self-inflicted. 18 kills in logs. Bumped to 2700/3000s, synced to all workers+beat, restarted. Watchdog stale-lock 15→45min to match.
+
+## 2026-10-28 — LinkedIn CM-API upgrade submitted + watchers
+
+- [x] CM-API Standard Tier form filled + submitted via adhoc bridge (app `264925843`) — 100% completion confirmed
+- [x] Screen recording: Playwright walkthrough → mp4 → Nextcloud public share `cloud.cloudless.gr/s/WxFDFGgwnZJSxtd`
+- [x] Reviewer account `linkedin-review@cloudless.gr` (editor, main team) created for app review
+- [x] `devapp_mail_watch` (gmail-ops) — daily 09:05 cron watches Gmail for Microsoft Vetting / LinkedIn review mail → Telegram
+- [x] `qualtrics-ops` skill — QID-keyed Qualtrics fill + `.select-menu` dropdown support
+- [ ] **Open:** OAuth uses client `77tf4oysp8u3fz` ≠ submitted app (`77j8kzfi1a6jn8`). If it's a second app, either submit its upgrade form (needs its Products-tab link) or switch `.env` creds to the approved app once Standard Tier lands.
+- [ ] Watch `baltzakis.themis@gmail.com` for Microsoft Vetting Services verification email
