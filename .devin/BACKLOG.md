@@ -134,3 +134,8 @@
 - Scheduled staggered by tier: LinkedIn Thu 07:00Z, FB Thu 11:00Z (its peak window), IG Fri 08:00Z, Threads Fri 12:00Z.
 - GOTCHA learned: posts.scheduled_at alone does NOT publish — publisher scans `publish_queue` rows (process_publish_queue). Enqueued all 4 (priority 5, pending).
 - Watchdog bug found+fixed on first live run: `local key=... f=...$key` unbound under set -u in both watchdog scripts.
+
+## Session 2026-10-28 (cont.) — publish-path healers from live retry test
+
+- Verified retry path live (test post → revoked FB Page): attempts 0→3 → failed, failure_reason populated, pre-publish gates (channel-type, correct-media) correctly soft-skip instead of retrying.
+- compose-watchdog checks #7/#8: heal scheduled-post orphans (scheduled but no publish_queue row → enqueue, skipping published/skipped/failed targets), reconcile posts stuck 'publishing' >30min with no active queue row → failed, release stale >15min processing locks.
