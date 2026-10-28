@@ -6,6 +6,7 @@ sessions, and webhook signature verification.
 
 Docs: https://developer.paddle.com/api-reference/overview
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -141,9 +142,7 @@ async def create_portal_session(customer_id: str, subscription_id: str | None = 
         payload["subscription_ids"] = [subscription_id]
     data = await _request("POST", f"/customers/{customer_id}/portal-sessions", json=payload)
     urls = (data.get("data") or {}).get("urls") or {}
-    return (urls.get("general") or {}).get("overview") or urls.get("subscriptions", [{}])[0].get(
-        "update_subscription_payment_method", ""
-    )
+    return (urls.get("general") or {}).get("overview") or urls.get("subscriptions", [{}])[0].get("update_subscription_payment_method", "")
 
 
 def tier_for_price(price_id: str) -> str | None:

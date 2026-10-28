@@ -9,6 +9,7 @@ from app.models.user import Team, User
 
 TEST_USER = {"email": "ci-analytics@example.com", "password": "TestPass123!", "name": "CI Analytics"}
 
+
 @pytest.mark.asyncio
 async def test_overview_counts_upcoming_scheduled_posts(client, db):
     # Register + login to get a real team-scoped JWT
@@ -54,4 +55,3 @@ async def test_overview_counts_upcoming_scheduled_posts(client, db):
     data = overview.json()
 
     assert data["scheduled_posts"] == 1
-

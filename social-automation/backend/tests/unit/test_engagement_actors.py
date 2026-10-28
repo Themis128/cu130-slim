@@ -214,9 +214,7 @@ async def test_linkedin_like_and_comment(monkeypatch):
     assert out == {"ok": True, "resp": {"voyager_status": 201}}
     assert "777" in json.loads(calls[-1].content)["expr"]
 
-    out = await linkedin_actor.act(
-        _action(action="comment", comment_draft='say "hi"', target_post_id="urn:li:ugcPost:5"), None
-    )
+    out = await linkedin_actor.act(_action(action="comment", comment_draft='say "hi"', target_post_id="urn:li:ugcPost:5"), None)
     assert out["ok"] is True
     expr = json.loads(calls[-1].content)["expr"]
     assert json.dumps('say "hi"') in expr
@@ -249,7 +247,7 @@ def _bridge(result, start_fails=False):
 @pytest.mark.asyncio
 async def test_ig_non_like_skips():
     out = await ig_actor.act(_action(action="comment"), None)
-    assert out == {"error": "ig: only like auto-acted", "skip": True}
+    assert out == {"error": "ig: comment not auto-acted", "skip": True}
 
 
 @pytest.mark.asyncio

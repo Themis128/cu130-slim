@@ -186,3 +186,24 @@ The media library UI is at `http://localhost:8082/media` and supports:
 - Audio player
 - Video player
 - AI Enhancement Studio at `/media/enhance/{id}`
+
+## Video editing ops (ffmpeg-backed)
+
+All under `/api/v1/media/enhance/assets/{id}/video/*` — byte-in/byte-out like the image ops:
+
+- `POST video/trim` `{start, end}` — cut seconds, clean keyframes
+- `POST video/convert` `{format: mp4|webm|mov}` — platform-spec transcoding
+- `POST video/attach-audio` `{audio_asset_id, loop_audio}` — mux a music asset onto video (loops under longer video, replaces existing track) — **enforces the product rule: posted media must carry sound/music**
+- `POST video/mute` — strip all audio tracks
+- `POST video/audio` — extract audio as mp3 for reuse/replace
+
+Upload accepts `.mp4 .webm .mov .mkv .avi` video, `.mp3 .wav .aac .m4a .ogg .flac` audio, and all image formats incl. `.heic/.avif` (auto-reencoded for browsers).
+
+```bash
+# Cut a reel to 15s
+.devin/skills/socialauto-media/scripts/video-ops.py trim <video-id> --start 0 --end 15 -o reel.mp4
+# Attach a music track before publishing (the sound rule)
+.devin/skills/socialauto-media/scripts/video-ops.py attach-audio <video-id> <audio-id> -o with-music.mp4
+```
+
+**Publishing rule**: a video/Reel/TikTok without an audio track is a broken asset — run `attach-audio` before adding it to `media_ids`.

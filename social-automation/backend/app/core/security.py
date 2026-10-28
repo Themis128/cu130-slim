@@ -30,8 +30,7 @@ def get_fernet() -> Fernet:
         raw = settings.ENCRYPTION_KEY.encode()
         if len(raw) != 32:
             raise ValueError(
-                f"ENCRYPTION_KEY must be exactly 32 bytes; got {len(raw)}. "
-                "Generate one with: python3 -c \"import secrets; print(secrets.token_hex(16))\""
+                f'ENCRYPTION_KEY must be exactly 32 bytes; got {len(raw)}. Generate one with: python3 -c "import secrets; print(secrets.token_hex(16))"'
             )
         _fernet = Fernet(base64.urlsafe_b64encode(raw))
     return _fernet
@@ -98,9 +97,7 @@ def sign_oauth_state(payload: dict) -> str:
     key = settings.JWT_SECRET_KEY.encode()
     sig = hmac.new(key, raw, hashlib.sha256).hexdigest()
     envelope = {"p": payload, "s": sig}
-    return base64.urlsafe_b64encode(
-        json.dumps(envelope, separators=(",", ":")).encode()
-    ).rstrip(b"=").decode()
+    return base64.urlsafe_b64encode(json.dumps(envelope, separators=(",", ":")).encode()).rstrip(b"=").decode()
 
 
 def verify_oauth_state(state: str) -> dict | None:

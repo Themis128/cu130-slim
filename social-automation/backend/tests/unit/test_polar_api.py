@@ -1,6 +1,7 @@
 """Unit tests for the Polar API client — webhook signature verification,
 tier mapping, and configuration gating. No network calls.
 """
+
 import base64
 import hashlib
 import hmac
@@ -179,12 +180,8 @@ def test_discount_is_redeemable_windows():
     assert polar_api.discount_is_redeemable(_discount()) is True
     assert polar_api.discount_is_redeemable(_discount(starts_at=future)) is False
     assert polar_api.discount_is_redeemable(_discount(ends_at=past)) is False
-    assert polar_api.discount_is_redeemable(
-        _discount(max_redemptions=5, redemptions_count=5)
-    ) is False
-    assert polar_api.discount_is_redeemable(
-        _discount(max_redemptions=5, redemptions_count=4)
-    ) is True
+    assert polar_api.discount_is_redeemable(_discount(max_redemptions=5, redemptions_count=5)) is False
+    assert polar_api.discount_is_redeemable(_discount(max_redemptions=5, redemptions_count=4)) is True
     # Naive datetimes from Polar are treated as UTC
     assert polar_api.discount_is_redeemable(_discount(ends_at=past[:19])) is False
 
@@ -348,8 +345,12 @@ async def test_create_checkout_with_customer_id(monkeypatch, polar_settings):
 
     monkeypatch.setattr(polar_api, "_request", fake_request)
     out = await polar_api.create_checkout(
-        product_id="prod_pro", team_id="t1", customer_id="cust_1",
-        customer_email="a@b.c", customer_name="Ann", discount_id="disc_9",
+        product_id="prod_pro",
+        team_id="t1",
+        customer_id="cust_1",
+        customer_email="a@b.c",
+        customer_name="Ann",
+        discount_id="disc_9",
     )
     assert out == {"id": "chk_1", "checkout_url": "https://polar.sh/checkout/chk_1"}
     assert captured["customer_id"] == "cust_1"

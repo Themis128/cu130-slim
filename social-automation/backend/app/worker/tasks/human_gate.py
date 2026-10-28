@@ -22,10 +22,12 @@ logger = logging.getLogger(__name__)
 
 _NUDGE_SECONDS = 6 * 3600
 _GATES = (
-    ("linkedin-2fa", "http://linkedin-sidecar:5000/session",
-     ":warning: LinkedIn 2FA still pending — approve the push in the app (#794)"),
-    ("meta-status", "http://facebook-sidecar:9226/session/validate",
-     ":warning: Meta sidecar shows a blocked/restricted session — Accounts Center needs the owner (#785)"),
+    ("linkedin-2fa", "http://linkedin-sidecar:5000/session", ":warning: LinkedIn 2FA still pending — approve the push in the app (#794)"),
+    (
+        "meta-status",
+        "http://facebook-sidecar:9226/session/validate",
+        ":warning: Meta sidecar shows a blocked/restricted session — Accounts Center needs the owner (#785)",
+    ),
 )
 
 

@@ -4,6 +4,7 @@ Handlers are called directly with a scripted fake ``AsyncSession`` so the
 tests stay DB-free; the Celery tasks are exercised through their enabled,
 disabled and failure branches with ``run_async`` stubbed.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -77,8 +78,12 @@ class _DB:
 
 def _proposal(**kw):
     base = dict(
-        id=uuid.uuid4(), team_id=TEAM, status=AgencyProposalStatus.draft,
-        meta_data={}, lead_id=None, espo_lead_id="E1",
+        id=uuid.uuid4(),
+        team_id=TEAM,
+        status=AgencyProposalStatus.draft,
+        meta_data={},
+        lead_id=None,
+        espo_lead_id="E1",
         recipient_email="client@example.com",
     )
     base.update(kw)
@@ -97,9 +102,7 @@ async def test_team_id_missing_raises_404():
     assert ei.value.status_code == 404
 
 
-@pytest.mark.parametrize(
-    "fn", [API._team_audit, API._team_proposal, API._team_project]
-)
+@pytest.mark.parametrize("fn", [API._team_audit, API._team_proposal, API._team_project])
 @pytest.mark.asyncio
 async def test_team_row_missing_raises_404(fn):
     with pytest.raises(HTTPException) as ei:
@@ -130,16 +133,19 @@ async def test_get_audit():
 async def test_run_audit_now_success(monkeypatch):
     async def _ok(url):
         return {
-            "score": 80, "findings": [{"k": 1}], "recommended_services": ["seo"],
-            "action_plan": "plan", "ttfb_ms": 120, "http_status": 200,
-            "tech": [], "analytics": [],
+            "score": 80,
+            "findings": [{"k": 1}],
+            "recommended_services": ["seo"],
+            "action_plan": "plan",
+            "ttfb_ms": 120,
+            "http_status": 200,
+            "tech": [],
+            "analytics": [],
         }
 
     monkeypatch.setattr(API, "run_site_audit", _ok)
     db = _DB(TEAM)
-    audit = await API.run_audit_now(
-        API.AuditRunRequest(url="https://example.com"), current_user=USER, db=db
-    )
+    audit = await API.run_audit_now(API.AuditRunRequest(url="https://example.com"), current_user=USER, db=db)
     assert audit.status == AgencyAuditStatus.completed
     assert audit.score == 80 and audit.meta_data["manual"] is True
     assert audit.completed_at is not None and db.commits == 1
@@ -268,9 +274,7 @@ async def test_create_project_defaults_kickoff_now():
 async def test_create_project_from_proposal_naive_kickoff():
     prop = _proposal()
     db = _DB(TEAM, prop)
-    body = API.ProjectCreateRequest(
-        name="Migration", proposal_id=prop.id, kickoff_at=datetime(2026, 1, 1, 9, 0)
-    )
+    body = API.ProjectCreateRequest(name="Migration", proposal_id=prop.id, kickoff_at=datetime(2026, 1, 1, 9, 0))
     project = await API.create_project(body, current_user=USER, db=db)
     assert project.kickoff_at.tzinfo is UTC
     assert project.client_email == "client@example.com"

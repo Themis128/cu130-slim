@@ -381,12 +381,14 @@ async def test_growth_stats_funnel_and_events():
     db.execute.side_effect = [
         _res([]),  # follower snapshots
         _res([("instagram", 100, 10, 5)]),  # funnel
-        _res([
-            ("instagram", "audience_reach_split", {"by_follow_type": {"non_follower": 80, "follower": 20}}, now),
-            ("facebook", "follower_attribution", {"by_day": {since.date().isoformat(): {"paid": 2, "organic": 3}}}, now),
-            ("linkedin", "follower_insights", {"follower_gains": {"paid": 1, "organic": 4}}, now),
-            ("x", "audience_activity", {"peak_hours": [9, 18]}, now),
-        ]),
+        _res(
+            [
+                ("instagram", "audience_reach_split", {"by_follow_type": {"non_follower": 80, "follower": 20}}, now),
+                ("facebook", "follower_attribution", {"by_day": {since.date().isoformat(): {"paid": 2, "organic": 3}}}, now),
+                ("linkedin", "follower_insights", {"follower_gains": {"paid": 1, "organic": 4}}, now),
+                ("x", "audience_activity", {"peak_hours": [9, 18]}, now),
+            ]
+        ),
     ]
     growth = await _growth_stats(db, "t", since, days=7)
     assert growth["funnel"][0]["platform"] == "instagram"
@@ -453,13 +455,15 @@ async def test_run_digest_delivery_errors(monkeypatch):
     monkeypatch.setattr(
         D,
         "build_daily_digest",
-        AsyncMock(return_value=SimpleNamespace(
-            overview={"connected_accounts": 1},
-            impressions_24h=0,
-            slack_error=None,
-            email_error=None,
-            to_dict=lambda: {"ok": 1},
-        )),
+        AsyncMock(
+            return_value=SimpleNamespace(
+                overview={"connected_accounts": 1},
+                impressions_24h=0,
+                slack_error=None,
+                email_error=None,
+                to_dict=lambda: {"ok": 1},
+            )
+        ),
     )
     monkeypatch.setattr(D, "post_digest_to_slack", AsyncMock(side_effect=RuntimeError("slack down")))
     import app.services.email_digest as ED

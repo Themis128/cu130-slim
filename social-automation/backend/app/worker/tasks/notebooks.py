@@ -28,20 +28,26 @@ async def _weekly_analytics() -> dict:
 
     since = dt.datetime.now(dt.UTC) - dt.timedelta(days=7)
     async with async_session_maker() as db:
-        pub = {k.value if hasattr(k, "value") else k: v for k, v in (await db.execute(
-            select(PublishQueue.status, func.count()).where(PublishQueue.created_at >= since)
-            .group_by(PublishQueue.status))).all()}
-        prop = {k.value if hasattr(k, "value") else k: v for k, v in (await db.execute(
-            select(AgencyProposal.status, func.count()).where(AgencyProposal.created_at >= since)
-            .group_by(AgencyProposal.status))).all()}
-        audit = (await db.execute(
-            select(func.avg(AgencyAudit.score), func.count()).where(AgencyAudit.created_at >= since)
-        )).first() or (0.0, 0)
+        pub = {
+            k.value if hasattr(k, "value") else k: v
+            for k, v in (
+                await db.execute(select(PublishQueue.status, func.count()).where(PublishQueue.created_at >= since).group_by(PublishQueue.status))
+            ).all()
+        }
+        prop = {
+            k.value if hasattr(k, "value") else k: v
+            for k, v in (
+                await db.execute(select(AgencyProposal.status, func.count()).where(AgencyProposal.created_at >= since).group_by(AgencyProposal.status))
+            ).all()
+        }
+        audit = (await db.execute(select(func.avg(AgencyAudit.score), func.count()).where(AgencyAudit.created_at >= since))).first() or (0.0, 0)
 
-    msg = (f"*Weekly SocialAuto — {dt.date.today()}*\n"
-           f"Publish last 7d: `{pub}`\n"
-           f"Agency proposals: `{prop}`\n"
-           f"Audits: `{audit[1]}` · avg score `{float(audit[0] or 0):.0f}`")
+    msg = (
+        f"*Weekly SocialAuto — {dt.date.today()}*\n"
+        f"Publish last 7d: `{pub}`\n"
+        f"Agency proposals: `{prop}`\n"
+        f"Audits: `{audit[1]}` · avg score `{float(audit[0] or 0):.0f}`"
+    )
     await post_alert_to_slack(msg)
     return {"publish": pub, "proposals": prop, "audits": {"count": audit[1], "avg": float(audit[0] or 0)}}
 

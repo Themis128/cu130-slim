@@ -265,9 +265,19 @@ class LinkedInAPIClient:
         Management product on the app (still pending approval — falls back
         to an empty list with a warning, not a crash).
         """
+        # resolve the authenticated member URN via OpenID userinfo
+        person_urn = ""
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                ui = await client.get(f"{LINKEDIN_V2_BASE}/userinfo", headers=self._headers())
+                if ui.status_code < 400:
+                    person_urn = f"urn:li:person:{ui.json().get('sub', '')}"
+        except Exception:
+            pass
+        member_q = f"&member={person_urn}" if person_urn else ""
         for url in (
-            f"{LINKEDIN_REST_BASE}/groupMemberships?q=member&member=urn:li:person:{{person_id}}",
-            f"{LINKEDIN_V2_BASE}/groupMemberships?q=member",
+            f"{LINKEDIN_REST_BASE}/groupMemberships?q=member{member_q}",
+            f"{LINKEDIN_V2_BASE}/groupMemberships?q=member{member_q}",
         ):
             try:
                 async with httpx.AsyncClient(timeout=30.0) as client:
@@ -387,18 +397,9 @@ class LinkedInAPIClient:
                     data = resp.json() or {}
                     if isinstance(data, dict):
                         first = data.get("first") or {}
-                        return int(
-                            data.get("firstDegreeSize")
-                            or first.get("totalSize")
-                            or data.get("totalSize")
-                            or 0
-                        )
+                        return int(data.get("firstDegreeSize") or first.get("totalSize") or data.get("totalSize") or 0)
                     if isinstance(data, list) and data:
-                        return int(
-                            data[0].get("firstDegreeSize")
-                            or data[0].get("totalSize")
-                            or 0
-                        )
+                        return int(data[0].get("firstDegreeSize") or data[0].get("totalSize") or 0)
                 # Any non-2xx (400 bad param, 403 product access, 426 stale
                 # version, …) — fall through to the v2 URL.
                 continue
@@ -525,14 +526,7 @@ class LinkedInAPIClient:
                 image_urns.append(image_urn)
 
             if len(image_urns) >= 2:
-                content: dict[str, Any] = {
-                    "multiImage": {
-                        "images": [
-                            {"id": urn, "altText": f"Slide {i + 1}"}
-                            for i, urn in enumerate(image_urns)
-                        ]
-                    }
-                }
+                content: dict[str, Any] = {"multiImage": {"images": [{"id": urn, "altText": f"Slide {i + 1}"} for i, urn in enumerate(image_urns)]}}
             elif image_urns:
                 content = {"media": {"id": image_urns[0], "title": "Image"}}
             else:
@@ -561,6 +555,7 @@ class LinkedInAPIClient:
         pdf_bytes: bytes,
         *,
         title: str = "Document",
+        container_urn: str | None = None,
     ) -> LinkedInPostResult:
         """Publish a LinkedIn post with a PDF document (carousel)."""
         if not author_urn.startswith("urn:li:"):
@@ -650,6 +645,7 @@ class LinkedInAPIClient:
         *,
         title: str = "Video",
         alt_text: str = "",
+        container_urn: str | None = None,
     ) -> LinkedInPostResult:
         """Publish a LinkedIn post with a native video (mp4).
 
@@ -719,9 +715,7 @@ class LinkedInAPIClient:
                 if etag:
                     part_ids.append(etag.strip('"'))
                 else:
-                    logger.warning(
-                        "[linkedin-video] part %d upload returned no ETag", len(part_ids)
-                    )
+                    logger.warning("[linkedin-video] part %d upload returned no ETag", len(part_ids))
 
             if instructions and not part_ids:
                 return LinkedInPostResult(

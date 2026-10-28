@@ -17,6 +17,7 @@ persist quality metadata alongside the asset.
 The helper is advisory — it never raises.  If any step fails, the best
 available version of each field is returned with a diagnostic report.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -130,6 +131,7 @@ async def apply_media_quality(
     # Each field is an independent LanguageTool call — run them
     # concurrently; a single field failure must not block the rest.
     if run_spellcheck:
+
         async def _fix(value: str) -> str:
             fixed = await correct_text(value)
             return fixed if fixed and fixed.strip() else value
@@ -189,9 +191,7 @@ async def apply_media_quality(
     # Corrected captions/alt text can still hide mangled tokens (dropped
     # spaces, stray capitals) LanguageTool could not fix — flag them in the
     # report so the asset is audited before its text ships anywhere.
-    gibberish_checks = [
-        detect_gibberish(t) for t in (result.caption, result.alt_text) if t and t.strip()
-    ]
+    gibberish_checks = [detect_gibberish(t) for t in (result.caption, result.alt_text) if t and t.strip()]
     if gibberish_checks:
         try:
             flagged = await asyncio.gather(*gibberish_checks, return_exceptions=True)

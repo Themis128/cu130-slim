@@ -204,6 +204,7 @@ def test_fetch_candidates_parses_headers(monkeypatch):
 
 def test_fetch_candidates_skips_failed_fetch(monkeypatch):
     _wire_imap(monkeypatch, {b"1": _hdr(), b"99": _hdr()}, search_ok=True)
+
     # 99 is not in the map → fetch returns NO and is skipped… but search lists keys.
     # Instead remove it via a fake whose search advertises an extra id:
     class _Extra(_FakeIMAP):
@@ -243,6 +244,7 @@ async def test_crm_emails_lead_wins_and_dead_skipped(monkeypatch):
             {"id": "l3", "emailAddress": "live@x.gr", "status": "Assigned"},
         ],
     }
+
     async def _la(entity, **kw):
         return records.get(entity, [])
 
@@ -432,9 +434,7 @@ async def test_slack_report_silent_when_nothing_happened(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_slack_report_send_failure_swallowed(monkeypatch, caplog):
-    monkeypatch.setattr(
-        SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down"))
-    )
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock(side_effect=RuntimeError("slack down")))
     await E._slack_report(
         {"matched": 1, "noted": 1, "status_bumped": 0, "errors": 0, "dry_run": False, "details": [{"email": "a@b", "subject": "s"}]}
     )  # no exception escapes
@@ -467,7 +467,4 @@ async def test_slack_report_import_failure_returns(monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "app.services.slack_notifications", SimpleNamespace())
-    await E._slack_report(
-        {"details": [{"email": "x"}], "errors": 0,
-         "matched": 1, "noted": 1, "status_bumped": 0}
-    )
+    await E._slack_report({"details": [{"email": "x"}], "errors": 0, "matched": 1, "noted": 1, "status_bumped": 0})

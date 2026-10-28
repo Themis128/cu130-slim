@@ -1,4 +1,5 @@
 """Unit tests for MinIO storage and the R2 → MinIO → local fallback chain."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -204,6 +205,7 @@ async def test_get_object_errors():
 
     c = MagicMock()
     from app.services.s3_sigv4 import S3Error
+
     c.get_object.side_effect = S3Error(404, "missing")
     with (
         patch.object(minio_storage, "ensure_bucket", return_value=True),
@@ -254,6 +256,7 @@ async def test_get_object_ok_and_delete_and_exists():
         assert await minio_storage.delete_object("k") is True
 
     from app.services.s3_sigv4 import S3Error
+
     c.delete_object.side_effect = S3Error(404, "gone")
     with (
         patch.object(minio_storage, "ensure_bucket", return_value=True),
@@ -290,6 +293,7 @@ async def test_object_exists_branches():
         assert await minio_storage.object_exists("k") is True
 
     from app.services.s3_sigv4 import S3Error
+
     c.head_object.side_effect = S3Error(404, "no")
     with (
         patch.object(minio_storage, "ensure_bucket", return_value=True),

@@ -9,6 +9,7 @@ status is set to ``expired`` and an alert email is sent to the team owner.
 
 The task is non-fatal — a single account failure does not abort the loop.
 """
+
 import logging
 from datetime import UTC, datetime
 
@@ -121,8 +122,7 @@ async def _send_alert(owner: User, account_username: str, reason: str) -> None:
         )[:2000]
         await post_alert_to_slack(
             alert_text,
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}]
-            + session_heal_buttons(),
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}] + session_heal_buttons(),
         )
 
         from app.services.email_templates import send_instagram_session_alert_email
@@ -148,9 +148,7 @@ async def _run_check() -> dict:
         logger.error("Instagram sidecar at %s is not responding", sidecar_url)
 
     async with _worker_db() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "instagram")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "instagram"))
         accounts = result.scalars().all()
 
         for account in accounts:
@@ -185,9 +183,7 @@ async def _run_check() -> dict:
                 logger.warning("IG session for @%s is expired", account.username)
 
                 # Alert the team owner.
-                owner_result = await db.execute(
-                    select(User).join(Team, Team.owner_id == User.id).where(Team.id == account.team_id)
-                )
+                owner_result = await db.execute(select(User).join(Team, Team.owner_id == User.id).where(Team.id == account.team_id))
                 owner = owner_result.scalar_one_or_none()
                 if owner is not None:
                     if meta.get("login_type") == "business_login":

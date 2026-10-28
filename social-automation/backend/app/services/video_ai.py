@@ -25,6 +25,7 @@ ffmpeg/ffprobe (already installed in the api and worker images):
 Best-effort throughout: failures are logged, partial results (probe data,
 quality scores) are still persisted, and nothing raises.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -63,9 +64,19 @@ _SAMPLE_POSITIONS = (0.15, 0.5, 0.85)
 
 async def _run(cmd: list[str], timeout: int = _FRAME_TIMEOUT) -> subprocess.CompletedProcess:
     """Run a subprocess off the event loop. Single seam for tests."""
-    return await asyncio.to_thread(
-        subprocess.run, cmd, capture_output=True, timeout=timeout
-    )
+    return await asyncio.to_thread(subprocess.run, cmd, capture_output=True, timeout=timeout)
+
+
+async def _run_op(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
+    """`_run` for the video-edit ops: a missing ffmpeg binary or a timeout
+    becomes a failed CompletedProcess (rc 127/124) so callers return None
+    instead of raising."""
+    try:
+        return await _run(cmd, timeout=timeout)
+    except FileNotFoundError as exc:
+        return subprocess.CompletedProcess(cmd, 127, b"", str(exc).encode())
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(cmd, 124, b"", b"timeout")
 
 
 def _parse_fps(raw: str | None) -> float | None:
@@ -92,9 +103,13 @@ async def probe_video(video_bytes: bytes) -> dict[str, Any]:
             src.write_bytes(video_bytes)
             proc = await _run(
                 [
-                    "ffprobe", "-v", "error",
-                    "-print_format", "json",
-                    "-show_format", "-show_streams",
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-print_format",
+                    "json",
+                    "-show_format",
+                    "-show_streams",
                     str(src),
                 ],
                 timeout=_PROBE_TIMEOUT,
@@ -141,11 +156,16 @@ async def _extract_frame_at(src: Path, at_seconds: float, dst: Path) -> bytes | 
     """Extract one JPEG frame at a timestamp. ``-ss`` before ``-i`` = fast seek."""
     proc = await _run(
         [
-            "ffmpeg", "-y",
-            "-ss", f"{at_seconds:.3f}",
-            "-i", str(src),
-            "-frames:v", "1",
-            "-q:v", "3",
+            "ffmpeg",
+            "-y",
+            "-ss",
+            f"{at_seconds:.3f}",
+            "-i",
+            str(src),
+            "-frames:v",
+            "1",
+            "-q:v",
+            "3",
             str(dst),
         ]
     )
@@ -174,9 +194,7 @@ async def extract_sample_frames(
         if duration_seconds and duration_seconds > 0:
             positions = _SAMPLE_POSITIONS[:max_frames]
             for i, pos in enumerate(positions):
-                frame = await _extract_frame_at(
-                    src, duration_seconds * pos, Path(td) / f"f{i}.jpg"
-                )
+                frame = await _extract_frame_at(src, duration_seconds * pos, Path(td) / f"f{i}.jpg")
                 if frame:
                     frames.append(frame)
             if frames:
@@ -186,9 +204,17 @@ async def extract_sample_frames(
         dst = Path(td) / "thumb.jpg"
         proc = await _run(
             [
-                "ffmpeg", "-y", "-i", str(src),
-                "-vf", "thumbnail=90", "-frames:v", "1",
-                "-q:v", "3", str(dst),
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(src),
+                "-vf",
+                "thumbnail=90",
+                "-frames:v",
+                "1",
+                "-q:v",
+                "3",
+                str(dst),
             ]
         )
         if proc.returncode == 0 and dst.is_file() and dst.stat().st_size:
@@ -223,14 +249,10 @@ async def _store_poster(asset: MediaAsset, poster_bytes: bytes) -> dict[str, str
     poster_path = f"{asset.storage_path}{POSTER_SUFFIX}"
     try:
         if asset.storage_backend == "minio":
-            res = await minio_storage.upload_object(
-                poster_path, poster_bytes, content_type="image/jpeg"
-            )
+            res = await minio_storage.upload_object(poster_path, poster_bytes, content_type="image/jpeg")
             return {"path": poster_path, "url": res.get("public_url") or ""}
         if asset.storage_backend == "r2":
-            res = await r2_storage.upload_object(
-                poster_path, poster_bytes, content_type="image/jpeg"
-            )
+            res = await r2_storage.upload_object(poster_path, poster_bytes, content_type="image/jpeg")
             return {"path": poster_path, "url": res.get("public_url") or ""}
         target = safe_resolve(str(UPLOAD_DIR), poster_path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -304,9 +326,7 @@ async def auto_tag_video_asset(asset: MediaAsset, db) -> None:
         flag_modified(asset, "meta_data")
         changed = True
 
-    frames = await extract_sample_frames(
-        video_bytes, duration_seconds=probe.get("duration_seconds")
-    )
+    frames = await extract_sample_frames(video_bytes, duration_seconds=probe.get("duration_seconds"))
     if not frames:
         if changed:
             await db.commit()
@@ -327,10 +347,7 @@ async def auto_tag_video_asset(asset: MediaAsset, db) -> None:
     if quality:
         meta = dict(asset.meta_data or {})
         meta["quality_score"] = quality
-        meta["quality_failed"] = (
-            quality["sharpness"] < settings.MIN_IMAGE_SHARPNESS
-            or quality["overall"] < settings.MIN_IMAGE_QUALITY_SCORE
-        )
+        meta["quality_failed"] = quality["sharpness"] < settings.MIN_IMAGE_SHARPNESS or quality["overall"] < settings.MIN_IMAGE_QUALITY_SCORE
         asset.meta_data = meta
         flag_modified(asset, "meta_data")
 
@@ -390,48 +407,168 @@ def frame_to_poster_jpeg(frame_bytes: bytes, max_edge: int = 720) -> bytes:
     return buf.getvalue()
 
 
-# ── Slideshow composer — written content → video (Kakkava DAY 18 method) ──
+# ── Video editing ops — trim/convert/audio mux for the media library ─────────
+# ffmpeg is already in the image. Byte-in/byte-out like the image ops so the
+# media_enhance API can stream results; temp files live in a TemporaryDirectory
+# scoped per call. Best-effort like the analysis path — log, don't raise to the
+# caller beyond an empty result they convert to a 422.
 
-async def slideshow_video(
-    frames: list[bytes],
-    *,
-    seconds_per_slide: float = 3.0,
-    fps: int = 30,
-) -> bytes | None:
-    """Compose an mp4 slideshow from image frames via ffmpeg concat.
+_VIDEO_OP_TIMEOUT = 300
 
-    The DAY-18 path: text posts become video by rendering them as branded
-    slides (carousel_pipeline) then concatenating. Crossfade-free concat —
-    slides are styled for hard cuts; music gets muxed via attach_audio.
-    """
-    if not frames:
+
+def _suffix_for_mime(mime: str) -> str:
+    return {
+        "video/quicktime": ".mov",
+        "video/webm": ".webm",
+        "video/x-matroska": ".mkv",
+        "video/x-msvideo": ".avi",
+        "audio/mpeg": ".mp3",
+        "audio/wav": ".wav",
+        "audio/aac": ".aac",
+        "audio/ogg": ".ogg",
+        "audio/mp4": ".m4a",
+        "audio/flac": ".flac",
+    }.get(mime, ".mp4")
+
+
+async def trim_video(video_bytes: bytes, start: float, end: float, *, mime: str = "video/mp4") -> bytes | None:
+    """Cut [start,end] seconds; re-encodes audio+video for clean keyframe cuts."""
+    if end <= start or start < 0:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        dpath = Path(d)
-        names = []
-        for i, frame in enumerate(frames):
-            p = dpath / f"slide_{i:03d}.png"
-            p.write_bytes(frame)
-            names.append(p)
-        listfile = dpath / "list.txt"
-        listfile.write_text(
-            "".join(
-                f"file '{n.name}'\nduration {seconds_per_slide}\n"
-                for n in names
-            )
-            + f"file '{names[-1].name}'\n"  # concat demuxer quirk — last frame needs a second entry
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / f"in{_suffix_for_mime(mime)}"
+        dst = Path(td) / "out.mp4"
+        src.write_bytes(video_bytes)
+        r = await _run_op(
+            [
+                "ffmpeg",
+                "-y",
+                "-ss",
+                f"{start:.3f}",
+                "-i",
+                str(src),
+                "-t",
+                f"{end - start:.3f}",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "128k",
+                "-movflags",
+                "+faststart",
+                str(dst),
+            ],
+            timeout=_VIDEO_OP_TIMEOUT,
         )
-        out = dpath / "out.mp4"
-        cmd = [
-            "ffmpeg", "-y",
-            "-f", "concat", "-safe", "0",
-            "-i", str(listfile),
-            "-vf", f"fps={fps},format=yuv420p",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "23",
-            str(out),
-        ]
-        r = await _run(cmd)
-        if r.returncode != 0 or not out.exists():
-            logger.warning("[video/slideshow] ffmpeg rc=%s: %s", r.returncode, r.stderr.decode()[-400:])
+        if r.returncode != 0 or not dst.exists():
+            logger.warning(f"[video/trim] ffmpeg rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
             return None
-        return out.read_bytes()
+        return dst.read_bytes()
+
+
+async def convert_video(video_bytes: bytes, fmt: str, *, mime: str = "video/mp4") -> bytes | None:
+    """Transcode to mp4|webm|mov (webm keeps vp9+opus for platform limits)."""
+    fmt = fmt.lower().lstrip(".")
+    if fmt not in ("mp4", "webm", "mov"):
+        return None
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / f"in{_suffix_for_mime(mime)}"
+        dst = Path(td) / f"out.{fmt}"
+        src.write_bytes(video_bytes)
+        cmd = ["ffmpeg", "-y", "-i", str(src)]
+        if fmt == "webm":
+            cmd += ["-c:v", "libvpx-vp9", "-crf", "32", "-b:v", "0", "-c:a", "libopus"]
+        else:
+            cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-c:a", "aac", "-b:a", "128k"]
+            if fmt == "mp4":
+                cmd += ["-movflags", "+faststart"]
+        cmd.append(str(dst))
+        r = await _run_op(cmd, timeout=_VIDEO_OP_TIMEOUT)
+        if r.returncode != 0 or not dst.exists():
+            logger.warning(f"[video/convert] ffmpeg rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
+            return None
+        return dst.read_bytes()
+
+
+async def attach_audio(
+    video_bytes: bytes,
+    audio_bytes: bytes,
+    *,
+    video_mime: str = "video/mp4",
+    audio_mime: str = "audio/mpeg",
+    loop_audio: bool = True,
+) -> bytes | None:
+    """Mux an audio track onto video — the 'post must carry sound/music' op.
+
+    Shortest-stream wins; -stream_loop -1 on the audio input so short music
+    loops under a longer video. Replaces any existing audio track.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        vsrc = Path(td) / f"v{_suffix_for_mime(video_mime)}"
+        asrc = Path(td) / f"a{_suffix_for_mime(audio_mime)}"
+        dst = Path(td) / "out.mp4"
+        vsrc.write_bytes(video_bytes)
+        asrc.write_bytes(audio_bytes)
+        cmd = ["ffmpeg", "-y", "-i", str(vsrc)]
+        if loop_audio:
+            cmd += ["-stream_loop", "-1"]
+        cmd += [
+            "-i",
+            str(asrc),
+            "-c:v",
+            "copy",
+            "-map",
+            "0:v:0",
+            "-map",
+            "1:a:0",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(dst),
+        ]
+        r = await _run_op(cmd, timeout=_VIDEO_OP_TIMEOUT)
+        if r.returncode != 0 or not dst.exists():
+            logger.warning(f"[video/attach-audio] ffmpeg rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
+            return None
+        return dst.read_bytes()
+
+
+async def mute_video(video_bytes: bytes, *, mime: str = "video/mp4") -> bytes | None:
+    """Strip all audio tracks (stream copy — fast)."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / f"in{_suffix_for_mime(mime)}"
+        dst = Path(td) / "out.mp4"
+        src.write_bytes(video_bytes)
+        r = await _run_op(
+            ["ffmpeg", "-y", "-i", str(src), "-c:v", "copy", "-an", "-movflags", "+faststart", str(dst)],
+            timeout=_VIDEO_OP_TIMEOUT,
+        )
+        if r.returncode != 0 or not dst.exists():
+            logger.warning(f"[video/mute] ffmpeg rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
+            return None
+        return dst.read_bytes()
+
+
+async def extract_audio(video_bytes: bytes, *, mime: str = "video/mp4") -> bytes | None:
+    """Pull the audio track out as mp3 — for reuse/replace workflows."""
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / f"in{_suffix_for_mime(mime)}"
+        dst = Path(td) / "out.mp3"
+        src.write_bytes(video_bytes)
+        r = await _run_op(
+            ["ffmpeg", "-y", "-i", str(src), "-vn", "-c:a", "libmp3lame", "-q:a", "4", str(dst)],
+            timeout=_VIDEO_OP_TIMEOUT,
+        )
+        if r.returncode != 0 or not dst.exists():
+            logger.warning(f"[video/extract-audio] ffmpeg rc={r.returncode}: {r.stderr.decode(errors='replace')[-300:]}")
+            return None
+        return dst.read_bytes()

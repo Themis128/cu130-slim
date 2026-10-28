@@ -26,6 +26,7 @@ State tracking:
 
 The task runs every 5 minutes via Celery beat.
 """
+
 import asyncio
 import logging
 from datetime import UTC, datetime
@@ -65,6 +66,7 @@ def _run_async(coro):
             import threading
 
             result = {}
+
             def _runner():
                 new_loop = asyncio.new_event_loop()
                 try:
@@ -73,6 +75,7 @@ def _run_async(coro):
                     result["error"] = exc
                 finally:
                     new_loop.close()
+
             t = threading.Thread(target=_runner)
             t.start()
             t.join()
@@ -119,8 +122,12 @@ async def _poll_tiktok_messenger_async() -> dict:
 
             try:
                 replies = await _process_account(
-                    account, auto_reply, seen,
-                    cf_token, cf_account, dmr_url,
+                    account,
+                    auto_reply,
+                    seen,
+                    cf_token,
+                    cf_account,
+                    dmr_url,
                 )
                 stats["replies_sent"] += replies
 
@@ -128,13 +135,16 @@ async def _poll_tiktok_messenger_async() -> dict:
                 meta["tiktok_messenger_last_checked"] = datetime.now(UTC).isoformat()
                 account.meta_data = meta
                 from sqlalchemy.orm.attributes import flag_modified
+
                 flag_modified(account, "meta_data")
                 await db.commit()
             except Exception as exc:
                 stats["errors"] += 1
                 logger.error(
                     "TikTok DM poll failed for account %s: %s",
-                    account.id, exc, exc_info=True,
+                    account.id,
+                    exc,
+                    exc_info=True,
                 )
 
     logger.info("TikTok DM poll complete: %s", stats)
@@ -150,7 +160,7 @@ async def _process_account(
     dmr_url: str,
 ) -> int:
     """Process a single TikTok account — poll DMs via browser bridge and reply."""
-    bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL, platform='tiktok')
+    bridge = BrowserBridgeClient(get_settings().BROWSER_BRIDGE_URL, platform="tiktok")
     replies_sent = 0
     account_name = account.display_name or account.username or "us"
 
@@ -160,7 +170,8 @@ async def _process_account(
         if session.get("status") != "active":
             logger.info(
                 "TikTok DM: browser bridge session not active for account %s — %s",
-                account.id, session.get("message", "?"),
+                account.id,
+                session.get("message", "?"),
             )
             return 0
     except Exception as exc:
@@ -233,11 +244,17 @@ async def _process_account(
 
             # 8. Generate AI reply
             reply_text = await generate_contextual_reply(
-                config, text, account_name,
-                account.id, seen_key,
-                cf_token, cf_account, dmr_url,
+                config,
+                text,
+                account_name,
+                account.id,
+                seen_key,
+                cf_token,
+                cf_account,
+                dmr_url,
                 intent=intent,
-                brand_context=brand_context, team_id=account.team_id,
+                brand_context=brand_context,
+                team_id=account.team_id,
             )
 
             if not reply_text:
@@ -249,12 +266,18 @@ async def _process_account(
 
             # 9. Store in memory
             await store_message_memory(
-                account.team_id, account.id, seen_key,
-                "them", text,
+                account.team_id,
+                account.id,
+                seen_key,
+                "them",
+                text,
             )
             await store_message_memory(
-                account.team_id, account.id, seen_key,
-                "me", reply_text,
+                account.team_id,
+                account.id,
+                seen_key,
+                "me",
+                reply_text,
             )
 
             # 10. Mark seen + cooldown
@@ -263,7 +286,9 @@ async def _process_account(
             replies_sent += 1
             logger.info(
                 "TikTok auto-reply sent to '%s' (conversation %s) for account %s",
-                convo_name, convo_id, account.id,
+                convo_name,
+                convo_id,
+                account.id,
             )
 
             await asyncio.sleep(3)
@@ -271,7 +296,9 @@ async def _process_account(
         except Exception as exc:
             logger.error(
                 "Error processing TikTok conversation %s: %s",
-                convo_id, exc, exc_info=True,
+                convo_id,
+                exc,
+                exc_info=True,
             )
 
     return replies_sent

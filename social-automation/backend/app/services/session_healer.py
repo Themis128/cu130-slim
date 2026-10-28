@@ -42,6 +42,7 @@ Every probe honours the bridge busy-hold protocol (X-Platform header,
 409 = contended → skipped this run) and never logs secret material —
 cookie names only.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -70,7 +71,7 @@ LINKEDIN_SIDECAR_URL = os.getenv("LINKEDIN_BROWSER_SIDECAR_URL", "http://linkedi
 FACEBOOK_SIDECAR_URL = os.getenv("FACEBOOK_BROWSER_SIDECAR_URL", "http://facebook-browser-sidecar:9226")
 BRIDGE_URL = os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
 
-_ALERT_TTL = 24 * 3600          # Slack cooldown per platform
+_ALERT_TTL = 24 * 3600  # Slack cooldown per platform
 _LI_PENDING_KEY = "session_healer:linkedin_pending_2fa"
 _ALERT_KEY = "session_healer:alerted:{platform}"
 
@@ -99,9 +100,7 @@ BRIDGE_PLATFORMS: dict[str, dict[str, str]] = {
     },
 }
 
-THREADS_SSO_URL = (
-    "https://www.threads.com/login/?show_toa_choice_screen=false&variant=toa_ig"
-)
+THREADS_SSO_URL = "https://www.threads.com/login/?show_toa_choice_screen=false&variant=toa_ig"
 
 
 async def _get_redis() -> Any:
@@ -133,9 +132,7 @@ async def _alert(platform: str, text: str) -> None:
                 )
 
                 alert_text = text[:2000]
-                blocks: list[dict] = [
-                    {"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}
-                ]
+                blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}]
                 blocks += session_heal_buttons()
                 await post_alert_to_slack(alert_text, blocks=blocks)
         finally:
@@ -199,9 +196,7 @@ async def _sync_storage_state(platform: str, storage_state: dict) -> int:
     """Persist a Playwright storage_state to all accounts of a platform."""
     updated = 0
     async with _worker_db() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == platform)
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == platform))
         for account in result.scalars().all():
             meta = dict(account.meta_data or {})
             meta["browser_storage_state"] = storage_state
@@ -217,9 +212,7 @@ async def _sync_browser_cookies(platform: str, cookies: dict[str, str]) -> int:
     """Persist a name→value cookie map on all accounts of a platform."""
     updated = 0
     async with _worker_db() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == platform)
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == platform))
         for account in result.scalars().all():
             meta = dict(account.meta_data or {})
             meta["browser_cookies"] = cookies
@@ -233,9 +226,7 @@ async def _sync_browser_cookies(platform: str, cookies: dict[str, str]) -> int:
 
 async def _load_storage_state(platform: str) -> dict | None:
     async with _worker_db() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == platform)
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == platform))
         for account in result.scalars().all():
             state = (account.meta_data or {}).get("browser_storage_state")
             if state and state.get("cookies"):
@@ -245,11 +236,7 @@ async def _load_storage_state(platform: str) -> dict | None:
 
 async def _platforms_with_accounts() -> set[str]:
     async with _worker_db() as db:
-        result = await db.execute(
-            select(SocialAccount.platform).where(
-                SocialAccount.status.in_(["active", "expired"])
-            )
-        )
+        result = await db.execute(select(SocialAccount.platform).where(SocialAccount.status.in_(["active", "expired"])))
         return {row[0] for row in result.all()}
 
 
@@ -291,9 +278,7 @@ async def _li_sync_cookies() -> None:
     try:
         from app.services.secret_store import secret_store
 
-        await secret_store.set(
-            "LINKEDIN_COOKIE", cookies["li_at"], "LinkedIn li_at session cookie (auto-refreshed)"
-        )
+        await secret_store.set("LINKEDIN_COOKIE", cookies["li_at"], "LinkedIn li_at session cookie (auto-refreshed)")
     except Exception:
         logger.debug("LINKEDIN_COOKIE store update failed", exc_info=True)
 
@@ -315,8 +300,7 @@ async def _heal_linkedin(stats: dict) -> None:
             stats["linkedin"]["status"] = "sidecar_down"
             await _alert(
                 "linkedin",
-                "*LinkedIn sidecar is down* — browser automation paused.\n"
-                "• Fix: `docker compose restart linkedin-browser-sidecar`",
+                "*LinkedIn sidecar is down* — browser automation paused.\n• Fix: `docker compose restart linkedin-browser-sidecar`",
             )
             return
 
@@ -336,9 +320,7 @@ async def _heal_linkedin(stats: dict) -> None:
             stats["linkedin"]["status"] = "healthy"
             await _li_sync_cookies()
             await r.delete(_LI_PENDING_KEY)
-            await _alert_recovered(
-                "linkedin", "*LinkedIn session is back* — sidecar logged in again."
-            )
+            await _alert_recovered("linkedin", "*LinkedIn session is back* — sidecar logged in again.")
             return
 
         # A previous /login may be sitting on an approved 2FA checkpoint —
@@ -349,8 +331,7 @@ async def _heal_linkedin(stats: dict) -> None:
             stats["linkedin"]["status"] = "needs_manual_login"
             await _alert(
                 "linkedin",
-                "*LinkedIn session expired and no credentials are configured* — "
-                "log in via the sidecar or set LINKEDIN_EMAIL/LINKEDIN_PASSWORD.",
+                "*LinkedIn session expired and no credentials are configured* — log in via the sidecar or set LINKEDIN_EMAIL/LINKEDIN_PASSWORD.",
             )
             return
 
@@ -399,9 +380,7 @@ async def _heal_linkedin(stats: dict) -> None:
         stats["linkedin"]["status"] = "needs_manual_login"
         await _alert(
             "linkedin",
-            "*LinkedIn login failed* — "
-            f"`{str(login.get('error') or login.get('message'))[:200]}`\n"
-            "• Log in via the sidecar or check stored credentials.",
+            f"*LinkedIn login failed* — `{str(login.get('error') or login.get('message'))[:200]}`\n• Log in via the sidecar or check stored credentials.",
         )
     except Exception as exc:
         stats["linkedin"]["status"] = "error"
@@ -427,17 +406,9 @@ async def _heal_facebook_sidecar(stats: dict) -> None:
                 cookies = (await client.get(f"{FACEBOOK_SIDECAR_URL}/profile/cookies")).json()
             jar = cookies.get("cookies", cookies)
             if isinstance(jar, dict) and jar:
-                cookie_list = [
-                    {"name": n, "value": v, "domain": ".facebook.com", "path": "/",
-                     "secure": True, "sameSite": "Lax"}
-                    for n, v in jar.items()
-                ]
-                slot["accounts_synced"] = await _sync_storage_state(
-                    "facebook", {"cookies": cookie_list, "origins": []}
-                )
-            await _alert_recovered(
-                "facebook_sidecar", "*Facebook sidecar session is back* — logged in again."
-            )
+                cookie_list = [{"name": n, "value": v, "domain": ".facebook.com", "path": "/", "secure": True, "sameSite": "Lax"} for n, v in jar.items()]
+                slot["accounts_synced"] = await _sync_storage_state("facebook", {"cookies": cookie_list, "origins": []})
+            await _alert_recovered("facebook_sidecar", "*Facebook sidecar session is back* — logged in again.")
             return
 
         # Dead → try re-injecting the stored storage_state (same-browser
@@ -496,9 +467,7 @@ async def _bridge_call(
 
 
 async def _bridge_eval(platform: str, expression: str) -> Any:
-    code, data = await _bridge_call(
-        "/session/evaluate", platform, {"expression": expression}, timeout=30.0
-    )
+    code, data = await _bridge_call("/session/evaluate", platform, {"expression": expression}, timeout=30.0)
     if code == 200:
         return data.get("result")
     return None
@@ -508,11 +477,7 @@ async def _bridge_poll_done(platform: str, seconds: int = 45) -> bool:
     """Wait for the bridge detection loop to flip the session to done."""
     for _ in range(seconds // 3):
         _, status = await _bridge_call("/session/status", platform, timeout=15.0)
-        if (
-            status.get("platform") == platform
-            and status.get("status") in ("active", "done")
-            and status.get("cookies_found")
-        ):
+        if status.get("platform") == platform and status.get("status") in ("active", "done") and status.get("cookies_found"):
             return True
         await asyncio.sleep(3)
     return False
@@ -532,9 +497,7 @@ async def _bridge_extract(platform: str) -> bool:
 async def _bridge_verify_not_login(platform: str) -> bool:
     """Navigate the platform home and confirm we are NOT on a login page."""
     nav = BRIDGE_PLATFORMS[platform]["nav"]
-    code, _ = await _bridge_call(
-        "/session/navigate", platform, {"url": nav}, timeout=90.0
-    )
+    code, _ = await _bridge_call("/session/navigate", platform, {"url": nav}, timeout=90.0)
     if code != 200:
         return False
     await asyncio.sleep(3)
@@ -616,9 +579,7 @@ async def _bridge_login(platform: str, username: str, password: str) -> bool:
 
 
 async def _bridge_inject_cookies(platform: str, cookies: list[dict]) -> bool:
-    code, data = await _bridge_call(
-        "/session/cookies", platform, {"cookies": cookies}, timeout=30.0
-    )
+    code, data = await _bridge_call("/session/cookies", platform, {"cookies": cookies}, timeout=30.0)
     return code == 200 and bool(data.get("added") or data.get("status") == "ok")
 
 
@@ -639,8 +600,7 @@ async def _recover_bridge_platform(platform: str) -> bool:
         if session_id:
             ok = await _bridge_inject_cookies(
                 platform,
-                [{"name": "sessionid", "value": session_id,
-                  "domain": ".tiktok.com", "path": "/", "secure": True}],
+                [{"name": "sessionid", "value": session_id, "domain": ".tiktok.com", "path": "/", "secure": True}],
             )
             if ok:
                 return await _bridge_verify_not_login(platform)
@@ -668,11 +628,7 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
     try:
         # Current session already belongs to this platform and is done.
         _, status = await _bridge_call("/session/status", platform, timeout=15.0)
-        if (
-            status.get("platform") == platform
-            and status.get("status") in ("active", "done")
-            and status.get("cookies_found")
-        ):
+        if status.get("platform") == platform and status.get("status") in ("active", "done") and status.get("cookies_found"):
             slot["status"] = "healthy"
             await _clear_dead_marker(platform)
             return
@@ -682,18 +638,12 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
         # instead of forcing /session/start and serializing into timeouts.
         other = str(status.get("platform") or "")
         busy_state = str(status.get("status") or "")
-        if (
-            other
-            and other != platform
-            and busy_state not in ("active", "done", "idle", "")
-        ):
+        if other and other != platform and busy_state not in ("active", "done", "idle", ""):
             slot["status"] = "contended"
             slot["detail"] = f"bridge busy with {other} ({busy_state})"
             return
 
-        code, started = await _bridge_call(
-            "/session/start", platform, {"platform": platform}, timeout=60.0
-        )
+        code, started = await _bridge_call("/session/start", platform, {"platform": platform}, timeout=60.0)
         if code == 409:
             slot["status"] = "contended"
             return
@@ -708,9 +658,7 @@ async def _heal_bridge_platform(platform: str, stats: dict) -> None:
             if await _bridge_extract(platform):
                 slot["status"] = "healthy"
                 await _clear_dead_marker(platform)
-                await _alert_recovered(
-                    platform, f"*{platform.title()} bridge session is back* — logged in again."
-                )
+                await _alert_recovered(platform, f"*{platform.title()} bridge session is back* — logged in again.")
                 return
 
         # Still waiting → attempt platform-specific recovery.
@@ -793,9 +741,15 @@ async def heal_all_sessions() -> dict[str, Any]:
             pass
 
     stats["unhealthy"] = [
-        k for k, v in stats.items()
-        if isinstance(v, dict) and v.get("status") in (
-            "needs_manual_login", "pending_2fa", "sidecar_down", "error",
+        k
+        for k, v in stats.items()
+        if isinstance(v, dict)
+        and v.get("status")
+        in (
+            "needs_manual_login",
+            "pending_2fa",
+            "sidecar_down",
+            "error",
         )
     ]
     logger.info("Session heal complete: %s", stats)

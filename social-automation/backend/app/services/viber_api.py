@@ -81,11 +81,7 @@ class ViberAPIError(Exception):
         self.method = method
         super().__init__(
             f"Viber API {method or 'error'} {status_code}: {description}"
-            + (
-                f" (viber status {viber_status}={VIBER_STATUS_CODES.get(viber_status, '?')})"
-                if viber_status is not None
-                else ""
-            )
+            + (f" (viber status {viber_status}={VIBER_STATUS_CODES.get(viber_status, '?')})" if viber_status is not None else "")
         )
 
     @property
@@ -240,9 +236,7 @@ class ViberAPIClient:
             message["text"] = text[:MAX_MESSAGE_CHARS]
         if thumbnail and thumbnail.startswith("https://"):
             message["thumbnail"] = thumbnail
-        return await self.send_message(
-            receiver, message, sender_name=sender_name, sender_avatar=sender_avatar
-        )
+        return await self.send_message(receiver, message, sender_name=sender_name, sender_avatar=sender_avatar)
 
     async def send_video(
         self,
@@ -266,9 +260,7 @@ class ViberAPIClient:
             message["duration"] = duration
         if thumbnail and thumbnail.startswith("https://"):
             message["thumbnail"] = thumbnail
-        return await self.send_message(
-            receiver, message, sender_name=sender_name, sender_avatar=sender_avatar
-        )
+        return await self.send_message(receiver, message, sender_name=sender_name, sender_avatar=sender_avatar)
 
     async def send_file(
         self,
@@ -318,9 +310,7 @@ class ViberAPIClient:
         if not broadcast_list:
             raise ValueError("broadcast_list is required")
         if len(broadcast_list) > MAX_BROADCAST_RECEIVERS:
-            raise ValueError(
-                f"broadcast_list max is {MAX_BROADCAST_RECEIVERS} receivers"
-            )
+            raise ValueError(f"broadcast_list max is {MAX_BROADCAST_RECEIVERS} receivers")
         payload: dict[str, Any] = {
             "broadcast_list": broadcast_list,
             "min_api_version": min_api_version,

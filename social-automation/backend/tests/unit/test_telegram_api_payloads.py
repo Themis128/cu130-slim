@@ -5,6 +5,7 @@ explicit nulls, e.g. ``reply_markup: null``), and included when they are.
 ``_call`` is the single HTTP seam, so it is replaced with a recorder and no
 request leaves the process.
 """
+
 from __future__ import annotations
 
 import pytest

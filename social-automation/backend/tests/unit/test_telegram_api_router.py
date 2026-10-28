@@ -134,13 +134,16 @@ class _DB:
 
 
 def _tg_account(**kw):
-    meta = kw.pop("meta_data", {
-        "bot_token_enc": "enc-token",
-        "bot_id": "12345",
-        "bot_username": "cloudlessbot",
-        "webhook_secret": "sec123",
-        "credentials_configured": True,
-    })
+    meta = kw.pop(
+        "meta_data",
+        {
+            "bot_token_enc": "enc-token",
+            "bot_id": "12345",
+            "bot_username": "cloudlessbot",
+            "webhook_secret": "sec123",
+            "credentials_configured": True,
+        },
+    )
     return SimpleNamespace(
         id=kw.pop("id", uuid.uuid4()),
         team_id=kw.pop("team_id", uuid.uuid4()),
@@ -231,11 +234,13 @@ def test_decrypt_bot_token_from_meta(monkeypatch):
 
 def test_decrypt_bot_token_falls_back_to_column(monkeypatch):
     calls = []
+
     def _dec(b):
         calls.append(b)
         if len(calls) == 1:
             raise ValueError("bad meta token")
         return "dec-column"
+
     monkeypatch.setattr(telegram, "decrypt_token", _dec)
     acc = _tg_account(access_token_enc="col-enc")
     assert _decrypt_bot_token(acc) == "dec-column"
@@ -320,8 +325,7 @@ async def test_connect_invalid_token_400(monkeypatch):
 
     monkeypatch.setattr(telegram, "TelegramAPIClient", _Bad)
     with pytest.raises(HTTPException) as e:
-        await connect_telegram_bot(TelegramConnectRequest(bot_token="x", set_webhook=False),
-                                   uuid.uuid4(), _DB(), _user())
+        await connect_telegram_bot(TelegramConnectRequest(bot_token="x", set_webhook=False), uuid.uuid4(), _DB(), _user())
     assert e.value.status_code == 400
 
 
@@ -331,8 +335,7 @@ async def test_connect_missing_bot_id_400(monkeypatch):
     client = _patch_client(monkeypatch)
     client.get_me = AsyncMock(return_value={"id": None})
     with pytest.raises(HTTPException) as e:
-        await connect_telegram_bot(TelegramConnectRequest(bot_token="t", set_webhook=False),
-                                   uuid.uuid4(), _DB(), _user())
+        await connect_telegram_bot(TelegramConnectRequest(bot_token="t", set_webhook=False), uuid.uuid4(), _DB(), _user())
     assert e.value.status_code == 400
 
 
@@ -342,8 +345,7 @@ async def test_connect_creates_new_account(monkeypatch):
     _patch_crypto(monkeypatch)
     _patch_client(monkeypatch)
     db = _DB([None])  # no existing account
-    out = await connect_telegram_bot(
-        TelegramConnectRequest(bot_token="tok", set_webhook=False), uuid.uuid4(), db, _user())
+    out = await connect_telegram_bot(TelegramConnectRequest(bot_token="tok", set_webhook=False), uuid.uuid4(), db, _user())
     assert out["status"] == "ok"
     assert out["bot_id"] == "12345"
     assert len(db.added) == 1
@@ -358,8 +360,7 @@ async def test_connect_updates_existing_account(monkeypatch):
     _patch_client(monkeypatch)
     existing = _tg_account()
     db = _DB([existing])
-    out = await connect_telegram_bot(
-        TelegramConnectRequest(bot_token="tok", set_webhook=False), existing.team_id, db, _user())
+    out = await connect_telegram_bot(TelegramConnectRequest(bot_token="tok", set_webhook=False), existing.team_id, db, _user())
     assert out["status"] == "ok"
     assert db.added == []  # no new row
     assert existing.status == "active"
@@ -371,8 +372,7 @@ async def test_connect_registers_webhook(monkeypatch):
     _patch_crypto(monkeypatch)
     client = _patch_client(monkeypatch)
     db = _DB([None])
-    out = await connect_telegram_bot(
-        TelegramConnectRequest(bot_token="tok", set_webhook=True), uuid.uuid4(), db, _user())
+    out = await connect_telegram_bot(TelegramConnectRequest(bot_token="tok", set_webhook=True), uuid.uuid4(), db, _user())
     client.set_webhook.assert_awaited_once()
     assert out["webhook"]["ok"] is True
 
@@ -393,8 +393,7 @@ async def test_update_credentials_invalid_400(monkeypatch):
 
     monkeypatch.setattr(telegram, "TelegramAPIClient", _Bad)
     with pytest.raises(HTTPException) as e:
-        await update_telegram_credentials(acc.id, TelegramCredentialsUpdate(bot_token="x"),
-                                          _DB([acc]), _user())
+        await update_telegram_credentials(acc.id, TelegramCredentialsUpdate(bot_token="x"), _DB([acc]), _user())
     assert e.value.status_code == 400
 
 
@@ -404,8 +403,7 @@ async def test_update_credentials_success(monkeypatch):
     _patch_crypto(monkeypatch)
     _patch_client(monkeypatch)
     db = _DB([acc])
-    out = await update_telegram_credentials(
-        acc.id, TelegramCredentialsUpdate(bot_token="new-tok"), db, _user())
+    out = await update_telegram_credentials(acc.id, TelegramCredentialsUpdate(bot_token="new-tok"), db, _user())
     assert out["credentials_stored"] is True
     assert acc.meta_data["bot_token_enc"] == "enc-bytes"
     assert acc.meta_data["credentials_configured"] is True
@@ -491,10 +489,13 @@ async def test_setup_status_needs_autoreply(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_setup_status_complete(monkeypatch):
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e", "credentials_configured": True,
-        "telegram_auto_reply": {"enabled": True},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "credentials_configured": True,
+            "telegram_auto_reply": {"enabled": True},
+        }
+    )
     _patch_client(monkeypatch)
     out = await get_setup_status(acc.id, _DB([acc]), _user())
     assert out["next_step"] == "setup_complete"
@@ -517,10 +518,7 @@ async def test_send_message_plain(monkeypatch):
 async def test_send_message_with_buttons(monkeypatch):
     acc = _tg_account()
     client = _patch_client(monkeypatch)
-    await send_message(
-        acc.id,
-        SendMessageRequest(chat_id=1, text="hi", buttons=[[{"text": "go", "url": "https://x"}]]),
-        _DB([acc]), _user())
+    await send_message(acc.id, SendMessageRequest(chat_id=1, text="hi", buttons=[[{"text": "go", "url": "https://x"}]]), _DB([acc]), _user())
     client.send_message_with_markup.assert_awaited_once()
 
 
@@ -537,15 +535,11 @@ async def test_send_message_502(monkeypatch):
 async def test_send_photo_and_media_group(monkeypatch):
     acc = _tg_account()
     _patch_client(monkeypatch)
-    out = await send_photo(
-        acc.id, SendPhotoRequest(chat_id=1, photo="https://x/p.jpg", caption="c"),
-        _DB([acc]), _user())
+    out = await send_photo(acc.id, SendPhotoRequest(chat_id=1, photo="https://x/p.jpg", caption="c"), _DB([acc]), _user())
     assert out["message"]["message_id"] == 3
     out = await send_media_group(
-        acc.id,
-        SendMediaGroupRequest(chat_id=1, media=[
-            {"type": "photo", "media": "u1"}, {"type": "photo", "media": "u2"}]),
-        _DB([acc]), _user())
+        acc.id, SendMediaGroupRequest(chat_id=1, media=[{"type": "photo", "media": "u1"}, {"type": "photo", "media": "u2"}]), _DB([acc]), _user()
+    )
     assert out["messages"][0]["message_id"] == 4
 
 
@@ -553,9 +547,7 @@ async def test_send_photo_and_media_group(monkeypatch):
 async def test_send_poll(monkeypatch):
     acc = _tg_account()
     client = _patch_client(monkeypatch)
-    out = await send_poll(
-        acc.id, SendPollRequest(chat_id=1, question="q?", options=["a", "b"]),
-        _DB([acc]), _user())
+    out = await send_poll(acc.id, SendPollRequest(chat_id=1, question="q?", options=["a", "b"]), _DB([acc]), _user())
     client.send_poll.assert_awaited_once()
     assert out["message"]["message_id"] == 5
 
@@ -600,6 +592,7 @@ async def test_auto_reply_update_enabled_checks_plan(monkeypatch):
     monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock(side_effect=lambda *a: checked.append(a)))
     db = _DB([acc])
     from app.api.telegram import AutoReplyConfig
+
     await update_auto_reply_config(acc.id, AutoReplyConfig(enabled=True), db, _user())
     assert len(checked) == 1
     assert acc.meta_data["telegram_auto_reply"]["enabled"] is True
@@ -699,8 +692,7 @@ async def test_update_group_watch_persists_and_refreshes_webhook(monkeypatch):
 @pytest.mark.asyncio
 async def test_update_group_watch_webhook_failure_tolerated(monkeypatch):
     acc = _tg_account()
-    _patch_client(monkeypatch, _FakeClient(set_webhook=telegram.TelegramAPIError(400, "x"),
-                                         get_webhook_info=telegram.TelegramAPIError(400, "y")))
+    _patch_client(monkeypatch, _FakeClient(set_webhook=telegram.TelegramAPIError(400, "x"), get_webhook_info=telegram.TelegramAPIError(400, "y")))
     out = await update_group_watch(acc.id, GroupWatchConfig(enabled=True), _DB([acc]), _user())
     assert out.enabled is True  # failure logged, not raised
 
@@ -721,8 +713,7 @@ async def test_add_watched_chat_with_getchat(monkeypatch):
 async def test_add_watched_chat_getchat_failure_tolerated(monkeypatch):
     acc = _tg_account()
     _patch_client(monkeypatch, _FakeClient(get_chat=telegram.TelegramAPIError(400, "x")))
-    out = await add_watched_chat(
-        acc.id, WatchedChat(chat_id="-100x", title="T", type="channel"), _DB([acc]), _user())
+    out = await add_watched_chat(acc.id, WatchedChat(chat_id="-100x", title="T", type="channel"), _DB([acc]), _user())
     assert out["config"]["watched_chats"][0]["type"] == "channel"
 
 
@@ -730,8 +721,7 @@ async def test_add_watched_chat_getchat_failure_tolerated(monkeypatch):
 async def test_trigger_digest(monkeypatch):
     acc = _tg_account()
     _patch_client(monkeypatch)
-    monkeypatch.setattr(telegram, "send_digest_for_account",
-                        AsyncMock(return_value={"sent": True, "messages": 3}))
+    monkeypatch.setattr(telegram, "send_digest_for_account", AsyncMock(return_value={"sent": True, "messages": 3}))
     out = await trigger_group_digest_now(acc.id, _DB([acc]), _user())
     assert out["sent"] is True
 
@@ -747,10 +737,11 @@ async def test_group_watch_activity_single_chat(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_group_watch_activity_all_chats(monkeypatch):
-    acc = _tg_account(meta_data={
-        "telegram_group_watch": {"enabled": True, "owner_chat_id": "9",
-                                 "watched_chats": [{"chat_id": "-1", "title": "G1"}]},
-    })
+    acc = _tg_account(
+        meta_data={
+            "telegram_group_watch": {"enabled": True, "owner_chat_id": "9", "watched_chats": [{"chat_id": "-1", "title": "G1"}]},
+        }
+    )
     monkeypatch.setattr(telegram, "list_buffered_messages", AsyncMock(return_value=[{"t": 1}]))
     out = await get_group_watch_activity(acc.id, None, 10, _DB([acc]), _user())
     assert out["chats"][0]["buffered_count"] == 1
@@ -894,9 +885,7 @@ async def test_update_credentials_sets_secret_and_webhook(monkeypatch):
     monkeypatch.setattr(telegram, "_register_webhook", reg)
     acc = _tg_account(meta_data={})  # no webhook_secret → generated
     db = _DB([acc])
-    out = await update_telegram_credentials(
-        acc.id, TelegramCredentialsUpdate(bot_token="123456:AA-bb", set_webhook=True), db, _user()
-    )
+    out = await update_telegram_credentials(acc.id, TelegramCredentialsUpdate(bot_token="123456:AA-bb", set_webhook=True), db, _user())
     assert out["status"] == "ok" and out["webhook"] == {"ok": True}
     assert acc.meta_data["webhook_secret"]
     assert acc.meta_data["bot_token_enc"] == "enc-bytes"
@@ -946,8 +935,14 @@ async def test_create_bot_brand_indexed_and_index_error(monkeypatch):
     acc = _tg_account()
     monkeypatch.setattr("app.api.deps.check_plan_feature", AsyncMock())
     brand = SimpleNamespace(
-        name="Cloudless", tagline="t", positioning_statement="p", mission="m",
-        industry="saas", values=["v"], target_audience={"size": "smb"}, competitor_names=["x"],
+        name="Cloudless",
+        tagline="t",
+        positioning_statement="p",
+        mission="m",
+        industry="saas",
+        values=["v"],
+        target_audience={"size": "smb"},
+        competitor_names=["x"],
     )
     idx = AsyncMock(return_value=8)
     mod = ModuleType("app.services.telegram_chatbot")
@@ -1033,9 +1028,7 @@ async def test_webhook_membership_paths(monkeypatch):
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["membership"] == "info"
 
-    _wh_patches(monkeypatch,
-        extract_my_chat_member_update=lambda u: {"chat_id": 1},
-        handle_bot_membership_change=AsyncMock(side_effect=RuntimeError("x")))
+    _wh_patches(monkeypatch, extract_my_chat_member_update=lambda u: {"chat_id": 1}, handle_bot_membership_change=AsyncMock(side_effect=RuntimeError("x")))
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["membership_error"] is True
 
@@ -1051,9 +1044,10 @@ async def test_webhook_callback_paths(monkeypatch):
     assert out["callback_answered"] is True
     assert acc.meta_data["last_callback"]["data"] == "d"
 
-    _wh_patches(monkeypatch,
+    _wh_patches(
+        monkeypatch,
         extract_callback_query=lambda u: {"callback_id": "cb1"},
-        )
+    )
     client2 = _FakeClient()
     client2.answer_callback_query = AsyncMock(side_effect=RuntimeError("x"))
     _patch_client(monkeypatch, client2)
@@ -1070,30 +1064,38 @@ async def test_webhook_inbound_guards(monkeypatch):
     assert out["reason"] == "bot_sender"
 
     # botfather redirect
-    _wh_patches(monkeypatch,
+    _wh_patches(
+        monkeypatch,
         extract_inbound_text_update=lambda u: {"text": "/mybots", "chat_type": "private"},
-        handle_mistaken_botfather_command=AsyncMock(return_value=True))
+        handle_mistaken_botfather_command=AsyncMock(return_value=True),
+    )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["redirected_botfather"] is True
 
     # botfather raises → tolerated, falls through to owner link
-    _wh_patches(monkeypatch,
+    _wh_patches(
+        monkeypatch,
         extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private"},
-        handle_mistaken_botfather_command=AsyncMock(side_effect=RuntimeError("x")))
+        handle_mistaken_botfather_command=AsyncMock(side_effect=RuntimeError("x")),
+    )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["status"] == "ok"
 
     # owner link success
-    _wh_patches(monkeypatch,
+    _wh_patches(
+        monkeypatch,
         extract_inbound_text_update=lambda u: {"text": "/start linkowner", "chat_type": "private"},
-        handle_owner_link_command=AsyncMock(return_value=({"cfg": 1, "owner_chat_id": "9"}, True)))
+        handle_owner_link_command=AsyncMock(return_value=({"cfg": 1, "owner_chat_id": "9"}, True)),
+    )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["owner_linked"] is True
 
     # owner link raises → tolerated
-    _wh_patches(monkeypatch,
+    _wh_patches(
+        monkeypatch,
         extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private"},
-        handle_owner_link_command=AsyncMock(side_effect=RuntimeError("x")))
+        handle_owner_link_command=AsyncMock(side_effect=RuntimeError("x")),
+    )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["auto_reply"] is False
 
@@ -1105,28 +1107,34 @@ async def test_webhook_group_watch_paths(monkeypatch):
 
     # watch enabled → upsert + process; no mention → requires_mention.
     # owner_link returns the watch_cfg that flows into the upsert guard.
-    _wh_patches(monkeypatch,
+    _wh_patches(
+        monkeypatch,
         extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "group", "chat_id": 5, "chat_title": "G"},
         handle_owner_link_command=AsyncMock(return_value=({"enabled": True, "watch_all_groups": True}, False)),
-        get_group_watch_from_meta=lambda m: {"enabled": True, "watch_all_groups": True})
+        get_group_watch_from_meta=lambda m: {"enabled": True, "watch_all_groups": True},
+    )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["reason"] == "group_requires_mention"
 
     # process_group_message_watch raises → group_watch_error
-    _wh_patches(monkeypatch,
+    _wh_patches(
+        monkeypatch,
         extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "group", "chat_id": 5},
-        process_group_message_watch=AsyncMock(side_effect=RuntimeError("x")))
+        process_group_message_watch=AsyncMock(side_effect=RuntimeError("x")),
+    )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["group_watch_error"] is True
 
 
 @pytest.mark.asyncio
 async def test_webhook_auto_reply_paths(monkeypatch):
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": True},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": True},
+        }
+    )
     _patch_client(monkeypatch)
 
     mod = ModuleType("app.services.telegram_chatbot")
@@ -1142,8 +1150,7 @@ async def test_webhook_auto_reply_paths(monkeypatch):
     # bot skips
     mod.process_inbound_message = AsyncMock(return_value={"reply": None, "skipped": True, "reason": "cooldown"})
     _wh_patches(monkeypatch, extract_inbound_text_update=lambda u: {"text": "hi", "chat_type": "private", "chat_id": 5})
-    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None
-    )
+    out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
     assert out["skipped"] is True and out["reason"] == "cooldown"
 
     # bot explodes → error captured
@@ -1155,11 +1162,13 @@ async def test_webhook_auto_reply_paths(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_webhook_lead_capture_private_dm(monkeypatch):
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": True},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": True},
+        }
+    )
     client = _patch_client(monkeypatch)
     _wh_patches(
         monkeypatch,
@@ -1171,6 +1180,7 @@ async def test_webhook_lead_capture_private_dm(monkeypatch):
         completed_lead_id=None,
     )
     import app.services.lead_capture as lc_mod
+
     monkeypatch.setattr(lc_mod, "snapshot_lead_session", AsyncMock(return_value=None))
     monkeypatch.setattr(telegram, "_run_lead_capture", AsyncMock(return_value=reply))
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
@@ -1183,11 +1193,13 @@ async def test_webhook_lead_capture_private_dm(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_webhook_lead_callback_advances_fsm(monkeypatch):
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": True},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": True},
+        }
+    )
     client = _patch_client(monkeypatch, _FakeClient(answer_callback_query=AsyncMock(return_value=True)))
     _wh_patches(
         monkeypatch,
@@ -1205,6 +1217,7 @@ async def test_webhook_lead_callback_advances_fsm(monkeypatch):
     )
     fsm = AsyncMock(return_value=reply)
     import app.services.lead_capture as lc_mod
+
     monkeypatch.setattr(lc_mod, "snapshot_lead_session", AsyncMock(return_value=None))
     monkeypatch.setattr(telegram, "_run_lead_capture", fsm)
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
@@ -1218,11 +1231,13 @@ async def test_webhook_lead_callback_advances_fsm(monkeypatch):
 @pytest.mark.asyncio
 async def test_webhook_lead_fallthrough_to_autoreply(monkeypatch):
     # FSM returns None → normal chatbot path runs
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": False},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": False},
+        }
+    )
     _patch_client(monkeypatch)
     _wh_patches(
         monkeypatch,
@@ -1237,11 +1252,13 @@ async def test_webhook_lead_fallthrough_to_autoreply(monkeypatch):
 async def test_webhook_lead_disabled_bot_skips_fsm(monkeypatch):
     """deactivate_bot (auto_reply.enabled=false) must also stop lead prompts —
     a trigger message like '/start audit' gets no automated FSM reply."""
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": False},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": False},
+        }
+    )
     _patch_client(monkeypatch)
     _wh_patches(
         monkeypatch,
@@ -1260,11 +1277,13 @@ async def test_webhook_lead_paused_thread_skips_fsm(monkeypatch):
     """A thread paused for human handoff gets no lead prompts."""
     import app.services.telegram_chatbot as chatbot_mod
 
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": True},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": True},
+        }
+    )
     _patch_client(monkeypatch)
     _wh_patches(
         monkeypatch,
@@ -1285,11 +1304,13 @@ async def test_webhook_lead_send_failure_restores_session(monkeypatch):
     is NOT handed to the chatbot."""
     import app.services.lead_capture as lc_mod
 
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": True},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": True},
+        }
+    )
     client = _patch_client(
         monkeypatch,
         _FakeClient(send_message=telegram.TelegramAPIError(500, "telegram down")),
@@ -1313,11 +1334,13 @@ async def test_webhook_lead_send_failure_restores_session(monkeypatch):
 @pytest.mark.asyncio
 async def test_webhook_lead_callback_disabled_skips(monkeypatch):
     """LEAD_* callback taps are ignored when the bot is deactivated."""
-    acc = _tg_account(meta_data={
-        "bot_token_enc": "e",
-        "bot_username": "b",
-        "telegram_auto_reply": {"enabled": False},
-    })
+    acc = _tg_account(
+        meta_data={
+            "bot_token_enc": "e",
+            "bot_username": "b",
+            "telegram_auto_reply": {"enabled": False},
+        }
+    )
     _patch_client(monkeypatch, _FakeClient(answer_callback_query=AsyncMock(return_value=True)))
     _wh_patches(
         monkeypatch,
@@ -1357,17 +1380,11 @@ def test_record_chat_membership_channel():
 
 
 def test_record_chat_membership_ignores_private_and_keeps_added_at():
-    meta = _record_chat_membership(
-        {}, {"chat_id": 5, "chat_type": "private", "new_status": "member"}
-    )
+    meta = _record_chat_membership({}, {"chat_id": 5, "chat_type": "private", "new_status": "member"})
     assert TELEGRAM_CHANNELS_META_KEY not in meta
 
-    first = _record_chat_membership(
-        {}, {"chat_id": 1, "chat_type": "supergroup", "chat_title": "G", "new_status": "member"}
-    )
-    second = _record_chat_membership(
-        first, {"chat_id": 1, "chat_type": "supergroup", "new_status": "administrator"}
-    )
+    first = _record_chat_membership({}, {"chat_id": 1, "chat_type": "supergroup", "chat_title": "G", "new_status": "member"})
+    second = _record_chat_membership(first, {"chat_id": 1, "chat_type": "supergroup", "new_status": "administrator"})
     entry = second[TELEGRAM_CHANNELS_META_KEY]["1"]
     assert entry["status"] == "administrator"
     assert entry["title"] == "G"  # title preserved when event omits it
@@ -1395,13 +1412,13 @@ async def test_chat_info_and_admins(monkeypatch):
     acc = _tg_account()
     client = _FakeClient()
     client.get_chat = AsyncMock(return_value={"title": "HQ", "type": "channel", "description": "d"})
-    client.get_chat_member = AsyncMock(
-        return_value={"status": "administrator", "can_invite_users": True}
+    client.get_chat_member = AsyncMock(return_value={"status": "administrator", "can_invite_users": True})
+    client.get_chat_administrators = AsyncMock(
+        return_value=[
+            {"status": "creator", "user": {"id": 7, "username": "themis", "is_bot": False}},
+            {"status": "administrator", "user": {"id": 12345, "username": "cloudlessbot", "is_bot": True}},
+        ]
     )
-    client.get_chat_administrators = AsyncMock(return_value=[
-        {"status": "creator", "user": {"id": 7, "username": "themis", "is_bot": False}},
-        {"status": "administrator", "user": {"id": 12345, "username": "cloudlessbot", "is_bot": True}},
-    ])
     _patch_client(monkeypatch, client)
 
     out = await chat_info(acc.id, "-100", _DB([acc]), _user())
@@ -1431,9 +1448,7 @@ async def test_set_chat_description_endpoint(monkeypatch):
     client = _FakeClient()
     client.set_chat_description = AsyncMock(return_value=True)
     _patch_client(monkeypatch, client)
-    out = await set_chat_description(
-        acc.id, ChatDescriptionRequest(chat_id="-1", description="hello"), _DB([acc]), _user()
-    )
+    out = await set_chat_description(acc.id, ChatDescriptionRequest(chat_id="-1", description="hello"), _DB([acc]), _user())
     assert out == {"status": "ok", "chat_id": "-1", "updated": True}
     client.set_chat_description.assert_awaited_once_with("-1", "hello")
 
@@ -1441,9 +1456,7 @@ async def test_set_chat_description_endpoint(monkeypatch):
     client2.set_chat_description = AsyncMock(side_effect=telegram.TelegramAPIError(400, "x"))
     _patch_client(monkeypatch, client2)
     with pytest.raises(HTTPException) as e:
-        await set_chat_description(
-            acc.id, ChatDescriptionRequest(chat_id="-1", description="d"), _DB([acc]), _user()
-        )
+        await set_chat_description(acc.id, ChatDescriptionRequest(chat_id="-1", description="d"), _DB([acc]), _user())
     assert e.value.status_code == 502
 
 
@@ -1451,29 +1464,21 @@ async def test_set_chat_description_endpoint(monkeypatch):
 async def test_create_invite_link_named_vs_primary(monkeypatch):
     acc = _tg_account()
     client = _FakeClient()
-    client.create_chat_invite_link = AsyncMock(
-        return_value={"invite_link": "https://t.me/+abc", "name": "ig"}
-    )
+    client.create_chat_invite_link = AsyncMock(return_value={"invite_link": "https://t.me/+abc", "name": "ig"})
     client.get_chat = AsyncMock(return_value={"invite_link": "https://t.me/+primary"})
     client.export_chat_invite_link = AsyncMock(return_value="https://t.me/+newprimary")
     _patch_client(monkeypatch, client)
 
-    out = await create_invite_link(
-        acc.id, InviteLinkRequest(chat_id="-1", name="ig"), _DB([acc]), _user()
-    )
+    out = await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1", name="ig"), _DB([acc]), _user())
     assert out["invite_link"]["invite_link"] == "https://t.me/+abc"
-    client.create_chat_invite_link.assert_awaited_once_with(
-        "-1", name="ig", expire_date=None, member_limit=None, creates_join_request=False
-    )
+    client.create_chat_invite_link.assert_awaited_once_with("-1", name="ig", expire_date=None, member_limit=None, creates_join_request=False)
 
     out = await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1"), _DB([acc]), _user())
     assert out["invite_link"]["invite_link"] == "https://t.me/+primary"
     client.get_chat.assert_awaited_once_with("-1")
     client.export_chat_invite_link.assert_not_awaited()
 
-    out = await create_invite_link(
-        acc.id, InviteLinkRequest(chat_id="-1", regenerate=True), _DB([acc]), _user()
-    )
+    out = await create_invite_link(acc.id, InviteLinkRequest(chat_id="-1", regenerate=True), _DB([acc]), _user())
     assert out["invite_link"]["invite_link"] == "https://t.me/+newprimary"
     client.export_chat_invite_link.assert_awaited_once_with("-1")
 
@@ -1559,8 +1564,11 @@ async def test_webhook_chat_member_leave_and_join_request(monkeypatch):
         monkeypatch,
         notify_channel_event=notify,
         extract_chat_member_update=lambda u: {
-            "chat_id": -100, "chat_type": "channel", "new_status": "member",
-            "via_join_request": True, "user_id": 7,
+            "chat_id": -100,
+            "chat_type": "channel",
+            "new_status": "member",
+            "via_join_request": True,
+            "user_id": 7,
         },
     )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
@@ -1575,7 +1583,10 @@ async def test_webhook_chat_member_notify_failure_isolated(monkeypatch):
         monkeypatch,
         notify_channel_event=AsyncMock(side_effect=RuntimeError("slack down")),
         extract_chat_member_update=lambda u: {
-            "chat_id": -100, "chat_type": "channel", "new_status": "member", "user_id": 7,
+            "chat_id": -100,
+            "chat_type": "channel",
+            "new_status": "member",
+            "user_id": 7,
         },
     )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
@@ -1592,8 +1603,11 @@ async def test_webhook_membership_notifies(monkeypatch):
         monkeypatch,
         notify_channel_event=notify,
         extract_my_chat_member_update=lambda u: {
-            "chat_id": -100, "chat_type": "channel", "chat_title": "HQ",
-            "old_status": "left", "new_status": "administrator",
+            "chat_id": -100,
+            "chat_type": "channel",
+            "chat_title": "HQ",
+            "old_status": "left",
+            "new_status": "administrator",
         },
     )
     out = await receive_webhook(acc.id, _WReq({"x": 1}), _DB([acc]), None)
@@ -1610,9 +1624,7 @@ async def test_channel_config_endpoints(monkeypatch):
     client = _FakeClient()
     client.get_chat = AsyncMock(return_value={"title": "HQ", "type": "channel"})
     _patch_client(monkeypatch, client)
-    out = await set_channel_config(
-        acc.id, ChannelConfigRequest(chat_id="-100"), _DB([acc]), _user()
-    )
+    out = await set_channel_config(acc.id, ChannelConfigRequest(chat_id="-100"), _DB([acc]), _user())
     assert out["channel"]["chat_id"] == "-100"
     assert out["channel"]["title"] == "HQ"
     assert acc.meta_data["telegram_channel"]["type"] == "channel"
@@ -1676,9 +1688,7 @@ async def test_send_message_skips_event_for_unknown_chat(monkeypatch):
     acc = _tg_account(meta_data={"bot_token_enc": "e", "bot_username": "b"})
     _patch_client(monkeypatch)
     db = _DB([acc])
-    out = await send_message(
-        acc.id, SendMessageRequest(chat_id="55", text="hi"), db, _user()
-    )
+    out = await send_message(acc.id, SendMessageRequest(chat_id="55", text="hi"), db, _user())
     assert out["status"] == "ok"
     assert not [o for o in db.added if getattr(o, "event_type", "") == "channel_post"]
 
@@ -1693,14 +1703,10 @@ async def test_invite_link_persisted_on_channel_meta(monkeypatch):
         }
     )
     client = _FakeClient()
-    client.create_chat_invite_link = AsyncMock(
-        return_value={"invite_link": "https://t.me/+secret", "name": "ig"}
-    )
+    client.create_chat_invite_link = AsyncMock(return_value={"invite_link": "https://t.me/+secret", "name": "ig"})
     _patch_client(monkeypatch, client)
     db = _DB([acc])
-    await create_invite_link(
-        acc.id, InviteLinkRequest(chat_id="-100", name="ig"), db, _user()
-    )
+    await create_invite_link(acc.id, InviteLinkRequest(chat_id="-100", name="ig"), db, _user())
     links = acc.meta_data["telegram_channels"]["-100"]["invite_links"]
     assert links[0]["name"] == "ig"
     assert links[0]["invite_link"] == "https://t.me/+secret"
@@ -1766,7 +1772,9 @@ async def test_webhook_member_event_persist_failure_still_notifies(monkeypatch):
         monkeypatch,
         notify_channel_event=notify,
         extract_chat_member_update=lambda u: {
-            "chat_id": -100, "new_status": "member", "user_id": 7,
+            "chat_id": -100,
+            "new_status": "member",
+            "user_id": 7,
         },
     )
 
@@ -1787,6 +1795,7 @@ async def test_send_message_channel_log_failure_rolls_back(monkeypatch):
     db = _DB([acc])
     db.commit = AsyncMock()
     db.rollback = AsyncMock()
+
     def _log_boom(*a, **k):
         raise RuntimeError("log boom")
 

@@ -6,6 +6,7 @@ portal sessions, and Standard Webhooks signature verification.
 
 Docs: https://polar.sh/docs/api-reference
 """
+
 from __future__ import annotations
 
 import base64
@@ -92,7 +93,7 @@ def verify_webhook_signature(
     key_material = secret
     for prefix in ("polar_whs_", "whsec_"):
         if key_material.startswith(prefix):
-            key_material = key_material[len(prefix):]
+            key_material = key_material[len(prefix) :]
             break
     try:
         key = base64.b64decode(key_material)
@@ -100,9 +101,7 @@ def verify_webhook_signature(
         key = secret.encode()
 
     signed = f"{webhook_id}.{webhook_timestamp}.".encode() + raw_body
-    expected = base64.b64encode(
-        hmac.new(key, signed, hashlib.sha256).digest()
-    ).decode()
+    expected = base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
 
     for part in webhook_signature.split(" "):
         scheme, _, sig = part.partition(",")

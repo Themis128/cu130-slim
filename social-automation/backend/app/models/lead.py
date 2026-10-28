@@ -98,4 +98,3 @@ class Lead(Base):
 
     team: Mapped["Team"] = relationship("Team")
     social_account: Mapped["SocialAccount | None"] = relationship("SocialAccount")
-

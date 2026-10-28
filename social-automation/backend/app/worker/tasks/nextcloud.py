@@ -30,9 +30,7 @@ def export_media_to_nextcloud(asset_id: str) -> None:
     async def _run() -> None:
         # NullPool: run_async() creates a fresh loop per task; pooled
         # connections from the shared engine bind to the creating loop.
-        await nextcloud_export.export_media_asset(
-            asset_uuid, get_session_factory()
-        )
+        await nextcloud_export.export_media_asset(asset_uuid, get_session_factory())
 
     try:
         run_async(_run())

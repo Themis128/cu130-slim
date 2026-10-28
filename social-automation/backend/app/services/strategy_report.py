@@ -10,8 +10,10 @@ The narrative action list is written by the text inference chain
 falls back to the insights engine's rule-based recommendations, so the
 email always goes out.
 """
+
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import re
@@ -65,14 +67,21 @@ _MONETIZATION_GATES: dict[str, list[tuple[int, str]]] = {
 _KPI_PLATFORM = "instagram"  # growth bet — the single KPI that unlocks the rest
 
 
-
 # Canonical display casing for platform names — naive .capitalize()/.title()
 # produces "Linkedin"/"Tiktok" which reads as typos in generated media/briefs.
 PLATFORM_DISPLAY: dict[str, str] = {
-    "linkedin": "LinkedIn", "tiktok": "TikTok", "instagram": "Instagram",
-    "facebook": "Facebook", "threads": "Threads", "twitter": "X (Twitter)",
-    "x": "X (Twitter)", "whatsapp": "WhatsApp", "telegram": "Telegram",
-    "viber": "Viber", "bluesky": "Bluesky", "youtube": "YouTube",
+    "linkedin": "LinkedIn",
+    "tiktok": "TikTok",
+    "instagram": "Instagram",
+    "facebook": "Facebook",
+    "threads": "Threads",
+    "twitter": "X (Twitter)",
+    "x": "X (Twitter)",
+    "whatsapp": "WhatsApp",
+    "telegram": "Telegram",
+    "viber": "Viber",
+    "bluesky": "Bluesky",
+    "youtube": "YouTube",
 }
 
 
@@ -123,15 +132,23 @@ class PlaybookItem:
 
     instruction: str
     platform: str = ""
-    time_athens: str = ""        # "HH:MM" Athens local
-    format: str = ""             # text | image | carousel | video
+    time_athens: str = ""  # "HH:MM" Athens local
+    format: str = ""  # text | image | carousel | video
     media_required: bool = False
-    rescheduled_from: str = ""   # original time when auto-shifted for a slot conflict
+    rescheduled_from: str = ""  # original time when auto-shifted for a slot conflict
 
 
 _KNOWN_PLATFORMS = (
-    "linkedin", "instagram", "facebook", "threads", "twitter", "x",
-    "tiktok", "telegram", "whatsapp", "youtube",
+    "linkedin",
+    "instagram",
+    "facebook",
+    "threads",
+    "twitter",
+    "x",
+    "tiktok",
+    "telegram",
+    "whatsapp",
+    "youtube",
 )
 _TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
 
@@ -160,21 +177,14 @@ def _parse_playbook_item(action: str) -> PlaybookItem:
         prep_hits = [
             m.group(1)
             for m in re.finditer(
-                r"\b(?:on|to|for|via|over)\s+(?:the\s+)?("
-                + "|".join(_KNOWN_PLATFORMS)
-                + r")\b",
+                r"\b(?:on|to|for|via|over)\s+(?:the\s+)?(" + "|".join(_KNOWN_PLATFORMS) + r")\b",
                 low,
             )
         ]
         if prep_hits:
             platform = prep_hits[0]
         else:
-            mentions = [
-                m.group(0)
-                for m in re.finditer(
-                    r"\b(" + "|".join(_KNOWN_PLATFORMS) + r")\b", low
-                )
-            ]
+            mentions = [m.group(0) for m in re.finditer(r"\b(" + "|".join(_KNOWN_PLATFORMS) + r")\b", low)]
             platform = mentions[-1] if mentions else ""
     if platform == "x":
         platform = "twitter"
@@ -272,9 +282,7 @@ _AUTOMATION_WEBHOOKS: dict[tuple[str, str], str] = {
 _AUTOMATION_DEFAULT_FORMAT = {"instagram": "image", "tiktok": "video"}
 
 
-def automation_plan(
-    report: StrategyReport, *, target_date: date | None = None
-) -> dict[str, Any]:
+def automation_plan(report: StrategyReport, *, target_date: date | None = None) -> dict[str, Any]:
     """The brief's playbook as a machine-readable plan for automation.
 
     Same parsed/slot-resolved items the email's agent block renders, plus a
@@ -284,9 +292,7 @@ def automation_plan(
     instead of firing on fixed crons.
     """
     tz = ZoneInfo(report.timezone)
-    day = target_date or (
-        report.generated_at.astimezone(tz) + timedelta(days=1)
-    ).date()
+    day = target_date or (report.generated_at.astimezone(tz) + timedelta(days=1)).date()
     items = sorted(
         _resolve_slot_conflicts([_parse_playbook_item(a) for a in report.actions]),
         key=lambda it: it.time_athens or "99:99",
@@ -305,11 +311,8 @@ def automation_plan(
                 "format": fmt or None,
                 "time_local": it.time_athens or None,
                 "schedule_at": schedule_at,
-                "media_required": it.media_required
-                or fmt in {"image", "carousel", "video"},
-                "webhook": _AUTOMATION_WEBHOOKS.get(
-                    (it.platform, fmt or it.format or "")
-                ),
+                "media_required": it.media_required or fmt in {"image", "carousel", "video"},
+                "webhook": _AUTOMATION_WEBHOOKS.get((it.platform, fmt or it.format or "")),
                 "rescheduled_from": it.rescheduled_from or None,
                 "instruction": it.instruction,
             }
@@ -322,6 +325,57 @@ def automation_plan(
         "llm_used": report.llm_used,
         "actions": actions,
     }
+
+
+async def execute_report_actions(
+    db: AsyncSession,
+    team: Team,
+    report: StrategyReport,
+    *,
+    target_date: date | None = None,
+) -> list[dict[str, Any]]:
+    """Schedule the brief's playbook as real posts through the same
+    executor chain the monetization report uses (copy → quality pipeline →
+    media → brand compliance → schedule), targeting *tomorrow* — the
+    playbook's stated horizon.
+
+    Playbook items are prose-parsed, so anything the parser couldn't resolve
+    to a platform is skipped rather than guessed. Idempotent per
+    ``strategy_action`` hash — a rerun of the same brief never re-schedules.
+    """
+    from app.services.monetization_executor import schedule_report_actions
+    from app.services.monetization_report import MonetizationAction
+
+    if not report.actions:
+        return []
+    tz = ZoneInfo(report.timezone)
+    day = target_date or (report.generated_at.astimezone(tz) + timedelta(days=1)).date()
+    items = _resolve_slot_conflicts([_parse_playbook_item(a) for a in report.actions])
+    actions = [
+        MonetizationAction(
+            platform=it.platform,
+            instruction=it.instruction,
+            time_athens=it.time_athens,
+            format=it.format or _AUTOMATION_DEFAULT_FORMAT.get(it.platform, ""),
+        )
+        for it in items
+        if it.platform
+    ]
+    if not actions:
+        return []
+    learned_hours = {name: p["best_hour_athens"][0] for name, p in (report.insights.get("platforms") or {}).items() if p.get("best_hour_athens")}
+    report.scheduled = await schedule_report_actions(
+        db,
+        team,
+        actions,
+        report_date=report.generated_at.astimezone(tz).date().isoformat(),
+        learned_hours=learned_hours,
+        source="strategy-brief",
+        dedup_field="strategy_action",
+        max_actions=_MAX_ACTIONS,
+        target_date=day,
+    )
+    return report.scheduled
 
 
 @dataclass
@@ -342,6 +396,9 @@ class StrategyReport:
     # Connected messaging-only channels (whatsapp/telegram) — they publish
     # nothing, so they get an explicit note instead of a silent absence.
     messaging_channels: list[str] = field(default_factory=list)
+    # Per-action executor outcomes when the playbook is materialised
+    # (execute_report_actions) — {platform, instruction, status, …}.
+    scheduled: list[dict[str, Any]] = field(default_factory=list)
 
     def subject(self) -> str:
         day = self.generated_at.astimezone(ZoneInfo(self.timezone)).strftime("%Y-%m-%d")
@@ -364,8 +421,7 @@ class StrategyReport:
             d = self.digest
             lines += [
                 "LAST 24H",
-                f"  Impressions {d.impressions_24h} · engagement {d.engagement_24h} · "
-                f"{d.overview.get('connected_accounts', 0)} accounts connected",
+                f"  Impressions {d.impressions_24h} · engagement {d.engagement_24h} · {d.overview.get('connected_accounts', 0)} accounts connected",
                 "",
             ]
         lines.append("PLATFORM PULSE (30d)")
@@ -383,25 +439,18 @@ class StrategyReport:
                 f"7d momentum {mom_s} · {verdict} · best {window} · "
                 f"confidence {p.get('confidence', 'low')}"
             )
-        warned = [
-            f"{n}: {p['data_warnings'][0]}"
-            for n, p in self._platform_rows()
-            if p.get("data_warnings")
-        ]
+        warned = [f"{n}: {p['data_warnings'][0]}" for n, p in self._platform_rows() if p.get("data_warnings")]
         for w in warned:
             lines.append(f"  ⚠ {w}")
         limited = [
-            f"{n}: {p['platform_limits'][0]}"
-            + (f" (+{len(p['platform_limits']) - 1} more)" if len(p["platform_limits"]) > 1 else "")
+            f"{n}: {p['platform_limits'][0]}" + (f" (+{len(p['platform_limits']) - 1} more)" if len(p["platform_limits"]) > 1 else "")
             for n, p in self._platform_rows()
             if p.get("platform_limits")
         ]
         if limited:
             lines.append(f"  ℹ platform limits (external): {'; '.join(limited)}")
         if self.messaging_channels:
-            lines.append(
-                f"  ℹ messaging (connected, no post metrics): {', '.join(self.messaging_channels)}"
-            )
+            lines.append(f"  ℹ messaging (connected, no post metrics): {', '.join(self.messaging_channels)}")
         takeaway = self._pulse_takeaway()
         if takeaway:
             lines.append(f"  → {takeaway}")
@@ -422,10 +471,7 @@ class StrategyReport:
                 lines.append(f"  {name}: {cur:,} followers · next: {progress}")
             kpi = [r for r in milestones if r[0] == _KPI_PLATFORM]
             if kpi and kpi[0][3] is not None:
-                lines.append(
-                    f"  → KPI: {_KPI_PLATFORM} followers — "
-                    f"{kpi[0][3]:,} to the next gate"
-                )
+                lines.append(f"  → KPI: {_KPI_PLATFORM} followers — {kpi[0][3]:,} to the next gate")
             lines.append("")
         lines.extend(self._recent_posts_text(tz))
         lines.append("TOMORROW'S PLAYBOOK")
@@ -433,24 +479,26 @@ class StrategyReport:
             for i, a in enumerate(self.actions, 1):
                 lines.append(f"  {i}. {a}")
             items = sorted(
-                _resolve_slot_conflicts(
-                    [_parse_playbook_item(a) for a in self.actions]
-                ),
+                _resolve_slot_conflicts([_parse_playbook_item(a) for a in self.actions]),
                 key=lambda it: it.time_athens or "99:99",
             )
             for it in items:
                 if it.rescheduled_from:
-                    lines.append(
-                        f"  → {it.platform} moved {it.rescheduled_from} → "
-                        f"{it.time_athens} (duplicate slot)"
-                    )
+                    lines.append(f"  → {it.platform} moved {it.rescheduled_from} → {it.time_athens} (duplicate slot)")
             lines.append("")
             lines.append("AGENT DEPLOYMENT BLOCK — paste to your Devin agent")
             lines.append(_agent_playbook_block(items, self.timezone))
-        else:
+        if self.scheduled:
+            lines.append("")
+            lines.append("QUEUED BY THE PLATFORM")
+            for r in self.scheduled:
+                when = f" @ {r['scheduled_at']}" if r.get("scheduled_at") else ""
+                reason = f" — {r['reason']}" if r.get("reason") else ""
+                lines.append(f"  [{r.get('status', '?')}] {r.get('platform', '?')}{when}{reason}")
+        if not self.actions:
             lines.append("  No actions generated — publish consistently and re-check tomorrow.")
         lines.extend(self._initiatives_text())
-        issues = (self.digest.issues if self.digest else [])
+        issues = self.digest.issues if self.digest else []
         if issues:
             lines.append("")
             lines.append("DATA GAPS / ISSUES")
@@ -473,15 +521,13 @@ class StrategyReport:
   <table cellpadding="6" cellspacing="0" border="1" style="border-collapse:collapse">
     <tr><td>Impressions</td><td><b>{d.impressions_24h}</b></td>
         <td>Engagement</td><td><b>{d.engagement_24h}</b></td></tr>
-    <tr><td>Connected accounts</td><td><b>{d.overview.get('connected_accounts', 0)}</b></td>
-        <td>Posts created (24h)</td><td><b>{d.overview.get('total_posts', 0)}</b></td></tr>
+    <tr><td>Connected accounts</td><td><b>{d.overview.get("connected_accounts", 0)}</b></td>
+        <td>Posts created (24h)</td><td><b>{d.overview.get("total_posts", 0)}</b></td></tr>
   </table>"""
 
         rows = "".join(
             "<tr>"
-            f"<td><b>{esc(name)}</b>"
-            + (" <span title='collection issues'>⚠</span>" if p.get("data_warnings") else "")
-            + "</td>"
+            f"<td><b>{esc(name)}</b>" + (" <span title='collection issues'>⚠</span>" if p.get("data_warnings") else "") + "</td>"
             f"<td>{p.get('posts', 0)}</td>"
             f"<td>{p.get('impressions', 'n/a')}</td>"
             f"<td>{p.get('engagement', 0)}</td>"
@@ -494,14 +540,12 @@ class StrategyReport:
             for name, p in self._platform_rows()
         )
         warn_notes = "; ".join(
-            f"{name}: {p['data_warnings'][0]}"
-            + (f" (+{len(p['data_warnings']) - 1} more)" if len(p["data_warnings"]) > 1 else "")
+            f"{name}: {p['data_warnings'][0]}" + (f" (+{len(p['data_warnings']) - 1} more)" if len(p["data_warnings"]) > 1 else "")
             for name, p in self._platform_rows()
             if p.get("data_warnings")
         )
         limit_notes = "; ".join(
-            f"{name}: {p['platform_limits'][0]}"
-            + (f" (+{len(p['platform_limits']) - 1} more)" if len(p["platform_limits"]) > 1 else "")
+            f"{name}: {p['platform_limits'][0]}" + (f" (+{len(p['platform_limits']) - 1} more)" if len(p["platform_limits"]) > 1 else "")
             for name, p in self._platform_rows()
             if p.get("platform_limits")
         )
@@ -515,21 +559,15 @@ class StrategyReport:
                 "<th>vs benchmark</th><th>Best window</th><th>Confidence</th></tr>"
                 f"{rows}</table>"
                 + (f"<p style='color:#374151;font-size:13px'>→ {esc(takeaway)}</p>" if takeaway else "")
-                + (
-                    f"<p style='color:#a16207;font-size:12px'>⚠ sync gaps — {esc(warn_notes)}</p>"
-                    if warn_notes else ""
-                )
-                + (
-                    f"<p style='color:#6b7280;font-size:12px'>ℹ platform limits (external, no action) — {esc(limit_notes)}</p>"
-                    if limit_notes else ""
-                )
+                + (f"<p style='color:#a16207;font-size:12px'>⚠ sync gaps — {esc(warn_notes)}</p>" if warn_notes else "")
+                + (f"<p style='color:#6b7280;font-size:12px'>ℹ platform limits (external, no action) — {esc(limit_notes)}</p>" if limit_notes else "")
             )
             if rows
             else "<p><i>No platform data yet — publish a few posts, then re-check.</i></p>"
         ) + (
-            f"<p style='color:#6b7280;font-size:12px'>ℹ messaging (connected, no post metrics) — "
-            f"{esc(', '.join(self.messaging_channels))}</p>"
-            if self.messaging_channels else ""
+            f"<p style='color:#6b7280;font-size:12px'>ℹ messaging (connected, no post metrics) — {esc(', '.join(self.messaging_channels))}</p>"
+            if self.messaging_channels
+            else ""
         )
 
         recent_block = self._recent_posts_html(tz, esc)
@@ -538,19 +576,13 @@ class StrategyReport:
         agent_block_html = ""
         if self.actions:
             items = sorted(
-                _resolve_slot_conflicts(
-                    [_parse_playbook_item(a) for a in self.actions]
-                ),
+                _resolve_slot_conflicts([_parse_playbook_item(a) for a in self.actions]),
                 key=lambda it: it.time_athens or "99:99",
             )
             action_rows = "".join(
                 "<tr>"
                 f"<td><b>{esc(it.time_athens or '—')}</b>"
-                + (
-                    f" <span style='color:#a16207;font-size:11px'>"
-                    f"(was {esc(it.rescheduled_from)})</span>"
-                    if it.rescheduled_from else ""
-                )
+                + (f" <span style='color:#a16207;font-size:11px'>(was {esc(it.rescheduled_from)})</span>" if it.rescheduled_from else "")
                 + "</td>"
                 f"<td>{esc(platform_display(it.platform))}</td>"
                 f"<td>{esc(it.format.capitalize() if it.format else '—')}"
@@ -573,7 +605,7 @@ class StrategyReport:
             "<tr><th>Time (Athens)</th><th>Platform</th><th>Format</th><th align='left'>What &amp; why</th></tr>"
             f"{action_rows}</table>{agent_block_html}"
             f"<p style='color:#666;font-size:12px'>"
-            f"{'AI-written from your metrics' if self.llm_used else 'Rule-based recommendations (AI writer unavailable)'}</p>"
+            f"{'AI-written from your metrics' if self.llm_used else 'Rule-based recommendations (AI writer unavailable)'}</p>" + self._scheduled_html(esc)
             if action_rows
             else "<p><i>No actions generated — publish consistently and re-check tomorrow.</i></p>"
         )
@@ -581,8 +613,7 @@ class StrategyReport:
         pillar_block = ""
         if self.pillar_coverage:
             p_rows = "".join(
-                f"<tr><td><b>{esc(c['name'])}</b></td><td>{c['posts']}</td>"
-                f"<td>{'⚠ starved — post from this pillar next' if c['posts'] == 0 else ''}</td></tr>"
+                f"<tr><td><b>{esc(c['name'])}</b></td><td>{c['posts']}</td><td>{'⚠ starved — post from this pillar next' if c['posts'] == 0 else ''}</td></tr>"
                 for c in self.pillar_coverage
             )
             pillar_block = (
@@ -595,17 +626,12 @@ class StrategyReport:
         milestones_block = ""
         milestones = self._milestone_rows()
         if milestones:
-            m_rows = "".join(
-                f"<tr><td><b>{esc(name)}</b></td><td>{cur:,}</td>"
-                f"<td>{esc(progress)}</td></tr>"
-                for name, cur, progress, _to_go in milestones
-            )
+            m_rows = "".join(f"<tr><td><b>{esc(name)}</b></td><td>{cur:,}</td><td>{esc(progress)}</td></tr>" for name, cur, progress, _to_go in milestones)
             kpi = [r for r in milestones if r[0] == _KPI_PLATFORM]
             kpi_note = (
-                f"<p style='color:#374151;font-size:13px'>→ KPI: "
-                f"{esc(_KPI_PLATFORM)} followers — "
-                f"{kpi[0][3]:,} to the next gate</p>"
-                if kpi and kpi[0][3] is not None else ""
+                f"<p style='color:#374151;font-size:13px'>→ KPI: {esc(_KPI_PLATFORM)} followers — {kpi[0][3]:,} to the next gate</p>"
+                if kpi and kpi[0][3] is not None
+                else ""
             )
             milestones_block = (
                 "<h3>Monetization milestones</h3>"
@@ -620,13 +646,8 @@ class StrategyReport:
         issues = self.digest.issues if self.digest else []
         issues_block = ""
         if issues:
-            issue_items = "".join(
-                f"<li><b>{esc(iss.title)}</b>{(' — ' + esc(iss.detail)) if iss.detail else ''}</li>"
-                for iss in issues[:6]
-            )
-            issues_block = (
-                f"<h3 style='color:#a16207'>Data gaps / issues</h3><ul>{issue_items}</ul>"
-            )
+            issue_items = "".join(f"<li><b>{esc(iss.title)}</b>{(' — ' + esc(iss.detail)) if iss.detail else ''}</li>" for iss in issues[:6])
+            issues_block = f"<h3 style='color:#a16207'>Data gaps / issues</h3><ul>{issue_items}</ul>"
 
         return f"""<!DOCTYPE html>
 <html><body style="font-family:system-ui,sans-serif;line-height:1.45;color:#111;max-width:720px">
@@ -674,6 +695,27 @@ class StrategyReport:
                 rows.append((name, cur, f"{lbl} at {g:,} ({g - cur:,} to go)", g - cur))
         return rows
 
+    def _scheduled_html(self, esc) -> str:
+        """QUEUED BY THE PLATFORM block — what the executor actually did
+        with the playbook (scheduled / drafted / skipped + reason)."""
+        if not self.scheduled:
+            return ""
+        rows = "".join(
+            f"<tr><td>{esc(str(r.get('platform') or '—'))}</td>"
+            f"<td>{esc(str(r.get('status') or '—'))}</td>"
+            f"<td>{esc(str(r.get('scheduled_at') or '—'))}</td>"
+            f"<td>{esc(str(r.get('reason') or ''))}</td></tr>"
+            for r in self.scheduled
+        )
+        return (
+            "<h4 style='margin-bottom:4px'>Queued by the platform</h4>"
+            '<table cellpadding="6" cellspacing="0" border="1" '
+            "style='border-collapse:collapse;font-size:13px'>"
+            "<tr><th align='left'>Platform</th><th>Status</th>"
+            "<th>Slot (Athens)</th><th align='left'>Note</th></tr>"
+            f"{rows}</table>"
+        )
+
     def _initiatives_text(self) -> list[str]:
         """GROWTH INITIATIVES section — sent / accepted / pending / credits."""
         if not self.initiatives:
@@ -683,9 +725,7 @@ class StrategyReport:
             label = i.get("initiative") or i["event_type"]
             if i.get("units"):
                 sent = f"{i['units']} sent"
-                if i.get("units_this_month") is not None and (
-                    i["units_this_month"] != i["units"]
-                ):
+                if i.get("units_this_month") is not None and (i["units_this_month"] != i["units"]):
                     sent += f" ({i['units_this_month']} this month)"
             else:
                 sent = f"{i['events']} event{'s' if i['events'] != 1 else ''}"
@@ -702,10 +742,7 @@ class StrategyReport:
             if funnel:
                 lines.append(f"    {' · '.join(funnel)}")
             if i.get("followers_start") is not None:
-                lines.append(
-                    f"    Page followers: {i['followers_start']} → "
-                    f"{i['followers_now']} ({i['followers_delta']:+d})"
-                )
+                lines.append(f"    Page followers: {i['followers_start']} → {i['followers_now']} ({i['followers_delta']:+d})")
             if i.get("credits_left") is not None:
                 lines.append(
                     f"    Invitation credits: ~{i['credits_left']} of "
@@ -734,11 +771,7 @@ class StrategyReport:
                 stats += f" — <b>{conv}%</b> acceptance"
             followers = ""
             if i.get("followers_start") is not None:
-                followers = (
-                    "<br>Page followers: "
-                    f"{i['followers_start']} → <b>{i['followers_now']}</b> "
-                    f"({f'{delta:+d}' if delta is not None else '—'})"
-                )
+                followers = f"<br>Page followers: {i['followers_start']} → <b>{i['followers_now']}</b> ({f'{delta:+d}' if delta is not None else '—'})"
             credits = ""
             if i.get("credits_left") is not None:
                 pct = round(i["credits_left"] / i["monthly_cap"] * 100)
@@ -778,15 +811,8 @@ class StrategyReport:
         if eng <= 0:
             return ""
         mom = p.get("momentum_7d_engagement_pct")
-        mom_s = (
-            f" and momentum is {mom:+.0f}% week-over-week"
-            if isinstance(mom, int | float) and abs(mom) >= 50
-            else ""
-        )
-        return (
-            f"{name.capitalize()} is your strongest channel this month "
-            f"({eng} engagements{mom_s}) — weight tomorrow's effort there."
-        )
+        mom_s = f" and momentum is {mom:+.0f}% week-over-week" if isinstance(mom, int | float) and abs(mom) >= 50 else ""
+        return f"{name.capitalize()} is your strongest channel this month ({eng} engagements{mom_s}) — weight tomorrow's effort there."
 
     def _recent_platform_sections(self) -> list[tuple[str, list[BriefPost]]]:
         """Platforms with recent posts — pulse order first, then alpha."""
@@ -828,9 +854,7 @@ class StrategyReport:
                     bit += f" · {bp.platform_url}"
                 lines.append(bit)
                 if bp.pending_inbox:
-                    lines.append(
-                        "      ⌛ Draft in TikTok app inbox — finish in the app to go live"
-                    )
+                    lines.append("      ⌛ Draft in TikTok app inbox — finish in the app to go live")
                 elif bp.missing_media:
                     lines.append("      ⚠ Missing media — every post must have correct media")
                 elif bp.media:
@@ -850,14 +874,9 @@ class StrategyReport:
     def _recent_posts_html(self, tz: ZoneInfo, esc) -> str:
         sections = self._recent_platform_sections()
         if not sections:
-            return (
-                "<h3>Recent posts &amp; media (7 days)</h3>"
-                "<p><i>No published posts in the last 7 days.</i></p>"
-            )
+            return "<h3>Recent posts &amp; media (7 days)</h3><p><i>No published posts in the last 7 days.</i></p>"
 
-        blocks: list[str] = [
-            "<h3>Recent posts &amp; media (7 days)</h3>"
-        ]
+        blocks: list[str] = ["<h3>Recent posts &amp; media (7 days)</h3>"]
         for platform, posts in sections:
             blocks.append(f"<h4 style='margin:14px 0 6px'>{esc(platform)}</h4>")
             for bp in posts:
@@ -865,24 +884,13 @@ class StrategyReport:
                 when_s = esc(self._fmt_published(bp.published_at, tz))
                 link = ""
                 if bp.platform_url:
-                    link = (
-                        f' · <a href="{esc(bp.platform_url)}" '
-                        f'style="color:#2563eb">view post</a>'
-                    )
+                    link = f' · <a href="{esc(bp.platform_url)}" style="color:#2563eb">view post</a>'
                 media_html = self._media_tiles_html(bp, esc)
                 warn = ""
                 if bp.pending_inbox:
-                    warn = (
-                        "<div style='color:#0369a1;font-size:13px;margin-top:6px'>"
-                        "⌛ Draft in TikTok app inbox — finish in the app to go live"
-                        "</div>"
-                    )
+                    warn = "<div style='color:#0369a1;font-size:13px;margin-top:6px'>⌛ Draft in TikTok app inbox — finish in the app to go live</div>"
                 elif bp.missing_media:
-                    warn = (
-                        "<div style='color:#b45309;font-size:13px;margin-top:6px'>"
-                        "⚠ Missing media — every post must have correct media"
-                        "</div>"
-                    )
+                    warn = "<div style='color:#b45309;font-size:13px;margin-top:6px'>⚠ Missing media — every post must have correct media</div>"
                 blocks.append(
                     "<div style='margin:0 0 12px;padding:10px 12px;border:1px solid #e5e7eb;"
                     "border-radius:6px;background:#fafafa'>"
@@ -913,8 +921,8 @@ class StrategyReport:
             else:
                 tiles.append(
                     f'<a href="{url}" style="display:inline-block;width:120px;height:120px;'
-                    f'margin:4px 6px 0 0;border-radius:4px;border:1px solid #ddd;'
-                    f'background:#111;color:#fff;text-decoration:none;text-align:center;'
+                    f"margin:4px 6px 0 0;border-radius:4px;border:1px solid #ddd;"
+                    f"background:#111;color:#fff;text-decoration:none;text-align:center;"
                     f'vertical-align:top">'
                     f'<span style="display:block;padding-top:36px;font-size:28px">▶</span>'
                     f'<span style="display:block;font-size:11px;padding:4px 6px;'
@@ -1052,8 +1060,7 @@ def _rule_actions(insights: dict[str, Any]) -> list[str]:
     """
     rank = {"high": 0, "medium": 1, "low": 2}
     recs = sorted(
-        (r for r in (insights.get("recommendations") or [])
-         if r.get("type") != "data_gap"),
+        (r for r in (insights.get("recommendations") or []) if r.get("type") != "data_gap"),
         key=lambda r: rank.get(r.get("priority", "low"), 3),
     )
     return [r["text"] for r in recs[:_MAX_ACTIONS] if r.get("text")]
@@ -1106,11 +1113,15 @@ def _action_entry(a: Any) -> str:
     if isinstance(a, dict):
         # {"action": ...} objects — or unknown schema, then the longest
         # string field (the likeliest candidate for the instruction text).
-        return str(
-            a.get("action") or a.get("text") or a.get("instruction")
-            or max((str(v).strip() for v in a.values() if isinstance(v, str)),
-                   key=len, default="")
+        body = str(
+            a.get("action") or a.get("text") or a.get("instruction") or max((str(v).strip() for v in a.values() if isinstance(v, str)), key=len, default="")
         ).strip()
+        # {"platform", "time", "format", "reason"} replies lose their
+        # routing fields when flattened to body text — recompose them into
+        # the "Platform - HH:MM - Format - reason" shape the playbook
+        # parser understands so platform/time aren't dropped.
+        lead = " - ".join(str(a[k]).strip() for k in ("platform", "time", "format") if a.get(k))
+        return f"{lead} - {body}" if lead else body
     return ""
 
 
@@ -1147,15 +1158,23 @@ def _parse_actions(text: str) -> list[str]:
         stripped = stripped.split("</think>", 1)[-1].strip()
     if stripped.startswith("```"):
         stripped = re.sub(r"^```\w*\n?|\n?```$", "", stripped).strip()
-    if stripped.startswith("["):
+    if stripped.startswith(("[", "{")):
+        parsed: Any = None
         try:
             parsed = json.loads(stripped)
-            if isinstance(parsed, list):
-                entries = _finalize_actions([_action_entry(a) for a in parsed])
-                if entries:
-                    return entries
         except (ValueError, TypeError):
-            pass
+            # Models sometimes answer with a Python-repr list (single-quoted
+            # dicts) instead of strict JSON — literal_eval covers that.
+            try:
+                parsed = ast.literal_eval(stripped)
+            except (ValueError, TypeError, SyntaxError):
+                parsed = None
+        if isinstance(parsed, dict):
+            parsed = parsed.get("actions")
+        if isinstance(parsed, list):
+            entries = _finalize_actions([_action_entry(a) for a in parsed])
+            if entries:
+                return entries
 
     lines = []
     for line in stripped.splitlines():
@@ -1188,17 +1207,11 @@ async def _llm_actions(
         learnings_block = (
             "\nRecent outcomes from the company journal (use them — avoid "
             "repeating what failed, build on what grew):\n"
-            + "\n".join(
-                f"- [{h.get('day') or h.get('kind') or 'undated'}] {h['text'][:400]}"
-                for h in recalled["hits"]
-            )
+            + "\n".join(f"- [{h.get('day') or h.get('kind') or 'undated'}] {h['text'][:400]}" for h in recalled["hits"])
             + "\n"
         )
     elif recalled.get("gap"):
-        learnings_block = (
-            f"\nCompany journal recall: {recalled['gap']} — decide from "
-            "today's metrics only; do not assume a history that isn't there.\n"
-        )
+        learnings_block = f"\nCompany journal recall: {recalled['gap']} — decide from today's metrics only; do not assume a history that isn't there.\n"
 
     prompt = (
         "You are the social media strategist for Cloudless (cloudless.gr — "
@@ -1259,9 +1272,7 @@ async def _llm_actions(
                     json.dumps(payload, default=str),
                 )
             return actions or None
-        text = (
-            payload if isinstance(payload, str) else ""
-        ) or str((resp or {}).get("content") or "")
+        text = (payload if isinstance(payload, str) else "") or str((resp or {}).get("content") or "")
         if not text.strip():
             logger.warning(
                 "Strategy LLM reply had no text (keys=%s)",
@@ -1274,7 +1285,8 @@ async def _llm_actions(
         # reply so cold-start/format misses are diagnosable after the fact.
         logger.warning(
             "Strategy LLM reply produced no actions (provider=%s): %.300s",
-            (resp or {}).get("provider"), text,
+            (resp or {}).get("provider"),
+            text,
         )
         return None
     return actions
@@ -1309,9 +1321,7 @@ async def _load_recent_posts_by_platform(
         all_ids.extend(post.media_ids or [])
     assets_by_id: dict[UUID, MediaAsset] = {}
     if all_ids:
-        assets = (
-            await db.execute(select(MediaAsset).where(MediaAsset.id.in_(all_ids)))
-        ).scalars().all()
+        assets = (await db.execute(select(MediaAsset).where(MediaAsset.id.in_(all_ids)))).scalars().all()
         assets_by_id = {a.id: a for a in assets}
 
     by_platform: dict[str, list[BriefPost]] = {}
@@ -1329,9 +1339,7 @@ async def _load_recent_posts_by_platform(
                 continue
             # TikTok MEDIA_UPLOAD stores a publish_id (v_inbox_file~/p_pub_…)
             # — the draft is in the app inbox, not live. Label, don't hide.
-            pending_inbox = platform == "tiktok" and is_tiktok_publish_id(
-                target.platform_post_id
-            )
+            pending_inbox = platform == "tiktok" and is_tiktok_publish_id(target.platform_post_id)
             bucket = by_platform.setdefault(platform, [])
             if len(bucket) >= max_per_platform:
                 continue
@@ -1351,9 +1359,7 @@ async def _load_recent_posts_by_platform(
     return by_platform
 
 
-async def _load_pillar_coverage(
-    db: AsyncSession, team_id: UUID, *, days: int = 30
-) -> list[dict[str, Any]]:
+async def _load_pillar_coverage(db: AsyncSession, team_id: UUID, *, days: int = 30) -> list[dict[str, Any]]:
     """Posts per content pillar over the window — 3P coverage health."""
     from app.models.content import Pillar
 
@@ -1384,12 +1390,7 @@ def _messaging_channel_label(
     """Label a connected messaging channel, or None for non-messaging rows."""
     if platform in ("whatsapp", "telegram", "messenger"):
         return f"{platform} {account_type}"
-    if (
-        platform == "facebook"
-        and account_type == "page"
-        and isinstance(meta, dict)
-        and (meta.get("messenger_setup") or {}).get("subscribed")
-    ):
+    if platform == "facebook" and account_type == "page" and isinstance(meta, dict) and (meta.get("messenger_setup") or {}).get("subscribed"):
         # username/display_name are nullable — fall back to the Page ID.
         page_name = username or display_name or account_id
         return f"messenger ({page_name} page)"
@@ -1424,8 +1425,7 @@ async def build_strategy_report(
                 SocialAccount.display_name,
                 SocialAccount.account_id,
                 SocialAccount.meta_data,
-            )
-            .where(
+            ).where(
                 SocialAccount.team_id == team.id,
                 SocialAccount.status == "active",
                 SocialAccount.platform.in_(["whatsapp", "telegram", "messenger", "facebook"]),
@@ -1454,9 +1454,7 @@ async def build_strategy_report(
         messaging_channels=messaging_channels,
     )
 
-    actions = (
-        await _llm_actions(db, team.id, insights, digest) if use_llm else None
-    )
+    actions = await _llm_actions(db, team.id, insights, digest) if use_llm else None
     if actions:
         report.actions = actions
         report.llm_used = True
@@ -1488,7 +1486,11 @@ async def run_strategy_report_for_all_teams(
     *,
     insight_days: int = 30,
     send: bool = True,
+    execute: bool = True,
 ) -> list[dict[str, Any]]:
+    """Daily entry point: build → execute playbook (schedule tomorrow's
+    posts) → email. The executor runs BEFORE the email so the brief shows
+    what was actually queued — same flow as the monetization report."""
     from app.models.social_account import SocialAccount
 
     teams = (await db.execute(select(Team))).scalars().all()
@@ -1516,13 +1518,9 @@ async def run_strategy_report_for_all_teams(
             continue
         report = await build_strategy_report(db, team=team, insight_days=insight_days)
         # Same skip rule as the ops digest: no accounts + no impressions = test team.
-        active = (
-            report.digest is not None
-            and (
-                report.digest.overview.get("connected_accounts", 0) > 0
-                or report.digest.impressions_24h > 0
-            )
-        )
+        active = report.digest is not None and (report.digest.overview.get("connected_accounts", 0) > 0 or report.digest.impressions_24h > 0)
+        if active and execute:
+            await execute_report_actions(db, team, report)
         if active and send:
             report = await email_strategy_report(report)
         elif not active:
@@ -1531,6 +1529,7 @@ async def run_strategy_report_for_all_teams(
             {
                 "team_name": report.team_name,
                 "actions": report.actions,
+                "scheduled": report.scheduled,
                 "llm_used": report.llm_used,
                 "emailed": report.emailed,
                 "email_error": report.email_error,

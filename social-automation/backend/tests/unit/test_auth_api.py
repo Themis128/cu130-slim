@@ -2075,7 +2075,6 @@ class TestMetaDataDeletion:
         assert len(del_db.deleted) >= 1
 
 
-
 # ---------------------------------------------------------------------------
 # Coverage tails — helpers, oauth_callback branches, misc endpoints
 # ---------------------------------------------------------------------------
@@ -2094,9 +2093,7 @@ class TestHelperTails:
     async def test_tiktok_oauth_client_verifier_and_refresh(self, monkeypatch):
         client = auth.tiktok_client
         sent = []
-        fake_http = SimpleNamespace(
-            build_request=lambda method, url, data=None, headers=None: data
-        )
+        fake_http = SimpleNamespace(build_request=lambda method, url, data=None, headers=None: data)
 
         class _Ctx:
             async def __aenter__(self):
@@ -2153,7 +2150,8 @@ class TestHelperTails:
         import app.services.email_templates as et
 
         monkeypatch.setattr(
-            et, "send_welcome_email",
+            et,
+            "send_welcome_email",
             lambda u: (_ for _ in ()).throw(RuntimeError("mail down")),
         )
         db = FakeDB()
@@ -2183,9 +2181,7 @@ class TestHelperTails:
 
         monkeypatch.setattr(et, "send_password_reset_email", fake_send)
         monkeypatch.setattr(auth.settings, "DEBUG", True)
-        out = await auth.forgot_password(
-            _request(), auth.ForgotPasswordRequest(email=u.email), FakeDB(users=[u])
-        )
+        out = await auth.forgot_password(_request(), auth.ForgotPasswordRequest(email=u.email), FakeDB(users=[u]))
         assert "debug_token" in out
         await sent[0]  # run the captured email coroutine
         assert sent[1].startswith("https://app.x.io/reset-password")
@@ -2194,14 +2190,13 @@ class TestHelperTails:
         import app.services.email_templates as et
 
         monkeypatch.setattr(
-            et, "send_password_reset_email",
+            et,
+            "send_password_reset_email",
             lambda *a, **k: (_ for _ in ()).throw(RuntimeError("smtp down")),
         )
         u = _user()
         monkeypatch.setattr(auth.settings, "DEBUG", False)
-        out = await auth.forgot_password(
-            _request(), auth.ForgotPasswordRequest(email=u.email), FakeDB(users=[u])
-        )
+        out = await auth.forgot_password(_request(), auth.ForgotPasswordRequest(email=u.email), FakeDB(users=[u]))
         assert "reset link" in out["message"]
 
     async def test_reset_password_user_gone_400(self):
@@ -2217,9 +2212,16 @@ class TestHelperTails:
     async def test_sync_linkedin_orgs_edges(self):
         team_id = uuid.uuid4()
         existing = SocialAccount(
-            id=uuid.uuid4(), team_id=team_id, platform="linkedin", account_id="555",
-            username=None, status="active", account_type="organization",
-            access_token_enc=auth.encrypt_token("old"), scopes=[], meta_data={},
+            id=uuid.uuid4(),
+            team_id=team_id,
+            platform="linkedin",
+            account_id="555",
+            username=None,
+            status="active",
+            account_type="organization",
+            access_token_enc=auth.encrypt_token("old"),
+            scopes=[],
+            meta_data={},
         )
         elements = [
             {"organization": "urn:li:organization:"},
@@ -2245,8 +2247,12 @@ class TestHelperTails:
 
         db = FakeDB(accounts=[existing])
         out = await auth._sync_linkedin_organizations(
-            db=db, team_id=team_id, access_token="at", refresh_token="rt",
-            scopes=["w_organization_social"], http=_H(),
+            db=db,
+            team_id=team_id,
+            access_token="at",
+            refresh_token="rt",
+            scopes=["w_organization_social"],
+            http=_H(),
         )
         # FakeDB matches on team_id, so every org element resolves to the
         # same existing account — the update path runs twice.
@@ -2278,16 +2284,12 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://api.linkedin.com/v2/userinfo": _FakeResp(
-                    200, {"sub": "li-1", "email": "u@x.io", "given_name": "T", "family_name": "B"}
-                ),
+                "https://api.linkedin.com/v2/userinfo": _FakeResp(200, {"sub": "li-1", "email": "u@x.io", "given_name": "T", "family_name": "B"}),
             }
         )
         monkeypatch.setattr(auth, "linkedin_client", FakeClient())
         monkeypatch.setattr(auth.settings, "LINKEDIN_REDIRECT_URI", "https://x/cb")
-        monkeypatch.setattr(
-            auth, "_sync_linkedin_organizations", AsyncMock(side_effect=RuntimeError("org sync down"))
-        )
+        monkeypatch.setattr(auth, "_sync_linkedin_organizations", AsyncMock(side_effect=RuntimeError("org sync down")))
         monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
         out = await auth.oauth_callback("linkedin", state=sign_oauth_state({"t": str(team_id)}), db=db, code="c")
@@ -2312,9 +2314,7 @@ class TestOAuthCallbackTails:
             async def get_access_token(self, *a, **kw):
                 return {"access_token": "at"}
 
-        http = _FakeAsyncHTTPClient(
-            {"https://api.x.com/2/users/me": _FakeResp(200, {"data": {"username": "x"}})}
-        )
+        http = _FakeAsyncHTTPClient({"https://api.x.com/2/users/me": _FakeResp(200, {"data": {"username": "x"}})})
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
         monkeypatch.setattr(auth.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
         monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
@@ -2343,9 +2343,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
         monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
-        out = await auth.oauth_callback(
-            "facebook", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c"
-        )
+        out = await auth.oauth_callback("facebook", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c")
         acct = next(a for a in db.added if isinstance(a, SocialAccount))
         assert "public_profile" in acct.scopes
         assert "connected successfully" in out["message"]
@@ -2359,9 +2357,7 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://graph.threads.net/access_token": _FakeResp(
-                    200, {"access_token": "ll", "expires_in": 100}
-                ),
+                "https://graph.threads.net/access_token": _FakeResp(200, {"access_token": "ll", "expires_in": 100}),
                 "https://graph.threads.net/me": _FakeResp(200, {}),
             }
         )
@@ -2406,9 +2402,7 @@ class TestOAuthCallbackTails:
             {
                 fbu("me/accounts"): _FakeResp(200, {"data": [{"id": "p1", "access_token": "pt"}]}),
                 fbu("oauth/access_token"): _FakeResp(200, {"access_token": "ll"}),
-                fbu("p1/page_backed_instagram_accounts"): _FakeResp(
-                    200, {"data": [{"id": "ig9", "username": "cl", "name": "Cloudless"}]}
-                ),
+                fbu("p1/page_backed_instagram_accounts"): _FakeResp(200, {"data": [{"id": "ig9", "username": "cl", "name": "Cloudless"}]}),
                 fbu("me"): _FakeResp(200, {"id": "fb1", "name": "F"}),
             }
         )
@@ -2418,9 +2412,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
         monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
-        out = await auth.oauth_callback(
-            "instagram", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c"
-        )
+        out = await auth.oauth_callback("instagram", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c")
         acct = next(a for a in db.added if isinstance(a, SocialAccount))
         assert acct.account_id == "ig9"
         assert "connected successfully" in out["message"]
@@ -2436,9 +2428,7 @@ class TestOAuthCallbackTails:
             {
                 fbu("me/accounts"): _FakeResp(200, {"data": [{"id": "p1"}]}),
                 fbu("me/businesses"): _FakeResp(200, {"data": [{"id": "b1"}]}),
-                fbu("b1/instagram_accounts"): _FakeResp(
-                    200, {"data": [{"id": "ig10", "username": "cl"}]}
-                ),
+                fbu("b1/instagram_accounts"): _FakeResp(200, {"data": [{"id": "ig10", "username": "cl"}]}),
                 fbu("oauth/access_token"): _FakeResp(200, {"access_token": "ll"}),
                 fbu("p1/page_backed_instagram_accounts"): _FakeResp(200, {"data": []}),
                 fbu("me"): _FakeResp(200, {"id": "fb1", "name": "F"}),
@@ -2450,9 +2440,7 @@ class TestOAuthCallbackTails:
         monkeypatch.setattr(auth.settings, "FACEBOOK_CLIENT_SECRET", "cs")
         monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
         db = FakeDB(users=[_user()])
-        out = await auth.oauth_callback(
-            "instagram", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c"
-        )
+        out = await auth.oauth_callback("instagram", state=sign_oauth_state({"t": str(uuid.uuid4())}), db=db, code="c")
         acct = next(a for a in db.added if isinstance(a, SocialAccount))
         assert acct.account_id == "ig10"
         assert "connected successfully" in out["message"]
@@ -2466,9 +2454,7 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://open.tiktokapis.com/v2/user/info/": _FakeResp(
-                    200, {"data": {"user": {"open_id": "oid-9", "display_name": "C"}}}
-                ),
+                "https://open.tiktokapis.com/v2/user/info/": _FakeResp(200, {"data": {"user": {"open_id": "oid-9", "display_name": "C"}}}),
             }
         )
         monkeypatch.setattr(auth, "tiktok_client", FakeClient())
@@ -2495,9 +2481,7 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://open.tiktokapis.com/v2/user/info/": _FakeResp(
-                    200, {"data": {"user": {"open_id": "oid-8", "display_name": "C"}}}
-                ),
+                "https://open.tiktokapis.com/v2/user/info/": _FakeResp(200, {"data": {"user": {"open_id": "oid-8", "display_name": "C"}}}),
             }
         )
         monkeypatch.setattr(auth, "tiktok_client", FakeClient())
@@ -2518,10 +2502,16 @@ class TestOAuthCallbackTails:
     async def test_tiktok_update_prunes_revoked_scope_meta(self, monkeypatch, _silence_connect_email):
         team_id = uuid.uuid4()
         existing = SocialAccount(
-            id=uuid.uuid4(), team_id=team_id, platform="tiktok", account_id="oid-1",
-            username="cl", status="active", account_type="person",
+            id=uuid.uuid4(),
+            team_id=team_id,
+            platform="tiktok",
+            account_id="oid-1",
+            username="cl",
+            status="active",
+            account_type="person",
             access_token_enc=auth.encrypt_token("old"),
-            meta_data={"follower_count": 5, "bio_description": "b"}, scopes=[],
+            meta_data={"follower_count": 5, "bio_description": "b"},
+            scopes=[],
         )
 
         class FakeClient:
@@ -2530,9 +2520,7 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://open.tiktokapis.com/v2/user/info/": _FakeResp(
-                    200, {"data": {"user": {"open_id": "oid-1", "display_name": "C"}}}
-                ),
+                "https://open.tiktokapis.com/v2/user/info/": _FakeResp(200, {"data": {"user": {"open_id": "oid-1", "display_name": "C"}}}),
             }
         )
         monkeypatch.setattr(auth, "tiktok_client", FakeClient())
@@ -2547,9 +2535,16 @@ class TestOAuthCallbackTails:
     async def test_linkedin_update_sets_person_meta(self, monkeypatch, _silence_connect_email):
         team_id = uuid.uuid4()
         existing = SocialAccount(
-            id=uuid.uuid4(), team_id=team_id, platform="linkedin", account_id="li-1",
-            username="x", status="active", account_type="person",
-            access_token_enc=auth.encrypt_token("old"), scopes=[], meta_data={},
+            id=uuid.uuid4(),
+            team_id=team_id,
+            platform="linkedin",
+            account_id="li-1",
+            username="x",
+            status="active",
+            account_type="person",
+            access_token_enc=auth.encrypt_token("old"),
+            scopes=[],
+            meta_data={},
         )
 
         class FakeClient:
@@ -2558,9 +2553,7 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://api.linkedin.com/v2/userinfo": _FakeResp(
-                    200, {"sub": "li-1", "email": "u@x.io"}
-                ),
+                "https://api.linkedin.com/v2/userinfo": _FakeResp(200, {"sub": "li-1", "email": "u@x.io"}),
             }
         )
         monkeypatch.setattr(auth, "linkedin_client", FakeClient())
@@ -2575,9 +2568,16 @@ class TestOAuthCallbackTails:
     async def test_whatsapp_update_meta(self, monkeypatch, _silence_connect_email):
         team_id = uuid.uuid4()
         existing = SocialAccount(
-            id=uuid.uuid4(), team_id=team_id, platform="whatsapp", account_id="fb9",
-            username="wa", status="active", account_type="business",
-            access_token_enc=auth.encrypt_token("old"), scopes=[], meta_data={},
+            id=uuid.uuid4(),
+            team_id=team_id,
+            platform="whatsapp",
+            account_id="fb9",
+            username="wa",
+            status="active",
+            account_type="business",
+            access_token_enc=auth.encrypt_token("old"),
+            scopes=[],
+            meta_data={},
         )
 
         class FakeClient:
@@ -2591,9 +2591,7 @@ class TestOAuthCallbackTails:
                 fbu("me/accounts"): _FakeResp(200, {"data": []}),
                 fbu("me/businesses"): _FakeResp(200, {"data": [{"id": "b1", "name": "Biz"}]}),
                 fbu("b1/owned_whatsapp_business_accounts"): _FakeResp(200, {"data": [{"id": "w1"}]}),
-                fbu("w1/phone_numbers"): _FakeResp(
-                    200, {"data": [{"id": "pn1", "display_phone_number": "+1"}]}
-                ),
+                fbu("w1/phone_numbers"): _FakeResp(200, {"data": [{"id": "pn1", "display_phone_number": "+1"}]}),
                 fbu("oauth/access_token"): _FakeResp(200, {"access_token": "ll"}),
                 fbu("me"): _FakeResp(200, {"id": "fb9", "name": "F"}),
             }
@@ -2612,9 +2610,16 @@ class TestOAuthCallbackTails:
     async def test_instagram_update_meta(self, monkeypatch, _silence_connect_email):
         team_id = uuid.uuid4()
         existing = SocialAccount(
-            id=uuid.uuid4(), team_id=team_id, platform="instagram", account_id="ig9",
-            username="cl", status="active", account_type="business",
-            access_token_enc=auth.encrypt_token("old"), scopes=[], meta_data={},
+            id=uuid.uuid4(),
+            team_id=team_id,
+            platform="instagram",
+            account_id="ig9",
+            username="cl",
+            status="active",
+            account_type="business",
+            access_token_enc=auth.encrypt_token("old"),
+            scopes=[],
+            meta_data={},
         )
 
         class FakeClient:
@@ -2662,9 +2667,7 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://api.x.com/2/users/me": _FakeResp(
-                    200, {"data": {"id": "1", "username": "x", "name": "X"}}
-                ),
+                "https://api.x.com/2/users/me": _FakeResp(200, {"data": {"id": "1", "username": "x", "name": "X"}}),
             }
         )
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
@@ -2681,7 +2684,8 @@ class TestOAuthCallbackTails:
         import app.services.email_templates as et
 
         monkeypatch.setattr(
-            et, "send_account_connected_email",
+            et,
+            "send_account_connected_email",
             lambda *a: (_ for _ in ()).throw(RuntimeError("smtp down")),
         )
 
@@ -2691,9 +2695,7 @@ class TestOAuthCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://api.x.com/2/users/me": _FakeResp(
-                    200, {"data": {"id": "1", "username": "x", "name": "X"}}
-                ),
+                "https://api.x.com/2/users/me": _FakeResp(200, {"data": {"id": "1", "username": "x", "name": "X"}}),
             }
         )
         monkeypatch.setattr(auth, "twitter_client", FakeClient())
@@ -2708,9 +2710,7 @@ class TestCallbackTails:
     pytestmark = pytest.mark.asyncio
 
     async def test_instagram2_token_exchange_400(self, monkeypatch):
-        http = _FakeAsyncHTTPClient(
-            {"https://api.instagram.com/oauth/access_token": _FakeResp(400, {"err": 1})}
-        )
+        http = _FakeAsyncHTTPClient({"https://api.instagram.com/oauth/access_token": _FakeResp(400, {"err": 1})})
         monkeypatch.setattr(auth.httpx, "AsyncClient", lambda *a, **kw: http)
         state = sign_oauth_state({"t": str(uuid.uuid4())})
         with pytest.raises(HTTPException) as e:
@@ -2727,9 +2727,7 @@ class TestCallbackTails:
 
         http = _FakeAsyncHTTPClient(
             {
-                "https://api.instagram.com/oauth/access_token": _FakeResp(
-                    200, {"user_id": "ig1", "access_token": "at"}
-                ),
+                "https://api.instagram.com/oauth/access_token": _FakeResp(200, {"user_id": "ig1", "access_token": "at"}),
                 "https://graph.instagram.com/v21.0/access_token": _RaisingResp(),
                 "https://graph.instagram.com/access_token": _RaisingResp(),
             }
@@ -2743,9 +2741,16 @@ class TestCallbackTails:
 
     async def test_linkedin_sync_orgs_decrypt_fail_400(self):
         acct = SocialAccount(
-            id=uuid.uuid4(), team_id=uuid.uuid4(), platform="linkedin", account_id="linkedin",
-            username="x", status="active", account_type="person",
-            access_token_enc="not-bytes", scopes=[], meta_data={"account_type": "person"},
+            id=uuid.uuid4(),
+            team_id=uuid.uuid4(),
+            platform="linkedin",
+            account_id="linkedin",
+            username="x",
+            status="active",
+            account_type="person",
+            access_token_enc="not-bytes",
+            scopes=[],
+            meta_data={"account_type": "person"},
         )
         with pytest.raises(HTTPException) as e:
             await auth.linkedin_sync_orgs(db=FakeDB(accounts=[acct]), current_user=_user())
@@ -2758,9 +2763,7 @@ class TestDataDeletionTails:
     @staticmethod
     def _signed(payload, secret="appsecret"):
         body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
-        sig = base64.urlsafe_b64encode(
-            hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest()
-        ).rstrip(b"=").decode()
+        sig = base64.urlsafe_b64encode(hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest()).rstrip(b"=").decode()
         return f"{sig}.{body}"
 
     def _req(self, payload, secret="appsecret"):

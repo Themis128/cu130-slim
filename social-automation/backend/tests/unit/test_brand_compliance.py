@@ -28,12 +28,8 @@ class TestBuildBrandSystemPrompt:
         # 2-4K context — every value must be truncated and the whole
         # signature section must stay under the budget.
         signature = {f"key{i}": {"text": "x" * 900} for i in range(20)}
-        prompt = build_brand_system_prompt(
-            {"name": "Cloudless"}, {"voice_signature": signature}
-        )
-        sig_line = next(
-            ln for ln in prompt.splitlines() if ln.startswith("Voice signature:")
-        )
+        prompt = build_brand_system_prompt({"name": "Cloudless"}, {"voice_signature": signature})
+        sig_line = next(ln for ln in prompt.splitlines() if ln.startswith("Voice signature:"))
         assert len(sig_line) <= 3400
         assert "…" in sig_line
         # every key still present — truncation shrinks values, never drops keys
@@ -48,12 +44,14 @@ class TestBuildBrandSystemPrompt:
         assert "synergy" in prompt
         assert "Voice signature:" in prompt
 
+
 class _Res:
     def __init__(self, rows):
         self._rows = rows
 
     def scalars(self):
-        return SimpleNamespace(all=lambda: self._rows, first=lambda: (self._rows[0] if self._rows else None))
+        return SimpleNamespace(all=lambda: self._rows, first=lambda: self._rows[0] if self._rows else None)
+
 
 class _DB:
     def __init__(self, results):
@@ -62,14 +60,14 @@ class _DB:
     async def execute(self, q):
         return self._q.popleft()
 
+
 @pytest.mark.asyncio
 async def test_score_brand_compliance_banned_and_preferred(monkeypatch):
     monkeypatch.setattr(bc, "_ai_tone_match", AsyncMock(return_value={"score": 4, "suggestions": ["s"]}))
     out = await bc.score_brand_compliance(
         "We leverage synergy and clear skies for customers",
         {"name": "Cloudless"},
-        {"banned_phrases": ["leverage", "synergy"],
-         "preferred_phrases": ["clear skies", "customers"]},
+        {"banned_phrases": ["leverage", "synergy"], "preferred_phrases": ["clear skies", "customers"]},
         platform="linkedin",
     )
     assert out["banned_found"] == ["leverage", "synergy"]
@@ -79,6 +77,7 @@ async def test_score_brand_compliance_banned_and_preferred(monkeypatch):
     # 5 - 4 banned = 1, +1 preferred bonus = 2; blend 0.6*2 + 0.4*4 = 2.8 -> 3
     assert out["score"] == 3
 
+
 @pytest.mark.asyncio
 async def test_score_brand_compliance_no_voice(monkeypatch):
     monkeypatch.setattr(bc, "_ai_tone_match", AsyncMock(return_value=5))
@@ -87,24 +86,27 @@ async def test_score_brand_compliance_no_voice(monkeypatch):
     # blend 0.6*5 + 0.4*5 = 5
     assert out["score"] == 5
 
-@pytest.mark.parametrize("banned,preferred,tone,expected", [
-    ([], [], 3, 4),                    # 5*0.6 + 3*0.4 = 4.2 -> 4
-    (["x"], [], {"score": 1}, 2),      # (5-2)*0.6 + 1*0.4 = 2.2 -> 2
-    ([], ["a", "b"], {"score": 5}, 5), # (5+1)*0.6 + 5*0.4 = 5.6 -> 5 (clamped... 6->5)
-    ([], ["a"], "weird", 4),           # ai_score falls to 3: 5*0.6+3*0.4=4.2->4
-])
+
+@pytest.mark.parametrize(
+    "banned,preferred,tone,expected",
+    [
+        ([], [], 3, 4),  # 5*0.6 + 3*0.4 = 4.2 -> 4
+        (["x"], [], {"score": 1}, 2),  # (5-2)*0.6 + 1*0.4 = 2.2 -> 2
+        ([], ["a", "b"], {"score": 5}, 5),  # (5+1)*0.6 + 5*0.4 = 5.6 -> 5 (clamped... 6->5)
+        ([], ["a"], "weird", 4),  # ai_score falls to 3: 5*0.6+3*0.4=4.2->4
+    ],
+)
 def test_calculate_score(banned, preferred, tone, expected):
     assert bc._calculate_score(banned, preferred, tone, banned, preferred) == expected
 
+
 @pytest.mark.asyncio
 async def test_ai_tone_match_ok_and_fallback(monkeypatch):
-    monkeypatch.setattr(bc, "call_inference",
-        AsyncMock(return_value={"response": {"score": 5, "issues": [], "suggestions": ["x"]}}))
+    monkeypatch.setattr(bc, "call_inference", AsyncMock(return_value={"response": {"score": 5, "issues": [], "suggestions": ["x"]}}))
     out = await bc._ai_tone_match(
         "content",
         {"name": "Cloudless", "positioning_statement": "pos"},
-        {"tone_dimensions": {"formal": 3}, "example_content": "ex",
-         "messaging_pillars": ["p"]},
+        {"tone_dimensions": {"formal": 3}, "example_content": "ex", "messaging_pillars": ["p"]},
         "linkedin",
     )
     assert out["score"] == 5
@@ -119,6 +121,7 @@ async def test_ai_tone_match_ok_and_fallback(monkeypatch):
     out = await bc._ai_tone_match("c", {}, {}, None)
     assert out == {"score": 3, "issues": [], "suggestions": []}
 
+
 @pytest.mark.asyncio
 async def test_tone_match_threads_db_and_team_for_stored_provider_keys(monkeypatch):
     """Providers whose API key lives only in the team's AIProvider row need
@@ -127,13 +130,12 @@ async def test_tone_match_threads_db_and_team_for_stored_provider_keys(monkeypat
     infer = AsyncMock(return_value={"response": {"score": 4, "issues": [], "suggestions": []}})
     monkeypatch.setattr(bc, "call_inference", infer)
     db, team_id = object(), uuid.uuid4()
-    await bc.score_brand_compliance(
-        "on-brand content", {"name": "B"}, provider_name="openai", db=db, team_id=team_id
-    )
+    await bc.score_brand_compliance("on-brand content", {"name": "B"}, provider_name="openai", db=db, team_id=team_id)
     kwargs = infer.await_args.kwargs
     assert kwargs["provider_name"] == "openai"
     assert kwargs["db"] is db
     assert kwargs["team_id"] == team_id
+
 
 @pytest.mark.asyncio
 async def test_load_brand_context():
@@ -145,13 +147,20 @@ async def test_load_brand_context():
     assert await bc.load_brand_context(db, uuid.uuid4()) == (None, None, "")
 
     voice = SimpleNamespace(
-        tone_dimensions={"formal": 4}, messaging_pillars=[{"pillar": "p"}],
-        banned_phrases=["bad"], preferred_phrases=["good"],
-        example_content="ex", voice_signature={"k": "v"},
+        tone_dimensions={"formal": 4},
+        messaging_pillars=[{"pillar": "p"}],
+        banned_phrases=["bad"],
+        preferred_phrases=["good"],
+        example_content="ex",
+        voice_signature={"k": "v"},
     )
     brand = SimpleNamespace(
-        name="Cloudless", positioning_statement="pos", mission="m",
-        values=["v1"], tagline="t", target_audience={"who": "founders"},
+        name="Cloudless",
+        positioning_statement="pos",
+        mission="m",
+        values=["v1"],
+        tagline="t",
+        target_audience={"who": "founders"},
         voice=voice,
     )
     db2 = _DB([_Res([brand])])
@@ -163,23 +172,33 @@ async def test_load_brand_context():
 
     # brand without voice
     brand2 = SimpleNamespace(
-        name="B", positioning_statement=None, mission=None,
-        values=None, tagline=None, target_audience=None, voice=None,
+        name="B",
+        positioning_statement=None,
+        mission=None,
+        values=None,
+        tagline=None,
+        target_audience=None,
+        voice=None,
     )
     db3 = _DB([_Res([brand2])])
     b2, v2, prompt2 = await bc.load_brand_context(db3, uuid.uuid4())
     assert v2 is None and "content for B" in prompt2
 
+
 def test_build_brand_system_prompt_sections():
     brand = {
-        "name": "Cloudless", "positioning_statement": "pos",
-        "mission": "m", "values": ["a", "b"], "tagline": "tag",
+        "name": "Cloudless",
+        "positioning_statement": "pos",
+        "mission": "m",
+        "values": ["a", "b"],
+        "tagline": "tag",
         "target_audience": {"who": "founders"},
     }
     voice = {
         "tone_dimensions": {"formal": 4, "witty": 2},
         "messaging_pillars": [{"pillar": "Speed"}, {"title": "Trust"}],
-        "banned_phrases": ["bad"], "preferred_phrases": ["good"],
+        "banned_phrases": ["bad"],
+        "preferred_phrases": ["good"],
         "example_content": "on-brand example",
         "voice_signature": {"tone": "confident", "meta": {"a": 1}},
     }
@@ -195,6 +214,7 @@ def test_build_brand_system_prompt_sections():
     assert "Prefer these phrases: good" in out
     assert "on-brand example" in out
 
+
 def test_build_brand_system_prompt_minimal_and_signature_budget():
     out = bc.build_brand_system_prompt({"name": "B"})
     assert "content for B" in out and "Write content" in out
@@ -202,6 +222,5 @@ def test_build_brand_system_prompt_minimal_and_signature_budget():
 
     # signature larger than budget -> caps shrink until it fits
     big = {"k" + str(i): "x" * 500 for i in range(10)}
-    out2 = bc.build_brand_system_prompt(
-        {"name": "B"}, {"voice_signature": big})
+    out2 = bc.build_brand_system_prompt({"name": "B"}, {"voice_signature": big})
     assert "Voice signature:" in out2

@@ -3,6 +3,7 @@
 Endpoints are invoked directly with a fake AsyncSession; provider HTTP calls
 are monkeypatched. No network, no database.
 """
+
 import base64
 import hashlib
 import hmac
@@ -23,6 +24,7 @@ from app.services import dodo_api, paddle_api, polar_api
 # ---------------------------------------------------------------------------
 # Fixtures / fakes
 # ---------------------------------------------------------------------------
+
 
 def _settings(provider: str, **over) -> Settings:
     kw = {
@@ -93,8 +95,11 @@ class FakeDB:
         if entity is Team:
             for t in self.teams:
                 keys = {
-                    t.id, t.owner_id, t.paddle_customer_id,
-                    t.polar_customer_id, t.dodo_customer_id,
+                    t.id,
+                    t.owner_id,
+                    t.paddle_customer_id,
+                    t.polar_customer_id,
+                    t.dodo_customer_id,
                 }
                 if params & {k for k in keys if k is not None}:
                     return _Result(t)
@@ -151,11 +156,14 @@ def _polar_req(event, key: bytes, msg_id: str = "msg_1") -> FakeRequest:
     ts = int(time.time())
     signed = f"{msg_id}.{ts}.".encode() + raw
     sig = "v1," + base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
-    return FakeRequest(raw, {
-        "webhook-id": msg_id,
-        "webhook-timestamp": str(ts),
-        "webhook-signature": sig,
-    })
+    return FakeRequest(
+        raw,
+        {
+            "webhook-id": msg_id,
+            "webhook-timestamp": str(ts),
+            "webhook-signature": sig,
+        },
+    )
 
 
 def _dodo_req(event, key: bytes, msg_id: str = "dmsg_1") -> FakeRequest:
@@ -193,6 +201,7 @@ def sent_emails(monkeypatch):
 # ---------------------------------------------------------------------------
 # Module helpers
 # ---------------------------------------------------------------------------
+
 
 class TestHelpers:
     def test_parse_dt(self):
@@ -243,6 +252,7 @@ class TestHelpers:
 # ---------------------------------------------------------------------------
 # Simple GET routes
 # ---------------------------------------------------------------------------
+
 
 class TestReadRoutes:
     @pytest.mark.asyncio
@@ -308,10 +318,19 @@ class TestReadRoutes:
 # ---------------------------------------------------------------------------
 
 _DISCOUNT = {
-    "id": "disc_1", "name": "Launch", "code": "LAUNCH20", "type": "percentage",
-    "basis_points": 2000, "amount": None, "currency": "usd", "duration": "once",
-    "duration_in_months": None, "starts_at": None, "ends_at": None,
-    "max_redemptions": None, "redemptions_count": 0,
+    "id": "disc_1",
+    "name": "Launch",
+    "code": "LAUNCH20",
+    "type": "percentage",
+    "basis_points": 2000,
+    "amount": None,
+    "currency": "usd",
+    "duration": "once",
+    "duration_in_months": None,
+    "starts_at": None,
+    "ends_at": None,
+    "max_redemptions": None,
+    "redemptions_count": 0,
 }
 
 
@@ -365,8 +384,10 @@ class TestDiscount:
         monkeypatch.setattr(polar_api, "get_discount_for_code", fake)
         out = await billing.get_discount(team.id, FakeDB(teams=[team]), _owner_team()[0])
         assert out == {
-            "provider": "polar", "code": "LAUNCH20",
-            "valid": True, "discount": out["discount"],
+            "provider": "polar",
+            "code": "LAUNCH20",
+            "valid": True,
+            "discount": out["discount"],
         }
         assert out["discount"]["id"] == "disc_1"
 
@@ -381,7 +402,10 @@ class TestDiscount:
         monkeypatch.setattr(polar_api, "get_discount_for_code", fake)
         db = FakeDB(teams=[team])
         out = await billing.set_discount(
-            billing.DiscountCodeRequest(code="  launch20 "), team.id, db, owner,
+            billing.DiscountCodeRequest(code="  launch20 "),
+            team.id,
+            db,
+            owner,
         )
         assert team.polar_discount_code == "LAUNCH20"
         assert db.commits == 1
@@ -393,7 +417,10 @@ class TestDiscount:
         owner, team = _owner_team()
         team.polar_discount_code = "OLD"
         out = await billing.set_discount(
-            billing.DiscountCodeRequest(code=""), team.id, FakeDB(teams=[team]), owner,
+            billing.DiscountCodeRequest(code=""),
+            team.id,
+            FakeDB(teams=[team]),
+            owner,
         )
         assert team.polar_discount_code is None
         assert out["code"] is None and out["valid"] is False
@@ -412,6 +439,7 @@ class TestDiscount:
 # POST /checkout
 # ---------------------------------------------------------------------------
 
+
 class TestCheckout:
     @pytest.mark.asyncio
     async def test_unconfigured_503(self, make_env):
@@ -419,7 +447,10 @@ class TestCheckout:
         owner, team = _owner_team()
         with pytest.raises(HTTPException) as e:
             await billing.create_checkout(
-                billing.CheckoutRequest(tier="pro"), team.id, FakeDB(), owner,
+                billing.CheckoutRequest(tier="pro"),
+                team.id,
+                FakeDB(),
+                owner,
             )
         assert e.value.status_code == 503
 
@@ -429,7 +460,10 @@ class TestCheckout:
         owner, team = _owner_team()
         with pytest.raises(HTTPException) as e:
             await billing.create_checkout(
-                billing.CheckoutRequest(tier="free"), team.id, FakeDB(), owner,
+                billing.CheckoutRequest(tier="free"),
+                team.id,
+                FakeDB(),
+                owner,
             )
         assert e.value.status_code == 400
 
@@ -439,7 +473,10 @@ class TestCheckout:
         owner, team = _owner_team()
         with pytest.raises(HTTPException) as e:
             await billing.create_checkout(
-                billing.CheckoutRequest(tier="business"), team.id, FakeDB(teams=[team]), owner,
+                billing.CheckoutRequest(tier="business"),
+                team.id,
+                FakeDB(teams=[team]),
+                owner,
             )
         assert e.value.status_code == 400
         assert "No price" in e.value.detail
@@ -461,7 +498,10 @@ class TestCheckout:
         monkeypatch.setattr(polar_api, "get_discount_id_for_code", fake_discount)
         monkeypatch.setattr(polar_api, "create_checkout", fake_checkout)
         out = await billing.create_checkout(
-            billing.CheckoutRequest(tier="pro"), team.id, FakeDB(teams=[team]), owner,
+            billing.CheckoutRequest(tier="pro"),
+            team.id,
+            FakeDB(teams=[team]),
+            owner,
         )
         assert out.transaction_id == "chk_1"
         assert captured["discount_id"] == "disc_42"
@@ -485,7 +525,9 @@ class TestCheckout:
         monkeypatch.setattr(polar_api, "create_checkout", fake_checkout)
         await billing.create_checkout(
             billing.CheckoutRequest(tier="pro", discount_code="OVERRIDE"),
-            team.id, FakeDB(teams=[team]), owner,
+            team.id,
+            FakeDB(teams=[team]),
+            owner,
         )
         assert seen == ["OVERRIDE"]
 
@@ -506,7 +548,10 @@ class TestCheckout:
         monkeypatch.setattr(polar_api, "get_discount_id_for_code", boom)
         monkeypatch.setattr(polar_api, "create_checkout", fake_checkout)
         out = await billing.create_checkout(
-            billing.CheckoutRequest(tier="pro"), team.id, FakeDB(teams=[team]), owner,
+            billing.CheckoutRequest(tier="pro"),
+            team.id,
+            FakeDB(teams=[team]),
+            owner,
         )
         assert out.transaction_id == "chk"
         assert captured["discount_id"] is None
@@ -520,11 +565,13 @@ class TestCheckout:
         async def fake_checkout(**kw):
             return {"id": "chk", "checkout_url": "u"}
 
-        monkeypatch.setattr(polar_api, "get_discount_id_for_code",
-                            lambda c: called.append(c) or None)
+        monkeypatch.setattr(polar_api, "get_discount_id_for_code", lambda c: called.append(c) or None)
         monkeypatch.setattr(polar_api, "create_checkout", fake_checkout)
         await billing.create_checkout(
-            billing.CheckoutRequest(tier="pro"), team.id, FakeDB(teams=[team]), owner,
+            billing.CheckoutRequest(tier="pro"),
+            team.id,
+            FakeDB(teams=[team]),
+            owner,
         )
         assert called == []
 
@@ -539,7 +586,10 @@ class TestCheckout:
         monkeypatch.setattr(polar_api, "create_checkout", boom)
         with pytest.raises(HTTPException) as e:
             await billing.create_checkout(
-                billing.CheckoutRequest(tier="pro"), team.id, FakeDB(teams=[team]), owner,
+                billing.CheckoutRequest(tier="pro"),
+                team.id,
+                FakeDB(teams=[team]),
+                owner,
             )
         assert e.value.status_code == 409
 
@@ -554,7 +604,10 @@ class TestCheckout:
         monkeypatch.setattr(polar_api, "create_checkout", boom)
         with pytest.raises(HTTPException) as e:
             await billing.create_checkout(
-                billing.CheckoutRequest(tier="pro"), team.id, FakeDB(teams=[team]), owner,
+                billing.CheckoutRequest(tier="pro"),
+                team.id,
+                FakeDB(teams=[team]),
+                owner,
             )
         assert e.value.status_code == 502
 
@@ -570,7 +623,10 @@ class TestCheckout:
 
         monkeypatch.setattr(dodo_api, "create_checkout", fake_checkout)
         out = await billing.create_checkout(
-            billing.CheckoutRequest(tier="business"), team.id, FakeDB(teams=[team]), owner,
+            billing.CheckoutRequest(tier="business"),
+            team.id,
+            FakeDB(teams=[team]),
+            owner,
         )
         assert out.checkout_url == "https://dodo/co/1"
         assert captured["product_id"] == "dp_biz"
@@ -581,7 +637,10 @@ class TestCheckout:
         monkeypatch.setattr(dodo_api, "create_checkout", boom)
         with pytest.raises(HTTPException) as e:
             await billing.create_checkout(
-                billing.CheckoutRequest(tier="business"), team.id, FakeDB(teams=[team]), owner,
+                billing.CheckoutRequest(tier="business"),
+                team.id,
+                FakeDB(teams=[team]),
+                owner,
             )
         assert e.value.status_code == 502
 
@@ -598,7 +657,10 @@ class TestCheckout:
 
         monkeypatch.setattr(paddle_api, "create_checkout_transaction", fake_txn)
         out = await billing.create_checkout(
-            billing.CheckoutRequest(tier="pro"), team.id, FakeDB(teams=[team]), owner,
+            billing.CheckoutRequest(tier="pro"),
+            team.id,
+            FakeDB(teams=[team]),
+            owner,
         )
         assert out.transaction_id == "txn_1"
         assert captured["customer_id"] == "ctm_1"
@@ -618,7 +680,10 @@ class TestCheckout:
         monkeypatch.setattr(paddle_api, "get_or_create_customer", fake_customer)
         monkeypatch.setattr(paddle_api, "create_checkout_transaction", fake_txn)
         out = await billing.create_checkout(
-            billing.CheckoutRequest(tier="pro"), team.id, db, owner,
+            billing.CheckoutRequest(tier="pro"),
+            team.id,
+            db,
+            owner,
         )
         assert out.transaction_id == "txn_2"
         assert team.paddle_customer_id == "ctm_new"
@@ -635,7 +700,10 @@ class TestCheckout:
         monkeypatch.setattr(paddle_api, "get_or_create_customer", boom)
         with pytest.raises(HTTPException) as e:
             await billing.create_checkout(
-                billing.CheckoutRequest(tier="pro"), team.id, FakeDB(teams=[team]), owner,
+                billing.CheckoutRequest(tier="pro"),
+                team.id,
+                FakeDB(teams=[team]),
+                owner,
             )
         assert e.value.status_code == 502
 
@@ -643,6 +711,7 @@ class TestCheckout:
 # ---------------------------------------------------------------------------
 # POST /portal
 # ---------------------------------------------------------------------------
+
 
 class TestPortal:
     @pytest.mark.asyncio
@@ -766,6 +835,7 @@ class TestPortal:
 # ---------------------------------------------------------------------------
 # POST /cancel and /sync
 # ---------------------------------------------------------------------------
+
 
 class TestCancelSync:
     @pytest.mark.asyncio
@@ -934,8 +1004,7 @@ class TestCancelSync:
         team.paddle_subscription_id = "sub_1"
 
         async def fake_sub(sid):
-            return {"id": "sub_1", "status": "active",
-                    "items": [{"price": {"id": "pri_biz"}}]}
+            return {"id": "sub_1", "status": "active", "items": [{"price": {"id": "pri_biz"}}]}
 
         monkeypatch.setattr(paddle_api, "get_subscription", fake_sub)
         out = await billing.sync_subscription(team.id, FakeDB(teams=[team]), owner)
@@ -954,6 +1023,7 @@ class TestCancelSync:
 # _apply_* mappers
 # ---------------------------------------------------------------------------
 
+
 def _team(**kw):
     t = Team(id=uuid.uuid4(), name="t", owner_id=uuid.uuid4())
     t.plan_tier = "free"
@@ -966,11 +1036,15 @@ def _team(**kw):
 class TestApplySubscription:
     def test_paddle_apply_basic(self):
         t = _team(paddle_subscription_id="sub_old")
-        billing._apply_subscription(t, {
-            "id": "sub_new", "status": "active",
-            "current_billing_period": {"ends_at": "2026-11-01T00:00:00Z"},
-            "items": [{"price": {"id": "pri_pro"}}],
-        })
+        billing._apply_subscription(
+            t,
+            {
+                "id": "sub_new",
+                "status": "active",
+                "current_billing_period": {"ends_at": "2026-11-01T00:00:00Z"},
+                "items": [{"price": {"id": "pri_pro"}}],
+            },
+        )
         assert t.paddle_subscription_id == "sub_new"
         assert t.subscription_status == "active"
         assert t.subscription_period_end.month == 11
@@ -983,29 +1057,41 @@ class TestApplySubscription:
     def test_paddle_apply_keeps_tier_when_status_inactive(self, make_env):
         make_env("paddle")
         t = _team(plan_tier="pro", subscription_status="past_due")
-        billing._apply_subscription(t, {
-            "status": "incomplete",
-            "items": [{"price": {"id": "pri_biz"}}],
-        })
+        billing._apply_subscription(
+            t,
+            {
+                "status": "incomplete",
+                "items": [{"price": {"id": "pri_biz"}}],
+            },
+        )
         assert t.plan_tier == "pro"  # incomplete not in active statuses
 
     def test_paddle_apply_tier_upgrade(self, make_env):
         make_env("paddle")
         t = _team()
-        billing._apply_subscription(t, {
-            "status": "trialing",
-            "items": [{"price": {"id": "pri_ent"}}],
-        })
+        billing._apply_subscription(
+            t,
+            {
+                "status": "trialing",
+                "items": [{"price": {"id": "pri_ent"}}],
+            },
+        )
         assert t.plan_tier == "enterprise"
 
     def test_polar_apply_cancel_at_period_end(self, make_env):
         make_env("polar")
         t = _team(subscription_status="active")
-        billing._apply_polar_subscription(t, {
-            "id": "ps_1", "status": "active", "cancel_at_period_end": True,
-            "customer_id": "pc_1", "current_period_end": "2026-11-01T00:00:00Z",
-            "product_id": "pp_pro",
-        })
+        billing._apply_polar_subscription(
+            t,
+            {
+                "id": "ps_1",
+                "status": "active",
+                "cancel_at_period_end": True,
+                "customer_id": "pc_1",
+                "current_period_end": "2026-11-01T00:00:00Z",
+                "product_id": "pp_pro",
+            },
+        )
         assert t.subscription_status == "canceled_pending"
         assert t.polar_customer_id == "pc_1"
         assert t.plan_tier == "pro"
@@ -1013,11 +1099,16 @@ class TestApplySubscription:
     def test_polar_apply_nested_customer_and_product(self, make_env):
         make_env("polar")
         t = _team()
-        billing._apply_polar_subscription(t, {
-            "id": "ps_2", "status": "active",
-            "customer": {"id": "pc_nest"}, "ends_at": "2026-12-01T00:00:00Z",
-            "product": {"id": "pp_biz"},
-        })
+        billing._apply_polar_subscription(
+            t,
+            {
+                "id": "ps_2",
+                "status": "active",
+                "customer": {"id": "pc_nest"},
+                "ends_at": "2026-12-01T00:00:00Z",
+                "product": {"id": "pp_biz"},
+            },
+        )
         assert t.polar_customer_id == "pc_nest"
         assert t.plan_tier == "business"
         assert t.subscription_period_end.month == 12
@@ -1034,22 +1125,31 @@ class TestApplySubscription:
     def test_dodo_apply_variants(self, make_env):
         make_env("dodo")
         t = _team(subscription_status="active")
-        billing._apply_dodo_subscription(t, {
-            "subscription_id": "ds_1", "status": "active",
-            "cancel_at_next_billing_date": True,
-            "customer": {"customer_id": "dc_1"},
-            "next_billing_date": "2026-11-01T00:00:00Z",
-            "product_id": "dp_pro",
-        })
+        billing._apply_dodo_subscription(
+            t,
+            {
+                "subscription_id": "ds_1",
+                "status": "active",
+                "cancel_at_next_billing_date": True,
+                "customer": {"customer_id": "dc_1"},
+                "next_billing_date": "2026-11-01T00:00:00Z",
+                "product_id": "dp_pro",
+            },
+        )
         assert t.dodo_subscription_id == "ds_1"
         assert t.subscription_status == "canceled_pending"
         assert t.dodo_customer_id == "dc_1"
         assert t.plan_tier == "pro"
 
         t2 = _team(plan_tier="pro")
-        billing._apply_dodo_subscription(t2, {
-            "id": "ds_2", "status": "cancelled", "customer_id": "dc_2",
-        })
+        billing._apply_dodo_subscription(
+            t2,
+            {
+                "id": "ds_2",
+                "status": "cancelled",
+                "customer_id": "dc_2",
+            },
+        )
         assert t2.plan_tier == "free"
         assert t2.dodo_customer_id == "dc_2"
 
@@ -1057,6 +1157,7 @@ class TestApplySubscription:
 # ---------------------------------------------------------------------------
 # _sync_dm_auto_reply + _notify_team_owner
 # ---------------------------------------------------------------------------
+
 
 class TestDmSyncAndNotify:
     @pytest.mark.asyncio
@@ -1067,7 +1168,8 @@ class TestDmSyncAndNotify:
         accounts = [
             SocialAccount(platform="youtube", account_type="person", meta_data={}),
             SocialAccount(
-                platform="twitter", account_type="person",
+                platform="twitter",
+                account_type="person",
                 meta_data={"twitter_auto_reply": {"enabled": True}},
             ),
         ]
@@ -1115,13 +1217,15 @@ class TestDmSyncAndNotify:
 # Team resolution helpers
 # ---------------------------------------------------------------------------
 
+
 class TestTeamResolution:
     @pytest.mark.asyncio
     async def test_paddle_find_team_by_custom_data(self):
         _, team = _owner_team()
         db = FakeDB(teams=[team])
         found = await billing._find_team_for_event(
-            db, {"custom_data": {"team_id": str(team.id)}},
+            db,
+            {"custom_data": {"team_id": str(team.id)}},
         )
         assert found is team
 
@@ -1130,7 +1234,8 @@ class TestTeamResolution:
         team = _team(paddle_customer_id="ctm_9")
         db = FakeDB(teams=[team])
         found = await billing._find_team_for_event(
-            db, {"custom_data": {"team_id": "not-a-uuid"}, "customer_id": "ctm_9"},
+            db,
+            {"custom_data": {"team_id": "not-a-uuid"}, "customer_id": "ctm_9"},
         )
         assert found is team
 
@@ -1138,27 +1243,40 @@ class TestTeamResolution:
     async def test_paddle_find_team_none(self):
         db = FakeDB()
         assert await billing._find_team_for_event(db, {}) is None
-        assert await billing._find_team_for_event(
-            db, {"custom_data": {"team_id": str(uuid.uuid4())}},
-        ) is None
+        assert (
+            await billing._find_team_for_event(
+                db,
+                {"custom_data": {"team_id": str(uuid.uuid4())}},
+            )
+            is None
+        )
 
     @pytest.mark.asyncio
     async def test_polar_find_team_candidates(self):
         _, team = _owner_team()
         db = FakeDB(teams=[team])
         # external_customer_id path
-        assert await billing._find_team_for_polar_event(
-            db, {"external_customer_id": str(team.id)},
-        ) is team
+        assert (
+            await billing._find_team_for_polar_event(
+                db,
+                {"external_customer_id": str(team.id)},
+            )
+            is team
+        )
         # customer.external_id path
-        assert await billing._find_team_for_polar_event(
-            db, {"customer": {"external_id": str(team.id)}},
-        ) is team
+        assert (
+            await billing._find_team_for_polar_event(
+                db,
+                {"customer": {"external_id": str(team.id)}},
+            )
+            is team
+        )
         # invalid candidate skipped, customer_id fallback
         team2 = _team(polar_customer_id="pc_9")
         db2 = FakeDB(teams=[team2])
         found = await billing._find_team_for_polar_event(
-            db2, {"metadata": {"team_id": "bad"}, "customer_id": "pc_9"},
+            db2,
+            {"metadata": {"team_id": "bad"}, "customer_id": "pc_9"},
         )
         assert found is team2
         # nothing resolves
@@ -1168,37 +1286,55 @@ class TestTeamResolution:
     async def test_dodo_find_team_paths(self):
         _, team = _owner_team()
         db = FakeDB(teams=[team])
-        assert await billing._find_team_for_dodo_event(
-            db, {"metadata": {"team_id": str(team.id)}},
-        ) is team
+        assert (
+            await billing._find_team_for_dodo_event(
+                db,
+                {"metadata": {"team_id": str(team.id)}},
+            )
+            is team
+        )
 
         team2 = _team(dodo_customer_id="dc_9")
         db2 = FakeDB(teams=[team2])
-        assert await billing._find_team_for_dodo_event(
-            db2, {"metadata": {"team_id": "bad"}, "customer_id": "dc_9"},
-        ) is team2
-        assert await billing._find_team_for_dodo_event(
-            db2, {"customer": {"customer_id": "dc_9"}},
-        ) is team2
+        assert (
+            await billing._find_team_for_dodo_event(
+                db2,
+                {"metadata": {"team_id": "bad"}, "customer_id": "dc_9"},
+            )
+            is team2
+        )
+        assert (
+            await billing._find_team_for_dodo_event(
+                db2,
+                {"customer": {"customer_id": "dc_9"}},
+            )
+            is team2
+        )
 
         # email → user → owned team
         owner, team3 = _owner_team()
         db3 = FakeDB(teams=[team3], users=[owner])
         found = await billing._find_team_for_dodo_event(
-            db3, {"customer": {"email": "owner@x.io"}},
+            db3,
+            {"customer": {"email": "owner@x.io"}},
         )
         assert found is team3
 
         # email matching no user → None
-        assert await billing._find_team_for_dodo_event(
-            db3, {"customer": {"email": "ghost@x.io"}},
-        ) is None
+        assert (
+            await billing._find_team_for_dodo_event(
+                db3,
+                {"customer": {"email": "ghost@x.io"}},
+            )
+            is None
+        )
         assert await billing._find_team_for_dodo_event(FakeDB(), {}) is None
 
 
 # ---------------------------------------------------------------------------
 # Paddle webhook + subscription events
 # ---------------------------------------------------------------------------
+
 
 class TestPaddleWebhook:
     @pytest.mark.asyncio
@@ -1225,8 +1361,7 @@ class TestPaddleWebhook:
         monkeypatch.setattr(paddle_api, "verify_webhook_signature", lambda r, s: True)
         ev = BillingEvent(event_id="e_dup", event_type="subscription.updated", payload={})
         db = FakeDB(events={"e_dup": ev})
-        req = FakeRequest(b"{}", {"Paddle-Signature": "ok"},
-                          payload={"event_id": "e_dup", "event_type": "subscription.updated", "data": {}})
+        req = FakeRequest(b"{}", {"Paddle-Signature": "ok"}, payload={"event_id": "e_dup", "event_type": "subscription.updated", "data": {}})
         out = await billing.paddle_webhook(req, db)
         assert out == {"status": "duplicate", "event_id": "e_dup"}
 
@@ -1237,10 +1372,12 @@ class TestPaddleWebhook:
         owner, team = _owner_team()
         db = FakeDB(teams=[team], users=[owner])
         event = {
-            "event_id": "e1", "event_type": "subscription.activated",
+            "event_id": "e1",
+            "event_type": "subscription.activated",
             "data": {
                 "custom_data": {"team_id": str(team.id)},
-                "id": "sub_1", "status": "active",
+                "id": "sub_1",
+                "status": "active",
                 "items": [{"price": {"id": "pri_pro"}}],
             },
         }
@@ -1260,7 +1397,8 @@ class TestPaddleWebhook:
         _, team = _owner_team()
         db = FakeDB(teams=[team])
         event = {
-            "event_id": "e2", "event_type": "transaction.completed",
+            "event_id": "e2",
+            "event_type": "transaction.completed",
             "data": {"custom_data": {"team_id": str(team.id)}, "subscription_id": "sub_77"},
         }
         req = FakeRequest(b"{}", {"Paddle-Signature": "ok"}, payload=event)
@@ -1291,7 +1429,8 @@ class TestPaddleWebhook:
         _, team = _owner_team()
         db = FakeDB(teams=[team])
         event = {
-            "event_id": "e_err", "event_type": "subscription.updated",
+            "event_id": "e_err",
+            "event_type": "subscription.updated",
             "data": {"custom_data": {"team_id": str(team.id)}},
         }
         req = FakeRequest(b"{}", {"Paddle-Signature": "ok"}, payload=event)
@@ -1316,7 +1455,9 @@ class TestPaddleWebhook:
         # customer_id stored + canceled path
         team = _team(plan_tier="pro")
         await billing._handle_subscription_event(
-            _db_for(team), team, "subscription.canceled",
+            _db_for(team),
+            team,
+            "subscription.canceled",
             {"customer_id": "ctm_5", "status": "canceled"},
         )
         assert team.paddle_customer_id == "ctm_5"
@@ -1326,7 +1467,10 @@ class TestPaddleWebhook:
         # past_due
         team2 = _team()
         await billing._handle_subscription_event(
-            _db_for(team2), team2, "subscription.past_due", {},
+            _db_for(team2),
+            team2,
+            "subscription.past_due",
+            {},
         )
         assert team2.subscription_status == "past_due"
         assert sent_emails[-1]["subject"] == "SocialAuto payment failed"
@@ -1336,15 +1480,23 @@ class TestPaddleWebhook:
         await billing._handle_subscription_event(FakeDB(), team3, "subscription.paused", {})
         assert team3.subscription_status == "paused"
         await billing._handle_subscription_event(
-            FakeDB(), team3, "subscription.resumed",
+            FakeDB(),
+            team3,
+            "subscription.resumed",
             {"status": "active", "items": [{"price": {"id": "pri_pro"}}]},
         )
         assert team3.subscription_status == "active"
         await billing._handle_subscription_event(
-            FakeDB(), team3, "subscription.updated", {"status": "active"},
+            FakeDB(),
+            team3,
+            "subscription.updated",
+            {"status": "active"},
         )
         await billing._handle_subscription_event(
-            FakeDB(), team3, "subscription.expired", {"status": "expired"},
+            FakeDB(),
+            team3,
+            "subscription.expired",
+            {"status": "expired"},
         )
         assert team3.plan_tier == "free"
 
@@ -1353,12 +1505,18 @@ class TestPaddleWebhook:
 # Polar webhook + subscription events
 # ---------------------------------------------------------------------------
 
+
 class TestPolarWebhook:
     @pytest.mark.asyncio
     async def test_bad_signature_401(self, polar_webhook_settings):
-        req = FakeRequest(b"{}", {
-            "webhook-id": "m", "webhook-timestamp": "1", "webhook-signature": "v1,bad",
-        })
+        req = FakeRequest(
+            b"{}",
+            {
+                "webhook-id": "m",
+                "webhook-timestamp": "1",
+                "webhook-signature": "v1,bad",
+            },
+        )
         with pytest.raises(HTTPException) as e:
             await billing.polar_webhook(req, FakeDB())
         assert e.value.status_code == 401
@@ -1370,9 +1528,15 @@ class TestPolarWebhook:
         ts = int(time.time())
         signed = f"m1.{ts}.".encode() + raw
         sig = "v1," + base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
-        req = FakeRequest(raw, {
-            "webhook-id": "m1", "webhook-timestamp": str(ts), "webhook-signature": sig,
-        }, json_exc=ValueError())
+        req = FakeRequest(
+            raw,
+            {
+                "webhook-id": "m1",
+                "webhook-timestamp": str(ts),
+                "webhook-signature": sig,
+            },
+            json_exc=ValueError(),
+        )
         with pytest.raises(HTTPException) as e:
             await billing.polar_webhook(req, FakeDB())
         assert e.value.status_code == 400
@@ -1393,9 +1557,11 @@ class TestPolarWebhook:
         event = {
             "type": "subscription.active",
             "data": {
-                "id": "ps_1", "status": "active",
+                "id": "ps_1",
+                "status": "active",
                 "metadata": {"team_id": str(team.id)},
-                "customer_id": "pc_1", "product_id": "pp_biz",
+                "customer_id": "pc_1",
+                "product_id": "pp_biz",
             },
         }
         out = await billing.polar_webhook(_polar_req(event, key), db)
@@ -1455,24 +1621,26 @@ class TestPolarWebhook:
         db = FakeDB()
         await billing._handle_polar_subscription_event(db, None, "subscription.active", {})
 
-        team = _team(plan_tier="pro", subscription_status="active",
-                     polar_subscription_id="ps_A")
+        team = _team(plan_tier="pro", subscription_status="active", polar_subscription_id="ps_A")
         team2 = _team(plan_tier="free", polar_subscription_id="ps_C")
         team3 = _team()
-        db = FakeDB(users=[User(id=t.owner_id, email="o@x.io")
-                           for t in (team, team2, team3)])
+        db = FakeDB(users=[User(id=t.owner_id, email="o@x.io") for t in (team, team2, team3)])
 
         # stale sub id, non-activating → ignored
         await billing._handle_polar_subscription_event(
-            db, team, "subscription.canceled", {"id": "ps_B", "status": "canceled"},
+            db,
+            team,
+            "subscription.canceled",
+            {"id": "ps_B", "status": "canceled"},
         )
         assert team.plan_tier == "pro"
 
         # activating event for a different sub → applies (upgrade path)
         await billing._handle_polar_subscription_event(
-            db, team, "subscription.active",
-            {"id": "ps_B", "status": "active", "product_id": "pp_ent",
-             "customer": {"id": "pc_new"}},
+            db,
+            team,
+            "subscription.active",
+            {"id": "ps_B", "status": "active", "product_id": "pp_ent", "customer": {"id": "pc_new"}},
         )
         assert team.polar_subscription_id == "ps_B"
         assert team.plan_tier == "enterprise"
@@ -1481,7 +1649,9 @@ class TestPolarWebhook:
 
         # subscription.updated with active status counts as activating
         await billing._handle_polar_subscription_event(
-            db, team2, "subscription.updated",
+            db,
+            team2,
+            "subscription.updated",
             {"id": "ps_D", "status": "trialing", "product_id": "pp_pro"},
         )
         assert team2.polar_subscription_id == "ps_D"
@@ -1489,26 +1659,37 @@ class TestPolarWebhook:
 
         # remaining event types
         await billing._handle_polar_subscription_event(
-            db, team2, "subscription.past_due", {"id": "ps_D"},
+            db,
+            team2,
+            "subscription.past_due",
+            {"id": "ps_D"},
         )
         assert team2.subscription_status == "past_due"
         assert sent_emails[-1]["subject"] == "SocialAuto payment failed"
 
         await billing._handle_polar_subscription_event(
-            db, team2, "subscription.revoked", {"id": "ps_D", "status": "revoked"},
+            db,
+            team2,
+            "subscription.revoked",
+            {"id": "ps_D", "status": "revoked"},
         )
         assert team2.plan_tier == "free"
 
         await billing._handle_polar_subscription_event(
-            db, team2, "subscription.paused", {"id": "ps_D"},
+            db,
+            team2,
+            "subscription.paused",
+            {"id": "ps_D"},
         )
         assert team2.subscription_status == "paused"
 
         # no stored sub → no stale guard; resumed/uncanceled/created apply
-        for et in ("subscription.created", "subscription.resumed",
-                   "subscription.uncanceled"):
+        for et in ("subscription.created", "subscription.resumed", "subscription.uncanceled"):
             await billing._handle_polar_subscription_event(
-                db, team3, et, {"status": "active", "product_id": "pp_pro"},
+                db,
+                team3,
+                et,
+                {"status": "active", "product_id": "pp_pro"},
             )
         assert team3.plan_tier == "pro"
 
@@ -1517,12 +1698,18 @@ class TestPolarWebhook:
 # Dodo webhook + subscription events
 # ---------------------------------------------------------------------------
 
+
 class TestDodoWebhook:
     @pytest.mark.asyncio
     async def test_bad_signature_401(self, dodo_webhook_settings):
-        req = FakeRequest(b"{}", {
-            "webhook-id": "m", "webhook-timestamp": "1", "webhook-signature": "v1,bad",
-        })
+        req = FakeRequest(
+            b"{}",
+            {
+                "webhook-id": "m",
+                "webhook-timestamp": "1",
+                "webhook-signature": "v1,bad",
+            },
+        )
         with pytest.raises(HTTPException) as e:
             await billing.dodo_webhook(req, FakeDB())
         assert e.value.status_code == 401
@@ -1534,9 +1721,15 @@ class TestDodoWebhook:
         ts = int(time.time())
         signed = f"d1.{ts}.".encode() + raw
         sig = "v1," + base64.b64encode(hmac.new(key, signed, hashlib.sha256).digest()).decode()
-        req = FakeRequest(raw, {
-            "webhook-id": "d1", "webhook-timestamp": str(ts), "webhook-signature": sig,
-        }, json_exc=ValueError())
+        req = FakeRequest(
+            raw,
+            {
+                "webhook-id": "d1",
+                "webhook-timestamp": str(ts),
+                "webhook-signature": sig,
+            },
+            json_exc=ValueError(),
+        )
         with pytest.raises(HTTPException) as e:
             await billing.dodo_webhook(req, FakeDB())
         assert e.value.status_code == 400
@@ -1557,9 +1750,11 @@ class TestDodoWebhook:
         event = {
             "type": "subscription.active",
             "data": {
-                "subscription_id": "ds_1", "status": "active",
+                "subscription_id": "ds_1",
+                "status": "active",
                 "metadata": {"team_id": str(team.id)},
-                "customer_id": "dc_1", "product_id": "dp_pro",
+                "customer_id": "dc_1",
+                "product_id": "dp_pro",
             },
         }
         out = await billing.dodo_webhook(_dodo_req(event, key), db)
@@ -1577,7 +1772,8 @@ class TestDodoWebhook:
             "type": "payment.succeeded",
             "data": {
                 "metadata": {"team_id": str(team.id)},
-                "subscription_id": "ds_5", "customer_id": "dc_5",
+                "subscription_id": "ds_5",
+                "customer_id": "dc_5",
             },
         }
         out = await billing.dodo_webhook(_dodo_req(event, key, "d_pay"), db)
@@ -1620,22 +1816,23 @@ class TestDodoWebhook:
         await billing._handle_dodo_subscription_event(db, None, "subscription.active", {})
 
         # stale non-activating ignored; nested customer id stored when applied
-        team = _team(plan_tier="pro", subscription_status="active",
-                     dodo_subscription_id="ds_A")
+        team = _team(plan_tier="pro", subscription_status="active", dodo_subscription_id="ds_A")
         team2 = _team(dodo_subscription_id="ds_C")
         team3 = _team()
-        db = FakeDB(users=[User(id=t.owner_id, email="o@x.io")
-                           for t in (team, team2, team3)])
+        db = FakeDB(users=[User(id=t.owner_id, email="o@x.io") for t in (team, team2, team3)])
         await billing._handle_dodo_subscription_event(
-            db, team, "subscription.updated",
+            db,
+            team,
+            "subscription.updated",
             {"subscription_id": "ds_B", "status": "cancelled"},
         )
         assert team.plan_tier == "pro"
 
         await billing._handle_dodo_subscription_event(
-            db, team, "subscription.plan_changed",
-            {"subscription_id": "ds_B", "status": "active",
-             "product_id": "dp_biz", "customer": {"customer_id": "dc_n"}},
+            db,
+            team,
+            "subscription.plan_changed",
+            {"subscription_id": "ds_B", "status": "active", "product_id": "dp_biz", "customer": {"customer_id": "dc_n"}},
         )
         assert team.dodo_subscription_id == "ds_B"
         assert team.plan_tier == "business"
@@ -1643,25 +1840,35 @@ class TestDodoWebhook:
 
         # subscription.updated w/ active status → activating for unknown sub
         await billing._handle_dodo_subscription_event(
-            db, team2, "subscription.updated",
+            db,
+            team2,
+            "subscription.updated",
             {"subscription_id": "ds_D", "status": "active", "product_id": "dp_pro"},
         )
         assert team2.dodo_subscription_id == "ds_D"
 
         # on_hold + past_due notification
         await billing._handle_dodo_subscription_event(
-            db, team2, "subscription.on_hold", {"subscription_id": "ds_D"},
+            db,
+            team2,
+            "subscription.on_hold",
+            {"subscription_id": "ds_D"},
         )
         assert team2.subscription_status == "on_hold"
         await billing._handle_dodo_subscription_event(
-            db, team2, "subscription.past_due", {"subscription_id": "ds_D"},
+            db,
+            team2,
+            "subscription.past_due",
+            {"subscription_id": "ds_D"},
         )
         assert team2.subscription_status == "past_due"
         assert sent_emails[-1]["subject"] == "SocialAuto payment failed"
 
         # cancelled + expired notify
         await billing._handle_dodo_subscription_event(
-            db, team2, "subscription.cancelled",
+            db,
+            team2,
+            "subscription.cancelled",
             {"subscription_id": "ds_D", "status": "cancelled"},
         )
         assert team2.plan_tier == "free"
@@ -1669,17 +1876,24 @@ class TestDodoWebhook:
 
         # failed + paused + renewed/unpaused/active-apply coverage
         await billing._handle_dodo_subscription_event(
-            db, team3, "subscription.failed",
+            db,
+            team3,
+            "subscription.failed",
             {"subscription_id": "ds_E", "status": "failed"},
         )
         assert team3.subscription_status == "failed"
         await billing._handle_dodo_subscription_event(
-            db, team3, "subscription.paused", {"subscription_id": "ds_E"},
+            db,
+            team3,
+            "subscription.paused",
+            {"subscription_id": "ds_E"},
         )
         assert team3.subscription_status == "paused"
         for et in ("subscription.renewed", "subscription.unpaused"):
             await billing._handle_dodo_subscription_event(
-                db, team3, et,
+                db,
+                team3,
+                et,
                 {"subscription_id": "ds_E", "status": "active", "product_id": "dp_pro"},
             )
         assert team3.plan_tier == "pro"
@@ -1688,7 +1902,9 @@ class TestDodoWebhook:
         owner, team4 = _owner_team()
         db4 = FakeDB(users=[owner])
         await billing._handle_dodo_subscription_event(
-            db4, team4, "subscription.active",
+            db4,
+            team4,
+            "subscription.active",
             {"subscription_id": "ds_F", "status": "active", "product_id": "dp_pro"},
         )
         assert sent_emails[-1]["subject"].endswith("subscription active")

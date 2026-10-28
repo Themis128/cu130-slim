@@ -5,6 +5,7 @@ follower-count fetchers, and the follower-series builder.
 Helpers are called directly; httpx, LinkedInAPIClient, and the Facebook
 sidecar client are monkeypatched. No network, no database.
 """
+
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -18,6 +19,7 @@ from app.models.social_account import SocialAccount
 # Fakes
 # ---------------------------------------------------------------------------
 
+
 def _account(platform, **kw) -> SocialAccount:
     return SocialAccount(
         id=kw.get("id", uuid.uuid4()),
@@ -25,9 +27,11 @@ def _account(platform, **kw) -> SocialAccount:
         platform=platform,
         account_id=kw.get("account_id", "12345"),
         username=kw.get("username", "acct"),
-        status="active", account_type=kw.get("account_type", "person"),
+        status="active",
+        account_type=kw.get("account_type", "person"),
         access_token_enc=kw.get("access_token_enc", encrypt_token("tok")),
-        scopes=[], meta_data=kw.get("meta_data", {}),
+        scopes=[],
+        meta_data=kw.get("meta_data", {}),
     )
 
 
@@ -42,6 +46,7 @@ class _Resp:
 
 class _HTTP:
     """Configurable fake httpx.AsyncClient — queue of responses by index."""
+
     response = _Resp()
     error = None
     requests = []
@@ -65,6 +70,7 @@ class _HTTP:
 @pytest.fixture
 def http(monkeypatch):
     import httpx
+
     _HTTP.response = _Resp()
     _HTTP.error = None
     _HTTP.requests = []
@@ -76,10 +82,10 @@ def http(monkeypatch):
 # Pure helpers
 # ---------------------------------------------------------------------------
 
+
 class TestEngagementMath:
     def test_sum_only_engagement_types(self):
-        counts = {"like": 5, "comment": 2, "share": 1, "click": 3,
-                  "impression": 999, "view": 50}
+        counts = {"like": 5, "comment": 2, "share": 1, "click": 3, "impression": 999, "view": 50}
         assert analytics._engagement_sum(counts) == 11
 
     def test_sum_empty(self):
@@ -99,16 +105,7 @@ class TestEngagementMath:
 
 class TestFeedCardChrome:
     def test_strips_chrome_before_time_line(self):
-        blob = (
-            "Feed post number 3\n"
-            "Themis reposted this\n"
-            "Cloudless\n"
-            "   • 3rd+\n"
-            "Founder\n"
-            "6mo • Edited •\n"
-            "Follow\n"
-            "We built the thing. It works."
-        )
+        blob = "Feed post number 3\nThemis reposted this\nCloudless\n   • 3rd+\nFounder\n6mo • Edited •\nFollow\nWe built the thing. It works."
         out = analytics._strip_feed_card_chrome(blob)
         assert out == "We built the thing. It works."
 
@@ -138,8 +135,7 @@ class TestSnapshotContentText:
         assert analytics._snapshot_content_text(raw) == "nested"
 
     def test_caption_and_text_fallbacks(self):
-        assert analytics._snapshot_content_text(
-            {"discovery": {"caption": "ig cap"}}) == "ig cap"
+        assert analytics._snapshot_content_text({"discovery": {"caption": "ig cap"}}) == "ig cap"
         assert analytics._snapshot_content_text({"text": "tweet"}) == "tweet"
 
     def test_scrape_text_chrome_stripped(self):
@@ -153,8 +149,7 @@ class TestSnapshotContentText:
 
 class TestSnapshotExternalUrl:
     def test_share_url_wins(self):
-        raw = {"share_url": "https://x.com/p/1",
-               "discovery": {"permalink": "https://li.com/p"}}
+        raw = {"share_url": "https://x.com/p/1", "discovery": {"permalink": "https://li.com/p"}}
         assert analytics._snapshot_external_url("twitter", raw, "1") == "https://x.com/p/1"
 
     def test_permalink_fallback(self):
@@ -186,8 +181,7 @@ class TestOrgUrn:
         assert analytics._org_urn(a) == "urn:li:organization:42"
 
     def test_non_org_author_urn_ignored(self):
-        a = _account("linkedin", account_id="777",
-                     meta_data={"author_urn": "urn:li:person:abc"})
+        a = _account("linkedin", account_id="777", meta_data={"author_urn": "urn:li:person:abc"})
         assert analytics._org_urn(a) == "urn:li:organization:777"
 
 
@@ -195,13 +189,13 @@ class TestOrgUrn:
 # Follower-count fetchers
 # ---------------------------------------------------------------------------
 
+
 class TestLinkedInFollowers:
     pytestmark = pytest.mark.asyncio
 
     async def test_member_urn_returns_minus1(self):
         # member accounts have no org follower-statistics endpoint
-        a = _account("linkedin", account_id="person-abc",
-                     meta_data={"author_urn": "urn:li:person:abc"})
+        a = _account("linkedin", account_id="person-abc", meta_data={"author_urn": "urn:li:person:abc"})
         # _org_urn produces organization:person-abc — non-digit suffix → -1
         assert await analytics._linkedin_follower_count(a) == -1
 
@@ -321,16 +315,26 @@ class TestThreadsFollowers:
     pytestmark = pytest.mark.asyncio
 
     async def test_total_value(self, http):
-        _HTTP.response = _Resp(200, {"data": [
-            {"name": "views", "total_value": {"value": 999}},
-            {"name": "followers_count", "total_value": {"value": 42}},
-        ]})
+        _HTTP.response = _Resp(
+            200,
+            {
+                "data": [
+                    {"name": "views", "total_value": {"value": 999}},
+                    {"name": "followers_count", "total_value": {"value": 42}},
+                ]
+            },
+        )
         assert await analytics._threads_follower_count(_account("threads")) == 42
 
     async def test_values_fallback(self, http):
-        _HTTP.response = _Resp(200, {"data": [
-            {"name": "followers_count", "values": [{"value": 17}]},
-        ]})
+        _HTTP.response = _Resp(
+            200,
+            {
+                "data": [
+                    {"name": "followers_count", "values": [{"value": 17}]},
+                ]
+            },
+        )
         assert await analytics._threads_follower_count(_account("threads")) == 17
 
     async def test_missing_metric_minus1(self, http):
@@ -368,6 +372,7 @@ class TestTikTokFollowers:
                 return _Resp(200, {"stats": {"followers": 55}})
 
         import httpx
+
         monkeypatch.setattr(httpx, "AsyncClient", SeqHTTP)
         a = _account("tiktok", username="@cloudless.gr")
         assert await analytics._tiktok_follower_count(a) == 55
@@ -403,6 +408,7 @@ class TestFollowerDispatch:
 # Follower series builder
 # ---------------------------------------------------------------------------
 
+
 class TestFollowerSeries:
     def _ts(self, days_ago):
         return datetime.now(UTC) - timedelta(days=days_ago)
@@ -434,7 +440,10 @@ class TestFollowerSeries:
         now = datetime.now(UTC)
         naive = datetime.now()  # naive
         current, change, series = analytics._build_follower_series(
-            [(naive, 7)], None, since, now,
+            [(naive, 7)],
+            None,
+            since,
+            now,
         )
         assert series[0].date is not None
 
@@ -442,6 +451,7 @@ class TestFollowerSeries:
 # ---------------------------------------------------------------------------
 # Misc
 # ---------------------------------------------------------------------------
+
 
 class TestTeamForUser:
     pytestmark = pytest.mark.asyncio

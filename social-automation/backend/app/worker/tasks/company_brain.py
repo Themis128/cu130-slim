@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 async def _run() -> dict:
     async with get_session_factory()() as db:
         teams = (await db.execute(select(Team))).scalars().all()
-        results = [
-            await company_brain.write_daily_journal(db, team) for team in teams
-        ]
+        results = [await company_brain.write_daily_journal(db, team) for team in teams]
     logger.info("company brain journal: %s", results)
     return {"teams": len(results), "journals": results}
 

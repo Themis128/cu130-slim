@@ -4,6 +4,7 @@ Acts as a local failover between Cloudflare R2 and local disk. Uses the
 stdlib SigV4 client in app.services.s3_sigv4 (no AWS SDK). The bucket is
 auto-created on first use if it does not exist.
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,9 +33,7 @@ def _client() -> S3LiteClient | None:
     secret_key = (settings.MINIO_SECRET_KEY or "").strip()
     if not all([settings.MINIO_ENDPOINT, access_key, secret_key]):
         return None
-    return S3LiteClient(
-        _endpoint(), access_key, secret_key, region="us-east-1"
-    )
+    return S3LiteClient(_endpoint(), access_key, secret_key, region="us-east-1")
 
 
 def _bucket() -> str:
@@ -70,11 +69,13 @@ def ensure_bucket() -> bool:
 
 def minio_enabled() -> bool:
     """Return True if MinIO credentials and endpoint are configured."""
-    return all([
-        (settings.MINIO_ENDPOINT or "").strip(),
-        (settings.MINIO_ACCESS_KEY or "").strip(),
-        (settings.MINIO_SECRET_KEY or "").strip(),
-    ])
+    return all(
+        [
+            (settings.MINIO_ENDPOINT or "").strip(),
+            (settings.MINIO_ACCESS_KEY or "").strip(),
+            (settings.MINIO_SECRET_KEY or "").strip(),
+        ]
+    )
 
 
 async def upload_object(

@@ -1,5 +1,6 @@
 """LinkedIn Ads campaign snapshots — daily scrape of Campaign Manager metrics,
 plus ground-truth report tables imported from Campaign Manager CSV exports."""
+
 from __future__ import annotations
 
 import uuid
@@ -32,12 +33,8 @@ class AdCampaignSnapshot(Base):
         Index("ix_ad_campaign_snapshots_campaign", "campaign_id", "captured_at"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    team_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     platform: Mapped[str] = mapped_column(String(30), nullable=False, default="linkedin")
     account_id: Mapped[str] = mapped_column(String(40), nullable=False)
     campaign_id: Mapped[str] = mapped_column(String(40), nullable=False)
@@ -54,9 +51,7 @@ class AdCampaignSnapshot(Base):
     budget_eur: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     raw: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
-    captured_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
     team: Mapped[Team] = relationship("Team")
 
@@ -92,12 +87,8 @@ class AdDailyMetric(Base):
         Index("ix_ad_daily_metrics_ad_set", "ad_set_id", "day"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    team_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     platform: Mapped[str] = mapped_column(String(30), nullable=False, default="linkedin")
     account_id: Mapped[str] = mapped_column(String(40), nullable=False)
     report_type: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -128,9 +119,7 @@ class AdDailyMetric(Base):
 
     source: Mapped[str] = mapped_column(String(40), nullable=False, default="report_csv")
     raw: Mapped[dict] = mapped_column(JSONB, default={}, nullable=False)
-    captured_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
 
 
 class AdDemographicSegment(Base):
@@ -153,12 +142,8 @@ class AdDemographicSegment(Base):
         Index("ix_ad_demo_segments_type", "segment_type", "impressions"),
     )
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    team_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
     platform: Mapped[str] = mapped_column(String(30), nullable=False, default="linkedin")
     account_id: Mapped[str] = mapped_column(String(40), nullable=False)
     segment_type: Mapped[str] = mapped_column(String(60), nullable=False)
@@ -174,6 +159,4 @@ class AdDemographicSegment(Base):
     pct_clicks: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
 
     source: Mapped[str] = mapped_column(String(40), nullable=False, default="report_csv")
-    captured_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

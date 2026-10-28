@@ -9,6 +9,7 @@ or via pytest if installed. Requires the model runner on 12435; the inference
 cases intentionally hit the tiny model (smollm3, ~1.9 GB, 5m keep-alive) to
 keep VRAM impact minimal.
 """
+
 import asyncio
 
 from app.services import dmr

@@ -10,6 +10,7 @@ Fail-soft by design: every failure mode (unreachable, timeout, non-JSON,
 rate-limited) returns ``[]`` so callers can degrade gracefully — generation
 must never be blocked by search availability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -56,9 +57,7 @@ async def web_search(
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(
-                f"{settings.SEARXNG_URL.rstrip('/')}/search", params=params
-            )
+            resp = await client.get(f"{settings.SEARXNG_URL.rstrip('/')}/search", params=params)
             resp.raise_for_status()
             data = resp.json()
     except Exception as exc:  # noqa: BLE001 — fail-soft, never block generation
@@ -89,10 +88,7 @@ def format_search_context(results: list[dict[str, Any]], query: str) -> str:
     """Render search results as a prompt context block."""
     if not results:
         return ""
-    lines = [
-        f'RECENT WEB RESULTS for "{query}" (use for fresh facts, trends and '
-        "angles — cite source names in prose when relevant, never raw URLs):"
-    ]
+    lines = [f'RECENT WEB RESULTS for "{query}" (use for fresh facts, trends and angles — cite source names in prose when relevant, never raw URLs):']
     for r in results:
         lines.append(f"- {r['title']} — {r['url']}\n  {r['snippet'][:280]}")
     return "\n".join(lines)

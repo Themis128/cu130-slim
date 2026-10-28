@@ -4,6 +4,7 @@ TikTok access tokens expire in 24 hours, Twitter in 2 hours, and Meta/Threads
 in ~60 days. This task runs every hour and refreshes any token that will expire
 within the next 4 hours, so accounts never go offline unexpectedly.
 """
+
 import logging
 from datetime import UTC, datetime, timedelta
 
@@ -110,10 +111,7 @@ def _skip_for_recent_update(
     a dead token is never skipped — updated_at is bumped by unrelated account
     writes (publish attempts), which would starve it forever.
     """
-    survives_next_run = (
-        token_expires_at is not None
-        and token_expires_at > now + MIN_REFRESH_INTERVAL
-    )
+    survives_next_run = token_expires_at is not None and token_expires_at > now + MIN_REFRESH_INTERVAL
     if not survives_next_run or not updated_at:
         return False
     return (now - updated_at.replace(tzinfo=UTC)) < MIN_REFRESH_INTERVAL
@@ -174,9 +172,7 @@ async def _refresh_expiring_tokens_async() -> dict:
 
             # Skip only when refreshed/touched recently AND the token outlives
             # the next run — see _skip_for_recent_update.
-            if _skip_for_recent_update(
-                account.token_expires_at, account.updated_at, now
-            ):
+            if _skip_for_recent_update(account.token_expires_at, account.updated_at, now):
                 logger.info("Skipping %s — refreshed recently (%s)", account_label, account.updated_at)
                 summary["skipped"] += 1
                 continue
@@ -188,18 +184,10 @@ async def _refresh_expiring_tokens_async() -> dict:
                 continue
 
             try:
-                if (
-                    platform == "instagram"
-                    and (account.meta_data or {}).get("login_type") == "business_login"
-                    and not account.refresh_token_enc
-                ):
-                    token = await _refresh_instagram_business_token(
-                        decrypt_token(account.access_token_enc)
-                    )
+                if platform == "instagram" and (account.meta_data or {}).get("login_type") == "business_login" and not account.refresh_token_enc:
+                    token = await _refresh_instagram_business_token(decrypt_token(account.access_token_enc))
                 elif platform == "threads" and not account.refresh_token_enc:
-                    token = await _refresh_threads_token(
-                        decrypt_token(account.access_token_enc)
-                    )
+                    token = await _refresh_threads_token(decrypt_token(account.access_token_enc))
                 else:
                     refresh_token = decrypt_token(account.refresh_token_enc)
                     token = await client.refresh_token(refresh_token)

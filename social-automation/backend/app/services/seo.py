@@ -25,19 +25,133 @@ settings = get_settings()
 
 # Simple English stop-words list; avoids NLTK/spacy dependency.
 _STOPWORDS = {
-    "a", "an", "the", "and", "or", "but", "is", "are", "was", "were", "be",
-    "been", "being", "have", "has", "had", "do", "does", "did", "will", "would",
-    "could", "should", "may", "might", "must", "shall", "can", "need", "dare",
-    "ought", "used", "to", "of", "in", "for", "on", "with", "at", "from", "as",
-    "into", "through", "during", "before", "after", "above", "below", "between",
-    "under", "again", "further", "then", "once", "here", "there", "when", "where",
-    "why", "how", "all", "any", "both", "each", "few", "more", "most", "other",
-    "some", "such", "no", "nor", "not", "only", "own", "same", "so", "than", "too",
-    "very", "just", "now", "this", "that", "these", "those", "i", "me", "my",
-    "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself",
-    "yourselves", "he", "him", "his", "himself", "she", "her", "hers", "herself",
-    "it", "its", "itself", "they", "them", "their", "theirs", "themselves", "what",
-    "which", "who", "whom", "whose", "this", "that", "am", "are", "is", "was", "were",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "do",
+    "does",
+    "did",
+    "will",
+    "would",
+    "could",
+    "should",
+    "may",
+    "might",
+    "must",
+    "shall",
+    "can",
+    "need",
+    "dare",
+    "ought",
+    "used",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "from",
+    "as",
+    "into",
+    "through",
+    "during",
+    "before",
+    "after",
+    "above",
+    "below",
+    "between",
+    "under",
+    "again",
+    "further",
+    "then",
+    "once",
+    "here",
+    "there",
+    "when",
+    "where",
+    "why",
+    "how",
+    "all",
+    "any",
+    "both",
+    "each",
+    "few",
+    "more",
+    "most",
+    "other",
+    "some",
+    "such",
+    "no",
+    "nor",
+    "not",
+    "only",
+    "own",
+    "same",
+    "so",
+    "than",
+    "too",
+    "very",
+    "just",
+    "now",
+    "this",
+    "that",
+    "these",
+    "those",
+    "i",
+    "me",
+    "my",
+    "myself",
+    "we",
+    "our",
+    "ours",
+    "ourselves",
+    "you",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
+    "he",
+    "him",
+    "his",
+    "himself",
+    "she",
+    "her",
+    "hers",
+    "herself",
+    "it",
+    "its",
+    "itself",
+    "they",
+    "them",
+    "their",
+    "theirs",
+    "themselves",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "whose",
+    "this",
+    "that",
+    "am",
+    "are",
+    "is",
+    "was",
+    "were",
 }
 
 # Platform-specific best-practice length ranges.
@@ -60,11 +174,7 @@ _PLATFORM_HINTS: dict[str, dict[str, int | tuple[int, int] | None]] = {
 
 def _tokens(text: str) -> list[str]:
     """Lower-case, punctuation-stripped word tokens."""
-    return [
-        word.strip(punctuation).lower()
-        for word in re.split(r"\s+", text)
-        if word.strip(punctuation)
-    ]
+    return [word.strip(punctuation).lower() for word in re.split(r"\s+", text) if word.strip(punctuation)]
 
 
 def _clean_keyword(word: str) -> str | None:
@@ -85,10 +195,7 @@ def extract_keywords(text: str, max_keywords: int = 10) -> list[dict[str, Any]]:
                 counts[cleaned] += 1
                 seen_in_phrase.add(cleaned)
 
-    return [
-        {"keyword": word, "count": count}
-        for word, count in counts.most_common(max_keywords)
-    ]
+    return [{"keyword": word, "count": count} for word, count in counts.most_common(max_keywords)]
 
 
 def _avg_sentence_words(text: str) -> float:
@@ -137,14 +244,10 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
     ratio = char_count / max_chars
     if ratio > 1:
         report.length = max(0, 100 - int((ratio - 1) * 100))
-        report.recommendations.append(
-            f"This post is {char_count} characters, over the {platform} limit of {max_chars}."
-        )
+        report.recommendations.append(f"This post is {char_count} characters, over the {platform} limit of {max_chars}.")
     elif ratio < 0.2:
         report.length = int(ratio * 500)  # 0..100
-        report.recommendations.append(
-            f"Content is short ({char_count} chars). Aim for at least {int(max_chars * 0.2)} characters."
-        )
+        report.recommendations.append(f"Content is short ({char_count} chars). Aim for at least {int(max_chars * 0.2)} characters.")
     else:
         report.length = 100
 
@@ -158,9 +261,7 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
         report.readability = 60
     else:
         report.readability = 40
-        report.recommendations.append(
-            f"Sentences average {avg:.1f} words. Shorter sentences improve readability."
-        )
+        report.recommendations.append(f"Sentences average {avg:.1f} words. Shorter sentences improve readability.")
 
     # Hashtag score.
     h_count = _count_hashtags(text)
@@ -169,14 +270,10 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
         report.hashtags = 100
     elif h_count < h_min:
         report.hashtags = max(0, 100 - (h_min - h_count) * 25)
-        report.recommendations.append(
-            f"Add {h_min - h_count} more hashtag(s) for {platform}."
-        )
+        report.recommendations.append(f"Add {h_min - h_count} more hashtag(s) for {platform}.")
     else:
         report.hashtags = max(0, 100 - (h_count - h_max) * 15)
-        report.recommendations.append(
-            f"Reduce hashtags to {h_max} or fewer for {platform}."
-        )
+        report.recommendations.append(f"Reduce hashtags to {h_max} or fewer for {platform}.")
 
     # Link score: one link is ideal for LinkedIn/Facebook, none for Twitter/Threads/Instagram/TikTok.
     l_count = _count_links(text)
@@ -201,9 +298,7 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
         report.plain_english = max(0, 100 - len(issues) * 20)
         jargon = [m for i in issues for m in (i.matches or [])]
         if jargon:
-            report.recommendations.append(
-                f"Replace jargon/buzzwords: {', '.join(jargon[:5])}."
-            )
+            report.recommendations.append(f"Replace jargon/buzzwords: {', '.join(jargon[:5])}.")
         if any(i.reason == "long_sentences" for i in issues):
             report.recommendations.append("Some sentences are too long for plain English.")
 
@@ -219,12 +314,7 @@ def score_content(text: str, platform: str = "linkedin") -> ContentScoreReport:
 
     # Overall weighted score.
     report.overall = int(
-        report.length * 0.15
-        + report.readability * 0.25
-        + report.plain_english * 0.25
-        + report.hashtags * 0.15
-        + report.links * 0.10
-        + report.keywords * 0.10
+        report.length * 0.15 + report.readability * 0.25 + report.plain_english * 0.25 + report.hashtags * 0.15 + report.links * 0.10 + report.keywords * 0.10
     )
     return report
 
@@ -242,7 +332,7 @@ async def suggest_meta(title: str | None, body: str, platform: str = "linkedin")
 
     prompt = f"""Given this content, write a concise SEO title and meta description.
 
-Title hint: {title or '(none)'}
+Title hint: {title or "(none)"}
 Body (first 500 chars): {body[:500]}
 
 Constraints:

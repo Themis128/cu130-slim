@@ -56,7 +56,7 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 - **Pre-commit hook** (`.githooks/pre-commit`, enabled via `git config core.hooksPath .githooks`) automatically runs `ruff check` + `mypy` on staged backend files inside the `social-api` container — same checks as the first two CI steps. It fails open when the container is down. Bypass with `--no-verify` only intentionally.
 - Container file drift: after committing tests/code, sync changed files into `social-api` + worker containers with `docker compose cp` — stale files in the container make the local gate diverge from CI.
 
-1. `pytest tests/unit -q` inside `social-api` — must pass (currently 1148 tests, 8 skipped).
+1. `pytest tests/unit -q` inside `social-api` — must pass for the **touched modules only** (e.g. `pytest tests/unit/test_<module>.py`). Do NOT run the whole ~7k suite inside `social-api`: the container's `mem_limit` is 1 GiB (steady-state ~600 MiB) and a full-suite run OOM-kills the production API (observed 2026-10-27). The full suite is CI's gate (`pytest tests/unit -v --tb=short` in `social-automation-backend.yml`); locally run it via the `.venv` on the host (`. .venv/bin/activate && python -m pytest tests/unit -q -m "not integration"`) or accept CI. If a containerized run is unavoidable, use `pytest --timeout=90 -v` so a hang fails fast instead of stalling silently, and `pkill -f pytest` stale runners first — orphaned runs compound memory pressure.
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
 3. `ruff check` on changed backend files — must be clean. Install ruff inside the container with `docker compose exec -T social-api pip install ruff -q` if missing.
 4. `docker compose config --quiet` — must be valid.
@@ -99,8 +99,9 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 ## Common commands
 
 ```bash
-# backend unit tests
-docker compose exec -T social-api python -m pytest tests/unit -q
+# backend unit tests — touched modules only inside social-api (1 GiB mem_limit);
+# full suite via host .venv or CI (see gate #1)
+docker compose exec -T social-api python -m pytest tests/unit/test_<module>.py -q
 
 # lint
 docker compose exec -T social-api python -m ruff check <paths>
@@ -573,7 +574,8 @@ Current chain (oldest → newest, 39 revisions):
 36. `a6b7c8d9e0f1` — ad_campaign_snapshots
 37. `b7c8d9e0f1a2` — ad_daily_metrics + ad_demographic_segments
 38. `c8d9e0f1a2b3` — publish_queue dedupe + partial unique index
-39. `f6e5d4c3b2a1` — 'website' leadsource enum (current head)
+39. `f6e5d4c3b2a1` — 'website' leadsource enum
+40. `f7a8b9c0d1e2` — merge five heads incl. engagement meta_data (current head)
 
 ## CodeQL alert history
 
@@ -701,3 +703,10 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 - **OMV-HA SSH access**: `ssh tbaltzakis@192.168.1.130` — password stored in `.env` as `OMV_SSH_PASSWORD` (never commit it). Despite the name it is a Raspberry Pi running Debian 13 (no openmediavault packages): dovecot (IMAP 993, virtual mailboxes under `/var/mail/vhosts/cloudless.gr/`), postfix (submission 587, relays via Resend, cert from Let's Encrypt via acme.sh DNS-01 — auto-renews, see `/root/.acme.sh/`), roundcube webmail, valkey, cloudflared, keepalived BACKUP node (VIP 192.168.1.200). Reachable directly on LAN from this WSL2 host.
 - **omv master (192.168.1.128, hostname `omv`)**: keepalived MASTER holding the VIP; runs the Nextcloud docker stack (`cloud.cloudless.gr` — nextcloud, nextcloud-cron, notify-push, talk-hpb, talk-recording) + k3s. SSH only via the deploy key on the Pi: `ssh -i ~/.ssh/omv_ha tbaltzakis@192.168.1.128` (no password auth). occ: `sudo docker exec -u www-data nextcloud php occ …`. Nextcloud Mail account `tbaltzakis@cloudless.gr` → IMAP/SMTP at `mail.cloudless.gr` (container hosts-entry → the Pi); `app.mail.verify-tls-peer=true` (valid LE cert, do NOT set it back to false). Talk TURN is advertised at `192.168.1.200:3478` (LAN-only; external guests need a port-forward or hosted TURN). The omv compose/config fixes are codified in the `Themis128/cloudless.gr` repo under `infrastructure/omv/`.
 - **Public DNS quirk**: `mail.cloudless.gr` resolves publicly to a dead IP (150.228.61.158) — direct external IMAP/SMTP by hostname does NOT work; LAN + Nextcloud (hosts entry) only. MX is Cloudflare Email Routing and does not use this record.
+
+## Proactivity principle — platform-side rejections
+
+- **Always be proactive about platform-side rejections** (LinkedIn content moderation, Meta/Threads rate limits, API rejections). They cannot be pre-verified — treat them as expected, not exceptional.
+- **Before publish**: verify what IS knowable — token expiry + publish scopes, media public-URL reachability, per-account dedup, correct-media gate. This is the only class of failure you can prevent.
+- **After publish**: a failure is not done when it retries — it is done when it is *classified* and *surfaced*. The path exists (retry ×3 → failed → failure-learning signature → Slack digest + remediation proposals at ≥3x/7d). Never leave a failed post silent: confirm the signature landed and, for recurring signatures, write the remediation note before being asked.
+- **The healer contract**: auto-heal mechanical stalls (queue orphans, wedged publishes, stale locks, daemon death); alert-not-autofix on judgment calls (media choice, content edits, platform policy decisions).

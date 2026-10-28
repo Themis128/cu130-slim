@@ -16,8 +16,7 @@ def _client(key="k"):
 
 
 def _resp(status, body):
-    return httpx.Response(status, json=body,
-                          request=httpx.Request("GET", "https://x"))
+    return httpx.Response(status, json=body, request=httpx.Request("GET", "https://x"))
 
 
 class _AC:
@@ -32,8 +31,7 @@ class _AC:
         return False
 
     async def get(self, url, params=None, headers=None):
-        self.calls.append({"url": url, "params": params,
-                           "headers": headers})
+        self.calls.append({"url": url, "params": params, "headers": headers})
         if isinstance(self.outcome, Exception):
             raise self.outcome
         return self.outcome
@@ -41,16 +39,14 @@ class _AC:
 
 def test_init_and_enabled(monkeypatch):
     assert _client("k").enabled is True
-    monkeypatch.setattr(HC, "get_settings",
-                        lambda: SimpleNamespace(HIKER_API_KEY=""))
+    monkeypatch.setattr(HC, "get_settings", lambda: SimpleNamespace(HIKER_API_KEY=""))
     assert _client("").enabled is False
     assert _client("k").enabled is True
 
 
 @pytest.mark.asyncio
 async def test_get_disabled_raises(monkeypatch):
-    monkeypatch.setattr(HC, "get_settings",
-                        lambda: SimpleNamespace(HIKER_API_KEY=""))
+    monkeypatch.setattr(HC, "get_settings", lambda: SimpleNamespace(HIKER_API_KEY=""))
     with pytest.raises(HC.HikerAPIError, match="not configured"):
         await _client("").get_user_by_username("x")
 
@@ -69,9 +65,7 @@ async def test_get_success_and_headers():
 
 @pytest.mark.asyncio
 async def test_get_http_status_error():
-    fake = _AC(httpx.HTTPStatusError(
-        "500", request=httpx.Request("GET", "https://x"),
-        response=_resp(500, {})))
+    fake = _AC(httpx.HTTPStatusError("500", request=httpx.Request("GET", "https://x"), response=_resp(500, {})))
     with patch.object(HC.httpx, "AsyncClient", return_value=fake):
         with pytest.raises(HC.HikerAPIError, match="HTTP 500"):
             await _client().get_user_by_id(42)

@@ -95,8 +95,12 @@ def test_get_verify_token_falls_back_to_default(monkeypatch):
 
 def _wa_account(meta):
     return SimpleNamespace(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="whatsapp",
-        account_type="business", account_id="waba1", meta_data=meta,
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        platform="whatsapp",
+        account_type="business",
+        account_id="waba1",
+        meta_data=meta,
     )
 
 
@@ -109,9 +113,15 @@ def test_whatsapp_client_400_missing_credentials():
 
 
 def test_whatsapp_client_plaintext_token(monkeypatch):
-    client = _get_whatsapp_client(_wa_account({
-        "access_token": "EAAplain", "phone_number_id": "123", "display_phone_number": "+301",
-    }))
+    client = _get_whatsapp_client(
+        _wa_account(
+            {
+                "access_token": "EAAplain",
+                "phone_number_id": "123",
+                "display_phone_number": "+301",
+            }
+        )
+    )
     assert client.phone_number_id == "123" and client.business_phone == "+301"
 
 
@@ -123,9 +133,14 @@ def test_whatsapp_client_encrypted_token_decrypted(monkeypatch):
         return "EAAdec"
 
     monkeypatch.setattr(whatsapp, "decrypt_token", _dec)
-    client = _get_whatsapp_client(_wa_account({
-        "access_token": "enc-blob", "phone_number_id": "123",
-    }))
+    client = _get_whatsapp_client(
+        _wa_account(
+            {
+                "access_token": "enc-blob",
+                "phone_number_id": "123",
+            }
+        )
+    )
     assert seen["raw"] == "enc-blob" and client.phone_number_id == "123"
 
 
@@ -145,8 +160,11 @@ def test_token_bytes_passthrough_and_encode():
 
 def _tg_account(meta=None, enc=None):
     return SimpleNamespace(
-        id=uuid.uuid4(), platform="telegram", account_id="bot1",
-        meta_data=meta or {}, access_token_enc=enc,
+        id=uuid.uuid4(),
+        platform="telegram",
+        account_id="bot1",
+        meta_data=meta or {},
+        access_token_enc=enc,
     )
 
 
@@ -198,6 +216,7 @@ def test_webhook_url_for_appends_account_id(monkeypatch):
 
 def test_new_webhook_secret_charset():
     import re
+
     for _ in range(20):
         s = _new_webhook_secret()
         assert re.fullmatch(r"[A-Za-z0-9_-]+", s) and len(s) <= 64

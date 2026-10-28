@@ -6,6 +6,7 @@ Free tier: 30M queried dimensions/month, 10M stored dimensions.
 The index "social-embeddings" is configured with 1024 dimensions and cosine metric
 to match Cloudflare BGE-M3 embeddings.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,7 +28,8 @@ class VectorizeClient:
         self.index_name = (settings.VECTORIZE_INDEX_NAME or "social-embeddings").strip()
         # Token fallback chain: API token → AI token → Email token
         self._tokens = [
-            t for t in [
+            t
+            for t in [
                 (settings.CLOUDFLARE_API_TOKEN or "").strip(),
                 (settings.CLOUDFLARE_AI_API_TOKEN or "").strip(),
                 (getattr(settings, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip(),
@@ -48,10 +50,7 @@ class VectorizeClient:
     @property
     def base_url(self) -> str:
         if self._base_url is None:
-            self._base_url = (
-                f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}"
-                f"/vectorize/v2/indexes/{self.index_name}"
-            )
+            self._base_url = f"https://api.cloudflare.com/client/v4/accounts/{self.account_id}/vectorize/v2/indexes/{self.index_name}"
         return self._base_url
 
     def _headers(self) -> dict[str, str]:

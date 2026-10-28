@@ -17,6 +17,7 @@ Commands:
 Options: -a/--account ACCOUNT_UUID (defaults to first bluesky account).
 Never prints app passwords or JWTs.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -36,9 +37,7 @@ async def _accounts() -> list:
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        result = await db.execute(
-            select(SocialAccount).where(SocialAccount.platform == "bluesky")
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.platform == "bluesky"))
         return list(result.scalars().all())
 
 
@@ -55,10 +54,7 @@ def _client_for(account):
 async def cmd_accounts() -> None:
     for a in await _accounts():
         pds = (a.meta_data or {}).get("pds_url") or "https://bsky.social"
-        print(
-            f"{a.id}  @{a.username or '-'}  did={a.account_id}  "
-            f"pds={pds}  status={a.status}"
-        )
+        print(f"{a.id}  @{a.username or '-'}  did={a.account_id}  pds={pds}  status={a.status}")
 
 
 async def cmd_status(account) -> None:
@@ -88,7 +84,7 @@ def cmd_facets(text: str) -> None:
         return
     for f in facets:
         idx = f["index"]
-        span = text.encode("utf-8")[idx["byteStart"]:idx["byteEnd"]].decode("utf-8")
+        span = text.encode("utf-8")[idx["byteStart"] : idx["byteEnd"]].decode("utf-8")
         feat = f["features"][0]
         kind = feat["$type"].rsplit("#", 1)[-1]
         detail = feat.get("uri") or feat.get("tag") or feat.get("handle") or feat.get("did") or ""

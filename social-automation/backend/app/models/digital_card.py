@@ -1,4 +1,5 @@
 """Digital Business Card model — vCard 4.0 (RFC 6350) compliant cards with share tokens."""
+
 import uuid
 from datetime import UTC, datetime
 

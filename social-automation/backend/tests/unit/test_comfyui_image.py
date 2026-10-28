@@ -17,14 +17,13 @@ from app.services.comfyui_image import ComfyUIImageError, build_flux_prompt, gen
 
 
 def test_graph_structure_and_wiring():
-    g = build_flux_prompt(prompt="neon city", width=1024, height=1024,
-                          steps=4, seed=7, filename_prefix="p")["prompt"]
+    g = build_flux_prompt(prompt="neon city", width=1024, height=1024, steps=4, seed=7, filename_prefix="p")["prompt"]
     assert g["1"]["inputs"]["unet_name"] == CI.FLUX_UNET
     assert g["2"]["inputs"]["clip_name1"] == CI.FLUX_CLIP_L
     assert g["2"]["inputs"]["clip_name2"] == CI.FLUX_T5
     assert g["3"]["inputs"]["vae_name"] == CI.FLUX_VAE
     assert g["4"]["inputs"]["text"] == "neon city"
-    assert g["5"]["inputs"]["text"] == ""        # schnell: cfg 1.0, negative unused
+    assert g["5"]["inputs"]["text"] == ""  # schnell: cfg 1.0, negative unused
     assert g["7"]["inputs"]["seed"] == 7
     assert g["7"]["inputs"]["cfg"] == 1.0
     assert g["9"]["inputs"]["filename_prefix"] == "p"
@@ -36,13 +35,16 @@ def test_graph_random_seed_when_unset():
     assert isinstance(g1, int) and g1 != g2
 
 
-@pytest.mark.parametrize("kw", [
-    {"width": 1000},            # not multiple of 16
-    {"width": 128},             # below 256
-    {"width": 1504},            # above 1440
-    {"steps": 0},
-    {"steps": 21},
-])
+@pytest.mark.parametrize(
+    "kw",
+    [
+        {"width": 1000},  # not multiple of 16
+        {"width": 128},  # below 256
+        {"width": 1504},  # above 1440
+        {"steps": 0},
+        {"steps": 21},
+    ],
+)
 def test_graph_validation_errors(kw):
     with pytest.raises(ValueError):
         build_flux_prompt(prompt="x", **kw)
@@ -111,10 +113,15 @@ async def test_generate_happy(monkeypatch):
         post_resp=_Resp(200, {"prompt_id": "pid-1", "node_errors": {}}),
         hist_resps=[
             _Resp(200, {}),  # first poll: not ready
-            _Resp(200, {"pid-1": {
-                "status": {"status_str": "success", "messages": []},
-                "outputs": {"9": {"images": [{
-                    "filename": "out.png", "type": "output", "subfolder": ""}]}}}}),
+            _Resp(
+                200,
+                {
+                    "pid-1": {
+                        "status": {"status_str": "success", "messages": []},
+                        "outputs": {"9": {"images": [{"filename": "out.png", "type": "output", "subfolder": ""}]}},
+                    }
+                },
+            ),
         ],
         view_resp=_Resp(200, content=png),
     )
@@ -128,8 +135,7 @@ async def test_generate_happy(monkeypatch):
 @pytest.mark.asyncio
 async def test_generate_node_errors_rejected(monkeypatch):
     client = _Client(
-        post_resp=_Resp(200, {"prompt_id": None,
-                              "node_errors": {"7": {"errors": ["bad"]}}}),
+        post_resp=_Resp(200, {"prompt_id": None, "node_errors": {"7": {"errors": ["bad"]}}}),
         hist_resps=[],
     )
     _patch(monkeypatch, client)
@@ -149,10 +155,7 @@ async def test_generate_no_prompt_id(monkeypatch):
 async def test_generate_execution_error(monkeypatch):
     client = _Client(
         post_resp=_Resp(200, {"prompt_id": "p1", "node_errors": {}}),
-        hist_resps=[_Resp(200, {"p1": {
-            "status": {"status_str": "error",
-                       "messages": [("execution_error", {"exception_message": "OOM"})]},
-            "outputs": {}}})],
+        hist_resps=[_Resp(200, {"p1": {"status": {"status_str": "error", "messages": [("execution_error", {"exception_message": "OOM"})]}, "outputs": {}}})],
     )
     _patch(monkeypatch, client)
     with pytest.raises(ComfyUIImageError, match="OOM"):
@@ -175,9 +178,7 @@ async def test_generate_timeout_cancels(monkeypatch):
 async def test_generate_small_image_rejected(monkeypatch):
     client = _Client(
         post_resp=_Resp(200, {"prompt_id": "p1", "node_errors": {}}),
-        hist_resps=[_Resp(200, {"p1": {
-            "status": {"status_str": "success"},
-            "outputs": {"9": {"images": [{"filename": "t.png"}]}}}})],
+        hist_resps=[_Resp(200, {"p1": {"status": {"status_str": "success"}, "outputs": {"9": {"images": [{"filename": "t.png"}]}}}})],
         view_resp=_Resp(200, content=b"tiny"),
     )
     _patch(monkeypatch, client)

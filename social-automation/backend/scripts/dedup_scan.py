@@ -9,6 +9,7 @@ Runs inside the social-api container:
 
 Prints a near-duplicate report (pairs within DUP_DISTANCE).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,11 +35,7 @@ async def main(write: bool) -> None:
     )
 
     async with async_session_maker() as db:
-        assets = (
-            (await db.execute(select(MediaAsset).where(MediaAsset.is_archived.is_(False))))
-            .scalars()
-            .all()
-        )
+        assets = (await db.execute(select(MediaAsset).where(MediaAsset.is_archived.is_(False)))).scalars().all()
         hashed: dict[str, str] = {}
         computed = skipped = 0
         for asset in assets:
@@ -52,10 +49,7 @@ async def main(write: bool) -> None:
                 computed += 1
         if write:
             await db.commit()
-        print(
-            f"assets={len(assets)} hashed={len(hashed)} "
-            f"newly_computed={computed} skipped={skipped} write={write}"
-        )
+        print(f"assets={len(assets)} hashed={len(hashed)} newly_computed={computed} skipped={skipped} write={write}")
 
         ids = list(hashed)
         pairs = []

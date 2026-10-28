@@ -63,18 +63,19 @@ async def test_endpoint_uses_pre_window_baseline_without_live_calls():
     changed = SimpleNamespace(id=uuid.uuid4(), platform="twitter", username="a")
     quiet = SimpleNamespace(id=uuid.uuid4(), platform="linkedin", username="b")
     db = MagicMock()
-    db.execute = AsyncMock(side_effect=[
-        _result(scalars=[changed, quiet]),
-        _result(rows=[(changed.id, datetime.now(UTC) - timedelta(days=2), 105)]),
-        _result(rows=[(changed.id, 100), (quiet.id, 40)]),
-    ])
+    db.execute = AsyncMock(
+        side_effect=[
+            _result(scalars=[changed, quiet]),
+            _result(rows=[(changed.id, datetime.now(UTC) - timedelta(days=2), 105)]),
+            _result(rows=[(changed.id, 100), (quiet.id, 40)]),
+        ]
+    )
     live = AsyncMock(return_value=999)
-    with patch.object(analytics, "_team_for_user", new=AsyncMock(
-        return_value=SimpleNamespace(id=uuid.uuid4())
-    )), patch.object(analytics, "_follower_count", new=live):
-        out = await analytics.get_follower_counts(
-            team_id=uuid.uuid4(), days=7, current_user=MagicMock(), db=db
-        )
+    with (
+        patch.object(analytics, "_team_for_user", new=AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))),
+        patch.object(analytics, "_follower_count", new=live),
+    ):
+        out = await analytics.get_follower_counts(team_id=uuid.uuid4(), days=7, current_user=MagicMock(), db=db)
 
     live.assert_not_called()
     by_account = {s.account: s for s in out}
@@ -90,18 +91,19 @@ async def test_endpoint_uses_pre_window_baseline_without_live_calls():
 async def test_endpoint_live_fallback_only_for_never_synced():
     fresh = SimpleNamespace(id=uuid.uuid4(), platform="threads", username="c")
     db = MagicMock()
-    db.execute = AsyncMock(side_effect=[
-        _result(scalars=[fresh]),
-        _result(rows=[]),
-        _result(rows=[]),
-    ])
+    db.execute = AsyncMock(
+        side_effect=[
+            _result(scalars=[fresh]),
+            _result(rows=[]),
+            _result(rows=[]),
+        ]
+    )
     live = AsyncMock(return_value=12)
-    with patch.object(analytics, "_team_for_user", new=AsyncMock(
-        return_value=SimpleNamespace(id=uuid.uuid4())
-    )), patch.object(analytics, "_follower_count", new=live):
-        out = await analytics.get_follower_counts(
-            team_id=uuid.uuid4(), days=7, current_user=MagicMock(), db=db
-        )
+    with (
+        patch.object(analytics, "_team_for_user", new=AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))),
+        patch.object(analytics, "_follower_count", new=live),
+    ):
+        out = await analytics.get_follower_counts(team_id=uuid.uuid4(), days=7, current_user=MagicMock(), db=db)
     live.assert_awaited_once()
     assert out[0].current == 12
     assert out[0].change == 0

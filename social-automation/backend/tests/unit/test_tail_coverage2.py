@@ -162,9 +162,7 @@ async def test_auto_correct_empty_matches(respx_mock=None):
     from app.services.spellcheck import auto_correct
 
     with respx.mock(assert_all_called=False) as router:
-        router.post(f"{settings.LANGUAGETOOL_URL.rstrip('/')}/v2/check").respond(
-            200, json={"matches": []}
-        )
+        router.post(f"{settings.LANGUAGETOOL_URL.rstrip('/')}/v2/check").respond(200, json={"matches": []})
         out = await auto_correct("a perfectly fine sentence")
     assert isinstance(out, str)
 
@@ -249,9 +247,7 @@ async def test_digest_wrong_hour_skipped():
         "owner_chat_id": "42",
         "digest_hour": (now_hour + 12) % 24,
     }
-    out = await send_digest_for_account(
-        client=AsyncMock(), account_id="a1", cfg=cfg, force=False
-    )
+    out = await send_digest_for_account(client=AsyncMock(), account_id="a1", cfg=cfg, force=False)
     if out.get("skipped"):
         assert out["reason"] in ("wrong_hour", "digest_disabled")
 
@@ -365,14 +361,23 @@ def test_recommend_format_recs():
 
     platforms = {
         "instagram": _p(
-            platform="instagram", engagement=50, impressions=1000,
-            media_avg_er=9.8, text_avg_er=2.1,
-            media_avg_er_shrunk=10.0, text_avg_er_shrunk=2.0,
+            platform="instagram",
+            engagement=50,
+            impressions=1000,
+            media_avg_er=9.8,
+            text_avg_er=2.1,
+            media_avg_er_shrunk=10.0,
+            text_avg_er_shrunk=2.0,
         ),
         "threads": _p(
-            platform="threads", posts=8, engagement=10, impressions=400,
-            media_avg_er=1.2, text_avg_er=8.7,
-            media_avg_er_shrunk=1.0, text_avg_er_shrunk=9.0,
+            platform="threads",
+            posts=8,
+            engagement=10,
+            impressions=400,
+            media_avg_er=1.2,
+            text_avg_er=8.7,
+            media_avg_er_shrunk=1.0,
+            text_avg_er_shrunk=9.0,
         ),
     }
     recs = _recommend(platforms)
@@ -448,23 +453,27 @@ async def test_company_size_specific_ranges(monkeypatch):
     monkeypatch.setattr(lc, "coerce_company_size", lambda v: None)
 
     key = lc._session_key(LeadSource.telegram_dm, TEAM_ID, "th")
-    store[key] = json.dumps(
-        {"step": LeadCaptureStep.company_size, "started_at": datetime.now(UTC).isoformat(), "fields": {}}
-    )
+    store[key] = json.dumps({"step": LeadCaptureStep.company_size, "started_at": datetime.now(UTC).isoformat(), "fields": {}})
     r = await lc.handle_lead_capture_message(
-        _NoDb(), team_id=TEAM_ID, source=LeadSource.telegram_dm,
-        social_account_id=None, thread_id="th", inbound_text="21 to 50 people",
+        _NoDb(),
+        team_id=TEAM_ID,
+        source=LeadSource.telegram_dm,
+        social_account_id=None,
+        thread_id="th",
+        inbound_text="21 to 50 people",
     )
     assert r is not None
     stored = json.loads(store[key])
     assert stored["fields"]["company_size"] == "21-50"
 
-    store[key] = json.dumps(
-        {"step": LeadCaptureStep.company_size, "started_at": datetime.now(UTC).isoformat(), "fields": {}}
-    )
+    store[key] = json.dumps({"step": LeadCaptureStep.company_size, "started_at": datetime.now(UTC).isoformat(), "fields": {}})
     r = await lc.handle_lead_capture_message(
-        _NoDb(), team_id=TEAM_ID, source=LeadSource.telegram_dm,
-        social_account_id=None, thread_id="th", inbound_text="51 to 200 seats",
+        _NoDb(),
+        team_id=TEAM_ID,
+        source=LeadSource.telegram_dm,
+        social_account_id=None,
+        thread_id="th",
+        inbound_text="51 to 200 seats",
     )
     stored = json.loads(store[key])
     assert stored["fields"]["company_size"] == "51-200"
@@ -578,7 +587,11 @@ async def test_init_db_password_verify_failure(monkeypatch):
     from app.db import session as S
 
     admin = SimpleNamespace(
-        id=uuid.uuid4(), password_hash="h", name="A", timezone="utc", email="a@b.c",
+        id=uuid.uuid4(),
+        password_hash="h",
+        name="A",
+        timezone="utc",
+        email="a@b.c",
         is_superuser=True,
     )
     session = _NoDb(results=[_Res(first=admin), _Res(first=None), _Res(first=None), _Res()])
@@ -720,9 +733,7 @@ async def test_fetch_link_preview_size_cap(monkeypatch):
 async def test_call_inference_all_circuit_open(monkeypatch):
     import app.services.inference as inf
 
-    monkeypatch.setattr(
-        inf, "_text_provider_chain", AsyncMock(return_value=["dmr", "cloudflare"])
-    )
+    monkeypatch.setattr(inf, "_text_provider_chain", AsyncMock(return_value=["dmr", "cloudflare"]))
     monkeypatch.setattr(inf, "_circuit_is_open", lambda p: True)
     with pytest.raises(HTTPException) as exc:
         await inf.call_inference("p", db=_NoDb(), team_id=TEAM_ID)
@@ -736,9 +747,7 @@ async def test_call_inference_all_fail_raises_last_error(monkeypatch):
     monkeypatch.setattr(inf, "_text_provider_chain", AsyncMock(return_value=["dmr"]))
     monkeypatch.setattr(inf, "_circuit_is_open", lambda p: False)
     monkeypatch.setattr(inf, "_circuit_record_failure", lambda *a, **k: None)
-    monkeypatch.setattr(
-        inf, "_do_call_inference", AsyncMock(side_effect=HTTPException(500, "dmr down"))
-    )
+    monkeypatch.setattr(inf, "_do_call_inference", AsyncMock(side_effect=HTTPException(500, "dmr down")))
     with pytest.raises(HTTPException) as exc:
         await inf.call_inference("p", db=_NoDb(), team_id=TEAM_ID)
     assert exc.value.status_code == 500
@@ -757,7 +766,6 @@ def test_pipeline_font_files_exist(monkeypatch):
 
 
 def test_infographic_font_and_background_blend(monkeypatch):
-
 
     import app.services.infographic_renderer as ir
 

@@ -35,8 +35,17 @@ _FETCH_TIMEOUT = 10.0
 _MAX_REDIRECTS = 3
 
 _SELECT = [
-    "id", "name", "emailAddress", "website", "accountName", "accountId",
-    "industry", "title", "source", "status", "createdAt",
+    "id",
+    "name",
+    "emailAddress",
+    "website",
+    "accountName",
+    "accountId",
+    "industry",
+    "title",
+    "source",
+    "status",
+    "createdAt",
 ]
 
 
@@ -98,9 +107,7 @@ async def _fetch_site_summary(url: str, client: httpx.AsyncClient) -> str | None
         html = resp.text[:200_000]
         m = re.search(r"<title[^>]*>([^<]{3,200})</title>", html, re.I)
         title = m.group(1).strip() if m else ""
-        m = re.search(
-            r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']{10,400})', html, re.I
-        ) or re.search(
+        m = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']{10,400})', html, re.I) or re.search(
             r'<meta[^>]+content=["\']([^"\']{10,400})["\'][^>]+name=["\']description', html, re.I
         )
         desc = m.group(1).strip() if m else ""
@@ -131,11 +138,15 @@ async def _wikipedia_summary(name: str, client: httpx.AsyncClient) -> str | None
 def _compose_note(lead: dict[str, Any], site: str | None, wiki: str | None) -> str | None:
     bits = []
     company = lead.get("accountName") or lead.get("name") or ""
-    ctx = ", ".join(x for x in (
-        f"title={lead['title']}" if lead.get("title") else "",
-        f"industry={lead['industry']}" if lead.get("industry") else "",
-        f"source={lead['source']}" if lead.get("source") else "",
-    ) if x)
+    ctx = ", ".join(
+        x
+        for x in (
+            f"title={lead['title']}" if lead.get("title") else "",
+            f"industry={lead['industry']}" if lead.get("industry") else "",
+            f"source={lead['source']}" if lead.get("source") else "",
+        )
+        if x
+    )
     if ctx:
         bits.append(f"CRM context: {ctx}")
     if site:

@@ -1,4 +1,5 @@
 """Coverage for app/services/secret_store.py."""
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -33,8 +34,7 @@ class _Session:
         pass
 
     async def execute(self, stmt, *a):
-        return self._q.pop(0) if self._q else SimpleNamespace(
-            scalar_one_or_none=lambda: None, all=lambda: [], rowcount=0)
+        return self._q.pop(0) if self._q else SimpleNamespace(scalar_one_or_none=lambda: None, all=lambda: [], rowcount=0)
 
     def add(self, obj):
         self.added.append(obj)
@@ -125,13 +125,11 @@ class TestPostgresLayer:
         s = SecretStore()
         row = SimpleNamespace(value="pgv")
         res = SimpleNamespace(scalar_one_or_none=lambda: row)
-        monkeypatch.setattr(SS, "async_session_maker",
-                            _session_maker(_Session([res])))
+        monkeypatch.setattr(SS, "async_session_maker", _session_maker(_Session([res])))
         assert await s._get_from_postgres("K") == "pgv"
         # no row
         res2 = SimpleNamespace(scalar_one_or_none=lambda: None)
-        monkeypatch.setattr(SS, "async_session_maker",
-                            _session_maker(_Session([res2])))
+        monkeypatch.setattr(SS, "async_session_maker", _session_maker(_Session([res2])))
         assert await s._get_from_postgres("K") is None
         # error
         bad = SimpleNamespace()
@@ -171,12 +169,10 @@ class TestPostgresLayer:
     async def test_delete(self, monkeypatch):
         s = SecretStore()
         res = SimpleNamespace(rowcount=1)
-        monkeypatch.setattr(SS, "async_session_maker",
-                            _session_maker(_Session([res])))
+        monkeypatch.setattr(SS, "async_session_maker", _session_maker(_Session([res])))
         assert await s._delete_from_postgres("K") is True
         res0 = SimpleNamespace(rowcount=0)
-        monkeypatch.setattr(SS, "async_session_maker",
-                            _session_maker(_Session([res0])))
+        monkeypatch.setattr(SS, "async_session_maker", _session_maker(_Session([res0])))
         assert await s._delete_from_postgres("K") is False
         bad = SimpleNamespace()
         bad.execute = AsyncMock(side_effect=RuntimeError())
@@ -204,12 +200,10 @@ class TestGetSetDelete:
         s = SecretStore()
         monkeypatch.setattr(SS, "d1_client", _d1(enabled=False))
         # d1 miss → pg hit
-        monkeypatch.setattr(s, "_get_from_postgres",
-                            AsyncMock(return_value="pg"))
+        monkeypatch.setattr(s, "_get_from_postgres", AsyncMock(return_value="pg"))
         assert await s.get("K") == "pg"
         # pg miss → env hit
-        monkeypatch.setattr(s, "_get_from_postgres",
-                            AsyncMock(return_value=None))
+        monkeypatch.setattr(s, "_get_from_postgres", AsyncMock(return_value=None))
         monkeypatch.setattr(s, "_get_from_env", lambda k: "env")
         assert await s.get("K") == "env"
         # all miss → default
@@ -236,8 +230,7 @@ class TestGetSetDelete:
     async def test_delete(self, monkeypatch):
         s = SecretStore()
         monkeypatch.setattr(s, "_delete_from_d1", AsyncMock(return_value=True))
-        monkeypatch.setattr(s, "_delete_from_postgres",
-                            AsyncMock(return_value=True))
+        monkeypatch.setattr(s, "_delete_from_postgres", AsyncMock(return_value=True))
         monkeypatch.setattr(s, "_delete_from_env_file", lambda k: True)
         out = await s.delete("K")
         assert out == {"d1": True, "postgres": True, "env": True}
@@ -274,8 +267,7 @@ class TestEnvFileSync:
         envf.write_text("A=1\n")
         monkeypatch.setattr(SS, "_ENV_FILE", envf)
         monkeypatch.setattr(SS.os, "access", lambda p, m: True)
-        monkeypatch.setattr(type(envf), "read_text",
-                            lambda self: (_ for _ in ()).throw(OSError()))
+        monkeypatch.setattr(type(envf), "read_text", lambda self: (_ for _ in ()).throw(OSError()))
         assert await SecretStore()._sync_env_file("K", "v") is False
 
     def test_delete_env_file(self, monkeypatch, tmp_path):
@@ -293,8 +285,7 @@ class TestEnvFileSync:
         # key not present → False
         assert s._delete_from_env_file("MISSING") is False
         # read error → False
-        monkeypatch.setattr(type(envf), "read_text",
-                            lambda self: (_ for _ in ()).throw(OSError()))
+        monkeypatch.setattr(type(envf), "read_text", lambda self: (_ for _ in ()).throw(OSError()))
         assert s._delete_from_env_file("K") is False
 
 
@@ -303,13 +294,11 @@ class TestListKeys:
     async def test_aggregates(self, monkeypatch, tmp_path):
         s = SecretStore()
         d1 = _d1()
-        d1.query_all = AsyncMock(return_value=[
-            {"key": "D1_KEY"}, {"key": "SHARED"}])
+        d1.query_all = AsyncMock(return_value=[{"key": "D1_KEY"}, {"key": "SHARED"}])
         monkeypatch.setattr(SS, "d1_client", d1)
         row = SimpleNamespace(key="PG_KEY")
         res = SimpleNamespace(all=lambda: [row])
-        monkeypatch.setattr(SS, "async_session_maker",
-                            _session_maker(_Session([res])))
+        monkeypatch.setattr(SS, "async_session_maker", _session_maker(_Session([res])))
         envf = tmp_path / ".env"
         envf.write_text("ENV_SECRET=x\nPLAIN_VAR=y\nIG_TOKEN=z\n")
         monkeypatch.setattr(SS, "_ENV_FILE", envf)
@@ -335,7 +324,6 @@ class TestListKeys:
     async def test_profile_credentials(self, monkeypatch):
         s = SecretStore()
         vals = {"INSTAGRAM_USERNAME": "u", "INSTAGRAM_PASSWORD": "p"}
-        monkeypatch.setattr(s, "get", AsyncMock(
-            side_effect=lambda k, d=None: vals.get(k)))
+        monkeypatch.setattr(s, "get", AsyncMock(side_effect=lambda k, d=None: vals.get(k)))
         out = await s.get_profile_credentials()
         assert out == vals

@@ -47,9 +47,7 @@ def test_client_rejects_bad_token():
 
 @pytest.mark.asyncio
 async def test_get_me_success(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"ok": True, "result": {"id": 1, "is_bot": True, "username": "cloudless_bot"}})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": {"id": 1, "is_bot": True, "username": "cloudless_bot"}}))
     with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
         me = await client.get_me()
     assert me["username"] == "cloudless_bot"
@@ -58,9 +56,7 @@ async def test_get_me_success(client):
 
 @pytest.mark.asyncio
 async def test_get_me_api_error(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(401, {"ok": False, "description": "Unauthorized", "error_code": 401})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(401, {"ok": False, "description": "Unauthorized", "error_code": 401}))
     with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
         with pytest.raises(api.TelegramAPIError) as exc:
             await client.get_me()
@@ -91,9 +87,7 @@ async def test_set_webhook_success(client):
 
 @pytest.mark.asyncio
 async def test_send_message_truncates(client):
-    fake = _FakeAsyncClient(
-        _FakeResponse(200, {"ok": True, "result": {"message_id": 9, "text": "x"}})
-    )
+    fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": {"message_id": 9, "text": "x"}}))
     long_text = "a" * 5000
     with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
         await client.send_message(42, long_text)
@@ -144,7 +138,9 @@ async def test_send_photo_payload(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": {"message_id": 5}}))
     with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
         await client.send_photo(
-            42, "https://x.test/p.png", caption="cap",
+            42,
+            "https://x.test/p.png",
+            caption="cap",
             reply_markup={"inline_keyboard": [[{"text": "Go", "url": "https://x.test"}]]},
         )
     body = fake.calls[0]["json"]
@@ -195,9 +191,7 @@ async def test_send_poll_payload(client):
 async def test_send_message_with_markup(client):
     fake = _FakeAsyncClient(_FakeResponse(200, {"ok": True, "result": {"message_id": 9}}))
     with patch("app.services.telegram_api.httpx.AsyncClient", return_value=fake):
-        await client.send_message_with_markup(
-            42, "click", {"inline_keyboard": [[{"text": "B", "callback_data": "d"}]]}
-        )
+        await client.send_message_with_markup(42, "click", {"inline_keyboard": [[{"text": "B", "callback_data": "d"}]]})
     body = fake.calls[0]["json"]
     assert body["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == "d"
 
@@ -400,9 +394,7 @@ async def test_management_methods(client):
     assert await client.export_chat_invite_link(1) == ""
 
     calls = _call_stub(client, {"invite_link": "https://t.me/+xyz", "name": "ig"})
-    out = await client.create_chat_invite_link(
-        1, name="a-very-long-source-name-that-exceeds-32", member_limit=100
-    )
+    out = await client.create_chat_invite_link(1, name="a-very-long-source-name-that-exceeds-32", member_limit=100)
     assert out == {"invite_link": "https://t.me/+xyz", "name": "ig"}
     assert calls[0][0] == "createChatInviteLink"
     assert calls[0][1]["name"] == "a-very-long-source-name-that-exc"
@@ -411,9 +403,7 @@ async def test_management_methods(client):
     assert calls[0][1]["creates_join_request"] is False
 
     calls = _call_stub(client, {"invite_link": "https://t.me/+join"})
-    out = await client.create_chat_invite_link(
-        1, expire_date=1_800_000_000, creates_join_request=True
-    )
+    out = await client.create_chat_invite_link(1, expire_date=1_800_000_000, creates_join_request=True)
     assert calls[0][1] == {
         "chat_id": 1,
         "creates_join_request": True,
@@ -457,14 +447,16 @@ def test_extract_inbound_edges():
 def test_extract_my_chat_member_edges():
     assert api.extract_my_chat_member_update({}) is None
     assert api.extract_my_chat_member_update({"my_chat_member": {"chat": {}}}) is None
-    out = api.extract_my_chat_member_update({
-        "my_chat_member": {
-            "chat": {"id": 9, "type": "group", "title": "G"},
-            "old_chat_member": {"status": "left"},
-            "new_chat_member": {"status": "member"},
-            "from": {"id": 7},
+    out = api.extract_my_chat_member_update(
+        {
+            "my_chat_member": {
+                "chat": {"id": 9, "type": "group", "title": "G"},
+                "old_chat_member": {"status": "left"},
+                "new_chat_member": {"status": "member"},
+                "from": {"id": 7},
+            }
         }
-    })
+    )
     assert out == {
         "update_id": None,
         "chat_id": 9,

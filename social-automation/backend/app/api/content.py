@@ -46,11 +46,7 @@ class PostCreate(BaseModel):
     @model_validator(mode="after")
     def _has_content(self) -> "PostCreate":
         """A post must carry at least text, media, or a link — reject empty drafts."""
-        if (
-            not (self.content_text or "").strip()
-            and not self.media_ids
-            and not self.link_url
-        ):
+        if not (self.content_text or "").strip() and not self.media_ids and not self.link_url:
             raise ValueError("Post must include text, media, or a link")
         return self
 
@@ -133,7 +129,8 @@ class PostListResponse(BaseModel):
 
 @router.post("/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 async def create_post(
-    post_data: PostCreate, team_id: TeamId,
+    post_data: PostCreate,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -149,9 +146,7 @@ async def create_post(
         pillar_id = auto_pillar.id if auto_pillar else None
 
     corrected_text = await auto_correct(post_data.content_text or "")
-    body = strip_embedded_metadata(
-        corrected_text or post_data.content_text, post_data.hashtags, post_data.link_url
-    )
+    body = strip_embedded_metadata(corrected_text or post_data.content_text, post_data.hashtags, post_data.link_url)
 
     post = Post(
         team_id=team_id,
@@ -255,9 +250,7 @@ async def get_calendar(
 @router.get("/posts/{post_id}", response_model=PostResponse)
 async def get_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Post)
-        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
-        .where(Post.id == post_id, Post.team_id == team_id)
+        select(Post).options(selectinload(Post.targets).selectinload(PostTarget.social_account)).where(Post.id == post_id, Post.team_id == team_id)
     )
     post = result.scalar_one_or_none()
     if not post:
@@ -269,13 +262,12 @@ async def get_post(post_id: uuid.UUID, team_id: TeamId, current_user: User = Dep
 @router.patch("/posts/{post_id}", response_model=PostResponse)
 async def update_post(
     post_id: uuid.UUID,
-    post_data: PostUpdate, team_id: TeamId,
+    post_data: PostUpdate,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets))
-    )
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets)))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -334,15 +326,14 @@ async def update_post(
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
-    post_id: uuid.UUID, team_id: TeamId,
+    post_id: uuid.UUID,
+    team_id: TeamId,
     current_user: User = Depends(require_editor),
     db: AsyncSession = Depends(get_db),
     delete_external: bool = False,
 ):
     result = await db.execute(
-        select(Post)
-        .where(Post.id == post_id, Post.team_id == team_id)
-        .options(selectinload(Post.targets).selectinload(PostTarget.social_account))
+        select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets).selectinload(PostTarget.social_account))
     )
     post = result.scalar_one_or_none()
     if not post:
@@ -385,18 +376,22 @@ async def _delete_external_targets(post: Post, db: AsyncSession) -> dict[str, st
             ok = False
             if platform == "threads":
                 from app.services.threads_api import ThreadsAPIClient
+
                 ok = await ThreadsAPIClient(access_token=token, user_id=account.account_id).delete_post(target.platform_post_id)
             elif platform == "facebook":
                 from app.services.facebook_api import FacebookAPIClient
                 from app.services.publishing import _facebook_page_token
+
                 page_token = await _facebook_page_token(token, account.account_id)
                 ok = await FacebookAPIClient(access_token=page_token, page_id=account.account_id).delete_post(target.platform_post_id)
             elif platform == "linkedin":
                 from app.services.linkedin_api import LinkedInAPIClient
+
                 res = await LinkedInAPIClient(access_token=token).delete_post(target.platform_post_id)
                 ok = bool(res.success)
             elif platform == "twitter":
                 from app.services.twitter_api import TwitterAPIClient
+
                 ok = await TwitterAPIClient(access_token=token).delete_tweet(target.platform_post_id)
             else:
                 errors[platform] = "platform does not support API delete — remove it in the app"
@@ -413,14 +408,15 @@ async def _delete_external_targets(post: Post, db: AsyncSession) -> dict[str, st
 @router.post("/posts/{post_id}/schedule", response_model=PostResponse)
 async def schedule_post(
     post_id: uuid.UUID,
-    scheduled_at: str, team_id: TeamId,
+    scheduled_at: str,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     # Parse ISO 8601 string, support Z suffix
     try:
-        if scheduled_at.endswith('Z'):
-            scheduled_at = scheduled_at[:-1] + '+00:00'
+        if scheduled_at.endswith("Z"):
+            scheduled_at = scheduled_at[:-1] + "+00:00"
         dt = datetime.fromisoformat(scheduled_at)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid datetime format")
@@ -451,6 +447,7 @@ async def publish_now(post_id: uuid.UUID, team_id: TeamId, current_user: User = 
     try:
         from app.models.brand import Brand, BrandVoice
         from app.services.brand_compliance import score_brand_compliance
+
         brand_result = await db.execute(select(Brand).where(Brand.team_id == team_id))
         brand = brand_result.scalars().first()
         if brand:
@@ -478,6 +475,7 @@ async def publish_now(post_id: uuid.UUID, team_id: TeamId, current_user: User = 
             )
             if compliance.get("score", 5) < 3:
                 import structlog
+
                 logger = structlog.get_logger()
                 logger.warning("brand_compliance_low", post_id=str(post_id), score=compliance.get("score"), issues=compliance.get("issues"))
     except Exception:
@@ -497,6 +495,7 @@ async def publish_now(post_id: uuid.UUID, team_id: TeamId, current_user: User = 
     await db.refresh(post)
 
     import asyncio
+
     loop = asyncio.get_event_loop()
     pid_str = str(post_id)
     loop.run_in_executor(None, lambda: publish_post_now.delay(pid_str, account_ids))
@@ -540,6 +539,7 @@ async def duplicate_post(post_id: uuid.UUID, team_id: TeamId, current_user: User
 
 class CrossPostRequest(BaseModel):
     """Request body for cross-posting an existing post to another platform."""
+
     target_platform: str  # e.g. "threads", "twitter", "facebook"
     target_account_id: uuid.UUID | None = None  # specific account; auto-select if omitted
     adapt_content: bool = True  # re-render text for target platform limits
@@ -549,7 +549,8 @@ class CrossPostRequest(BaseModel):
 @router.post("/posts/{post_id}/cross-post", response_model=PostResponse)
 async def cross_post_to_platform(
     post_id: uuid.UUID,
-    request: CrossPostRequest, team_id: TeamId,
+    request: CrossPostRequest,
+    team_id: TeamId,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -560,9 +561,7 @@ async def cross_post_to_platform(
     Reuses the original media assets. If ``target_account_id`` is omitted,
     the first active account on ``target_platform`` for the team is used.
     """
-    result = await db.execute(
-        select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets))
-    )
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team_id).options(selectinload(Post.targets)))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -732,15 +731,17 @@ async def list_content_media(
             mt = "image" if f.suffix.lower() in {".jpg", ".jpeg", ".png", ".gif", ".webp"} else "video"
             if media_type and mt != media_type:
                 continue
-            items.append({
-                "id": f.name,
-                "filename": f.name,
-                "url": f"/media/files/{f.name}",
-                "media_type": mt,
-                "size": f.stat().st_size,
-            })
+            items.append(
+                {
+                    "id": f.name,
+                    "filename": f.name,
+                    "url": f"/media/files/{f.name}",
+                    "media_type": mt,
+                    "size": f.stat().st_size,
+                }
+            )
     start = (page - 1) * per_page
-    return {"items": items[start:start + per_page], "total": len(items), "page": page, "per_page": per_page}
+    return {"items": items[start : start + per_page], "total": len(items), "page": page, "per_page": per_page}
 
 
 @router.post("/media/upload")
@@ -815,9 +816,11 @@ async def submit_for_review(post_id: uuid.UUID, team_id: TeamId, current_user: U
         raise HTTPException(status_code=400, detail=f"Cannot submit for review from status '{post.status}'")
     post.status = PostStatus.REVIEW
     comment = PostComment(
-        post_id=post.id, user_id=current_user.id,
+        post_id=post.id,
+        user_id=current_user.id,
         author_name=current_user.email or "Unknown",
-        body="Submitted for review", action="submit_review",
+        body="Submitted for review",
+        action="submit_review",
     )
     db.add(comment)
     await log_action(db, user=current_user, action="submit_review", resource_type="post", resource_id=str(post_id))
@@ -827,8 +830,11 @@ async def submit_for_review(post_id: uuid.UUID, team_id: TeamId, current_user: U
 
 @router.post("/posts/{post_id}/approve", response_model=PostResponse)
 async def approve_post(
-    post_id: uuid.UUID, team_id: TeamId, comment: CommentCreate | None = None,
-    current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
+    post_id: uuid.UUID,
+    team_id: TeamId,
+    comment: CommentCreate | None = None,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     """Approve a post in REVIEW status."""
     post = await _get_team_post(post_id, team_id, db)
@@ -836,9 +842,11 @@ async def approve_post(
         raise HTTPException(status_code=400, detail=f"Cannot approve from status '{post.status}'")
     post.status = PostStatus.APPROVED
     c = PostComment(
-        post_id=post.id, user_id=current_user.id,
+        post_id=post.id,
+        user_id=current_user.id,
         author_name=current_user.email or "Unknown",
-        body=comment.body if comment else "Approved", action="approve",
+        body=comment.body if comment else "Approved",
+        action="approve",
     )
     db.add(c)
     await log_action(db, user=current_user, action="approve", resource_type="post", resource_id=str(post_id))
@@ -848,8 +856,11 @@ async def approve_post(
 
 @router.post("/posts/{post_id}/reject", response_model=PostResponse)
 async def reject_post(
-    post_id: uuid.UUID, team_id: TeamId, comment: CommentCreate | None = None,
-    current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db),
+    post_id: uuid.UUID,
+    team_id: TeamId,
+    comment: CommentCreate | None = None,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     """Reject a post in REVIEW status — sends it back to DRAFT."""
     post = await _get_team_post(post_id, team_id, db)
@@ -857,9 +868,11 @@ async def reject_post(
         raise HTTPException(status_code=400, detail=f"Cannot reject from status '{post.status}'")
     post.status = PostStatus.DRAFT
     c = PostComment(
-        post_id=post.id, user_id=current_user.id,
+        post_id=post.id,
+        user_id=current_user.id,
         author_name=current_user.email or "Unknown",
-        body=comment.body if comment else "Rejected — needs revision", action="reject",
+        body=comment.body if comment else "Rejected — needs revision",
+        action="reject",
     )
     db.add(c)
     await log_action(db, user=current_user, action="reject", resource_type="post", resource_id=str(post_id))
@@ -869,15 +882,20 @@ async def reject_post(
 
 @router.post("/posts/{post_id}/comments", response_model=CommentOut)
 async def add_comment(
-    post_id: uuid.UUID, body: CommentCreate, team_id: TeamId,
-    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    post_id: uuid.UUID,
+    body: CommentCreate,
+    team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Add a general comment to a post (preserved through status transitions)."""
     post = await _get_team_post(post_id, team_id, db)
     c = PostComment(
-        post_id=post.id, user_id=current_user.id,
+        post_id=post.id,
+        user_id=current_user.id,
         author_name=current_user.email or "Unknown",
-        body=body.body, action=body.action or "comment",
+        body=body.body,
+        action=body.action or "comment",
     )
     db.add(c)
     await db.commit()
@@ -887,9 +905,7 @@ async def add_comment(
 
 async def _get_team_post(post_id: uuid.UUID, team_id: uuid.UUID, db: AsyncSession) -> Post:
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(Post).where(Post.id == post_id, Post.team_id == team.id)
-    )
+    result = await db.execute(select(Post).where(Post.id == post_id, Post.team_id == team.id))
     post = result.scalar_one_or_none()
     if not post:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -921,9 +937,7 @@ class PillarOut(BaseModel):
 @router.get("/pillars", response_model=list[PillarOut])
 async def list_pillars(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(Pillar).where(Pillar.team_id == team.id).order_by(Pillar.sort_order, Pillar.name)
-    )
+    result = await db.execute(select(Pillar).where(Pillar.team_id == team.id).order_by(Pillar.sort_order, Pillar.name))
     return result.scalars().all()
 
 
@@ -939,8 +953,11 @@ async def create_pillar(data: PillarCreate, team_id: TeamId, current_user: User 
 
 @router.patch("/pillars/{pillar_id}", response_model=PillarOut)
 async def update_pillar(
-    pillar_id: uuid.UUID, data: PillarCreate, team_id: TeamId,
-    current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db),
+    pillar_id: uuid.UUID,
+    data: PillarCreate,
+    team_id: TeamId,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     team = await _get_team(team_id, db)
     result = await db.execute(select(Pillar).where(Pillar.id == pillar_id, Pillar.team_id == team.id))
@@ -1016,9 +1033,7 @@ class BriefOut(BaseModel):
 @router.get("/briefs", response_model=list[BriefOut])
 async def list_briefs(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(ContentBrief).where(ContentBrief.team_id == team.id).order_by(ContentBrief.created_at.desc())
-    )
+    result = await db.execute(select(ContentBrief).where(ContentBrief.team_id == team.id).order_by(ContentBrief.created_at.desc()))
     return result.scalars().all()
 
 

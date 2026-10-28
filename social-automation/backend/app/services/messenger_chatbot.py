@@ -29,6 +29,7 @@ Architecture:
     9. Check per-conversation pause (human handoff)
    10. Send reply and store in conversation memory
 """
+
 from __future__ import annotations
 
 import json
@@ -64,11 +65,16 @@ async def track_bot_reply(
     """Log a bot reply to ai_usage_logs and analytics_events (non-blocking)."""
     try:
         from app.services.usage_tracker import track_inference
+
         await track_inference(
-            provider=provider, model=model,
+            provider=provider,
+            model=model,
             prompt=user_message[:500],
-            team_id=team_id, endpoint="bot_reply",
-            latency_ms=latency_ms, success=success, error=error,
+            team_id=team_id,
+            endpoint="bot_reply",
+            latency_ms=latency_ms,
+            success=success,
+            error=error,
             meta_data={
                 "account_id": account_id,
                 "thread_id": thread_id,
@@ -85,12 +91,10 @@ async def track_bot_reply(
         try:
             from app.db.session import async_session_maker
             from app.models.analytics import AnalyticsEvent
+
             event = AnalyticsEvent(
                 team_id=team_id,
-                social_account_id=(
-                    uuid.UUID(account_id)
-                    if _is_valid_uuid(account_id) else None
-                ),
+                social_account_id=(uuid.UUID(account_id) if _is_valid_uuid(account_id) else None),
                 event_type="bot_reply",
                 platform="messenger",
                 occurred_at=datetime.now(UTC),
@@ -155,6 +159,7 @@ DEFAULT_MEMORY_MESSAGES = 10  # Last 10 messages as context
 
 async def _get_redis() -> Any:
     import redis.asyncio as aioredis
+
     # Use dedicated Redis DB for bot state (cooldowns, pause, config)
     # Falls back to main REDIS_URL if MESSENGER_REDIS_URL is not set
     url = getattr(settings, "MESSENGER_REDIS_URL", None) or settings.REDIS_URL
@@ -237,15 +242,37 @@ async def resume_thread(account_id: str, thread_id: str) -> None:
 
 _FRUSTRATION_MARKERS = (
     # English — explicit escalation requests + frustration
-    "talk to a human", "real person", "human please", "speak to someone",
-    "talk to someone", "actual person", "stop messaging", "stop texting",
-    "stop replying", "stop it", "annoying", "relentless", "useless bot",
-    "stupid bot", "spam", "leave me alone", "wasting my time",
-    "not helpful", "you're not listening", "you are not listening",
-    "answer my question", "frustrat",
+    "talk to a human",
+    "real person",
+    "human please",
+    "speak to someone",
+    "talk to someone",
+    "actual person",
+    "stop messaging",
+    "stop texting",
+    "stop replying",
+    "stop it",
+    "annoying",
+    "relentless",
+    "useless bot",
+    "stupid bot",
+    "spam",
+    "leave me alone",
+    "wasting my time",
+    "not helpful",
+    "you're not listening",
+    "you are not listening",
+    "answer my question",
+    "frustrat",
     # Greek
-    "άνθρωπο", "πραγματικό άτομο", "σταμάτα", "ενοχλείς", "ενόχληση",
-    "σπαμ", "άστο με ήσυχο", "δεν απαντάς",
+    "άνθρωπο",
+    "πραγματικό άτομο",
+    "σταμάτα",
+    "ενοχλείς",
+    "ενόχληση",
+    "σπαμ",
+    "άστο με ήσυχο",
+    "δεν απαντάς",
 )
 
 
@@ -397,10 +424,12 @@ async def get_conversation_memory(
                 messages = []
                 for i, doc in enumerate(docs):
                     meta = metas[i] if i < len(metas) else {}
-                    messages.append({
-                        "sender": meta.get("sender", "them"),
-                        "text": doc,
-                    })
+                    messages.append(
+                        {
+                            "sender": meta.get("sender", "them"),
+                            "text": doc,
+                        }
+                    )
                 return messages
         except Exception:
             pass
@@ -526,6 +555,7 @@ Reply with only the category name, nothing else."""
     # Try DMR first (local, free, primary)
     try:
         from app.services.dmr import call_dmr_chat
+
         result = await call_dmr_chat(
             prompt,
             max_tokens=10,
@@ -633,7 +663,7 @@ async def _get_brand_voice_block() -> str:
             lines.append(
                 "- Always quote prices in euros (€). Never use dollars or USD. "
                 "Do NOT make up specific prices. If asked about pricing, say: "
-                "\"Get started at cloudless.gr for a free audit!\""
+                '"Get started at cloudless.gr for a free audit!"'
             )
         if sig.get("language"):
             lines.append(
@@ -658,13 +688,42 @@ async def _get_brand_voice_block() -> str:
 # Keywords that indicate a pricing question
 _PRICING_KEYWORDS = [
     # English
-    "how much", "price", "pricing", "cost", "costs", "expensive", "cheap",
-    "budget", "quote", "rate", "rates", "fee", "fees", "plan", "plans",
-    "subscription", "tier", "tiers", "per month", "per year",
+    "how much",
+    "price",
+    "pricing",
+    "cost",
+    "costs",
+    "expensive",
+    "cheap",
+    "budget",
+    "quote",
+    "rate",
+    "rates",
+    "fee",
+    "fees",
+    "plan",
+    "plans",
+    "subscription",
+    "tier",
+    "tiers",
+    "per month",
+    "per year",
     # Greek
-    "πόσο", "ποσό", "τιμή", "τιμές", "κόστος", "κόστους", "ακριβό",
-    "φθηνό", "προϋπολογισμός", "παράθεμα", "συνδρομή", "συνδρομές",
-    "τιμολόγιο", "χρέωση", "χρεώσεις",
+    "πόσο",
+    "ποσό",
+    "τιμή",
+    "τιμές",
+    "κόστος",
+    "κόστους",
+    "ακριβό",
+    "φθηνό",
+    "προϋπολογισμός",
+    "παράθεμα",
+    "συνδρομή",
+    "συνδρομές",
+    "τιμολόγιο",
+    "χρέωση",
+    "χρεώσεις",
 ]
 
 # Deterministic pricing responses (Greek + English)
@@ -692,8 +751,7 @@ def _is_pricing_question(message: str) -> bool:
 
 def _is_greek_message(message: str) -> bool:
     """Check if a message contains Greek characters."""
-    return any(0x0370 <= ord(c) <= 0x03FF or 0x1F00 <= ord(c) <= 0x1FFF
-               for c in message)
+    return any(0x0370 <= ord(c) <= 0x03FF or 0x1F00 <= ord(c) <= 0x1FFF for c in message)
 
 
 # Steering questions appended when the LLM reply doesn't end with one.
@@ -718,6 +776,7 @@ def _ensure_steering_question(text: str, is_greek: bool) -> str:
         return text
     questions = _STEERING_QUESTIONS_GR if is_greek else _STEERING_QUESTIONS_EN
     import random
+
     return stripped + random.choice(questions)
 
 
@@ -768,10 +827,13 @@ async def generate_contextual_reply(
     """
     # Get per-conversation config overrides
     thread_config = await get_thread_config(account_id, thread_id)
-    system_prompt = thread_config.get("system_prompt", config.get(
+    system_prompt = thread_config.get(
         "system_prompt",
-        "You are a helpful assistant for {page_name}. Reply concisely and professionally.",
-    )).replace("{page_name}", account_name)
+        config.get(
+            "system_prompt",
+            "You are a helpful assistant for {page_name}. Reply concisely and professionally.",
+        ),
+    ).replace("{page_name}", account_name)
 
     max_tokens = thread_config.get("max_tokens", config.get("max_tokens", 200))
     temperature = thread_config.get("temperature", 0.7)
@@ -788,7 +850,8 @@ async def generate_contextual_reply(
         lang = "greek" if _is_greek_message(user_message) else "english"
         reply = _ensure_steering_question(_PRICING_RESPONSES[lang], lang == "greek")
         await track_bot_reply(
-            account_id, thread_id,
+            account_id,
+            thread_id,
             provider="deterministic",
             model="pricing-guardrail",
             user_message=user_message,
@@ -819,10 +882,7 @@ async def generate_contextual_reply(
                 "social media management). Steer them toward booking a free consultation "
                 "at cloudless.gr or emailing hello@cloudless.gr."
             ),
-            INTENT_PERSONAL: (
-                "This is a personal conversation. Be friendly and casual. "
-                "If they mention a business need, gently steer toward Cloudless.gr."
-            ),
+            INTENT_PERSONAL: ("This is a personal conversation. Be friendly and casual. If they mention a business need, gently steer toward Cloudless.gr."),
             INTENT_QUESTION: (
                 "This is a question. Answer concisely and accurately. "
                 "If the question is about services or pricing, steer them to "
@@ -920,6 +980,7 @@ async def generate_contextual_reply(
     dmr_start = time.perf_counter()
     try:
         from app.services.dmr import call_dmr_chat
+
         result = await call_dmr_chat(
             lang_instruction,
             system=enhanced_prompt,
@@ -935,12 +996,13 @@ async def generate_contextual_reply(
                 await mark_disclosed(account_id, thread_id)
             reply = f"{disclosure_prefix}{text}" if not disclosed else text
             await track_bot_reply(
-                account_id, thread_id,
-                provider="dmr", model=dmr_model,
-                user_message=user_message, reply_text=reply,
-                latency_ms=int(
-                    (time.perf_counter() - dmr_start) * 1000
-                ),
+                account_id,
+                thread_id,
+                provider="dmr",
+                model=dmr_model,
+                user_message=user_message,
+                reply_text=reply,
+                latency_ms=int((time.perf_counter() - dmr_start) * 1000),
                 intent=intent,
                 language="greek" if _is_greek_message(user_message) else "english",
                 team_id=team_id,
@@ -949,13 +1011,16 @@ async def generate_contextual_reply(
     except Exception as exc:
         logger.warning("DMR chatbot reply failed: %s", exc)
         await track_bot_reply(
-            account_id, thread_id,
-            provider="dmr", model=dmr_model,
-            user_message=user_message, reply_text="",
-            latency_ms=int(
-                (time.perf_counter() - dmr_start) * 1000
-            ),
-            success=False, error=str(exc), intent=intent,
+            account_id,
+            thread_id,
+            provider="dmr",
+            model=dmr_model,
+            user_message=user_message,
+            reply_text="",
+            latency_ms=int((time.perf_counter() - dmr_start) * 1000),
+            success=False,
+            error=str(exc),
+            intent=intent,
             team_id=team_id,
         )
 
@@ -989,13 +1054,13 @@ async def generate_contextual_reply(
                                 await mark_disclosed(account_id, thread_id)
                             reply = f"{disclosure_prefix}{text}" if not disclosed else text
                             await track_bot_reply(
-                                account_id, thread_id,
-                                provider="cloudflare", model=model,
+                                account_id,
+                                thread_id,
+                                provider="cloudflare",
+                                model=model,
                                 user_message=user_message,
                                 reply_text=reply,
-                                latency_ms=int(
-                                    (time.perf_counter() - cf_start) * 1000
-                                ),
+                                latency_ms=int((time.perf_counter() - cf_start) * 1000),
                                 intent=intent,
                                 language="greek" if _is_greek_message(user_message) else "english",
                                 team_id=team_id,
@@ -1004,13 +1069,16 @@ async def generate_contextual_reply(
         except Exception as exc:
             logger.warning("Cloudflare AI bot reply failed: %s", exc)
             await track_bot_reply(
-                account_id, thread_id,
-                provider="cloudflare", model=model,
-                user_message=user_message, reply_text="",
-                latency_ms=int(
-                    (time.perf_counter() - cf_start) * 1000
-                ),
-                success=False, error=str(exc), intent=intent,
+                account_id,
+                thread_id,
+                provider="cloudflare",
+                model=model,
+                user_message=user_message,
+                reply_text="",
+                latency_ms=int((time.perf_counter() - cf_start) * 1000),
+                success=False,
+                error=str(exc),
+                intent=intent,
                 team_id=team_id,
             )
 

@@ -12,8 +12,7 @@ import app.services.whatsapp_flows as S
 
 @pytest.fixture
 def client():
-    return S.WhatsAppFlowsClient(
-        access_token="EAtok", waba_id="111", phone_number_id="222")
+    return S.WhatsAppFlowsClient(access_token="EAtok", waba_id="111", phone_number_id="222")
 
 
 def _http_fake(status: int = 200, body=None):
@@ -50,6 +49,7 @@ def _http_fake(status: int = 200, body=None):
 
 def _patch(monkeypatch, http):
     import app.services.whatsapp_flows as S
+
     monkeypatch.setattr(S.httpx, "AsyncClient", lambda **kw: http)
 
 
@@ -101,8 +101,7 @@ async def test_create_flow(client, monkeypatch):
 
     http, calls, _ = _http_fake(body={"id": "f1"})
     _patch(monkeypatch, http)
-    out = await client.create_flow(
-        "f", ["SIGN_UP"], endpoint_uri="https://e", clone_flow_id="99")
+    out = await client.create_flow("f", ["SIGN_UP"], endpoint_uri="https://e", clone_flow_id="99")
     assert out == {"id": "f1"}
     j = calls[0]["json"]
     assert j["categories"] == ["SIGN_UP"]
@@ -137,8 +136,7 @@ async def test_update_flow_metadata(client, monkeypatch):
 
     http, calls, _ = _http_fake(body={"success": True})
     _patch(monkeypatch, http)
-    out = await client.update_flow_metadata(
-        "123", name="n", categories=["SURVEY"], endpoint_uri="u")
+    out = await client.update_flow_metadata("123", name="n", categories=["SURVEY"], endpoint_uri="u")
     assert out == {"success": True}
     j = calls[0]["json"]
     assert j["name"] == "n" and j["endpoint_uri"] == "u"
@@ -188,18 +186,24 @@ async def test_send_flow(client, monkeypatch):
         await bare.send_flow("+30", "123", "tok")
 
     with pytest.raises(ValueError, match="flow_action"):
-        await client.send_flow("+30", "123", "tok",
-                               flow_action="bogus")
+        await client.send_flow("+30", "123", "tok", flow_action="bogus")
 
     http, calls, _ = _http_fake(body={"messages": [{"id": "m1"}]})
     _patch(monkeypatch, http)
 
     # navigate — screen in flow_action_payload
     out = await client.send_flow(
-        "+302101234567", "123", "tok",
-        body_text="body", header_text="H", footer_text="F",
-        flow_action="navigate", screen="S1",
-        flow_action_payload={"k": 1}, messaging_type="TEMPLATE")
+        "+302101234567",
+        "123",
+        "tok",
+        body_text="body",
+        header_text="H",
+        footer_text="F",
+        flow_action="navigate",
+        screen="S1",
+        flow_action_payload={"k": 1},
+        messaging_type="TEMPLATE",
+    )
     assert out["messages"][0]["id"] == "m1"
     inter = calls[0]["json"]["interactive"]
     params = inter["action"]["parameters"]
@@ -214,17 +218,14 @@ async def test_send_flow(client, monkeypatch):
     assert "222/messages" in calls[0]["url"]
 
     # data_exchange — payload passed directly, no screen key
-    await client.send_flow("+302101234567", "123", "tok",
-                           flow_action="data_exchange",
-                           flow_action_payload={"a": 2})
+    await client.send_flow("+302101234567", "123", "tok", flow_action="data_exchange", flow_action_payload={"a": 2})
     params = calls[1]["json"]["interactive"]["action"]["parameters"]
     assert params["flow_action"] == "data_exchange"
     assert params["flow_action_payload"] == {"a": 2}
     assert "screen" not in params["flow_action_payload"]
 
     # navigate without screen → empty payload
-    await client.send_flow("+302101234567", "123", "tok",
-                           flow_action="navigate", screen="")
+    await client.send_flow("+302101234567", "123", "tok", flow_action="navigate", screen="")
     params = calls[2]["json"]["interactive"]["action"]["parameters"]
     assert params["flow_action_payload"] == {}
 
@@ -247,10 +248,7 @@ def test_flow_templates():
 
 
 def test_template_generators_direct():
-    for gen in (S.lead_generation_flow_json,
-                S.customer_support_flow_json,
-                S.appointment_booking_flow_json,
-                S.feedback_survey_flow_json):
+    for gen in (S.lead_generation_flow_json, S.customer_support_flow_json, S.appointment_booking_flow_json, S.feedback_survey_flow_json):
         out = gen("MyBiz")
         assert isinstance(out, dict) and out["screens"]
 
@@ -258,22 +256,30 @@ def test_template_generators_direct():
 # ── webhook parsing ───────────────────────────────────────────────────
 
 
-def _webhook(response_raw='{"a": 1}', itype="nfm_context",
-             ts="1700000000", obj="whatsapp_business_account"):
+def _webhook(response_raw='{"a": 1}', itype="nfm_context", ts="1700000000", obj="whatsapp_business_account"):
     return {
         "object": obj,
-        "entry": [{"changes": [{"value": {
-            "metadata": {"phone_number_id": "222"},
-            "messages": [{
-                "type": "interactive",
-                "interactive": {
-                    "type": itype,
-                    "nfm_context": {
-                        "flow_token": "ft",
-                        "flow_id": "99",
-                        "response_json": response_raw}},
-                "from": "3069", "id": "wamid.1", "timestamp": ts}],
-        }}]}]}
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "metadata": {"phone_number_id": "222"},
+                            "messages": [
+                                {
+                                    "type": "interactive",
+                                    "interactive": {"type": itype, "nfm_context": {"flow_token": "ft", "flow_id": "99", "response_json": response_raw}},
+                                    "from": "3069",
+                                    "id": "wamid.1",
+                                    "timestamp": ts,
+                                }
+                            ],
+                        }
+                    }
+                ]
+            }
+        ],
+    }
 
 
 def test_parse_flow_response():
@@ -307,10 +313,17 @@ def test_endpoint_request_response():
     assert out == {"action": "ping", "is_ping": True}
 
     # navigate/data_exchange normalized
-    out = S.parse_flow_endpoint_request({
-        "action": "data_exchange", "screen": "S1", "data": {"d": 1},
-        "flow_token": "ft", "flow_id": "9",
-        "flow_token_encrypted": "enc", "encrypted_flow_data": "ed"})
+    out = S.parse_flow_endpoint_request(
+        {
+            "action": "data_exchange",
+            "screen": "S1",
+            "data": {"d": 1},
+            "flow_token": "ft",
+            "flow_id": "9",
+            "flow_token_encrypted": "enc",
+            "encrypted_flow_data": "ed",
+        }
+    )
     assert out["is_ping"] is False and out["screen"] == "S1"
     assert out["data"] == {"d": 1} and out["flow_token_encrypted"] == "enc"
     assert out["encrypted_flow_data"] == "ed"
@@ -336,11 +349,19 @@ async def test_validate_flow_json_string_input(client, monkeypatch):
 def test_parse_flow_response_non_nfm_interactive():
     # non-interactive message → skipped (line 1024); interactive but
     # non-nfm_context type → also skipped
-    body = {"object": "whatsapp_business_account",
-            "entry": [{"changes": [{"value": {
-                "metadata": {"phone_number_id": "p"},
-                "messages": [{"type": "text", "text": {"body": "hi"}},
-                             {"type": "interactive",
-                              "interactive": {"type": "button_reply"}}],
-            }}]}]}
+    body = {
+        "object": "whatsapp_business_account",
+        "entry": [
+            {
+                "changes": [
+                    {
+                        "value": {
+                            "metadata": {"phone_number_id": "p"},
+                            "messages": [{"type": "text", "text": {"body": "hi"}}, {"type": "interactive", "interactive": {"type": "button_reply"}}],
+                        }
+                    }
+                ]
+            }
+        ],
+    }
     assert S.parse_flow_response(body) == []

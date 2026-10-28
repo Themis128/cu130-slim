@@ -653,10 +653,16 @@ async def test_export_report_date_range_and_filters(_with_team):
     ts = datetime.now(UTC)
     row = (pid, "linkedin", PostStatus.PUBLISHED, ts, ts, 10, 1, 0, 0, 0)
     out = await A.export_report(
-        _with_team.id, format="json", days=30,
-        platform="linkedin", account_id=uuid.uuid4(), post_id=pid,
-        start_date=ts - timedelta(days=7), end_date=ts,
-        db=_DB([row]), current_user=_USER,
+        _with_team.id,
+        format="json",
+        days=30,
+        platform="linkedin",
+        account_id=uuid.uuid4(),
+        post_id=pid,
+        start_date=ts - timedelta(days=7),
+        end_date=ts,
+        db=_DB([row]),
+        current_user=_USER,
     )
     assert out.media_type == "application/json"
 
@@ -687,9 +693,7 @@ async def test_tiktok_videos_api_error(_with_team, monkeypatch):
 
     acct = SimpleNamespace(access_token_enc="enc", account_id="open1")
     monkeypatch.setattr(A, "decrypt_token", lambda t: "tok")
-    client = SimpleNamespace(
-        list_videos=AsyncMock(side_effect=TikTokAPIError(status_code=429, response_text="rate limited", url="u"))
-    )
+    client = SimpleNamespace(list_videos=AsyncMock(side_effect=TikTokAPIError(status_code=429, response_text="rate limited", url="u")))
     import app.services.tiktok_api as tt
 
     monkeypatch.setattr(tt, "TikTokAPIClient", lambda **kw: client)

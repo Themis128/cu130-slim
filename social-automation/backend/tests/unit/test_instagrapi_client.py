@@ -12,8 +12,7 @@ import app.services.instagrapi_client as IC
 
 
 def _settings(**over):
-    base = dict(INSTAGRAM_PROXY_POOL="", INSTAGRAM_PROXY="",
-                INSTAGRAM_RATE_LIMIT_RPM=30, REDIS_URL="")
+    base = dict(INSTAGRAM_PROXY_POOL="", INSTAGRAM_PROXY="", INSTAGRAM_RATE_LIMIT_RPM=30, REDIS_URL="")
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -31,13 +30,11 @@ def test_proxy_list_building(monkeypatch, tmp_path):
     assert c._proxies == ["socks5://warp-proxy:1080"]
     assert c._current_proxy == "socks5://warp-proxy:1080"
 
-    c = _client(monkeypatch, tmp_path,
-                INSTAGRAM_PROXY="http://p1", INSTAGRAM_PROXY_POOL="http://p2, http://p3")
+    c = _client(monkeypatch, tmp_path, INSTAGRAM_PROXY="http://p1", INSTAGRAM_PROXY_POOL="http://p2, http://p3")
     assert c._proxies == ["http://p1", "http://p2", "http://p3"]
 
     # primary already in pool → not duplicated
-    c = _client(monkeypatch, tmp_path,
-                INSTAGRAM_PROXY="http://p2", INSTAGRAM_PROXY_POOL="http://p1,http://p2")
+    c = _client(monkeypatch, tmp_path, INSTAGRAM_PROXY="http://p2", INSTAGRAM_PROXY_POOL="http://p1,http://p2")
     assert c._proxies == ["http://p1", "http://p2"]
 
 
@@ -72,10 +69,9 @@ async def test_rate_limiter_wait():
 
     rl = IC._RedisRateLimiter.__new__(IC._RedisRateLimiter)
     rl.rpm = 2
-    rl._redis = _R([3, 1])      # over→wait, then under
+    rl._redis = _R([3, 1])  # over→wait, then under
     rl._key_prefix = "ig_ratelimit"
-    with patch("app.services.instagrapi_client.asyncio.sleep",
-               new_callable=AsyncMock) as sl:
+    with patch("app.services.instagrapi_client.asyncio.sleep", new_callable=AsyncMock) as sl:
         await rl.wait("acct")
     assert len(rl._redis.added) == 1
     sl.assert_awaited_once()
@@ -97,8 +93,8 @@ def test_build_client(monkeypatch, tmp_path):
     class _CL2:
         def set_proxy(self, p):
             raise RuntimeError("bad proxy")
-    monkeypatch.setitem(sys.modules, "instagrapi",
-                        SimpleNamespace(Client=_CL2))
+
+    monkeypatch.setitem(sys.modules, "instagrapi", SimpleNamespace(Client=_CL2))
     cl = c._build_client()  # proxy error swallowed
     assert isinstance(cl, _CL2)
 
@@ -131,6 +127,7 @@ def test_load_save_session(monkeypatch, tmp_path):
 
     # stale file → deleted, False
     import os
+
     old = c._session_file.stat().st_mtime - (IC._SESSION_TTL + 10)
     os.utime(c._session_file, (old, old))
     assert c._load_session(_CL()) is False
@@ -138,9 +135,11 @@ def test_load_save_session(monkeypatch, tmp_path):
 
     # restore error → unlink + False
     c._session_file.write_text('{"a": 1}')
+
     class _Bad(_CL):
         def login(self, u, p):
             raise RuntimeError("rejected")
+
     assert c._load_session(_Bad()) is False
     assert not c._session_file.exists()
 
@@ -169,6 +168,7 @@ def test_ensure_client(monkeypatch, tmp_path):
     class _BadCL:
         def login(self, u, p):
             raise RuntimeError("denied")
+
     monkeypatch.setattr(c, "_build_client", lambda: _BadCL())
     with pytest.raises(IC.InstagrapiError, match="login failed"):
         c._ensure_client()
@@ -193,21 +193,22 @@ def test_sync_call_retries(monkeypatch, tmp_path):
 
     # generic error → InstagrapiError immediately
     with pytest.raises(IC.InstagrapiError, match="operation failed"):
-        c._sync_call(lambda cl: 1/0)
+        c._sync_call(lambda cl: 1 / 0)
 
     # session error → invalidate + retry, then final raise
     calls = []
+
     def _fail_then_ok(cl):
         calls.append(1)
         if len(calls) < 2:
             raise RuntimeError("login_required")
         return "recovered"
+
     assert c._sync_call(_fail_then_ok) == "recovered"
 
     calls.clear()
     with pytest.raises(IC.InstagrapiError, match="session failed"):
-        c._sync_call(lambda cl: (_ for _ in ()).throw(
-            RuntimeError("login_required")))
+        c._sync_call(lambda cl: (_ for _ in ()).throw(RuntimeError("login_required")))
     assert calls == [] or True
 
     # throttle → backoff then raise at last attempt
@@ -220,17 +221,14 @@ def test_sync_call_retries(monkeypatch, tmp_path):
     rotated = []
     monkeypatch.setattr(c, "_is_throttle", lambda e: False)
     monkeypatch.setattr(c, "_is_proxy_block", lambda e: True)
-    monkeypatch.setattr(c, "_rotate_proxy",
-                        lambda: rotated.append(1))
+    monkeypatch.setattr(c, "_rotate_proxy", lambda: rotated.append(1))
     with pytest.raises(IC.InstagrapiError, match="Proxy exhausted"):
         c._sync_call(lambda cl: (_ for _ in ()).throw(RuntimeError("x")))
     assert len(rotated) == c._max_retries
 
 
 def test_rotate_proxy_invalidate_backoff(monkeypatch, tmp_path):
-    c = _client(monkeypatch, tmp_path,
-                INSTAGRAM_PROXY="http://p1",
-                INSTAGRAM_PROXY_POOL="http://p2")
+    c = _client(monkeypatch, tmp_path, INSTAGRAM_PROXY="http://p1", INSTAGRAM_PROXY_POOL="http://p2")
     c._client = object()
     c._rotate_proxy()
     assert c._proxy_index == 1 and c._current_proxy == "http://p2"
@@ -248,7 +246,7 @@ def test_rotate_proxy_invalidate_backoff(monkeypatch, tmp_path):
         c._backoff(0)
         c._backoff(10)
     assert sl.call_count == 2
-    assert sl.call_args_list[0].args[0] == 1   # min(120, 2**0) + 0
+    assert sl.call_args_list[0].args[0] == 1  # min(120, 2**0) + 0
     assert sl.call_args_list[1].args[0] == 130  # min(120, 2**10) + 10
 
 
@@ -266,15 +264,13 @@ async def test_uploads(monkeypatch, tmp_path):
     monkeypatch.setattr(c, "_wait_for_rate_limit", AsyncMock())
 
     media = SimpleNamespace(id=1, pk=2, code="abc")
-    cl = SimpleNamespace(
-        photo_upload=lambda p, cap: media,
-        video_upload=lambda p, cap: media,
-        album_upload=lambda paths, cap: media)
+    cl = SimpleNamespace(photo_upload=lambda p, cap: media, video_upload=lambda p, cap: media, album_upload=lambda paths, cap: media)
     seen = []
 
     def _sync(fn):
         seen.append(fn)
         return fn(cl)
+
     monkeypatch.setattr(c, "_sync_call", _sync)
 
     out = await c.upload_photo("/tmp/x.jpg", "cap")
@@ -292,19 +288,20 @@ async def test_get_profile_fallback_chain(monkeypatch, tmp_path):
 
     # success path
     monkeypatch.setattr(c, "_sync_call", lambda fn: {"pk": 1})
-    monkeypatch.setattr(__import__("asyncio"), "to_thread",
-                        lambda fn, *a: asyncio_to(fn, *a))
+    monkeypatch.setattr(__import__("asyncio"), "to_thread", lambda fn, *a: asyncio_to(fn, *a))
 
     async def asyncio_to(fn, *a):
         return fn(*a)
 
     import asyncio
+
     monkeypatch.setattr(asyncio, "to_thread", asyncio_to)
     assert await c.get_profile() == {"pk": 1}
 
     # non-throttle error → re-raise
     def _raise(fn):
         raise IC.InstagrapiError("weird failure")
+
     monkeypatch.setattr(c, "_sync_call", _raise)
     with pytest.raises(IC.InstagrapiError, match="weird"):
         await c.get_profile()
@@ -312,32 +309,24 @@ async def test_get_profile_fallback_chain(monkeypatch, tmp_path):
     # throttle → free fallback success
     def _raise429(fn):
         raise IC.InstagrapiError("HTTP 429 throttled")
+
     monkeypatch.setattr(c, "_sync_call", _raise429)
     free = AsyncMock(return_value={"pk": "free"})
-    monkeypatch.setattr(IC, "free_instagram_client",
-                        SimpleNamespace(get_user_by_username=free))
+    monkeypatch.setattr(IC, "free_instagram_client", SimpleNamespace(get_user_by_username=free))
     assert await c.get_profile() == {"pk": "free"}
 
     # free fails, hiker disabled → re-raise free error
-    monkeypatch.setattr(IC, "free_instagram_client", SimpleNamespace(
-        get_user_by_username=AsyncMock(
-            side_effect=IC.FreeInstagramError("no"))))
-    monkeypatch.setattr(IC, "hiker_client",
-                        SimpleNamespace(enabled=False))
+    monkeypatch.setattr(IC, "free_instagram_client", SimpleNamespace(get_user_by_username=AsyncMock(side_effect=IC.FreeInstagramError("no"))))
+    monkeypatch.setattr(IC, "hiker_client", SimpleNamespace(enabled=False))
     with pytest.raises(IC.FreeInstagramError):
         await c.get_profile()
 
     # free fails, hiker ok
-    monkeypatch.setattr(IC, "hiker_client", SimpleNamespace(
-        enabled=True,
-        get_user_by_username=AsyncMock(return_value={"pk": "h"})))
+    monkeypatch.setattr(IC, "hiker_client", SimpleNamespace(enabled=True, get_user_by_username=AsyncMock(return_value={"pk": "h"})))
     assert await c.get_profile() == {"pk": "h"}
 
     # hiker fails too
-    monkeypatch.setattr(IC, "hiker_client", SimpleNamespace(
-        enabled=True,
-        get_user_by_username=AsyncMock(
-            side_effect=IC.HikerAPIError("down"))))
+    monkeypatch.setattr(IC, "hiker_client", SimpleNamespace(enabled=True, get_user_by_username=AsyncMock(side_effect=IC.HikerAPIError("down"))))
     with pytest.raises(IC.InstagrapiError, match="All fallbacks"):
         await c.get_profile()
 
@@ -350,50 +339,45 @@ async def test_update_profile(monkeypatch, tmp_path):
     # no changes
     assert await c.update_profile() == {"status": "no_changes"}
 
-    account = SimpleNamespace(username="u", full_name="F",
-                              biography="b", external_url=None)
+    account = SimpleNamespace(username="u", full_name="F", biography="b", external_url=None)
     seen = {}
 
     def _sync(fn):
-        cl = SimpleNamespace(
-            account_edit=lambda **kw: seen.update(kw) or account)
+        cl = SimpleNamespace(account_edit=lambda **kw: seen.update(kw) or account)
         return fn(cl)
+
     monkeypatch.setattr(c, "_sync_call", _sync)
-    out = await c.update_profile(biography="bio", full_name="F",
-                                 external_url="https://x")
-    assert seen == {"biography": "bio", "full_name": "F",
-                    "external_url": "https://x"}
+    out = await c.update_profile(biography="bio", full_name="F", external_url="https://x")
+    assert seen == {"biography": "bio", "full_name": "F", "external_url": "https://x"}
     assert out["status"] == "updated" and out["external_url"] is None
 
 
 def test_rate_limiter_redis_init(monkeypatch):
     import redis.asyncio as aioredis
+
     fake = SimpleNamespace(from_url=lambda url, **kw: "REDIS")
-    monkeypatch.setattr(aioredis, "Redis",
-                        SimpleNamespace(from_url=fake.from_url))
+    monkeypatch.setattr(aioredis, "Redis", SimpleNamespace(from_url=fake.from_url))
     rl = IC._RedisRateLimiter("redis://x", 30)
     assert rl._redis == "REDIS"
 
-    monkeypatch.setattr(aioredis, "Redis",
-                        SimpleNamespace(
-                            from_url=lambda *a, **k: (_ for _ in ()).throw(
-                                RuntimeError("no redis"))))
+    monkeypatch.setattr(aioredis, "Redis", SimpleNamespace(from_url=lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no redis"))))
     rl = IC._RedisRateLimiter("redis://x", 30)
     assert rl._redis is None
 
 
 def test_save_session_error(monkeypatch, tmp_path):
     c = _client(monkeypatch, tmp_path)
-    monkeypatch.setattr(type(c._session_file), "write_text",
-                        lambda self, *a, **k: (_ for _ in ()).throw(
-                            OSError("rofs"))) if False else None
+    monkeypatch.setattr(type(c._session_file), "write_text", lambda self, *a, **k: (_ for _ in ()).throw(OSError("rofs"))) if False else None
     # patch Path.write_text globally for this file path
     import pathlib
+
     orig = pathlib.Path.write_text
+
     def _fail(self, *a, **k):
         if str(self).endswith("user.json"):
             raise OSError("rofs")
         return orig(self, *a, **k)
+
     monkeypatch.setattr(pathlib.Path, "write_text", _fail)
     c._save_session(SimpleNamespace(get_settings=lambda: {}))  # swallowed
 

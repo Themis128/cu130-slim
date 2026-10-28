@@ -8,6 +8,7 @@ Environment variables:
 - SOCIALAUTO_ADMIN_EMAIL: Admin email for auto-login (alternative to SOCIALAUTO_TOKEN)
 - SOCIALAUTO_ADMIN_PASSWORD: Admin password for auto-login
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,16 +40,10 @@ async def _get_token() -> str:
     global API_TOKEN
     if API_TOKEN:
         return API_TOKEN
-    email = os.environ.get("SOCIALAUTO_ADMIN_EMAIL") or os.environ.get(
-        "SOCIAL_ADMIN_EMAIL", ""
-    )
-    password = os.environ.get("SOCIALAUTO_ADMIN_PASSWORD") or os.environ.get(
-        "SOCIAL_ADMIN_PASSWORD", ""
-    )
+    email = os.environ.get("SOCIALAUTO_ADMIN_EMAIL") or os.environ.get("SOCIAL_ADMIN_EMAIL", "")
+    password = os.environ.get("SOCIALAUTO_ADMIN_PASSWORD") or os.environ.get("SOCIAL_ADMIN_PASSWORD", "")
     if not email or not password:
-        raise RuntimeError(
-            "Set SOCIALAUTO_TOKEN or SOCIALAUTO_ADMIN_EMAIL+SOCIALAUTO_ADMIN_PASSWORD"
-        )
+        raise RuntimeError("Set SOCIALAUTO_TOKEN or SOCIALAUTO_ADMIN_EMAIL+SOCIALAUTO_ADMIN_PASSWORD")
     async with httpx.AsyncClient() as client:
         payload = {"username": email, "password": password}
         resp = await client.post(
@@ -82,9 +77,7 @@ async def _totp_code(email: str) -> str:
     from app.models.user import User
 
     async with async_session_maker() as db:
-        secret = (
-            await db.execute(select(User.two_factor_secret).where(User.email == email))
-        ).scalar_one_or_none()
+        secret = (await db.execute(select(User.two_factor_secret).where(User.email == email))).scalar_one_or_none()
     if not secret:
         raise RuntimeError("2FA required but no TOTP secret found for this user")
 
@@ -288,7 +281,7 @@ TOOLS: list[Tool] = [
             "properties": {
                 "account_id": {"type": "string", "description": "Facebook Page account UUID"},
                 "greeting": {"type": "array", "items": {"type": "object"}, "description": "Greeting messages (deprecated by Meta, use ice_breakers)"},
-                "get_started": {"type": "object", "description": "Get Started button config, e.g. {\"payload\": \"GET_STARTED\"}"},
+                "get_started": {"type": "object", "description": 'Get Started button config, e.g. {"payload": "GET_STARTED"}'},
                 "persistent_menu": {"type": "array", "items": {"type": "object"}, "description": "Persistent menu config"},
                 "whitelisted_domains": {"type": "array", "items": {"type": "string"}, "description": "Allowed domains for Messenger Extensions"},
                 "ice_breakers": {"type": "array", "items": {"type": "object"}, "description": "Ice breaker questions"},
@@ -470,10 +463,7 @@ TOOLS: list[Tool] = [
     ),
     Tool(
         name="telegram_chat_info",
-        description=(
-            "Get a Telegram chat's details, member count, and whether the "
-            "bot is an administrator. Requires the bot to be in the chat."
-        ),
+        description=("Get a Telegram chat's details, member count, and whether the bot is an administrator. Requires the bot to be in the chat."),
         input_schema={
             "type": "object",
             "properties": {
@@ -760,23 +750,27 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
                 meta = acct.get("meta_data", {})
                 if acct.get("account_type") == "page":
                     ms = meta.get("messenger_setup", {})
-                    messenger_accounts.append({
-                        "id": acct.get("id"),
-                        "name": acct.get("display_name") or acct.get("username"),
-                        "type": "page",
-                        "method": "Messenger Platform API",
-                        "messenger_subscribed": ms.get("subscribed", False),
-                        "page_id": acct.get("account_id"),
-                    })
+                    messenger_accounts.append(
+                        {
+                            "id": acct.get("id"),
+                            "name": acct.get("display_name") or acct.get("username"),
+                            "type": "page",
+                            "method": "Messenger Platform API",
+                            "messenger_subscribed": ms.get("subscribed", False),
+                            "page_id": acct.get("account_id"),
+                        }
+                    )
                 elif acct.get("account_type") == "user":
-                    messenger_accounts.append({
-                        "id": acct.get("id"),
-                        "name": acct.get("display_name") or acct.get("username"),
-                        "type": "personal",
-                        "method": "Browser Bridge (noVNC login required)",
-                        "browser_logged_in": bool(meta.get("browser_storage_state")),
-                        "facebook_user_id": acct.get("account_id"),
-                    })
+                    messenger_accounts.append(
+                        {
+                            "id": acct.get("id"),
+                            "name": acct.get("display_name") or acct.get("username"),
+                            "type": "personal",
+                            "method": "Browser Bridge (noVNC login required)",
+                            "browser_logged_in": bool(meta.get("browser_storage_state")),
+                            "facebook_user_id": acct.get("account_id"),
+                        }
+                    )
             result = {"accounts": messenger_accounts, "count": len(messenger_accounts)}
         elif name == "messenger_personal_conversations":
             account_id = arguments["account_id"]
@@ -806,9 +800,7 @@ async def _handle_call_tool(ctx: Any, params: CallToolRequestParams) -> CallTool
                 content=[TextContent(type="text", text=json.dumps({"error": f"Unknown tool: {name}"}))],
                 is_error=True,
             )
-        return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
-        )
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(result, indent=2, default=str))])
     except httpx.HTTPError as exc:
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps({"error": str(exc)}))],

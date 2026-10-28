@@ -485,17 +485,12 @@ def test_post_validators():
 async def test_update_post_404_and_metadata_rename(_seams):
     # missing → 404
     with pytest.raises(HTTPException) as ei:
-        await C.update_post(uuid.uuid4(),
-                            C.PostUpdate(content_text="x", target_account_ids=None),
-                            uuid.uuid4(), _user(), _DB())
+        await C.update_post(uuid.uuid4(), C.PostUpdate(content_text="x", target_account_ids=None), uuid.uuid4(), _user(), _DB())
     assert ei.value.status_code == 404
 
     # metadata field → meta_data attr
     post = _post()
-    await C.update_post(post.id,
-                        C.PostUpdate(metadata={"k": 1}, target_account_ids=None),
-                        uuid.uuid4(), _user(),
-                        _DB(results=[_Res(one=post)]))
+    await C.update_post(post.id, C.PostUpdate(metadata={"k": 1}, target_account_ids=None), uuid.uuid4(), _user(), _DB(results=[_Res(one=post)]))
     assert post.meta_data == {"k": 1}
 
 
@@ -505,41 +500,38 @@ async def test_update_post_snapshots_original_text_once(_seams):
     post = _post(status=PostStatus.DRAFT)
     post.content_text = "generated draft"
     post.meta_data = {}
-    await C.update_post(post.id,
-                        C.PostUpdate(content_text="human edit 1", target_account_ids=None),
-                        uuid.uuid4(), _user(),
-                        _DB(results=[_Res(one=post)]))
+    await C.update_post(post.id, C.PostUpdate(content_text="human edit 1", target_account_ids=None), uuid.uuid4(), _user(), _DB(results=[_Res(one=post)]))
     assert post.meta_data["original_text"] == "generated draft"
     assert "original_text_captured_at" in post.meta_data
 
     # Second edit keeps the ORIGINAL baseline — never overwritten
-    await C.update_post(post.id,
-                        C.PostUpdate(content_text="human edit 2", target_account_ids=None),
-                        uuid.uuid4(), _user(),
-                        _DB(results=[_Res(one=post)]))
+    await C.update_post(post.id, C.PostUpdate(content_text="human edit 2", target_account_ids=None), uuid.uuid4(), _user(), _DB(results=[_Res(one=post)]))
     assert post.meta_data["original_text"] == "generated draft"
 
     # Same text → no snapshot churn; metadata replace preserves baseline
     post2 = _post(status=PostStatus.DRAFT)
     post2.content_text = "same"
     post2.meta_data = {}
-    await C.update_post(post2.id,
-                        C.PostUpdate(content_text="same", metadata={"k": 9}, target_account_ids=None),
-                        uuid.uuid4(), _user(),
-                        _DB(results=[_Res(one=post2)]))
+    await C.update_post(
+        post2.id, C.PostUpdate(content_text="same", metadata={"k": 9}, target_account_ids=None), uuid.uuid4(), _user(), _DB(results=[_Res(one=post2)])
+    )
     assert "original_text" not in (post2.meta_data or {})
 
 
 @pytest.mark.asyncio
 async def test_delete_external_platform_branches(_seams, monkeypatch):
     import app.core.security as SEC
+
     monkeypatch.setattr(SEC, "decrypt_token", lambda b: "tok")
 
     # skip non-published / missing platform_post_id
-    pub = _post(status=PostStatus.PUBLISHED, targets=[
-        _target(platform_post_id=None, status="published"),
-        _target(platform_post_id="pp", status="pending"),
-    ])
+    pub = _post(
+        status=PostStatus.PUBLISHED,
+        targets=[
+            _target(platform_post_id=None, status="published"),
+            _target(platform_post_id="pp", status="pending"),
+        ],
+    )
     errors = await C._delete_external_targets(pub, _DB())
     assert errors == {}
 
@@ -550,34 +542,24 @@ async def test_delete_external_platform_branches(_seams, monkeypatch):
     import app.services.twitter_api as TA
 
     monkeypatch.setattr(PS, "_facebook_page_token", AsyncMock(return_value="ptok"))
-    monkeypatch.setattr(FA, "FacebookAPIClient",
-                        lambda **kw: SimpleNamespace(delete_post=AsyncMock(return_value=True)))
-    monkeypatch.setattr(LA, "LinkedInAPIClient",
-                        lambda **kw: SimpleNamespace(delete_post=AsyncMock(return_value=SimpleNamespace(success=True))))
-    monkeypatch.setattr(TA, "TwitterAPIClient",
-                        lambda **kw: SimpleNamespace(delete_tweet=AsyncMock(return_value=True)))
+    monkeypatch.setattr(FA, "FacebookAPIClient", lambda **kw: SimpleNamespace(delete_post=AsyncMock(return_value=True)))
+    monkeypatch.setattr(LA, "LinkedInAPIClient", lambda **kw: SimpleNamespace(delete_post=AsyncMock(return_value=SimpleNamespace(success=True))))
+    monkeypatch.setattr(TA, "TwitterAPIClient", lambda **kw: SimpleNamespace(delete_tweet=AsyncMock(return_value=True)))
     for plat in ("facebook", "linkedin", "twitter"):
-        acct = SimpleNamespace(platform=plat, account_id="a1",
-                               access_token_enc=b"e")
-        pub = _post(status=PostStatus.PUBLISHED,
-                    targets=[_target(account=acct, platform_post_id="pp",
-                                     status="published")])
+        acct = SimpleNamespace(platform=plat, account_id="a1", access_token_enc=b"e")
+        pub = _post(status=PostStatus.PUBLISHED, targets=[_target(account=acct, platform_post_id="pp", status="published")])
         errors = await C._delete_external_targets(pub, _DB())
         assert errors == {} and pub.targets[0].status == "deleted", plat
 
     # ok=False → reported; exception → reported
-    monkeypatch.setattr(TA, "TwitterAPIClient",
-                        lambda **kw: SimpleNamespace(delete_tweet=AsyncMock(return_value=False)))
+    monkeypatch.setattr(TA, "TwitterAPIClient", lambda **kw: SimpleNamespace(delete_tweet=AsyncMock(return_value=False)))
     acct = SimpleNamespace(platform="twitter", account_id="a1", access_token_enc=b"e")
-    pub = _post(status=PostStatus.PUBLISHED,
-                targets=[_target(account=acct, platform_post_id="pp", status="published")])
+    pub = _post(status=PostStatus.PUBLISHED, targets=[_target(account=acct, platform_post_id="pp", status="published")])
     errors = await C._delete_external_targets(pub, _DB())
     assert "twitter" in errors
 
-    monkeypatch.setattr(TA, "TwitterAPIClient",
-                        lambda **kw: SimpleNamespace(delete_tweet=AsyncMock(side_effect=RuntimeError("boom"))))
-    pub = _post(status=PostStatus.PUBLISHED,
-                targets=[_target(account=acct, platform_post_id="pp", status="published")])
+    monkeypatch.setattr(TA, "TwitterAPIClient", lambda **kw: SimpleNamespace(delete_tweet=AsyncMock(side_effect=RuntimeError("boom"))))
+    pub = _post(status=PostStatus.PUBLISHED, targets=[_target(account=acct, platform_post_id="pp", status="published")])
     errors = await C._delete_external_targets(pub, _DB())
     assert "boom" in errors["twitter"]
 
@@ -589,9 +571,7 @@ async def test_404s_across_endpoints(_seams):
         (C.schedule_post, (uuid.uuid4(), "2030-01-01", uuid.uuid4(), _user())),
         (C.publish_now, (uuid.uuid4(), uuid.uuid4(), _user())),
         (C.duplicate_post, (uuid.uuid4(), uuid.uuid4(), _user())),
-        (C.cross_post_to_platform, (uuid.uuid4(),
-                                    C.CrossPostRequest(target_platform="x"),
-                                    uuid.uuid4(), _user())),
+        (C.cross_post_to_platform, (uuid.uuid4(), C.CrossPostRequest(target_platform="x"), uuid.uuid4(), _user())),
     ):
         with pytest.raises(HTTPException) as ei:
             await fn(*args, _DB())
@@ -606,41 +586,34 @@ async def test_404s_across_endpoints(_seams):
 
     pub = _post(status=PostStatus.PUBLISHED)
     with pytest.raises(HTTPException) as ei:
-        await C.submit_for_review(pub.id, uuid.uuid4(), _user(),
-                                  _DB(results=[_Res(one=pub)]))
+        await C.submit_for_review(pub.id, uuid.uuid4(), _user(), _DB(results=[_Res(one=pub)]))
     assert ei.value.status_code == 400
 
     with pytest.raises(HTTPException) as ei:
-        await C._get_team_post(uuid.uuid4(), SimpleNamespace(id=uuid.uuid4()),
-                               _DB())
+        await C._get_team_post(uuid.uuid4(), SimpleNamespace(id=uuid.uuid4()), _DB())
     assert ei.value.status_code == 404
 
 
 @pytest.mark.asyncio
 async def test_publish_now_brand_compliance(_seams, monkeypatch):
     import app.worker.tasks.publishing as WP
-    monkeypatch.setattr(WP, "publish_post_now",
-                        SimpleNamespace(delay=Mock()))
-    monkeypatch.setattr(WP, "process_publish_queue",
-                        SimpleNamespace(apply_async=Mock()))
 
-    brand = SimpleNamespace(id=uuid.uuid4(), name="B",
-                            positioning_statement="p", mission="m",
-                            values=[])
-    voice = SimpleNamespace(tone_dimensions={}, banned_phrases=[],
-                            preferred_phrases=[])
+    monkeypatch.setattr(WP, "publish_post_now", SimpleNamespace(delay=Mock()))
+    monkeypatch.setattr(WP, "process_publish_queue", SimpleNamespace(apply_async=Mock()))
+
+    brand = SimpleNamespace(id=uuid.uuid4(), name="B", positioning_statement="p", mission="m", values=[])
+    voice = SimpleNamespace(tone_dimensions={}, banned_phrases=[], preferred_phrases=[])
 
     import app.services.brand_compliance as BC
-    monkeypatch.setattr(BC, "score_brand_compliance",
-                        AsyncMock(return_value={"score": 1}))
+
+    monkeypatch.setattr(BC, "score_brand_compliance", AsyncMock(return_value={"score": 1}))
     post = _post(targets=[_target()])
     db = _DB(results=[_Res(one=post), _Res(one=brand), _Res(one=voice)])
     out = await C.publish_now(post.id, uuid.uuid4(), _user(), db)
     assert out.status == PostStatus.SCHEDULED
 
     # compliance raising → swallowed, publish proceeds
-    monkeypatch.setattr(BC, "score_brand_compliance",
-                        AsyncMock(side_effect=RuntimeError("nlp down")))
+    monkeypatch.setattr(BC, "score_brand_compliance", AsyncMock(side_effect=RuntimeError("nlp down")))
     post2 = _post(targets=[_target()])
     db = _DB(results=[_Res(one=post2), _Res(one=brand)])
     out = await C.publish_now(post2.id, uuid.uuid4(), _user(), db)
@@ -651,41 +624,31 @@ async def test_publish_now_brand_compliance(_seams, monkeypatch):
 async def test_cross_post_target_and_no_adapt(_seams):
     post = _post()
     acct = SimpleNamespace(id=uuid.uuid4(), platform="threads")
-    req = C.CrossPostRequest(target_platform="threads",
-                             target_account_id=acct.id,
-                             adapt_content=False)
+    req = C.CrossPostRequest(target_platform="threads", target_account_id=acct.id, adapt_content=False)
     db = _DB(results=[_Res(one=post), _Res(one=acct)])
-    await C.cross_post_to_platform(post.id, req, post.team_id,
-                                   _user(), db)
+    await C.cross_post_to_platform(post.id, req, post.team_id, _user(), db)
     new = [o for o in db.added if type(o).__name__ == "Post"][0]
     assert new.content_text == "hello"  # original text, not "adapted"
 
 
 @pytest.mark.asyncio
 async def test_update_post_unschedule_to_draft(_seams):
-    post = _post(status=PostStatus.SCHEDULED,
-                 scheduled_at=datetime.now(UTC))
-    await C.update_post(
-        post.id,
-        C.PostUpdate(scheduled_at=None, target_account_ids=None),
-        uuid.uuid4(), _user(), _DB(results=[_Res(one=post)]))
+    post = _post(status=PostStatus.SCHEDULED, scheduled_at=datetime.now(UTC))
+    await C.update_post(post.id, C.PostUpdate(scheduled_at=None, target_account_ids=None), uuid.uuid4(), _user(), _DB(results=[_Res(one=post)]))
     assert post.status == PostStatus.DRAFT
 
 
 @pytest.mark.asyncio
 async def test_publish_now_compliance_low_warns(_seams, monkeypatch):
     import app.worker.tasks.publishing as WP
-    monkeypatch.setattr(WP, "publish_post_now",
-                        SimpleNamespace(delay=Mock()))
-    monkeypatch.setattr(WP, "process_publish_queue",
-                        SimpleNamespace(apply_async=Mock()))
-    brand = SimpleNamespace(id=uuid.uuid4(), name="B",
-                            positioning_statement="p", mission="m",
-                            values=[])
+
+    monkeypatch.setattr(WP, "publish_post_now", SimpleNamespace(delay=Mock()))
+    monkeypatch.setattr(WP, "process_publish_queue", SimpleNamespace(apply_async=Mock()))
+    brand = SimpleNamespace(id=uuid.uuid4(), name="B", positioning_statement="p", mission="m", values=[])
 
     import app.services.brand_compliance as BC
-    monkeypatch.setattr(BC, "score_brand_compliance",
-                        AsyncMock(return_value={"score": 1}))
+
+    monkeypatch.setattr(BC, "score_brand_compliance", AsyncMock(return_value={"score": 1}))
     post = _post(targets=[_target()])
     db = _DB(results=[_Res(one=post), _Res(one=brand), _Res()])
     out = await C.publish_now(post.id, uuid.uuid4(), _user(), db)

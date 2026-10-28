@@ -32,8 +32,7 @@ async def test_correct_text_corrects(ac):
 @pytest.mark.asyncio
 async def test_correct_tags(ac):
     # multi-word tags corrected; single tokens pass through; empties dropped
-    out = await MS.correct_tags(
-        ["  multi word  ", "comfyui", "  ", "Single", "single"])
+    out = await MS.correct_tags(["  multi word  ", "comfyui", "  ", "Single", "single"])
     assert out == ["multi word!", "comfyui", "Single"]
     ac.assert_awaited_once_with("multi word", language="en-US")
 

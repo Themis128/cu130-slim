@@ -3,6 +3,7 @@
 Uses browser-novnc :9223 (/session/*). Skips cleanly when the browser
 is busy with platform sweeps or the session isn't logged in.
 """
+
 import asyncio
 import json as js
 import logging
@@ -37,10 +38,10 @@ EXTRACT_JS = """(async () => {
 })()"""
 
 
-@shared_task(name="app.worker.tasks.engagement_ingest_ig.ingest_ig_feed",
-             bind=True, max_retries=0)
+@shared_task(name="app.worker.tasks.engagement_ingest_ig.ingest_ig_feed", bind=True, max_retries=0)
 def ingest_ig_feed(self):
     from app.worker._async import run_async
+
     return run_async(_run())
 
 
@@ -59,12 +60,10 @@ async def _run():
 
     async with httpx.AsyncClient(base_url=BRIDGE, timeout=60) as c:
         try:
-            await c.post("/session/start", json={
-                "platform": "instagram", "force": True})
+            await c.post("/session/start", json={"platform": "instagram", "force": True})
         except Exception as e:
             return {"skipped": f"browser busy: {type(e).__name__}"}
-        await c.post("/session/navigate",
-                     json={"url": "https://www.instagram.com/"})
+        await c.post("/session/navigate", json={"url": "https://www.instagram.com/"})
         await asyncio.sleep(7)
         raw = await _ev(c, EXTRACT_JS)
         posts = js.loads(raw or "[]")
@@ -76,19 +75,24 @@ async def _run():
             sc = href.strip("/").split("/")[-1]
             if not sc or len(sc) < 5:
                 continue
-            if (await db.execute(select(EngagementCandidate).where(
-                    EngagementCandidate.post_id == sc))).scalars().first():
+            if (await db.execute(select(EngagementCandidate).where(EngagementCandidate.post_id == sc))).scalars().first():
                 continue
             try:
-                ts = dt.datetime.fromisoformat(
-                    (p.get("time") or "").replace("Z", "+00:00"))
+                ts = dt.datetime.fromisoformat((p.get("time") or "").replace("Z", "+00:00"))
             except Exception:
                 ts = dt.datetime.now(dt.UTC)
-            db.add(EngagementCandidate(
-                platform="instagram", author_handle=p.get("author", "")[:120],
-                author_name=p.get("author", "")[:120], post_id=sc,
-                post_text=p.get("txt", "")[:1500], posted_at=ts,
-                is_followed=True, is_connection=True))
+            db.add(
+                EngagementCandidate(
+                    platform="instagram",
+                    author_handle=p.get("author", "")[:120],
+                    author_name=p.get("author", "")[:120],
+                    post_id=sc,
+                    post_text=p.get("txt", "")[:1500],
+                    posted_at=ts,
+                    is_followed=True,
+                    is_connection=True,
+                )
+            )
             new += 1
         await db.commit()
     logger.info("[ig-ingest] %d new candidates", new)

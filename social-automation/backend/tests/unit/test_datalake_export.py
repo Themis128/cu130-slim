@@ -151,9 +151,7 @@ def test_reports_index_normalizes_manifests(monkeypatch, tmp_path):
             }
         )
     )
-    (tmp_path / "b.manifest.json").write_text(
-        json.dumps({"reports": [{"subject": "ads", "html_file": "/x/b.html"}]})
-    )
+    (tmp_path / "b.manifest.json").write_text(json.dumps({"reports": [{"subject": "ads", "html_file": "/x/b.html"}]}))
     (tmp_path / "broken.manifest.json").write_text("{not json")
     monkeypatch.setattr(de, "_NOTEBOOK_OUTPUT", tmp_path)
     idx = _run(de._export_reports_index())
@@ -222,9 +220,7 @@ class _CompileCheckDB:
         self.compiled_sql = ""
 
     async def execute(self, stmt):
-        self.compiled_sql = str(
-            stmt.compile(compile_kwargs={"literal_binds": True})
-        )
+        self.compiled_sql = str(stmt.compile(compile_kwargs={"literal_binds": True}))
         return _Rows(self._rows)
 
 
@@ -280,10 +276,18 @@ class _OneExecDB:
 
 def _acct(**kw):
     base = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="linkedin",
-        username="u", display_name="d", account_type="page",
-        is_business=True, status="active", scopes=["r", "w"],
-        token_expires_at=None, created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        platform="linkedin",
+        username="u",
+        display_name="d",
+        account_type="page",
+        is_business=True,
+        status="active",
+        scopes=["r", "w"],
+        token_expires_at=None,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -297,14 +301,19 @@ def test_export_accounts():
 
 def test_export_posts_merges_targets():
     post = SimpleNamespace(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), status="published",
-        content_text="body", link_url=None, hashtags=["a"],
-        media_ids=[1, 2], scheduled_at=None, published_at=None,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC))
-    t1 = SimpleNamespace(social_account_id=uuid.uuid4(), platform_post_id="p1",
-                         platform_url="u1", status="published")
-    t2 = SimpleNamespace(social_account_id=uuid.uuid4(), platform_post_id=None,
-                         platform_url=None, status="failed")
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        status="published",
+        content_text="body",
+        link_url=None,
+        hashtags=["a"],
+        media_ids=[1, 2],
+        scheduled_at=None,
+        published_at=None,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    t1 = SimpleNamespace(social_account_id=uuid.uuid4(), platform_post_id="p1", platform_url="u1", status="published")
+    t2 = SimpleNamespace(social_account_id=uuid.uuid4(), platform_post_id=None, platform_url=None, status="failed")
     res = _Scalars([(post, t1, "linkedin"), (post, t2, "twitter")])
     rows = _run(de._export_posts(_OneExecDB(res)))
     assert len(rows) == 1
@@ -314,37 +323,52 @@ def test_export_posts_merges_targets():
 
 def test_export_metrics_and_followers_and_events():
     snap = SimpleNamespace(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), post_id=uuid.uuid4(),
-        social_account_id=uuid.uuid4(), platform="ig",
-        platform_post_id="x", impressions=1, clicks=2, likes=3,
-        comments=4, shares=5, reach=6, engagement=7,
-        engagement_rate=0.1, source="api", notes=None,
-        captured_at=datetime(2026, 1, 1, tzinfo=UTC))
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        post_id=uuid.uuid4(),
+        social_account_id=uuid.uuid4(),
+        platform="ig",
+        platform_post_id="x",
+        impressions=1,
+        clicks=2,
+        likes=3,
+        comments=4,
+        shares=5,
+        reach=6,
+        engagement=7,
+        engagement_rate=0.1,
+        source="api",
+        notes=None,
+        captured_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
     rows = _run(de._export_metrics(_OneExecDB(_Scalars([snap]))))
     assert rows[0]["post_id"] == str(snap.post_id)
     snap2 = SimpleNamespace(**{**snap.__dict__, "post_id": None})
     rows = _run(de._export_metrics(_OneExecDB(_Scalars([snap2]))))
     assert rows[0]["post_id"] is None
 
-    f = SimpleNamespace(social_account_id=uuid.uuid4(), team_id=uuid.uuid4(),
-                        platform="ig", followers=100,
-                        captured_at=datetime(2026, 1, 1, tzinfo=UTC))
+    f = SimpleNamespace(social_account_id=uuid.uuid4(), team_id=uuid.uuid4(), platform="ig", followers=100, captured_at=datetime(2026, 1, 1, tzinfo=UTC))
     assert _run(de._export_followers(_OneExecDB(_Scalars([f]))))[0]["followers"] == 100
 
-    e = SimpleNamespace(team_id=uuid.uuid4(), social_account_id=None,
-                        platform="ig", event_type="connect", meta_data=None,
-                        occurred_at=datetime(2026, 1, 1, tzinfo=UTC))
+    e = SimpleNamespace(
+        team_id=uuid.uuid4(), social_account_id=None, platform="ig", event_type="connect", meta_data=None, occurred_at=datetime(2026, 1, 1, tzinfo=UTC)
+    )
     rows = _run(de._export_account_events(_OneExecDB(_Scalars([e]))))
     assert rows[0]["account_id"] is None and rows[0]["meta_data"] == {}
 
 
 def test_export_web_events_utm_extraction():
     e = SimpleNamespace(
-        team_id=uuid.uuid4(), domain="cloudless.gr", event_name="pageview",
-        session_id="s", path="/x", referrer="r", locale="en",
-        payload={"utm_source": "li", "utm_medium": "social",
-                 "utm_campaign": "c", "utm_content": "p1", "client_ip": "1.2.3.4"},
-        occurred_at=datetime(2026, 1, 1, tzinfo=UTC))
+        team_id=uuid.uuid4(),
+        domain="cloudless.gr",
+        event_name="pageview",
+        session_id="s",
+        path="/x",
+        referrer="r",
+        locale="en",
+        payload={"utm_source": "li", "utm_medium": "social", "utm_campaign": "c", "utm_content": "p1", "client_ip": "1.2.3.4"},
+        occurred_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
     rows = _run(de._export_web_events(_OneExecDB(_Scalars([e]))))
     assert rows[0]["utm_source"] == "li"
     assert rows[0]["utm_content"] == "p1"
@@ -357,32 +381,74 @@ def test_export_web_events_utm_extraction():
 
 def test_export_ad_tables():
     snap = SimpleNamespace(
-        team_id=uuid.uuid4(), platform="linkedin", account_id="a",
-        campaign_id="c", campaign_name="n", status="active",
-        impressions=1, clicks=2, engagements=3, spend_eur=1.5,
-        ctr=0.01, engagement_rate=0.02, cpc_eur=0.5, budget_eur=10.0,
-        captured_at=datetime(2026, 1, 1, tzinfo=UTC))
+        team_id=uuid.uuid4(),
+        platform="linkedin",
+        account_id="a",
+        campaign_id="c",
+        campaign_name="n",
+        status="active",
+        impressions=1,
+        clicks=2,
+        engagements=3,
+        spend_eur=1.5,
+        ctr=0.01,
+        engagement_rate=0.02,
+        cpc_eur=0.5,
+        budget_eur=10.0,
+        captured_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
     rows = _run(de._export_ad_snapshots(_OneExecDB(_Scalars([snap]))))
     assert rows[0]["campaign_name"] == "n"
 
     day = SimpleNamespace(
-        team_id=uuid.uuid4(), platform="linkedin", account_id="a",
-        report_type="campaign", campaign_id="c", campaign_name="n",
-        ad_set_id="s", ad_set_name="sn", ad_id="ad", ad_name="an",
-        placement="feed", status="active", day=None,
-        impressions=1, clicks=2, engagements=3, leads=0, conversions=1,
-        reach=9, clicks_to_landing_page=1, clicks_to_linkedin_page=2,
-        spend_eur=1.0, ctr=0.1, cpc_eur=0.2, cpm_eur=3.0,
-        engagement_rate=0.01, budget_eur=5.0, source="api")
+        team_id=uuid.uuid4(),
+        platform="linkedin",
+        account_id="a",
+        report_type="campaign",
+        campaign_id="c",
+        campaign_name="n",
+        ad_set_id="s",
+        ad_set_name="sn",
+        ad_id="ad",
+        ad_name="an",
+        placement="feed",
+        status="active",
+        day=None,
+        impressions=1,
+        clicks=2,
+        engagements=3,
+        leads=0,
+        conversions=1,
+        reach=9,
+        clicks_to_landing_page=1,
+        clicks_to_linkedin_page=2,
+        spend_eur=1.0,
+        ctr=0.1,
+        cpc_eur=0.2,
+        cpm_eur=3.0,
+        engagement_rate=0.01,
+        budget_eur=5.0,
+        source="api",
+    )
     rows = _run(de._export_ad_daily(_OneExecDB(_Scalars([day]))))
     assert rows[0]["day"] is None and rows[0]["ad_name"] == "an"
 
     seg = SimpleNamespace(
-        team_id=uuid.uuid4(), platform="linkedin", account_id="a",
-        segment_type="job_title", segment_value="Owner",
-        window_start=None, window_end=None, impressions=10, clicks=1,
-        conversions=0, ctr=0.1, pct_impressions=50.0, pct_clicks=60.0,
-        source="api")
+        team_id=uuid.uuid4(),
+        platform="linkedin",
+        account_id="a",
+        segment_type="job_title",
+        segment_value="Owner",
+        window_start=None,
+        window_end=None,
+        impressions=10,
+        clicks=1,
+        conversions=0,
+        ctr=0.1,
+        pct_impressions=50.0,
+        pct_clicks=60.0,
+        source="api",
+    )
     rows = _run(de._export_ad_demographics(_OneExecDB(_Scalars([seg]))))
     assert rows[0]["segment_value"] == "Owner"
 
@@ -402,14 +468,14 @@ def _worker_cm(db):
     @asynccontextmanager
     async def _cm():
         yield db
+
     return _cm
 
 
 def test_export_async_not_configured(monkeypatch):
     s = de.settings
     monkeypatch.setattr(s, "DATALAKE_R2_BUCKET", "")
-    assert _run(de._export_async()) == {
-        "ok": False, "error": "DATALAKE_R2_BUCKET not configured"}
+    assert _run(de._export_async()) == {"ok": False, "error": "DATALAKE_R2_BUCKET not configured"}
 
     monkeypatch.setattr(s, "DATALAKE_R2_BUCKET", "lake")
     monkeypatch.setattr(s, "CLOUDFLARE_ACCOUNT_ID", "")
@@ -427,12 +493,22 @@ def test_export_async_full_run(monkeypatch):
     db = _OneExecDB(_Scalars([team]))
     monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
 
-    for name in ("_export_accounts", "_export_posts", "_export_metrics",
-                 "_export_followers", "_export_account_events", "_export_leads",
-                 "_export_telegram_channels", "_export_web_events",
-                 "_export_ad_snapshots", "_export_ad_daily",
-                 "_export_ad_demographics", "_export_monetization",
-                 "_export_email_campaigns"):
+    for name in (
+        "_export_accounts",
+        "_export_posts",
+        "_export_metrics",
+        "_export_followers",
+        "_export_account_events",
+        "_export_leads",
+        "_export_telegram_channels",
+        "_export_web_events",
+        "_export_ad_snapshots",
+        "_export_ad_daily",
+        "_export_ad_demographics",
+        "_export_monetization",
+        "_export_email_campaigns",
+        "_export_survey_responses",
+    ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[{"r": 1}]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"q": 1}))
     monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={"f": 1}))
@@ -444,8 +520,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 20  # 15 tables + edge + reports + insights + 2 CF files
-    assert out["bytes"] == 200
+    assert out["files"] == 21  # 16 tables + edge + reports + insights + 2 CF files
+    assert out["bytes"] == 210
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
@@ -458,26 +534,36 @@ def test_export_async_insights_and_put_failures(monkeypatch):
     db = _OneExecDB(_Scalars([team]))
     monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
 
-    for name in ("_export_accounts", "_export_posts", "_export_metrics",
-                 "_export_followers", "_export_account_events", "_export_leads",
-                 "_export_telegram_channels", "_export_web_events",
-                 "_export_ad_snapshots", "_export_ad_daily",
-                 "_export_ad_demographics", "_export_monetization",
-                 "_export_email_campaigns"):
+    for name in (
+        "_export_accounts",
+        "_export_posts",
+        "_export_metrics",
+        "_export_followers",
+        "_export_account_events",
+        "_export_leads",
+        "_export_telegram_channels",
+        "_export_web_events",
+        "_export_ad_snapshots",
+        "_export_ad_daily",
+        "_export_ad_demographics",
+        "_export_monetization",
+        "_export_email_campaigns",
+        "_export_survey_responses",
+    ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(return_value={}))
-    monkeypatch.setattr(de, "build_team_insights",
-                        AsyncMock(side_effect=RuntimeError("insights down")))
+    monkeypatch.setattr(de, "build_team_insights", AsyncMock(side_effect=RuntimeError("insights down")))
 
     # put_json fails only for the posts table -> reported as error, not fatal
     async def _put(key, rows, bucket):
         if "posts" in key:
             raise RuntimeError("r2 down")
         return {"size": 5}
+
     monkeypatch.setattr(de, "_put_json", _put)
 
     out = _run(de._export_async())
@@ -494,6 +580,7 @@ def test_put_json(monkeypatch):
     async def _upload(key, data, content_type=None, bucket=None):
         captured.update(key=key, data=data, content_type=content_type, bucket=bucket)
         return {"size": len(data)}
+
     monkeypatch.setattr(de.r2_storage, "upload_object", _upload)
 
     out = _run(de._put_json("k", [{"a": 1, "d": datetime(2026, 1, 1, tzinfo=UTC)}], "lake"))
@@ -554,7 +641,9 @@ def test_export_telegram_channels():
 
 def test_export_telegram_channels_empty_and_malformed():
     acct = SimpleNamespace(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="telegram",
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        platform="telegram",
         meta_data={"telegram_channels": {"-1": "not-a-dict"}},
     )
     rows = _run(de._export_telegram_channels(_OneExecDB(_Scalars([acct]))))
@@ -582,8 +671,7 @@ class _CFClient:
     async def post(self, url, json=None, headers=None):
         q = (json or {}).get("query", "")
         if '"zones"' in q or "zones(" in q:
-            return _Resp({"data": {"viewer": {"zones": [
-                {"httpRequestsAdaptiveGroups": type(self).zone_rows}]}}})
+            return _Resp({"data": {"viewer": {"zones": [{"httpRequestsAdaptiveGroups": type(self).zone_rows}]}}})
         return _Resp({"data": {"viewer": {"accounts": [type(self).gql]}}})
 
     async def get(self, url, headers=None):
@@ -600,25 +688,16 @@ def test_cloudflare_usage_export_shape(monkeypatch):
 
     _CFClient.gql = {
         "workers": [
-            {"sum": {"requests": 10, "errors": 0},
-             "dimensions": {"scriptName": "cloudless2", "status": "success"}},
-            {"sum": {"requests": 4, "errors": 4},
-             "dimensions": {"scriptName": "mail-ingest",
-                            "status": "scriptThrewException"}},
-            {"sum": {"requests": 6, "errors": 0},
-             "dimensions": {"scriptName": "mail-ingest", "status": "success"}},
+            {"sum": {"requests": 10, "errors": 0}, "dimensions": {"scriptName": "cloudless2", "status": "success"}},
+            {"sum": {"requests": 4, "errors": 4}, "dimensions": {"scriptName": "mail-ingest", "status": "scriptThrewException"}},
+            {"sum": {"requests": 6, "errors": 0}, "dimensions": {"scriptName": "mail-ingest", "status": "success"}},
         ],
         "r2": [
-            {"sum": {"requests": 100},
-             "dimensions": {"bucketName": "datalake-bucket", "actionType": "GetObject"}},
-            {"sum": {"requests": 20},
-             "dimensions": {"bucketName": "datalake-bucket", "actionType": "PutObject"}},
+            {"sum": {"requests": 100}, "dimensions": {"bucketName": "datalake-bucket", "actionType": "GetObject"}},
+            {"sum": {"requests": 20}, "dimensions": {"bucketName": "datalake-bucket", "actionType": "PutObject"}},
         ],
-        "d1": [{"sum": {"readQueries": 10, "writeQueries": 2,
-                        "rowsRead": 500, "rowsWritten": 5},
-                "dimensions": {"databaseId": "d1-uuid"}}],
-        "kv": [{"sum": {"requests": 7},
-                "dimensions": {"namespaceId": "ns-uuid", "actionType": "read"}}],
+        "d1": [{"sum": {"readQueries": 10, "writeQueries": 2, "rowsRead": 500, "rowsWritten": 5}, "dimensions": {"databaseId": "d1-uuid"}}],
+        "kv": [{"sum": {"requests": 7}, "dimensions": {"namespaceId": "ns-uuid", "actionType": "read"}}],
         "ai": [{"count": 42, "dimensions": {"modelId": "@cf/meta/llama-3.1-8b"}}],
         "aigw": [],
     }
@@ -657,20 +736,24 @@ class _MapDB:
 
     async def execute(self, *a, **k):
         rows = next(self._it)
-        return SimpleNamespace(
-            mappings=lambda: SimpleNamespace(all=lambda: rows)
-        )
+        return SimpleNamespace(mappings=lambda: SimpleNamespace(all=lambda: rows))
 
 
 def test_export_funnel_web_attribution():
     from datetime import datetime
 
-    per_post = [{
-        "post_id": "p1", "campaign": "cmp-a", "platform": "linkedin",
-        "published_at": datetime(2026, 10, 1), "views": 9, "leads": 2, "clicks": 4,
-    }]
-    by_campaign = [{"campaign": "cmp-a", "platform": "linkedin",
-                    "views": 9, "leads": 2, "clicks": 4}]
+    per_post = [
+        {
+            "post_id": "p1",
+            "campaign": "cmp-a",
+            "platform": "linkedin",
+            "published_at": datetime(2026, 10, 1),
+            "views": 9,
+            "leads": 2,
+            "clicks": 4,
+        }
+    ]
+    by_campaign = [{"campaign": "cmp-a", "platform": "linkedin", "views": 9, "leads": 2, "clicks": 4}]
     out = _run(de._export_funnel(_MapDB([per_post, by_campaign])))
     assert out["per_post"][0]["post_id"] == "p1"
     assert out["per_post"][0]["clicks"] == 4
@@ -698,25 +781,35 @@ def test_export_async_cf_usage_failure_isolated(monkeypatch):
 
     db = _OneExecDB(_Scalars([]))
     monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
-    for name in ("_export_accounts", "_export_posts", "_export_metrics",
-                 "_export_followers", "_export_account_events", "_export_leads",
-                 "_export_telegram_channels", "_export_web_events",
-                 "_export_ad_snapshots", "_export_ad_daily",
-                 "_export_ad_demographics", "_export_monetization",
-                 "_export_email_campaigns"):
+    for name in (
+        "_export_accounts",
+        "_export_posts",
+        "_export_metrics",
+        "_export_followers",
+        "_export_account_events",
+        "_export_leads",
+        "_export_telegram_channels",
+        "_export_web_events",
+        "_export_ad_snapshots",
+        "_export_ad_daily",
+        "_export_ad_demographics",
+        "_export_monetization",
+        "_export_email_campaigns",
+        "_export_survey_responses",
+    ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_edge_metrics", AsyncMock(return_value={}))
     monkeypatch.setattr(de, "_export_reports_index", AsyncMock(return_value=[]))
-    monkeypatch.setattr(de, "_export_cloudflare_usage",
-                        AsyncMock(side_effect=RuntimeError("cf gql down")))
+    monkeypatch.setattr(de, "_export_cloudflare_usage", AsyncMock(side_effect=RuntimeError("cf gql down")))
     monkeypatch.setattr(de, "build_team_insights", AsyncMock(return_value={}))
     written = {}
 
     async def _put(key, rows, bucket):
         written[key] = rows
         return {"size": 3}
+
     monkeypatch.setattr(de, "_put_json", _put)
 
     out = _run(de._export_async())
@@ -735,12 +828,22 @@ def test_export_async_nextcloud_mirror(monkeypatch):
 
     db = _OneExecDB(_Scalars([]))
     monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
-    for name in ("_export_accounts", "_export_posts", "_export_metrics",
-                 "_export_followers", "_export_account_events", "_export_leads",
-                 "_export_telegram_channels", "_export_web_events",
-                 "_export_ad_snapshots", "_export_ad_daily",
-                 "_export_ad_demographics", "_export_monetization",
-                 "_export_email_campaigns"):
+    for name in (
+        "_export_accounts",
+        "_export_posts",
+        "_export_metrics",
+        "_export_followers",
+        "_export_account_events",
+        "_export_leads",
+        "_export_telegram_channels",
+        "_export_web_events",
+        "_export_ad_snapshots",
+        "_export_ad_daily",
+        "_export_ad_demographics",
+        "_export_monetization",
+        "_export_email_campaigns",
+        "_export_survey_responses",
+    ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"h": 1}))
     monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={}))
@@ -759,6 +862,7 @@ def test_export_async_nextcloud_mirror(monkeypatch):
         return f"remote://{key}"
 
     import app.services.nextcloud_export as nce
+
     monkeypatch.setattr(nce, "nextcloud_export_enabled", lambda: True)
     monkeypatch.setattr(nce, "upload_bytes", _upload)
 
@@ -780,12 +884,22 @@ def test_export_async_nextcloud_mirror_upload_failure(monkeypatch):
 
     db = _OneExecDB(_Scalars([]))
     monkeypatch.setattr(de, "_worker_db", _worker_cm(db))
-    for name in ("_export_accounts", "_export_posts", "_export_metrics",
-                 "_export_followers", "_export_account_events", "_export_leads",
-                 "_export_telegram_channels", "_export_web_events",
-                 "_export_ad_snapshots", "_export_ad_daily",
-                 "_export_ad_demographics", "_export_monetization",
-                 "_export_email_campaigns"):
+    for name in (
+        "_export_accounts",
+        "_export_posts",
+        "_export_metrics",
+        "_export_followers",
+        "_export_account_events",
+        "_export_leads",
+        "_export_telegram_channels",
+        "_export_web_events",
+        "_export_ad_snapshots",
+        "_export_ad_daily",
+        "_export_ad_demographics",
+        "_export_monetization",
+        "_export_email_campaigns",
+        "_export_survey_responses",
+    ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"h": 1}))
     monkeypatch.setattr(de, "_export_funnel", AsyncMock(return_value={"f": 1}))
@@ -796,11 +910,12 @@ def test_export_async_nextcloud_mirror_upload_failure(monkeypatch):
     monkeypatch.setattr(de, "_put_json", AsyncMock(return_value={"size": 1}))
 
     async def _upload(key, data, ctype):
-        if "socialauto-ops/" in key:      # matches _NC_MIRROR_RE
+        if "socialauto-ops/" in key:  # matches _NC_MIRROR_RE
             raise RuntimeError("webdav 507")
         return f"remote://{key}"
 
     import app.services.nextcloud_export as nce
+
     monkeypatch.setattr(nce, "nextcloud_export_enabled", lambda: True)
     monkeypatch.setattr(nce, "upload_bytes", _upload)
 

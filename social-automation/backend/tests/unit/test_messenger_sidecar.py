@@ -23,8 +23,7 @@ def _reset(monkeypatch):
 
 
 def _resp(status=200, json_body=None, text=""):
-    return SimpleNamespace(status_code=status,
-                           json=lambda: json_body or {}, text=text)
+    return SimpleNamespace(status_code=status, json=lambda: json_body or {}, text=text)
 
 
 class _Http:
@@ -48,14 +47,11 @@ class _Http:
 
 
 def _patch_http(monkeypatch, post=None, get=None):
-    monkeypatch.setattr(M.httpx, "AsyncClient",
-                        lambda *a, **k: _Http(post, get))
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda *a, **k: _Http(post, get))
 
 
 def _event(**kw) -> M.WebhookEvent:
-    d = dict(page_id="12345", sender_psid="999",
-             recipient_id="12345", message_text="hi",
-             message_type="text", message_mid="m1", timestamp=1)
+    d = dict(page_id="12345", sender_psid="999", recipient_id="12345", message_text="hi", message_type="text", message_mid="m1", timestamp=1)
     d.update(kw)
     return M.WebhookEvent(**d)
 
@@ -95,8 +91,7 @@ async def test_health_stats_process(monkeypatch):
 
     # swallow the background task so it doesn't run real work
     created = []
-    monkeypatch.setattr(M.asyncio, "create_task",
-                        lambda coro: (coro.close(), created.append(coro))[0])
+    monkeypatch.setattr(M.asyncio, "create_task", lambda coro: (coro.close(), created.append(coro))[0])
     # close() the coroutine then append — order irrelevant, just don't run it
 
     # non-reply types → ignored
@@ -105,8 +100,7 @@ async def test_health_stats_process(monkeypatch):
     assert M._stats["events_processed"] == 1
     assert M._stats["events_received"] == 1
 
-    r = await M.process_event(_event(
-        message_type="text", sender_psid="", message_mid="m2"))
+    r = await M.process_event(_event(message_type="text", sender_psid="", message_mid="m2"))
     assert M._stats["events_processed"] == 2
 
     # text → processing (async task created)
@@ -116,6 +110,7 @@ async def test_health_stats_process(monkeypatch):
     # same mid → duplicate
     r = await M.process_event(_event(message_mid="m3"))
     import json as j
+
     assert j.loads(r.body)["status"] == "duplicate"
 
 
@@ -125,25 +120,21 @@ async def test_health_stats_process(monkeypatch):
 @pytest.mark.asyncio
 async def test_handle_message(monkeypatch):
     # no account → early return
-    monkeypatch.setattr(M, "_get_account_and_config", AsyncMock(
-        return_value=None))
+    monkeypatch.setattr(M, "_get_account_and_config", AsyncMock(return_value=None))
     await M._handle_message(_event())
     assert M._stats["auto_replies_sent"] == 0
 
     # auto-reply disabled → early return
-    monkeypatch.setattr(M, "_get_account_and_config", AsyncMock(
-        return_value=("id", "tok", {"enabled": False}, "Page")))
+    monkeypatch.setattr(M, "_get_account_and_config", AsyncMock(return_value=("id", "tok", {"enabled": False}, "Page")))
     await M._handle_message(_event())
 
     # happy path — typing_on → AI → send → typing_off → counter++
-    monkeypatch.setattr(M, "_get_account_and_config", AsyncMock(
-        return_value=("id", "tok", {"enabled": True}, "Page")))
+    monkeypatch.setattr(M, "_get_account_and_config", AsyncMock(return_value=("id", "tok", {"enabled": True}, "Page")))
     actions = AsyncMock()
     send = AsyncMock()
     monkeypatch.setattr(M, "_send_sender_action", actions)
     monkeypatch.setattr(M, "_send_text_message", send)
-    monkeypatch.setattr(M, "_generate_ai_response", AsyncMock(
-        return_value="auto reply"))
+    monkeypatch.setattr(M, "_generate_ai_response", AsyncMock(return_value="auto reply"))
     await M._handle_message(_event())
     assert actions.await_count == 2  # typing_on + typing_off
     send.assert_awaited_once()
@@ -188,23 +179,28 @@ async def test_get_account_and_config(monkeypatch):
     assert await M._get_account_and_config("12345") is None
 
     # accounts list — match by platform + account_id
-    monkeypatch.setattr(M, "_get_admin_token", AsyncMock(
-        return_value="T"))
-    get = AsyncMock(return_value=_resp(200, [
-        {"platform": "instagram", "account_id": "12345"},
-        {"platform": "facebook", "account_id": "12345",
-         "id": "acct-1", "display_name": "MyPage",
-         "meta_data": {"page_token": "PT",
-                       "messenger_auto_reply": {"enabled": True}}},
-    ]))
+    monkeypatch.setattr(M, "_get_admin_token", AsyncMock(return_value="T"))
+    get = AsyncMock(
+        return_value=_resp(
+            200,
+            [
+                {"platform": "instagram", "account_id": "12345"},
+                {
+                    "platform": "facebook",
+                    "account_id": "12345",
+                    "id": "acct-1",
+                    "display_name": "MyPage",
+                    "meta_data": {"page_token": "PT", "messenger_auto_reply": {"enabled": True}},
+                },
+            ],
+        )
+    )
     _patch_http(monkeypatch, get=get)
     out = await M._get_account_and_config("12345")
     assert out == ("acct-1", "PT", {"enabled": True}, "MyPage")
 
     # dict-shaped payload ({"accounts": [...]})
-    get = AsyncMock(return_value=_resp(200, {"accounts": [
-        {"platform": "facebook", "account_id": "777", "id": "a",
-         "display_name": "P", "meta_data": {}}]}))
+    get = AsyncMock(return_value=_resp(200, {"accounts": [{"platform": "facebook", "account_id": "777", "id": "a", "display_name": "P", "meta_data": {}}]}))
     _patch_http(monkeypatch, get=get)
     out = await M._get_account_and_config("777")
     assert out[0] == "a"
@@ -216,9 +212,11 @@ async def test_get_account_and_config(monkeypatch):
 
     # 401 → token refresh + retry
     calls = {"n": 0}
+
     async def _get(url, **kw):
         calls["n"] += 1
         return _resp(401) if calls["n"] == 1 else _resp(200, [])
+
     M._api_token = ""
     _patch_http(monkeypatch, get=_get)
     assert await M._get_account_and_config("x") is None
@@ -258,12 +256,10 @@ async def test_senders(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_generate_ai_response(monkeypatch):
-    cfg = {"system_prompt": "You are {page_name}'s bot",
-           "fallback_text": "FB"}
+    cfg = {"system_prompt": "You are {page_name}'s bot", "fallback_text": "FB"}
 
     # DMR success — think tags stripped
-    post = AsyncMock(return_value=_resp(200, {"choices": [{"message": {
-        "content": "<think>x</think>  real answer  "}}]}))
+    post = AsyncMock(return_value=_resp(200, {"choices": [{"message": {"content": "<think>x</think>  real answer  "}}]}))
     _patch_http(monkeypatch, post=post)
     out = await M._generate_ai_response(cfg, "hi", "MyPage")
     assert out == "real answer"
@@ -275,11 +271,13 @@ async def test_generate_ai_response(monkeypatch):
     monkeypatch.setattr(M, "CLOUDFLARE_API_TOKEN", "cf-tok")
     monkeypatch.setattr(M, "CLOUDFLARE_ACCOUNT_ID", "cf-acct")
     calls = {"n": 0}
+
     async def _post(url, **kw):
         calls["n"] += 1
         if "chat/completions" in url:
             return _resp(200, {"choices": [{"message": {"content": ""}}]})
         return _resp(200, {"result": {"response": "  cf answer  "}})
+
     _patch_http(monkeypatch, post=_post)
     out = await M._generate_ai_response(cfg, "hi", "MyPage")
     assert out == "cf answer"
@@ -287,13 +285,16 @@ async def test_generate_ai_response(monkeypatch):
     # both fail → fallback_text
     async def _post_fail(url, **kw):
         return _resp(500)
+
     _patch_http(monkeypatch, post=_post_fail)
     assert await M._generate_ai_response(cfg, "hi", "MyPage") == "FB"
 
     # DMR throws, no CF creds → fallback
     monkeypatch.setattr(M, "CLOUDFLARE_API_TOKEN", "")
+
     async def _post_raise(url, **kw):
         raise ConnectionError("down")
+
     _patch_http(monkeypatch, post=_post_raise)
     assert await M._generate_ai_response(cfg, "hi", "MyPage") == "FB"
 

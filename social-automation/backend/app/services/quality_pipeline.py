@@ -13,6 +13,7 @@ consistent quality across all workflows:
 The helper is advisory — it never raises. If any step fails, the best available
 version of the content is returned with a diagnostic report.
 """
+
 from __future__ import annotations
 
 import logging
@@ -179,11 +180,7 @@ async def apply_quality_pipeline(
                 recs = result.seo_score.get("recommendations", [])
                 rec_text = "\n".join(f"- {r}" for r in recs) if recs else "Improve length and hashtag coverage."
                 if result.gibberish_tokens:
-                    rec_text += (
-                        "\n- Fix mangled/non-dictionary tokens (a dropped space "
-                        "or stray capital letter): "
-                        + ", ".join(result.gibberish_tokens)
-                    )
+                    rec_text += "\n- Fix mangled/non-dictionary tokens (a dropped space or stray capital letter): " + ", ".join(result.gibberish_tokens)
 
                 from app.services.inference import call_inference
 
@@ -259,6 +256,7 @@ Return JSON with: content (string), hashtags (array of strings without #)"""
 
 # ── Publish-time gate ──────────────────────────────────────────────────────
 
+
 @dataclass
 class PublishGateResult:
     """Outcome of the go-live quality gate.
@@ -302,9 +300,7 @@ async def apply_publish_gate(
 
     settings = get_settings()
     threshold = settings.PUBLISH_MIN_SEO_SCORE if min_score is None else min_score
-    iterations = (
-        settings.PUBLISH_QUALITY_MAX_ITERATIONS if max_iterations is None else max_iterations
-    )
+    iterations = settings.PUBLISH_QUALITY_MAX_ITERATIONS if max_iterations is None else max_iterations
 
     if threshold <= 0 or not content or not content.strip():
         return PublishGateResult(
@@ -356,6 +352,7 @@ async def apply_publish_gate(
 
 
 # ── Decorator for automatic quality enforcement ────────────────────────────
+
 
 def with_quality(
     *,

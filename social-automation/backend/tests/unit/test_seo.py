@@ -8,6 +8,7 @@ from app.services.seo import (
 
 # ── extract_keywords ──────────────────────────────────────────────────────────
 
+
 def test_extract_keywords_returns_top_words():
     text = "Cloud migration cloud strategy cloud deployment automation tools"
     kws = extract_keywords(text, max_keywords=3)
@@ -40,6 +41,7 @@ def test_extract_keywords_min_length():
 
 
 # ── score_content ─────────────────────────────────────────────────────────────
+
 
 def test_score_content_returns_dict_with_expected_keys():
     text = "Building a cloud-first strategy helps teams ship faster #cloud #devops https://example.com"
@@ -85,6 +87,7 @@ def test_score_content_empty_text():
 
 
 # ── generate_open_graph ───────────────────────────────────────────────────────
+
 
 def test_generate_open_graph_with_meta():
     og = generate_open_graph("My Title", "Body text here", "My description")

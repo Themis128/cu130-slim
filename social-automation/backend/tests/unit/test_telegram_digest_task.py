@@ -12,8 +12,7 @@ import app.worker.tasks.telegram_digest as TD
 
 
 def _account(**kw):
-    base = dict(id=uuid.uuid4(), platform="telegram", status="active",
-                access_token_enc="enc", meta_data={})
+    base = dict(id=uuid.uuid4(), platform="telegram", status="active", access_token_enc="enc", meta_data={})
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -27,16 +26,13 @@ def _db(accounts):
             return False
 
         async def execute(self, *a):
-            return SimpleNamespace(
-                scalars=lambda: SimpleNamespace(all=lambda: accounts))
+            return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: accounts))
 
     return _DB
 
 
 def _meta(**over):
-    return {"telegram_group_watch": {
-        "enabled": True, "digest_enabled": True,
-        "owner_chat_id": "999", **over}}
+    return {"telegram_group_watch": {"enabled": True, "digest_enabled": True, "owner_chat_id": "999", **over}}
 
 
 @pytest.mark.asyncio
@@ -61,8 +57,7 @@ async def test_run_digests_paths(monkeypatch):
     monkeypatch.setattr(TD, "decrypt_token", lambda t: f"dec-{t}")
     send = AsyncMock(return_value={"sent": 2, "reason": ""})
     monkeypatch.setattr(TD, "send_digest_for_account", send)
-    monkeypatch.setattr(TD, "TelegramAPIClient",
-                        lambda t: SimpleNamespace(t=t))
+    monkeypatch.setattr(TD, "TelegramAPIClient", lambda t: SimpleNamespace(t=t))
 
     # no token → error result (bytes enc still decrypts empty)
     acct = _account(meta_data=_meta(), access_token_enc=b"enc")
@@ -82,17 +77,14 @@ async def test_run_digests_paths(monkeypatch):
 
     # meta bot_token_enc fallback when access_token_enc not bytes
     send.reset_mock()
-    acct = _account(meta_data={**_meta(), "bot_token_enc": "menc"},
-                    access_token_enc="plain")
+    acct = _account(meta_data={**_meta(), "bot_token_enc": "menc"}, access_token_enc="plain")
     monkeypatch.setattr(TD, "_worker_db", lambda: _db([acct])())
     out = await TD._run_digests()
     assert out["sent"] == 2
 
     # per-account exception → error captured, loop continues
-    send.side_effect = [RuntimeError("down"),
-                        {"sent": 1, "reason": ""}]
-    accts = [_account(meta_data=_meta(), access_token_enc=b"enc"),
-             _account(meta_data=_meta(), access_token_enc=b"enc")]
+    send.side_effect = [RuntimeError("down"), {"sent": 1, "reason": ""}]
+    accts = [_account(meta_data=_meta(), access_token_enc=b"enc"), _account(meta_data=_meta(), access_token_enc=b"enc")]
     monkeypatch.setattr(TD, "_worker_db", lambda: _db(accts)())
     out = await TD._run_digests()
     assert out["accounts"] == 2 and out["sent"] == 1
@@ -100,6 +92,5 @@ async def test_run_digests_paths(monkeypatch):
 
 
 def test_task_wrapper(monkeypatch):
-    monkeypatch.setattr(TD, "run_async",
-                        lambda c: (c.close(), {"ok": 1})[1])
+    monkeypatch.setattr(TD, "run_async", lambda c: (c.close(), {"ok": 1})[1])
     assert TD.send_telegram_group_digests() == {"ok": 1}

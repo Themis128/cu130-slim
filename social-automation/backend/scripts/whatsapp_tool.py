@@ -60,6 +60,54 @@ def _graph_get(path: str, **params) -> dict:
         raise SystemExit(json.dumps(data["error"], indent=2))
     return data
 
+def _graph_post(path: str, **params) -> dict:
+    import requests
+
+    resp = requests.post(
+        f"https://graph.facebook.com/v21.0/{path.lstrip('/')}",
+        data=params,
+        headers={"Authorization": f"Bearer {_need('WHATSAPP_ACCESS_TOKEN')}"},
+        timeout=15,
+    )
+    data = resp.json()
+    if "error" in data:
+        raise SystemExit(json.dumps(data["error"], indent=2))
+    return data
+
+
+def cmd_request_code() -> None:
+    """POST /{phone_number_id}/request_code — triggers SMS/voice verify code."""
+    out = _graph_post(
+        f"{_need('WHATSAPP_PHONE_NUMBER_ID')}/request_code",
+        code_method=os.environ.get("WA_CODE_METHOD", "SMS"),
+        language="en_US",
+    )
+    print(json.dumps(out, indent=2))
+
+
+def cmd_verify_code(code: str) -> None:
+    """POST /{phone_number_id}/verify_code — completes phone verification."""
+    out = _graph_post(
+        f"{_need('WHATSAPP_PHONE_NUMBER_ID')}/verify_code",
+        code=code,
+    )
+    print(json.dumps(out, indent=2))
+
+
+def cmd_register() -> None:
+    """POST /{phone_number_id}/register — the non-migration registration path.
+
+    Meta error 2388091 ("not being migrated") means request_code is the wrong
+    endpoint for a number that isn't migrating — the standard flow is
+    /register (which triggers the SMS) followed by /verify_code.
+    """
+    out = _graph_post(
+        f"{_need('WHATSAPP_PHONE_NUMBER_ID')}/register",
+        messaging_product="whatsapp",
+        pin=os.environ.get("WA_REGISTRATION_PIN", "123456"),
+    )
+    print(json.dumps(out, indent=2))
+
 
 def cmd_status() -> None:
     info = _graph_get(
@@ -124,16 +172,22 @@ def cmd_webhook() -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("status", "templates", "waba", "webhook"):
+    for name in ("status", "templates", "waba", "webhook", "request_code", "register"):
         sub.add_parser(name)
+    vp = sub.add_parser("verify_code")
+    vp.add_argument("code")
     args = ap.parse_args()
 
-    {
+    dispatch = {
         "status": cmd_status,
         "templates": cmd_templates,
         "waba": cmd_waba,
         "webhook": cmd_webhook,
-    }[args.cmd]()
+        "request_code": cmd_request_code,
+        "register": cmd_register,
+        "verify_code": lambda: cmd_verify_code(args.code),
+    }
+    dispatch[args.cmd]()
 
 
 if __name__ == "__main__":

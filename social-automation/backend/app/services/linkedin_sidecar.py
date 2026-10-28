@@ -33,11 +33,7 @@ class LinkedInSidecarClient:
     """HTTP client for the linkedin-browser-sidecar service."""
 
     def __init__(self, base_url: str | None = None, timeout: float = 120.0) -> None:
-        self.base_url = (
-            base_url
-            or os.environ.get("LINKEDIN_BROWSER_SIDECAR_URL")
-            or "http://linkedin-browser-sidecar:9225"
-        )
+        self.base_url = base_url or os.environ.get("LINKEDIN_BROWSER_SIDECAR_URL") or "http://linkedin-browser-sidecar:9225"
         self._timeout = timeout
 
     @property
@@ -288,9 +284,7 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
-    async def post_image(
-        self, images: list[dict[str, str]], message: str | None = None, visibility: str | None = None
-    ) -> dict[str, Any]:
+    async def post_image(self, images: list[dict[str, str]], message: str | None = None, visibility: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"images": images}
         if message:
             payload["message"] = message
@@ -323,9 +317,7 @@ class LinkedInSidecarClient:
                 raise LinkedInSidecarError(r.status_code, r.text)
             return r.json()
 
-    async def company_post_image(
-        self, vanity: str, images: list[dict[str, str]], message: str | None = None
-    ) -> dict[str, Any]:
+    async def company_post_image(self, vanity: str, images: list[dict[str, str]], message: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"images": images}
         if message:
             payload["message"] = message

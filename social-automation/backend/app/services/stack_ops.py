@@ -70,9 +70,7 @@ async def wake(container_name: str) -> bool:
     """Explicit wake for callers that don't go through the TCP proxy."""
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.post(
-                f"{STACK_OPS_URL.rstrip('/')}/wake/{container_name}"
-            )
+            resp = await client.post(f"{STACK_OPS_URL.rstrip('/')}/wake/{container_name}")
             return resp.status_code == 200
     except Exception as exc:
         logger.warning("stack-ops wake %s failed: %s", container_name, exc)
@@ -89,9 +87,7 @@ async def keepawake(service_name: str, ttl_s: int = 3600) -> bool:
     """
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.post(
-                f"{STACK_OPS_URL.rstrip('/')}/keepawake/{service_name}?ttl={ttl_s}"
-            )
+            resp = await client.post(f"{STACK_OPS_URL.rstrip('/')}/keepawake/{service_name}?ttl={ttl_s}")
             return resp.status_code == 200
     except Exception as exc:
         logger.debug("stack-ops keepawake %s failed: %s", service_name, exc)

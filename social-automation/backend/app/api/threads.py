@@ -10,6 +10,7 @@ Exposes Threads-specific endpoints:
 - Delete a post
 - List published posts
 """
+
 from __future__ import annotations
 
 import uuid
@@ -75,7 +76,7 @@ def _get_browser_bridge_client():
     from app.services.browser_bridge import BrowserBridgeClient
 
     bridge_url = os.getenv("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
-    return BrowserBridgeClient(bridge_url, platform='threads')
+    return BrowserBridgeClient(bridge_url, platform="threads")
 
 
 # ── Response models ───────────────────────────────────────────────────────────
@@ -174,7 +175,8 @@ async def get_threads_profile(
 
 @router.put("/profile", response_model=ThreadsProfileUpdateResponse)
 async def update_threads_profile(
-    request: ThreadsProfileUpdateRequest, team_id: TeamId,
+    request: ThreadsProfileUpdateRequest,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -238,7 +240,8 @@ async def get_threads_insights(
 
 @router.get("/posts/{media_id}/insights", response_model=ThreadsPostInsightsResponse)
 async def get_threads_post_insights(
-    media_id: str, team_id: TeamId,
+    media_id: str,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     metric: str = Query("views", description="Insight metric: views, likes, replies, reposts, quotes"),
     db: AsyncSession = Depends(get_db),
@@ -283,6 +286,7 @@ async def get_threads_quota(
     _, client = await _get_threads_client(db, team_id, account_id)
 
     import httpx
+
     url = f"https://graph.threads.net/v1.0/{client.user_id}/threads_publishing_limit"
     try:
         async with httpx.AsyncClient(timeout=30.0) as http:
@@ -322,6 +326,7 @@ async def list_threads_posts(
     _, client = await _get_threads_client(db, team_id, account_id)
 
     import httpx
+
     url = f"https://graph.threads.net/v1.0/{client.user_id}/threads"
     params: dict[str, Any] = {
         "fields": "id,text,timestamp,media_type,permalink",
@@ -360,7 +365,8 @@ async def list_threads_posts(
 
 @router.post("/posts/{media_id}/reply", response_model=ThreadsReplyResponse)
 async def reply_to_thread(
-    media_id: str, team_id: TeamId,
+    media_id: str,
+    team_id: TeamId,
     request: ThreadsReplyRequest,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     db: AsyncSession = Depends(get_db),
@@ -416,7 +422,8 @@ async def reply_to_thread(
 
 @router.delete("/posts/{media_id}", response_model=ThreadsDeleteResponse)
 async def delete_threads_post(
-    media_id: str, team_id: TeamId,
+    media_id: str,
+    team_id: TeamId,
     account_id: uuid.UUID = Query(..., description="Threads social account ID"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -446,6 +453,7 @@ async def get_threads_followers(
     _, client = await _get_threads_client(db, team_id, account_id)
 
     import httpx
+
     url = f"https://graph.threads.net/v1.0/{client.user_id}/insights"
     try:
         async with httpx.AsyncClient(timeout=15.0) as http:
@@ -480,7 +488,8 @@ class ThreadsAutoReplyConfig(BaseModel):
 
 @router.get("/{account_id}/dm/auto-reply")
 async def get_threads_dm_auto_reply(
-    account_id: uuid.UUID, team_id: TeamId,
+    account_id: uuid.UUID,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Get the Threads DM auto-reply configuration for an account."""
@@ -501,18 +510,21 @@ async def get_threads_dm_auto_reply(
 @router.put("/{account_id}/dm/auto-reply")
 async def update_threads_dm_auto_reply(
     account_id: uuid.UUID,
-    body: ThreadsAutoReplyConfig, team_id: TeamId,
+    body: ThreadsAutoReplyConfig,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Update the Threads DM auto-reply configuration for an account."""
     account = await _get_threads_account(db, team_id, account_id)
     if body.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", team_id, db)
     meta = account.meta_data or {}
     meta["threads_auto_reply"] = body.model_dump()
     account.meta_data = meta
     from sqlalchemy.orm.attributes import flag_modified
+
     flag_modified(account, "meta_data")
     await db.commit()
     return body
@@ -520,7 +532,8 @@ async def update_threads_dm_auto_reply(
 
 @router.get("/{account_id}/dm/conversations")
 async def list_threads_dm_conversations(
-    account_id: uuid.UUID, team_id: TeamId,
+    account_id: uuid.UUID,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """List Threads DM conversations via the browser bridge."""
@@ -538,7 +551,8 @@ async def list_threads_dm_conversations(
 @router.get("/{account_id}/dm/threads/{thread_id}")
 async def read_threads_dm_thread(
     account_id: uuid.UUID,
-    thread_id: str, team_id: TeamId,
+    thread_id: str,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Read messages in a Threads DM thread via the browser bridge."""
@@ -557,7 +571,8 @@ async def read_threads_dm_thread(
 async def send_threads_dm(
     account_id: uuid.UUID,
     thread_id: str,
-    body: dict, team_id: TeamId,
+    body: dict,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Send a message in a Threads DM thread via the browser bridge."""
@@ -580,9 +595,11 @@ async def send_threads_dm(
 # personal Facebook Messenger, LinkedIn, and Twitter). These endpoints
 # help manage the Threads browser session.
 
+
 @router.post("/{account_id}/dm/login")
 async def threads_dm_login(
-    account_id: str, team_id: TeamId,
+    account_id: str,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Open Threads in the browser bridge for manual login.
@@ -612,7 +629,8 @@ async def threads_dm_login(
 
 @router.get("/{account_id}/dm/session-status")
 async def threads_dm_session_status(
-    account_id: str, team_id: TeamId,
+    account_id: str,
+    team_id: TeamId,
     db: AsyncSession = Depends(get_db),
 ):
     """Check if the Threads browser session is active."""
@@ -627,6 +645,7 @@ async def threads_dm_session_status(
         try:
             await bridge.navigate("https://www.threads.com/")
             import asyncio
+
             await asyncio.sleep(3)
             result = await bridge.evaluate("""() => {
                 const url = window.location.href;

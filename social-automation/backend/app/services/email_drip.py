@@ -74,9 +74,7 @@ def _norm_email(record: dict[str, Any]) -> str:
 
 
 def _is_test_address(email: str, name: str | None = None) -> bool:
-    return any(m in email for m in _TEST_MARKERS) or "ci functional test" in (
-        name or ""
-    ).lower()
+    return any(m in email for m in _TEST_MARKERS) or "ci functional test" in (name or "").lower()
 
 
 def _mailable(email: str, name: str | None = None) -> bool:
@@ -196,9 +194,7 @@ async def _first_approach_candidates() -> list[dict[str, Any]]:
     out = []
     for lead in await espocrm_client.list_leads_for_campaign():
         email = _norm_email(lead)
-        name = " ".join(
-            p for p in (lead.get("firstName"), lead.get("lastName")) if p
-        ) or lead.get("accountName")
+        name = " ".join(p for p in (lead.get("firstName"), lead.get("lastName")) if p) or lead.get("accountName")
         if not _mailable(email, name):
             continue
         out.append(
@@ -258,9 +254,7 @@ async def _renewal_candidates(now: datetime) -> list[dict[str, Any]]:
         if anniv is None or not (now <= anniv <= now + lookahead):
             continue
         email = _norm_email(contact)
-        name = " ".join(
-            p for p in (contact.get("firstName"), contact.get("lastName")) if p
-        ) or contact.get("accountName")
+        name = " ".join(p for p in (contact.get("firstName"), contact.get("lastName")) if p) or contact.get("accountName")
         if not _mailable(email, name):
             continue
         out.append(
@@ -308,11 +302,7 @@ async def _renewal_candidates(now: datetime) -> list[dict[str, Any]]:
             email = _norm_email(contact)
             if email and email not in seen:
                 seen.add(email)
-                name = " ".join(
-                    p
-                    for p in (contact.get("firstName"), contact.get("lastName"))
-                    if p
-                ) or contact.get("accountName")
+                name = " ".join(p for p in (contact.get("firstName"), contact.get("lastName")) if p) or contact.get("accountName")
                 if _mailable(email, name):
                     out.append(
                         {
@@ -325,12 +315,7 @@ async def _renewal_candidates(now: datetime) -> list[dict[str, Any]]:
                     )
         acc = account_by_id.get(str(opp.get("accountId") or ""))
         acc_email = _norm_email(acc or {})
-        if (
-            acc_email
-            and acc_email not in seen
-            and acc_email not in contact_emails
-            and _mailable(acc_email, (acc or {}).get("name"))
-        ):
+        if acc_email and acc_email not in seen and acc_email not in contact_emails and _mailable(acc_email, (acc or {}).get("name")):
             seen.add(acc_email)
             out.append(
                 {
@@ -392,10 +377,7 @@ async def _aie_lead_map() -> dict[str, dict[str, Any]]:
                 continue
             out[email] = {
                 "id": lead.get("id"),
-                "_name": " ".join(
-                    p for p in (lead.get("firstName"), lead.get("lastName")) if p
-                )
-                or lead.get("accountName"),
+                "_name": " ".join(p for p in (lead.get("firstName"), lead.get("lastName")) if p) or lead.get("accountName"),
             }
     except Exception:  # noqa: BLE001 — CRM outage degrades notes, not the sweep
         logger.exception("email drip: AIE lead map pull failed")
@@ -412,8 +394,12 @@ async def _run_drip(
     now: datetime,
 ) -> dict[str, Any]:
     stats: dict[str, Any] = {
-        "drip": key, "candidates": len(candidates), "mailed": 0,
-        "already_sent": 0, "campaign_id": None, "errors": [],
+        "drip": key,
+        "candidates": len(candidates),
+        "mailed": 0,
+        "already_sent": 0,
+        "campaign_id": None,
+        "errors": [],
     }
     if not candidates:
         return stats
@@ -439,9 +425,7 @@ async def _run_drip(
 
         wave = now.strftime("%Y-%m-%d") + (f" cycle-{cycle}" if cycle else "")
         if dry_run:
-            stats.setdefault("would_mail", []).extend(
-                {"email": c["email"], "cycle": cycle} for c in fresh
-            )
+            stats.setdefault("would_mail", []).extend({"email": c["email"], "cycle": cycle} for c in fresh)
             continue
 
         clone = _clone(template, key, wave, cycle)
@@ -462,9 +446,7 @@ async def _run_drip(
 
         from app.worker.celery_app import celery_app
 
-        celery_app.send_task(
-            "app.worker.tasks.email_campaigns.send_campaign", args=[str(clone.id)]
-        )
+        celery_app.send_task("app.worker.tasks.email_campaigns.send_campaign", args=[str(clone.id)])
         stats["mailed"] += len(queued)
         stats["campaign_id"] = str(clone.id)
 
@@ -491,9 +473,7 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
     now = datetime.now(UTC)
     settings = get_settings()
     aie_gap = timedelta(days=settings.EMAIL_DRIP_AIE_GAP_DAYS)
-    aie_leads = (
-        await _aie_lead_map() if settings.EMAIL_DRIP_AIE_ENABLED else {}
-    )
+    aie_leads = await _aie_lead_map() if settings.EMAIL_DRIP_AIE_ENABLED else {}
     report: dict[str, Any] = {"dry_run": dry_run, "teams": [], "mailed": 0}
     async with async_session_maker() as db:
         teams = (await db.execute(select(Team))).scalars().all()
@@ -508,16 +488,12 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
                     runs.append(
                         (
                             step,
-                            await _aie_course_candidates(
-                                db, team.id, step, aie_gap, now, aie_leads
-                            ),
+                            await _aie_course_candidates(db, team.id, step, aie_gap, now, aie_leads),
                         )
                     )
             for key, candidates in runs:
                 try:
-                    s = await _run_drip(
-                        db, team.id, key, candidates, dry_run=dry_run, now=now
-                    )
+                    s = await _run_drip(db, team.id, key, candidates, dry_run=dry_run, now=now)
                 except Exception as exc:  # noqa: BLE001 — one drip must not kill the other
                     logger.exception("email drip %s failed for team %s", key, team.id)
                     s = {"drip": key, "errors": [str(exc)]}
@@ -526,22 +502,20 @@ async def run_email_drip_sweep(*, dry_run: bool = False) -> dict[str, Any]:
             # Observable artifact — every run, even a quiet one. The workforce
             # audit reads this; counting only sent mail would read dark on a
             # healthy worker with no qualifying recipients.
-            team_mailed = sum(
-                s.get("mailed", 0) for s in team_stats.values() if isinstance(s, dict)
+            team_mailed = sum(s.get("mailed", 0) for s in team_stats.values() if isinstance(s, dict))
+            db.add(
+                AuditLog(
+                    team_id=team.id,
+                    action="email-drip",
+                    resource_type="sweep",
+                    detail=f"mailed={team_mailed} dry_run={dry_run}",
+                    meta={"mailed": team_mailed, "dry_run": dry_run},
+                )
             )
-            db.add(AuditLog(
-                team_id=team.id,
-                action="email-drip",
-                resource_type="sweep",
-                detail=f"mailed={team_mailed} dry_run={dry_run}",
-                meta={"mailed": team_mailed, "dry_run": dry_run},
-            ))
             await db.commit()
             report["teams"].append(team_stats)
 
-    if report["mailed"] or any(
-        s.get("errors") for t in report["teams"] for s in t.values() if isinstance(s, dict)
-    ):
+    if report["mailed"] or any(s.get("errors") for t in report["teams"] for s in t.values() if isinstance(s, dict)):
         await _slack_report(report)
     return report
 
@@ -559,8 +533,7 @@ async def _slack_report(report: dict[str, Any]) -> None:
                 lines.append(
                     f"  {key}: {s.get('mailed', 0)} mailed"
                     f" · {s.get('candidates', 0)} candidates"
-                    f" · {s.get('already_sent', 0)} already mailed"
-                    + (f" · errors: {'; '.join(s['errors'])}" if s.get("errors") else "")
+                    f" · {s.get('already_sent', 0)} already mailed" + (f" · errors: {'; '.join(s['errors'])}" if s.get("errors") else "")
                 )
         await post_digest_text_to_slack("\n".join(lines))
     except Exception:  # noqa: BLE001

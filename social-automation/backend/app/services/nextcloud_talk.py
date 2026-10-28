@@ -38,11 +38,7 @@ _OCS = "/ocs/v2.php/apps/spreed/api/v1"
 
 def talk_enabled() -> bool:
     s = get_settings()
-    return bool(
-        getattr(s, "NEXTCLOUD_TALK_NOTIFY", False)
-        and getattr(s, "NEXTCLOUD_USERNAME", "")
-        and getattr(s, "NEXTCLOUD_APP_PASSWORD", "")
-    )
+    return bool(getattr(s, "NEXTCLOUD_TALK_NOTIFY", False) and getattr(s, "NEXTCLOUD_USERNAME", "") and getattr(s, "NEXTCLOUD_APP_PASSWORD", ""))
 
 
 def _base_url() -> str:
@@ -60,9 +56,7 @@ def room_token(purpose: str) -> str:
     everything else to the default ops room."""
     s = get_settings()
     if purpose in ("alerts", "approvals"):
-        return (getattr(s, "NEXTCLOUD_TALK_ROOM_ALERTS", "") or "").strip() or (
-            getattr(s, "NEXTCLOUD_TALK_ROOM", "") or ""
-        ).strip()
+        return (getattr(s, "NEXTCLOUD_TALK_ROOM_ALERTS", "") or "").strip() or (getattr(s, "NEXTCLOUD_TALK_ROOM", "") or "").strip()
     return (getattr(s, "NEXTCLOUD_TALK_ROOM", "") or "").strip()
 
 
@@ -86,18 +80,13 @@ def blocks_to_text(blocks: list[dict] | None) -> str:
                 elif label:
                     out.append(f"• {label} ({el.get('action_id', '')})")
         elif block.get("type") == "context":
-            parts = [
-                (e.get("text") or "")
-                for e in block.get("elements") or []
-                if isinstance(e, dict)
-            ]
+            parts = [(e.get("text") or "") for e in block.get("elements") or [] if isinstance(e, dict)]
             if parts:
                 out.append(" · ".join(p for p in parts if p))
     return "\n".join(out)
 
 
-async def post_to_talk(text: str, *, purpose: str = "digest",
-                       extra: str = "") -> bool:
+async def post_to_talk(text: str, *, purpose: str = "digest", extra: str = "") -> bool:
     """Post a message to the mapped Talk room. Best-effort — never raises."""
     if not talk_enabled():
         return False
@@ -119,8 +108,10 @@ async def post_to_talk(text: str, *, purpose: str = "digest",
             )
             if resp.status_code >= 300:
                 logger.warning(
-                    "Talk %s post failed: HTTP %s %s", purpose,
-                    resp.status_code, resp.text[:150],
+                    "Talk %s post failed: HTTP %s %s",
+                    purpose,
+                    resp.status_code,
+                    resp.text[:150],
                 )
                 return False
             return True
@@ -137,9 +128,7 @@ def verify_bot_request(random: str, body: bytes, signature: str) -> bool:
     secret = (get_settings().NEXTCLOUD_TALK_BOT_SECRET or "").strip()
     if not secret or not random or not signature:
         return False
-    digest = hmac.new(
-        secret.encode(), random.encode() + body, hashlib.sha256
-    ).hexdigest()
+    digest = hmac.new(secret.encode(), random.encode() + body, hashlib.sha256).hexdigest()
     return hmac.compare_digest(digest, signature.lower())
 
 
@@ -160,9 +149,7 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None) -> 
         return False
     rnd = hashlib.sha256(os.urandom(32)).hexdigest()
     # Outbound signature = HMAC(random + message string) per spreed docs.
-    sig = hmac.new(
-        secret.encode(), rnd.encode() + message.encode(), hashlib.sha256
-    ).hexdigest()
+    sig = hmac.new(secret.encode(), rnd.encode() + message.encode(), hashlib.sha256).hexdigest()
     payload: dict = {
         "message": message[:30000],
         "referenceId": hashlib.sha256(rnd.encode()).hexdigest(),
@@ -197,7 +184,8 @@ async def bot_reply(room: str, message: str, *, reply_to: int | None = None) -> 
             if resp.status_code not in (200, 201):
                 logger.warning(
                     "Talk bot reply failed: HTTP %s %s",
-                    resp.status_code, resp.text[:150],
+                    resp.status_code,
+                    resp.text[:150],
                 )
                 return False
             return True

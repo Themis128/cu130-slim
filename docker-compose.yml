@@ -37,6 +37,7 @@ x-worker-env: &worker-env
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
   - LANGUAGETOOL_URL=http://stack-ops:8010
+  - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
   # Browser surfaces go through the stack-ops wake proxy (same as social-api):
   # idle-sleep stops these containers after 20min, and direct hostnames have
   # no DNS entry while stopped — every worker-side browser call (session
@@ -78,7 +79,7 @@ x-worker-env: &worker-env
   - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
   - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
   - FACEBOOK_GROUP_URLS=${FACEBOOK_GROUP_URLS:-}
-  - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-}
+  - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-serverless,solofounder,ai,smallbusiness,webdev}
   - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
   - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
   - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
@@ -836,6 +837,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: api
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-api
     networks:
       - backend
@@ -921,7 +924,7 @@ services:
       - SLACK_ENGAGEMENT_CHANNEL_ID=${SLACK_ENGAGEMENT_CHANNEL_ID:-}
       - SLACK_ENGAGEMENT_WEBHOOK_URL=${SLACK_ENGAGEMENT_WEBHOOK_URL:-}
       - FACEBOOK_GROUP_URLS=${FACEBOOK_GROUP_URLS:-}
-      - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-}
+      - TIKTOK_TARGET_TAGS=${TIKTOK_TARGET_TAGS:-serverless,solofounder,ai,smallbusiness,webdev}
       - SLACK_PUBLISHING_WEBHOOK_URL=${SLACK_PUBLISHING_WEBHOOK_URL:-}
       - SLACK_PUBLISHING_CHANNEL_ID=${SLACK_PUBLISHING_CHANNEL_ID:-}
       - SLACK_BILLING_WEBHOOK_URL=${SLACK_BILLING_WEBHOOK_URL:-}
@@ -1175,6 +1178,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-publishing
     networks:
       - backend
@@ -1213,6 +1218,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-media
     networks:
       - backend
@@ -1253,6 +1260,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-default
     networks:
       - backend
@@ -1290,6 +1299,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: social-worker-messenger
     networks:
       - backend
@@ -1328,6 +1339,8 @@ services:
       context: ./social-automation/backend
       dockerfile: Dockerfile
       target: worker
+      additional_contexts:
+        browser: ./browser-novnc
     container_name: celery-beat
     networks:
       - backend
@@ -1894,7 +1907,7 @@ services:
           configure '{"model":"hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M","context-size":4096,"keep_alive":"30m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","1024","--flash-attn","on"]}' || ok=1
           configure '{"model":"ai/llama3.2","context-size":4096,"keep_alive":"2m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
           configure '{"model":"ai/qwen3-vl","context-size":4096,"keep_alive":"90s","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
-          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","context-size":8192,"keep_alive":"60s","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}' || ok=1
+          configure '{"model":"hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF","context-size":8192,"keep_alive":"15m","mode":"embedding","runtime-flags":["--n-gpu-layers","0","--threads","8"]}' || ok=1
           configure '{"model":"ai/smollm3","context-size":4096,"keep_alive":"60s","runtime-flags":["--reasoning-budget","0","--n-gpu-layers","0","--threads","4","--batch-size","512","--flash-attn","on"]}' || ok=1
           configure '{"model":"cloudless/qwen3-4b-media:latest","context-size":4096,"keep_alive":"5m","runtime-flags":["--n-gpu-layers","0","--threads","8","--batch-size","512","--flash-attn","on"]}' || ok=1
           # Return 0 only if every push landed; a failed push retries next tick
@@ -2037,6 +2050,8 @@ services:
       - ./jupyter/start-notebook.d:/usr/local/bin/start-notebook.d:ro
     environment:
       - JUPYTER_TOKEN=${JUPYTER_TOKEN}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_CHANNEL_ID=${SLACK_CHANNEL_ID}
       - DATABASE_URL=postgresql://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
       # Media QA notebook (work/media_validation.ipynb): fetches assets via the
       # API and runs the semantic check against the DMR vision model (qwen3-vl).
@@ -2126,6 +2141,18 @@ services:
     restart: always
     <<: *public-dns
 
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: promtail
+    restart: unless-stopped
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - backend
 
 volumes:
   portainer_data: null

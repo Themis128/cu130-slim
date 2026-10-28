@@ -1,4 +1,5 @@
 """Ops endpoints: daily Slack digest for #socialauto."""
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +36,7 @@ class DailyDigestResponse(BaseModel):
 
 class BrowserOrchestratorStatus(BaseModel):
     """Status of the browser bridge orchestrator."""
+
     current_platform: str | None = None
     queue_length: int = 0
     lock_held: bool = False
@@ -127,24 +129,16 @@ async def trigger_daily_digest(
     """Build analytics + issues digest; post to Slack #socialauto and/or email."""
     _ = current_user
     if async_queue:
-        send_daily_slack_digest.delay(
-            days=days, post_to_slack=post_to_slack, post_to_email=post_to_email
-        )
+        send_daily_slack_digest.delay(days=days, post_to_slack=post_to_slack, post_to_email=post_to_email)
         return DailyDigestResponse(
             queued=True,
             message="Daily digest queued on social-worker",
         )
 
-    reports = await run_daily_digest_for_all_teams(
-        db, days=days, post_to_slack=post_to_slack, post_to_email=post_to_email
-    )
+    reports = await run_daily_digest_for_all_teams(db, days=days, post_to_slack=post_to_slack, post_to_email=post_to_email)
     posted = sum(1 for r in reports if r.get("posted_to_slack"))
     emailed = sum(1 for r in reports if r.get("emailed"))
-    errors = [
-        r.get("slack_error") or r.get("email_error")
-        for r in reports
-        if r.get("slack_error") or r.get("email_error")
-    ]
+    errors = [r.get("slack_error") or r.get("email_error") for r in reports if r.get("slack_error") or r.get("email_error")]
     msg = f"Built {len(reports)} report(s); Slack {posted}; email {emailed}"
     if errors:
         msg += f"; issues: {errors[0]}"
@@ -157,8 +151,7 @@ async def get_automation_plan(
     insight_days: int = Query(30, ge=7, le=90),
     use_llm: bool = Query(
         True,
-        description="LLM-authored playbook actions; false = deterministic "
-        "rule-based fallback from the insights engine",
+        description="LLM-authored playbook actions; false = deterministic rule-based fallback from the insights engine",
     ),
     target_date: str | None = Query(
         None,
@@ -182,9 +175,7 @@ async def get_automation_plan(
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
     day = date.fromisoformat(target_date) if target_date else None
-    report = await build_strategy_report(
-        db, team=team, insight_days=insight_days, use_llm=use_llm
-    )
+    report = await build_strategy_report(db, team=team, insight_days=insight_days, use_llm=use_llm)
     return automation_plan(report, target_date=day)
 
 
@@ -219,9 +210,7 @@ async def trigger_monetization_report(
         return {"queued": True}
     from app.services.monetization_report import run_monetization_report_for_all_teams
 
-    reports = await run_monetization_report_for_all_teams(
-        db, insight_days=insight_days, send=send, execute=execute
-    )
+    reports = await run_monetization_report_for_all_teams(db, insight_days=insight_days, send=send, execute=execute)
     return {"reports": reports}
 
 
@@ -279,9 +268,7 @@ async def preview_daily_digest(
 ) -> DailyDigestResponse:
     """Preview digest without posting to Slack or email."""
     _ = current_user
-    reports = await run_daily_digest_for_all_teams(
-        db, days=days, post_to_slack=False, post_to_email=False
-    )
+    reports = await run_daily_digest_for_all_teams(db, days=days, post_to_slack=False, post_to_email=False)
     return DailyDigestResponse(
         reports=reports,
         message="Preview only (not posted)",
@@ -316,23 +303,17 @@ class OpsConsoleResponse(BaseModel):
     accounts: list[ConsoleAccount] = Field(default_factory=list)
     publish_queue: dict[str, int] = Field(default_factory=dict)
     media: dict[str, Any] = Field(default_factory=dict)
-    browser_orchestrator: BrowserOrchestratorStatus = Field(
-        default_factory=BrowserOrchestratorStatus
-    )
+    browser_orchestrator: BrowserOrchestratorStatus = Field(default_factory=BrowserOrchestratorStatus)
     tiktok_audit: dict[str, Any] | None = None
 
 
 class TikTokAuditUpdate(BaseModel):
-    status: str = Field(
-        description="Audit state, e.g. pending_review / approved / rejected / not_submitted"
-    )
+    status: str = Field(description="Audit state, e.g. pending_review / approved / rejected / not_submitted")
     reference: str | None = None
     detail: str | None = None
 
 
-async def _probe_service(
-    name: str, url: str, timeout: float = 4.0, container: str | None = None
-) -> ServiceStatus:
+async def _probe_service(name: str, url: str, timeout: float = 4.0, container: str | None = None) -> ServiceStatus:
     state: str | None = None
     if container:
         # stack-ops fronts these services; probing the proxy would wake them.
@@ -342,16 +323,12 @@ async def _probe_service(
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.get(url)
-            return ServiceStatus(
-                name=name, online=resp.status_code < 500, detail=str(resp.status_code)
-            )
+            return ServiceStatus(name=name, online=resp.status_code < 500, detail=str(resp.status_code))
     except Exception as exc:
         if state == "running":
             # Container is up per docker — the app just didn't answer in
             # time (busy, e.g. ComfyUI mid-render). Busy, not offline.
-            return ServiceStatus(
-                name=name, online=True, detail=f"busy ({type(exc).__name__})"
-            )
+            return ServiceStatus(name=name, online=True, detail=f"busy ({type(exc).__name__})")
         return ServiceStatus(name=name, online=False, detail=type(exc).__name__)
 
 
@@ -388,7 +365,8 @@ async def _probe_comfyui(base: str) -> tuple[ServiceStatus, dict[str, Any]]:
         if state == "running":
             return (
                 ServiceStatus(
-                    name="comfyui", online=True,
+                    name="comfyui",
+                    online=True,
                     detail=f"busy ({type(exc).__name__})",
                 ),
                 {},
@@ -424,11 +402,7 @@ async def ops_console(
     )
     services = [*probes, comfy_status]
 
-    accounts_result = await db.execute(
-        select(SocialAccount)
-        .where(SocialAccount.team_id == team_id)
-        .order_by(SocialAccount.platform, SocialAccount.username)
-    )
+    accounts_result = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team_id).order_by(SocialAccount.platform, SocialAccount.username))
     accounts = [
         ConsoleAccount(
             id=str(acc.id),
@@ -437,30 +411,18 @@ async def ops_console(
             display_name=acc.display_name,
             status=acc.status,
             account_type=acc.account_type,
-            token_expires_at=acc.token_expires_at.isoformat()
-            if acc.token_expires_at
-            else None,
+            token_expires_at=acc.token_expires_at.isoformat() if acc.token_expires_at else None,
             audit=(acc.meta_data or {}).get("audit"),
         )
         for acc in accounts_result.scalars().all()
     ]
 
     queue_counts = await db.execute(
-        select(PublishQueue.status, func.count())
-        .join(PublishQueue.post)
-        .where(Post.team_id == team_id)
-        .group_by(PublishQueue.status)
+        select(PublishQueue.status, func.count()).join(PublishQueue.post).where(Post.team_id == team_id).group_by(PublishQueue.status)
     )
-    publish_queue = {
-        str(status.value if hasattr(status, "value") else status): count
-        for status, count in queue_counts.all()
-    }
+    publish_queue = {str(status.value if hasattr(status, "value") else status): count for status, count in queue_counts.all()}
 
-    recent_media = await db.execute(
-        select(func.count())
-        .select_from(MediaAsset)
-        .where(MediaAsset.team_id == team_id, MediaAsset.source == "ai-generated")
-    )
+    recent_media = await db.execute(select(func.count()).select_from(MediaAsset).where(MediaAsset.team_id == team_id, MediaAsset.source == "ai-generated"))
     media = {
         "ai_generated_assets": recent_media.scalar() or 0,
         "comfyui_queue": comfy_queue,
@@ -480,9 +442,7 @@ async def ops_console(
     except Exception:
         orchestrator.message = "Orchestrator status unavailable"
 
-    tiktok_audit = next(
-        (a.audit for a in accounts if a.platform == "tiktok" and a.audit), None
-    )
+    tiktok_audit = next((a.audit for a in accounts if a.platform == "tiktok" and a.audit), None)
 
     return OpsConsoleResponse(
         checked_at=datetime.now(UTC).isoformat(),
@@ -509,11 +469,7 @@ async def update_tiktok_audit(
     real review state instead of a stale assumption.
     """
     _ = current_user
-    result = await db.execute(
-        select(SocialAccount).where(
-            SocialAccount.team_id == team_id, SocialAccount.platform == "tiktok"
-        )
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team_id, SocialAccount.platform == "tiktok"))
     accounts = result.scalars().all()
     if not accounts:
         return {"updated": 0, "message": "no TikTok accounts connected"}

@@ -5,6 +5,7 @@ auto-tag early exits and the tag_video_by_id entrypoint.
 ffprobe/ffmpeg are stubbed at the ``V._run`` seam; storage backends and
 the vision chain are mocked, so nothing touches the network or GPU.
 """
+
 from __future__ import annotations
 
 import io
@@ -190,9 +191,7 @@ class TestStorePoster:
         monkeypatch.setattr(V.minio_storage, "upload_object", up)
         res = await V._store_poster(_asset(storage_backend="minio"), b"jpg")
         assert res == {"path": "clips/v.mp4.poster.jpg", "url": "https://m/p.jpg"}
-        up.assert_awaited_once_with(
-            "clips/v.mp4.poster.jpg", b"jpg", content_type="image/jpeg"
-        )
+        up.assert_awaited_once_with("clips/v.mp4.poster.jpg", b"jpg", content_type="image/jpeg")
 
     @pytest.mark.asyncio
     async def test_r2_without_public_url(self, monkeypatch):
@@ -205,9 +204,7 @@ class TestStorePoster:
         monkeypatch.setattr(V, "UPLOAD_DIR", tmp_path)
         monkeypatch.setattr(V.settings, "MEDIA_PUBLIC_BASE_URL", "https://cdn.example/")
         res = await V._store_poster(_asset(), b"jpg")
-        assert res["url"] == (
-            "https://cdn.example/api/v1/media/view?path=clips/v.mp4.poster.jpg"
-        )
+        assert res["url"] == ("https://cdn.example/api/v1/media/view?path=clips/v.mp4.poster.jpg")
         assert (tmp_path / "clips" / "v.mp4.poster.jpg").read_bytes() == b"jpg"
 
     @pytest.mark.asyncio
@@ -219,9 +216,7 @@ class TestStorePoster:
 
     @pytest.mark.asyncio
     async def test_upload_failure_returns_none(self, monkeypatch):
-        monkeypatch.setattr(
-            V.minio_storage, "upload_object", AsyncMock(side_effect=RuntimeError("down"))
-        )
+        monkeypatch.setattr(V.minio_storage, "upload_object", AsyncMock(side_effect=RuntimeError("down")))
         assert await V._store_poster(_asset(storage_backend="minio"), b"jpg") is None
 
 
@@ -301,14 +296,10 @@ class TestAutoTagEdges:
         monkeypatch.setattr(MA, "_load_image_bytes", AsyncMock(return_value=b"v"))
         monkeypatch.setattr(V, "probe_video", AsyncMock(return_value={}))
         monkeypatch.setattr(V, "extract_sample_frames", AsyncMock(return_value=[frame]))
-        monkeypatch.setattr(
-            V, "_store_poster", AsyncMock(return_value={"path": "p.jpg", "url": ""})
-        )
+        monkeypatch.setattr(V, "_store_poster", AsyncMock(return_value={"path": "p.jpg", "url": ""}))
         monkeypatch.setattr(MA, "_caption_image", AsyncMock(return_value=None))
         monkeypatch.setattr(MA, "_tag_image", AsyncMock(return_value=["a"]))
-        monkeypatch.setattr(
-            "app.services.media_spellcheck.correct_tags", AsyncMock(side_effect=lambda t: t)
-        )
+        monkeypatch.setattr("app.services.media_spellcheck.correct_tags", AsyncMock(side_effect=lambda t: t))
         chroma = AsyncMock()
         monkeypatch.setattr(V.chroma_client, "add_content", chroma)
         asset = _asset()

@@ -9,6 +9,7 @@ LinkedIn sidecar session weekly and:
 
 The task runs weekly via Celery beat.
 """
+
 import asyncio
 import logging
 import os
@@ -41,6 +42,7 @@ def _run_async(coro):
             import threading
 
             result = {}
+
             def _runner():
                 new_loop = asyncio.new_event_loop()
                 try:
@@ -49,6 +51,7 @@ def _run_async(coro):
                     result["error"] = exc
                 finally:
                     new_loop.close()
+
             t = threading.Thread(target=_runner)
             t.start()
             t.join()
@@ -163,7 +166,9 @@ async def _refresh_linkedin_sessions_async() -> dict:
                 stats["errors"] += 1
                 logger.error(
                     "LinkedIn session refresh error for account %s: %s",
-                    account.id, exc, exc_info=True,
+                    account.id,
+                    exc,
+                    exc_info=True,
                 )
 
     logger.info("LinkedIn session refresh complete: %s", stats)

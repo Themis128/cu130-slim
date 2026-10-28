@@ -1,4 +1,5 @@
 """Coverage for app/services/vectorize_client.py."""
+
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -9,11 +10,8 @@ import app.services.vectorize_client as VC
 
 def _client(monkeypatch, **kw):
     s = SimpleNamespace(
-        CLOUDFLARE_ACCOUNT_ID="acc",
-        VECTORIZE_INDEX_NAME="idx",
-        CLOUDFLARE_API_TOKEN="t1",
-        CLOUDFLARE_AI_API_TOKEN="t2",
-        CLOUDFLARE_EMAIL_API_TOKEN="t3")
+        CLOUDFLARE_ACCOUNT_ID="acc", VECTORIZE_INDEX_NAME="idx", CLOUDFLARE_API_TOKEN="t1", CLOUDFLARE_AI_API_TOKEN="t2", CLOUDFLARE_EMAIL_API_TOKEN="t3"
+    )
     for k, v in kw.items():
         setattr(s, k, v)
     monkeypatch.setattr(VC, "settings", s)
@@ -21,8 +19,7 @@ def _client(monkeypatch, **kw):
 
 
 def _resp(status, body=None, text=""):
-    return SimpleNamespace(status_code=status, text=text,
-                           json=lambda: body or {})
+    return SimpleNamespace(status_code=status, text=text, json=lambda: body or {})
 
 
 class _HTTP:
@@ -60,9 +57,7 @@ class TestInit:
         assert c.api_token == "t2"
 
     def test_no_tokens_disabled(self, monkeypatch):
-        c = _client(monkeypatch, CLOUDFLARE_API_TOKEN="",
-                    CLOUDFLARE_AI_API_TOKEN="",
-                    CLOUDFLARE_EMAIL_API_TOKEN="")
+        c = _client(monkeypatch, CLOUDFLARE_API_TOKEN="", CLOUDFLARE_AI_API_TOKEN="", CLOUDFLARE_EMAIL_API_TOKEN="")
         assert c.api_token == ""
         assert c.enabled is False
 
@@ -116,8 +111,7 @@ class TestTryTokens:
     @pytest.mark.asyncio
     async def test_exception_then_401_returns_last_resp(self, monkeypatch):
         c = _client(monkeypatch)
-        method = AsyncMock(side_effect=[OSError("x"), _resp(401),
-                                        OSError("y")])
+        method = AsyncMock(side_effect=[OSError("x"), _resp(401), OSError("y")])
         resp = await c._try_tokens(method, "u")
         assert resp.status_code == 401
 
@@ -125,16 +119,12 @@ class TestTryTokens:
 class TestOperations:
     @pytest.mark.asyncio
     async def test_upsert_disabled(self, monkeypatch):
-        c = _client(monkeypatch, CLOUDFLARE_API_TOKEN="",
-                    CLOUDFLARE_AI_API_TOKEN="",
-                    CLOUDFLARE_EMAIL_API_TOKEN="")
+        c = _client(monkeypatch, CLOUDFLARE_API_TOKEN="", CLOUDFLARE_AI_API_TOKEN="", CLOUDFLARE_EMAIL_API_TOKEN="")
         assert await c.upsert("id", [0.1]) is False
 
     @pytest.mark.asyncio
     async def test_disabled_all_ops(self, monkeypatch):
-        c = _client(monkeypatch, CLOUDFLARE_API_TOKEN="",
-                    CLOUDFLARE_AI_API_TOKEN="",
-                    CLOUDFLARE_EMAIL_API_TOKEN="")
+        c = _client(monkeypatch, CLOUDFLARE_API_TOKEN="", CLOUDFLARE_AI_API_TOKEN="", CLOUDFLARE_EMAIL_API_TOKEN="")
         assert await c.upsert_many([{"id": "a"}]) == 0
         assert await c.query([0.1]) == []
         assert await c.get_vectors(["a"]) == []
@@ -145,8 +135,7 @@ class TestOperations:
         c = _client(monkeypatch)
         http = _HTTP([_resp(200)])
         monkeypatch.setattr(VC.httpx, "AsyncClient", _client_for(http))
-        assert await c.upsert("v1", [0.1], namespace="ns",
-                              metadata={"k": "v"}) is True
+        assert await c.upsert("v1", [0.1], namespace="ns", metadata={"k": "v"}) is True
         body = http.calls[0][2]["json"]
         assert body["vectors"][0]["id"] == "v1"
         assert body["vectors"][0]["metadata"] == {"k": "v"}
@@ -165,8 +154,7 @@ class TestOperations:
         c = _client(monkeypatch)
         http = _HTTP([_resp(200)])
         monkeypatch.setattr(VC.httpx, "AsyncClient", _client_for(http))
-        vecs = [{"id": "a", "values": [1.0]},
-                {"id": "b", "values": [2.0], "namespace": "custom"}]
+        vecs = [{"id": "a", "values": [1.0]}, {"id": "b", "values": [2.0], "namespace": "custom"}]
         assert await c.upsert_many(vecs, namespace="ns") == 2
         body = http.calls[0][2]["json"]
         assert body["vectors"][0]["namespace"] == "ns"
@@ -182,9 +170,7 @@ class TestOperations:
     @pytest.mark.asyncio
     async def test_query_matches(self, monkeypatch):
         c = _client(monkeypatch)
-        http = _HTTP([_resp(200, {
-            "success": True,
-            "result": {"matches": [{"id": "m1", "score": 0.9}]}})])
+        http = _HTTP([_resp(200, {"success": True, "result": {"matches": [{"id": "m1", "score": 0.9}]}})])
         monkeypatch.setattr(VC.httpx, "AsyncClient", _client_for(http))
         out = await c.query([0.1], top_k=3, return_metadata=False)
         assert out == [{"id": "m1", "score": 0.9}]
@@ -208,12 +194,10 @@ class TestOperations:
     @pytest.mark.asyncio
     async def test_get_vectors(self, monkeypatch):
         c = _client(monkeypatch)
-        http = _HTTP([_resp(200, {
-            "result": {"vectors": [{"id": "a"}]}})])
+        http = _HTTP([_resp(200, {"result": {"vectors": [{"id": "a"}]}})])
         monkeypatch.setattr(VC.httpx, "AsyncClient", _client_for(http))
         assert await c.get_vectors(["a"], namespace="ns") == [{"id": "a"}]
-        assert http.calls[0][2]["json"] == {"ids": ["a"],
-                                            "namespace": "ns"}
+        assert http.calls[0][2]["json"] == {"ids": ["a"], "namespace": "ns"}
 
     @pytest.mark.asyncio
     async def test_get_vectors_fail(self, monkeypatch):
@@ -247,17 +231,14 @@ class TestHealth:
     @pytest.mark.asyncio
     async def test_index_found(self, monkeypatch):
         c = _client(monkeypatch)
-        http = _HTTP([_resp(200, {
-            "success": True,
-            "result": [{"name": "idx"}, {"name": "other"}]})])
+        http = _HTTP([_resp(200, {"success": True, "result": [{"name": "idx"}, {"name": "other"}]})])
         monkeypatch.setattr(VC.httpx, "AsyncClient", _client_for(http))
         assert await c.health() is True
 
     @pytest.mark.asyncio
     async def test_index_not_found(self, monkeypatch):
         c = _client(monkeypatch)
-        http = _HTTP([_resp(200, {
-            "success": True, "result": [{"name": "other"}]})])
+        http = _HTTP([_resp(200, {"success": True, "result": [{"name": "other"}]})])
         monkeypatch.setattr(VC.httpx, "AsyncClient", _client_for(http))
         assert await c.health() is False
 
@@ -272,6 +253,5 @@ class TestHealth:
     async def test_exception(self, monkeypatch):
         c = _client(monkeypatch)
         c._tokens = []  # _try_tokens raises RuntimeError
-        monkeypatch.setattr(VC.httpx, "AsyncClient",
-                            lambda **kw: _HTTP([]))
+        monkeypatch.setattr(VC.httpx, "AsyncClient", lambda **kw: _HTTP([]))
         assert await c.health() is False

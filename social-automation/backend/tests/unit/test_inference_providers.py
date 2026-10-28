@@ -520,9 +520,7 @@ async def test_text_provider_chain_empty_table_uses_defaults(monkeypatch):
     monkeypatch.setattr(I.settings, "DMR_URL", "http://dmr", raising=False)
     monkeypatch.setattr(I.settings, "CLOUDFLARE_ACCOUNT_ID", "a", raising=False)
     monkeypatch.setattr(I.settings, "CLOUDFLARE_AI_API_TOKEN", "t", raising=False)
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(all=lambda: []))
-    )
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(all=lambda: [])))
     chain = await I._text_provider_chain("dmr", uuid.uuid4(), db)
     assert chain == ["dmr", "cloudflare"]
 
@@ -830,9 +828,7 @@ async def test_workers_ai_chat_missing_creds_and_max_tokens(monkeypatch):
     assert ei.value.status_code == 400
 
     fake = _http(monkeypatch, posts=[_Resp(200, {"result": {"response": "hi"}})])
-    out = await I._call_workers_ai_chat(
-        "p", "@cf/meta/llama-3.2-3b-instruct", "k", max_tokens=77
-    )
+    out = await I._call_workers_ai_chat("p", "@cf/meta/llama-3.2-3b-instruct", "k", max_tokens=77)
     assert out["text"] == "hi"
     assert fake.post_calls[0]["json"]["max_tokens"] == 77
 
@@ -865,13 +861,10 @@ async def test_workers_ai_img2img_branches(monkeypatch, _cf):
 
     # capacity exhausted + HF fallback also fails → original error (1022-23, 1025)
     monkeypatch.setattr(I.settings, "HUGGINGFACE_API_KEY", "hk", raising=False)
-    monkeypatch.setattr(
-        I, "_call_hf_img2img", AsyncMock(side_effect=HTTPException(502, "hf down"))
-    )
+    monkeypatch.setattr(I, "_call_hf_img2img", AsyncMock(side_effect=HTTPException(502, "hf down")))
     _http(
         monkeypatch,
-        posts=[_Resp(429, text="capacity"), _Resp(429, text="capacity"),
-               _Resp(429, text="capacity"), _Resp(429, text="capacity")],
+        posts=[_Resp(429, text="capacity"), _Resp(429, text="capacity"), _Resp(429, text="capacity"), _Resp(429, text="capacity")],
     )
     monkeypatch.setattr("asyncio.sleep", AsyncMock())
     with pytest.raises(HTTPException) as ei:
@@ -984,7 +977,8 @@ async def test_do_call_inference_cf_model_fix_and_reraises(monkeypatch, _cf):
 
     # image model misconfigured as default + schema → corrected to CF_TEXT_FREE (1657)
     monkeypatch.setattr(
-        I, "_get_provider_config",
+        I,
+        "_get_provider_config",
         AsyncMock(return_value=("", "@cf/black-forest-labs/flux-1-schnell", "k")),
     )
     out = await I._do_call_inference("p", "cloudflare", schema={"type": "object"})
@@ -1009,9 +1003,7 @@ async def test_do_call_inference_reraise_branches(monkeypatch, _cf):
     # image quota + allow_fallback + no fallback keys → bare raise (1714)
     monkeypatch.setattr(I, "_call_workers_ai_image", AsyncMock(side_effect=quota))
     with pytest.raises(HTTPException) as ei:
-        await I._do_call_inference(
-            "p", "cloudflare", model_override="@cf/black-forest-labs/flux-1-schnell"
-        )
+        await I._do_call_inference("p", "cloudflare", model_override="@cf/black-forest-labs/flux-1-schnell")
     assert ei.value.status_code == 429
 
     # text non-quota → raise (1721)
@@ -1035,20 +1027,14 @@ async def test_do_call_inference_reraise_branches(monkeypatch, _cf):
 @pytest.mark.asyncio
 async def test_call_inference_tracked_model_branches(monkeypatch):
     tracked = {}
-    monkeypatch.setattr(
-        I, "usage_tracker", SimpleNamespace(
-            track_inference=AsyncMock(side_effect=lambda **kw: tracked.update(kw))
-        )
-    )
+    monkeypatch.setattr(I, "usage_tracker", SimpleNamespace(track_inference=AsyncMock(side_effect=lambda **kw: tracked.update(kw))))
     monkeypatch.setattr(I, "_text_provider_chain", AsyncMock(return_value=["groq"]))
     monkeypatch.setattr(I, "_circuit_is_open", lambda _p: False)
     monkeypatch.setattr(I, "_circuit_record_success", lambda _p: None)
     monkeypatch.setattr(I, "_do_call_inference", AsyncMock(return_value={"text": "x"}))
 
     # configured model from provider config → tracked (1840)
-    monkeypatch.setattr(
-        I, "_get_provider_config", AsyncMock(return_value=("u", "cfg-model", "k"))
-    )
+    monkeypatch.setattr(I, "_get_provider_config", AsyncMock(return_value=("u", "cfg-model", "k")))
     await I.call_inference("p", "groq", db=SimpleNamespace())
     assert tracked["model"] == "cfg-model"
 
@@ -1070,9 +1056,7 @@ async def test_call_dmr_chat_result_shapes(monkeypatch):
     import app.services.dmr as DMR
 
     # schema + json payload → unwrapped (1996)
-    monkeypatch.setattr(
-        DMR, "call_dmr_chat", AsyncMock(return_value={"json": {"a": 1}})
-    )
+    monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(return_value={"json": {"a": 1}}))
     assert await I._call_dmr_chat("p", schema={"type": "object"}) == {"a": 1}
 
     # schema + parse_error → returned as-is (1999)
@@ -1098,9 +1082,7 @@ async def test_openai_compat_params_and_json(monkeypatch):
         monkeypatch,
         posts=[_Resp(200, {"choices": [{"message": {"content": '{"b":2}'}}]})],
     )
-    out = await I._call_openai_compat(
-        "p", "http://x/v1", "mistral-large", "k", schema={"type": "object"}
-    )
+    out = await I._call_openai_compat("p", "http://x/v1", "mistral-large", "k", schema={"type": "object"})
     assert out == {"b": 2}
     payload = fake.post_calls[0]["json"]
     assert payload["response_format"] == {"type": "json_object"}
@@ -1142,9 +1124,7 @@ async def test_nvidia_flux_pipeline_no_image(monkeypatch):
     monkeypatch.setattr(I, "_call_nvidia_flux_dev", AsyncMock(return_value=b"PNG"))
     _http(monkeypatch, posts=[_Resp(200, {"image": ""})])
     with pytest.raises(HTTPException) as ei:
-        await I._call_nvidia_flux_pipeline(
-            "p", "http://nv/dev", "k1", "http://nv/ktx", "k2"
-        )
+        await I._call_nvidia_flux_pipeline("p", "http://nv/dev", "k1", "http://nv/ktx", "k2")
     assert ei.value.status_code == 502
 
 

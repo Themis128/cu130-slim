@@ -125,8 +125,8 @@ def test_sofia_rules_require_ps_on_longform():
 
 def test_report_to_dict_and_avg_words():
     from app.services.plain_english import NlpCheckReport, NlpIssue, _avg_sentence_words
-    r = NlpCheckReport(needs_fix=True, issues=[NlpIssue("f", "r", "s")],
-                       fixed=True, fields_rewritten=["x"], duplicates={"d": 1})
+
+    r = NlpCheckReport(needs_fix=True, issues=[NlpIssue("f", "r", "s")], fixed=True, fields_rewritten=["x"], duplicates={"d": 1})
     d = r.to_dict()
     assert d["needs_fix"] and d["fixed"]
     assert d["issues"][0]["field"] == "f"
@@ -165,17 +165,16 @@ def test_extract_rewritten_only_paths():
 
 def test_texts_overlap(monkeypatch):
     import app.services.duplicate_detector as dd
+
     monkeypatch.setattr(dd, "is_duplicate", lambda a, b, threshold=0.5: True)
     assert pe.texts_overlap("a", "b") is True
 
 
 def test_dedupe_carousel_copy(monkeypatch):
     import app.services.duplicate_detector as dd
-    monkeypatch.setattr(
-        dd, "resolve_carousel_duplicates",
-        lambda slides, cap: (slides, cap, {"hits": []}))
-    slides = [{"title": "t", "body": "b", "highlight": "h"},
-              {"title": "t2", "body": "", "highlight": ""}]
+
+    monkeypatch.setattr(dd, "resolve_carousel_duplicates", lambda slides, cap: (slides, cap, {"hits": []}))
+    slides = [{"title": "t", "body": "b", "highlight": "h"}, {"title": "t2", "body": "", "highlight": ""}]
     out_slides, out_cap, report = pe.dedupe_carousel_copy(slides, "cap")
     assert out_slides[0]["highlight"] == "h"
     assert report == {"hits": []}
@@ -190,8 +189,7 @@ def test_build_linkedin_caption_edge_tags():
 
 
 def test_check_carousel_highlight_field():
-    report = pe.check_carousel_copy(
-        [{"title": "ok", "body": "ok", "highlight": "leverage synergy"}], "")
+    report = pe.check_carousel_copy([{"title": "ok", "body": "ok", "highlight": "leverage synergy"}], "")
     assert any(i.field.endswith(".highlight") for i in report.issues)
 
 
@@ -205,28 +203,23 @@ async def test_rewrite_plain_english_paths(monkeypatch):
     assert await pe.rewrite_plain_english("") == ""
 
     import app.services.inference as inference
-    monkeypatch.setattr(
-        inference, "call_inference",
-        AsyncMock(return_value={"text": "Rewritten: better copy"}))
-    out = await pe.rewrite_plain_english(
-        "we leverage synergy", force=True)
+
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"text": "Rewritten: better copy"}))
+    out = await pe.rewrite_plain_english("we leverage synergy", force=True)
     assert "better copy" in out
 
     # empty model output -> original
-    monkeypatch.setattr(inference, "call_inference",
-                        AsyncMock(return_value={"text": ""}))
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"text": ""}))
     assert await pe.rewrite_plain_english("x", force=True) == "x"
 
     # HTTPException -> original
     from fastapi import HTTPException
-    monkeypatch.setattr(
-        inference, "call_inference",
-        AsyncMock(side_effect=HTTPException(status_code=500, detail="x")))
+
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(side_effect=HTTPException(status_code=500, detail="x")))
     assert await pe.rewrite_plain_english("x", force=True) == "x"
 
     # generic exception -> original
-    monkeypatch.setattr(inference, "call_inference",
-                        AsyncMock(side_effect=RuntimeError("x")))
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(side_effect=RuntimeError("x")))
     assert await pe.rewrite_plain_english("x", force=True) == "x"
 
 
@@ -234,11 +227,10 @@ async def test_rewrite_plain_english_paths(monkeypatch):
 async def test_fix_carousel_copy(monkeypatch):
     async def _rewrite(text, **kw):
         return "better " + text
+
     monkeypatch.setattr(pe, "rewrite_plain_english", _rewrite)
-    slides = [{"title": "t", "body": "b", "highlight": "h"},
-              {"title": "", "body": "", "highlight": ""}]
-    out_slides, cap, fields = await pe.fix_carousel_copy(
-        slides=slides, caption="cap", force=True)
+    slides = [{"title": "t", "body": "b", "highlight": "h"}, {"title": "", "body": "", "highlight": ""}]
+    out_slides, cap, fields = await pe.fix_carousel_copy(slides=slides, caption="cap", force=True)
     assert out_slides[0]["title"] == "better t"
     assert "caption" in fields and "slide[0].title" in fields
     # second slide fields were empty -> skipped
@@ -247,39 +239,61 @@ async def test_fix_carousel_copy(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_fix_carousel_copy_no_force_clean(monkeypatch):
-    monkeypatch.setattr(pe, "rewrite_plain_english",
-                        AsyncMock(side_effect=AssertionError("not called")))
-    out_slides, cap, fields = await pe.fix_carousel_copy(
-        slides=[{"title": "clean", "body": "clean"}], caption="clean")
+    monkeypatch.setattr(pe, "rewrite_plain_english", AsyncMock(side_effect=AssertionError("not called")))
+    out_slides, cap, fields = await pe.fix_carousel_copy(slides=[{"title": "clean", "body": "clean"}], caption="clean")
     assert fields == [] and out_slides[0]["title"] == "clean"
 
 
 @pytest.mark.asyncio
 async def test_run_nlp_check_and_fix(monkeypatch):
     import app.services.duplicate_detector as dd
+
     monkeypatch.setattr(
-        dd, "resolve_carousel_duplicates",
+        dd,
+        "resolve_carousel_duplicates",
         lambda slides, cap: (
-            slides, cap,
-            type("R", (), {
-                "to_dict": lambda s: {"d": 1},
-                "hits": [type("H", (), {
-                    "left_field": "a", "right_field": "b",
-                    "reason": "exact", "left_snippet": "s",
-                    "right_snippet": "r", "score": 0.9,
-                    "to_dict": lambda s: {"h": 1},
-                })()],
-                "actions": ["act"],
-            })(),
-        ))
+            slides,
+            cap,
+            type(
+                "R",
+                (),
+                {
+                    "to_dict": lambda s: {"d": 1},
+                    "hits": [
+                        type(
+                            "H",
+                            (),
+                            {
+                                "left_field": "a",
+                                "right_field": "b",
+                                "reason": "exact",
+                                "left_snippet": "s",
+                                "right_snippet": "r",
+                                "score": 0.9,
+                                "to_dict": lambda s: {"h": 1},
+                            },
+                        )()
+                    ],
+                    "actions": ["act"],
+                },
+            )(),
+        ),
+    )
     monkeypatch.setattr(
-        dd, "detect_carousel_duplicates",
-        lambda slides, cap: type("R", (), {
-            "hits": [type("H", (), {"to_dict": lambda s: {"r": 1}})()],
-        })())
+        dd,
+        "detect_carousel_duplicates",
+        lambda slides, cap: type(
+            "R",
+            (),
+            {
+                "hits": [type("H", (), {"to_dict": lambda s: {"r": 1}})()],
+            },
+        )(),
+    )
 
     async def _rewrite(text, **kw):
         return text + " fixed"
+
     monkeypatch.setattr(pe, "rewrite_plain_english", _rewrite)
 
     slides, cap, report = await pe.run_nlp_check_and_fix(
@@ -293,55 +307,44 @@ async def test_run_nlp_check_and_fix(monkeypatch):
     assert "residual_hits" in report.duplicates
 
     # should_fix False -> early return
-    slides2, cap2, report2 = await pe.run_nlp_check_and_fix(
-        slides=[{"title": "clean", "body": "clean"}],
-        caption="clean", force_fix=False)
+    slides2, cap2, report2 = await pe.run_nlp_check_and_fix(slides=[{"title": "clean", "body": "clean"}], caption="clean", force_fix=False)
     assert report2.fixed is False
 
 
 @pytest.mark.asyncio
 async def test_run_nlp_residual_issues_after_fix(monkeypatch):
     import app.services.duplicate_detector as dd
-    monkeypatch.setattr(dd, "resolve_carousel_duplicates",
-                        lambda s, c: (s, c, type("R", (), {
-                            "to_dict": lambda x: {}, "hits": [], "actions": []})()))
-    monkeypatch.setattr(dd, "detect_carousel_duplicates",
-                        lambda s, c: type("R", (), {"hits": []})())
-    monkeypatch.setattr(pe, "rewrite_plain_english",
-                        AsyncMock(side_effect=lambda t, **k: "still leverage synergy"))
-    _, _, report = await pe.run_nlp_check_and_fix(
-        slides=[{"title": "leverage", "body": ""}], caption="", force_fix=True)
+
+    monkeypatch.setattr(dd, "resolve_carousel_duplicates", lambda s, c: (s, c, type("R", (), {"to_dict": lambda x: {}, "hits": [], "actions": []})()))
+    monkeypatch.setattr(dd, "detect_carousel_duplicates", lambda s, c: type("R", (), {"hits": []})())
+    monkeypatch.setattr(pe, "rewrite_plain_english", AsyncMock(side_effect=lambda t, **k: "still leverage synergy"))
+    _, _, report = await pe.run_nlp_check_and_fix(slides=[{"title": "leverage", "body": ""}], caption="", force_fix=True)
     assert any(i.reason.startswith("residual_after_fix:") for i in report.issues)
 
 
 @pytest.mark.asyncio
 async def test_ensure_plain_english_carousel(monkeypatch):
-    monkeypatch.setattr(
-        pe, "run_nlp_check_and_fix",
-        AsyncMock(return_value=([{"title": "x"}], "cap", "report")))
-    slides, cap = await pe.ensure_plain_english_carousel(
-        slides=[{}], caption="c")
+    monkeypatch.setattr(pe, "run_nlp_check_and_fix", AsyncMock(return_value=([{"title": "x"}], "cap", "report")))
+    slides, cap = await pe.ensure_plain_english_carousel(slides=[{}], caption="c")
     assert cap == "cap"
 
 
 def test_sofia_rules_remaining_branches():
     from app.services.plain_english import check_sofia_rules
+
     # empty text
     assert check_sofia_rules("") == []
 
     # weak hook (non-starter opener, ≤12 words)
-    reasons = {i.reason for i in check_sofia_rules(
-        "Something happened at work last week.\n\nIt mattered 5 times. Ask me?")}
+    reasons = {i.reason for i in check_sofia_rules("Something happened at work last week.\n\nIt mattered 5 times. Ask me?")}
     assert "weak_hook" in reasons
 
     # generic hook opener
-    reasons = {i.reason for i in check_sofia_rules(
-        "Did you know this exists.\n\nIt did 3 times. Want it?")}
+    reasons = {i.reason for i in check_sofia_rules("Did you know this exists.\n\nIt did 3 times. Want it?")}
     assert "generic_hook" in reasons
 
     # flat rhythm: >=4 sentences all same band
-    flat = ("Short one. Two here. Three now. Four too. Five last. "
-            "It has 9 digits. Want it?")
+    flat = "Short one. Two here. Three now. Four too. Five last. It has 9 digits. Want it?"
     reasons = {i.reason for i in check_sofia_rules(flat)}
     assert "flat_rhythm" in reasons
 
@@ -351,20 +354,11 @@ async def test_cloudflare_provider_model_defaults(monkeypatch):
     import app.services.duplicate_detector as dd
     import app.services.inference as inference
 
-    monkeypatch.setattr(inference, "call_inference",
-                        AsyncMock(return_value={"text": "ok"}))
-    monkeypatch.setattr(dd, "resolve_carousel_duplicates",
-                        lambda s, c: (s, c, type("R", (), {
-                            "to_dict": lambda x: {}, "hits": [], "actions": []})()))
-    monkeypatch.setattr(dd, "detect_carousel_duplicates",
-                        lambda s, c: type("R", (), {"hits": []})())
+    monkeypatch.setattr(inference, "call_inference", AsyncMock(return_value={"text": "ok"}))
+    monkeypatch.setattr(dd, "resolve_carousel_duplicates", lambda s, c: (s, c, type("R", (), {"to_dict": lambda x: {}, "hits": [], "actions": []})()))
+    monkeypatch.setattr(dd, "detect_carousel_duplicates", lambda s, c: type("R", (), {"hits": []})())
 
     # each entry point's cloudflare model default
-    await pe.rewrite_plain_english(
-        "x", provider_name="cloudflare", force=True)
-    await pe.fix_carousel_copy(
-        slides=[{"title": "x"}], caption="",
-        provider_name="cloudflare", force=True)
-    await pe.run_nlp_check_and_fix(
-        slides=[{"title": "x"}], caption="",
-        provider_name="cloudflare", force_fix=True)
+    await pe.rewrite_plain_english("x", provider_name="cloudflare", force=True)
+    await pe.fix_carousel_copy(slides=[{"title": "x"}], caption="", provider_name="cloudflare", force=True)
+    await pe.run_nlp_check_and_fix(slides=[{"title": "x"}], caption="", provider_name="cloudflare", force_fix=True)

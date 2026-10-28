@@ -15,6 +15,7 @@ marks accounts with invalid tokens for re-authentication.
 
 The task runs weekly via Celery beat.
 """
+
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
@@ -83,8 +84,7 @@ async def _mark_reconnect_required(db: AsyncSession, account: SocialAccount, met
         )[:2000]
         await post_alert_to_slack(
             alert_text,
-            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}]
-            + session_heal_buttons(),
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": alert_text}}] + session_heal_buttons(),
         )
     except Exception:
         logger.debug("Slack reconnect alert failed (non-fatal)", exc_info=True)
@@ -101,6 +101,7 @@ def _run_async(coro):
             import threading
 
             result = {}
+
             def _runner():
                 new_loop = asyncio.new_event_loop()
                 try:
@@ -109,6 +110,7 @@ def _run_async(coro):
                     result["error"] = exc
                 finally:
                     new_loop.close()
+
             t = threading.Thread(target=_runner)
             t.start()
             t.join()
@@ -167,7 +169,8 @@ async def _refresh_instagram_tokens_async() -> dict:
                 stats["tokens_invalid"] += 1
                 logger.warning(
                     "Instagram token refresh: account %s has invalid encrypted token: %s",
-                    account.id, exc,
+                    account.id,
+                    exc,
                 )
                 meta["instagram_token_status"] = "invalid"
                 meta["instagram_token_error"] = "decryption_failed"
@@ -191,26 +194,31 @@ async def _refresh_instagram_tokens_async() -> dict:
                         user_data = resp.json()
                         logger.info(
                             "Instagram token valid for account %s (user: @%s)",
-                            account.id, user_data.get("username", "?"),
+                            account.id,
+                            user_data.get("username", "?"),
                         )
                     elif resp.status_code in (401, 403) or _is_oauth_expired_error(resp):
                         stats["tokens_invalid"] += 1
                         logger.warning(
                             "Instagram token invalid for account %s: %d %s",
-                            account.id, resp.status_code, resp.text[:200],
+                            account.id,
+                            resp.status_code,
+                            resp.text[:200],
                         )
                         await _mark_reconnect_required(db, account, meta, resp.text)
                         continue
                     else:
                         logger.warning(
                             "Instagram token check returned %d for account %s",
-                            resp.status_code, account.id,
+                            resp.status_code,
+                            account.id,
                         )
             except Exception as exc:
                 stats["errors"] += 1
                 logger.warning(
                     "Instagram token validation failed for account %s: %s",
-                    account.id, exc,
+                    account.id,
+                    exc,
                 )
                 continue
 
@@ -277,11 +285,7 @@ async def _refresh_instagram_tokens_async() -> dict:
                         )[:2000]
                         await post_alert_to_slack(
                             expiry_text,
-                            blocks=[
-                                {"type": "section",
-                                 "text": {"type": "mrkdwn", "text": expiry_text}}
-                            ]
-                            + session_heal_buttons(),
+                            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": expiry_text}}] + session_heal_buttons(),
                         )
                         meta["expiry_alert_sent"] = True
                     except Exception:
@@ -293,7 +297,8 @@ async def _refresh_instagram_tokens_async() -> dict:
                     stats["tokens_valid"] += 1
                     logger.info(
                         "Instagram token for account %s expires in %d days — no refresh needed",
-                        account.id, days_until_expiry,
+                        account.id,
+                        days_until_expiry,
                     )
 
             if not needs_refresh:
@@ -334,7 +339,9 @@ async def _refresh_instagram_tokens_async() -> dict:
                         stats["errors"] += 1
                         logger.warning(
                             "Instagram token refresh failed for account %s: %d %s",
-                            account.id, resp.status_code, resp.text[:200],
+                            account.id,
+                            resp.status_code,
+                            resp.text[:200],
                         )
                         if _is_oauth_expired_error(resp):
                             # Session already dead — ig_refresh_token can't revive it.
@@ -380,14 +387,17 @@ async def _refresh_instagram_tokens_async() -> dict:
                     stats["tokens_refreshed"] += 1
                     logger.info(
                         "Instagram token refreshed for account %s — valid until %s",
-                        account.id, new_expires_at.strftime("%Y-%m-%d"),
+                        account.id,
+                        new_expires_at.strftime("%Y-%m-%d"),
                     )
 
             except Exception as exc:
                 stats["errors"] += 1
                 logger.error(
                     "Instagram token refresh error for account %s: %s",
-                    account.id, exc, exc_info=True,
+                    account.id,
+                    exc,
+                    exc_info=True,
                 )
 
     logger.info("Instagram token refresh complete: %s", stats)

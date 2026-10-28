@@ -27,13 +27,17 @@ async def _run_digests() -> dict:
     summary: dict = {"accounts": 0, "sent": 0, "results": []}
     async with _worker_db() as db:
         rows = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "telegram",
-                    SocialAccount.status == "active",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "telegram",
+                        SocialAccount.status == "active",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         for account in rows:
             cfg = get_group_watch_from_meta(account.meta_data)
@@ -50,9 +54,7 @@ async def _run_digests() -> dict:
                     enc = (account.meta_data or {}).get("bot_token_enc")
                     token = decrypt_token(enc) if enc else ""
                 if not token:
-                    summary["results"].append(
-                        {"account_id": str(account.id), "error": "no_token"}
-                    )
+                    summary["results"].append({"account_id": str(account.id), "error": "no_token"})
                     continue
                 client = TelegramAPIClient(token)
                 result = await send_digest_for_account(
@@ -69,9 +71,7 @@ async def _run_digests() -> dict:
                     account.id,
                     str(exc)[:200],
                 )
-                summary["results"].append(
-                    {"account_id": str(account.id), "error": str(exc)[:200]}
-                )
+                summary["results"].append({"account_id": str(account.id), "error": str(exc)[:200]})
     return summary
 
 

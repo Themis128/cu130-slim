@@ -1,5 +1,6 @@
 """Remaining branch arms of the LinkedIn and Instagram session-check
 workers. They reuse the fakes from the main suites, so only the inputs differ."""
+
 from __future__ import annotations
 
 import uuid
@@ -43,8 +44,7 @@ class TestLinkedInSessionCheck:
             health={"status": "ok"},
             refresh=LinkedInSidecarError(401, "expired"),
             # first owner missing → loop continues to the second account
-            db_results=[li_suite._scalars([a1, a2]), li_suite._scalar(None),
-                        li_suite._scalar(SimpleNamespace(email="o", name="O"))],
+            db_results=[li_suite._scalars([a1, a2]), li_suite._scalar(None), li_suite._scalar(SimpleNamespace(email="o", name="O"))],
         )
         out = await LI._run_check()
         assert out["accounts_marked"] == 2

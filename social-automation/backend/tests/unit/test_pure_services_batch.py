@@ -1,5 +1,6 @@
 """Coverage for pure-function services: brand_footer, brand_assets,
 platforms/base drivers, tiktok_xbogus."""
+
 import io
 import uuid
 from types import SimpleNamespace
@@ -36,6 +37,7 @@ class TestBrandFooter:
         assert f is not None
         # force failure → fallback font
         from PIL import ImageFont
+
         calls = []
 
         sentinel = ImageFont.ImageFont()
@@ -45,11 +47,11 @@ class TestBrandFooter:
             if len(calls) == 1:
                 raise OSError("missing")
             return sentinel
+
         monkeypatch.setattr(BF.ImageFont, "truetype", fake_truetype)
         assert BF._font(20) is sentinel  # fallback font used
 
-        monkeypatch.setattr(BF.ImageFont, "truetype",
-                            lambda *a, **kw: (_ for _ in ()).throw(OSError()))
+        monkeypatch.setattr(BF.ImageFont, "truetype", lambda *a, **kw: (_ for _ in ()).throw(OSError()))
         monkeypatch.setattr(BF.ImageFont, "load_default", lambda **kw: sentinel)
         assert BF._font(20, "semibold") is sentinel
 
@@ -58,10 +60,7 @@ class TestBrandFooter:
         assert BF.apply_brand_footer(small, {"name": "X"}) == small
 
     def test_apply_full(self):
-        out = BF.apply_brand_footer(
-            _png(800, 600),
-            {"name": "Cloudless", "domain": "cloudless.gr",
-             "accent": (255, 0, 255)})
+        out = BF.apply_brand_footer(_png(800, 600), {"name": "Cloudless", "domain": "cloudless.gr", "accent": (255, 0, 255)})
         img = Image.open(io.BytesIO(out))
         assert img.size == (800, 600)
         # hairline pixel at top of footer bar is accent-colored
@@ -70,8 +69,7 @@ class TestBrandFooter:
         assert px[0] > 200 and px[2] > 200 and px[1] < 80
 
     def test_apply_empty_brand_fields(self):
-        out = BF.apply_brand_footer(_png(600, 500), {"name": "", "domain": "",
-                                                    "accent": None})
+        out = BF.apply_brand_footer(_png(600, 500), {"name": "", "domain": "", "accent": None})
         assert Image.open(io.BytesIO(out)).size == (600, 500)
 
     @pytest.mark.asyncio
@@ -88,17 +86,13 @@ class TestBrandFooter:
         db = SimpleNamespace(execute=AsyncMock(return_value=_Res(None)))
         assert await BF.load_footer_brand(db, uuid.uuid4()) is None
 
-        brand = SimpleNamespace(
-            name="Cloudless", website_url="https://www.cloudless.gr/x",
-            tagline="t", visual=SimpleNamespace(accent_color="#ff00ff"))
+        brand = SimpleNamespace(name="Cloudless", website_url="https://www.cloudless.gr/x", tagline="t", visual=SimpleNamespace(accent_color="#ff00ff"))
         db = SimpleNamespace(execute=AsyncMock(return_value=_Res(brand)))
         out = await BF.load_footer_brand(db, uuid.uuid4())
-        assert out == {"name": "Cloudless", "domain": "cloudless.gr",
-                       "accent": (255, 0, 255)}
+        assert out == {"name": "Cloudless", "domain": "cloudless.gr", "accent": (255, 0, 255)}
 
         # no website → tagline; no visual → default accent
-        brand2 = SimpleNamespace(name="B", website_url="", tagline="tag",
-                                 visual=None)
+        brand2 = SimpleNamespace(name="B", website_url="", tagline="tag", visual=None)
         db = SimpleNamespace(execute=AsyncMock(return_value=_Res(brand2)))
         out = await BF.load_footer_brand(db, uuid.uuid4())
         assert out["domain"] == "tag"
@@ -112,28 +106,20 @@ class TestBrandFooter:
         assert await BF.maybe_apply_brand_footer(None, None, img, "x") == img
         monkeypatch.delenv("BRAND_FOOTER_DISABLED")
         # exempt source
-        assert await BF.maybe_apply_brand_footer(
-            None, None, img, "carousel") == img
+        assert await BF.maybe_apply_brand_footer(None, None, img, "carousel") == img
         # no brand
-        monkeypatch.setattr(BF, "load_footer_brand",
-                            AsyncMock(return_value=None))
-        assert await BF.maybe_apply_brand_footer(
-            None, uuid.uuid4(), img, "gen") == img
+        monkeypatch.setattr(BF, "load_footer_brand", AsyncMock(return_value=None))
+        assert await BF.maybe_apply_brand_footer(None, uuid.uuid4(), img, "gen") == img
         # brand without name
-        monkeypatch.setattr(BF, "load_footer_brand",
-                            AsyncMock(return_value={"name": ""}))
-        assert await BF.maybe_apply_brand_footer(
-            None, uuid.uuid4(), img, "gen") == img
+        monkeypatch.setattr(BF, "load_footer_brand", AsyncMock(return_value={"name": ""}))
+        assert await BF.maybe_apply_brand_footer(None, uuid.uuid4(), img, "gen") == img
         # happy path
-        monkeypatch.setattr(BF, "load_footer_brand", AsyncMock(
-            return_value={"name": "C", "domain": "d", "accent": None}))
+        monkeypatch.setattr(BF, "load_footer_brand", AsyncMock(return_value={"name": "C", "domain": "d", "accent": None}))
         out = await BF.maybe_apply_brand_footer(None, uuid.uuid4(), img, "gen")
         assert out != img
         # footer failure → original bytes
-        monkeypatch.setattr(BF, "load_footer_brand",
-                            AsyncMock(side_effect=RuntimeError()))
-        assert await BF.maybe_apply_brand_footer(
-            None, uuid.uuid4(), img, "gen") == img
+        monkeypatch.setattr(BF, "load_footer_brand", AsyncMock(side_effect=RuntimeError()))
+        assert await BF.maybe_apply_brand_footer(None, uuid.uuid4(), img, "gen") == img
 
 
 class TestBrandAssets:
@@ -153,26 +139,18 @@ class TestBrandAssets:
         assert img.size == (1200, 630)
 
     def test_social_banner_platforms(self):
-        for platform, size in [("linkedin", (1584, 396)),
-                               ("twitter", (1500, 500)),
-                               ("facebook", (820, 312)),
-                               ("unknown", (1500, 500))]:
-            img = Image.open(io.BytesIO(
-                BA.generate_social_banner("B", tagline="t",
-                                          platform=platform)))
+        for platform, size in [("linkedin", (1584, 396)), ("twitter", (1500, 500)), ("facebook", (820, 312)), ("unknown", (1500, 500))]:
+            img = Image.open(io.BytesIO(BA.generate_social_banner("B", tagline="t", platform=platform)))
             assert img.size == size
 
     def test_font_fallback(self, monkeypatch):
         from PIL import ImageFont
+
         real_default = ImageFont.load_default()
-        monkeypatch.setattr(BA.ImageFont, "truetype",
-                            lambda *a, **kw: (_ for _ in ()).throw(OSError()))
-        monkeypatch.setattr(BA.ImageFont, "load_default",
-                            lambda **kw: real_default)
-        assert Image.open(io.BytesIO(
-            BA.generate_og_image("C", "t"))).size == (1200, 630)
-        assert Image.open(io.BytesIO(
-            BA.generate_social_banner("C", "t"))).size == (1584, 396)
+        monkeypatch.setattr(BA.ImageFont, "truetype", lambda *a, **kw: (_ for _ in ()).throw(OSError()))
+        monkeypatch.setattr(BA.ImageFont, "load_default", lambda **kw: real_default)
+        assert Image.open(io.BytesIO(BA.generate_og_image("C", "t"))).size == (1200, 630)
+        assert Image.open(io.BytesIO(BA.generate_social_banner("C", "t"))).size == (1584, 396)
 
     def test_build_brand_image_prompt(self):
         # empty everything → base_prompt returned
@@ -180,13 +158,13 @@ class TestBrandAssets:
         assert BA.build_brand_image_prompt({}, None, "") == ""
         # full visual + voice
         visual = {
-            "image_style": "minimal", "photography_direction": "moody",
-            "primary_color": "#000", "accent_color": "#0ff",
+            "image_style": "minimal",
+            "photography_direction": "moody",
+            "primary_color": "#000",
+            "accent_color": "#0ff",
             "neutral_colors": ["#111", "#222"],
         }
-        voice = {"tone_dimensions": {
-            "formality": 5, "playfulness": 1, "authority": 4,
-            "friendliness": 3, "technical": 5}}
+        voice = {"tone_dimensions": {"formality": 5, "playfulness": 1, "authority": 4, "friendliness": 3, "technical": 5}}
         out = BA.build_brand_image_prompt(visual, voice, "draw a cat")
         assert "draw a cat" in out
         assert "Style: minimal" in out
@@ -214,12 +192,12 @@ class TestPlatformDrivers:
         assert isinstance(PBASE.get_driver("twitter"), PBASE.PlatformDriver)
 
     def _acc(self):
-        return SimpleNamespace(access_token_enc=b"enc", account_id="pg",
-                               id=uuid.uuid4())
+        return SimpleNamespace(access_token_enc=b"enc", account_id="pg", id=uuid.uuid4())
 
     @pytest.mark.asyncio
     async def test_base_publish(self, monkeypatch):
         import app.services.publishing as pub
+
         monkeypatch.setattr(pub, "publish_to_platform", AsyncMock(return_value="result"))
         acc = self._acc()
         out = await PBASE._BaseDriver().publish(acc, "post", "db")
@@ -237,45 +215,42 @@ class TestPlatformDrivers:
         import app.api.analytics as an
         import app.core.security as sec
         import app.services.twitter_api as tw
+
         monkeypatch.setattr(sec, "decrypt_token", lambda b: "tok")
         client = SimpleNamespace(delete_tweet=AsyncMock())
         monkeypatch.setattr(tw, "TwitterAPIClient", lambda **kw: client)
         assert await PBASE.TwitterDriver().delete(self._acc(), "tw1") is True
         client.delete_tweet.assert_awaited_once_with("tw1")
-        monkeypatch.setattr(an, "_twitter_follower_count",
-                            AsyncMock(return_value=42))
-        assert await PBASE.TwitterDriver().get_follower_count(
-            self._acc()) == 42
+        monkeypatch.setattr(an, "_twitter_follower_count", AsyncMock(return_value=42))
+        assert await PBASE.TwitterDriver().get_follower_count(self._acc()) == 42
 
     @pytest.mark.asyncio
     async def test_linkedin_delete_and_followers(self, monkeypatch):
         import app.api.analytics as an
         import app.core.security as sec
         import app.services.linkedin_api as li
+
         monkeypatch.setattr(sec, "decrypt_token", lambda b: "tok")
         client = SimpleNamespace(delete_post=AsyncMock())
         monkeypatch.setattr(li, "LinkedInAPIClient", lambda **kw: client)
         assert await PBASE.LinkedInDriver().delete(self._acc(), "urn:1") is True
-        monkeypatch.setattr(an, "_linkedin_follower_count",
-                            AsyncMock(return_value=10))
-        assert await PBASE.LinkedInDriver().get_follower_count(
-            self._acc()) == 10
+        monkeypatch.setattr(an, "_linkedin_follower_count", AsyncMock(return_value=10))
+        assert await PBASE.LinkedInDriver().get_follower_count(self._acc()) == 10
 
     @pytest.mark.asyncio
     async def test_facebook_delete_and_followers(self, monkeypatch):
         import app.api.analytics as an
         import app.core.security as sec
         import app.services.facebook_api as fb
+
         monkeypatch.setattr(sec, "decrypt_token", lambda b: "tok")
         client = SimpleNamespace(delete_post=AsyncMock())
         created = {}
-        monkeypatch.setattr(fb, "FacebookAPIClient",
-                            lambda **kw: created.update(kw) or client)
+        monkeypatch.setattr(fb, "FacebookAPIClient", lambda **kw: created.update(kw) or client)
         acc = self._acc()
         assert await PBASE.FacebookDriver().delete(acc, "p1") is True
         assert created["page_id"] == "pg"
-        monkeypatch.setattr(an, "_facebook_follower_count",
-                            AsyncMock(return_value=7))
+        monkeypatch.setattr(an, "_facebook_follower_count", AsyncMock(return_value=7))
         assert await PBASE.FacebookDriver().get_follower_count(acc) == 7
 
     @pytest.mark.asyncio
@@ -283,25 +258,23 @@ class TestPlatformDrivers:
         import app.api.analytics as an
         import app.core.security as sec
         import app.services.threads_api as th
+
         monkeypatch.setattr(sec, "decrypt_token", lambda b: "tok")
         client = SimpleNamespace(delete_post=AsyncMock())
         created = {}
-        monkeypatch.setattr(th, "ThreadsAPIClient",
-                            lambda **kw: created.update(kw) or client)
+        monkeypatch.setattr(th, "ThreadsAPIClient", lambda **kw: created.update(kw) or client)
         acc = self._acc()
         assert await PBASE.ThreadsDriver().delete(acc, "t1") is True
         assert created["user_id"] == "pg"
-        monkeypatch.setattr(an, "_threads_follower_count",
-                            AsyncMock(return_value=3))
+        monkeypatch.setattr(an, "_threads_follower_count", AsyncMock(return_value=3))
         assert await PBASE.ThreadsDriver().get_follower_count(acc) == 3
 
     @pytest.mark.asyncio
     async def test_ig_tiktok_followers(self, monkeypatch):
         import app.api.analytics as an
-        monkeypatch.setattr(an, "_instagram_follower_count",
-                            AsyncMock(return_value=11))
-        monkeypatch.setattr(an, "_tiktok_follower_count",
-                            AsyncMock(return_value=22))
+
+        monkeypatch.setattr(an, "_instagram_follower_count", AsyncMock(return_value=11))
+        monkeypatch.setattr(an, "_tiktok_follower_count", AsyncMock(return_value=22))
         acc = self._acc()
         assert await PBASE.InstagramDriver().get_follower_count(acc) == 11
         assert await PBASE.TikTokDriver().get_follower_count(acc) == 22
@@ -334,8 +307,7 @@ class TestXBogus:
         c = XB.generate_xbogus("a=1&b=2", "UA/1.0", timestamp=1700000001)
         assert a != c
         # body affects output
-        d = XB.generate_xbogus("a=1&b=2", "UA/1.0", body="x",
-                               timestamp=1700000000)
+        d = XB.generate_xbogus("a=1&b=2", "UA/1.0", body="x", timestamp=1700000000)
         assert a != d
         # default timestamp → still produces string
         assert isinstance(XB.generate_xbogus("q=1", "UA"), str)

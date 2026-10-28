@@ -4,6 +4,7 @@ The LinkedIn API cannot read personal feeds — the linkedin-browser-sidecar
 (logged-in session) scrapes /feed and extracts posts. Respects the
 sidecar's own rate-limit cooldown (checks /health first).
 """
+
 import logging
 
 import httpx
@@ -29,10 +30,10 @@ EXTRACT_JS = """return (() => {
 })()"""
 
 
-@shared_task(name="app.worker.tasks.engagement_ingest_li.ingest_linkedin_feed",
-             bind=True, max_retries=0)
+@shared_task(name="app.worker.tasks.engagement_ingest_li.ingest_linkedin_feed", bind=True, max_retries=0)
 def ingest_linkedin_feed(self):
     from app.worker._async import run_async
+
     return run_async(_run())
 
 
@@ -59,6 +60,7 @@ async def _run():
 
         await _post(c, "/debug/navigate", {"url": "https://www.linkedin.com/feed/"})
         import asyncio
+
         await asyncio.sleep(6)
         # scroll a few times to load posts
         for _ in range(4):
@@ -82,19 +84,23 @@ async def _run():
             pid = p.get("urn") or p.get("handle") or p.get("txt", "")[:60]
             if not pid:
                 continue
-            if (await db.execute(select(EngagementCandidate).where(
-                    EngagementCandidate.post_id == pid))).scalars().first():
+            if (await db.execute(select(EngagementCandidate).where(EngagementCandidate.post_id == pid))).scalars().first():
                 continue
             import datetime as dt
+
             age = _age_seconds(p.get("age", ""))
-            db.add(EngagementCandidate(
-                platform="linkedin",
-                author_handle=p.get("handle", "")[:120],
-                author_name=p.get("actor", "")[:120],
-                post_id=pid[:120],
-                post_text=p.get("txt", ""),
-                posted_at=dt.datetime.now(dt.UTC) - dt.timedelta(seconds=age),
-                is_connection=True, is_followed=True))
+            db.add(
+                EngagementCandidate(
+                    platform="linkedin",
+                    author_handle=p.get("handle", "")[:120],
+                    author_name=p.get("actor", "")[:120],
+                    post_id=pid[:120],
+                    post_text=p.get("txt", ""),
+                    posted_at=dt.datetime.now(dt.UTC) - dt.timedelta(seconds=age),
+                    is_connection=True,
+                    is_followed=True,
+                )
+            )
             new += 1
         await db.commit()
     logger.info("[li-ingest] %d new candidates", new)

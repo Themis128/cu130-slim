@@ -4,6 +4,7 @@ connect flows, account test/validate matrix, token refresh, business sync.
 Route functions are invoked directly with a fake AsyncSession; OAuth clients
 and platform API clients are monkeypatched. No network, no database.
 """
+
 import base64
 import hashlib
 import json
@@ -23,6 +24,7 @@ from app.models.user import Team, TeamMember, User, UserRole
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
 
 class _Scalars:
     def __init__(self, items):
@@ -62,8 +64,17 @@ class FakeDB:
         self._team_get = {t.id: t for t in self.teams}
 
     _PLATFORMS = {
-        "linkedin", "twitter", "facebook", "instagram", "threads", "tiktok",
-        "whatsapp", "messenger", "telegram", "viber", "bluesky",
+        "linkedin",
+        "twitter",
+        "facebook",
+        "instagram",
+        "threads",
+        "tiktok",
+        "whatsapp",
+        "messenger",
+        "telegram",
+        "viber",
+        "bluesky",
     }
 
     async def execute(self, stmt):
@@ -95,10 +106,7 @@ class FakeDB:
             by_id = [t for t in self.teams if t.id in params]
             return _Result(by_id or list(self.teams))
         if entity is TeamMember:
-            matched = [
-                m for m in self.memberships
-                if m.team_id in params or m.user_id in params or not params
-            ]
+            matched = [m for m in self.memberships if m.team_id in params or m.user_id in params or not params]
             return _Result(matched)
         if entity is User:
             return _Result(list(self.users))
@@ -184,12 +192,11 @@ class _FakeOAuthClient:
 # Helpers + response scrubbing
 # ---------------------------------------------------------------------------
 
+
 class TestHelpers:
     def test_pkce_pair_s256(self):
         verifier, challenge = accounts._pkce_pair()
-        expected = base64.urlsafe_b64encode(
-            hashlib.sha256(verifier.encode()).digest()
-        ).rstrip(b"=").decode()
+        expected = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
         assert challenge == expected and len(verifier) > 40
 
     def test_encode_decode_state_roundtrip(self):
@@ -217,10 +224,17 @@ class TestHelpers:
             "session_id": "s",
         }
         out = accounts.SocialAccountResponse(
-            id=uuid.uuid4(), platform="facebook", account_id="1",
-            username=None, display_name=None, avatar_url=None,
-            status="active", scopes=[], token_expires_at=None,
-            created_at="2026-01-01", meta_data=v,
+            id=uuid.uuid4(),
+            platform="facebook",
+            account_id="1",
+            username=None,
+            display_name=None,
+            avatar_url=None,
+            status="active",
+            scopes=[],
+            token_expires_at=None,
+            created_at="2026-01-01",
+            meta_data=v,
         )
         meta = out.meta_data
         assert "page_token" not in meta and meta["safe"] == "ok"
@@ -238,6 +252,7 @@ class TestHelpers:
 # ---------------------------------------------------------------------------
 # list / get / disconnect
 # ---------------------------------------------------------------------------
+
 
 class TestAccountCRUD:
     pytestmark = pytest.mark.asyncio
@@ -283,6 +298,7 @@ class TestAccountCRUD:
 # Connect flows
 # ---------------------------------------------------------------------------
 
+
 class TestConnect:
     pytestmark = pytest.mark.asyncio
 
@@ -290,25 +306,31 @@ class TestConnect:
         monkeypatch.setattr(accounts, "check_quota", lambda *a, **k: None)
         with pytest.raises(HTTPException) as e:
             await accounts.connect_account_body(
-                accounts.ConnectBodyRequest(platform="twitter"), _user(), FakeDB(),
+                accounts.ConnectBodyRequest(platform="twitter"),
+                _user(),
+                FakeDB(),
             )
         assert e.value.status_code == 403
 
     async def test_connect_body_unsupported_400(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         team = _team()
         db = FakeDB(teams=[team])
         with pytest.raises(HTTPException) as e:
             await accounts.connect_account_body(
-                accounts.ConnectBodyRequest(platform="mastodon"), _user(), db,
+                accounts.ConnectBodyRequest(platform="mastodon"),
+                _user(),
+                db,
             )
         assert e.value.status_code == 400
 
     async def test_connect_body_twitter_uses_pkce(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         client = _FakeOAuthClient()
         monkeypatch.setitem(accounts.PLATFORM_CLIENTS, "twitter", client)
@@ -316,7 +338,9 @@ class TestConnect:
         team = _team()
         db = FakeDB(teams=[team])
         out = await accounts.connect_account_body(
-            accounts.ConnectBodyRequest(platform="twitter"), _user(), db,
+            accounts.ConnectBodyRequest(platform="twitter"),
+            _user(),
+            db,
         )
         assert out.authorization_url == "https://auth/x"
         call = client.calls[0]
@@ -326,6 +350,7 @@ class TestConnect:
     async def test_connect_body_tiktok_client_key(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         client = _FakeOAuthClient()
         monkeypatch.setitem(accounts.PLATFORM_CLIENTS, "tiktok", client)
@@ -333,7 +358,9 @@ class TestConnect:
         monkeypatch.setattr(accounts.settings, "TIKTOK_CLIENT_KEY", "ttk")
         team = _team()
         await accounts.connect_account_body(
-            accounts.ConnectBodyRequest(platform="tiktok"), _user(), FakeDB(teams=[team]),
+            accounts.ConnectBodyRequest(platform="tiktok"),
+            _user(),
+            FakeDB(teams=[team]),
         )
         call = client.calls[0]
         assert call["extras_params"]["client_key"] == "ttk"
@@ -343,13 +370,16 @@ class TestConnect:
     async def test_connect_body_whatsapp_uses_facebook_client(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         client = _FakeOAuthClient()
         monkeypatch.setitem(accounts.PLATFORM_CLIENTS, "whatsapp", client)
         monkeypatch.setattr(accounts.settings, "FACEBOOK_REDIRECT_URI", "https://x/cb")
         team = _team()
         await accounts.connect_account_body(
-            accounts.ConnectBodyRequest(platform="whatsapp"), _user(), FakeDB(teams=[team]),
+            accounts.ConnectBodyRequest(platform="whatsapp"),
+            _user(),
+            FakeDB(teams=[team]),
         )
         call = client.calls[0]
         assert "whatsapp_business_messaging" in call["scope"]
@@ -357,6 +387,7 @@ class TestConnect:
     async def test_connect_path_non_member_403(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         with pytest.raises(HTTPException) as e:
             await accounts.connect_account("twitter", uuid.uuid4(), _user(), FakeDB())
@@ -365,6 +396,7 @@ class TestConnect:
     async def test_connect_path_authorize(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         client = _FakeOAuthClient()
         monkeypatch.setitem(accounts.PLATFORM_CLIENTS, "threads", client)
@@ -374,7 +406,10 @@ class TestConnect:
         u = _user()
         m.user_id = u.id
         out = await accounts.connect_account(
-            "threads", team_id, u, FakeDB(memberships=[m]),
+            "threads",
+            team_id,
+            u,
+            FakeDB(memberships=[m]),
         )
         assert out.authorization_url == "https://auth/x"
         assert "threads_content_publish" in client.calls[0]["scope"]
@@ -383,6 +418,7 @@ class TestConnect:
 # ---------------------------------------------------------------------------
 # test_account + validate_account — per-platform matrix
 # ---------------------------------------------------------------------------
+
 
 class _FakePlatformClient:
     error = None
@@ -414,6 +450,7 @@ class TestValidateMatrix:
 
     async def test_test_account_401_marks_expired(self, monkeypatch):
         from app.services.twitter_api import TwitterAPIError
+
         _FakePlatformClient.error = TwitterAPIError(401, "bad token", "https://api.x")
         monkeypatch.setattr(accounts, "TwitterAPIClient", _FakePlatformClient)
         a = _account("twitter", status="active")
@@ -424,6 +461,7 @@ class TestValidateMatrix:
 
     async def test_test_account_non_auth_error(self, monkeypatch):
         from app.services.twitter_api import TwitterAPIError
+
         _FakePlatformClient.error = TwitterAPIError(500, "server", "https://api.x")
         monkeypatch.setattr(accounts, "TwitterAPIClient", _FakePlatformClient)
         a = _account("twitter", status="active")
@@ -460,6 +498,7 @@ class TestValidateMatrix:
 
     async def test_validate_expired_marks(self, monkeypatch):
         from app.services.tiktok_api import TikTokAPIError
+
         _FakePlatformClient.error = TikTokAPIError(403, "denied", "https://api.tt")
         monkeypatch.setattr(accounts, "TikTokAPIClient", _FakePlatformClient)
         a = _account("tiktok", status="active")
@@ -477,6 +516,7 @@ class TestValidateMatrix:
 # ---------------------------------------------------------------------------
 # refresh_account_token
 # ---------------------------------------------------------------------------
+
 
 class TestRefreshAccountToken:
     pytestmark = pytest.mark.asyncio
@@ -506,19 +546,20 @@ class TestRefreshAccountToken:
         assert e.value.status_code == 500
 
     async def test_success_updates_tokens_and_expiry(self, monkeypatch):
-        client = _FakeOAuthClient(token={"access_token": "fresh", "refresh_token": "fresh_rt",
-                                         "expires_in": 7200})
+        client = _FakeOAuthClient(token={"access_token": "fresh", "refresh_token": "fresh_rt", "expires_in": 7200})
         monkeypatch.setattr(accounts, "twitter_client", client)
         monkeypatch.setattr(accounts.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
+
         async def log(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "log_action", log)
-        a = _account("twitter", refresh_token_enc=encrypt_token("old_rt"),
-                     token_expires_at=datetime.now(UTC) - timedelta(days=1))
+        a = _account("twitter", refresh_token_enc=encrypt_token("old_rt"), token_expires_at=datetime.now(UTC) - timedelta(days=1))
         db = FakeDB(accounts=[a])
         out = await accounts.refresh_account_token(a.id, _user(), db)
         assert out["status"] == "active"
         from app.core.security import decrypt_token
+
         assert decrypt_token(a.access_token_enc) == "fresh"
         assert decrypt_token(a.refresh_token_enc) == "fresh_rt"
         assert a.token_expires_at > datetime.now(UTC)
@@ -528,8 +569,10 @@ class TestRefreshAccountToken:
         client = _FakeOAuthClient(token={"access_token": "fresh"})  # no expires_in
         monkeypatch.setattr(accounts, "tiktok_client", client)
         monkeypatch.setattr(accounts.settings, "TIKTOK_REDIRECT_URI", "https://x/cb")
+
         async def log(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "log_action", log)
         a = _account("tiktok", refresh_token_enc=encrypt_token("rt"))
         db = FakeDB(accounts=[a])
@@ -560,6 +603,7 @@ class TestRefreshAccountToken:
 # LinkedIn org sync route + business sync
 # ---------------------------------------------------------------------------
 
+
 class TestSyncRoutes:
     pytestmark = pytest.mark.asyncio
 
@@ -572,14 +616,15 @@ class TestSyncRoutes:
         team = _team()
         with pytest.raises(HTTPException) as e:
             await accounts.sync_linkedin_organizations(
-                team.id, _user(), FakeDB(teams=[team]),
+                team.id,
+                _user(),
+                FakeDB(teams=[team]),
             )
         assert "personal account" in e.value.detail
 
     async def test_sync_orgs_happy(self, monkeypatch):
         team = _team()
-        person = _account("linkedin", team_id=team.id,
-                          meta_data={"account_type": "person"})
+        person = _account("linkedin", team_id=team.id, meta_data={"account_type": "person"})
 
         class FakeHTTP:
             async def __aenter__(self):
@@ -589,13 +634,19 @@ class TestSyncRoutes:
                 return False
 
         async def fake_sync(**kw):
-            org = _account("linkedin", team_id=team.id,
-                           account_id="777", display_name="Org",
-                           account_type="organization", is_business=True,
-                           meta_data={"account_type": "organization"})
+            org = _account(
+                "linkedin",
+                team_id=team.id,
+                account_id="777",
+                display_name="Org",
+                account_type="organization",
+                is_business=True,
+                meta_data={"account_type": "organization"},
+            )
             return [org]
 
         import app.api.auth as auth_mod
+
         monkeypatch.setattr(auth_mod, "_sync_linkedin_organizations", fake_sync)
         monkeypatch.setattr(accounts.httpx, "AsyncClient", lambda *a, **kw: FakeHTTP())
         db = FakeDB(accounts=[person], teams=[team])
@@ -611,16 +662,14 @@ class TestSyncRoutes:
     async def test_sync_business_facebook_pages(self, monkeypatch):
         team = _team()
         personal = _account("facebook", team_id=team.id)
-        page = _account("facebook", team_id=team.id, account_id="pg-1",
-                        is_business=True, account_type="page")
+        page = _account("facebook", team_id=team.id, account_id="pg-1", is_business=True, account_type="page")
 
         class FBClient:
             def __init__(self, **kw):
                 pass
 
             async def get_pages(self):
-                return [{"id": "pg-1", "name": "Cloudless", "access_token": "ptok",
-                         "category": "App"}]
+                return [{"id": "pg-1", "name": "Cloudless", "access_token": "ptok", "category": "App"}]
 
         monkeypatch.setattr(accounts, "FacebookAPIClient", FBClient)
         db = FakeDB(accounts=[personal, page])
@@ -637,8 +686,7 @@ class TestSyncRoutes:
                 pass
 
             async def get_pages(self):
-                return [{"id": "pg-1", "name": "P",
-                         "instagram_business_account": {"id": "ig-77"}}]
+                return [{"id": "pg-1", "name": "P", "instagram_business_account": {"id": "ig-77"}}]
 
         monkeypatch.setattr(accounts, "FacebookAPIClient", FBClient)
         db = FakeDB(accounts=[personal])
@@ -662,17 +710,22 @@ class TestSyncRoutes:
         parent = _account("facebook")
         with pytest.raises(HTTPException) as e:
             await accounts.set_business_account(
-                parent.id, "missing-biz", _user(), FakeDB(accounts=[parent]),
+                parent.id,
+                "missing-biz",
+                _user(),
+                FakeDB(accounts=[parent]),
             )
         assert "Business account" in e.value.detail
 
     async def test_set_business_account_success(self):
         team = _team()
         parent = _account("facebook", team_id=team.id)
-        biz = _account("facebook", team_id=team.id, account_id="biz-9",
-                       is_business=True, account_type="page")
+        biz = _account("facebook", team_id=team.id, account_id="biz-9", is_business=True, account_type="page")
         out = await accounts.set_business_account(
-            parent.id, "biz-9", _user(), FakeDB(accounts=[parent, biz]),
+            parent.id,
+            "biz-9",
+            _user(),
+            FakeDB(accounts=[parent, biz]),
         )
         assert out["business_account_id"] == "biz-9"
         assert out["account_id"] == str(biz.id)
@@ -682,8 +735,10 @@ class TestSyncRoutes:
 # Facebook Page profile endpoints
 # ---------------------------------------------------------------------------
 
+
 class _FakeFBPageClient:
     """Fake FacebookAPIClient for Page-profile endpoints."""
+
     page_info = {"about": "A", "website": "https://x"}
     tasks_result = ["MANAGE"]
     error: Exception | None = None
@@ -747,8 +802,7 @@ class TestFacebookPageProfile:
     pytestmark = pytest.mark.asyncio
 
     def _page(self, team=None):
-        return _account("facebook", team_id=(team or _team()).id,
-                        account_id="pg-1", is_business=True, account_type="page")
+        return _account("facebook", team_id=(team or _team()).id, account_id="pg-1", is_business=True, account_type="page")
 
     async def test_page_profile_404(self):
         with pytest.raises(HTTPException) as e:
@@ -760,7 +814,9 @@ class TestFacebookPageProfile:
         user_acct = _account("facebook", is_business=False)
         with pytest.raises(HTTPException) as e:
             await accounts.get_facebook_page_profile(
-                user_acct.id, _user(), FakeDB(accounts=[user_acct]),
+                user_acct.id,
+                _user(),
+                FakeDB(accounts=[user_acct]),
             )
         assert e.value.status_code == 400 and "Page account" in e.value.detail
 
@@ -768,19 +824,24 @@ class TestFacebookPageProfile:
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakeFBPageClient)
         page = self._page()
         out = await accounts.get_facebook_page_profile(
-            page.id, _user(), FakeDB(accounts=[page]),
+            page.id,
+            _user(),
+            FakeDB(accounts=[page]),
         )
         assert out["profile"] == _FakeFBPageClient.page_info
         assert out["tasks"] == ["MANAGE"]
 
     async def test_page_profile_info_error_maps_status(self, monkeypatch):
         from app.services.facebook_api import FacebookAPIError
+
         _FakeFBPageClient.error = FacebookAPIError(400, "bad", "https://g")
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakeFBPageClient)
         page = self._page()
         with pytest.raises(HTTPException) as e:
             await accounts.get_facebook_page_profile(
-                page.id, _user(), FakeDB(accounts=[page]),
+                page.id,
+                _user(),
+                FakeDB(accounts=[page]),
             )
         assert e.value.status_code == 400
         _FakeFBPageClient.error = None
@@ -789,8 +850,10 @@ class TestFacebookPageProfile:
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakeFBPageClient)
         page = self._page()
         out = await accounts.update_facebook_page_profile(
-            page.id, accounts.PageProfileUpdate(about="new", website="https://y"),
-            _user(), FakeDB(accounts=[page]),
+            page.id,
+            accounts.PageProfileUpdate(about="new", website="https://y"),
+            _user(),
+            FakeDB(accounts=[page]),
         )
         assert out["success"] is True
         assert _FakeFBPageClient.calls[0]["about"] == "new"
@@ -801,7 +864,10 @@ class TestFacebookPageProfile:
         page = self._page()
         with pytest.raises(HTTPException) as e:
             await accounts.update_facebook_page_profile(
-                page.id, accounts.PageProfileUpdate(), _user(), FakeDB(accounts=[page]),
+                page.id,
+                accounts.PageProfileUpdate(),
+                _user(),
+                FakeDB(accounts=[page]),
             )
         assert e.value.status_code == 400
         _FakeFBPageClient.error = None
@@ -811,7 +877,10 @@ class TestFacebookPageProfile:
         page = self._page()
         with pytest.raises(HTTPException) as e:
             await accounts.upload_facebook_profile_picture(
-                page.id, _user(), FakeDB(accounts=[page]), file=_Upload(b""),
+                page.id,
+                _user(),
+                FakeDB(accounts=[page]),
+                file=_Upload(b""),
             )
         assert "No image" in e.value.detail
 
@@ -819,7 +888,10 @@ class TestFacebookPageProfile:
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakeFBPageClient)
         page = self._page()
         out = await accounts.upload_facebook_profile_picture(
-            page.id, _user(), FakeDB(accounts=[page]), file=_Upload(b"png"),
+            page.id,
+            _user(),
+            FakeDB(accounts=[page]),
+            file=_Upload(b"png"),
         )
         assert out["success"] is True
 
@@ -827,7 +899,10 @@ class TestFacebookPageProfile:
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakeFBPageClient)
         page = self._page()
         out = await accounts.upload_facebook_cover_photo(
-            page.id, _user(), FakeDB(accounts=[page]), file=_Upload(b"jpg"),
+            page.id,
+            _user(),
+            FakeDB(accounts=[page]),
+            file=_Upload(b"jpg"),
         )
         assert out == {"success": True, "photo_id": "photo-1"}
 
@@ -836,7 +911,10 @@ class TestFacebookPageProfile:
         page = self._page()
         req = accounts.AssignManageTaskRequest(business_id="biz-1", business_user_id="bu-x")
         out = await accounts.assign_facebook_manage_task(
-            page.id, req, _user(), FakeDB(accounts=[page]),
+            page.id,
+            req,
+            _user(),
+            FakeDB(accounts=[page]),
         )
         assert out["business_user_id"] == "bu-x" and "MANAGE" in out["tasks"]
 
@@ -845,7 +923,10 @@ class TestFacebookPageProfile:
         page = self._page()
         req = accounts.AssignManageTaskRequest(business_id="biz-1")
         out = await accounts.assign_facebook_manage_task(
-            page.id, req, _user(), FakeDB(accounts=[page]),
+            page.id,
+            req,
+            _user(),
+            FakeDB(accounts=[page]),
         )
         assert out["business_user_id"] == "bu-1"  # from get_assigned_users
 
@@ -856,7 +937,10 @@ class TestFacebookPageProfile:
         req = accounts.AssignManageTaskRequest(business_id="biz-1")
         with pytest.raises(HTTPException) as e:
             await accounts.assign_facebook_manage_task(
-                page.id, req, _user(), FakeDB(accounts=[page]),
+                page.id,
+                req,
+                _user(),
+                FakeDB(accounts=[page]),
             )
         assert e.value.status_code == 400
         _FakeFBPageClient.assigned_users = [{"id": "bu-1"}]
@@ -866,6 +950,7 @@ class TestFacebookPageProfile:
 # Coverage tails
 # ---------------------------------------------------------------------------
 
+
 class TestCoverageTails:
     pytestmark = pytest.mark.asyncio
 
@@ -873,21 +958,19 @@ class TestCoverageTails:
         team = _team()
         a = _account(team_id=team.id, account_type="page")
         db = FakeDB(accounts=[a])
-        out = await accounts.list_accounts(
-            team.id, account_type="page", db=db)
+        out = await accounts.list_accounts(team.id, account_type="page", db=db)
         assert len(out) == 1 and out[0].account_type == "page"
 
     async def test_connect_unsupported_platform_400(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         monkeypatch.delitem(accounts.PLATFORM_CLIENTS, "twitter")
-        monkeypatch.setattr(accounts.settings, "TWITTER_REDIRECT_URI",
-                            "https://x/cb")
+        monkeypatch.setattr(accounts.settings, "TWITTER_REDIRECT_URI", "https://x/cb")
         team = _team()
         me = _user()
-        member = TeamMember(team_id=team.id, user_id=me.id,
-                            role=UserRole.ADMIN)
+        member = TeamMember(team_id=team.id, user_id=me.id, role=UserRole.ADMIN)
         db = FakeDB(teams=[team], memberships=[member])
         with pytest.raises(HTTPException) as e:
             await accounts.connect_account("twitter", team.id, me, db)
@@ -896,17 +979,15 @@ class TestCoverageTails:
     async def test_connect_tiktok_scopes_and_pkce(self, monkeypatch):
         async def quota(*a, **k):
             return None
+
         monkeypatch.setattr(accounts, "check_quota", quota)
         client = _FakeOAuthClient()
         monkeypatch.setitem(accounts.PLATFORM_CLIENTS, "tiktok", client)
-        monkeypatch.setattr(accounts.settings, "TIKTOK_REDIRECT_URI",
-                            "https://x/cb")
-        monkeypatch.setattr(accounts.settings, "TIKTOK_CLIENT_KEY",
-                            "tt-key")
+        monkeypatch.setattr(accounts.settings, "TIKTOK_REDIRECT_URI", "https://x/cb")
+        monkeypatch.setattr(accounts.settings, "TIKTOK_CLIENT_KEY", "tt-key")
         team = _team()
         me = _user()
-        member = TeamMember(team_id=team.id, user_id=me.id,
-                            role=UserRole.ADMIN)
+        member = TeamMember(team_id=team.id, user_id=me.id, role=UserRole.ADMIN)
         db = FakeDB(teams=[team], memberships=[member])
         out = await accounts.connect_account("tiktok", team.id, me, db)
         assert out.authorization_url == "https://auth/x"
@@ -918,6 +999,7 @@ class TestCoverageTails:
 
     async def test_test_account_remaining_platforms(self, monkeypatch):
         import app.services.linkedin_api as li
+
         _FakePlatformClient.error = None
         monkeypatch.setattr(li, "LinkedInAPIClient", _FakePlatformClient)
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakePlatformClient)
@@ -926,51 +1008,47 @@ class TestCoverageTails:
         monkeypatch.setattr(accounts, "TikTokAPIClient", _FakePlatformClient)
         for plat in ("linkedin", "facebook", "instagram", "threads", "tiktok"):
             a = _account(plat)
-            out = await accounts.test_account(a.id, _user(),
-                                              FakeDB(accounts=[a]))
+            out = await accounts.test_account(a.id, _user(), FakeDB(accounts=[a]))
             assert out["valid"] is True, plat
 
     async def test_validate_remaining_platforms(self, monkeypatch):
         import app.services.linkedin_api as li
+
         _FakePlatformClient.error = None
         monkeypatch.setattr(li, "LinkedInAPIClient", _FakePlatformClient)
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakePlatformClient)
         monkeypatch.setattr(accounts, "InstagramAPIClient", _FakePlatformClient)
         monkeypatch.setattr(accounts, "ThreadsAPIClient", _FakePlatformClient)
         monkeypatch.setattr(accounts, "TwitterAPIClient", _FakePlatformClient)
-        for plat in ("linkedin", "twitter", "facebook", "instagram",
-                     "threads"):
+        for plat in ("linkedin", "twitter", "facebook", "instagram", "threads"):
             a = _account(plat)
-            out = await accounts.validate_account(
-                a.id, _user(), FakeDB(accounts=[a]))
+            out = await accounts.validate_account(a.id, _user(), FakeDB(accounts=[a]))
             assert out["valid"] is True and out["checked"] is True, plat
 
     async def test_validate_nonauth_error_and_generic(self, monkeypatch):
         from app.services.twitter_api import TwitterAPIError
+
         _FakePlatformClient.error = TwitterAPIError(500, "server", "u")
         monkeypatch.setattr(accounts, "TwitterAPIClient", _FakePlatformClient)
         a = _account("twitter")
-        out = await accounts.validate_account(a.id, _user(),
-                                              FakeDB(accounts=[a]))
+        out = await accounts.validate_account(a.id, _user(), FakeDB(accounts=[a]))
         assert out["checked"] is True and "500" in str(out)
         _FakePlatformClient.error = None
 
         class Boom:
             def __init__(self, **kw):
                 raise ConnectionError("dns")
+
         monkeypatch.setattr(accounts, "TwitterAPIClient", Boom)
-        out = await accounts.validate_account(a.id, _user(),
-                                              FakeDB(accounts=[a]))
+        out = await accounts.validate_account(a.id, _user(), FakeDB(accounts=[a]))
         assert out["checked"] is False
 
     async def test_refresh_meta_platforms_60d(self, monkeypatch):
         team = _team()
         me = _user()
-        member = TeamMember(team_id=team.id, user_id=me.id,
-                            role=UserRole.ADMIN)
+        member = TeamMember(team_id=team.id, user_id=me.id, role=UserRole.ADMIN)
         for plat in ("facebook", "instagram", "threads"):
-            a = _account(plat, team_id=team.id,
-                         refresh_token_enc=encrypt_token("rt"))
+            a = _account(plat, team_id=team.id, refresh_token_enc=encrypt_token("rt"))
             client = _FakeOAuthClient(token={"access_token": "new"})
             # refresh uses module-level client names, not PLATFORM_CLIENTS
             monkeypatch.setattr(accounts, f"{plat}_client", client)
@@ -989,8 +1067,7 @@ class TestCoverageTails:
                 pass
 
             async def get_pages(self):
-                return [{"id": "pg-new", "name": "NewPage",
-                         "access_token": "ptok", "category": "App"}]
+                return [{"id": "pg-new", "name": "NewPage", "access_token": "ptok", "category": "App"}]
 
         monkeypatch.setattr(accounts, "FacebookAPIClient", FBClient)
         db = FakeDB(accounts=[personal])
@@ -1001,15 +1078,12 @@ class TestCoverageTails:
 
     async def test_sync_business_linkedin(self, monkeypatch):
         import app.api.auth as auth_mod
+
         team = _team()
         personal = _account("linkedin", team_id=team.id)
-        org = _account("linkedin", team_id=team.id, account_id="org-1",
-                       account_type="organization", is_business=True)
-        monkeypatch.setattr(auth_mod, "_sync_linkedin_organizations",
-                            AsyncMock(return_value=[org]))
-        monkeypatch.setattr(
-            "app.services.linkedin_api.LinkedInAPIClient",
-            lambda **kw: SimpleNamespace(_client=object()))
+        org = _account("linkedin", team_id=team.id, account_id="org-1", account_type="organization", is_business=True)
+        monkeypatch.setattr(auth_mod, "_sync_linkedin_organizations", AsyncMock(return_value=[org]))
+        monkeypatch.setattr("app.services.linkedin_api.LinkedInAPIClient", lambda **kw: SimpleNamespace(_client=object()))
         db = FakeDB(accounts=[personal])
         out = await accounts.sync_business_accounts(personal.id, _user(), db)
         assert out.platform == "linkedin"
@@ -1017,18 +1091,21 @@ class TestCoverageTails:
     async def test_sync_business_instagram_existing_updates(self, monkeypatch):
         team = _team()
         personal = _account("instagram", team_id=team.id)
-        ig_biz = _account("instagram", team_id=team.id, account_id="ig-77",
-                          is_business=False, status="revoked")
+        ig_biz = _account("instagram", team_id=team.id, account_id="ig-77", is_business=False, status="revoked")
 
         class FBClient:
             def __init__(self, **kw):
                 pass
 
             async def get_pages(self):
-                return [{"id": "pg-1", "name": "P", "access_token": "pt",
-                         "instagram_business_account":
-                         {"id": "ig-77", "username": "igbiz",
-                          "profile_picture_url": "pic"}}]
+                return [
+                    {
+                        "id": "pg-1",
+                        "name": "P",
+                        "access_token": "pt",
+                        "instagram_business_account": {"id": "ig-77", "username": "igbiz", "profile_picture_url": "pic"},
+                    }
+                ]
 
         monkeypatch.setattr(accounts, "FacebookAPIClient", FBClient)
         db = FakeDB(accounts=[personal, ig_biz])
@@ -1039,14 +1116,13 @@ class TestCoverageTails:
 
     async def test_fb_page_tasks_error_swallowed(self, monkeypatch):
         from app.services.facebook_api import FacebookAPIError
+
         _FakeFBPageClient.error = FacebookAPIError(500, "x", "u")
         monkeypatch.setattr(accounts, "FacebookAPIClient", _FakeFBPageClient)
-        page = _account("facebook", account_id="pg-1", is_business=True,
-                        account_type="page")
+        page = _account("facebook", account_id="pg-1", is_business=True, account_type="page")
         try:
             with pytest.raises(HTTPException):
-                await accounts.get_facebook_page_profile(
-                    page.id, _user(), FakeDB(accounts=[page]))
+                await accounts.get_facebook_page_profile(page.id, _user(), FakeDB(accounts=[page]))
         finally:
             _FakeFBPageClient.error = None
 
@@ -1058,16 +1134,14 @@ class TestCoverageTails:
                 raise FacebookAPIError(500, "x", "u")
 
         monkeypatch.setattr(accounts, "FacebookAPIClient", OnlyTasksFail)
-        page = _account("facebook", account_id="pg-1", is_business=True,
-                        account_type="page")
-        out = await accounts.get_facebook_page_profile(
-            page.id, _user(), FakeDB(accounts=[page]))
+        page = _account("facebook", account_id="pg-1", is_business=True, account_type="page")
+        out = await accounts.get_facebook_page_profile(page.id, _user(), FakeDB(accounts=[page]))
         assert out["tasks"] == []
 
     async def test_fb_update_and_uploads_error_branches(self, monkeypatch):
         from app.services.facebook_api import FacebookAPIError
-        page = _account("facebook", account_id="pg-1", is_business=True,
-                        account_type="page")
+
+        page = _account("facebook", account_id="pg-1", is_business=True, account_type="page")
 
         class Err(_FakeFBPageClient):
             error = FacebookAPIError(500, "x", "u")
@@ -1075,29 +1149,25 @@ class TestCoverageTails:
         monkeypatch.setattr(accounts, "FacebookAPIClient", Err)
         db = FakeDB(accounts=[page])
         with pytest.raises(HTTPException) as e:
-            await accounts.update_facebook_page_profile(
-                page.id, accounts.PageProfileUpdate(about="a"), _user(), db)
+            await accounts.update_facebook_page_profile(page.id, accounts.PageProfileUpdate(about="a"), _user(), db)
         assert e.value.status_code == 500
 
         with pytest.raises(HTTPException) as e:
-            await accounts.upload_facebook_profile_picture(
-                page.id, _user(), db, _Upload())
+            await accounts.upload_facebook_profile_picture(page.id, _user(), db, _Upload())
         assert e.value.status_code == 500
 
         with pytest.raises(HTTPException) as e:
-            await accounts.upload_facebook_cover_photo(
-                page.id, _user(), db, _Upload(b""))
+            await accounts.upload_facebook_cover_photo(page.id, _user(), db, _Upload(b""))
         assert e.value.status_code == 400
 
         with pytest.raises(HTTPException) as e:
-            await accounts.upload_facebook_cover_photo(
-                page.id, _user(), db, _Upload())
+            await accounts.upload_facebook_cover_photo(page.id, _user(), db, _Upload())
         assert e.value.status_code == 500
 
     async def test_assign_manage_task_error_branches(self, monkeypatch):
         from app.services.facebook_api import FacebookAPIError
-        page = _account("facebook", account_id="pg-1", is_business=True,
-                        account_type="page")
+
+        page = _account("facebook", account_id="pg-1", is_business=True, account_type="page")
 
         class ErrUsers(_FakeFBPageClient):
             async def get_assigned_users(self, business_id):
@@ -1106,9 +1176,7 @@ class TestCoverageTails:
         monkeypatch.setattr(accounts, "FacebookAPIClient", ErrUsers)
         db = FakeDB(accounts=[page])
         with pytest.raises(HTTPException) as e:
-            await accounts.assign_facebook_manage_task(
-                page.id, accounts.AssignManageTaskRequest(business_id="biz-1"),
-                _user(), db)
+            await accounts.assign_facebook_manage_task(page.id, accounts.AssignManageTaskRequest(business_id="biz-1"), _user(), db)
         assert e.value.status_code == 500
 
         class ErrAssign(_FakeFBPageClient):
@@ -1119,9 +1187,7 @@ class TestCoverageTails:
 
         monkeypatch.setattr(accounts, "FacebookAPIClient", ErrAssign)
         with pytest.raises(HTTPException) as e:
-            await accounts.assign_facebook_manage_task(
-                page.id, accounts.AssignManageTaskRequest(business_id="biz-1"),
-                _user(), db)
+            await accounts.assign_facebook_manage_task(page.id, accounts.AssignManageTaskRequest(business_id="biz-1"), _user(), db)
         assert e.value.status_code == 403
 
 
@@ -1146,9 +1212,7 @@ class TestCoverageTails2:
                 pass
 
             async def get_pages(self):
-                return [{"id": "pg-1", "name": "P"},
-                        {"id": "pg-2", "name": "Q",
-                         "instagram_business_account": {"id": "ig-9"}}]
+                return [{"id": "pg-1", "name": "P"}, {"id": "pg-2", "name": "Q", "instagram_business_account": {"id": "ig-9"}}]
 
         monkeypatch.setattr(accounts, "FacebookAPIClient", FBClient)
         db = FakeDB(accounts=[personal])

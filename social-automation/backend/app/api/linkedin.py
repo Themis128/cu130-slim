@@ -135,9 +135,8 @@ async def _team_for_user(db: AsyncSession, team_id: uuid.UUID) -> Team:
 
 @router.post("/generate-post", response_model=GeneratePostResponse)
 async def linkedin_generate_post(
-    request: GeneratePostRequest,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GeneratePostRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Generate a LinkedIn-ready post with plain-English caption + hashtags."""
     team = await _team_for_user(db, team_id)
     result = await generate_linkedin_post(
@@ -157,9 +156,8 @@ async def linkedin_generate_post(
 
 @router.post("/generate-article", response_model=GenerateArticleResponse)
 async def linkedin_generate_article(
-    request: GenerateArticleRequest,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GenerateArticleRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Generate a long-form LinkedIn article in plain English."""
     team = await _team_for_user(db, team_id)
     result = await generate_linkedin_article(
@@ -178,9 +176,8 @@ async def linkedin_generate_article(
 
 @router.post("/generate-hashtags", response_model=GenerateHashtagsResponse)
 async def linkedin_generate_hashtags(
-    request: GenerateHashtagsRequest,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GenerateHashtagsRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Suggest LinkedIn hashtags for the supplied content."""
     team = await _team_for_user(db, team_id)
     hashtags = await generate_linkedin_hashtags(
@@ -195,10 +192,9 @@ async def linkedin_generate_hashtags(
 
 
 @router.get("/best-time", response_model=BestTimeResponse)
-async def linkedin_best_time(team_id: TeamId,
-    account_type: str = Query("organization"),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def linkedin_best_time(
+    team_id: TeamId, account_type: str = Query("organization"), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Return recommended posting windows for LinkedIn.
 
     Derives windows from the team's own published-post engagement history
@@ -214,9 +210,7 @@ async def linkedin_best_time(team_id: TeamId,
         SocialAccount.team_id == team.id,
         SocialAccount.platform == "linkedin",
     )
-    typed_ids = list((
-        await db.execute(base.where(SocialAccount.account_type == account_type))
-    ).scalars().all())
+    typed_ids = list((await db.execute(base.where(SocialAccount.account_type == account_type))).scalars().all())
     account_ids = typed_ids or list((await db.execute(base)).scalars().all())
 
     samples: list[tuple[datetime, float]] = []
@@ -234,11 +228,7 @@ async def linkedin_best_time(team_id: TeamId,
             )
             .group_by(Post.id, Post.published_at)
         )
-        samples = [
-            (published_at, rate)
-            for published_at, rate in (await db.execute(stmt)).all()
-            if published_at is not None
-        ]
+        samples = [(published_at, rate) for published_at, rate in (await db.execute(stmt)).all() if published_at is not None]
 
     windows = rank_best_time_windows(samples) if samples else []
     if not windows:
@@ -252,9 +242,8 @@ async def linkedin_best_time(team_id: TeamId,
 
 @router.post("/improve-post", response_model=ImprovePostResponse)
 async def linkedin_improve_post(
-    request: ImprovePostRequest,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: ImprovePostRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Improve an existing LinkedIn post for a specific goal."""
     team = await _team_for_user(db, team_id)
     result = await improve_linkedin_post(
@@ -271,9 +260,8 @@ async def linkedin_improve_post(
 
 @router.post("/generate-comment", response_model=GenerateCommentResponse)
 async def linkedin_generate_comment(
-    request: GenerateCommentRequest,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+    request: GenerateCommentRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Generate a plain-English LinkedIn comment or reply."""
     team = await _team_for_user(db, team_id)
     comment = await generate_linkedin_comment(
@@ -564,11 +552,13 @@ async def update_linkedin_dm_auto_reply(
     account = await _load_linkedin_account(db, account_id, current_user)
     if body.enabled:
         from app.api.deps import check_plan_feature
+
         await check_plan_feature("dm_auto_reply", account.team_id, db)
     meta = account.meta_data or {}
     meta["linkedin_auto_reply"] = body.model_dump()
     account.meta_data = meta
     from sqlalchemy.orm.attributes import flag_modified
+
     flag_modified(account, "meta_data")
     await db.commit()
     return body

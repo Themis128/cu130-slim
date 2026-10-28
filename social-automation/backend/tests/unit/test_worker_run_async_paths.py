@@ -6,6 +6,7 @@ to a thread when a loop is already running, and otherwise defers to the
 shared ``app.worker._async.run_async``. The running-loop path is covered
 elsewhere; these tests pin the idle-loop fallthrough.
 """
+
 from __future__ import annotations
 
 import importlib

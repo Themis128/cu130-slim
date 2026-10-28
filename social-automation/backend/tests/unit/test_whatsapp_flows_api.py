@@ -15,20 +15,26 @@ import app.api.whatsapp_flows as W
 @pytest.fixture(autouse=True)
 def _account(monkeypatch):
     acct = SimpleNamespace(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="whatsapp",
-        meta_data={"access_token": "EAtok", "waba_id": "w1",
-                   "phone_number_id": "p1"})
-    monkeypatch.setattr(W, "_get_whatsapp_account", AsyncMock(
-        return_value=acct))
+        id=uuid.uuid4(), team_id=uuid.uuid4(), platform="whatsapp", meta_data={"access_token": "EAtok", "waba_id": "w1", "phone_number_id": "p1"}
+    )
+    monkeypatch.setattr(W, "_get_whatsapp_account", AsyncMock(return_value=acct))
     return acct
 
 
 def _client(**kw) -> SimpleNamespace:
     c = SimpleNamespace()
-    for name in ("create_flow", "list_flows", "get_flow",
-                 "update_flow_metadata", "update_flow_json",
-                 "get_flow_json", "validate_flow_json", "publish_flow",
-                 "delete_flow", "send_flow"):
+    for name in (
+        "create_flow",
+        "list_flows",
+        "get_flow",
+        "update_flow_metadata",
+        "update_flow_json",
+        "get_flow_json",
+        "validate_flow_json",
+        "publish_flow",
+        "delete_flow",
+        "send_flow",
+    ):
         setattr(c, name, kw.pop(name, AsyncMock(return_value={"ok": 1})))
     for k, v in kw.items():
         setattr(c, k, v)
@@ -48,25 +54,20 @@ def test_get_flows_client(monkeypatch):
         W._get_flows_client(SimpleNamespace(meta_data={}))
     assert e.value.status_code == 400
     with pytest.raises(HTTPException):
-        W._get_flows_client(SimpleNamespace(
-            meta_data={"access_token": "EAt"}))  # no waba_id
+        W._get_flows_client(SimpleNamespace(meta_data={"access_token": "EAt"}))  # no waba_id
 
     # EA token passthrough
-    c = W._get_flows_client(SimpleNamespace(meta_data={
-        "access_token": "EAtok", "waba_id": "111",
-        "phone_number_id": "222"}))
+    c = W._get_flows_client(SimpleNamespace(meta_data={"access_token": "EAtok", "waba_id": "111", "phone_number_id": "222"}))
     assert c.access_token == "EAtok" and c.waba_id == "111"
 
     # encrypted → decrypt; decrypt fail → plaintext
     import app.core.security as SEC
+
     monkeypatch.setattr(SEC, "decrypt_token", lambda t: "DEC")
-    c = W._get_flows_client(SimpleNamespace(meta_data={
-        "access_token": "enc", "waba_id": "111"}))
+    c = W._get_flows_client(SimpleNamespace(meta_data={"access_token": "enc", "waba_id": "111"}))
     assert c.access_token == "DEC"
-    monkeypatch.setattr(SEC, "decrypt_token",
-                        Mock(side_effect=Exception("x")))
-    c = W._get_flows_client(SimpleNamespace(meta_data={
-        "access_token": "enc", "waba_id": "111"}))
+    monkeypatch.setattr(SEC, "decrypt_token", Mock(side_effect=Exception("x")))
+    c = W._get_flows_client(SimpleNamespace(meta_data={"access_token": "enc", "waba_id": "111"}))
     assert c.access_token == "enc"
 
 
@@ -83,37 +84,41 @@ async def test_crud_endpoints(monkeypatch, _account):
     cli = _client()
     _wire(monkeypatch, cli)
 
-    out = await W.create_flow(aid, W.FlowCreateRequest(
-        name="f", categories=["OTHER"]), db, user)
+    out = await W.create_flow(aid, W.FlowCreateRequest(name="f", categories=["OTHER"]), db, user)
     assert out == {"ok": 1}
     assert cli.create_flow.await_args.kwargs["name"] == "f"
 
     assert await W.list_flows(aid, db, user) == {"ok": 1}
     assert await W.get_flow(aid, "fid", db, user) == {"ok": 1}
 
-    out = await W.update_flow_metadata(
-        aid, "fid", W.FlowUpdateRequest(name="n2"), db, user)
+    out = await W.update_flow_metadata(aid, "fid", W.FlowUpdateRequest(name="n2"), db, user)
     assert cli.update_flow_metadata.await_args.kwargs["name"] == "n2"
 
-    await W.update_flow_json(aid, "fid",
-                             W.FlowJSONUpdateRequest(flow_json={"v": 1}),
-                             db, user)
+    await W.update_flow_json(aid, "fid", W.FlowJSONUpdateRequest(flow_json={"v": 1}), db, user)
     assert cli.update_flow_json.await_args.args[1] == {"v": 1}
 
     await W.get_flow_json(aid, "fid", db, user)
-    await W.validate_flow_json(aid, "fid",
-                               W.FlowJSONUpdateRequest(flow_json={}),
-                               db, user)
+    await W.validate_flow_json(aid, "fid", W.FlowJSONUpdateRequest(flow_json={}), db, user)
     await W.publish_flow(aid, "fid", db, user)
     await W.delete_flow(aid, "fid", db, user)
 
     # send_flow — all body fields forwarded
-    out = await W.send_flow(aid, W.FlowSendRequest(
-        to="+30", flow_id="f", flow_token="t",
-        header_text="H", footer_text="F",
-        flow_action="data_exchange", screen="S",
-        flow_action_payload={"k": 1}, messaging_type="TEMPLATE"),
-        db, user)
+    out = await W.send_flow(
+        aid,
+        W.FlowSendRequest(
+            to="+30",
+            flow_id="f",
+            flow_token="t",
+            header_text="H",
+            footer_text="F",
+            flow_action="data_exchange",
+            screen="S",
+            flow_action_payload={"k": 1},
+            messaging_type="TEMPLATE",
+        ),
+        db,
+        user,
+    )
     kw = cli.send_flow.await_args.kwargs
     assert kw["flow_action"] == "data_exchange" and kw["screen"] == "S"
 
@@ -163,14 +168,12 @@ async def test_create_from_template(monkeypatch, _account):
 
     # unknown template → 404 (after client build)
     with pytest.raises(HTTPException) as e:
-        await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(
-            template_id="nope"), db, user)
+        await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(template_id="nope"), db, user)
     assert e.value.status_code == 404
 
     # happy — create + JSON update + DRAFT result
     tid = next(iter(W.FLOW_TEMPLATES))
-    out = await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(
-        template_id=tid, name="MyFlow", business_name="B"), db, user)
+    out = await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(template_id=tid, name="MyFlow", business_name="B"), db, user)
     assert out["flow_id"] == "fid1" and out["status"] == "DRAFT"
     assert out["name"] == "MyFlow"
     assert out["json_updated"] is True
@@ -178,23 +181,20 @@ async def test_create_from_template(monkeypatch, _account):
 
     # JSON update failure tolerated — still returns
     cli.update_flow_json = AsyncMock(side_effect=RuntimeError("x"))
-    out = await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(
-        template_id=tid), db, user)
+    out = await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(template_id=tid), db, user)
     assert out["flow_id"] == "fid1"
     assert out["json_updated"] is False
 
     # create returns no id → 502
     cli.create_flow = AsyncMock(return_value={})
     with pytest.raises(HTTPException) as e:
-        await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(
-            template_id=tid), db, user)
+        await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(template_id=tid), db, user)
     assert e.value.status_code == 502
 
     # create raises → 502
     cli.create_flow = AsyncMock(side_effect=RuntimeError("x"))
     with pytest.raises(HTTPException) as e:
-        await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(
-            template_id=tid), db, user)
+        await W.create_flow_from_template(aid, W.FlowFromTemplateRequest(template_id=tid), db, user)
     assert e.value.status_code == 502
 
 
@@ -209,33 +209,24 @@ async def test_flow_data_endpoint(monkeypatch):
     assert out.status_code == 400
 
     # ping → active
-    monkeypatch.setattr(W, "parse_flow_endpoint_request",
-                        lambda b: {"is_ping": True})
+    monkeypatch.setattr(W, "parse_flow_endpoint_request", lambda b: {"is_ping": True})
     req = SimpleNamespace(json=AsyncMock(return_value={}))
     out = await W.flow_data_endpoint(req)
     assert out == {"version": "3.0", "data": {"status": "active"}}
 
     # routing — FIRST_ENTRY_SCREEN → LEAD_FORM
-    monkeypatch.setattr(W, "parse_flow_endpoint_request",
-                        lambda b: {"screen": "FIRST_ENTRY_SCREEN",
-                                   "data": {}, "flow_token": "t"})
-    monkeypatch.setattr(W, "build_flow_endpoint_response",
-                        lambda **kw: kw)
+    monkeypatch.setattr(W, "parse_flow_endpoint_request", lambda b: {"screen": "FIRST_ENTRY_SCREEN", "data": {}, "flow_token": "t"})
+    monkeypatch.setattr(W, "build_flow_endpoint_response", lambda **kw: kw)
     out = await W.flow_data_endpoint(req)
     assert out["screen"] == "LEAD_FORM"
 
-    monkeypatch.setattr(W, "parse_flow_endpoint_request",
-                        lambda b: {"screen": "LEAD_FORM",
-                                   "data": {"name": "Themis"},
-                                   "flow_token": "t"})
+    monkeypatch.setattr(W, "parse_flow_endpoint_request", lambda b: {"screen": "LEAD_FORM", "data": {"name": "Themis"}, "flow_token": "t"})
     out = await W.flow_data_endpoint(req)
     assert out["screen"] == "SUCCESS_SCREEN"
     assert out["data"] == {"name": "Themis"}
 
     # unknown screen → echo
-    monkeypatch.setattr(W, "parse_flow_endpoint_request",
-                        lambda b: {"screen": "OTHER", "data": {"d": 1},
-                                   "flow_token": "t"})
+    monkeypatch.setattr(W, "parse_flow_endpoint_request", lambda b: {"screen": "OTHER", "data": {"d": 1}, "flow_token": "t"})
     out = await W.flow_data_endpoint(req)
     assert out["screen"] == "OTHER" and out["data"] == {"d": 1}
 
@@ -249,34 +240,39 @@ async def test_process_flow_responses(monkeypatch):
     assert await W.process_flow_responses({}, db) == []
 
     # missing name/email → skipped
-    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
-        {"response_json": {"name": "n"}, "phone_number_id": "p"}])
+    monkeypatch.setattr(W, "parse_flow_response", lambda b: [{"response_json": {"name": "n"}, "phone_number_id": "p"}])
     await W.process_flow_responses({}, db)
     db.execute.assert_not_called()
 
     # missing interest+company_size → skipped (false-positive guard)
-    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
-        {"response_json": {"name": "n", "email": "e"},
-         "phone_number_id": "p"}])
+    monkeypatch.setattr(W, "parse_flow_response", lambda b: [{"response_json": {"name": "n", "email": "e"}, "phone_number_id": "p"}])
     await W.process_flow_responses({}, db)
     db.execute.assert_not_called()
 
     # no phone_number_id → skipped
-    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
-        {"response_json": {"name": "n", "email": "e", "interest": "x"},
-         "phone_number_id": ""}])
+    monkeypatch.setattr(W, "parse_flow_response", lambda b: [{"response_json": {"name": "n", "email": "e", "interest": "x"}, "phone_number_id": ""}])
     await W.process_flow_responses({}, db)
     db.execute.assert_not_called()
 
     # account not found → skipped
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
-        scalars=lambda: SimpleNamespace(first=lambda: None))))
-    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
-        {"response_json": {"name": "n", "email": "e", "interest": "x"},
-         "phone_number_id": "p", "sender_phone": "30",
-         "flow_id": "f", "flow_token": "ft", "message_id": "m",
-         "timestamp": 1}])
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
+    monkeypatch.setattr(
+        W,
+        "parse_flow_response",
+        lambda b: [
+            {
+                "response_json": {"name": "n", "email": "e", "interest": "x"},
+                "phone_number_id": "p",
+                "sender_phone": "30",
+                "flow_id": "f",
+                "flow_token": "ft",
+                "message_id": "m",
+                "timestamp": 1,
+            }
+        ],
+    )
     import app.services.leads as LEADS
+
     created = AsyncMock()
     monkeypatch.setattr(LEADS, "create_lead", created)
     monkeypatch.setattr(LEADS, "coerce_company_size", lambda v: v)
@@ -286,8 +282,7 @@ async def test_process_flow_responses(monkeypatch):
 
     # happy → lead created with flow meta
     acct = SimpleNamespace(team_id=uuid.uuid4(), id=uuid.uuid4())
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
-        scalars=lambda: SimpleNamespace(first=lambda: acct))))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: acct))))
     await W.process_flow_responses({}, db)
     created.assert_awaited_once()
     kw = created.await_args.kwargs
@@ -308,27 +303,30 @@ async def test_all_endpoints_502_mapping(monkeypatch, _account):
     db = object()
     fail = AsyncMock(side_effect=RuntimeError("api down"))
     cli = _client(
-        create_flow=fail, list_flows=fail, get_flow=fail,
-        update_flow_metadata=fail, update_flow_json=fail,
-        get_flow_json=fail, validate_flow_json=fail,
-        publish_flow=fail, delete_flow=fail, send_flow=fail)
+        create_flow=fail,
+        list_flows=fail,
+        get_flow=fail,
+        update_flow_metadata=fail,
+        update_flow_json=fail,
+        get_flow_json=fail,
+        validate_flow_json=fail,
+        publish_flow=fail,
+        delete_flow=fail,
+        send_flow=fail,
+    )
     _wire(monkeypatch, cli)
 
     calls = [
-        W.create_flow(aid, W.FlowCreateRequest(
-            name="f", categories=["OTHER"]), db, user),
+        W.create_flow(aid, W.FlowCreateRequest(name="f", categories=["OTHER"]), db, user),
         W.list_flows(aid, db, user),
         W.get_flow(aid, "f", db, user),
         W.update_flow_metadata(aid, "f", W.FlowUpdateRequest(), db, user),
-        W.update_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}),
-                           db, user),
+        W.update_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}), db, user),
         W.get_flow_json(aid, "f", db, user),
-        W.validate_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}),
-                             db, user),
+        W.validate_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}), db, user),
         W.publish_flow(aid, "f", db, user),
         W.delete_flow(aid, "f", db, user),
-        W.send_flow(aid, W.FlowSendRequest(
-            to="+30", flow_id="f", flow_token="t"), db, user),
+        W.send_flow(aid, W.FlowSendRequest(to="+30", flow_id="f", flow_token="t"), db, user),
     ]
     for coro in calls:
         with pytest.raises(HTTPException) as e:
@@ -344,27 +342,30 @@ async def test_all_endpoints_passthrough(monkeypatch, _account):
     db = object()
     fail = AsyncMock(side_effect=HTTPException(status_code=418))
     cli = _client(
-        create_flow=fail, list_flows=fail, get_flow=fail,
-        update_flow_metadata=fail, update_flow_json=fail,
-        get_flow_json=fail, validate_flow_json=fail,
-        publish_flow=fail, delete_flow=fail, send_flow=fail)
+        create_flow=fail,
+        list_flows=fail,
+        get_flow=fail,
+        update_flow_metadata=fail,
+        update_flow_json=fail,
+        get_flow_json=fail,
+        validate_flow_json=fail,
+        publish_flow=fail,
+        delete_flow=fail,
+        send_flow=fail,
+    )
     _wire(monkeypatch, cli)
 
     calls = [
-        W.create_flow(aid, W.FlowCreateRequest(
-            name="f", categories=["OTHER"]), db, user),
+        W.create_flow(aid, W.FlowCreateRequest(name="f", categories=["OTHER"]), db, user),
         W.list_flows(aid, db, user),
         W.get_flow(aid, "f", db, user),
         W.update_flow_metadata(aid, "f", W.FlowUpdateRequest(), db, user),
-        W.update_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}),
-                           db, user),
+        W.update_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}), db, user),
         W.get_flow_json(aid, "f", db, user),
-        W.validate_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}),
-                             db, user),
+        W.validate_flow_json(aid, "f", W.FlowJSONUpdateRequest(flow_json={}), db, user),
         W.publish_flow(aid, "f", db, user),
         W.delete_flow(aid, "f", db, user),
-        W.send_flow(aid, W.FlowSendRequest(
-            to="+30", flow_id="f", flow_token="t"), db, user),
+        W.send_flow(aid, W.FlowSendRequest(to="+30", flow_id="f", flow_token="t"), db, user),
     ]
     for coro in calls:
         with pytest.raises(HTTPException) as e:
@@ -377,13 +378,11 @@ async def test_process_flow_responses_skip_guards(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock())
 
     # response_json not a dict → skipped (line 569)
-    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
-        {"response_json": "raw-string", "phone_number_id": "p"}])
+    monkeypatch.setattr(W, "parse_flow_response", lambda b: [{"response_json": "raw-string", "phone_number_id": "p"}])
     await W.process_flow_responses({}, db)
     db.execute.assert_not_called()
 
     # name without email → skipped (line 574)
-    monkeypatch.setattr(W, "parse_flow_response", lambda b: [
-        {"response_json": {"name": "n"}, "phone_number_id": "p"}])
+    monkeypatch.setattr(W, "parse_flow_response", lambda b: [{"response_json": {"name": "n"}, "phone_number_id": "p"}])
     await W.process_flow_responses({}, db)
     db.execute.assert_not_called()

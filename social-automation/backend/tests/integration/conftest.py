@@ -85,10 +85,7 @@ async def engine():
     database_url = os.environ.get("DATABASE_URL", "")
     db_name = database_url.rsplit("/", 1)[-1].split("?")[0]
     if not db_name.endswith("_test") and os.environ.get("ALLOW_DESTRUCTIVE_TEST_DB") != "1":
-        pytest.skip(
-            f"Refusing drop_all on non-test database '{db_name}' — set DATABASE_URL "
-            "to a *_test database (or ALLOW_DESTRUCTIVE_TEST_DB=1 to override)"
-        )
+        pytest.skip(f"Refusing drop_all on non-test database '{db_name}' — set DATABASE_URL to a *_test database (or ALLOW_DESTRUCTIVE_TEST_DB=1 to override)")
     print(f"Using DATABASE_URL: {database_url}")
     eng = create_async_engine(database_url, echo=False)
     async with eng.begin() as conn:

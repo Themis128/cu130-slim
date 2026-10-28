@@ -1,4 +1,5 @@
 """Every strategy parse path shares the near-duplicate filter and the cap."""
+
 from __future__ import annotations
 
 import json
@@ -18,23 +19,28 @@ A2 = "Share an Instagram image at 12:30 Athens with a client quote."
 
 def _digest():
     return DigestReport(
-        generated_at=datetime(2026, 10, 17, 18, 0, tzinfo=UTC), timezone="Europe/Athens",
-        team_name="T", days=1, overview={}, impressions_24h=10, engagement_24h=3,
+        generated_at=datetime(2026, 10, 17, 18, 0, tzinfo=UTC),
+        timezone="Europe/Athens",
+        team_name="T",
+        days=1,
+        overview={},
+        impressions_24h=10,
+        engagement_24h=3,
     )
 
 
 _DISTINCT = [
-        "Publish a LinkedIn carousel on cloud migration costs at 09:00",
-        "Share an Instagram reel showing a website speed test at 12:30",
-        "Reply to every open LinkedIn comment before lunch today",
-        "Repurpose last week's best post into a TikTok video clip",
-        "Email the newsletter list a free audit offer this afternoon",
-        "Post a Threads poll asking which Cloudflare feature they use",
-        "Update the Facebook page cover with the new hosting banner",
-        "Pin the customer testimonial to the top of the X profile",
-        "Write a LinkedIn article explaining managed DNS failover",
-        "Schedule an Instagram story countdown for Friday's webinar",
-    ]
+    "Publish a LinkedIn carousel on cloud migration costs at 09:00",
+    "Share an Instagram reel showing a website speed test at 12:30",
+    "Reply to every open LinkedIn comment before lunch today",
+    "Repurpose last week's best post into a TikTok video clip",
+    "Email the newsletter list a free audit offer this afternoon",
+    "Post a Threads poll asking which Cloudflare feature they use",
+    "Update the Facebook page cover with the new hosting banner",
+    "Pin the customer testimonial to the top of the X profile",
+    "Write a LinkedIn article explaining managed DNS failover",
+    "Schedule an Instagram story countdown for Friday's webinar",
+]
 
 
 def _many(n):

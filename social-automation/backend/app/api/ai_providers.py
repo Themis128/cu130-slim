@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class AIProviderUpsert(BaseModel):
     name: str | None = None
     display_name: str | None = None
-    api_key: str | None = None          # plaintext — encrypted before storing
+    api_key: str | None = None  # plaintext — encrypted before storing
     base_url: str | None = None
     default_model: str | None = None
     is_enabled: bool = True
@@ -70,9 +70,7 @@ async def list_catalog():
 
 
 @router.get("", response_model=list[AIProviderOut])
-async def list_providers(team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def list_providers(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
     result = await db.execute(select(AIProvider).where(AIProvider.team_id == team.id))
     providers = result.scalars().all()
@@ -100,11 +98,7 @@ async def list_providers(team_id: TeamId,
 
 
 @router.put("/{name}", response_model=AIProviderOut)
-async def upsert_provider(
-    name: str,
-    body: AIProviderUpsert,team_id: TeamId,
-    current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)):
+async def upsert_provider(name: str, body: AIProviderUpsert, team_id: TeamId, current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
 
     # Look up catalog defaults
@@ -112,9 +106,7 @@ async def upsert_provider(
     if not catalog and name not in ("dmr",):
         raise HTTPException(status_code=400, detail=f"Unknown provider: {name}")
 
-    result = await db.execute(
-        select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name)
-    )
+    result = await db.execute(select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name))
     provider = result.scalar_one_or_none()
 
     if not provider:
@@ -144,9 +136,7 @@ async def upsert_provider(
 
     # If set as default, clear others
     if body.is_default:
-        others_result = await db.execute(
-            select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name != name)
-        )
+        others_result = await db.execute(select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name != name))
         for other in others_result.scalars().all():
             other.is_default = False
 
@@ -187,14 +177,9 @@ async def list_provider_models(
 
 
 @router.delete("/{name}", status_code=204)
-async def delete_provider(
-    name: str,team_id: TeamId,
-    current_user: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db)):
+async def delete_provider(name: str, team_id: TeamId, current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)):
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name)
-    )
+    result = await db.execute(select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name))
     provider = result.scalar_one_or_none()
     if provider:
         await log_action(db, user=current_user, action="delete", resource_type="ai_provider", resource_id=name)
@@ -203,10 +188,7 @@ async def delete_provider(
 
 
 @router.post("/{name}/test")
-async def test_provider(
-    name: str, team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def test_provider(name: str, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Quick connectivity test — sends a test request to the provider."""
     from app.services.inference import call_inference
 
@@ -234,6 +216,7 @@ async def test_provider(
             # Verify the image generation provider with a minimal 64x64 request
             from app.services.cf_models import CF_TXT2IMG_FREE
             from app.services.inference import _call_workers_ai_image
+
             result = await _call_workers_ai_image(
                 prompt="test",
                 model=CF_TXT2IMG_FREE,
@@ -286,10 +269,9 @@ class UsageResponse(BaseModel):
 
 
 @router.get("/usage", response_model=UsageResponse)
-async def get_usage_summary(team_id: TeamId,
-    days: int = Query(7, ge=1, le=90),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def get_usage_summary(
+    team_id: TeamId, days: int = Query(7, ge=1, le=90), current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     """Aggregate AI usage by provider/model for the dashboard (Phase 4.3)."""
     team = await _get_team(team_id, db)
     since = datetime.now(UTC) - timedelta(days=days)
@@ -299,9 +281,7 @@ async def get_usage_summary(team_id: TeamId,
             AIUsageLog.provider,
             AIUsageLog.model,
             func.count(AIUsageLog.id).label("total_calls"),
-            func.sum(
-                func.cast(AIUsageLog.success, __import__("sqlalchemy").Integer)
-            ).label("successful_calls"),
+            func.sum(func.cast(AIUsageLog.success, __import__("sqlalchemy").Integer)).label("successful_calls"),
             func.avg(AIUsageLog.latency_ms).label("avg_latency_ms"),
             func.coalesce(func.sum(AIUsageLog.actual_neurons), 0).label("total_neurons"),
             func.coalesce(func.sum(AIUsageLog.estimated_cost), 0).label("estimated_cost"),
@@ -314,24 +294,24 @@ async def get_usage_summary(team_id: TeamId,
 
     summary = []
     for provider, model, total, ok, avg_lat, neurons, cost, last_call in rows.all():
-        summary.append(UsageSummary(
-            provider=provider,
-            model=model,
-            total_calls=int(total or 0),
-            successful_calls=int(ok or 0),
-            failed_calls=int(total or 0) - int(ok or 0),
-            avg_latency_ms=round(float(avg_lat or 0), 1),
-            total_neurons=int(neurons or 0),
-            estimated_cost=round(float(cost or 0), 4),
-            last_call_at=last_call,
-        ))
+        summary.append(
+            UsageSummary(
+                provider=provider,
+                model=model,
+                total_calls=int(total or 0),
+                successful_calls=int(ok or 0),
+                failed_calls=int(total or 0) - int(ok or 0),
+                avg_latency_ms=round(float(avg_lat or 0), 1),
+                total_neurons=int(neurons or 0),
+                estimated_cost=round(float(cost or 0), 4),
+                last_call_at=last_call,
+            )
+        )
 
     # Daily neuron totals + budget
     today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     daily_row = await db.execute(
-        select(
-            func.coalesce(func.sum(AIUsageLog.actual_neurons), 0)
-        ).where(
+        select(func.coalesce(func.sum(AIUsageLog.actual_neurons), 0)).where(
             AIUsageLog.team_id == team.id,
             AIUsageLog.created_at >= today_start,
             AIUsageLog.success.is_(True),
@@ -357,15 +337,10 @@ async def get_usage_summary(team_id: TeamId,
 
 
 @router.post("/{name}/reset-circuit")
-async def reset_circuit_breaker(
-    name: str,team_id: TeamId,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)):
+async def reset_circuit_breaker(name: str, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     """Manually reset a provider's circuit breaker (Phase 4.5)."""
     team = await _get_team(team_id, db)
-    result = await db.execute(
-        select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name)
-    )
+    result = await db.execute(select(AIProvider).where(AIProvider.team_id == team.id, AIProvider.name == name))
     provider = result.scalar_one_or_none()
     if not provider:
         raise HTTPException(status_code=404, detail="Provider not found")
@@ -375,5 +350,6 @@ async def reset_circuit_breaker(
     await db.commit()
     # Also reset in-memory state
     from app.services.inference import _circuit_state
+
     _circuit_state.pop(name, None)
     return {"ok": True, "provider": name, "message": "Circuit breaker reset"}

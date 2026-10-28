@@ -52,9 +52,7 @@ class _Http:
 
     async def post(self, url, **kw):
         self.calls.append((url, kw))
-        return SimpleNamespace(
-            status_code=self.status, text=self.text, json=lambda: self.body
-        )
+        return SimpleNamespace(status_code=self.status, text=self.text, json=lambda: self.body)
 
 
 def _stub_sidecar(monkeypatch, http=None):
@@ -135,9 +133,7 @@ async def test_issue_dry_run_propagates(monkeypatch):
     http = _stub_sidecar(monkeypatch)
     with _patched_settings():
         resp = await newsletter_api.linkedin_issue(
-            newsletter_api.LinkedInIssueRequest(
-                title="t", text_body="b", dry_run=True, render_cover=False
-            ),
+            newsletter_api.LinkedInIssueRequest(title="t", text_body="b", dry_run=True, render_cover=False),
             _request(),
             db=None,
         )
@@ -244,9 +240,7 @@ async def test_issue_topic_mode_generates_and_assembles(monkeypatch):
 async def test_issue_422_no_content_source(monkeypatch):
     with _patched_settings():
         with pytest.raises(HTTPException) as e:
-            await newsletter_api.linkedin_issue(
-                newsletter_api.LinkedInIssueRequest(), _request(), db=None
-            )
+            await newsletter_api.linkedin_issue(newsletter_api.LinkedInIssueRequest(), _request(), db=None)
     assert e.value.status_code == 422
 
 
@@ -255,9 +249,7 @@ async def test_issue_422_min_words(monkeypatch):
     with _patched_settings():
         with pytest.raises(HTTPException) as e:
             await newsletter_api.linkedin_issue(
-                newsletter_api.LinkedInIssueRequest(
-                    title="t", text_body="short", min_words=100
-                ),
+                newsletter_api.LinkedInIssueRequest(title="t", text_body="short", min_words=100),
                 _request(),
                 db=None,
             )
@@ -286,9 +278,7 @@ class _Bridge:
 
 def _stub_bridge(monkeypatch, bridge=None):
     bridge = bridge or _Bridge()
-    monkeypatch.setattr(
-        newsletter_api, "LinkedInNewsletterBridge", lambda *a, **k: bridge
-    )
+    monkeypatch.setattr(newsletter_api, "LinkedInNewsletterBridge", lambda *a, **k: bridge)
     return bridge
 
 
@@ -313,9 +303,7 @@ async def test_issue_502_on_sidecar_error_without_fallback(monkeypatch):
     with _patched_settings():
         with pytest.raises(HTTPException) as e:
             await newsletter_api.linkedin_issue(
-                newsletter_api.LinkedInIssueRequest(
-                    title="t", text_body="b", browser="sidecar"
-                ),
+                newsletter_api.LinkedInIssueRequest(title="t", text_body="b", browser="sidecar"),
                 _request(),
                 db=None,
             )
@@ -328,9 +316,7 @@ async def test_issue_auto_falls_back_to_bridge(monkeypatch):
     bridge = _stub_bridge(monkeypatch)
     with _patched_settings():
         resp = await newsletter_api.linkedin_issue(
-            newsletter_api.LinkedInIssueRequest(
-                title="Issue #3", html_body=_long_body(900), render_cover=False
-            ),
+            newsletter_api.LinkedInIssueRequest(title="Issue #3", html_body=_long_body(900), render_cover=False),
             _request(),
             db=None,
         )
@@ -349,8 +335,10 @@ async def test_issue_browser_bridge_skips_sidecar(monkeypatch):
     with _patched_settings():
         resp = await newsletter_api.linkedin_issue(
             newsletter_api.LinkedInIssueRequest(
-                title="t", text_body="para one\n\npara two",
-                browser="bridge", render_cover=False,
+                title="t",
+                text_body="para one\n\npara two",
+                browser="bridge",
+                render_cover=False,
             ),
             _request(),
             db=None,
@@ -365,17 +353,21 @@ async def test_issue_schedule_forwards_to_bridge_fallback(monkeypatch):
     _stub_sidecar(monkeypatch, _Http(status=500, text="timeout"))
     bridge = _stub_bridge(
         monkeypatch,
-        _Bridge(result={
-            "published": False,
-            "scheduled": True,
-            "article_url": "https://www.linkedin.com/article/edit/123/",
-            "steps": ["bridge session claimed", "scheduled"],
-        }),
+        _Bridge(
+            result={
+                "published": False,
+                "scheduled": True,
+                "article_url": "https://www.linkedin.com/article/edit/123/",
+                "steps": ["bridge session claimed", "scheduled"],
+            }
+        ),
     )
     with _patched_settings():
         resp = await newsletter_api.linkedin_issue(
             newsletter_api.LinkedInIssueRequest(
-                title="t", text_body="b", schedule_iso="2026-10-20T09:00:00+03:00",
+                title="t",
+                text_body="b",
+                schedule_iso="2026-10-20T09:00:00+03:00",
                 render_cover=False,
             ),
             _request(),
@@ -392,9 +384,7 @@ async def test_issue_sidecar_success_reports_sidecar_browser(monkeypatch):
     _stub_bridge(monkeypatch)
     with _patched_settings():
         resp = await newsletter_api.linkedin_issue(
-            newsletter_api.LinkedInIssueRequest(
-                title="t", text_body="b", render_cover=False
-            ),
+            newsletter_api.LinkedInIssueRequest(title="t", text_body="b", render_cover=False),
             _request(),
             db=None,
         )

@@ -11,6 +11,7 @@ Unlike the strategy brief's advisory playbook, these actions feed
 as SCHEDULED posts (full generation + quality + media pipeline) — the
 report email therefore shows what was *done*, not just what was suggested.
 """
+
 from __future__ import annotations
 
 import json
@@ -50,8 +51,8 @@ class MonetizationAction:
 
     platform: str
     instruction: str
-    time_athens: str = ""        # "HH:MM" local
-    format: str = ""             # text | image | carousel | video
+    time_athens: str = ""  # "HH:MM" local
+    format: str = ""  # text | image | carousel | video
 
 
 @dataclass
@@ -64,9 +65,9 @@ class AccountGate:
     followers: int | None
     gain_per_day: float
     followers_live: bool
-    program: ProgramReport | None   # None → funnel-only surface
+    program: ProgramReport | None  # None → funnel-only surface
     funnel_note: str = ""
-    eta_days: int | None = None     # days to next gate at current pace
+    eta_days: int | None = None  # days to next gate at current pace
 
 
 @dataclass
@@ -80,7 +81,7 @@ class MonetizationReport:
     telegram_leads_30d: int = 0
     insights: dict[str, Any] = field(default_factory=dict)
     initiatives: list[dict[str, Any]] = field(default_factory=list)
-    sections: list[dict[str, str]] = field(default_factory=list)   # LLM strategy
+    sections: list[dict[str, str]] = field(default_factory=list)  # LLM strategy
     actions: list[MonetizationAction] = field(default_factory=list)
     scheduled: list[dict[str, Any]] = field(default_factory=list)  # executor results
     llm_used: bool = False
@@ -88,10 +89,7 @@ class MonetizationReport:
     email_error: str | None = None
 
     def subject(self) -> str:
-        return (
-            f"SocialAuto monetization report — "
-            f"{self.generated_at.astimezone(ZoneInfo(self.timezone)):%Y-%m-%d}"
-        )
+        return f"SocialAuto monetization report — {self.generated_at.astimezone(ZoneInfo(self.timezone)):%Y-%m-%d}"
 
     # ── rendering ─────────────────────────────────────────────────────
 
@@ -105,10 +103,7 @@ class MonetizationReport:
         for g in self.gates:
             live = "live" if g.followers_live else "snapshot"
             ftxt = f"{g.followers:,}" if g.followers is not None else "—"
-            lines.append(
-                f"{g.platform:10s} {g.handle:24s} {ftxt:>7s} followers "
-                f"({live}, {g.gain_per_day:+.1f}/day)"
-            )
+            lines.append(f"{g.platform:10s} {g.handle:24s} {ftxt:>7s} followers ({live}, {g.gain_per_day:+.1f}/day)")
             if g.program:
                 for c in g.program.criteria:
                     mark = "✓" if c.met is True else ("✗" if c.met is False else "?")
@@ -127,15 +122,12 @@ class MonetizationReport:
         if self.sections:
             lines += ["", "── STRATEGY ──"]
             for s in self.sections:
-                lines.append(f"{s.get('platform','').upper()}: {s.get('headline','')}")
-                lines.append(f"  {s.get('strategy','')}")
+                lines.append(f"{s.get('platform', '').upper()}: {s.get('headline', '')}")
+                lines.append(f"  {s.get('strategy', '')}")
         if self.scheduled:
             lines += ["", "── ACTIONS EXECUTED ──"]
             for r in self.scheduled:
-                lines.append(
-                    f"  {r.get('platform','?'):10s} {r.get('status','?'):10s} "
-                    f"{r.get('scheduled_at') or ''} {r.get('instruction','')[:80]}"
-                )
+                lines.append(f"  {r.get('platform', '?'):10s} {r.get('status', '?'):10s} {r.get('scheduled_at') or ''} {r.get('instruction', '')[:80]}")
         return "\n".join(lines)
 
     def to_html(self) -> str:
@@ -181,10 +173,7 @@ class MonetizationReport:
         if self.sections:
             parts.append("<h3>Strategy</h3>")
             for s in self.sections:
-                parts.append(
-                    f"<p><b>{esc(s.get('platform','').upper())}</b> — "
-                    f"{esc(s.get('headline',''))}<br>{esc(s.get('strategy',''))}</p>"
-                )
+                parts.append(f"<p><b>{esc(s.get('platform', '').upper())}</b> — {esc(s.get('headline', ''))}<br>{esc(s.get('strategy', ''))}</p>")
         if self.scheduled:
             parts.append(
                 "<h3>Actions executed</h3><table border=1 cellpadding=6 cellspacing=0 "
@@ -193,16 +182,13 @@ class MonetizationReport:
             )
             for r in self.scheduled:
                 parts.append(
-                    f"<tr><td>{esc(r.get('platform',''))}</td>"
-                    f"<td>{esc(r.get('status',''))}</td>"
+                    f"<tr><td>{esc(r.get('platform', ''))}</td>"
+                    f"<td>{esc(r.get('status', ''))}</td>"
                     f"<td>{esc(str(r.get('scheduled_at') or ''))}</td>"
-                    f"<td>{esc(r.get('instruction',''))}</td></tr>"
+                    f"<td>{esc(r.get('instruction', ''))}</td></tr>"
                 )
             parts.append("</table>")
-        parts.append(
-            "<p><small>Generated by SocialAuto monetization report "
-            f"(llm={'yes' if self.llm_used else 'rule-fallback'})</small></p>"
-        )
+        parts.append(f"<p><small>Generated by SocialAuto monetization report (llm={'yes' if self.llm_used else 'rule-fallback'})</small></p>")
         return "\n".join(parts)
 
 
@@ -214,52 +200,64 @@ async def _telegram_stats(db: AsyncSession, team_id) -> tuple[int | None, int, i
     members: int | None = None
     try:
         acct = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.team_id == team_id,
-                    SocialAccount.platform == "telegram",
-                    SocialAccount.status == "active",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.team_id == team_id,
+                        SocialAccount.platform == "telegram",
+                        SocialAccount.status == "active",
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if acct:
             from app.core.security import decrypt_token
             from app.services.telegram_api import TelegramAPIClient
 
             chat_id = (acct.meta_data or {}).get("channel_id") or acct.account_id
-            members = await TelegramAPIClient(
-                decrypt_token(acct.access_token_enc)
-            ).get_chat_member_count(chat_id)
+            members = await TelegramAPIClient(decrypt_token(acct.access_token_enc)).get_chat_member_count(chat_id)
     except Exception as exc:  # noqa: BLE001
         logger.info("telegram member count failed: %s", str(exc)[:120])
 
     now = datetime.now(UTC)
-    leads_7d = await db.scalar(
-        select(func.count(Lead.id)).where(
-            Lead.team_id == team_id,
-            Lead.source == LeadSource.telegram_dm,
-            Lead.created_at >= now - timedelta(days=7),
+    leads_7d = (
+        await db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.team_id == team_id,
+                Lead.source == LeadSource.telegram_dm,
+                Lead.created_at >= now - timedelta(days=7),
+            )
         )
-    ) or 0
-    leads_30d = await db.scalar(
-        select(func.count(Lead.id)).where(
-            Lead.team_id == team_id,
-            Lead.source == LeadSource.telegram_dm,
-            Lead.created_at >= now - timedelta(days=30),
+        or 0
+    )
+    leads_30d = (
+        await db.scalar(
+            select(func.count(Lead.id)).where(
+                Lead.team_id == team_id,
+                Lead.source == LeadSource.telegram_dm,
+                Lead.created_at >= now - timedelta(days=30),
+            )
         )
-    ) or 0
+        or 0
+    )
     return members, leads_7d, leads_30d
 
 
 async def _gather_gates(db: AsyncSession, team_id) -> list[AccountGate]:
     accounts = (
-        await db.execute(
-            select(SocialAccount).where(
-                SocialAccount.team_id == team_id,
-                SocialAccount.status == "active",
+        (
+            await db.execute(
+                select(SocialAccount).where(
+                    SocialAccount.team_id == team_id,
+                    SocialAccount.status == "active",
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     gates: list[AccountGate] = []
     for a in accounts:
         metrics = await gather_account_metrics(db, a)
@@ -268,10 +266,7 @@ async def _gather_gates(db: AsyncSession, team_id) -> list[AccountGate]:
         gain = metrics.get("gain_per_day") or 0.0
         eta = None
         if program:
-            gate_targets = [
-                c.target for c in program.criteria
-                if isinstance(c.target, int | float) and c.met is False
-            ]
+            gate_targets = [c.target for c in program.criteria if isinstance(c.target, int | float) and c.met is False]
             if gate_targets and isinstance(followers, int):
                 eta = days_to_goal(followers, min(gate_targets), gain)
         gates.append(
@@ -336,12 +331,8 @@ def _compact_gates(gates: list[AccountGate]) -> list[dict[str, Any]]:
         }
         if g.program:
             row["program"] = g.program.program
-            row["unmet"] = [
-                c.name for c in g.program.criteria if c.met is False
-            ]
-            row["manual_pending"] = [
-                c.name for c in g.program.criteria if c.met is None
-            ]
+            row["unmet"] = [c.name for c in g.program.criteria if c.met is False]
+            row["manual_pending"] = [c.name for c in g.program.criteria if c.met is None]
         else:
             row["role"] = "funnel"
         out.append(row)
@@ -372,9 +363,7 @@ async def _llm_strategy(
                 # samples; momentum only counts when z marks it real.
                 "er_wilson_low_pct": p.get("avg_engagement_rate_wilson_low"),
                 "momentum_engagement_pct": p.get("momentum_7d_engagement_pct"),
-                "momentum_significant": abs(
-                    p.get("momentum_7d_engagement_z") or 0
-                ) >= 1.645,
+                "momentum_significant": abs(p.get("momentum_7d_engagement_z") or 0) >= 1.645,
                 "best_hour_athens": (p.get("best_hour_athens") or [None])[0],
                 "outlier_posts": len(p.get("outliers") or []),
             }
@@ -443,9 +432,9 @@ Return ONLY a JSON object in EXACTLY this shape:
         nested = result["strategy"]
         result = {
             "sections": [
-                {"platform": p, "headline": (v or {}).get("headline", ""),
-                 "strategy": (v or {}).get("strategy", "")}
-                for p, v in nested.items() if isinstance(v, dict)
+                {"platform": p, "headline": (v or {}).get("headline", ""), "strategy": (v or {}).get("strategy", "")}
+                for p, v in nested.items()
+                if isinstance(v, dict)
             ],
             "actions": [
                 {
@@ -454,8 +443,10 @@ Return ONLY a JSON object in EXACTLY this shape:
                     "format": a.get("format") or "",
                     "instruction": a.get("instruction") or a.get("action") or "",
                 }
-                for p, v in nested.items() if isinstance(v, dict)
-                for a in (v.get("actions") or []) if isinstance(a, dict)
+                for p, v in nested.items()
+                if isinstance(v, dict)
+                for a in (v.get("actions") or [])
+                if isinstance(a, dict)
             ],
         }
 
@@ -515,10 +506,7 @@ def _rule_actions(gates: list[AccountGate]) -> list[MonetizationAction]:
         out.append(
             MonetizationAction(
                 platform="linkedin",
-                instruction=(
-                    "B2B value post for the company page: a concrete cost/time "
-                    "saving cloudless.gr delivers, ending with the free audit CTA."
-                ),
+                instruction=("B2B value post for the company page: a concrete cost/time saving cloudless.gr delivers, ending with the free audit CTA."),
                 time_athens="09:30",
                 format="image",
             )
@@ -585,9 +573,7 @@ async def email_monetization_report(report: MonetizationReport) -> MonetizationR
     return report
 
 
-async def execute_report_actions(
-    db: AsyncSession, team: Team, report: MonetizationReport
-) -> list[dict[str, Any]]:
+async def execute_report_actions(db: AsyncSession, team: Team, report: MonetizationReport) -> list[dict[str, Any]]:
     """Schedule a report's actions through the executor.
 
     Learned best hours from the insights engine (shrunk buckets, min n=3)
@@ -599,13 +585,11 @@ async def execute_report_actions(
 
     if not report.actions:
         return []
-    learned_hours = {
-        name: p["best_hour_athens"][0]
-        for name, p in (report.insights.get("platforms") or {}).items()
-        if p.get("best_hour_athens")
-    }
+    learned_hours = {name: p["best_hour_athens"][0] for name, p in (report.insights.get("platforms") or {}).items() if p.get("best_hour_athens")}
     report.scheduled = await schedule_report_actions(
-        db, team, report.actions,
+        db,
+        team,
+        report.actions,
         report.generated_at.date().isoformat(),
         learned_hours=learned_hours,
     )
@@ -644,9 +628,7 @@ async def run_monetization_report_for_all_teams(
             )
             continue
 
-        report = await build_monetization_report(
-            db, team=team, insight_days=insight_days
-        )
+        report = await build_monetization_report(db, team=team, insight_days=insight_days)
         if execute:
             await execute_report_actions(db, team, report)
         if send:

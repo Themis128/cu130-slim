@@ -270,8 +270,12 @@ async def test_publish_via_x_web_images_and_thread(tmp_path, settings):
     imgs = [_write(tmp_path, f"a{i}.jpg", JPEG) for i in range(2)]
     sleep = AsyncMock()
     out = await x_web.publish_via_x_web(
-        expected_username="@tbaltzakis", chunks=["one", "two", "three"], media_paths=imgs,
-        guard=_guard(), client_factory=_factory(fake), sleep=sleep,
+        expected_username="@tbaltzakis",
+        chunks=["one", "two", "three"],
+        media_paths=imgs,
+        guard=_guard(),
+        client_factory=_factory(fake),
+        sleep=sleep,
     )
     assert sleep.await_count == 2  # randomized pause between thread replies
     assert out.status == "ok" and out.tweet_ids == ["1001", "1002", "1003"]
@@ -284,8 +288,11 @@ async def test_publish_via_x_web_images_and_thread(tmp_path, settings):
 async def test_publish_via_x_web_video(tmp_path, settings):
     fake = _FakeTweety()
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["clip"], media_paths=[_write(tmp_path, "v.mp4", MP4)],
-        guard=_guard(), client_factory=_factory(fake),
+        expected_username="tbaltzakis",
+        chunks=["clip"],
+        media_paths=[_write(tmp_path, "v.mp4", MP4)],
+        guard=_guard(),
+        client_factory=_factory(fake),
     )
     assert out.status == "ok"
     assert fake.uploaded[0][0].endswith(".mp4")
@@ -295,8 +302,11 @@ async def test_publish_via_x_web_video(tmp_path, settings):
 async def test_publish_via_x_web_media_upload_failure_does_not_post(tmp_path, settings):
     fake = _FakeTweety(media_ok=False)
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["hi"], media_paths=[_write(tmp_path, "a.jpg", JPEG)],
-        guard=_guard(), client_factory=_factory(fake),
+        expected_username="tbaltzakis",
+        chunks=["hi"],
+        media_paths=[_write(tmp_path, "a.jpg", JPEG)],
+        guard=_guard(),
+        client_factory=_factory(fake),
     )
     assert out.status == "media_error" and "not posting without media" in (out.error or "")
     assert fake.created == []
@@ -306,8 +316,11 @@ async def test_publish_via_x_web_media_upload_failure_does_not_post(tmp_path, se
 async def test_publish_via_x_web_invalid_media_does_not_login(tmp_path, settings):
     factory = AsyncMock()
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["hi"], media_paths=[_write(tmp_path, "d.pdf", b"%PDF")],
-        guard=_guard(), client_factory=factory,
+        expected_username="tbaltzakis",
+        chunks=["hi"],
+        media_paths=[_write(tmp_path, "d.pdf", b"%PDF")],
+        guard=_guard(),
+        client_factory=factory,
     )
     assert out.status == "media_error"
     factory.assert_not_awaited()
@@ -319,7 +332,11 @@ async def test_publish_via_x_web_locked_trips_breaker(settings):
     g = _guard(alert=alert)
     fake = _FakeTweety(fail_on=(0, LockedAccount("Your Account is Locked")))
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["hi"], media_paths=[], guard=g, client_factory=_factory(fake),
+        expected_username="tbaltzakis",
+        chunks=["hi"],
+        media_paths=[],
+        guard=g,
+        client_factory=_factory(fake),
     )
     assert out.status == "tripped" and "circuit breaker" in (out.error or "")
     assert (await g.breaker_state())[0] is True
@@ -327,7 +344,11 @@ async def test_publish_via_x_web_locked_trips_breaker(settings):
     # Next attempt is refused without touching X.
     factory = AsyncMock()
     out2 = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["hi"], media_paths=[], guard=g, client_factory=factory,
+        expected_username="tbaltzakis",
+        chunks=["hi"],
+        media_paths=[],
+        guard=g,
+        client_factory=factory,
     )
     assert out2.status == "breaker"
     factory.assert_not_awaited()
@@ -337,7 +358,11 @@ async def test_publish_via_x_web_locked_trips_breaker(settings):
 async def test_publish_via_x_web_identity_mismatch(settings):
     fake = _FakeTweety(username="someoneelse")
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["hi"], media_paths=[], guard=_guard(), client_factory=_factory(fake),
+        expected_username="tbaltzakis",
+        chunks=["hi"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_factory(fake),
     )
     assert out.status == "identity" and fake.created == []
 
@@ -346,7 +371,11 @@ async def test_publish_via_x_web_identity_mismatch(settings):
 async def test_publish_via_x_web_partial_thread_reports_success(settings):
     fake = _FakeTweety(fail_on=(1, RuntimeError("network blip")))
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["a", "b"], media_paths=[], guard=_guard(), client_factory=_factory(fake),
+        expected_username="tbaltzakis",
+        chunks=["a", "b"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_factory(fake),
         sleep=AsyncMock(),
     )
     assert out.status == "ok" and out.partial and out.tweet_ids == ["1001"]
@@ -357,8 +386,11 @@ async def test_publish_via_x_web_lost_response_reconciles_live_tweet(settings):
     live = SimpleNamespace(id="5555", text="Hello world https://t.co/abc", created_on=datetime.now(UTC))
     fake = _FakeTweety(fail_on=(0, RuntimeError("read timeout")), timeline=[live])
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["Hello world https://cloudless.gr"], media_paths=[],
-        guard=_guard(), client_factory=_factory(fake),
+        expected_username="tbaltzakis",
+        chunks=["Hello world https://cloudless.gr"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_factory(fake),
     )
     assert out.status == "ok" and out.tweet_ids == ["5555"]
 
@@ -367,7 +399,11 @@ async def test_publish_via_x_web_lost_response_reconciles_live_tweet(settings):
 async def test_publish_via_x_web_lost_response_unconfirmed_is_ambiguous(settings):
     fake = _FakeTweety(fail_on=(0, RuntimeError("read timeout")))
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["Hello"], media_paths=[], guard=_guard(), client_factory=_factory(fake),
+        expected_username="tbaltzakis",
+        chunks=["Hello"],
+        media_paths=[],
+        guard=_guard(),
+        client_factory=_factory(fake),
     )
     assert out.status == "ambiguous" and "may or may not be live" in (out.error or "")
 
@@ -377,8 +413,12 @@ async def test_thread_counts_every_tweet_against_daily_cap(settings):
     settings.X_WEB_MAX_POSTS_PER_DAY = 3
     g = _guard()
     out = await x_web.publish_via_x_web(
-        expected_username="tbaltzakis", chunks=["a", "b", "c", "d"], media_paths=[], guard=g,
-        client_factory=_factory(_FakeTweety()), sleep=AsyncMock(),
+        expected_username="tbaltzakis",
+        chunks=["a", "b", "c", "d"],
+        media_paths=[],
+        guard=g,
+        client_factory=_factory(_FakeTweety()),
+        sleep=AsyncMock(),
     )
     assert out.status == "too_long"
     settings.X_WEB_MIN_GAP_MINUTES = 0
@@ -398,7 +438,8 @@ async def test_publish_via_x_web_disabled(monkeypatch):
 
 def test_cookies_json_merged_with_explicit_vars(monkeypatch):
     monkeypatch.setattr(
-        x_web, "get_settings",
+        x_web,
+        "get_settings",
         lambda: _settings(X_WEB_AUTH_TOKEN="", X_WEB_CT0="explicit", X_WEB_COOKIES_JSON='[{"name":"auth_token","value":"a"},{"name":"ct0","value":"old"}]'),
     )
     assert x_web.load_cookies() == {"auth_token": "a", "ct0": "explicit"}
@@ -493,7 +534,8 @@ async def test_x_web_transient_error_falls_through_to_browser(account, settings,
 async def test_x_web_deferred_sets_retry_after(account, settings, monkeypatch):
     when = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
     monkeypatch.setattr(
-        x_web, "publish_via_x_web",
+        x_web,
+        "publish_via_x_web",
         AsyncMock(return_value=x_web.XWebOutcome(status="deferred", error="X web daily cap reached", retry_after=when)),
     )
     browser = AsyncMock()
@@ -507,7 +549,8 @@ async def test_x_web_deferred_sets_retry_after(account, settings, monkeypatch):
 @pytest.mark.asyncio
 async def test_x_web_tripped_is_permanent_failure(account, settings, monkeypatch):
     monkeypatch.setattr(
-        x_web, "publish_via_x_web",
+        x_web,
+        "publish_via_x_web",
         AsyncMock(return_value=x_web.XWebOutcome(status="tripped", error="LockedAccount — circuit breaker tripped for 6h")),
     )
     browser = AsyncMock()
@@ -615,9 +658,13 @@ class _FakeReader:
         return SimpleNamespace(followers_count=321, friends_count=10, statuses_count=99, listed_count=2)
 
     async def get_tweets(self, uid, pages=1):
-        return SimpleNamespace(tweets=[
-            SimpleNamespace(id="111", views="1,234", likes=5, reply_counts=1, retweet_counts=2, quote_counts=1, bookmark_count=0, text="t", created_on=None),
-        ])
+        return SimpleNamespace(
+            tweets=[
+                SimpleNamespace(
+                    id="111", views="1,234", likes=5, reply_counts=1, retweet_counts=2, quote_counts=1, bookmark_count=0, text="t", created_on=None
+                ),
+            ]
+        )
 
     async def tweet_detail(self, tid):
         self.detail_calls.append(tid)
@@ -640,7 +687,11 @@ async def test_fetch_analytics_tweety_primary_and_interval(settings):
     reader = _FakeReader()
     g = _guard()
     web, reason = await x_web.fetch_x_web_analytics(
-        username="TBaltzakis", user_id="42", wanted_tweet_ids=["111", "333"], guard=g, tweety_factory=_factory(reader),
+        username="TBaltzakis",
+        user_id="42",
+        wanted_tweet_ids=["111", "333"],
+        guard=g,
+        tweety_factory=_factory(reader),
     )
     assert reason is None and web is not None
     assert web.source == "x_web_tweety" and web.followers == 321
@@ -659,8 +710,11 @@ async def test_fetch_analytics_falls_back_to_twscrape(settings):
         return _FakeTwscrape()
 
     web, _ = await x_web.fetch_x_web_analytics(
-        username="TBaltzakis", user_id="42", guard=_guard(),
-        tweety_factory=_factory(_FakeReader(fail=RuntimeError("graphql shape changed"))), twscrape_factory=tws,
+        username="TBaltzakis",
+        user_id="42",
+        guard=_guard(),
+        tweety_factory=_factory(_FakeReader(fail=RuntimeError("graphql shape changed"))),
+        twscrape_factory=tws,
     )
     assert web is not None and web.source == "x_web_twscrape" and "222" in web.tweets
     assert web.followers == 300
@@ -673,15 +727,16 @@ async def test_fetch_analytics_tweety_bool_get_bug_is_note_not_error(settings):
     'get'``. The twscrape read still covers the data, so the crash must land
     in ``notes`` (visible in sync notes) instead of ``errors`` (digest
     noise), and must not trip the breaker."""
+
     async def tws(handle):
         return _FakeTwscrape()
 
     g = _guard()
     web, reason = await x_web.fetch_x_web_analytics(
-        username="TBaltzakis", user_id="42", guard=g,
-        tweety_factory=_factory(
-            _FakeReader(fail=AttributeError("'bool' object has no attribute 'get'"))
-        ),
+        username="TBaltzakis",
+        user_id="42",
+        guard=g,
+        tweety_factory=_factory(_FakeReader(fail=AttributeError("'bool' object has no attribute 'get'"))),
         twscrape_factory=tws,
     )
     assert reason is None and web is not None
@@ -696,10 +751,10 @@ async def test_fetch_analytics_tweety_bool_get_bug_is_note_not_error(settings):
 
     g2 = _guard()
     web2, reason2 = await x_web.fetch_x_web_analytics(
-        username="TBaltzakis", user_id="42", guard=g2,
-        tweety_factory=_factory(
-            _FakeReader(fail=AttributeError("'bool' object has no attribute 'get'"))
-        ),
+        username="TBaltzakis",
+        user_id="42",
+        guard=g2,
+        tweety_factory=_factory(_FakeReader(fail=AttributeError("'bool' object has no attribute 'get'"))),
         twscrape_factory=_bad_tws,
     )
     assert web2 is None and "tweety" in (reason2 or "") and "twscrape" in (reason2 or "")
@@ -710,8 +765,11 @@ async def test_fetch_analytics_trip_stops_reads(settings):
     g = _guard()
     tws = AsyncMock()
     web, reason = await x_web.fetch_x_web_analytics(
-        username="TBaltzakis", user_id="42", guard=g,
-        tweety_factory=_factory(_FakeReader(fail=_HTTPError(401))), twscrape_factory=tws,
+        username="TBaltzakis",
+        user_id="42",
+        guard=g,
+        tweety_factory=_factory(_FakeReader(fail=_HTTPError(401))),
+        twscrape_factory=tws,
     )
     assert web is None and "tripped" in (reason or "")
     tws.assert_not_awaited()
@@ -729,17 +787,14 @@ def test_sniff_all_kinds(tmp_path):
     assert x_web._sniff(_write(tmp_path, "a.gif", GIF)) == "gif"
     mp4 = _write(tmp_path, "a.mp4", MP4)
     assert x_web._sniff(mp4) == "video"
-    heic = _write(tmp_path, "a.heic",
-                  b"\x00\x00\x00\x18ftypheic" + b"\x00" * 16)
+    heic = _write(tmp_path, "a.heic", b"\x00\x00\x00\x18ftypheic" + b"\x00" * 16)
     assert x_web._sniff(heic) == "image"
-    moov = _write(tmp_path, "a.mov",
-                  b"\x00\x00\x00\x18moovxyz" + b"\x00" * 16)
+    moov = _write(tmp_path, "a.mov", b"\x00\x00\x00\x18moovxyz" + b"\x00" * 16)
     assert x_web._sniff(moov) == "video"
     assert x_web._sniff(_write(tmp_path, "a.jpg", JPEG)) == "image"
     png = _write(tmp_path, "a.png", b"\x89PNG\r\n\x1a\n" + b"\x00" * 24)
     assert x_web._sniff(png) == "image"
-    webp = _write(tmp_path, "a.webp",
-                  b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 16)
+    webp = _write(tmp_path, "a.webp", b"RIFF\x00\x00\x00\x00WEBP" + b"\x00" * 16)
     assert x_web._sniff(webp) == "image"
     bmp = _write(tmp_path, "a.bmp", b"BM" + b"\x00" * 30)
     assert x_web._sniff(bmp) == "image"
@@ -752,6 +807,7 @@ def test_to_jpeg_paths(tmp_path):
     import io
 
     from PIL import Image
+
     # baseline RGB JPEG under limit → copy
     src = _write(tmp_path, "b.jpg", JPEG)
     out = x_web._to_jpeg(src, str(tmp_path), 0)
@@ -799,10 +855,12 @@ def test_classify_and_capacity_edges():
         def __init__(self):
             super().__init__("limited")
             self.error_code = "88"
+
     assert x_web.classify_x_web_error(_Coded()) == "X error 88: limited"
 
     class _BadCode(Exception):
         error_code = "notanum"
+
     assert x_web.classify_x_web_error(_BadCode("x")) is None
 
     assert x_web.is_capacity_reason("HTTP 429: rate limit")
@@ -853,9 +911,12 @@ async def test_default_guard_store_fallback(settings):
 @pytest.mark.asyncio
 async def test_slack_alert_and_default_guard(monkeypatch, settings):
     calls = []
+
     async def _alert(text):
         calls.append(text)
+
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "post_alert_to_slack", _alert)
     await x_web._slack_alert("hello " * 500)
     assert calls and len(calls[0]) <= 2000
@@ -908,14 +969,28 @@ def test_int_helper():
 
 def test_from_twscrape_tweet():
     t = SimpleNamespace(
-        id_str="777", date=None,
+        id_str="777",
+        date=None,
         user=SimpleNamespace(username="me"),
-        retweetedTweet=None, full_text="hello",
-        views="1,234", favorite_count=3, replyCount=1,
-        retweetCount=0, quoteCount=0, bookmarkCount=0,
-        reply_count=0, retweet_count=0, quote_count=0,
-        bookmark_count=0, likes=3, replies=1, retweets=0,
-        quotes=0, bookmarks=0, text="hello")
+        retweetedTweet=None,
+        full_text="hello",
+        views="1,234",
+        favorite_count=3,
+        replyCount=1,
+        retweetCount=0,
+        quoteCount=0,
+        bookmarkCount=0,
+        reply_count=0,
+        retweet_count=0,
+        quote_count=0,
+        bookmark_count=0,
+        likes=3,
+        replies=1,
+        retweets=0,
+        quotes=0,
+        bookmarks=0,
+        text="hello",
+    )
     m = x_web._from_twscrape_tweet(t, "me")
     assert m is not None and m.id == "777"
 
@@ -926,17 +1001,15 @@ def test_from_twscrape_tweet():
 @pytest.mark.asyncio
 async def test_find_recent_own_tweet():
     from datetime import UTC, datetime, timedelta
+
     now = datetime.now(UTC)
     want = "my tweet text " + "x" * 200
 
-    fresh = SimpleNamespace(id="501", text=want[:140],
-                            created_on=now - timedelta(minutes=2))
-    old = SimpleNamespace(id="500", text=want[:140],
-                          created_on=now - timedelta(hours=1))
+    fresh = SimpleNamespace(id="501", text=want[:140], created_on=now - timedelta(minutes=2))
+    old = SimpleNamespace(id="500", text=want[:140], created_on=now - timedelta(hours=1))
     client = SimpleNamespace(
-        user=SimpleNamespace(id=None, username="me"),
-        get_tweets=AsyncMock(return_value=SimpleNamespace(
-            tweets=[SimpleNamespace(tweets=[old, fresh])])))
+        user=SimpleNamespace(id=None, username="me"), get_tweets=AsyncMock(return_value=SimpleNamespace(tweets=[SimpleNamespace(tweets=[old, fresh])]))
+    )
 
     found = await x_web._find_recent_own_tweet(client, want)
     assert found == "501"
@@ -948,9 +1021,7 @@ async def test_find_recent_own_tweet():
 
 @pytest.mark.asyncio
 async def test_publish_nothing_to_post(settings):
-    out = await x_web.publish_via_x_web(
-        expected_username="u", chunks=["", "  "], media_paths=[],
-        guard=_guard())
+    out = await x_web.publish_via_x_web(expected_username="u", chunks=["", "  "], media_paths=[], guard=_guard())
     assert out.status == "error"
     assert "nothing to post" in out.error
 
@@ -959,21 +1030,19 @@ async def test_publish_nothing_to_post(settings):
 async def test_publish_upload_incomplete(settings, tmp_path):
     img = _write(tmp_path, "a.jpg", JPEG)
     fake = _FakeTweety(media_ok=False)
-    out = await x_web.publish_via_x_web(
-        expected_username="TBaltzakis", chunks=["hi"], media_paths=[img],
-        guard=_guard(), client_factory=_factory(fake))
+    out = await x_web.publish_via_x_web(expected_username="TBaltzakis", chunks=["hi"], media_paths=[img], guard=_guard(), client_factory=_factory(fake))
     assert out.status == "media_error"
 
 
 @pytest.mark.asyncio
 async def test_publish_capacity_deferred(settings, monkeypatch):
     settings.X_WEB_BREAKER_HOURS = 6.0
+
     class _CapErr(Exception):
         status_code = 429
+
     fake = _FakeTweety(fail_on=(0, _CapErr("rate limit")))
-    out = await x_web.publish_via_x_web(
-        expected_username="TBaltzakis", chunks=["hi"], media_paths=[],
-        guard=_guard(), client_factory=_factory(fake))
+    out = await x_web.publish_via_x_web(expected_username="TBaltzakis", chunks=["hi"], media_paths=[], guard=_guard(), client_factory=_factory(fake))
     assert out.status == "deferred"
     assert out.retry_after is not None
 
@@ -982,22 +1051,16 @@ async def test_publish_capacity_deferred(settings, monkeypatch):
 async def test_publish_reconcile_and_ambiguous(settings):
     # post-stage error, reconcile finds live tweet → ok
     from datetime import UTC, datetime, timedelta
-    live = SimpleNamespace(
-        id="777", text="hi",
-        created_on=datetime.now(UTC) - timedelta(minutes=1))
-    fake = _FakeTweety(fail_on=(0, RuntimeError("lost")),
-                       timeline=[SimpleNamespace(tweets=[live])])
-    out = await x_web.publish_via_x_web(
-        expected_username="TBaltzakis", chunks=["hi"], media_paths=[],
-        guard=_guard(), client_factory=_factory(fake))
+
+    live = SimpleNamespace(id="777", text="hi", created_on=datetime.now(UTC) - timedelta(minutes=1))
+    fake = _FakeTweety(fail_on=(0, RuntimeError("lost")), timeline=[SimpleNamespace(tweets=[live])])
+    out = await x_web.publish_via_x_web(expected_username="TBaltzakis", chunks=["hi"], media_paths=[], guard=_guard(), client_factory=_factory(fake))
     assert out.status == "ok" and out.tweet_ids == ["777"]
 
     # reconcile fails → ambiguous
     fake = _FakeTweety(fail_on=(0, RuntimeError("lost")))
     fake.get_tweets = AsyncMock(side_effect=RuntimeError("read fail"))
-    out = await x_web.publish_via_x_web(
-        expected_username="TBaltzakis", chunks=["hi"], media_paths=[],
-        guard=_guard(), client_factory=_factory(fake))
+    out = await x_web.publish_via_x_web(expected_username="TBaltzakis", chunks=["hi"], media_paths=[], guard=_guard(), client_factory=_factory(fake))
     assert out.status == "ambiguous"
 
 
@@ -1005,14 +1068,12 @@ async def test_publish_reconcile_and_ambiguous(settings):
 async def test_fetch_x_web_analytics_guards(settings):
     # not configured
     settings.X_WEB_FALLBACK_ENABLED = False
-    out, reason = await x_web.fetch_x_web_analytics(
-        username="me", user_id=None, guard=_guard())
+    out, reason = await x_web.fetch_x_web_analytics(username="me", user_id=None, guard=_guard())
     assert out is None and "disabled" in reason
     settings.X_WEB_FALLBACK_ENABLED = True
 
     # empty username
-    out, reason = await x_web.fetch_x_web_analytics(
-        username="", user_id=None, guard=_guard())
+    out, reason = await x_web.fetch_x_web_analytics(username="", user_id=None, guard=_guard())
     assert out is None and "no username" in reason
 
 
@@ -1035,47 +1096,39 @@ async def test_fetch_x_web_analytics_chains(settings):
         _x_web_workdir = None
 
         async def user_by_login(self, u):
-            return SimpleNamespace(followersCount="1,000",
-                                   friendsCount=5, statusesCount=10,
-                                   listedCount=2, id=42)
+            return SimpleNamespace(followersCount="1,000", friendsCount=5, statusesCount=10, listedCount=2, id=42)
 
         async def user_tweets(self, uid, limit=40):
             if False:
                 yield None
 
         async def tweet_details(self, tid):
-            return SimpleNamespace(
-                id_str=str(tid), date=None,
-                user=SimpleNamespace(username="me"),
-                retweetedTweet=None, text="t")
+            return SimpleNamespace(id_str=str(tid), date=None, user=SimpleNamespace(username="me"), retweetedTweet=None, text="t")
 
     async def _good_tws(handle):
         return _TwsAPI()
 
     out, reason = await x_web.fetch_x_web_analytics(
-        username="me", user_id="42",
-        wanted_tweet_ids=["123"],
-        guard=guard, tweety_factory=_bad_tweety,
-        twscrape_factory=_good_tws)
+        username="me", user_id="42", wanted_tweet_ids=["123"], guard=guard, tweety_factory=_bad_tweety, twscrape_factory=_good_tws
+    )
     assert out is not None and out.followers == 1000
     assert out.tweet_count == 10
 
     # both fail → None + errors
     async def _bad_tws(handle):
         raise RuntimeError("twscrape down")
-    out, reason = await x_web.fetch_x_web_analytics(
-        username="me", user_id=None, guard=guard,
-        tweety_factory=_bad_tweety, twscrape_factory=_bad_tws)
+
+    out, reason = await x_web.fetch_x_web_analytics(username="me", user_id=None, guard=guard, tweety_factory=_bad_tweety, twscrape_factory=_bad_tws)
     assert out is None and "tweety" in reason and "twscrape" in reason
 
     # tweety trip-class error → immediate trip
     class _TripErr(Exception):
         status_code = 401
+
     async def _trip_tweety():
         raise _TripErr("unauthorized")
-    out, reason = await x_web.fetch_x_web_analytics(
-        username="me", user_id=None, guard=guard,
-        tweety_factory=_trip_tweety, twscrape_factory=_good_tws)
+
+    out, reason = await x_web.fetch_x_web_analytics(username="me", user_id=None, guard=guard, tweety_factory=_trip_tweety, twscrape_factory=_good_tws)
     assert out is None and "tripped" in reason
 
 
@@ -1101,8 +1154,7 @@ def test_prepare_media_non_image_and_copy(tmp_path, monkeypatch):
     assert out[0].endswith(".mp4")
 
     # symlink failure → copyfile fallback
-    monkeypatch.setattr(x_web.os, "symlink",
-                        lambda *a: (_ for _ in ()).throw(OSError("x")))
+    monkeypatch.setattr(x_web.os, "symlink", lambda *a: (_ for _ in ()).throw(OSError("x")))
     d2 = tmp_path / "dest2"
     d2.mkdir()
     out = x_web.prepare_media(plan, str(d2))
@@ -1125,6 +1177,7 @@ async def test_redis_load_empty():
 
                 async def __aexit__(self, *a):
                     return False
+
             return L()
 
         async def get(self, k):
@@ -1132,6 +1185,7 @@ async def test_redis_load_empty():
 
         async def set(self, *a, **kw):
             pass
+
     gs = x_web.RedisGuardStore(_R())
     assert await gs.load() == {}
 
@@ -1139,11 +1193,11 @@ async def test_redis_load_empty():
 @pytest.mark.asyncio
 async def test_default_guard_store_redis_ok(monkeypatch, settings):
     import sys
-    fake_client = SimpleNamespace(
-        ping=AsyncMock(return_value=True))
-    fake_aioredis = SimpleNamespace(
-        from_url=lambda url, **kw: fake_client)
+
+    fake_client = SimpleNamespace(ping=AsyncMock(return_value=True))
+    fake_aioredis = SimpleNamespace(from_url=lambda url, **kw: fake_client)
     import redis
+
     monkeypatch.setattr(redis, "asyncio", fake_aioredis)
     monkeypatch.setitem(sys.modules, "redis.asyncio", fake_aioredis)
     gs = await x_web.default_guard_store()
@@ -1153,8 +1207,7 @@ async def test_default_guard_store_redis_ok(monkeypatch, settings):
 @pytest.mark.asyncio
 async def test_trip_alerts_once(settings):
     calls = []
-    g = x_web.XWebGuard(x_web.MemoryGuardStore(),
-                        now=_Clock(), alert=lambda t: calls.append(t))
+    g = x_web.XWebGuard(x_web.MemoryGuardStore(), now=_Clock(), alert=lambda t: calls.append(t))
     assert await g.trip("HTTP 429: x") is True
     assert calls and "429" in calls[0]
     # second trip while open → no new alert
@@ -1188,12 +1241,11 @@ async def test_tweety_fallback_patch_and_client(monkeypatch, settings):
 
     def fake_find(s):
         return "manifest" in s
-    fake_tweety_http = SimpleNamespace(
-        Request=SimpleNamespace(get_home_html=_FakeRequest.get_home_html))
+
+    fake_tweety_http = SimpleNamespace(Request=SimpleNamespace(get_home_html=_FakeRequest.get_home_html))
     fake_txn = SimpleNamespace(find_on_demand_file=fake_find)
     fake_bs4 = SimpleNamespace(BeautifulSoup=lambda c, p: str(c))
-    fake_tweety = SimpleNamespace(
-        TwitterAsync=AsyncMock(return_value=AsyncMock()))
+    fake_tweety = SimpleNamespace(TwitterAsync=AsyncMock(return_value=AsyncMock()))
     fake_session = SimpleNamespace(MemorySession=object)
 
     monkeypatch.setitem(sys.modules, "bs4", fake_bs4)
@@ -1228,16 +1280,11 @@ async def test_tweety_fallback_patch_and_client(monkeypatch, settings):
 async def test_publish_prepare_media_error(settings, tmp_path):
     bad = _write(tmp_path, "bad.jpg", b"\xff\xd8\xff" + b"\x00" * 60)
     fake = _FakeTweety()
-    out = await x_web.publish_via_x_web(
-        expected_username="TBaltzakis", chunks=["hi"],
-        media_paths=[bad], guard=_guard(),
-        client_factory=_factory(fake))
+    out = await x_web.publish_via_x_web(expected_username="TBaltzakis", chunks=["hi"], media_paths=[bad], guard=_guard(), client_factory=_factory(fake))
     assert out.status == "media_error"
 
 
 def test_from_twscrape_repost():
-    t = SimpleNamespace(
-        id_str="9", date=None, user=SimpleNamespace(username="me"),
-        retweetedTweet=object(), text="rt")
+    t = SimpleNamespace(id_str="9", date=None, user=SimpleNamespace(username="me"), retweetedTweet=object(), text="rt")
     m = x_web._from_twscrape_tweet(t, "me")
     assert m is not None and m.is_repost

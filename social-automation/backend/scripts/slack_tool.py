@@ -21,6 +21,7 @@ Commands:
 
 Never prints tokens or webhook URLs (they're secrets — path only masked).
 """
+
 from __future__ import annotations
 
 import argparse

@@ -32,15 +32,15 @@ async def test_org_stats_batch_maps_found_urns_and_marks_the_rest():
     """Elements without a URN are ignored. Each requested URN either gets the
     element that shares its numeric id or a no_stats_element marker. A stat
     is never attached to the wrong post."""
-    body = {"elements": [
-        {"totalShareStatistics": {"likeCount": 99}},  # no share/ugcPost urn
-        {"share": "urn:li:share:222", "totalShareStatistics": {"likeCount": 4, "impressionCount": 50}},
-    ]}
+    body = {
+        "elements": [
+            {"totalShareStatistics": {"likeCount": 99}},  # no share/ugcPost urn
+            {"share": "urn:li:share:222", "totalShareStatistics": {"likeCount": 4, "impressionCount": 50}},
+        ]
+    }
     client = SimpleNamespace(get=AsyncMock(return_value=_resp(200, body)))
 
-    out = await A._fetch_linkedin_org_stats(
-        client, "tok", "urn:li:organization:9", ["urn:li:share:111", "urn:li:share:222"]
-    )
+    out = await A._fetch_linkedin_org_stats(client, "tok", "urn:li:organization:9", ["urn:li:share:111", "urn:li:share:222"])
 
     client.get.assert_awaited_once()  # one batched request
     assert (out["urn:li:share:222"].likes, out["urn:li:share:222"].impressions) == (4, 50)
@@ -52,15 +52,22 @@ async def test_org_stats_batch_maps_found_urns_and_marks_the_rest():
 async def test_org_post_discovery_stops_at_max_pages():
     """Paging stops at max_pages even when the API reports more posts."""
     now_ms = int(datetime.now(UTC).timestamp() * 1000)
-    page = lambda i: _resp(200, {  # noqa: E731
-        "elements": [{"id": f"urn:li:share:{i}", "publishedAt": now_ms, "commentary": "c"}],
-        "paging": {"total": 10_000},
-    })
+    def page(i):
+        return _resp(
+            200,
+            {
+                "elements": [{"id": f"urn:li:share:{i}", "publishedAt": now_ms, "commentary": "c"}],
+                "paging": {"total": 10_000},
+            },
+        )
     client = SimpleNamespace(get=AsyncMock(side_effect=[page(1), page(2), page(3)]))
 
     out = await A._list_org_post_urns(
-        client, "tok", "urn:li:organization:9",
-        since=datetime.now(UTC) - timedelta(days=1), max_pages=2,
+        client,
+        "tok",
+        "urn:li:organization:9",
+        since=datetime.now(UTC) - timedelta(days=1),
+        max_pages=2,
     )
 
     assert [o["urn"] for o in out] == ["urn:li:share:1", "urn:li:share:2"]
@@ -81,9 +88,14 @@ async def test_limit_note_is_persisted_when_it_differs_from_the_last_one(monkeyp
     acc = _account(platform="twitter")
 
     await A._persist_snapshot(
-        db, account=acc, post_id=None, platform_post_id="t1",
+        db,
+        account=acc,
+        post_id=None,
+        platform_post_id="t1",
         metrics=A.MetricBundle(notes="quota_exhausted"),
-        captured_at=datetime.now(UTC), source="twitter_api", result=result,
+        captured_at=datetime.now(UTC),
+        source="twitter_api",
+        result=result,
     )
 
     assert result.synced == 1 and result.skipped == 0
@@ -112,16 +124,14 @@ async def test_org_sync_drops_bare_ids_and_never_records_zero_followers(_li):
     """A bare numeric id is ambiguous (share or ugcPost), so it isn't queried
     as a URN. A 0 follower total (scope gap) must not enter the follower
     series as a fake drop. The follower_stats snapshot is still kept."""
-    acc = _account(platform="linkedin", access_token_enc="enc", scopes=[],
-                   meta_data={"account_type": "organization", "organization_id": "99"})
+    acc = _account(platform="linkedin", access_token_enc="enc", scopes=[], meta_data={"account_type": "organization", "organization_id": "99"})
     db = _DB(results=[[_target("12345"), _target("urn:li:share:7")]])
 
     await A.sync_linkedin_account(db, acc)
 
     assert A._fetch_linkedin_org_stats.await_args.args[3] == ["urn:li:share:7"]
     A._record_follower_snapshot.assert_not_awaited()
-    follower = [c.kwargs for c in A._persist_snapshot.await_args_list
-                if c.kwargs["source"] == "linkedin_follower_stats"]
+    follower = [c.kwargs for c in A._persist_snapshot.await_args_list if c.kwargs["source"] == "linkedin_follower_stats"]
     assert len(follower) == 1 and follower[0]["metrics"].raw == {"total_followers": 0}
 
 
@@ -134,7 +144,8 @@ async def test_member_sync_probes_each_urn_and_skips_empty_analytics(_li, monkey
 
     activity = {"posts": [{"urn": "urn:li:activity:555", "impressions": 8}]}
     monkeypatch.setattr(
-        lsc, "LinkedInSidecarClient",
+        lsc,
+        "LinkedInSidecarClient",
         lambda: SimpleNamespace(get_profile_activity=AsyncMock(return_value=activity)),
     )
     probe = AsyncMock(side_effect=[{"status": 200}, {"status": 200}, {"status": 200, "data": {"views": 3}}])
@@ -176,8 +187,7 @@ def _tw(monkeypatch):
 
 
 def _tw_acc(**kw):
-    return _account(platform="twitter", access_token_enc="enc", username="handle",
-                    account_id="123", meta_data={}, scopes=[], **kw)
+    return _account(platform="twitter", access_token_enc="enc", username="handle", account_id="123", meta_data={}, scopes=[], **kw)
 
 
 @pytest.mark.asyncio
@@ -213,10 +223,13 @@ async def test_401_with_failed_refresh_persists_the_401_without_retrying(_tw, mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(("skip_reason", "note_has"), [
-    (None, ""),
-    ("x_web skipped: polled 2h ago", "x_web skipped: polled 2h ago"),
-])
+@pytest.mark.parametrize(
+    ("skip_reason", "note_has"),
+    [
+        (None, ""),
+        ("x_web skipped: polled 2h ago", "x_web skipped: polled 2h ago"),
+    ],
+)
 async def test_x_web_soft_skip_is_noted_but_not_an_error(_tw, monkeypatch, skip_reason, note_has):
     """When the free web fallback declines (no reason, or a rate-limit reason),
     the reason goes into notes. Only 'failed' or 'tripped' counts as an error."""
@@ -234,4 +247,3 @@ async def test_x_web_soft_skip_is_noted_but_not_an_error(_tw, monkeypatch, skip_
     assert note_has in r.notes
     assert not any("x_web" in e for e in r.errors)
     A._persist_x_web_analytics.assert_not_awaited()
-

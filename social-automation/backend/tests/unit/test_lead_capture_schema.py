@@ -84,28 +84,20 @@ def _find_flow_file() -> Path:
     # parents[4] = .../cu130-slim — canonical flow file lives outside the
     # backend build context at social-automation/flows/.
     try:
-        candidates.append(
-            test_path.parents[4] / "social-automation" / "flows" / "whatsapp" / "cloudless-lead-capture.json"
-        )
+        candidates.append(test_path.parents[4] / "social-automation" / "flows" / "whatsapp" / "cloudless-lead-capture.json")
     except IndexError:
         pass
 
     # Container layout: /app/tests/unit/...  (flows copied to /app/flows/)
-    candidates.append(
-        test_path.parents[2] / "flows" / "whatsapp" / "cloudless-lead-capture.json"
-    )
+    candidates.append(test_path.parents[2] / "flows" / "whatsapp" / "cloudless-lead-capture.json")
 
     # Alternative container layout: /app/social-automation/flows/...
-    candidates.append(
-        test_path.parents[2] / "social-automation" / "flows" / "whatsapp" / "cloudless-lead-capture.json"
-    )
+    candidates.append(test_path.parents[2] / "social-automation" / "flows" / "whatsapp" / "cloudless-lead-capture.json")
 
     # In-image fallback: mirror committed under backend/tests/fixtures so the
     # test runs on fresh images where social-automation/flows is out of the
     # Docker build context. Keep it in sync when the flow JSON changes.
-    candidates.append(
-        test_path.parents[1] / "fixtures" / "whatsapp" / "cloudless-lead-capture.json"
-    )
+    candidates.append(test_path.parents[1] / "fixtures" / "whatsapp" / "cloudless-lead-capture.json")
 
     for candidate in candidates:
         if candidate.exists():
@@ -135,7 +127,6 @@ def test_cloudless_whatsapp_flow_json_structure():
     assert thank_you.get("terminal") is True
     layout = thank_you.get("layout") or {}
     assert layout.get("type") == "SingleColumnLayout"
-
 
 
 def test_lead_source_website_enum():

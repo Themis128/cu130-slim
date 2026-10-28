@@ -197,4 +197,3 @@ async def test_upsert_icebreaker_lead_maps_payload_and_calls_upsert(monkeypatch)
     assert called["source"] == LeadSource.facebook_messenger
     assert called["thread_id"] == "999"
     assert called["interest"] == LeadInterest.growth
-

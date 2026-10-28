@@ -25,6 +25,7 @@ celery_app = Celery(
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
+        "app.worker.tasks.account_status_reconcile",
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.personal_messenger",
         "app.worker.tasks.linkedin_messenger",
@@ -37,10 +38,17 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_session_refresh",
         "app.worker.tasks.whatsapp_verify",
         "app.worker.tasks.telegram_digest",
+        "app.worker.tasks.synigoros_status",
+        "app.worker.tasks.mastersheet_watch",
+        "app.worker.tasks.datalake_executor",
         "app.worker.tasks.telegram_agent",
         "app.worker.tasks.dmr_health",
+        "app.worker.tasks.auto_gates",
+        "app.worker.tasks.consent_healers",
+        "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
+        "app.worker.tasks.datalake_insights",
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
@@ -102,8 +110,12 @@ celery_app.conf.update(
         # force-preempt + compose), so the soft limit must exceed that or
         # the batch dies mid-row and strands the rest in "processing".
         "app.worker.tasks.publishing.process_publish_queue": {
-            "soft_time_limit": 900,
-            "time_limit": 1200,
+            # LinkedIn org image publishes legitimately take ~15-25min
+            # (quality gate → LanguageTool wake → image init/PUT/poll →
+            # post create → D1 sync). 900s was killing them mid-publish
+            # and stranding the row in 'processing' — observed 2026-10-28.
+            "soft_time_limit": 2700,
+            "time_limit": 3000,
         },
         "app.worker.tasks.publishing.check_scheduled_posts": {
             "soft_time_limit": 120,
@@ -207,6 +219,11 @@ celery_app.conf.update(
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
+        # DMR keep-warm/health fire every 90s and can hold a worker slot ~10min
+        # via gpu:dmr_lock — on the 2-slot default worker they starve all
+        # default/celery queue tasks (observed 2026-10-27: llen=20 stuck).
+        "app.worker.tasks.dmr_health.keep_warm_dmr_models": {"queue": "media"},
+        "app.worker.tasks.dmr_health.check_dmr_health": {"queue": "media"},
         # ── default queue: analytics, workflows, digests, everything else ──
         "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},
         "app.worker.tasks.analytics.sync_team_analytics_task": {"queue": "default"},
@@ -217,21 +234,28 @@ celery_app.conf.update(
         "app.worker.tasks.digest.send_daily_strategy_report": {"queue": "default"},
         "app.worker.tasks.notebook_reports.run_notebook_report": {"queue": "default"},
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {"queue": "default"},
+        "app.worker.tasks.synigoros_status.poll_synigoros": {"queue": "default"},
+        "app.worker.tasks.mastersheet_watch.watch_mastersheet": {"queue": "default"},
+        "app.worker.tasks.datalake_executor.execute_actions": {"queue": "default"},
         "app.worker.tasks.telegram_agent.run_channel_agent_daily": {"queue": "default"},
         "app.worker.tasks.recurring.process_recurring_posts": {"queue": "publishing"},
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
         "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
+        "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
+        "app.worker.tasks.datalake_insights.datalake_insights_sweep": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
         "app.worker.tasks.email_campaigns.send_campaign": {"queue": "default"},
+        "app.worker.tasks.auto_gates.survey_autosend": {"queue": "default"},
+        "app.worker.tasks.auto_gates.post_autoapprove": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
@@ -268,6 +292,12 @@ celery_app.conf.update(
             "task": "app.worker.tasks.human_gate.run_human_gate_watch",
             "schedule": crontab(minute="*/30"),
         },
+        # Platform-truth reconciliation — re-reads each connected account's
+        # live status and flags drift (issue #986).
+        "account-status-reconcile": {
+            "task": "app.worker.tasks.account_status_reconcile.reconcile_account_status",
+            "schedule": crontab(minute=40, hour="*/6"),
+        },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).
         "nurture-sweep": {
@@ -299,6 +329,13 @@ celery_app.conf.update(
         "export-datalake": {
             "task": "app.worker.tasks.datalake_export.export_datalake",
             "schedule": crontab(minute=10, hour="*/6"),  # every 6h at :10
+        },
+        # Read the lake source tables back into decision signals every 6h,
+        # right after the export — persists an AnalyticsEvent the next
+        # export carries into the gold layer + pings the alert channel.
+        "datalake-insights-sweep": {
+            "task": "app.worker.tasks.datalake_insights.datalake_insights_sweep",
+            "schedule": crontab(minute=20, hour="*/6"),  # every 6h at :20
         },
         # Push real follower metrics → Nextcloud Tables and mirror the
         # post pipeline → Deck board (idempotent, deduped by post:<uuid>
@@ -515,6 +552,21 @@ celery_app.conf.update(
             "task": "app.worker.tasks.token_refresh.refresh_expiring_tokens",
             "schedule": crontab(minute="15,45"),
         },
+        # Daily Ombudsman complaint-status poll → Telegram on change
+        "synigoros-status": {
+            "task": "app.worker.tasks.synigoros_status.poll_synigoros",
+            "schedule": crontab(hour=7, minute=30),
+        },
+        # Founders' Circle mastersheet watcher — Telegram + datalake on change
+        "mastersheet-watch": {
+            "task": "app.worker.tasks.mastersheet_watch.watch_mastersheet",
+            "schedule": crontab(hour=8, minute=15),
+        },
+        # Execute datalake actions — drafts, pings, weights (+25min after sweep)
+        "datalake-executor": {
+            "task": "app.worker.tasks.datalake_executor.execute_actions",
+            "schedule": crontab(hour="*/6", minute=45),
+        },
         # Purge terminal publish_queue rows (failed/cancelled) older than 3
         # days — keeps the queue bounded and the failed-count metric
         # meaningful. Error details persist on posts/post_targets.
@@ -559,6 +611,26 @@ celery_app.conf.update(
         # DMR models (mid 4B + llama3.2) so pipeline and chatbot calls never
         # cold-load. Interval stays below llama3.2's 2m keep_alive; the task
         # skips itself while a media job owns the GPU.
+        "survey-autosend": {
+            "task": "app.worker.tasks.auto_gates.survey_autosend",
+            "schedule": 900.0,  # every 15 min — fires flagged survey campaigns
+            "options": {"queue": "default"},
+        },
+        "log-intel": {
+            "task": "app.worker.tasks.log_intel.digest",
+            "schedule": 1800.0,  # 30 min — syslog→LLM triage digest
+            "options": {"queue": "default"},
+        },
+        "consent-healers": {
+            "task": "app.worker.tasks.consent_healers.heal_consents",
+            "schedule": 3600.0,  # hourly — finish the chain when consent lands
+            "options": {"queue": "default"},
+        },
+        "post-autoapprove": {
+            "task": "app.worker.tasks.auto_gates.post_autoapprove",
+            "schedule": 600.0,  # every 10 min — promotes REVIEW when enabled
+            "options": {"queue": "default"},
+        },
         "keep-warm-dmr-models": {
             "task": "app.worker.tasks.dmr_health.keep_warm_dmr_models",
             "schedule": 90.0,
@@ -743,6 +815,7 @@ def _notify_task_failure(sender=None, task_id=None, exception=None, **_kwargs):
         import asyncio
 
         from app.services.slack_notifications import post_alert_to_slack
+
         name = getattr(sender, "name", str(sender))
         msg = f":warning: Worker task failed `{name}`\n```{str(exception)[:300]}```"
         try:

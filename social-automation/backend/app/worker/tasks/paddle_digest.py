@@ -1,4 +1,5 @@
 """Celery task: Paddle usage/revenue digest → Slack billing channel."""
+
 from __future__ import annotations
 
 from typing import Any

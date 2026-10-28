@@ -1,5 +1,6 @@
 """End-to-end tests: AI-generated content must be stored in the DB (media_assets)
 and be retrievable via the Media Library endpoints."""
+
 import io
 from unittest.mock import AsyncMock, patch
 
@@ -172,6 +173,7 @@ async def test_generated_assets_are_paged_with_uploads(client):
     assert sources[gen.json()["asset_id"]] == "ai-generated"
     assert sources[str(upload.json()["id"])] == "upload"
 
+
 @pytest.mark.asyncio
 async def test_comfyui_job_completion_persists_to_media_library(client):
     """GET /ai/generate-image/{job_id} must persist the ComfyUI output once."""
@@ -183,17 +185,7 @@ async def test_comfyui_job_completion_persists_to_media_library(client):
     job_id = "test-job-123"
     comfy_png = _make_png(color=(0, 180, 0))
 
-    history_payload = {
-        job_id: {
-            "outputs": {
-                "9": {
-                    "images": [
-                        {"filename": "ComfyUI_00001_.png", "subfolder": "", "type": "output"}
-                    ]
-                }
-            }
-        }
-    }
+    history_payload = {job_id: {"outputs": {"9": {"images": [{"filename": "ComfyUI_00001_.png", "subfolder": "", "type": "output"}]}}}}
 
     class FakeResponse:
         def __init__(self, status_code, json_data=None, content=b""):

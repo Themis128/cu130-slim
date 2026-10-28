@@ -110,9 +110,7 @@ def test_prepare_media_wraps_unexpected_error(tmp_path, monkeypatch):
     src = tmp_path / "a.png"
     src.write_bytes(_png_bytes())
     plan = x_web.plan_media([str(src)])
-    monkeypatch.setattr(
-        x_web, "_to_jpeg", lambda *a, **k: (_ for _ in ()).throw(ValueError("x"))
-    )
+    monkeypatch.setattr(x_web, "_to_jpeg", lambda *a, **k: (_ for _ in ()).throw(ValueError("x")))
     with pytest.raises(x_web.XWebMediaError):
         x_web.prepare_media(plan, str(tmp_path))
 
@@ -363,9 +361,7 @@ def _tg_post(**kw):
 
 
 def _tg_db():
-    return SimpleNamespace(
-        add=lambda *a: None, commit=AsyncMock(), rollback=AsyncMock()
-    )
+    return SimpleNamespace(add=lambda *a: None, commit=AsyncMock(), rollback=AsyncMock())
 
 
 def _mkmedia(tmp_path, names):
@@ -381,9 +377,7 @@ def _mkmedia(tmp_path, names):
             p.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 12000)
         else:
             # A noisy PNG well above MIN_IMAGE_BYTES (10 KB)
-            img = Image.frombytes(
-                "RGB", (200, 200), os.urandom(200 * 200 * 3)
-            )
+            img = Image.frombytes("RGB", (200, 200), os.urandom(200 * 200 * 3))
             buf = io.BytesIO()
             img.save(buf, "PNG")
             p.write_bytes(buf.getvalue())
@@ -392,8 +386,7 @@ def _mkmedia(tmp_path, names):
     return media, storage
 
 
-def _base_patches(monkeypatch, *, text="hello", media=None, storage=None,
-                  url_map=None, client=None, db=None):
+def _base_patches(monkeypatch, *, text="hello", media=None, storage=None, url_map=None, client=None, db=None):
     from app.services import publishing as P
 
     monkeypatch.setattr(P, "decrypt_token", lambda t: "tok")
@@ -401,12 +394,8 @@ def _base_patches(monkeypatch, *, text="hello", media=None, storage=None,
     monkeypatch.setattr(P, "detect_gibberish", AsyncMock(return_value=[]))
     monkeypatch.setattr(P, "_find_duplicate_post", AsyncMock(return_value=None))
     monkeypatch.setattr(P, "_resolve_media_paths", AsyncMock(return_value=media or []))
-    monkeypatch.setattr(
-        P, "_resolve_media_storage_paths", AsyncMock(return_value=storage or [])
-    )
-    monkeypatch.setattr(
-        P, "_media_public_url", url_map or (lambda sp, **kw: f"https://x/{sp}")
-    )
+    monkeypatch.setattr(P, "_resolve_media_storage_paths", AsyncMock(return_value=storage or []))
+    monkeypatch.setattr(P, "_media_public_url", url_map or (lambda sp, **kw: f"https://x/{sp}"))
     monkeypatch.setattr(P, "_build_post_text", lambda post, platform: text)
     if client is not None:
         monkeypatch.setattr(P, "TelegramAPIClient", lambda tok: client)
@@ -527,9 +516,7 @@ async def test_telegram_mixed_payload_dispatches_each(monkeypatch, tmp_path):
 async def test_telegram_api_error_maps_to_failure(monkeypatch, tmp_path):
     from app.services.telegram_api import TelegramAPIError
 
-    client = SimpleNamespace(
-        send_photo=AsyncMock(side_effect=TelegramAPIError(400, "chat not found"))
-    )
+    client = SimpleNamespace(send_photo=AsyncMock(side_effect=TelegramAPIError(400, "chat not found")))
     media, storage = _mkmedia(tmp_path, ["p.jpg"])
     P = _base_patches(
         monkeypatch,
@@ -567,9 +554,7 @@ async def test_telegram_event_log_failure_still_succeeds(monkeypatch, tmp_path):
 def test_sidecar_file_path_already_absolute():
     from app.services.publishing import _sidecar_file_path
 
-    assert (
-        _sidecar_file_path("/uploads/2024/01/img.jpg") == "/uploads/2024/01/img.jpg"
-    )
+    assert _sidecar_file_path("/uploads/2024/01/img.jpg") == "/uploads/2024/01/img.jpg"
 
 
 @pytest.mark.asyncio
@@ -600,9 +585,7 @@ def test_video_chunk_plan_too_many_chunks():
     from app.services import tiktok_api
 
     with pytest.raises(ValueError, match="1000 chunks"):
-        tiktok_api._video_chunk_plan(
-            (tiktok_api.MAX_CHUNK_COUNT + 1) * tiktok_api.DEFAULT_CHUNK_SIZE
-        )
+        tiktok_api._video_chunk_plan((tiktok_api.MAX_CHUNK_COUNT + 1) * tiktok_api.DEFAULT_CHUNK_SIZE)
 
 
 def test_tiktok_log_api_error_4xx():
@@ -659,9 +642,7 @@ def test_send_email_smtp_reply_to_and_extra_headers(monkeypatch):
         def send_message(self, msg):
             captured["msg"] = msg
 
-    monkeypatch.setattr(
-        email_digest, "get_settings", lambda: _smtp_settings()
-    )
+    monkeypatch.setattr(email_digest, "get_settings", lambda: _smtp_settings())
     monkeypatch.setattr(email_digest.smtplib, "SMTP", _SMTP)
     email_digest.send_email_smtp(
         subject="s",
@@ -695,9 +676,7 @@ def test_send_email_cloudflare_smtp_reply_to_and_headers(monkeypatch):
         def send_message(self, msg):
             captured["msg"] = msg
 
-    monkeypatch.setattr(
-        email_digest, "get_settings", lambda: _smtp_settings()
-    )
+    monkeypatch.setattr(email_digest, "get_settings", lambda: _smtp_settings())
     monkeypatch.setattr(email_digest.smtplib, "SMTP_SSL", _SMTPS)
     email_digest.send_email_cloudflare_smtp(
         subject="s",
@@ -803,9 +782,7 @@ def test_infographic_blends_background_texture():
 
     buf = io.BytesIO()
     Image.new("RGB", (64, 64), (10, 20, 30)).save(buf, "PNG")
-    out = render_infographic(
-        {"title": "T", "subtitle": "s", "stats": []}, buf.getvalue(), 64, 64
-    )
+    out = render_infographic({"title": "T", "subtitle": "s", "stats": []}, buf.getvalue(), 64, 64)
     assert isinstance(out, bytes) and len(out) > 100
 
 
@@ -859,9 +836,7 @@ async def test_gpu_arbiter_post_job_free_failure_is_swallowed(monkeypatch):
             pass
 
         async def get(self, *a, **k):
-            return SimpleNamespace(
-                status_code=200, json=lambda: {"queue_running": []}
-            )
+            return SimpleNamespace(status_code=200, json=lambda: {"queue_running": []})
 
         async def post(self, *a, **k):
             raise RuntimeError("comfy down")
@@ -899,9 +874,7 @@ async def test_dmr_raises_connection_error_after_retry(monkeypatch):
 
     monkeypatch.setattr(gpu_arbiter, "dmr_slot", _noop_slot)
 
-    client = SimpleNamespace(
-        post=AsyncMock(side_effect=httpx.TimeoutException("slow"))
-    )
+    client = SimpleNamespace(post=AsyncMock(side_effect=httpx.TimeoutException("slow")))
     monkeypatch.setattr(dmr, "_get_client", AsyncMock(return_value=client))
     monkeypatch.setattr(dmr.asyncio, "sleep", AsyncMock())
 
@@ -913,9 +886,7 @@ async def test_dmr_raises_connection_error_after_retry(monkeypatch):
 async def test_messenger_sidecar_no_admin_token_returns_none(monkeypatch):
     from app.services import messenger_sidecar
 
-    monkeypatch.setattr(
-        messenger_sidecar, "_get_admin_token", AsyncMock(return_value=None)
-    )
+    monkeypatch.setattr(messenger_sidecar, "_get_admin_token", AsyncMock(return_value=None))
     assert await messenger_sidecar._get_account_and_config("p1") is None
 
 
@@ -936,9 +907,7 @@ async def test_linkedin_sidecar_http_error_raises(monkeypatch):
             return httpx.Response(500, text="down")
 
     c = LinkedInSidecarClient("http://localhost:1")
-    monkeypatch.setattr(
-        LinkedInSidecarClient, "_client", property(lambda self: _C())
-    )
+    monkeypatch.setattr(LinkedInSidecarClient, "_client", property(lambda self: _C()))
     with pytest.raises(LinkedInSidecarError):
         await c.refresh_session()
 
@@ -998,16 +967,12 @@ async def test_brand_get_returns_none_on_404():
 async def test_brand_voice_visual_guidelines_getters():
     from app.api import brand as B
 
-    brand = _brand_obj(
-        voice={"tone": "x"}, visual={"primary_color": "#fff"}, guidelines={"g": 1}
-    )
+    brand = _brand_obj(voice={"tone": "x"}, visual={"primary_color": "#fff"}, guidelines={"g": 1})
     db = _DB(results=[_Res(first=brand)], team=_team())
     assert await B.get_brand_voice(TEAM_ID, current_user=None, db=db) == {"tone": "x"}
 
     db = _DB(results=[_Res(first=brand)], team=_team())
-    assert await B.get_brand_visual(TEAM_ID, current_user=None, db=db) == {
-        "primary_color": "#fff"
-    }
+    assert await B.get_brand_visual(TEAM_ID, current_user=None, db=db) == {"primary_color": "#fff"}
 
     db = _DB(results=[_Res(first=brand)], team=_team())
     assert await B.get_brand_guidelines(TEAM_ID, current_user=None, db=db) == {"g": 1}
@@ -1050,7 +1015,5 @@ async def test_list_brand_mentions_with_platform_filter():
     brand = _brand_obj()
     mention = SimpleNamespace(id=1, platform="twitter")
     db = _DB(results=[_Res(first=brand), _Res(all=[mention])], team=_team())
-    out = await B.list_brand_mentions(
-        TEAM_ID, platform="twitter", limit=50, current_user=None, db=db
-    )
+    out = await B.list_brand_mentions(TEAM_ID, platform="twitter", limit=50, current_user=None, db=db)
     assert list(out) == [mention]

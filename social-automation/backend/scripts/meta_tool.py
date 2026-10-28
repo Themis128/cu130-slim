@@ -13,6 +13,7 @@ Commands:
 
 Never prints tokens. Output is JSON-friendly text.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -25,9 +26,7 @@ import uuid as uuid_mod
 # Allow running as /app/scripts/meta_tool.py inside the container, or from the
 # repo on a host with the backend path injected (same pattern as linkedin_cli).
 _CONTAINER = "/app"
-_REPO_BACKEND = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-)
+_REPO_BACKEND = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 for path in (_CONTAINER, _REPO_BACKEND):
     if path not in sys.path and os.path.isdir(os.path.join(path, "app")):
         sys.path.insert(0, path)
@@ -40,11 +39,7 @@ async def _get_account(account_id: str):
     from app.models.social_account import SocialAccount
 
     async with async_session_maker() as db:
-        row = (
-            await db.execute(
-                select(SocialAccount).where(SocialAccount.id == uuid_mod.UUID(account_id))
-            )
-        ).scalar_one_or_none()
+        row = (await db.execute(select(SocialAccount).where(SocialAccount.id == uuid_mod.UUID(account_id)))).scalar_one_or_none()
         if row is None:
             raise SystemExit(f"no such social account: {account_id}")
         # detach for use after session close
@@ -83,19 +78,10 @@ def cmd_accounts() -> None:
 
         async with async_session_maker() as db:
             rows = (
-                await db.execute(
-                    select(SocialAccount).where(
-                        SocialAccount.platform.in_(
-                            ["facebook", "instagram", "threads", "messenger"]
-                        )
-                    )
-                )
-            ).scalars().all()
+                (await db.execute(select(SocialAccount).where(SocialAccount.platform.in_(["facebook", "instagram", "threads", "messenger"])))).scalars().all()
+            )
             for r in rows:
-                print(
-                    f"{r.id}\t{r.platform}\t{r.username or r.account_id}\t"
-                    f"expires={r.token_expires_at}\tstatus={r.status}"
-                )
+                print(f"{r.id}\t{r.platform}\t{r.username or r.account_id}\texpires={r.token_expires_at}\tstatus={r.status}")
 
     asyncio.run(_run())
 
@@ -123,9 +109,7 @@ def cmd_debug_token(account_id: str) -> None:
                 "expires_at": data.get("expires_at"),
                 "data_access_expires_at": data.get("data_access_expires_at"),
                 "scopes": data.get("scopes"),
-                "granular_scopes": [
-                    s.get("scope") for s in data.get("granular_scopes", [])
-                ],
+                "granular_scopes": [s.get("scope") for s in data.get("granular_scopes", [])],
                 "http_status": resp.status_code,
                 "error": data.get("error") or payload.get("error"),
             },

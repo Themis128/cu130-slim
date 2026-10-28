@@ -1,4 +1,5 @@
 """Unit tests for the latency watchdog (edge SLO breach -> wrangler rollback)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -138,8 +139,6 @@ def test_run_latency_watchdog_running_loop(monkeypatch):
         return {"ok": 2}
 
     monkeypatch.setattr(W, "_check", fake_check)
-    monkeypatch.setattr(
-        asyncio, "get_event_loop", lambda: SimpleNamespace(is_running=lambda: True)
-    )
+    monkeypatch.setattr(asyncio, "get_event_loop", lambda: SimpleNamespace(is_running=lambda: True))
     monkeypatch.setattr(asyncio, "run", lambda coro: (coro.close(), {"ok": 2})[1])
     assert W.run_latency_watchdog() == {"ok": 2}

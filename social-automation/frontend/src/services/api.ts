@@ -1470,6 +1470,7 @@ export const emailCampaignsApi = {
   delete: (id: string) => api.delete<{ deleted: boolean }>(`/email-campaigns/${id}`),
   recipients: (id: string) => api.get<CampaignRecipient[]>(`/email-campaigns/${id}/recipients`),
   responses: (id: string) => api.get<SurveyResponseRow[]>(`/email-campaigns/${id}/responses`),
+  nudge: (id: string) => api.post<{ nudged: number }>(`/email-campaigns/${id}/nudge`),
   suppressions: () => api.get<{ email: string; reason: string; source: string; created_at: string }[]>('/email-campaigns/suppressions/list'),
   addSuppression: (email: string, reason?: string) =>
     api.post('/email-campaigns/suppressions/list', { email, reason }),

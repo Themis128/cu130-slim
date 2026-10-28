@@ -3,6 +3,7 @@
 Endpoints are invoked directly; OUTPUT_DIR/REPORTS_DIR are monkeypatched to a
 tmp dir, Celery send is faked. No network, no database.
 """
+
 import json
 
 import pytest
@@ -85,9 +86,7 @@ async def test_list_reports_notebook_filter(report_dirs):
 async def test_get_report_file_serves_html(report_dirs):
     out, _ = report_dirs
     _write_run(out)
-    resp = await rep_api.get_report_file(
-        "brief-20261003-103000-0.html", current_user=None
-    )
+    resp = await rep_api.get_report_file("brief-20261003-103000-0.html", current_user=None)
     assert resp.media_type == "text/html"
 
 
@@ -119,7 +118,8 @@ async def test_run_report_enqueues_celery(report_dirs, monkeypatch):
         id = "task-123"
 
     monkeypatch.setattr(
-        rep_api.celery_app, "send_task",
+        rep_api.celery_app,
+        "send_task",
         lambda name, kwargs=None: sent.update(name=name, kwargs=kwargs) or _Res(),
     )
     res = await rep_api.run_report(
@@ -140,11 +140,7 @@ async def test_run_report_enqueues_celery(report_dirs, monkeypatch):
 @pytest.mark.asyncio
 async def test_run_report_rejects_unknown_notebook(report_dirs):
     with pytest.raises(HTTPException) as exc:
-        await rep_api.run_report(
-            rep_api.RunReportRequest(notebook="evil_script"), current_user=None
-        )
+        await rep_api.run_report(rep_api.RunReportRequest(notebook="evil_script"), current_user=None)
     assert exc.value.status_code == 404
     with pytest.raises(HTTPException):
-        await rep_api.run_report(
-            rep_api.RunReportRequest(notebook="../etc/cron.d/x"), current_user=None
-        )
+        await rep_api.run_report(rep_api.RunReportRequest(notebook="../etc/cron.d/x"), current_user=None)

@@ -518,6 +518,7 @@ async def test_sync_to_d1_stale_delete_edges(monkeypatch):
     r.hashes["d1sync:hashes:users"] = {_json.dumps(["gone"]): "h2"}
     monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))
     monkeypatch.setattr(S.SyncService, "_d1_table_has_pk", AsyncMock(return_value=True))
+
     async def _exec(sql, *a, **kw):
         if "DELETE" in str(sql):
             raise RuntimeError("daily limit exceeded")
@@ -602,10 +603,12 @@ async def test_sync_to_d1_column_heal(monkeypatch):
     """D1 missing a Postgres column → ALTER TABLE before the upserts."""
     svc = _svc()
     d1 = _patch_d1(monkeypatch)
-    d1.query_all = AsyncMock(side_effect=[
-        [{"name": "id", "type": "TEXT"}],  # heal PRAGMA — only 'id' present
-        [],                                # reconcile PK read
-    ])
+    d1.query_all = AsyncMock(
+        side_effect=[
+            [{"name": "id", "type": "TEXT"}],  # heal PRAGMA — only 'id' present
+            [],  # reconcile PK read
+        ]
+    )
     r = _Redis()
     monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))
     monkeypatch.setattr(S.SyncService, "_d1_table_has_pk", AsyncMock(return_value=True))
@@ -629,9 +632,7 @@ async def test_sync_to_d1_column_heal_failure(monkeypatch):
     _patch_engine(monkeypatch, rows=[(1, None, "x")])
     out = await svc.sync_table_to_d1("users", debounce=False)
     assert out["errors"] == 1 and out["synced"] == 0
-    assert not any(
-        "INSERT OR REPLACE" in c.args[0] for c in d1.execute.await_args_list
-    )
+    assert not any("INSERT OR REPLACE" in c.args[0] for c in d1.execute.await_args_list)
 
 
 @pytest.mark.asyncio
@@ -640,10 +641,12 @@ async def test_sync_to_d1_reconcile_deletes_unknown_stale(monkeypatch):
     map never saw them (rows mirrored before the map existed)."""
     svc = _svc()
     d1 = _patch_d1(monkeypatch)
-    d1.query_all = AsyncMock(side_effect=[
-        [{"name": "id"}, {"name": "updated_at"}, {"name": "name"}],  # heal PRAGMA
-        [{"id": "9"}],                                             # live D1 PKs
-    ])
+    d1.query_all = AsyncMock(
+        side_effect=[
+            [{"name": "id"}, {"name": "updated_at"}, {"name": "name"}],  # heal PRAGMA
+            [{"id": "9"}],  # live D1 PKs
+        ]
+    )
     r = _Redis()  # fresh → reconcile flag set for this cycle
     monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))
     monkeypatch.setattr(S.SyncService, "_d1_table_has_pk", AsyncMock(return_value=True))
@@ -662,10 +665,12 @@ async def test_sync_to_d1_reconcile_pk_read_failure(monkeypatch):
 
     svc = _svc()
     d1 = _patch_d1(monkeypatch)
-    d1.query_all = AsyncMock(side_effect=[
-        [{"name": "id"}, {"name": "updated_at"}, {"name": "name"}],
-        RuntimeError("read fail"),
-    ])
+    d1.query_all = AsyncMock(
+        side_effect=[
+            [{"name": "id"}, {"name": "updated_at"}, {"name": "name"}],
+            RuntimeError("read fail"),
+        ]
+    )
     r = _Redis()
     r.hashes["d1sync:hashes:users"] = {json.dumps(["9"]): "h9"}
     monkeypatch.setattr(S, "_sync_redis", AsyncMock(return_value=r))

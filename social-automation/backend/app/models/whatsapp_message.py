@@ -19,9 +19,7 @@ from app.db.base import Base
 
 class WhatsAppMessage(Base):
     __tablename__ = "whatsapp_messages"
-    __table_args__ = (
-        UniqueConstraint("social_account_id", "message_id", name="uq_wa_msg_account_wamid"),
-    )
+    __table_args__ = (UniqueConstraint("social_account_id", "message_id", name="uq_wa_msg_account_wamid"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
@@ -35,6 +33,4 @@ class WhatsAppMessage(Base):
     message_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     message_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
     message_text: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)

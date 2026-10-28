@@ -146,7 +146,8 @@ def test_client_encrypted_token_decrypted(monkeypatch):
 
 def test_client_decrypt_failure_falls_back_to_plaintext(monkeypatch):
     monkeypatch.setattr(
-        messenger_api, "decrypt_token",
+        messenger_api,
+        "decrypt_token",
         lambda raw: (_ for _ in ()).throw(ValueError("bad key")),
     )
     acc = _page_account(meta_data={"page_token": "weird-token"})
@@ -175,7 +176,8 @@ async def test_send_message_text(_patched):
     out = await send_message(
         uuid.uuid4(),
         SendMessageRequest(recipient_psid="psid1", text="hello"),
-        db=None, user=None,
+        db=None,
+        user=None,
     )
     _patched.send_text.assert_awaited_once_with("psid1", "hello", messaging_type="RESPONSE")
     assert out["message_id"] == "m1"
@@ -186,7 +188,8 @@ async def test_send_message_image_only(_patched):
     out = await send_message(
         uuid.uuid4(),
         SendMessageRequest(recipient_psid="psid1", image_url="https://x/img.png"),
-        db=None, user=None,
+        db=None,
+        user=None,
     )
     _patched.send_image_url.assert_awaited_once_with("psid1", "https://x/img.png")
     _patched.send_text.assert_not_awaited()
@@ -199,7 +202,8 @@ async def test_send_message_requires_text_or_image(_patched):
         await send_message(
             uuid.uuid4(),
             SendMessageRequest(recipient_psid="psid1"),
-            db=None, user=None,
+            db=None,
+            user=None,
         )
     assert e.value.status_code == 400
 
@@ -211,7 +215,8 @@ async def test_send_message_client_error_502(_patched):
         await send_message(
             uuid.uuid4(),
             SendMessageRequest(recipient_psid="psid1", text="hi"),
-            db=None, user=None,
+            db=None,
+            user=None,
         )
     assert e.value.status_code == 502
 
@@ -222,7 +227,8 @@ async def test_send_quick_replies(_patched):
     out = await send_quick_replies(
         uuid.uuid4(),
         SendQuickRepliesRequest(recipient_psid="psid9", text="pick", quick_replies=qr),
-        db=None, user=None,
+        db=None,
+        user=None,
     )
     _patched.send_quick_replies.assert_awaited_once_with("psid9", "pick", qr)
     assert out["message_id"] == "m3"

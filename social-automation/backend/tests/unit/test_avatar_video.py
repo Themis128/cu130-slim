@@ -1,4 +1,5 @@
 """Unit tests for the avatar story-video pipeline (service + Celery task)."""
+
 from __future__ import annotations
 
 import uuid
@@ -66,9 +67,7 @@ def _patch_comfy(monkeypatch, history, views=()):
     monkeypatch.setattr(AV.httpx, "AsyncClient", factory)
     monkeypatch.setattr(AV, "upload_image", fake_upload)
     monkeypatch.setattr(AV.asyncio, "sleep", no_sleep)
-    monkeypatch.setattr(
-        AV, "get_settings", lambda: SimpleNamespace(COMFYUI_URL="http://comfy:8188/")
-    )
+    monkeypatch.setattr(AV, "get_settings", lambda: SimpleNamespace(COMFYUI_URL="http://comfy:8188/"))
     return holder
 
 
@@ -402,9 +401,16 @@ def _patch_run_deps(monkeypatch, db, music_status=200):
 def _kw(**over):
     base = dict(
         scenes=[{"clip": "talk", "line1": "Hi", "duration": "3"}, {"clip": "sad"}],
-        filename="f.mp4", alt_text="alt", tags="ai-video",
-        team_id=None, user_id=None, avatar_asset_id=None,
-        source_photo_asset_id=None, music_url=None, width=576, height=1024,
+        filename="f.mp4",
+        alt_text="alt",
+        tags="ai-video",
+        team_id=None,
+        user_id=None,
+        avatar_asset_id=None,
+        source_photo_asset_id=None,
+        music_url=None,
+        width=576,
+        height=1024,
     )
     base.update(over)
     return base
@@ -437,9 +443,7 @@ async def test_run_explicit_ids_assets_and_music(monkeypatch, status, expected):
     db = _DB([_Result(one="photo")])
     seen = _patch_run_deps(monkeypatch, db, music_status=status)
     uid, tid = uuid.uuid4(), uuid.uuid4()
-    await T._run(**_kw(user_id=str(uid), team_id=str(tid),
-                       source_photo_asset_id=str(uuid.uuid4()),
-                       music_url="http://music/x.mp3"))
+    await T._run(**_kw(user_id=str(uid), team_id=str(tid), source_photo_asset_id=str(uuid.uuid4()), music_url="http://music/x.mp3"))
     g = seen["generate"]
     assert g["source_photo"] == b"BYTES-photo"
     assert g["music_bytes"] == expected

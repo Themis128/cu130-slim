@@ -4021,6 +4021,19 @@ app.get("/debug/form-html", async (req, res) => {
 });
 
 // ── Debug helpers (for admin dashboard navigation) ────────────────────────
+app.post("/debug/mouse", async (req, res) => {
+  const { x, y, action } = req.body || {};
+  if (x === undefined || y === undefined) return res.status(400).json({ error: "x,y required" });
+  try {
+    await ensureBrowser();
+    if (action === "wheel") await page.mouse.wheel(0, x);
+    else await page.mouse.click(Number(x), Number(y));
+    res.json({ status: "ok" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/debug/screenshot", async (req, res) => {
   try {
     await ensureBrowser();

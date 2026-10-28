@@ -1,4 +1,5 @@
 """Collect user + platform diagnostics for a support request and send to Slack."""
+
 from __future__ import annotations
 
 import logging
@@ -50,26 +51,16 @@ async def build_support_report_text(
 
     # Connected accounts
     if team is not None:
-        result = await db.execute(
-            select(SocialAccount)
-            .where(SocialAccount.team_id == team.id)
-            .order_by(SocialAccount.platform, SocialAccount.username)
-        )
+        result = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team.id).order_by(SocialAccount.platform, SocialAccount.username))
         accounts = result.scalars().all()
     else:
         accounts = []
     lines.append(f"*Connected accounts ({len(accounts)})*")
     for a in accounts:
-        expiry = (
-            a.token_expires_at.strftime("%Y-%m-%d %H:%M")
-            if a.token_expires_at
-            else "—"
-        )
+        expiry = a.token_expires_at.strftime("%Y-%m-%d %H:%M") if a.token_expires_at else "—"
         status = a.status or "unknown"
         name = a.display_name or a.username or a.account_id or "?"
-        lines.append(
-            f"  • {a.platform} — *{name}* — {status} — expires {expiry}"
-        )
+        lines.append(f"  • {a.platform} — *{name}* — {status} — expires {expiry}")
 
     # Recent posts (last 7 days)
     since = now - timedelta(days=7)

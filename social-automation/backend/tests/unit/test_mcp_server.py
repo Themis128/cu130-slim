@@ -487,17 +487,18 @@ class TestTelegramTools:
 
     @pytest.mark.asyncio
     async def test_invite_link_body_options(self, tg_api):
-        await S._handle_call_tool(None, CallToolRequestParams(
-            name="telegram_create_invite_link",
-            arguments={"chat_id": -1, "name": "ig", "member_limit": 50},
-        ))
+        await S._handle_call_tool(
+            None,
+            CallToolRequestParams(
+                name="telegram_create_invite_link",
+                arguments={"chat_id": -1, "name": "ig", "member_limit": 50},
+            ),
+        )
         assert tg_api[-1][2] == {"chat_id": -1, "name": "ig", "member_limit": 50}
 
     @pytest.mark.asyncio
     async def test_send_parse_mode_optional(self, tg_api):
-        await S._handle_call_tool(None, _params(
-            "telegram_send_message", chat_id=-1, text="hi", parse_mode="HTML"
-        ))
+        await S._handle_call_tool(None, _params("telegram_send_message", chat_id=-1, text="hi", parse_mode="HTML"))
         assert tg_api[-1][2]["parse_mode"] == "HTML"
 
     @pytest.mark.asyncio
@@ -524,6 +525,4 @@ async def test_main_runs_stdio_server(monkeypatch):
     monkeypatch.setattr(srv, "stdio_server", lambda: _FakeStdio())
     monkeypatch.setattr(srv.server, "run", run_mock)
     await srv.main()
-    run_mock.assert_awaited_once_with(
-        read_stream, write_stream, srv.server.create_initialization_options()
-    )
+    run_mock.assert_awaited_once_with(read_stream, write_stream, srv.server.create_initialization_options())

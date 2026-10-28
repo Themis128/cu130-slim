@@ -7,6 +7,7 @@ on ``/polar-webhook``. Both are idempotent via the ``billing_events`` table.
 
 All mutating endpoints except the webhooks require team OWNER role.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,6 +32,8 @@ logger = logging.getLogger(__name__)
 def _logsafe(value: object) -> str:
     """Strip CR/LF from webhook-sourced values before logging (log-injection)."""
     return str(value).replace("\r", " ").replace("\n", " ")[:200]
+
+
 router = APIRouter()
 
 # Tiers that may be purchased through checkout.
@@ -232,7 +235,8 @@ async def get_discount(
 
 @router.put("/discount")
 async def set_discount(
-    body: DiscountCodeRequest, team_id: TeamId,
+    body: DiscountCodeRequest,
+    team_id: TeamId,
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):
@@ -269,7 +273,8 @@ async def clear_discount(
 
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
-    body: CheckoutRequest, team_id: TeamId,
+    body: CheckoutRequest,
+    team_id: TeamId,
     db: DbSession,
     current_user: User = Depends(require_team_owner),
 ):
@@ -332,9 +337,7 @@ async def create_checkout(
         return CheckoutResponse(transaction_id=txn["id"], checkout_url=txn["checkout_url"])
 
     try:
-        customer_id = team.paddle_customer_id or await paddle_api.get_or_create_customer(
-            str(team.id), current_user.email, current_user.name
-        )
+        customer_id = team.paddle_customer_id or await paddle_api.get_or_create_customer(str(team.id), current_user.email, current_user.name)
         if not team.paddle_customer_id:
             team.paddle_customer_id = customer_id
             await db.commit()
@@ -363,9 +366,7 @@ async def customer_portal(
         # customer exists so the portal works pre-checkout too.
         try:
             if not team.polar_customer_id:
-                team.polar_customer_id = await polar_api.get_or_create_customer(
-                    str(team.id), current_user.email, current_user.name
-                )
+                team.polar_customer_id = await polar_api.get_or_create_customer(str(team.id), current_user.email, current_user.name)
                 await db.commit()
             url = await polar_api.create_portal_session(str(team.polar_customer_id))
         except polar_api.PolarError as exc:
@@ -374,9 +375,7 @@ async def customer_portal(
     if _provider() == "dodo":
         try:
             if not team.dodo_customer_id:
-                team.dodo_customer_id = await dodo_api.get_or_create_customer(
-                    str(team.id), current_user.email, current_user.name
-                )
+                team.dodo_customer_id = await dodo_api.get_or_create_customer(str(team.id), current_user.email, current_user.name)
                 await db.commit()
             url = await dodo_api.create_portal_session(team.dodo_customer_id)
         except dodo_api.DodoError as exc:
@@ -558,17 +557,11 @@ async def _sync_dm_auto_reply(db: AsyncSession | None, team: Team, paid: bool) -
 
     from app.models.social_account import SocialAccount
 
-    result = await db.execute(
-        select(SocialAccount).where(SocialAccount.team_id == team.id)
-    )
+    result = await db.execute(select(SocialAccount).where(SocialAccount.team_id == team.id))
     for account in result.scalars():
         meta = dict(account.meta_data or {})
         if account.platform == "facebook":
-            key = (
-                "personal_messenger_auto_reply"
-                if account.account_type == "user"
-                else "messenger_auto_reply"
-            )
+            key = "personal_messenger_auto_reply" if account.account_type == "user" else "messenger_auto_reply"
         else:
             key = _DM_META_KEYS.get(account.platform)
         if not key:
@@ -607,9 +600,7 @@ async def _find_team_for_event(db: AsyncSession, data: dict) -> Team | None:
             pass
     customer_id = data.get("customer_id")
     if customer_id:
-        return (
-            await db.execute(select(Team).where(Team.paddle_customer_id == customer_id))
-        ).scalar_one_or_none()
+        return (await db.execute(select(Team).where(Team.paddle_customer_id == customer_id))).scalar_one_or_none()
     return None
 
 
@@ -635,9 +626,7 @@ async def paddle_webhook(request: Request, db: DbSession):
     data = event.get("data") or {}
 
     # Idempotency — replayed deliveries short-circuit
-    existing = (
-        await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))
-    ).scalar_one_or_none()
+    existing = (await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))).scalar_one_or_none()
     if existing:
         return {"status": "duplicate", "event_id": event_id}
 
@@ -664,9 +653,7 @@ async def paddle_webhook(request: Request, db: DbSession):
     return {"status": "processed", "event_type": event_type}
 
 
-async def _handle_subscription_event(
-    db: AsyncSession, team: Team | None, event_type: str, data: dict
-) -> None:
+async def _handle_subscription_event(db: AsyncSession, team: Team | None, event_type: str, data: dict) -> None:
     if not team:
         logger.warning("billing webhook %s: no team resolved", _logsafe(event_type))
         return
@@ -683,7 +670,8 @@ async def _handle_subscription_event(
         _apply_subscription(team, data)
         if event_type == "subscription.activated":
             await _notify_team_owner(
-                db, team,
+                db,
+                team,
                 f"SocialAuto {team.plan_tier} subscription active",
                 f"Your {team.plan_tier} plan is now active.",
                 "billing_activated",
@@ -691,7 +679,8 @@ async def _handle_subscription_event(
     elif event_type == "subscription.past_due":
         team.subscription_status = "past_due"
         await _notify_team_owner(
-            db, team,
+            db,
+            team,
             "SocialAuto payment failed",
             "Your subscription payment failed. Update your payment method to keep your plan.",
             "billing_past_due",
@@ -700,7 +689,8 @@ async def _handle_subscription_event(
         team.subscription_status = data.get("status", "canceled")
         team.plan_tier = "free"
         await _notify_team_owner(
-            db, team,
+            db,
+            team,
             "SocialAuto subscription ended",
             "Your subscription has ended and the team is now on the free plan.",
             "billing_canceled",
@@ -754,18 +744,14 @@ async def _find_team_for_polar_event(db: AsyncSession, data: dict) -> Team | Non
         if not cand:
             continue
         try:
-            team = (
-                await db.execute(select(Team).where(Team.id == uuid.UUID(str(cand))))
-            ).scalar_one_or_none()
+            team = (await db.execute(select(Team).where(Team.id == uuid.UUID(str(cand))))).scalar_one_or_none()
             if team:
                 return team
         except (ValueError, TypeError):
             continue
     customer_id = data.get("customer_id") or (data.get("customer") or {}).get("id")
     if customer_id:
-        return (
-            await db.execute(select(Team).where(Team.polar_customer_id == customer_id))
-        ).scalar_one_or_none()
+        return (await db.execute(select(Team).where(Team.polar_customer_id == customer_id))).scalar_one_or_none()
     return None
 
 
@@ -796,9 +782,7 @@ async def polar_webhook(request: Request, db: DbSession):
     event_type = event.get("type", "unknown")
     data = event.get("data") or {}
 
-    existing = (
-        await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))
-    ).scalar_one_or_none()
+    existing = (await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))).scalar_one_or_none()
     if existing:
         return {"status": "duplicate", "event_id": event_id}
 
@@ -825,9 +809,7 @@ async def polar_webhook(request: Request, db: DbSession):
     return {"status": "processed", "event_type": event_type}
 
 
-async def _handle_polar_subscription_event(
-    db: AsyncSession, team: Team | None, event_type: str, data: dict
-) -> None:
+async def _handle_polar_subscription_event(db: AsyncSession, team: Team | None, event_type: str, data: dict) -> None:
     if not team:
         logger.warning("polar webhook %s: no team resolved", _logsafe(event_type))
         return
@@ -841,19 +823,12 @@ async def _handle_polar_subscription_event(
         "subscription.active",
         "subscription.resumed",
         "subscription.uncanceled",
-    ) or (
-        event_type == "subscription.updated"
-        and data.get("status") in _ACTIVE_SUB_STATUSES
-    )
-    if (
-        team.polar_subscription_id
-        and sub_id
-        and sub_id != team.polar_subscription_id
-        and not activating
-    ):
+    ) or (event_type == "subscription.updated" and data.get("status") in _ACTIVE_SUB_STATUSES)
+    if team.polar_subscription_id and sub_id and sub_id != team.polar_subscription_id and not activating:
         logger.info(
             "polar webhook %s: ignoring event for non-current subscription %s",
-            _logsafe(event_type), _logsafe(sub_id),
+            _logsafe(event_type),
+            _logsafe(sub_id),
         )
         return
 
@@ -871,7 +846,8 @@ async def _handle_polar_subscription_event(
         _apply_polar_subscription(team, data)
         if event_type == "subscription.active":
             await _notify_team_owner(
-                db, team,
+                db,
+                team,
                 f"SocialAuto {team.plan_tier} subscription active",
                 f"Your {team.plan_tier} plan is now active.",
                 "billing_activated",
@@ -879,7 +855,8 @@ async def _handle_polar_subscription_event(
     elif event_type == "subscription.past_due":
         team.subscription_status = "past_due"
         await _notify_team_owner(
-            db, team,
+            db,
+            team,
             "SocialAuto payment failed",
             "Your subscription payment failed. Update your payment method to keep your plan.",
             "billing_past_due",
@@ -888,7 +865,8 @@ async def _handle_polar_subscription_event(
         team.subscription_status = data.get("status", "canceled")
         team.plan_tier = "free"
         await _notify_team_owner(
-            db, team,
+            db,
+            team,
             "SocialAuto subscription ended",
             "Your subscription has ended and the team is now on the free plan.",
             "billing_canceled",
@@ -909,27 +887,21 @@ async def _find_team_for_dodo_event(db: AsyncSession, data: dict) -> Team | None
     team_id = (data.get("metadata") or {}).get("team_id")
     if team_id:
         try:
-            team = (
-                await db.execute(select(Team).where(Team.id == uuid.UUID(str(team_id))))
-            ).scalar_one_or_none()
+            team = (await db.execute(select(Team).where(Team.id == uuid.UUID(str(team_id))))).scalar_one_or_none()
             if team:
                 return team
         except (ValueError, TypeError):
             pass
     customer_id = data.get("customer_id") or (data.get("customer") or {}).get("customer_id")
     if customer_id:
-        team = (
-            await db.execute(select(Team).where(Team.dodo_customer_id == customer_id))
-        ).scalar_one_or_none()
+        team = (await db.execute(select(Team).where(Team.dodo_customer_id == customer_id))).scalar_one_or_none()
         if team:
             return team
     email = (data.get("customer") or {}).get("email")
     if email:
         user = (await db.execute(select(User).where(User.email == email))).scalar_one_or_none()
         if user:
-            return (
-                await db.execute(select(Team).where(Team.owner_id == user.id))
-            ).scalar_one_or_none()
+            return (await db.execute(select(Team).where(Team.owner_id == user.id))).scalar_one_or_none()
     return None
 
 
@@ -960,9 +932,7 @@ async def dodo_webhook(request: Request, db: DbSession):
     event_type = event.get("type", "unknown")
     data = event.get("data") or {}
 
-    existing = (
-        await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))
-    ).scalar_one_or_none()
+    existing = (await db.execute(select(BillingEvent).where(BillingEvent.event_id == event_id))).scalar_one_or_none()
     if existing:
         return {"status": "duplicate", "event_id": event_id}
 
@@ -991,9 +961,7 @@ async def dodo_webhook(request: Request, db: DbSession):
     return {"status": "processed", "event_type": event_type}
 
 
-async def _handle_dodo_subscription_event(
-    db: AsyncSession, team: Team | None, event_type: str, data: dict
-) -> None:
+async def _handle_dodo_subscription_event(db: AsyncSession, team: Team | None, event_type: str, data: dict) -> None:
     if not team:
         logger.warning("dodo webhook %s: no team resolved", _logsafe(event_type))
         return
@@ -1008,19 +976,12 @@ async def _handle_dodo_subscription_event(
         "subscription.renewed",
         "subscription.unpaused",
         "subscription.plan_changed",
-    ) or (
-        event_type == "subscription.updated"
-        and data.get("status") in _ACTIVE_SUB_STATUSES
-    )
-    if (
-        team.dodo_subscription_id
-        and sub_id
-        and sub_id != team.dodo_subscription_id
-        and not activating
-    ):
+    ) or (event_type == "subscription.updated" and data.get("status") in _ACTIVE_SUB_STATUSES)
+    if team.dodo_subscription_id and sub_id and sub_id != team.dodo_subscription_id and not activating:
         logger.info(
             "dodo webhook %s: ignoring event for non-current subscription %s",
-            _logsafe(event_type), _logsafe(sub_id),
+            _logsafe(event_type),
+            _logsafe(sub_id),
         )
         return
 
@@ -1038,7 +999,8 @@ async def _handle_dodo_subscription_event(
         _apply_dodo_subscription(team, data)
         if event_type == "subscription.active":
             await _notify_team_owner(
-                db, team,
+                db,
+                team,
                 f"SocialAuto {team.plan_tier} subscription active",
                 f"Your {team.plan_tier} plan is now active.",
                 "billing_activated",
@@ -1048,7 +1010,8 @@ async def _handle_dodo_subscription_event(
         # past_due = grace period open, access kept until deadline.
         team.subscription_status = "past_due" if event_type == "subscription.past_due" else "on_hold"
         await _notify_team_owner(
-            db, team,
+            db,
+            team,
             "SocialAuto payment failed",
             "Your subscription payment failed. Update your payment method to keep your plan.",
             "billing_past_due",
@@ -1057,7 +1020,8 @@ async def _handle_dodo_subscription_event(
         team.subscription_status = data.get("status", "cancelled")
         team.plan_tier = "free"
         await _notify_team_owner(
-            db, team,
+            db,
+            team,
             "SocialAuto subscription ended",
             "Your subscription has ended and the team is now on the free plan.",
             "billing_canceled",

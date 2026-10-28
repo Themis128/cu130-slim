@@ -13,9 +13,7 @@ from fastapi import HTTPException
 def bridge(monkeypatch, tmp_path):
     monkeypatch.setenv("BRIDGE_COOKIE_DIR", str(tmp_path))
     source = next(
-        (parent / "browser-novnc/browser-bridge.py"
-         for parent in Path(__file__).resolve().parents
-         if (parent / "browser-novnc/browser-bridge.py").exists()),
+        (parent / "browser-novnc/browser-bridge.py" for parent in Path(__file__).resolve().parents if (parent / "browser-novnc/browser-bridge.py").exists()),
         Path("/app/browser-bridge.py"),
     )
     spec = importlib.util.spec_from_file_location("bridge_warm_under_test", source)
@@ -28,8 +26,7 @@ def bridge(monkeypatch, tmp_path):
 @pytest.mark.parametrize("interactive,owner,caller", [(True, "facebook", "facebook"), (False, "twitter", "facebook")])
 async def test_warm_rejects_owned_session(bridge, interactive, owner, caller):
     page = AsyncMock()
-    bridge._state.update(page=page, context=object(), interactive=interactive,
-                         busy_owner=owner, busy_until=time.time() + 300)
+    bridge._state.update(page=page, context=object(), interactive=interactive, busy_owner=owner, busy_until=time.time() + 300)
     token = bridge._req_platform.set(caller)
     try:
         with pytest.raises(HTTPException) as exc:
@@ -45,8 +42,9 @@ async def test_warm_rejects_owned_session(bridge, interactive, owner, caller):
 @pytest.mark.parametrize("protected", ["interactive", "busy", "replaced", "idle"])
 async def test_keepalive_respects_session_ownership(bridge, monkeypatch, protected):
     page = AsyncMock()
-    bridge._state.update(page=page, context=object(), interactive=protected == "interactive",
-                         busy_owner="facebook", busy_until=time.time() + 300 if protected == "busy" else 0)
+    bridge._state.update(
+        page=page, context=object(), interactive=protected == "interactive", busy_owner="facebook", busy_until=time.time() + 300 if protected == "busy" else 0
+    )
     ticks = 0
 
     async def tick(seconds):
@@ -68,22 +66,22 @@ async def test_keepalive_respects_session_ownership(bridge, monkeypatch, protect
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("interactive,owner,caller,status", [
-    (True, "facebook", "facebook", 409),
-    (False, "twitter", "facebook", 409),
-    (False, "facebook", "twitter", 409),
-    (False, "facebook", "facebook", 200),
-])
+@pytest.mark.parametrize(
+    "interactive,owner,caller,status",
+    [
+        (True, "facebook", "facebook", 409),
+        (False, "twitter", "facebook", 409),
+        (False, "facebook", "twitter", 409),
+        (False, "facebook", "facebook", 200),
+    ],
+)
 async def test_warm_http_route(bridge, interactive, owner, caller, status):
     page = Mock()
     page.is_closed.return_value = False
     page.goto = AsyncMock()
-    bridge._state.update(page=page, context=object(), interactive=interactive,
-                         busy_owner=owner, busy_until=time.time() + 300)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=bridge.app),
-                                 base_url="http://bridge") as client:
-        response = await client.post("/session/warm?platform=facebook",
-                                     headers={"X-Platform": caller})
+    bridge._state.update(page=page, context=object(), interactive=interactive, busy_owner=owner, busy_until=time.time() + 300)
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=bridge.app), base_url="http://bridge") as client:
+        response = await client.post("/session/warm?platform=facebook", headers={"X-Platform": caller})
     assert response.status_code == status
     if status == 200:
         page.goto.assert_awaited_once()

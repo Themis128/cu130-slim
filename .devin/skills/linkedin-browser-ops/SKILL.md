@@ -52,3 +52,16 @@ dead (re-auth) · **404** wrong endpoint path.
   series URNs embedded — LinkedIn lazy-loads them)
 - `/voyager/api/voyagerPublishingDashSeriesSubscribers` → 401 without a
   valid `seriesUrn` param
+
+## Sniffer scripts (upgrade)
+
+- `scripts/sniffer-install.sh` — arm fetch+XHR hooks, sessionStorage-
+  persistent across SPA navigation. Arm AFTER a full-page navigate (hooks
+  die on reload; only the log survives), BEFORE the SPA click you want.
+- `scripts/sniffer-read.sh [regex]` — read captures (status + first 400
+  bytes of body per request).
+- `scripts/sniffer-clear.sh` — reset the buffer.
+
+Known limit: LinkedIn's subscribers dialog renders server-side/embedded —
+no capturable XHR fires, so this path can't capture that endpoint's shape.
+DOM-scraping the rendered list is the working fallback.

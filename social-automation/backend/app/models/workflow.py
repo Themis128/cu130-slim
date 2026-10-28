@@ -10,9 +10,7 @@ from app.db.base import Base
 
 class PromptTemplate(Base):
     __tablename__ = "prompt_templates"
-    __table_args__ = (
-        Index("ix_prompt_templates_team", "team_id"),
-    )
+    __table_args__ = (Index("ix_prompt_templates_team", "team_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)
@@ -35,9 +33,7 @@ class PromptTemplate(Base):
 
 class GeneratedWorkflow(Base):
     __tablename__ = "generated_workflows"
-    __table_args__ = (
-        Index("ix_generated_workflows_team", "team_id"),
-    )
+    __table_args__ = (Index("ix_generated_workflows_team", "team_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     team_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True)

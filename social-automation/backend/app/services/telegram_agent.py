@@ -78,9 +78,7 @@ OFFERS = [
             "scarcity — it is a real free service."
         ),
         "image_prompt": (
-            "minimalist dark tech illustration, a magnifying glass over a "
-            "cloud infrastructure diagram, cyan and magenta accents, "
-            "professional, no text"
+            "minimalist dark tech illustration, a magnifying glass over a cloud infrastructure diagram, cyan and magenta accents, professional, no text"
         ),
         "buttons": [[{"text": "Book the free audit", "url": "https://cloudless.gr/contact"}]],
         "tag": "[Deal]",
@@ -93,10 +91,7 @@ OFFERS = [
             "runs while you sleep. One line on what a plan includes, honest "
             "pricing link, no hype."
         ),
-        "image_prompt": (
-            "minimalist dark tech illustration, a rocket leaving a cloud "
-            "platform, cyan and magenta accents, professional, no text"
-        ),
+        "image_prompt": ("minimalist dark tech illustration, a rocket leaving a cloud platform, cyan and magenta accents, professional, no text"),
         "buttons": [[{"text": "See plans & pricing", "url": "https://social.cloudless.gr/pricing"}]],
         "tag": "[Deal]",
     },
@@ -108,10 +103,7 @@ OFFERS = [
             "decide what to automate in a small business. Free download, "
             "explain the one insight it gives you."
         ),
-        "image_prompt": (
-            "minimalist dark tech illustration, a checklist document floating "
-            "over clouds, cyan and magenta accents, professional, no text"
-        ),
+        "image_prompt": ("minimalist dark tech illustration, a checklist document floating over clouds, cyan and magenta accents, professional, no text"),
         # The real lead-magnet PDF goes out as a native document post.
         "document": "https://cloudless.gr/automation-checklist.pdf",
         "buttons": [[{"text": "Download the checklist", "url": "https://cloudless.gr/automation-checklist.pdf"}]],
@@ -129,9 +121,7 @@ PILLARS: dict[str, dict[str, Any]] = {
             "Teach ONE thing fully. No invented metrics."
         ),
         "image_prompt": (
-            "minimalist dark tech illustration, glowing server racks and "
-            "automation gears inside a cloud, cyan and magenta accents, "
-            "professional, no text"
+            "minimalist dark tech illustration, glowing server racks and automation gears inside a cloud, cyan and magenta accents, professional, no text"
         ),
         "tag": "[Playbook]",
         "buttons": None,
@@ -144,10 +134,7 @@ PILLARS: dict[str, dict[str, Any]] = {
             "should handle). Two lines of context max, then the question, "
             "then a reaction CTA."
         ),
-        "image_prompt": (
-            "minimalist dark tech illustration, two chat bubbles over a "
-            "circuit board, cyan and magenta accents, professional, no text"
-        ),
+        "image_prompt": ("minimalist dark tech illustration, two chat bubbles over a circuit board, cyan and magenta accents, professional, no text"),
         "tag": "[Question]",
         "buttons": None,
     },
@@ -160,9 +147,7 @@ PILLARS: dict[str, dict[str, Any]] = {
             "automation). Concrete and humble, never invented numbers."
         ),
         "image_prompt": (
-            "minimalist dark tech illustration, a small raspberry pi board "
-            "powering a giant cloud, cyan and magenta accents, professional, "
-            "no text"
+            "minimalist dark tech illustration, a small raspberry pi board powering a giant cloud, cyan and magenta accents, professional, no text"
         ),
         "tag": "[Build Log]",
         "buttons": None,
@@ -223,11 +208,7 @@ def plan_post(now: datetime, pillar_stats: dict[str, dict[str, int]] | None = No
             pillar = "offer"
         else:
             # Adaptation: prefer the pillar with the best joins-per-post rate.
-            scored = {
-                k: v["joins"] / max(v["posts"], 1)
-                for k, v in (pillar_stats or {}).items()
-                if v.get("posts", 0) >= _MIN_PILLAR_POSTS
-            }
+            scored = {k: v["joins"] / max(v["posts"], 1) for k, v in (pillar_stats or {}).items() if v.get("posts", 0) >= _MIN_PILLAR_POSTS}
             pillar = max(scored, key=scored.get) if scored else ("authority" if week % 3 == 1 else "proof")
     else:
         return None
@@ -261,11 +242,7 @@ def _pillar_stats(events: list[tuple[datetime, dict]]) -> dict[str, dict[str, in
         bucket = posts.setdefault(kind, {"posts": 0, "joins": 0})
         bucket["posts"] += 1
         window_end = occurred + timedelta(hours=24)
-        bucket["joins"] += sum(
-            1
-            for jt, jmeta in events
-            if jmeta.get("_event") == "member_joined" and occurred <= jt < window_end
-        )
+        bucket["joins"] += sum(1 for jt, jmeta in events if jmeta.get("_event") == "member_joined" and occurred <= jt < window_end)
     return posts
 
 
@@ -304,8 +281,7 @@ async def _generate_copy(db: AsyncSession, account: SocialAccount, prompt: str) 
     from app.services.quality_pipeline import apply_quality_pipeline
 
     result = await call_inference(
-        f"{prompt}\n\nReturn JSON with a single 'content' field — the post text "
-        "under 900 characters, Telegram-conversational, emojis allowed, no hashtags.",
+        f"{prompt}\n\nReturn JSON with a single 'content' field — the post text under 900 characters, Telegram-conversational, emojis allowed, no hashtags.",
         provider_name="dmr",
         db=db,
         team_id=account.team_id,
@@ -328,9 +304,7 @@ async def _generate_copy(db: AsyncSession, account: SocialAccount, prompt: str) 
     return (quality.content or content).strip()
 
 
-async def _generate_poll(
-    db: AsyncSession, account: SocialAccount
-) -> tuple[str, list[str]] | None:
+async def _generate_poll(db: AsyncSession, account: SocialAccount) -> tuple[str, list[str]] | None:
     """DMR-written poll via ``_POLL_SCHEMA``; ``None`` → caller uses POLLS."""
     try:
         result = await call_inference(
@@ -407,32 +381,25 @@ async def run_channel_agent(account: SocialAccount, db: AsyncSession) -> dict[st
         return {"skipped": "already_posted"}
 
     text = await _generate_copy(db, account, plan["prompt"])
-    image_url = (
-        None if plan.get("document")
-        else await _generate_image(db, account, plan["image_prompt"])
-    )
+    image_url = None if plan.get("document") else await _generate_image(db, account, plan["image_prompt"])
     # Offer posts close the loop into a DM lead-capture conversation
     # (t.me/<bot>?start=audit → "/start audit" → FSM → lead + owner alert).
     # Owned-domain buttons get UTM attribution so site analytics + the
     # analytics_events funnel can join visits/leads back to this channel.
     utm_content = plan.get("key") or plan["pillar"]
     rows = [
-        [
-            {**b, "url": tracked_url(b["url"], content=utm_content)}
-            if isinstance(b.get("url"), str)
-            else dict(b)
-            for b in r
-        ]
-        for r in (plan["buttons"] or [])
+        [{**b, "url": tracked_url(b["url"], content=utm_content)} if isinstance(b.get("url"), str) else dict(b) for b in r] for r in (plan["buttons"] or [])
     ]
     bot_username = (account.meta_data or {}).get("bot_username") or account.username
     if plan["pillar"] == "offer" and bot_username:
-        rows.append([
-            {
-                "text": "💬 Chat with us",
-                "url": f"https://t.me/{bot_username}?start=audit",
-            }
-        ])
+        rows.append(
+            [
+                {
+                    "text": "💬 Chat with us",
+                    "url": f"https://t.me/{bot_username}?start=audit",
+                }
+            ]
+        )
     markup = inline_keyboard(rows) if rows else None
 
     caption = text[:1024]
@@ -451,11 +418,7 @@ async def run_channel_agent(account: SocialAccount, db: AsyncSession) -> dict[st
             results = [await client.send_photo(chat_id, image_url, caption=caption, reply_markup=markup)]
             kind = "photo"
         else:
-            results = [
-                await client.send_message_with_markup(
-                    chat_id, caption, reply_markup=markup
-                )
-            ]
+            results = [await client.send_message_with_markup(chat_id, caption, reply_markup=markup)]
             kind = "message"
     except TelegramAPIError as exc:
         return {"error": f"telegram send failed ({exc.status_code}): {exc.description[:200]}"}
@@ -600,9 +563,7 @@ async def refresh_pillar_stats(account: SocialAccount, db: AsyncSession) -> dict
             .order_by(AnalyticsEvent.occurred_at)
         )
     ).all()
-    events = [
-        (occ, {**(meta or {}), "_event": et}) for occ, et, meta in rows
-    ]
+    events = [(occ, {**(meta or {}), "_event": et}) for occ, et, meta in rows]
     stats = _pillar_stats(events)
     cfg = dict(_agent_cfg(account))
     cfg["pillar_stats"] = stats
@@ -617,13 +578,17 @@ async def run_agent_sweep() -> dict[str, Any]:
     summary: dict[str, Any] = {"accounts": 0, "published": 0, "results": []}
     async with task_session() as db:
         rows = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "telegram",
-                    SocialAccount.status == "active",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "telegram",
+                        SocialAccount.status == "active",
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         for account in rows:
             if not agent_enabled(account):
                 continue
@@ -642,12 +607,8 @@ async def run_agent_sweep() -> dict[str, Any]:
         try:
             from app.services.slack_notifications import post_alert_to_slack
 
-            lines = "\n".join(
-                f"• `{r['account_id']}`: {r['error'][:160]}" for r in errors[:5]
-            )
-            await post_alert_to_slack(
-                f"Telegram channel agent hit {len(errors)} error(s):\n{lines}"
-            )
+            lines = "\n".join(f"• `{r['account_id']}`: {r['error'][:160]}" for r in errors[:5])
+            await post_alert_to_slack(f"Telegram channel agent hit {len(errors)} error(s):\n{lines}")
         except Exception:  # noqa: BLE001 — alerting must never break the sweep
             logger.warning("telegram-agent slack alert failed", exc_info=True)
     return summary

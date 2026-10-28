@@ -34,22 +34,23 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 # Redis keys
-_LOCK_KEY = "browser-bridge:lock"           # Global lock (one user at a time)
-_QUEUE_KEY = "browser-bridge:queue"          # Fair scheduling queue
-_PLATFORM_KEY = "browser-bridge:platform"   # Current platform using the browser
+_LOCK_KEY = "browser-bridge:lock"  # Global lock (one user at a time)
+_QUEUE_KEY = "browser-bridge:queue"  # Fair scheduling queue
+_PLATFORM_KEY = "browser-bridge:platform"  # Current platform using the browser
 
 # Timing — keep these balanced to prevent deadlocks but allow enough time
 # for browser interactions (navigate + sleep + fetch can take 10-20s,
 # and the personal messenger conversation scraping can take 30-40s)
-_LOCK_TIMEOUT = 90           # Auto-release after 90s (enough for any browser interaction)
-_LOCK_RETRY_DELAY = 0.3      # Time between lock acquisition attempts
-_MAX_WAIT = 60               # Max seconds to wait for the lock
-_STALE_TOKEN_AGE = 300.0     # Queue entries older than this are from dead callers
+_LOCK_TIMEOUT = 90  # Auto-release after 90s (enough for any browser interaction)
+_LOCK_RETRY_DELAY = 0.3  # Time between lock acquisition attempts
+_MAX_WAIT = 60  # Max seconds to wait for the lock
+_STALE_TOKEN_AGE = 300.0  # Queue entries older than this are from dead callers
 
 
 async def _get_redis() -> Any:
     """Get a Redis client for the orchestrator."""
     import redis.asyncio as aioredis
+
     settings = get_settings()
     return aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
@@ -85,8 +86,7 @@ class BrowserSession:
             r = await _get_redis()
         except Exception as exc:
             logger.warning(
-                "Browser orchestrator: Redis unavailable (%s) — "
-                "proceeding without lock (best effort)",
+                "Browser orchestrator: Redis unavailable (%s) — proceeding without lock (best effort)",
                 exc,
             )
             return self.bridge
@@ -120,8 +120,10 @@ class BrowserSession:
                 if front == self._lock_token:
                     # We're next — try to acquire the lock
                     acquired = await r.set(
-                        _LOCK_KEY, self._lock_token,
-                        nx=True, ex=_LOCK_TIMEOUT,
+                        _LOCK_KEY,
+                        self._lock_token,
+                        nx=True,
+                        ex=_LOCK_TIMEOUT,
                     )
                     if acquired:
                         self._acquired = True
@@ -129,14 +131,15 @@ class BrowserSession:
                         wait_time = time.perf_counter() - self._start_time
                         if wait_time > 1.0:
                             logger.info(
-                                "Browser orchestrator: %s acquired lock "
-                                "after %.1fs wait",
-                                self.platform, wait_time,
+                                "Browser orchestrator: %s acquired lock after %.1fs wait",
+                                self.platform,
+                                wait_time,
                             )
                         else:
                             logger.debug(
                                 "Browser orchestrator: %s acquired lock (%.1fs)",
-                                self.platform, wait_time,
+                                self.platform,
+                                wait_time,
                             )
                         return self.bridge
 
@@ -146,18 +149,18 @@ class BrowserSession:
             # Timeout — remove from queue and proceed without lock
             wait_time = time.perf_counter() - self._start_time
             logger.warning(
-                "Browser orchestrator: %s timed out after %.1fs waiting for lock — "
-                "proceeding without lock (best effort)",
-                self.platform, wait_time,
+                "Browser orchestrator: %s timed out after %.1fs waiting for lock — proceeding without lock (best effort)",
+                self.platform,
+                wait_time,
             )
             await self._remove_from_queue(r)
             return self.bridge
 
         except Exception as exc:
             logger.warning(
-                "Browser orchestrator: lock acquisition error for %s: %s — "
-                "proceeding without lock",
-                self.platform, exc,
+                "Browser orchestrator: lock acquisition error for %s: %s — proceeding without lock",
+                self.platform,
+                exc,
             )
             try:
                 await self._remove_from_queue(r)
@@ -203,7 +206,8 @@ class BrowserSession:
                 await r.delete(_PLATFORM_KEY)
                 logger.debug(
                     "Browser orchestrator: %s released lock (held %.1fs)",
-                    self.platform, hold_time,
+                    self.platform,
+                    hold_time,
                 )
             # Remove ourselves from the queue
             await self._remove_from_queue(r)

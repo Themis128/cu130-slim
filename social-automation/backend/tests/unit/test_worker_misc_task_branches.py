@@ -1,6 +1,7 @@
 """Remaining branch arms in small worker tasks: media_enhance batch,
 TikTok inbox reconcile, video generation QA and the Instagram DM poller.
 They reuse each module's main-suite fakes."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -47,10 +48,12 @@ async def test_empty_transform_output_is_not_persisted(me_deps, monkeypatch):
     a1, a2 = me_suite._asset(), me_suite._asset()
     monkeypatch.setattr(ME, "task_session", lambda: me_suite._DB([a1, a2]))
     # first asset: transform yields no bytes; second: no mime type
-    results = iter([
-        SimpleNamespace(image_bytes=b"", mime_type="image/png"),
-        SimpleNamespace(image_bytes=b"ok", mime_type=None),
-    ])
+    results = iter(
+        [
+            SimpleNamespace(image_bytes=b"", mime_type="image/png"),
+            SimpleNamespace(image_bytes=b"ok", mime_type=None),
+        ]
+    )
     monkeypatch.setattr(ME.image_transform, "compress_image", lambda b, **kw: next(results))
     await ME._run_batch([str(a1.id), str(a2.id)], "compress", {})
     me_deps["persist"].assert_not_awaited()
@@ -61,9 +64,11 @@ async def test_empty_transform_output_is_not_persisted(me_deps, monkeypatch):
 async def test_tiktok_publish_complete_without_post_row(monkeypatch):
     acc = tt_suite._account()
     t = tt_suite._target(acc, post=None)
-    check = AsyncMock(return_value={
-        "data": {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [123]},
-    })
+    check = AsyncMock(
+        return_value={
+            "data": {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [123]},
+        }
+    )
     db = tt_suite._DB([tt_suite._Res([t])])
     tt_suite._wire(monkeypatch, db, [t], check=check)
     out = await rec._reconcile_async()
@@ -73,7 +78,6 @@ async def test_tiktok_publish_complete_without_post_row(monkeypatch):
 
 
 # ── media.generate_video_asset_task ────────────────────────────────────
-
 
 
 def test_video_qa_retry_frame_extract_fails_keeps_first_verdict(monkeypatch):
@@ -112,17 +116,18 @@ def test_video_unexpanded_prompt_not_recorded(monkeypatch):
 # ── instagram_messenger: whitespace-only inbound text ──────────────────
 
 
-
 @pytest.mark.asyncio
 async def test_instagram_whitespace_inbound_is_ignored(monkeypatch):
     im_suite._wire(monkeypatch)
     acct = im_suite._account({})
     client = im_suite._graph_client(
         convos={"data": [im_suite._convo(embedded=[{"from": {"id": "u1"}, "message": "hello"}])]},
-        msgs={"data": [
-            {"from": {"id": "u1"}, "message": "hello"},
-            {"from": {"id": "u1"}, "message": "   "},  # blank after strip → skipped
-        ]},
+        msgs={
+            "data": [
+                {"from": {"id": "u1"}, "message": "hello"},
+                {"from": {"id": "u1"}, "message": "   "},  # blank after strip → skipped
+            ]
+        },
     )
     monkeypatch.setattr(IM, "InstagramAPIClient", lambda **k: client)
     seen: dict = {}
@@ -144,14 +149,16 @@ async def test_skool_module_diff_skips_known_and_unparseable(monkeypatch):
 
     monkeypatch.setattr(S.asyncio, "sleep", AsyncMock())
     known, new = "a" * 32, "b" * 32
-    bridge = sk_suite._Bridge(pages={
-        'a[href*="md="]': [
-            {"t": "Intro", "h": "/c/no-md-here"},  # href without md= → skipped
-            {"t": "Old", "h": f"/c?md={known}"},  # already seen → skipped
-            {"t": "Week notes", "h": f"/c?md={new}"},  # genuinely new
-        ],
-        "Leaderboards": [],
-    })
+    bridge = sk_suite._Bridge(
+        pages={
+            'a[href*="md="]': [
+                {"t": "Intro", "h": "/c/no-md-here"},  # href without md= → skipped
+                {"t": "Old", "h": f"/c?md={known}"},  # already seen → skipped
+                {"t": "Week notes", "h": f"/c?md={new}"},  # genuinely new
+            ],
+            "Leaderboards": [],
+        }
+    )
     calls = {"n": 0}
     orig_eval = bridge.evaluate
 

@@ -11,9 +11,7 @@ import app.services.linkedin_sidecar as L
 
 
 def _resp(status=200, body=None, text=""):
-    return SimpleNamespace(status_code=status, text=text,
-                           json=lambda: body or {},
-                           raise_for_status=lambda: None)
+    return SimpleNamespace(status_code=status, text=text, json=lambda: body or {}, raise_for_status=lambda: None)
 
 
 class _Http:
@@ -58,6 +56,7 @@ def test_init():
     assert c.base_url == "http://x:1" and c._timeout == 5
     # env fallback
     import os
+
     os.environ["LINKEDIN_BROWSER_SIDECAR_URL"] = "http://env:2"
     c = L.LinkedInSidecarClient()
     assert c.base_url == "http://env:2"
@@ -72,39 +71,31 @@ async def test_session_and_health(monkeypatch):
     assert c._http.calls[-1][1] == "/health"
 
     # error → raise_for_status path only on /health; others → SidecarError
-    c = _client(monkeypatch, _Http(
-        routes={"/session": _resp(500, text="boom")}))
+    c = _client(monkeypatch, _Http(routes={"/session": _resp(500, text="boom")}))
     with pytest.raises(L.LinkedInSidecarError) as e:
         await c.set_session({"s": 1})
     assert e.value.status_code == 500 and e.value.detail == "boom"
 
     c = _client(monkeypatch)
     await c.set_session({"cookies": []})
-    assert c._http.calls[-1] == (
-        "POST", "/session", {"json": {"storage_state": {"cookies": []}}})
+    assert c._http.calls[-1] == ("POST", "/session", {"json": {"storage_state": {"cookies": []}}})
 
     await c.check_session()
     assert c._http.calls[-1][1] == "/session"
 
     # export_cookies — cookie dict extraction + domain param
-    c = _client(monkeypatch, _Http(default=_resp(
-        200, {"cookies": {"li_at": "v"}})))
+    c = _client(monkeypatch, _Http(default=_resp(200, {"cookies": {"li_at": "v"}})))
     out = await c.export_cookies("example.com")
     assert out == {"li_at": "v"}
-    assert c._http.calls[-1] == (
-        "GET", "/debug/all-cookies", {"params": {"domain": "example.com"}})
+    assert c._http.calls[-1] == ("GET", "/debug/all-cookies", {"params": {"domain": "example.com"}})
 
     # refresh_session — logged out → 401 error; logged in → cookies merged
-    c = _client(monkeypatch, _Http(
-        routes={"/debug/all-cookies": _resp(200, {"cookies": {"a": "b"}})},
-        default=_resp(200, {"logged_in": False})))
+    c = _client(monkeypatch, _Http(routes={"/debug/all-cookies": _resp(200, {"cookies": {"a": "b"}})}, default=_resp(200, {"logged_in": False})))
     with pytest.raises(L.LinkedInSidecarError) as e:
         await c.refresh_session()
     assert e.value.status_code == 401
 
-    c = _client(monkeypatch, _Http(
-        routes={"/debug/all-cookies": _resp(200, {"cookies": {"a": "b"}})},
-        default=_resp(200, {"logged_in": True, "x": 1})))
+    c = _client(monkeypatch, _Http(routes={"/debug/all-cookies": _resp(200, {"cookies": {"a": "b"}})}, default=_resp(200, {"logged_in": True, "x": 1})))
     out = await c.refresh_session()
     assert out["cookies"] == {"a": "b"} and out["logged_in"] is True
 
@@ -124,8 +115,7 @@ async def test_profile_methods(monkeypatch):
     assert c._http.calls[-1][1] == "/profile"
 
     await c.get_profile_activity()
-    assert "/profile/activity" in c._http.calls[-1][1] or \
-        "/activity" in c._http.calls[-1][1]
+    assert "/profile/activity" in c._http.calls[-1][1] or "/activity" in c._http.calls[-1][1]
 
     await c.update_headline("h")
     m, u, kw = c._http.calls[-1]
@@ -151,15 +141,12 @@ async def test_profile_methods(monkeypatch):
 
     # experience/education/skills payloads pass through
     c2 = _client(monkeypatch)
-    await c2.add_experience(title="Dev", company="Co", start_date="2020",
-                            end_date="2022", description="d", current=True)
+    await c2.add_experience(title="Dev", company="Co", start_date="2020", end_date="2022", description="d", current=True)
     assert "/profile/experience" in c2._http.calls[-1][1]
     body = c2._http.calls[-1][2]["json"]
     assert body["current"] is True and body["start_date"] == "2020"
 
-    await c2.add_education(school="U", degree="BSc", field_of_study="CS",
-                           start_date="2016", end_date="2020",
-                           description="d")
+    await c2.add_education(school="U", degree="BSc", field_of_study="CS", start_date="2016", end_date="2020", description="d")
     assert "/profile/education" in c2._http.calls[-1][1]
     assert c2._http.calls[-1][2]["json"]["field_of_study"] == "CS"
 
@@ -204,8 +191,7 @@ async def test_posting_and_messaging(monkeypatch):
 
     # post_image — optional fields
     await c.post_image([{"image_base64": "x"}])
-    assert c._http.calls[-1][2]["json"] == {
-        "images": [{"image_base64": "x"}]}
+    assert c._http.calls[-1][2]["json"] == {"images": [{"image_base64": "x"}]}
     await c.post_image([{"i": 1}], message="m", visibility="PUBLIC")
     body = c._http.calls[-1][2]["json"]
     assert body["message"] == "m" and body["visibility"] == "PUBLIC"
@@ -235,9 +221,7 @@ async def test_posting_and_messaging(monkeypatch):
 async def test_profile_message_and_connect(monkeypatch):
     c = _client(monkeypatch, _Http(default=_resp(200, {"status": "ok"})))
 
-    await c.send_profile_message(
-        "hi there", profile_url="https://www.linkedin.com/in/x/", dry_run=True
-    )
+    await c.send_profile_message("hi there", profile_url="https://www.linkedin.com/in/x/", dry_run=True)
     m, u, kw = c._http.calls[-1]
     assert m == "POST" and u == "/messages/profile/send"
     assert kw["json"]["profile_url"].endswith("/in/x/")
@@ -260,20 +244,33 @@ async def test_error_mapping(monkeypatch):
     # every >=400 path → LinkedInSidecarError with status+detail
     c = _client(monkeypatch, _Http(default=_resp(404, text="gone")))
     calls = [
-        c.check_session(), c.export_cookies(), c.login("u", "p"),
-        c.get_profile(), c.get_profile_activity(),
-        c.update_headline("h"), c.update_about("a"), c.update_website("w"),
-        c.update_location("l"), c.upload_cover(b"i"), c.upload_picture(b"i"),
+        c.check_session(),
+        c.export_cookies(),
+        c.login("u", "p"),
+        c.get_profile(),
+        c.get_profile_activity(),
+        c.update_headline("h"),
+        c.update_about("a"),
+        c.update_website("w"),
+        c.update_location("l"),
+        c.upload_cover(b"i"),
+        c.upload_picture(b"i"),
         c.add_experience(title="t", company="c"),
-        c.add_education(school="s"), c.add_skill("s"),
-        c.get_company("v"), c.update_company_about("v", "a"),
+        c.add_education(school="s"),
+        c.add_skill("s"),
+        c.get_company("v"),
+        c.update_company_about("v", "a"),
         c.update_company_website("v", "w"),
         c.update_company_specialties("v", []),
-        c.upload_company_logo("v", b"i"), c.upload_company_cover("v", b"i"),
-        c.post_text("m"), c.post_image([{"i": 1}]),
-        c.post_link("https://x"), c.company_post_text("v", "m"),
+        c.upload_company_logo("v", b"i"),
+        c.upload_company_cover("v", b"i"),
+        c.post_text("m"),
+        c.post_image([{"i": 1}]),
+        c.post_link("https://x"),
+        c.company_post_text("v", "m"),
         c.company_post_image("v", [{"i": 1}]),
-        c.get_conversations(), c.get_thread_messages("t"),
+        c.get_conversations(),
+        c.get_thread_messages("t"),
         c.send_message("t", "x"),
         c.send_profile_message("x", profile_url="https://x"),
         c.send_connect(profile_url="https://x"),
@@ -286,10 +283,20 @@ async def test_error_mapping(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_publish_newsletter_issue(monkeypatch):
-    c = _client(monkeypatch, _Http(default=_resp(200, {
-        "status": "ok", "published": True, "steps": ["editor-ready"],
-        "article_url": "https://www.linkedin.com/pulse/x",
-    })))
+    c = _client(
+        monkeypatch,
+        _Http(
+            default=_resp(
+                200,
+                {
+                    "status": "ok",
+                    "published": True,
+                    "steps": ["editor-ready"],
+                    "article_url": "https://www.linkedin.com/pulse/x",
+                },
+            )
+        ),
+    )
     out = await c.publish_newsletter_issue(
         title="Issue #2 — real numbers",
         html_body="<h2>Sec</h2><p>body</p>",

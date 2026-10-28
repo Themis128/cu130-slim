@@ -31,6 +31,7 @@ from app.api import (
     profile,
     publishing,
     reports,
+    research,
     secrets,
     service_feed,
     support,
@@ -46,6 +47,7 @@ from app.api import (
     whatsapp,
     whatsapp_flows,
     workflows,
+    x_webhook,
 )
 
 api_router = APIRouter()
@@ -66,6 +68,7 @@ router.include_router(meta_growth.router, prefix="/meta-growth", tags=["meta-gro
 
 router.include_router(workflows.router, prefix="/workflows", tags=["workflows"])
 
+router.include_router(research.router, prefix="/research", tags=["research"])
 router.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 
 router.include_router(linkedin.router, prefix="/linkedin", tags=["linkedin"])
@@ -75,6 +78,7 @@ router.include_router(instagram.router, prefix="/instagram", tags=["instagram"])
 router.include_router(threads.router, prefix="/threads", tags=["threads"])
 
 router.include_router(tiktok.router, prefix="/tiktok", tags=["tiktok"])
+router.include_router(x_webhook.router, tags=["webhooks"])
 
 router.include_router(publishing.router, prefix="/publishing", tags=["publishing"])
 
@@ -142,5 +146,9 @@ router.include_router(engagement.router)
 
 router.include_router(media_sources.router, prefix="/media-sources", tags=["media-sources"])
 
-from app.api import ads  # noqa: E402 — registered late to avoid import cycles
+from app.api import (  # noqa: E402 — registered late to avoid import cycles
+    ads,
+    x_webhook,  # noqa: E402
+)
+
 api_router.include_router(ads.router)
