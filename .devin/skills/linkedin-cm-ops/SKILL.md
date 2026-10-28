@@ -37,3 +37,14 @@ path (admin UI or tool).
 Dev Tier = limited daily call quotas; the app must also have
 "Share on LinkedIn" + "Community Management" products active in the
 developer portal for posting scopes.
+
+
+## v2 fallback (live — 2026-10-28)
+
+`linkedin_api.py` falls back to legacy /v2/ endpoints on 403/426:
+- `create_post` → POST /v2/ugcPosts (verified: share 7521238518086447104 created+deleted)
+- `create_comment` → POST /v2/socialActions/{urn}/comments
+- `delete_post` → DELETE /v2/ugcPosts/{urn}
+- list → GET /v2/ugcPosts?q=authors&authors=List(<enc urn>) (literal parens!)
+Not yet v2-covered: multi-image/video/doc posts (rest-only), org stats,
+follower counts — those still need Standard Tier.

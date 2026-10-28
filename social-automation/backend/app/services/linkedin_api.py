@@ -146,6 +146,31 @@ class LinkedInAPIClient:
                 _sanitize_log_text(resp.text),
             )
 
+    @staticmethod
+    def _ugcpost_v2_payload(
+        author_urn: str,
+        commentary: str,
+        visibility: str = "PUBLIC",
+        link_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Legacy v2 /ugcPosts body — used when /rest/posts 426s on Dev Tier."""
+        share_content: dict[str, Any] = {
+            "shareCommentary": {"text": sanitize_generated_text(commentary)[:MAX_COMMENTARY_CHARS]},
+        }
+        if link_url:
+            share_content["shareMediaCategory"] = "ARTICLE"
+            share_content["media"] = [{
+                "status": "READY", "originalUrl": link_url,
+            }]
+        else:
+            share_content["shareMediaCategory"] = "NONE"
+        return {
+            "author": author_urn,
+            "lifecycleState": "PUBLISHED",
+            "specificContent": {"com.linkedin.ugc.ShareContent": share_content},
+            "visibility": {"com.linkedin.ugc.MemberNetworkVisibility": visibility},
+        }
+
     def _post_payload(
         self,
         author_urn: str,
@@ -447,6 +472,23 @@ class LinkedInAPIClient:
         url = f"{LINKEDIN_REST_BASE}/posts"
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(url, headers=self._headers(), json=payload)
+            if resp.status_code in (403, 426):
+                # Dev Tier: /rest/posts gated — legacy /v2/ugcPosts works
+                v2_url = f"{LINKEDIN_V2_BASE}/ugcPosts"
+                v2 = self._ugcpost_v2_payload(author_urn, commentary, visibility, link_url)
+                resp = await client.post(v2_url, headers=self._headers(), json=v2)
+                if resp.status_code >= 400:
+                    self._log_api_error(v2_url, resp)
+                    return LinkedInPostResult(
+                        success=False,
+                        error=f"HTTP {resp.status_code}: {resp.text[:400]}",
+                    )
+                v2_id = unquote(resp.json().get("id", ""))
+                return LinkedInPostResult(
+                    success=True,
+                    platform_post_id=v2_id,
+                    platform_url=f"https://www.linkedin.com/feed/update/{v2_id}" if v2_id else None,
+                )
             if resp.status_code >= 400:
                 self._log_api_error(url, resp)
                 return LinkedInPostResult(
@@ -840,6 +882,12 @@ class LinkedInAPIClient:
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(url, headers=self._headers(), json=payload)
+            if resp.status_code in (403, 426):
+                # Dev Tier: legacy v2 socialActions comments
+                v2_url = f"{LINKEDIN_V2_BASE}/socialActions/{encoded}/comments"
+                v2 = {"actor": creator_urn, "object": post_urn,
+                      "message": {"text": text[:MAX_COMMENTARY_CHARS]}}
+                resp = await client.post(v2_url, headers=self._headers(), json=v2)
             if resp.status_code >= 400:
                 self._log_api_error(url, resp)
                 return LinkedInPostResult(
@@ -847,6 +895,9 @@ class LinkedInAPIClient:
                     error=f"HTTP {resp.status_code}: {resp.text[:400]}",
                 )
             comment_id = unquote(resp.headers.get("x-restli-id", "") or "")
+            if not comment_id:
+                comment_id = (resp.json().get("id")
+                              or resp.headers.get("location", "").rsplit("/", 1)[-1])
             return LinkedInPostResult(
                 success=True,
                 platform_post_id=comment_id,
@@ -886,6 +937,9 @@ class LinkedInAPIClient:
 
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.delete(url, headers=self._headers())
+            if resp.status_code in (403, 426):
+                v2_url = f"{LINKEDIN_V2_BASE}/ugcPosts/{encoded}"
+                resp = await client.delete(v2_url, headers=self._headers())
             if resp.status_code >= 400:
                 self._log_api_error(url, resp)
                 return LinkedInPostResult(
