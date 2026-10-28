@@ -42,3 +42,21 @@ with reasons (system senders, self, suppressed), and paste-ready
 - Owner addresses are hard-filtered (never mail yourself a survey).
 - `--attach` dedupes against `email_recipients` + `leads` so re-runs are
   idempotent.
+
+## LinkedIn API path — `li_member_snapshot.py` (replaces the CSV click)
+
+`GET /rest/memberSnapshotData?q=criteria&domain=CONNECTIONS` returns
+1st-degree connections via API — **EEA members only** (Greece qualifies).
+
+- Requires `Linkedin-Version: 202312` exactly — every other version → 426
+- Requires scope `r_dma_portability_member` (or `_3rd_party`) — grant the
+  app the "Member Data Portability API (Member)" product in the dev
+  portal (instant approval), then re-authorize so the token picks it up
+- Live-verified 2026-10-28: `403 ACCESS_DENIED` until the scope is granted
+
+## WhatsApp verify — 2388091 decoded
+
+`request_code`/`verify_code` are **migration** endpoints — subcode
+2388091 = "number isn't being migrated". For standard Cloud API numbers:
+`POST /{phone-number-id}/register` after onboarding in WhatsApp Manager.
+The 136024/2388091 was an API-misuse error, not a rate limit.
