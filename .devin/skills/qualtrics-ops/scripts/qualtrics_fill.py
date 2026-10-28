@@ -31,15 +31,19 @@ def ev(expr):
 
 FILL_JS = """
 (()=>{const label=%s, value=%s;
-const labels=[...document.querySelectorAll('label,legend,.QuestionText')];
-const el=labels.find(l=>l.textContent.trim().toLowerCase().includes(label.toLowerCase()));
+const el=[...document.querySelectorAll('.question-display,.QuestionText,label,legend,div')]
+ .find(e=>e.children.length<6&&e.textContent.trim().toLowerCase().includes(label.toLowerCase()));
 if(!el) return 'NO_FIELD:'+label;
-const box=el.closest('fieldset,div');
-const txt=box.querySelector('input[type=text],textarea');
-if(txt){txt.value=value;txt.dispatchEvent(new Event('input',{bubbles:true}));txt.dispatchEvent(new Event('change',{bubbles:true}));return 'filled:'+label;}
-const radios=box.querySelectorAll('input[type=radio]');
+let q=el;
+while(q&&!q.querySelector('input,textarea')&&q.parentElement)q=q.parentElement;
+if(!q||!q.querySelector('input,textarea'))return 'NO_INPUT:'+label;
+const txt=q.querySelector('input[type=text],textarea');
+if(txt){txt.focus();txt.value=value;['input','keyup','change'].forEach(t=>txt.dispatchEvent(new Event(t,{bubbles:true})));return 'filled:'+label;}
+const radios=[...q.querySelectorAll('input[type=radio]')];
 const i=parseInt(value)-1;
-if(radios[i]){radios[i].click();return 'radio:'+label+'->'+(i+1);}
+if(radios[i]){const lbl=radios[i].closest('label')||radios[i].parentElement;lbl.click();radios[i].click();return 'radio:'+label+'->'+(i+1);}
+const checks=[...q.querySelectorAll('input[type=checkbox]')];
+if(checks.length&&i>=0&&checks[i]){checks[i].click();return 'check:'+label;}
 return 'NO_INPUT:'+label;})()"""
 
 NEXT_JS = """(()=>{const b=[...document.querySelectorAll('button,input[type=submit],[role=button]')]
@@ -47,6 +51,7 @@ NEXT_JS = """(()=>{const b=[...document.querySelectorAll('button,input[type=subm
  if(b){b.click();return b.textContent||b.value;} return 'NO_NEXT'})()"""
 
 def main():
+    global BRIDGE
     url = answers_file = None
     dry = "--dry" in sys.argv
     a = sys.argv[1:]
