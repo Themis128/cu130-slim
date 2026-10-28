@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import logging
 
-from celery import shared_task
-
 from app.services.log_intel import triage_logs
 from app.services.slack_notifications import post_alert_to_slack
 from app.worker._async import run_async

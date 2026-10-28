@@ -9,6 +9,7 @@ step is deferred — recent-window query works without embeddings.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -16,8 +17,6 @@ import httpx
 from app.services.loop_harness import llm_call, single_job_prompt
 
 logger = logging.getLogger(__name__)
-
-import os
 
 LOKI = os.environ.get("LOKI_URL", "http://192.168.1.130:3100")
 # broad selector — every service's stdout/stderr lands here
