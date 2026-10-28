@@ -1,0 +1,440 @@
+# SocialAuto (social.cloudless.gr) — Codemap
+
+Architecture map for the `cu130-slim` repo. Companion to `AGENTS.md` (rules) — this file is the "where things live and how they connect" reference. The operational loop inventory (8 departments, every closed loop with trigger/code/health-signal) lives in [`ops/loop-contract.md`](ops/loop-contract.md), mirrored to Nextcloud Collectives → "Cloudless Ops" landing page. Last verified: 2026-10-19 (CRM lifecycle/engagement loops, Nextcloud sync, publish empty-caption guard, 44 task modules / 43 beat entries).
+
+## What it is
+
+SocialAuto: multi-platform social media automation — compose/publish posts, unified DM inbox with AI auto-reply, brand system, media generation, analytics. FastAPI backend + Next.js frontend + 4 queue-dedicated Celery workers + per-platform browser sidecars, all on one Docker Compose stack on the WSL workstation.
+
+## Request path
+
+```
+browser → social.cloudless.gr → Cloudflare Tunnel `social-cloudless` (social-cloudflared, WSL)
+        → social-frontend:8083 (Next.js UI; host port 8082→8083)
+        → /api/* → social-api:8000 (FastAPI, host port 8083→8000)
+
+omv hostnames (cloud/office/signal/push.cloudless.gr) ride a SEPARATE tunnel
+`omv-cloudless` whose cloudflared runs on omv — remote-managed tunnels share
+one ingress across all replicas, so a replica that can't resolve an origin
+502s its traffic (broke /api 2026-10-05). Never add a replica to either
+tunnel that can't resolve every origin in that tunnel's ingress.
+```
+
+Public edge: `social.cloudless.gr` is **public** — the `socialauto-app` Access app carries a first-precedence `public-ga-bypass` policy (`scripts/cf_access.py public-mode on|off|status`) because the product is a public SaaS (live Polar billing, public pricing/features, self-serve signup). The admin-email allowlist + `site-bridge service token` policies remain in the app but sit behind the bypass. Everything is protected by the app's own JWT auth instead — `/api/v1/*` endpoints enforce team/user auth, `/api/v1/auth/*` and public webhooks are unauthenticated by design. Older per-path bypass apps remain for documentation/audit clarity:
+
+| Access app | Path prefix | Why public |
+|---|---|---|
+| `socialauto-public` | `/api/v1/health` | monitoring |
+| `socialauto-oauth-callbacks` | `/api/v1/auth/oauth/` | OAuth redirects from Meta/TikTok/X/LinkedIn |
+| `socialauto-meta-data-deletion` | `/api/v1/auth/data-deletion` | Meta POSTs signed_request server-to-server |
+| `socialauto-media-view` | `/api/v1/media/view` | Public media serving for platform fetches (TikTok `PULL_FROM_URL`, Meta `image_url`) — unauthenticated by design, required on the TikTok-verified `cloudless.gr` domain |
+| (pre-existing bypasses) | `/api/v1/messenger/webhook`, `/api/v1/whatsapp/webhook`, `/api/v1/telegram/webhook/`, `/api/v1/billing/*` webhooks | Meta/Telegram/Polar/Dodo webhooks |
+
+Public lead capture (`POST /api/v1/leads/public`, playbook funnel) is NOT a bypass — the site forwards with a Cloudflare Access **service token**; see "Public Edge & Lead Funnel" in `application-architecture.md`.
+
+**Gotcha:** OAuth callback URLs registered in the Meta app must be reachable without Access — verify with `curl -o /dev/null -w "%{http_code}" https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback` → `422` is good (reached origin), `302` to cloudflareaccess.com is bad.
+
+**Observability:** Cloudflare zone tracing (10% sampling, inbound `traceparent` rejected) exports `edge_processing`/`origin_fetch` OTLP spans → `otel.cloudless.gr` → token-auth proxy on omv → Tempo (`:3200` query, 7d retention). `social-api` exports FastAPI/httpx spans to Tempo when `OTEL_ENABLED=true` (edge↔origin trace IDs not joined — known CF beta gap). Browse in Grafana (`grafana.cloudless.gr`, Tempo datasource); per-host aggregates land in the datalake via `export_datalake`.
+
+## Compose services & host ports
+
+| Service | Port(s) | Role |
+|---|---|---|
+| social-api | 8083→8000 | FastAPI backend |
+| social-frontend | 8082→8083 | Next.js UI |
+| social-postgres | 5433→5432 | app DB `social_automation` |
+| redis | 6379 | Celery broker + cache failover |
+| celery-beat | — | scheduler (single instance) |
+| social-worker-{publishing,media,default,messenger} | — | 4 queue-dedicated Celery workers, same image/env |
+| cloudflared | — | named tunnel `social-cloudless` → social.cloudless.gr (social.* only since the 2026-10-05 tunnel split) |
+| browser-novnc | 9223 (bridge), 6080 (noVNC), 5900 (VNC) | shared Chromium for DM/profile ops |
+| tiktok-browser-sidecar | 9224 | TikTok browser session |
+| linkedin-browser-sidecar | 9225 | LinkedIn browser session |
+| facebook-browser-sidecar | 9226 | Facebook browser session |
+| messenger-sidecar | 9230 | personal Messenger browser |
+| instagram-private-api | 8011 | aiograpi REST wrapper (mobile private API) |
+| warp-proxy | 1080 | free Cloudflare WARP SOCKS5 (first-choice proxy) |
+| n8n | 5678 | workflow automation |
+| comfyui | 8000→8000 | GPU image+video gen — Wan2.2 TI2V-5B GGUF T2V/I2V + image models (shares RTX 3070 with DMR / local-diffusers) |
+| local-diffusers | (no host publish; :7860 internal) | SD 1.5 GPU image gen |
+| chroma | 8001→8000 | vector failover |
+| minio | 9100→9000, 9101→9001 | S3 failover (host 9100/9101 — not 9000) |
+| languagetool | 8010→8010 | spellcheck |
+| env-manager-frontend / backend | 8080, 8081 | .env UI/API |
+| postgres (metabase) / metabase | 5432 (internal), 3000 | BI on Postgres — `social-postgres`/`social_automation` attached as "SocialAuto" source; see `docs/metabase/` |
+| flower | 5555 | Celery UI |
+| social-metrics | 9390→80 | Prometheus/nginx metrics |
+| dmr-watchdog | — | restarts docker-model-runner when wedged |
+| jupyter | 8888 | scipy notebook UI — `social-postgres` analytics + report templates (`notebooks/reports/`), `JUPYTER_TOKEN` auth, localhost-only |
+| api-gateway | (internal) | nginx stable `/api/v1` upstream for blue/green deploys |
+| n8n-sandbox | — | AI code sandbox for n8n |
+| portainer | 9000 | container management |
+| linkedin-mcp-server | 9227 | LinkedIn MCP server |
+| airbyte-mcp-server | 9228/9229 | Airbyte MCP connector |
+
+Not in Compose: **DMR** (Docker Model Runner, host engine on `localhost:12435` / `host.docker.internal:12435`). Port **12434 is unused** on this workstation.
+
+## Workstation (OFFICE / WSL)
+
+Measured on this machine (do not invent different HW — re-measure if the host changes). Full DMR/GPU detail: [`dmr-architecture.md`](dmr-architecture.md). Image pins: [`docker-image-registry.md`](docker-image-registry.md).
+
+| Fact | Value (2026-09-22) |
+|---|---|
+| Host OS | Windows 11 Enterprise Insider Preview (build 26220) |
+| WSL distro | Ubuntu 26.04.1 LTS (`Ubuntu-26.04`), kernel 6.18.x WSL2 |
+| CPU (Windows) | 12th Gen Intel Core i9-12900H — 14 cores / 20 threads |
+| CPU visible to Docker/WSL | 8 vCPUs (Docker Desktop allocation) |
+| RAM (Windows physical) | ~32 GiB |
+| RAM visible to Docker/WSL | ~15.6 GiB total (~7 GiB available under load when measured) |
+| GPU | NVIDIA GeForce RTX 3070 Laptop GPU, **8192 MiB** VRAM, driver **616.56** |
+| WSL GPU passthrough | `/dev/dxg` present; `nvidia-smi` works inside WSL |
+| Disk | WSL root `~1007G` (~913G free); Windows `C:` ~733G (~168G free) |
+| Compose project | `cu130-slim` — Docker Desktop 29.x, Linux engine |
+| App image pin (`docker-compose.yml`) | `ghcr.io/themis128/cu130-slim:<service>-sha-32d08e2` |
+| Local override | `docker-compose.override.yml` may retarget some services to `:latest` / Hub tags for local iteration |
+| DMR | Host engine `docker-model-runner` on **`127.0.0.1:12435` only** (port **12434 is not used** / not listening). Compose services reach it via `host.docker.internal:12435`. Watchdog: `dmr-watchdog`. |
+| GPU coexistence | ComfyUI (`:8000`), `local-diffusers` (internal `:7860`, no host publish), and DMR share the same 8 GB card. Prefer one heavy consumer at a time; DMR auto-unloads when idle. With ComfyUI resident, free VRAM can drop below 1 GB. |
+
+**Agent guidance:** Prefer 4B Instruct / smollm3 for concurrent chatbot load; reserve `ai/qwen3:8b-q4_K_M` and `ai/qwen3-vl` (~5 GB each) for single-flight work. Never assume port 12434.
+
+## Backend layout (`social-automation/backend/app/`)
+
+```
+main.py            FastAPI app, mounts api_router at /api/v1, init_db() on startup
+api/               38 routers — auth (OAuth + data-deletion), accounts, publishing,
+                   messenger, whatsapp, telegram, viber, bluesky, instagram, inbox, media, ai,
+                   ai_providers, brand, billing, leads, secrets, teams, cf_db, mcp…
+services/          platform clients + infra — facebook_api, instagram_api
+                   (InstagramAPIClient + InstagramWebDMClient), threads_api,
+                   tiktok_api, twitter_api, linkedin_api, messenger_api, bluesky_api,
+                   whatsapp_api, telegram_api, viber_api, browser_bridge
+                   (BrowserBridgeClient), linkedin_newsletter_bridge (newsletter
+                   publish fallback), browser_orchestrator, *_sidecar clients,
+                   dmr (DMR client), inference (provider routing), media_*,
+                   db_router (D1→Postgres dual-write), d1/kv/vectorize/chroma/minio
+                   clients, content_*, brand_*, lead_capture, *_chatbot
+models/            SQLAlchemy — social_account (access_token_enc, scopes, meta_data),
+                   social_secret, user, content, media, lead, billing,
+                   whatsapp_message (unified-inbox persistence)…
+worker/celery_app.py   queues + beat_schedule; worker_process_init/shutdown
+                   wire the per-child asyncio loop lifecycle
+worker/_async.py     persistent asyncio loop per prefork child (daemon thread):
+                   run_async() submits coroutines via run_coroutine_threadsafe;
+                   task_session()/get_session_factory() yield sessions from a
+                   real pooled engine bound to that loop — NEVER combine
+                   asyncio.run() + async_session_maker() in a task (the
+                   'Future attached to a different loop' crash class)
+worker/tasks/      publishing, *_messenger pollers, session checks/refreshes,
+                   analytics, digest, recurring, media, workflows, dmr_health,
+                   datalake_export (→ cloudless.gr R2 datalake),
+                   linkedin_ads_{report,control}, linkedin_invites,
+                   nextcloud (omv WebDAV export), nextcloud_sync (posts→Deck,
+                   followers→Tables), company_brain (daily journal 23:45),
+                   lead_emails (drip), email_drip (first-approach+renewal),
+                   email_campaigns, lead_research, promo_scan (IMAP),
+                   crm_hygiene (Mon dedupe), crm_lifecycle (score→convert),
+                   crm_engagement (IMAP reply→note+status), monetization,
+                   telegram_agent (channel autopilot),
+                   skool_watch (VEC Skool scrape → LinkedIn drafts),
+                   notebook_reports (papermill report runner)
+notebooks/         report templates (reports/) executed by the worker via
+                   papermill; rendered artifacts land in output/ (same dir
+                   is mounted into social-jupyter → visible in Jupyter UI)
+mcp/server.py      MCP server exposing social tools
+```
+
+## Session layers (three independent ones)
+
+1. **OAuth tokens** — `social_accounts.access_token_enc` (encrypted), `scopes`, `meta_data`. Refreshed by `token_refresh` (hourly :15 & :45) + `instagram_token_refresh`/`linkedin_session_refresh` (weekly). X tokens live 2h (`expires_in:7200`); refresh tokens are single-use. `token_refresh._skip_for_recent_update` skips recently-touched accounts **only** when the token survives the next hourly run — a token expiring inside the window refreshes immediately (2026-09-23 fix: a 1.2s-valid token was skipped on an unrelated `updated_at` bump → ~1h of 401s).
+2. **Shared bridge** `browser-novnc:9223` — one Chromium for all web-session work (IG DMs fallback, personal Messenger, Threads, X). Owner-hold: requests carry `X-Platform`; owner holds browser ~180s past last touch; `POST /session/start {platform, force:true}` claims it; `POST /session/cookies` injects; `POST /session/extract` persists storage state.
+3. **Dedicated sidecars** — TikTok 9224, LinkedIn 9225, Facebook 9226, Messenger 9230. Each keeps its own Playwright profile + storage state under its data volume. `/login`, `/session/validate`, `/debug/all-cookies` (cookie export for transplants). TikTok sidecar `/session` fast-paths to `logged_in:false, reason:"no_session"` when no session cookies are injected — no 15s anonymous profile navigation on every health probe.
+
+Session healing: `.devin/skills/session-ops/session-transplant/` + `scripts/session_transplant.py` — export cookies from sidecar/MCP browser → inject into bridge → verify → persist.
+
+**Idle-sleep layer:** the sidecars/bridge above (plus comfyui, warp-proxy, languagetool, metabase, jupyter, flower, portainer, env-manager, MCP servers, n8n-sandbox, instagram-private-api) are fronted by `stack-ops` — a TCP wake-proxy + idle sleeper. Callers hit `http://stack-ops:<orig-port>`; `Exited` = asleep-not-broken. Full architecture, compose rules, and host-watchdog interplay: [`docs/ops/stack-ops-idle-sleep.md`](ops/stack-ops-idle-sleep.md).
+
+## Messenger/DM data flow
+
+| Platform | Read/send path |
+|---|---|
+| Instagram | Graph first: `InstagramAPIClient` on `graph.instagram.com` when `meta_data.login_type == "business_login"` (IGSID ≠ app-scoped `account_id` — resolve via `get_me().user_id`); fallback = bridge web session |
+| FB Page Messenger | `MessengerAPIClient` Graph `/{page-id}/conversations` (needs `pages_messaging`) |
+| FB personal | messenger-sidecar (9230) + bridge |
+| LinkedIn | linkedin-sidecar (9225), polled 6h (rate limits) |
+| Threads / X / TikTok | bridge (9223) sessions |
+
+Webhook ingest: `/api/v1/messenger/webhook` + `/api/v1/whatsapp/webhook` (GET verify + POST events → chatbot auto-reply via DMR→CF AI→static chain) + `/api/v1/telegram/webhook/{account_id}` (secret-token header) + `/api/v1/viber/webhook/{account_id}` (HMAC-SHA256 `X-Viber-Content-Signature`) + `/api/v1/webhooks/twitter` (X Account Activity CRC challenge + DM/event ingest).
+
+`/api/v1/research/research/ingest` + `/api/v1/research/research/ask` + `/api/v1/research/research/status` — research workspace (Nextcloud-folder ingest → Chroma collection → DMR Q&A over the team corpus).
+
+`/api/v1/email-campaigns/{campaign_id}/responses/view` + `/api/v1/email-campaigns/{campaign_id}/nudge` — campaign response viewer + manual nudge for survey/auto-send campaigns.
+
+Messaging channels (`whatsapp`, `telegram`, `viber`) are skipped by `publish_to_platform` — sends go through each router's `/send` endpoints; auto-reply bots run DMR-first inference via the shared `*_chatbot` helpers.
+
+## Telegram channel — `Cloudless — Automation HQ` (added 2026-10-11)
+
+- Private channel `chat_id -1004436942504`, created via a **Telethon user session** (owner account — the Bot API cannot create channels). `Cloudless_newbot` is the sole operational admin.
+- Discovery/persistence: the bot's `my_chat_member` webhook event lands on `/api/v1/telegram/webhook/{account_id}` → channel persisted; `channel-config` endpoint stores `telegram_channel` meta + **named invite links** (`ig`, `threads`, `website`, `social`) for join-source attribution.
+- Inbound funnel: `cloudless.gr/telegram` → 307 → invite (`TELEGRAM_CHANNEL_URL`); `/links` carries the community CTA. `telegram_funnel` gold section in the datalake reports member growth by source.
+- Publishing: native Celery agent `app/services/telegram_agent.py` + beat task `telegram-channel-agent` (daily 11:00 → `run_channel_agent_daily`) — superseded the n8n `cloudless-telegram-channel` workflow (deactivated 2026-10-13, #600). Cadence: Mon authority, Wed engagement, Fri rotating (offer every 3rd week else best joins-per-post pillar), Sun native poll; offer posts are pinned. Also daily-throttled member welcomes (webhook `member_joined`), join-request auto-approve, pillar re-ranking from `channel_post`/`member_joined` analytics events.
+- DM funnel: offer posts append a `💬 Chat with us` button → `t.me/<bot>?start=audit` → shared `lead_capture` FSM (`LeadSource.telegram_dm`, `thread_id=chat_id`) → Lead row → owner alert. Outbound site CTAs (`cloudless.gr`, `social.cloudless.gr`, checklist PDF) are UTM-tagged by `tracked_url()` — `utm_source=telegram&utm_medium=channel_post&utm_campaign=cloudless-channel-agent&utm_content=<offer key|pillar>`; hostile lookalike hosts (`evilcloudless.gr`) are not matched.
+- Safety gates (2026-10-13, #604): lead prompts honor `telegram_auto_reply.enabled` + `is_thread_paused`; the webhook snapshots the Redis session and restores it if the prompt send fails; stale `LEAD_*` button taps re-ask the current step without counting a miss; `handle_owner_link_command` binds `owner_chat_id` only via `/linkowner`, `/watch`, `/start linkowner`, or a bare `/start` while unlinked — funnel deep links can never re-route owner alerts.
+- MCP: `telegram` server (Telethon user session) for channel-creation-class ops; `telegram_*` tools on the `socialauto` MCP for bot-side admin. Skill: `telegram-channel-ops`.
+
+## Unified inbox (`GET /api/v1/inbox/inbox`)
+
+Aggregates one conversation list across FB Page Messenger, personal Messenger,
+Instagram DMs, and WhatsApp. Implementation notes (added 2026-09):
+
+- **Per-platform fetches are bounded** (`asyncio.wait_for`, 30s) and partial —
+  one wedged platform can't stall the endpoint (was 2m33s before the cap).
+- **60s in-process cache** — the frontend polls every 30s; cached responses
+  serve in ~30ms instead of re-hitting external APIs.
+- **Account ids are `str(account.id)`** — Pydantic `str` fields reject `UUID`,
+  which silently dropped every IG/personal-Messenger row pre-fix.
+- **IG sender = the other participant** — `participants[0]` is the business
+  account itself; filter it out by id + username.
+- **WhatsApp has no list-conversations API** — `whatsapp_messages` table
+  persists every inbound webhook message + outbound send/template/auto-reply;
+  the inbox aggregates one thread per peer from it. History starts at
+  migration time (no backfill possible).
+- Frontend type: `UnifiedConversation` in `frontend/src/services/api.ts`.
+
+## Analytics read pattern — snapshot-first
+
+`/analytics/overview` and `/analytics/followers` read the latest
+`follower_snapshots` row per account (the analytics-sync beat writes them
+~30min) — never a sequential live platform call per account (that made
+`/overview` ~14s and `/followers` ~22s). Live `_follower_count` calls only
+run for accounts with no snapshot at all, via `asyncio.gather` in parallel.
+
+Snapshot `notes` carry sync outcomes; `analytics_sync` codes X free-tier
+402/429 as `quota_exhausted`. `slack_digest` treats `quota_exhausted`,
+`needs paid tier`, LinkedIn `activityids`, and `stats_unavailable` notes as
+expected states — they are skipped, not surfaced as warnings.
+
+Additional analytics endpoints:
+
+- `GET /analytics/ad-campaigns` — LinkedIn Ads dashboard data from
+  `ad_campaign_snapshots` (written by `linkedin_ads_report`). Per-day `max`
+  aggregation — LinkedIn metrics are cumulative-to-date, so a zeroed
+  scrape must never erase real spend. Snapshots attribute to the team
+  owning the active LinkedIn `SocialAccount`.
+- `GET /analytics/initiatives` + `POST /analytics/initiative-events` —
+  growth-initiative tracking (LinkedIn Page invitation credits): sends
+  recorded as `analytics_events` (`linkedin_page_invite`), impact =
+  `follower_snapshots` delta on the org page account (auto-resolved).
+  Summary models LinkedIn's credit mechanics (Help a547492): monthly pool
+  renews on the 1st, accepted invites refund credits (≤72h), declined/
+  withdrawn stay spent → surfaces sent/accepted/pending/declined,
+  acceptance %, `credits_left`, `monthly_cap`. Events export to the
+  datalake via account-events.
+- `GET /api/v1/meta-growth/readiness` + `POST /api/v1/meta-growth/organic-campaign` —
+  free Meta organic-growth surface (app/api/meta_growth.py): readiness
+  reports connected facebook/instagram/threads accounts and which organic
+  actions are available; organic-campaign schedules owned-account posts.
+  Deliberately organic-only — Meta has no supported Page-invite API and
+  any paid/boost metadata keys are rejected, never silently substituted.
+
+## Notebook-generated reports
+
+Report templates are Jupyter notebooks under `notebooks/reports/`. Beat
+task `notebook_reports.run_notebook_report` papermill-executes them **in
+the worker** (inherits env + `import app.*`), the notebook writes
+html/txt/PNGs + `*.manifest.json` to `notebooks/output/`, and the task
+emails each manifest report (charts as `cid:` inline images). Failure →
+`fallback_to_code` re-runs the equivalent code-path report. The daily
+strategy brief (21:00 EEST) runs this way; `send_email*` accepts
+`attachments=[{name,data,cid,mime}]`.
+
+## Fallback chains (see AGENTS.md for detail)
+
+- DB: D1 → Postgres · Cache: KV → Redis · Vector: Vectorize → Chroma
+- Storage: R2 → MinIO → disk · Text inference: DMR → Workers AI · Images: local Diffusers → Workers AI
+
+## Newsletter endpoints (cover #566; issue publish #620+)
+
+`POST /api/v1/newsletter/cover` — service-token authed (`NEWSLETTER_SERVICE_TOKEN`,
+`X-Service-Token` header), renders a branded PNG cover and uploads it to R2.
+Consumed by the cloudless.gr weekly-newsletter cronjob (`--max-time 240` for
+the render).cloudless.gr side: `src/lib/newsletter-cover.ts` +
+`/api/newsletter/covers/[slug]`.
+
+`POST /api/v1/newsletter/linkedin/issue` — same auth; publishes "The Cloudless
+Build Log" (personal-profile newsletter — LinkedIn binds newsletters to the
+author, documented exception to the business-accounts rule). `browser` picks
+the driver: `auto` = LinkedIn sidecar `:9225` → `linkedin_newsletter_bridge`
+on shared `browser-novnc` :9223 when the sidecar errors/times out (its profile
+hydrates the editor where the sidecar loops on anti-bot). `schedule_iso`
+drives LinkedIn's own Schedule-post picker (real calendar-cell + timepicker
+pointer clicks — text inputs are display-only); `dry_run` stops at the publish
+dialog. Bridge upload takes `file_base64` (no docker cp needed). Weekly cadence
+via n8n `linkedin-newsletter-weekly` (Mon 11:00 Athens). Runbook:
+`.devin/skills/linkedin-newsletter-ops/`.
+
+## Publish quality gate (added 2026-10-15)
+
+Every text post must score **≥80** composite SEO/NLP (`PUBLISH_MIN_SEO_SCORE`,
+0 disables) before `publish_to_platform` — `_enforce_publish_quality` in
+`worker/tasks/publishing.py` runs `apply_publish_gate` (spellcheck → NLP fix →
+SEO score → LLM improve loop, ≤ `PUBLISH_QUALITY_MAX_ITERATIONS`). Below the
+bar or residual gibberish → target `skipped` + Slack alert, no burned retries.
+Verdict cached in `platform_specific.quality_gate` per content SHA-1 (multi-
+target posts check once; edited copy re-checks). Fails open on infra errors.
+Spellcheck is category-aware (`auto_correct_detailed`): error rules apply,
+STYLE/TYPOGRAPHY/REDUNDANCY/`AI_HB_*` skipped (`LANGUAGETOOL_SKIP_CATEGORIES`).
+Media text fields (`apply_media_quality`) correct concurrently + flag gibberish
+on caption/alt_text. Empty-caption posts are skipped before the gate unless
+`platform_specific.media_only == true` (an explicit media-only flag — see
+scheduling-architecture.md).
+
+## CRM lifecycle (added 2026-10-18)
+
+`services/espocrm_client.py` talks to EspoCRM over the internal NodePort
+(`ESPOCRM_BASE_URL`, `X-Api-Key`); the `socialauto` role reads `User` +
+`TargetList`. Loops: `crm_hygiene` (Mon 07:30 — dedupe, losers → Dead +
+audit note, never deletes; `psid.*@messenger.local`/test/self excluded),
+`email_drip` (daily 08:20 — first-approach + renewal via omv SMTP),
+`lead_research` (daily 08:40), `crm_lifecycle` (daily 08:50 — deterministic
+score for every ingress path, hot ≥65 → `POST /Lead/action/convert` with
+`records: {Contact, Account, Opportunity}` under `CRM_CONVERT_ENABLED`;
+`Lead score:` note dedupes, newer reply re-scores), `crm_engagement`
+(every 30min — Dovecot IMAP reply poll → `Reply received` note, msg-id
+dedupe, New/Assigned → In Process, Slack on hits).
+
+## Beat schedule highlights
+
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · account-status reconcile 6h · NC surfaces sync 3h :25 · session heal hourly :20 · promo scan 08:00 · email drip 08:20 · monetization report 08:30 · lead research 08:40 · CRM lifecycle 08:50 · CRM engagement 30min · CRM hygiene Mon 07:30 · company-brain journal 23:45 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily · Telegram agent daily 11:00
+
+## Account-status reconciliation (`account_status_reconcile.reconcile_account_status`)
+
+Beat task (default queue, every 6h) that re-reads **authoritative platform
+truth** instead of trusting the stored `social_accounts.status` flag — the
+WhatsApp row said `active` while the WABA API showed `NOT_VERIFIED`.
+
+- Per-platform probes: Meta Graph `/{account_id}`, WABA phone-number
+  `code_verification_status`, TikTok `creator_info`, LinkedIn `userinfo`,
+  X `users/me`, Telegram `getMe`, Threads Graph `/me`.
+- `meta_data.last_verified_at` + `token_probe_status` stamped each pass —
+  no migration needed (`meta_data` is JSONB).
+- Drift handling: `active→{expired,revoked}` flips status + D1 mirror +
+  Slack alert; `expired/revoked→active` is **demote-only** (never auto-
+  promotes — session health owns that direction). `inconclusive`/`unprobed`
+  results only stamp `last_verify_attempt_at`.
+- CLI diagnostics: `scripts/app_audit.py` normalizes a status table across
+  every connected developer app.
+
+## Owner-gate bridge tools (2026-10-27/28)
+
+- `scripts/wa_verify.py` — WhatsApp `request_code` → dual-poll SMS via ADB
+  `adb.exe` (WSL→Windows) + dovecot mail, then `verify_code`. Rate-limit
+  `2388367`/`2388091` decoded — each retry extends the window.
+- `scripts/linkedin_cm_tool.py` — LinkedIn Community Management API
+  (`264925843`): org posts/comments/socialActions. Stored org token
+  predates approval → re-auth via `LINKEDIN_EXTRA_SCOPES`.
+- `scripts/member_snapshot_tool.py` (linkedin) — connections export via
+  `memberSnapshotData` domain.
+- `scripts/pending_digest.py` — posts the open human-input click-list to
+  Slack on demand.
+- `scripts/espo_leads_tool.py` — EspoCRM Lead CLI (`by-source`/`by-status`/
+  `search`) used for the partner shortlist.
+- `scripts/x_webhook_register.py` — registers the X Account Activity
+  webhook + subscription (OAuth1 user-context).
+- `scripts/harvest_contacts.py` + `scripts/audience_watch.py` — LinkedIn
+  `Connections.csv` → filtered survey audience; watcher attaches drops
+  automatically.
+- `scripts/offer_survey.py` — offer-validation survey campaign (EspoCRM
+  write-back, `/s/{token}` hosted forms).
+- Browser-bridge sessions: `scripts/bridge_sessions.py` checks/seeds
+  platform logins on `browser-novnc:9223` (X seed via `X_WEB_AUTH_TOKEN`).
+
+## Newsletter nurture sidecar warm-up
+
+`scripts/newsletter_nurture.py` now waits (bounded 90s) for the LinkedIn
+sidecar's `browser_connected` before touching leads — cold-start used to
+race the idle-sleep wake and drop connections mid-batch. Dry-run remains
+the default; `--approve` requires explicit batch approval.
+
+## cloudless.gr datalake export (`datalake_export.export_datalake`)
+
+Every 6h, snapshot-overwrites JSON tables in R2 `datalake-bucket` (`lake/socialauto-*`: accounts, posts, post-metrics history, followers, account-insight events, per-team insights-engine output, leads [sha256 email + domain only], 90d web events [UTM only, no IP/UA]). Plus three append/aggregate datasets: `lake/socialauto-edge-metrics/daily.json` (24h per-hostname edge aggregates from Tempo TraceQL — sampled traces, p50/p95/max, errors_4xx/5xx; counts are flagged `sampled:true` at 10% zone sampling), `lake/socialauto-reports/reports.json` (index of every notebook report manifest — subjects + file refs), `lake/socialauto-ops/health.json` (publish-queue state, 7d failed/skipped targets, stale sync accounts). The site's `materialize-datalake-snapshots` ETL turns them into gold sections `socialauto_ops`, `social_engagement`, `social_outliers`, `social_recommendations`, `social_leads`, `social_attribution` for `/admin/analytics/datalake`. Uses `DATALAKE_R2_BUCKET` + `TEMPO_API_URL` (Tempo query API on omv `:3200`) + the same `CLOUDFLARE_API_TOKEN` (verified cross-bucket write). Real-time leads still push via `CLOUDLESS_LEADS_WEBHOOK_URL` → EspoCRM.
+
+Return leg (verified 2026-09-26): the site relays browser web events
+**into** this platform — `POST /api/analytics/event` on cloudless.gr →
+`SOCIALAUTO_WEB_ANALYTICS_URL` (shared secret) → `web_analytics_events`
+table → re-exported to `lake/socialauto-web-events/` on the next 6h tick,
+closing the loop. Verified flowing (contact_submit events land in the
+table and round-trip to the lake).
+
+## cloudless.gr → SocialAuto admin bridge (added 2026-09)
+
+The site's `/admin/postiz` console is backed by this API (not the retired
+Postiz instance): `src/lib/socialauto.ts` in cloudless.gr logs in with
+`POST /api/v1/auth/login` (admin creds from the site's `SOCIALAUTO_*`
+app_config), caches the JWT, and proxies channels/posts/media/analytics for
+`/api/admin/postiz/*` routes. Cloudflare Access on `social.cloudless.gr`
+accepts a **service token** (`any_valid_service_token` include on
+`socialauto-app`) — the site sends `Cf-Access-Client-Id/Secret` when
+`SOCIALAUTO_SERVICE_TOKEN` is configured. `/api/v1/` itself is NOT
+Access-bypassed; auth stays JWT + Access.
+
+## Meta app facts (app `1936126137016578`, business `1558125105019725`)
+
+- Redirect URIs: `/api/v1/auth/oauth/{facebook,instagram,threads}/callback`; data-deletion/deauthorize → `/api/v1/auth/data-deletion`
+- Two IG token flavors: **Instagram Business Login** (`instagram_business_*` scopes, host `graph.instagram.com`) vs **FB-Login-linked** (`instagram_*`, host `graph.facebook.com`). Tokens are NOT interchangeable — debug_token on the wrong host returns "Cannot parse access token".
+- Business verification blocked by 2021 ad-account restriction → Advanced Access unavailable; own-account standard access covers current needs.
+
+## Content strategy (Visibility Era — adopted 2026-09)
+
+Sofia Kakkava's "Visibility Era" framework is encoded in the brand voice so every generated post follows it — no per-workflow prompt forks.
+
+- **DAY 1 — Creator Type**: the owner is an **Expert-led blend** (Expert + Storyteller + Energizer). Stored in `brand_voices.voice_signature` keys `creator_type` / `post_formula` / `style_notes`. `POST /api/v1/ai/generate-content` injects `voice_signature` into the system prompt via `build_brand_system_prompt` (`app/services/brand_compliance.py`) — every n8n workflow + the UI generator picks it up from one place.
+- **Live copy scoring**: `POST /api/v1/ai/nlp-check` runs the deterministic
+  Sofia-rule scorer (`sofia_nlp_score` in plain_english.py — hook, AI-tell
+  blacklist, em dashes, rhythm, specifics, CTA/P.S.) with no AI call; the
+  composer NlpPanel debounce-checks drafts against it.
+- **DAY 2 — 2-Platform Rule** (8-week commitment): `voice_signature.platform_focus` —
+  - **MAIN = LinkedIn** — original content, carousels (Company Page `9c4451bb-…`), Educator posts.
+  - **SECONDARY = Meta** — Instagram `38ddbd44-…`, Facebook Page, Threads `1071dcd5-…` — adapted/cross-posted versions.
+  - **LAST = Twitter/X + TikTok** — opportunistic only (X free-tier quota ~1.5k posts/mo is chronically exhausted; don't schedule into it).
+- **Tools/skills**: `.devin/skills/content-strategy/creator-type-voice/scripts/creator_type.py` (`show`/`quiz`/`apply`/`platforms`/`verify`); `social-profile-update` (DAY 4 audit); `publish-ops` + `scripts/alert_triage.py` (classifies digest alerts → platform-limit/session/config/app-bug); `meta-graph-ops` → `backend/scripts/meta_tool.py` (facebook-business SDK: `accounts`/`debug-token`/`pages`/`insights`); `linkedin-graph-ops` → `backend/scripts/linkedin_tool.py` (linkedin-api-client: `token-inspect`/`access-matrix`/`ad-accounts`); `media-dedup` → `app/services/media_dedup.py` + `scripts/dedup_scan.py` (perceptual-hash media dedup wired into the publish path); `whatsapp-ops` → `scripts/whatsapp_tool.py` (WABA health, phone status, templates); `viber-ops` → `scripts/viber_tool.py` + `app/api/viber.py` + `viber_chatbot.py`; `instagram-graph-ops` → `scripts/instagram_tool.py` (v26 quota/metrics, discovery capability checks); `tiktok-api-ops` → `scripts/tiktok_tool.py` (creator_info, video list, publish status, DMs); `x-api-ops` → `scripts/x_tool.py` (users/me metrics, user lookup, tweet metrics, 402 credits-depleted boundary); `bluesky-ops` → `app/services/bluesky_api.py` + `app/api/bluesky.py` + `scripts/bluesky_tool.py` (AT Protocol: app-password sessions, blob media, richtext facets); `slack-ops` → `scripts/slack_tool.py` (webhook dead/live probes, auth.test, channels/history) + `upload_file_to_slack` (getUploadURLExternal flow); `monetization-ops` → `app/services/monetization.py` (per-platform creator-program thresholds) + `scripts/monetization_tool.py` (live readiness report, follower-trend, days-to-goal).
+
+## n8n workflows (`n8n-workflows/`, 15 total)
+
+All workflows authenticate to social-api via admin **TOTP login**; text generation uses **automatic model routing** (no hardcoded provider/model — `ai/smollm2` was removed, it returned empty content). Re-importing a workflow **deactivates it** in n8n 2.x — republish by ID, then restart n8n.
+
+| Workflow | Trigger | Targets | Tier |
+|---|---|---|---|
+| `cloudless-carousel-pipeline` | every 2 days 19:00 EET + webhook `cloudless-carousel` | LinkedIn Company Page | main |
+| `weekly-cloud-computing-post` | Mon 09:00 | LinkedIn (org account) | main |
+| `marketing-image-generation` | every 24h + webhook `marketing-trigger` | Instagram `cloudless.gr` (CF image + caption → draft/post) | secondary — retargeted from Twitter 2026-09-21 |
+| `socialauto-daily-slack-digest` | daily 09:00 | Slack digest | reporting |
+| ↳ also writes `en/news/updates/socialauto-digest-YYYY-MM-DD` in IntraVox; since 2026-10-25 `Summarize Result` **throws** when a digest existed but the page write failed (silent `create_error` swallowed Oct 18-19 runs — Nextcloud wedge 404s). Missed days cannot be backfilled by the workflow (pageId is always today); Oct 16-19 were restored manually via `intravox_tool.py page-create`. Oct 16-17 produced zero executions — whole dev-box stack was down; containers are `restart: always` so only host-level downtime gaps the trigger. |
+| `{facebook,instagram,linkedin,threads,tiktok,twitter}-{text,image,carousel}-post` | webhook only | per-platform | on-demand |
+
+**n8n MCP server**: `.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py` — 13 tools (`n8n_list_workflows`, `n8n_deploy_workflow`, `n8n_trigger_webhook`, `n8n_audit_workflows`, …). API key covers workflow/credential endpoints; `/executions` returns 403 so execution tools fall back to reading Postgres `execution_data` (rehydrates n8n 2.x deduplicated format). Registered in `.devin/mcp_config.json`.
+
+Other agent MCP servers in `.devin/mcp_config.json`: `metabase` (CognitionAI metabase-mcp-server → SocialAuto Postgres via the metabase container; wrapper `.devin/skills/metabase-ops/scripts/metabase-mcp.sh` sources untracked `.devin/metabase-mcp.env`), `deepwiki` (free remote `https://mcp.deepwiki.com/mcp` — public-repo docs/Q&A), `dmr` (model runner, see `docs/dmr-architecture.md`), `socialauto` (platform API, in-container), `platform`, `playwright`, `tiktok-console`, `telegram` (chigwell/telegram-mcp — Telethon user session for owner-level ops like channel creation; session authorized, creds via its own `.env`), `cloudflare`/`cloudflare-api`/`cloudflare-docs`, `linkedin` (9227), `airbyte` (9228), `nextcloud` (9231 — `nextcloud-mcp-server` container, 110+ tools over cloud.cloudless.gr: Notes/Calendar/Contacts/Files/Deck/Tables/Sharing/News/Mail/Collectives/Talk; BasicAuth app password), `slack`/`slack-cloudless` (mcp-remote), `polar` (hosted `mcp.polar.sh` via `polar-ops/scripts/polar-mcp.sh` — Bearer `POLAR_ACCESS_TOKEN` from `.env`, lazy search_tools/describe_tools/execute_tool discovery).
+
+## Testing & coverage ratchet (added 2026-10-11)
+
+- Backend suite: `tests/unit/` (213+ files) run with `pytest` + `pytest-cov`
+  (`--cov=app`) inside the `social-api` container — ~97% line coverage on
+  `app/`. Batches: #577–#580 (platform services, worker tasks, API
+  modules), #581–#587 (worker publishing, browser_bridge, session_healer,
+  carousel/skool/threads/messengers), plus later tails (lead_emails,
+  gpu_arbiter Redis-command fail-open, link-preview SSRF edges, support
+  report route, content_scorer/web_search/infographic leftovers).
+- **Test policy**: exercise real production code; fakes only at
+  infrastructure boundaries — `httpx`/`AsyncClient` transport seams, Redis
+  (`fakeredis`), browser bridges, Docker CLI, DB session factories, GPU
+  probes. Never mock the business logic under test.
+- Known flake class: tests that read wall-clock hour vs `APP_TIMEZONE`
+  break at midnight boundaries — pin `datetime.now` in the module under
+  test instead.
+- `ruff check` on touched files + `pytest tests/unit -q` before commit
+  (per `AGENTS.md`).
+
+## Agent skills (`.devin/skills/`, mirrored to `.cursor/skills/`)
+
+Operable runbooks with scripts: `n8n-cloudless` (incl. MCP server), `content-strategy`, `publish-ops`, `session-ops`, `session-ops`, `social-profile-update`, `browser-ops`, `tiktok-console-ops`, `messenger-ops`, `instagram-ops`, `instagram-ops`, `social-accounts-manager`, `socialauto-{accounts,brand,profile}`, `social-accounts-manager`, `meta-{oauth-setup,app-review}`, `developer-apps-ops`, `whatsapp-{platform,phone-verify}`, `browser-ops`, `session-ops`, `playwright-ops`, `docker-model-runner`, `omv-ha-mail`, `cloudflare-ops`, `cloudflare-ops` (incl. `cloudflare` MCP server — token/service-token management via `scripts/cf_tokens.py`), `content-strategy`, `social-media-tools-research`, `emoji-generator`, `cloudless-carousel-pipeline`, `social-stack-ops`, `metabase-ops`, `deepwiki-docs`, `devin-cli`, `meta-graph-ops`, `media-dedup`, `linkedin-graph-ops`, `viber-ops`, `instagram-graph-ops`, `tiktok-api-ops`, `x-api-ops`, `bluesky-ops`, `slack-ops`, `monetization-ops`, `polar-ops` (incl. `polar` MCP server — live Polar products/orders/subscriptions), `telegram-channel-ops` (channel admin via bot tools + Telethon user session).

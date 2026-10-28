@@ -92,7 +92,12 @@
 - Fixed en route: `skool_sync.py` shipped undefined `_bridge_nav`/`_bridge_eval`/`json` (mypy ×7 + runtime break) — added helpers following the session_healer bridge pattern before landing #954.
 - Leftovers: none repository-side. Live-stack items remain: restart workers per AGENTS.md after publishing/worker code changes, TikTok sidecar verification still manual.
 
-## 2026-10-27 — Session closeout (post-sweep)
+## Leftovers — 2026-10-27 eod
+- **X_CLIENT_ID/X_CLIENT_SECRET** — not in secret store; add via `secret_store.set('X_CLIENT_ID','…')` + `x_reauth.sh` to fix twitter=expired
+- **WhatsApp phone verify** — `wa_verify.py` (dual-poll ADB/mail) ready; request_code via whatsapp_tool
+- **LinkedIn/X bridge sessions** — 409 busy = shared bridge contention; li_export_request.py + x_oauth_approve.py need one live session each (healer covers)
+- **export_datalake OOM** — fixed by per-table streamed writes (#1014); monitor next 6h beat for a clean run
+- **PR-landing guard** — never push when `git log -1 == origin/master` (empty cherry-pick closes the PR; documented in pr-landing-ops)
 
 - Landed: account-status-reconcile (#986→#993) and nurture-sidecar-warmup (#987→#990); BACKLOG registrations merged (#988). Both LTE issues closed.
 - cloudless.gr: umbrella #2305 landed + subsets closed; dependabot groups merged; #2308 skills+CI-path fix; #2309 links page (kept restored GSC page — PR was reverting); #2310 AI-governance offer draft live on /services.
@@ -163,3 +168,8 @@
 ## Session 2026-10-28 (cont.) — platform-rejection proactivity memorized
 
 - User directive: "we must always be proactive about platform-side rejections" — codified in AGENTS.md (proactivity principle section) + company brain memory ops-platform-rejection-proactivity.
+## Session 2026-10-28 leftovers
+- [ ] X OAuth approve — fresh auth_token needed in .env OR click reauth_urls URL; bridge pin now holds session 600s (PR #1051)
+- [ ] LinkedIn dev portal — grant "Member Data Portability API (Member)" product → li_member_snapshot.py + consent healer auto-harvests connections (PR #1046)
+- [ ] WhatsApp — standard registration via POST /{phone}/register (NOT request_code/verify_code — those are migration API; 2388091 decoded)
+- [ ] heal_consents hourly beat — twitter/linkedin/whatsapp/bridge probes, Slack alerts on state flips (PR #1049 + #1053)
