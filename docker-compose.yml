@@ -37,6 +37,7 @@ x-worker-env: &worker-env
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
   - LANGUAGETOOL_URL=http://stack-ops:8010
+  - LOKI_URL=${LOKI_URL:-http://192.168.1.200:30100}
   # Browser surfaces go through the stack-ops wake proxy (same as social-api):
   # idle-sleep stops these containers after 20min, and direct hostnames have
   # no DNS entry while stopped — every worker-side browser call (session
@@ -2140,6 +2141,18 @@ services:
     restart: always
     <<: *public-dns
 
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: promtail
+    restart: unless-stopped
+    volumes:
+      - ./promtail.yml:/etc/promtail/config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/config.yml
+    networks:
+      - backend
 
 volumes:
   portainer_data: null
