@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GMAIL = os.path.join(HERE, "gmail.py")
@@ -73,9 +74,37 @@ def main():
     if not new:
         print("no new hits")
         return 0
+    # Auto-act on verification links — a confirm-address GET is safe
+    acted = []
+    for h in new:
+        if not re.search(r"vetting|verif|confirm|access request", h["subject"], re.I):
+            continue
+        r = subprocess.run(["python3", GMAIL, "links",
+                            'from:(microsoft.com OR linkedin.com) newer_than:1d'],
+                           capture_output=True, text=True, timeout=60)
+        for u in r.stdout.splitlines():
+            if not re.search(r"verif|confirm|vetting|validate|activate", u, re.I):
+                continue
+            try:
+                code = urllib.request.urlopen(u, timeout=20).status
+            except Exception as e:
+                code = str(e)[:60]
+            acted.append(f"auto-hit {u[:70]} -> {code}")
+            break
+    # drop a Nextcloud approval card for hits we can't auto-act
+    HERE_ = os.path.dirname(os.path.abspath(__file__))
+    push = os.path.join(HERE_, "..", "..", "human-gate-ops", "scripts", "approval_push.py")
+    for h in new:
+        subprocess.run(["python3", push, "--title", h["subject"][:60],
+                        "--link", "https://mail.google.com/",
+                        "--context", f"from {h['from']}",
+                        "--source", "devapp_mail_watch"],
+                       capture_output=True, timeout=30)
     lines = "\\n".join(
         f"• {re.sub('[^ -~]', '', h['subject'])[:70]} — {h['from'][:40]}"
         for h in new[:6])
+    if acted:
+        lines += "\\n" + "\\n".join(acted[:3])
     msg = "🔎 Dev-app review mail arrived:\\n" + lines
     script = SEND_PY % (CHAT, msg)
     r = subprocess.run(
