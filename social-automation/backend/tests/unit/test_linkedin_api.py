@@ -316,7 +316,8 @@ async def test_create_post_success(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_create_post_api_error_403(monkeypatch, client):
-    fake = _FakeAsyncClient(_FakeResponse(403, {"status": 403, "message": "unauthorized"}))
+    fake = _FakeAsyncClient([_FakeResponse(403, {"status": 403, "message": "unauthorized"}),
+                             _FakeResponse(403, {"status": 403, "message": "unauthorized"})])
     monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=60.0: fake)
 
     result = await client.create_post(
@@ -1017,13 +1018,13 @@ async def test_poll_asset_status(client, no_sleep):
 async def test_create_comment_and_delete_post_errors(client):
     import unittest.mock as um
 
-    fake = _FakeAsyncClient(_FakeResponse(403, "no perm"))
+    fake = _FakeAsyncClient([_FakeResponse(403, "no perm"), _FakeResponse(403, "no perm")])
     with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
         mock.return_value = fake
         out = await client.create_comment("urn:li:share:1", "nice", creator_urn="urn:li:person:2")
     assert not out.success and "HTTP 403" in out.error
 
-    fake2 = _FakeAsyncClient(_FakeResponse(404, "gone"))
+    fake2 = _FakeAsyncClient([_FakeResponse(404, "gone"), _FakeResponse(404, "gone")])
     with um.patch("app.services.linkedin_api.httpx.AsyncClient") as mock:
         mock.return_value = fake2
         out = await client.delete_post("urn:li:share:1")
