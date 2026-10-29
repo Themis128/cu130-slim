@@ -6,11 +6,9 @@ step is deferred — recent-window query works without embeddings.
 
     summary = await triage_logs(minutes=15)
 """
-
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
 
 import httpx
@@ -18,6 +16,8 @@ import httpx
 from app.services.loop_harness import llm_call, single_job_prompt
 
 logger = logging.getLogger(__name__)
+
+import os
 
 LOKI = os.environ.get("LOKI_URL", "http://192.168.1.130:3100")
 # broad selector — every service's stdout/stderr lands here
@@ -42,9 +42,9 @@ async def _query_loki(minutes: int) -> list[str]:
             logger.warning("loki %s: %s", r.status_code, r.text[:120])
             return []
     lines = []
-    for stream in r.json().get("data", {}).get("result") or []:
+    for stream in (r.json().get("data", {}).get("result") or []):
         labels = stream.get("stream", {})
-        svc = labels.get("container_name") or labels.get("service_name") or labels.get("service") or labels.get("container") or labels.get("job", "?")
+        svc = labels.get("container_name") or labels.get("service") or labels.get("job", "?")
         for _, line in stream.get("values", []):
             lines.append(f"[{svc}] {line[:200]}")
     return lines[:MAX_LINES]
@@ -58,12 +58,14 @@ async def triage_logs(minutes: int = 15) -> dict[str, Any]:
 
     context = "\n".join(lines)
     prompt = single_job_prompt(
-        "triage these log lines — group by service, flag the top 3 issues with severity (P1/P2/P3) and a one-line cause guess. Max 150 words.",
+        "triage these log lines — group by service, flag the top 3 issues "
+        "with severity (P1/P2/P3) and a one-line cause guess. Max 150 words.",
         context=context,
-        constraint="be terse; no markdown tables; emoji per severity",
-    )
+        constraint="be terse; no markdown tables; emoji per severity")
     try:
-        summary = await llm_call(prompt, expect=lambda t: len(t) > 20, tag="log-triage", model="hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M")
+        summary = await llm_call(
+            prompt, expect=lambda t: len(t) > 20, tag="log-triage",
+            model="docker.io/ai/smollm2:latest")
     except Exception as e:
         summary = f"triage failed: {e}"
     return {"lines": len(lines), "summary": summary}
