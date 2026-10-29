@@ -96,6 +96,7 @@ async def _exec_audit_escalation(db, team_id, action) -> dict:
     if await _already_executed(db, "audit_escalation", key):
         return {"skipped": "already pinged <24h"}
 <<<<<<< HEAD
+<<<<<<< HEAD
     acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram", SocialAccount.status == "active").limit(1))).scalar_one()
     enc = acc.meta_data.get("bot_token_enc")
     tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
@@ -135,6 +136,13 @@ async def _exec_audit_escalation(db, team_id, action) -> dict:
         + "\n".join(emails[:8]))
     return {"pinged": len(emails), "invited": invited}
 >>>>>>> origin/feat/audit-autobook
+=======
+    acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram", SocialAccount.status == "active").limit(1))).scalar_one()
+    enc = acc.meta_data.get("bot_token_enc")
+    tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
+    await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, "📞 Audit requests pending booking:\n" + "\n".join(emails[:8]))
+    return {"pinged": len(emails)}
+>>>>>>> origin/heal/20261028-2233
 
 
 def _exec_platform_focus(action) -> dict:

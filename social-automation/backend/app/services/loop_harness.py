@@ -48,6 +48,7 @@ async def llm_call(
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
+<<<<<<< HEAD
             try:
                 resp = await dmr.call_dmr_chat(prompt, system=system or None, model_override=model)
                 text = resp.get("text") if isinstance(resp, dict) else str(resp)
@@ -65,6 +66,10 @@ async def llm_call(
                     r = await c.post(f"{url}/chat/completions", json={"model": m, "messages": msgs, "max_tokens": 500})
                 d = r.json()
                 text = (d.get("choices") or [{}])[0].get("message", {}).get("content", "")
+=======
+            resp = await dmr.call_dmr_chat(prompt, system=system or None, model_override=model)
+            text = resp.get("text") if isinstance(resp, dict) else str(resp)
+>>>>>>> origin/heal/20261028-2233
         except Exception as e:
             last_err = e
             logger.warning("%s: attempt %d transport error: %s", tag, attempt, e)

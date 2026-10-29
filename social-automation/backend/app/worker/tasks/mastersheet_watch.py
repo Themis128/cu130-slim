@@ -99,7 +99,11 @@ def _classify_delta(old_text: str, new_text: str) -> dict:
     delta = [
         line.lstrip("+ ").strip()
         for line in difflib.unified_diff(old_text.splitlines(), new_text.splitlines(), lineterm="", n=0)
+<<<<<<< HEAD
         if line.startswith("+") and not line.startswith("+++")
+=======
+        if line.startswith("+") and not l.startswith("+++")
+>>>>>>> origin/heal/20261028-2233
     ]
     added = [line for line in delta if len(line) > 2][:50]
     kinds = sorted({k for k, pat in _PATTERNS if any(pat.search(line) for line in added)})

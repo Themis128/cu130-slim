@@ -44,9 +44,7 @@ async def _query_loki(minutes: int) -> list[str]:
     lines = []
     for stream in r.json().get("data", {}).get("result") or []:
         labels = stream.get("stream", {})
-        svc = (labels.get("container_name") or labels.get("service_name")
-               or labels.get("service") or labels.get("container")
-               or labels.get("job", "?"))
+        svc = labels.get("container_name") or labels.get("service_name") or labels.get("service") or labels.get("container") or labels.get("job", "?")
         for _, line in stream.get("values", []):
             lines.append(f"[{svc}] {line[:200]}")
     return lines[:MAX_LINES]
@@ -65,7 +63,11 @@ async def triage_logs(minutes: int = 15) -> dict[str, Any]:
         constraint="be terse; no markdown tables; emoji per severity",
     )
     try:
+<<<<<<< HEAD
         summary = await llm_call(prompt, expect=lambda t: len(t) > 20, tag="log-triage", model="docker.io/ai/smollm2:latest")
+=======
+        summary = await llm_call(prompt, expect=lambda t: len(t) > 20, tag="log-triage", model="hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M")
+>>>>>>> origin/heal/20261028-2233
     except Exception as e:
         summary = f"triage failed: {e}"
     return {"lines": len(lines), "summary": summary}
