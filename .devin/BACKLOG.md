@@ -151,14 +151,148 @@
 
 **External gates**: `:9222` auto-fires on logon (CloudlessDebugChrome task). Viber = paid commercial channel (€115/mo) — decision, not a build.
 
-**Content-quality research applied**: slop-keyword scan, voice constraints, prior-output exclusion, platform-fit (content_guides has limits, unenforced).
+- `n8n-workflows/governed-health-agent.json` live in n8n (id `governed-health-agent`, published, daily 08:30 Athens + webhook `governed-health-agent`). AX Pass pilot: Intent Contract node declares goal/scope/forbidden-actions per run; read-only probes (stack-ops /status + social-api /health); deterministic Evaluate (rules before LLM — loop-engineering discipline); Slack human-gate on DEGRADED/ACTION_NEEDED — agent takes no action itself. Dry-run verified: verdict HEALTHY, 21 services checked.
+- Docker Desktop wedged 3x in ~1h — watchdog self-healed 1, manual restart for 2nd. Chronic-escalation counter added to check #0.
 
-## Session 2026-10-30 — platform + phone + healing closeout
-- Phone: phone-automation-ops skill + phone_ctl.py (cover-lock fix via pm-disable + display-4 detection, unlock seq, Play Store -p deep-links); WA Business profile verified optimal; greeting toggle left as 1 in-app tap (cover gate).
-- Slack alerts swept: n8n-task-runner/cloudflared/promtail bounced; sanitizer f-string brace-backslash bug fixed (content_sanitizer.py:124 — broke every sanitize_post_text import incl. notebook reports + monetization).
-- Skills landed: notebook-lint-ops (nb_lint.py — await-safe cell lint), pr-landing-ops (pr_rescue.py — worktree rebase + generated-file auto-resolve), phone-automation-ops.
-- PR boards: ~10 conflicted PRs rescued/merged; cu130-slim cleared to 1, cloudless.gr to 0 (#2319 closed — content already on main).
-- Agency pipeline verified fully on master (models/api/pipeline/catalog/audit + 3 test files).
+## 2026-10-28 — owner-gate skill push (session closeout)
 
-## Leftovers (unchanged human gates)
-- bsky app password drop, `viber <token>` drop, Meta card confirm, LinkedIn restriction manual check, WA greeting toggle (1 tap), Smart Cover off in Settings→Accessibility.
+- **#786 WhatsApp**: `wa_verify_daemon.py` running (PID /tmp/wa_daemon.log) — hourly request_code retries for 3d + ADB/mail dual-poll + auto verify. Fully unattended.
+- **X reauth**: fresh OAuth URL generated via `reauth_urls.py`; `x_oauth_approve.py` ready. BLOCKER: stored `X_WEB_AUTH_TOKEN` is stale — x.com redirects to onboarding. Needs ONE x.com login on adhoc noVNC (localhost:6085) → then the approve script finishes it. `_bridge_health` healer will Slack-alert the staleness hourly.
+- **LinkedIn org reauth**: fresh OAuth URL generated; shared bridge is TikTok-locked — approve click pending bridge release. LI sidecar session is live (has_session:true) but task-purpose only.
+- **#789 TikTok**: `business.tiktok.com` verified logged in on adhoc browser (localhost:6085) — cert-upload surface staged. Physical: upload ΓΕΜΗ certificate.
+- **#788 Instagram**: staged at login wall — one login bootstrap → `/account/external-url` private-API becomes permanent.
+- **#785 Meta**: facebook-browser-sidecar has NO session (has_session:false) — needs login → business.facebook.com.
+- **#791**: confirmed not API-readable — app-side only.
+- **Approvals**: #784 "approved" · #794 batch size · #793 partner picks · #795 page edits.
+
+## Session 2026-10-28 (cont.) — platform-rejection proactivity memorized
+
+- User directive: "we must always be proactive about platform-side rejections" — codified in AGENTS.md (proactivity principle section) + company brain memory ops-platform-rejection-proactivity.
+## Session 2026-10-28 leftovers
+- [ ] X OAuth approve — fresh auth_token needed in .env OR click reauth_urls URL; bridge pin now holds session 600s (PR #1051)
+- [ ] LinkedIn dev portal — grant "Member Data Portability API (Member)" product → li_member_snapshot.py + consent healer auto-harvests connections (PR #1046)
+- [ ] WhatsApp — standard registration via POST /{phone}/register (NOT request_code/verify_code — those are migration API; 2388091 decoded)
+- [ ] heal_consents hourly beat — twitter/linkedin/whatsapp/bridge probes, Slack alerts on state flips (PR #1049 + #1053)
+
+## 2026-10-28 — residual automation round
+
+- **IG login AUTOMATED** — `session_bootstrap.py` + `rfb-input` proven end-to-end: trusted RFB input fills email/pass, submits, gets real server response. Residual narrowed from "manual login" → "rotate `INSTAGRAM_PASSWORD` secret" (stored pass is stale; IG returns "login information incorrect"). After rotating: `python3 .devin/skills/bridge-session-ops/scripts/session_bootstrap.py instagram --bridge http://localhost:9232`.
+- **rfb.py bug** — missing `import shlex` fixed.
+- **wa_verify_daemon.py** running — WhatsApp fully unattended (hourly retry + ADB/mail poll + auto-verify).
+- **X** — `X_WEB_AUTH_TOKEN` stale (verified via onboarding redirect); no password stored anywhere → stays physical (one x.com login on noVNC).
+- **FB** — live session confirmed on shared bridge (c_user/xs extracted) — business console surface warm.
+- **LinkedIn** — OAuth URL + `LINKEDIN_COOKIE` ready; bridge frees after platform lock releases.
+- **TikTok** — `business.tiktok.com` logged in on adhoc browser; cert upload is the physical step.
+
+## 2026-10-28 — residual automation ceiling (live findings)
+
+- **IG**: proven auto-login path = `session_bootstrap.py` + `rfb-input` — RFB trusted typing fills+submits, real server response. Blocker: stored `INSTAGRAM_PASSWORD` is stale (IG rejects it). Rotate secret → rerun script → done. NOTE: RFB only works on `engagement-browser` (x11vnc :5900), which is contended — the shared bridge cycles platform sessions (skool/facebook/tiktok) and preempts mid-flow. IG `sessionid` is extracted live but never persists to `/app/cookies/` — no jar transplant path to `instagram-private-api`.
+- **X**: OAuth1 (`TWITTER_ACCESS_TOKEN`) AND web cookie both dead (401 + onboarding redirect). No X password stored anywhere → stays physical. OAuth URL ready for the one login.
+- **WA**: `wa_verify_daemon.py` running — fully unattended.
+- **FB**: live session confirmed on bridge (c_user/xs).
+- **rfb.py** gotcha: hardcodes `engagement-browser` — clicks sent to adhoc browser (9232) silently do nothing.
+
+## Session 2026-10-28b — sidecar gate push (verified wins)
+
+- **#784 CLOSED** — Meta e2e verified live: test post published+deleted on
+  cloudless.gr page (116436681562585); subscribed_apps shows messaging webhook
+  fields active on app cloudless_gr (1936126137016578).
+- **#785** — Graph API: business `cloudless.gr` (1558125105019725) is APPROVED,
+  WABA 1073707258453499 ACTIVE. Only leads_retrieval App Review remains
+  (console-only, possibly out of scope).
+- **#786** — WA console explored end-to-end via FB session on adhoc browser:
+  phone Offline/NOT_VERIFIED, username @cloudless.gr RESERVED, dev console has
+  0 required actions, WhatsApp Manager shows payment-method alert (no payment
+  ever per policy). Cloud-API-terms accept not visible — likely bound to the
+  app's WhatsApp product onboarding (app only shows FB-Login-for-Business +
+  Instagram use cases) or WABA-owner identity.
+- **#791** — TikTok inbox readable via cookie-injected adhoc browser:
+  1 pending video share "Cloudless | Managed Cloud" (10/15) + 5 unsupported
+  app-only messages (9/26). Profile view counts allow dup-check before upload.
+- **#788** — DEFINITIVE: all stored IG sessionids dead (login_required /
+  redirect-loop via aiograpi + direct web API); IG session transplants are
+  fingerprint-bound. Only paths: password rotation (stale) or app login.
+- **Bridge fixes**: cleared stale 409 lock via pkill browser-bridge;
+  adhoc browser (9224) accepts /session/cookies injection + free navigate —
+  session transplant works for facebook + tiktok, NOT instagram.
+- **instagram-private-api**: socksio installed (httpx[socks]) + WARP routing
+  via socks5://stack-ops:1080 (warp-proxy needs stack-ops wake path).
+- **mail-code-fetch skill landed** (#1078) — dovecot OTP fetcher + shlex fix.
+
+### Still physical
+- #786: Cloud-API-terms accept (owner, WABA-owner identity) then register+verify_code
+- #788: IG password rotation or mobile-app website edit
+- #789: ΓΕΜΗ cert upload on business.tiktok.com (logged in on adhoc)
+- #785: leads_retrieval review submission if still needed
+- #793/#794/#795: owner replies; X login (no creds anywhere); LinkedIn org
+  re-auth approve click (li_at fingerprint-bound — do NOT transplant)
+
+## Session 2026-10-28 (cont.) — publish-kill root cause: task soft_time_limit
+
+- LinkedIn test publish kept dying mid-flight: `process_publish_queue` had `soft_time_limit: 900` but a LinkedIn org image publish legitimately takes ~15-25min (quality gate → LanguageTool wake → image init/PUT/poll → post → D1 sync). SoftTimeLimitExceeded killed it mid-flow, stranding the row 'processing' — the "wedge" was self-inflicted. 18 kills in logs. Bumped to 2700/3000s, synced to all workers+beat, restarted. Watchdog stale-lock 15→45min to match.
+
+## 2026-10-28 — LinkedIn CM-API upgrade submitted + watchers
+
+- [x] CM-API Standard Tier form filled + submitted via adhoc bridge (app `264925843`) — 100% completion confirmed
+- [x] Screen recording: Playwright walkthrough → mp4 → Nextcloud public share `cloud.cloudless.gr/s/WxFDFGgwnZJSxtd`
+- [x] Reviewer account `linkedin-review@cloudless.gr` (editor, main team) created for app review
+- [x] `devapp_mail_watch` (gmail-ops) — daily 09:05 cron watches Gmail for Microsoft Vetting / LinkedIn review mail → Telegram
+- [x] `qualtrics-ops` skill — QID-keyed Qualtrics fill + `.select-menu` dropdown support
+- [ ] **Open:** OAuth uses client `77tf4oysp8u3fz` ≠ submitted app (`77j8kzfi1a6jn8`). If it's a second app, either submit its upgrade form (needs its Products-tab link) or switch `.env` creds to the approved app once Standard Tier lands.
+- [ ] Watch `baltzakis.themis@gmail.com` for Microsoft Vetting Services verification email
+
+## Session 2026-10-28c — master green-out
+- Backend CI GREEN (run 40707100096): all unit tests + lint + coverage gates.
+- Landed: #1079 synigoros_status task module (missing beat dep, 5 CI fails),
+  #1080 synigoros-ops skill, #1078 mail-code-fetch skill,
+  #1082/#1083/#1085/#1093 coverage tests (synigoros, task tails, _probe
+  branches, consent_healers tails) — restored 99.0/95.3 gates,
+  #1084/#1087/#1088/#1090/#1092 lint fixes (parallel-merge leaks).
+- #1073 closed — corrupted rebase (2,604-file deletion); synigoros skill
+  salvaged separately.
+
+## Session 2026-10-28 (cont.) — LinkedIn post copy discrepancy resolved
+
+- LI post published with template copy (my draft insert carried the cloned row's content_text, not the drafted "cognitive drift" copy). Published version is on-topic + live at urn:li:share:7521213608551292928 — LEFT LIVE (deleting would trail + double-fire for marginal gain).
+- Drafted LI copy survives in the quality-gate version log (13:13Z insert) — reuse as a FOLLOW-UP post instead of correcting the live one.
+- FB/IG/Threads carry correct drafted copy — publish as-written.
+
+## Session 2026-10-28 (cont.) — human-gate automation deep-dive results
+
+- AUTOMATED chain proven for LinkedIn OAuth re-auth: secret_store has LINKEDIN_PASSWORD → POST /login on sidecar:9225 → 2FA required → fetch-code.py reads code from cloudless.gr mail (got 766720) → retry with verification_code.
+- BLOCKER hit: after first failed code retry, LinkedIn escalated to a challengesV2 page with NO code input (device-trust challenge — needs approval in the LinkedIn mobile app or a trusted-device session). This is the same gate the Slack alert flagged. Human: approve the sign-in in the LI app ONCE → device becomes trusted → future re-auths automate via the mail-code chain.
+- X: TWITTER_LOGIN_PASSWORD + X_WEB_AUTH_TOKEN exist in secret_store → bridge x.com login + seed-x fully automatable (not yet run).
+- TikTok cert: ~/Downloads/cert.pdf found; sidecar /business-verification/fill automates fields; upload+submit is manual-by-design in sidecar code.
+- WhatsApp: wa_verify_daemon fully automated, ADB reads SMS; rate-limited until 02:30Z.
+- Sidecars expose /debug/navigate + /debug/eval — generic browser-drive surface (LinkedIn 9225, TikTok 9224, FB 9226, bridge 9223 w/ 'expression' field).
+
+## 2026-10-29 — gate-capture + disk-heal + billing-guard architecture
+
+**human-gate-capture-ops** (new) — every residual human input terminates at
+`gate_capture.py` (15-min cron):
+- **creds**: `bsky/viber/whatsapp/meta <secret>` via Telegram msg to the bot,
+  or `*.txt` in Downloads → provisioned + file shredded
+- **sessions**: `*_harvest.py` pulls live browser creds via CDP
+  (bsky.app→app-pw mint, webadmin.viber.com→token, business.facebook.com→sysuser token)
+- **probes**: `_waba_watch` polls payment state → pings on change
+- **floor tools**: `viber_phone_capture.py` (ADB uiautomator→token),
+  `meta_payment_helper.py` (CDP billing fill, env-only card, submit stays manual)
+
+**consent-root-ops** additions — `cdp_ensure.py` (multi-path :9222 launcher),
+`install-chromedebug-task.ps1` (current-user logon task, no admin).
+start-chrome-debug.bat already in Windows Startup.
+
+**cf-billing-ops** — `observability_guard.py` (daily): forces obs off/5% on
+all workers, pings cancel-steps Nov 20→Dec 1, `obs_cancel.py` auto-clicks
+the dashboard cancel via CDP at T-4d, `ack` silences.
+
+**omv sda1 disk** — `omv-disk-prune.yml`: diagnose_only audit (proved k3s
+innocent — real consumer: docker-cache blobs 20G, NAS-Backup 11G, runner-work
+7G), targeted prunes reclaimed 94G→69G (82%→60%), weekly Sun-04:20 auto-heal.
+
+**Bluesky** — `bsky_claim_handle.py` claimed `cloudless.gr` on the wired
+account via _atproto DNS verification (no password needed).
+
+**Audit auto-booking** — `datalake_executor.audit_escalation` auto-emails
+requesters the self-book link (chatbot's cal APIs); per-email audit_invite
+dedup. Cal.com→google-calendar fallback merged (#2316).
