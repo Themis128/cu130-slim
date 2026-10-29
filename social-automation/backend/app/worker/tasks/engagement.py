@@ -53,6 +53,18 @@ async def _run(limit: int):
             c.scored = True
         await db.commit()
 
+        # auto-approve repost actions scoring >= the gate threshold — high-
+        # confidence reposts skip the human review queue (post_autoapprove pattern)
+        hi = (await db.execute(
+            select(EngagementAction).where(
+                EngagementAction.action == "repost",
+                EngagementAction.status == "pending_human_gate",
+                EngagementAction.score >= 8.0))).scalars().all()
+        for a in hi:
+            a.status = "approved"
+        if hi:
+            await db.commit()
+
         # 2. draft 3C comments for gated comment actions
         drafts_needed = (
             (
