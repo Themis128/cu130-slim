@@ -164,17 +164,16 @@ async def _dmr_health() -> str:
 
 
 async def _try_bridge_reauth(team_id: str) -> str:
-    """Bounded self-heal: fire ONE bridge approve attempt per beat run.
-    The shared session frees between hourly runs — the approve lands on
-    whichever run finds it free, zero user input. Bridge URL +
-    callback code are generated fresh each attempt."""
+    """Self-heal: drive the X consent on the adhoc bridge (:9232/adhoc),
+    which is a dedicated session slot — no shared-novnc 409 contention.
+    Seeds the stored X cookies (X_WEB_AUTH_TOKEN/X_WEB_CT0), navigates
+    the fresh authorize URL, ticks the trust checkbox, then fires the
+    trusted /session/click on Authorize — the exact flow that delivers
+    code -> callback -> active."""
     import os
-    bridge = os.environ.get("BROWSER_BRIDGE_URL",
-                            "http://browser-novnc:9223")
-    stackops = os.environ.get("STACK_OPS_URL", "http://stack-ops:8787")
-    # generate fresh auth URL via the api's own authorize endpoint
+    bridge = os.environ.get("BROWSER_ADHOC_URL",
+                            "http://browser-novnc-adhoc:9224")
     try:
-        # build the authorize URL inline — same PKCE+state the api does
         import base64 as _b64
         import hashlib as _hash
         import secrets as _sec
@@ -195,24 +194,35 @@ async def _try_bridge_reauth(team_id: str) -> str:
                      "offline.access dm.read dm.write like.write like.read "
                      "follows.write bookmark.read",
             "code_challenge": cc, "code_challenge_method": "S256"})
-        if not auth_url:
-            return "still-expired (no-auth-url)"
-        import json as _json
-        async with httpx.AsyncClient(timeout=20) as c:
-            await c.post(f"{stackops}/keepawake/browser-novnc?ttl=600")
-            nav = await c.post(f"{bridge}/session/evaluate",
-                               json={"expression": f"location.href={_json.dumps(auth_url)}"})
-            if nav.status_code == 409:
-                return "still-expired (bridge-409)"
+        cookies = [{"name": "auth_token",
+                    "value": os.environ.get("X_WEB_AUTH_TOKEN", ""),
+                    "domain": ".x.com", "path": "/"},
+                   {"name": "ct0",
+                    "value": os.environ.get("X_WEB_CT0", ""),
+                    "domain": ".x.com", "path": "/"}]
+        cookies = [c for c in cookies if c["value"]]
+        async with httpx.AsyncClient(timeout=30) as c:
+            await c.post(f"{bridge}/session/start", json={"platform": "twitter"})
+            await asyncio.sleep(2)
+            if cookies:
+                await c.post(f"{bridge}/session/seed", json={"cookies": cookies})
+            await c.post(f"{bridge}/session/evaluate",
+                         json={"expression": 'location.href="https://x.com"'})
             await asyncio.sleep(5)
-            click = await c.post(f"{bridge}/session/evaluate", json={"expression":
-                "(()=>{const b=[...document.querySelectorAll('input[type=submit],button')]"
-                ".find(e=>/authoriz|approve|allow/i.test(e.innerText||e.value||''));"
-                "b&&b.click();return b?'clicked':'no-btn'})()"})
+            await c.post(f"{bridge}/session/evaluate",
+                         json={"expression": f"location.href={__import__('json').dumps(auth_url)}"})
+            await asyncio.sleep(7)
+            # trust checkbox → enables Authorize
+            await c.post(f"{bridge}/session/click",
+                         json={"selector": "[role=checkbox]"})
+            await asyncio.sleep(2)
+            click = await c.post(f"{bridge}/session/click",
+                                 json={"selector": "button:has-text('Authorize')"})
             return (f"approve-fired "
-                    f"{click.json() if click.status_code==200 else click.status_code}")
+                    f"{click.json() if click.status_code == 200 else click.status_code}")
     except Exception as e:
         return f"still-expired ({type(e).__name__})"
+
 
 
 @celery_app.task(name="app.worker.tasks.consent_healers.heal_consents")
