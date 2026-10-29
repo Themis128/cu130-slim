@@ -159,9 +159,12 @@ class LinkedInAPIClient:
         }
         if link_url:
             share_content["shareMediaCategory"] = "ARTICLE"
-            share_content["media"] = [{
-                "status": "READY", "originalUrl": link_url,
-            }]
+            share_content["media"] = [
+                {
+                    "status": "READY",
+                    "originalUrl": link_url,
+                }
+            ]
         else:
             share_content["shareMediaCategory"] = "NONE"
         return {
@@ -885,8 +888,7 @@ class LinkedInAPIClient:
             if resp.status_code in (403, 426):
                 # Dev Tier: legacy v2 socialActions comments
                 v2_url = f"{LINKEDIN_V2_BASE}/socialActions/{encoded}/comments"
-                v2 = {"actor": creator_urn, "object": post_urn,
-                      "message": {"text": text[:MAX_COMMENTARY_CHARS]}}
+                v2 = {"actor": creator_urn, "object": post_urn, "message": {"text": text[:MAX_COMMENTARY_CHARS]}}
                 resp = await client.post(v2_url, headers=self._headers(), json=v2)
             if resp.status_code >= 400:
                 self._log_api_error(url, resp)
@@ -896,8 +898,7 @@ class LinkedInAPIClient:
                 )
             comment_id = unquote(resp.headers.get("x-restli-id", "") or "")
             if not comment_id:
-                comment_id = (resp.json().get("id")
-                              or resp.headers.get("location", "").rsplit("/", 1)[-1])
+                comment_id = resp.json().get("id") or resp.headers.get("location", "").rsplit("/", 1)[-1]
             return LinkedInPostResult(
                 success=True,
                 platform_post_id=comment_id,

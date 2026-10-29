@@ -52,6 +52,7 @@ async def test_org_stats_batch_maps_found_urns_and_marks_the_rest():
 async def test_org_post_discovery_stops_at_max_pages():
     """Paging stops at max_pages even when the API reports more posts."""
     now_ms = int(datetime.now(UTC).timestamp() * 1000)
+
     def page(i):
         return _resp(
             200,
@@ -60,6 +61,7 @@ async def test_org_post_discovery_stops_at_max_pages():
                 "paging": {"total": 10_000},
             },
         )
+
     client = SimpleNamespace(get=AsyncMock(side_effect=[page(1), page(2), page(3)]))
 
     out = await A._list_org_post_urns(

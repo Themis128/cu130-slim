@@ -19,6 +19,7 @@ Commands:
 Env used: WHATSAPP_ACCESS_TOKEN, WHATSAPP_BUSINESS_ACCOUNT_ID,
 WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_ID. Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,6 +60,7 @@ def _graph_get(path: str, **params) -> dict:
     if "error" in data:
         raise SystemExit(json.dumps(data["error"], indent=2))
     return data
+
 
 def _graph_post(path: str, **params) -> dict:
     import requests
@@ -137,10 +139,7 @@ def cmd_templates() -> None:
         print("(no message templates on the WABA)")
     for t in rows:
         rej = f" rejected={t['rejected_reason']}" if t.get("rejected_reason") else ""
-        print(
-            f"{t.get('name')}\t{t.get('status')}\t{t.get('category')}\t"
-            f"{t.get('language')}{rej}"
-        )
+        print(f"{t.get('name')}\t{t.get('status')}\t{t.get('category')}\t{t.get('language')}{rej}")
 
 
 def cmd_waba() -> None:

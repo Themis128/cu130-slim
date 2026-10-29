@@ -19,6 +19,7 @@ Pure-function core (``compute_survey_signals`` / ``pick_actions``) is
 unit-testable without a DB; ``build_signals``/``apply_signals`` are the async
 boundaries.
 """
+
 from __future__ import annotations
 
 import re
@@ -42,9 +43,40 @@ from app.services.monetization import PLATFORM_PROGRAMS
 # ── Signal extraction ────────────────────────────────────────────────────────
 
 _STOPWORDS = {
-    "the", "a", "an", "and", "or", "for", "to", "of", "in", "on", "is", "it",
-    "my", "our", "we", "i", "that", "this", "with", "at", "be", "have", "has",
-    "not", "no", "yes", "the", "ena", "kai", "to", "th", "thn", "gia", "se",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "for",
+    "to",
+    "of",
+    "in",
+    "on",
+    "is",
+    "it",
+    "my",
+    "our",
+    "we",
+    "i",
+    "that",
+    "this",
+    "with",
+    "at",
+    "be",
+    "have",
+    "has",
+    "not",
+    "no",
+    "yes",
+    "the",
+    "ena",
+    "kai",
+    "to",
+    "th",
+    "thn",
+    "gia",
+    "se",
 }
 
 # Questions whose free-text answers carry content fuel
@@ -112,8 +144,7 @@ def compute_funnel_signals(rows: list[dict]) -> dict[str, Any]:
         d["clicks"] += int(r.get("clicks") or 0)
         d["leads"] += int(r.get("leads") or 0)
     best = max(out.items(), key=lambda kv: kv[1]["leads"], default=None)
-    return {"platform_funnels": out,
-            "best_converting": best[0] if best else None}
+    return {"platform_funnels": out, "best_converting": best[0] if best else None}
 
 
 def compute_ad_signals(daily: list[dict]) -> dict[str, Any]:
@@ -137,8 +168,7 @@ def compute_engagement_signals(rows: list[dict]) -> dict[str, Any]:
         p = r.get("platform") or "?"
         per.setdefault(p, []).append(float(r.get("engagement_rate") or 0))
         if float(r.get("engagement_rate") or 0) > top["engagement_rate"]:
-            top = {"platform": p, "engagement_rate": float(r["engagement_rate"]),
-                   "post_id": r.get("post_id")}
+            top = {"platform": p, "engagement_rate": float(r["engagement_rate"]), "post_id": r.get("post_id")}
     return {
         "platform_engagement": {p: round(sum(v) / len(v), 4) for p, v in per.items()},
         "top_post": top if top["platform"] else None,
@@ -164,9 +194,7 @@ def compute_growth_signals(snaps: list[dict]) -> dict[str, Any]:
         days = max(1, (t1 - t0).days)
         per_week = round((f1 - f0) * 7.0 / days, 1)
         gate = None
-        for metric, _label, thr, _src in (
-            PLATFORM_PROGRAMS.get(plat) or {}
-        ).get("criteria", []):
+        for metric, _label, thr, _src in (PLATFORM_PROGRAMS.get(plat) or {}).get("criteria", []):
             if metric == "followers" and isinstance(thr, int) and f1 < thr:
                 gap = thr - f1
                 eta = round(gap / (per_week / 7)) if per_week and per_week > 0 else None
@@ -205,174 +233,228 @@ def pick_actions(signals: dict[str, Any]) -> list[dict[str, Any]]:
     actions: list[dict[str, Any]] = []
     best = signals.get("best_converting")
     if best:
-        actions.append({
-            "type": "platform_focus", "platform": best,
-            "reason": f"{best} funnels the most leads — weight next posts there",
-        })
+        actions.append(
+            {
+                "type": "platform_focus",
+                "platform": best,
+                "reason": f"{best} funnels the most leads — weight next posts there",
+            }
+        )
     for src, n in signals.get("lead_sources", [])[:2]:
-        actions.append({
-            "type": "lead_source", "source": src, "volume": n,
-            "reason": f"{src} produced {n} leads (30d) — keep feeding it",
-        })
+        actions.append(
+            {
+                "type": "lead_source",
+                "source": src,
+                "volume": n,
+                "reason": f"{src} produced {n} leads (30d) — keep feeding it",
+            }
+        )
     for camp, c in (signals.get("ad_campaigns") or {}).items():
         if c.get("cpl") is not None and c["cpl"] > 30:
-            actions.append({
-                "type": "ad_efficiency", "campaign": camp, "cpl": c["cpl"],
-                "reason": f"{camp} CPL €{c['cpl']:.0f} — over the €30 LinkedIn benchmark",
-            })
+            actions.append(
+                {
+                    "type": "ad_efficiency",
+                    "campaign": camp,
+                    "cpl": c["cpl"],
+                    "reason": f"{camp} CPL €{c['cpl']:.0f} — over the €30 LinkedIn benchmark",
+                }
+            )
     for plat, g in (signals.get("growth") or {}).items():
         if g.get("gate") and g["gate"].get("eta_days"):
-            actions.append({
-                "type": "monetization_eta", "platform": plat,
-                "gap": g["gate"]["gap"], "eta_days": g["gate"]["eta_days"],
-                "reason": f"{plat} needs {g['gate']['gap']} more followers — ~{g['gate']['eta_days']}d at current pace",
-            })
+            actions.append(
+                {
+                    "type": "monetization_eta",
+                    "platform": plat,
+                    "gap": g["gate"]["gap"],
+                    "eta_days": g["gate"]["eta_days"],
+                    "reason": f"{plat} needs {g['gate']['gap']} more followers — ~{g['gate']['eta_days']}d at current pace",
+                }
+            )
     for plat, rate in (signals.get("platform_engagement") or {}).items():
         if rate > 0.05:
-            actions.append({
-                "type": "engagement_high", "platform": plat, "rate": rate,
-                "reason": f"{plat} at {rate:.1%} engagement — boost reach there",
-            })
+            actions.append(
+                {
+                    "type": "engagement_high",
+                    "platform": plat,
+                    "rate": rate,
+                    "reason": f"{plat} at {rate:.1%} engagement — boost reach there",
+                }
+            )
     ef = signals.get("email_funnel") or {}
     for kind, d in ef.items():
         if d.get("sent") and d.get("open_rate", 0) < 0.2:
-            actions.append({
-                "type": "email_deliverability", "kind": kind, "open_rate": d["open_rate"],
-                "reason": f"{kind} open rate {d['open_rate']:.0%} — subject lines or list hygiene",
-            })
+            actions.append(
+                {
+                    "type": "email_deliverability",
+                    "kind": kind,
+                    "open_rate": d["open_rate"],
+                    "reason": f"{kind} open rate {d['open_rate']:.0%} — subject lines or list hygiene",
+                }
+            )
     for word, n in signals.get("pain_topics", [])[:3]:
-        actions.append({
-            "type": "content_topic", "topic": word, "mentions": n,
-            "reason": f"'{word}' showed up {n}x in survey pain answers",
-        })
+        actions.append(
+            {
+                "type": "content_topic",
+                "topic": word,
+                "mentions": n,
+                "reason": f"'{word}' showed up {n}x in survey pain answers",
+            }
+        )
     if signals.get("audit_yes"):
-        actions.append({
-            "type": "audit_escalation",
-            "emails": signals["audit_yes"],
-            "reason": f"{len(signals['audit_yes'])} audit request(s) pending booking",
-        })
+        actions.append(
+            {
+                "type": "audit_escalation",
+                "emails": signals["audit_yes"],
+                "reason": f"{len(signals['audit_yes'])} audit request(s) pending booking",
+            }
+        )
     if signals.get("price_anchor_median"):
-        actions.append({
-            "type": "price_signal",
-            "median": signals["price_anchor_median"],
-            "reason": "median monthly worth — feed the retainer band",
-        })
+        actions.append(
+            {
+                "type": "price_signal",
+                "median": signals["price_anchor_median"],
+                "reason": "median monthly worth — feed the retainer band",
+            }
+        )
     for obj, n in signals.get("top_objections", [])[:2]:
-        actions.append({
-            "type": "objection_copy", "objection": obj, "mentions": n,
-            "reason": "top hesitation → write objection-handling copy",
-        })
+        actions.append(
+            {
+                "type": "objection_copy",
+                "objection": obj,
+                "mentions": n,
+                "reason": "top hesitation → write objection-handling copy",
+            }
+        )
     if signals.get("coaching_latest"):
         cl = signals["coaching_latest"]
-        actions.append({
-            "type": "coaching_prime",
-            "topic": cl.get("topic", ""),
-            "due": cl.get("homework_due", ""),
-            "reason": "coaching action → map outcomes onto offer/survey surfaces",
-        })
+        actions.append(
+            {
+                "type": "coaching_prime",
+                "topic": cl.get("topic", ""),
+                "due": cl.get("homework_due", ""),
+                "reason": "coaching action → map outcomes onto offer/survey surfaces",
+            }
+        )
     return actions
 
 
 # ── Async boundaries ─────────────────────────────────────────────────────────
 
+
 async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     """Pull every funnel source the lake exports and merge the signals."""
     since = datetime.now(UTC) - timedelta(days=30)
     responses = (
-        await db.execute(
-            select(SurveyResponse.answers)
-            .where(SurveyResponse.team_id == team_id)
-            .order_by(desc(SurveyResponse.submitted_at))
-            .limit(200)
-        )
-    ).scalars().all()
+        (await db.execute(select(SurveyResponse.answers).where(SurveyResponse.team_id == team_id).order_by(desc(SurveyResponse.submitted_at)).limit(200)))
+        .scalars()
+        .all()
+    )
     leads = (
-        await db.execute(
-            text(
-                "SELECT source::text AS source, interest::text AS interest,"
-                " company_size::text AS company_size"
-                " FROM leads WHERE team_id=:t AND created_at >= :s"
-            ),
-            {"t": team_id, "s": since},
+        (
+            await db.execute(
+                text(
+                    "SELECT source::text AS source, interest::text AS interest,"
+                    " company_size::text AS company_size"
+                    " FROM leads WHERE team_id=:t AND created_at >= :s"
+                ),
+                {"t": team_id, "s": since},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     funnel_rows = (
-        await db.execute(
-            text(
-                "SELECT payload->>'utm_source' AS platform,"
-                " count(*) FILTER (WHERE event_name='page_view') AS views,"
-                " count(*) FILTER (WHERE event_name LIKE '%\\_click') AS clicks,"
-                " count(*) FILTER (WHERE event_name='contact_submit') AS leads"
-                " FROM web_analytics_events"
-                " WHERE payload ? 'utm_source' AND occurred_at >= :s"
-                " GROUP BY 1"
-            ),
-            {"s": since},
+        (
+            await db.execute(
+                text(
+                    "SELECT payload->>'utm_source' AS platform,"
+                    " count(*) FILTER (WHERE event_name='page_view') AS views,"
+                    " count(*) FILTER (WHERE event_name LIKE '%\\_click') AS clicks,"
+                    " count(*) FILTER (WHERE event_name='contact_submit') AS leads"
+                    " FROM web_analytics_events"
+                    " WHERE payload ? 'utm_source' AND occurred_at >= :s"
+                    " GROUP BY 1"
+                ),
+                {"s": since},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     ad_daily = (
-        await db.execute(
-            select(AdDailyMetric.campaign_name, AdDailyMetric.spend_eur,
-                   AdDailyMetric.leads, AdDailyMetric.impressions)
-            .where(AdDailyMetric.team_id == team_id, AdDailyMetric.day >= since.date())
+        (
+            await db.execute(
+                select(AdDailyMetric.campaign_name, AdDailyMetric.spend_eur, AdDailyMetric.leads, AdDailyMetric.impressions).where(
+                    AdDailyMetric.team_id == team_id, AdDailyMetric.day >= since.date()
+                )
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     post_metrics = (
-        await db.execute(
-            select(PostAnalyticsSnapshot.platform,
-                   PostAnalyticsSnapshot.engagement_rate,
-                   PostAnalyticsSnapshot.post_id)
-            .where(PostAnalyticsSnapshot.team_id == team_id,
-                   PostAnalyticsSnapshot.captured_at >= since)
+        (
+            await db.execute(
+                select(PostAnalyticsSnapshot.platform, PostAnalyticsSnapshot.engagement_rate, PostAnalyticsSnapshot.post_id).where(
+                    PostAnalyticsSnapshot.team_id == team_id, PostAnalyticsSnapshot.captured_at >= since
+                )
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     followers = (
-        await db.execute(
-            select(FollowerSnapshot.platform, FollowerSnapshot.followers,
-                   FollowerSnapshot.captured_at)
-            .where(FollowerSnapshot.team_id == team_id,
-                   FollowerSnapshot.captured_at >= since)
-            .order_by(FollowerSnapshot.captured_at)
+        (
+            await db.execute(
+                select(FollowerSnapshot.platform, FollowerSnapshot.followers, FollowerSnapshot.captured_at)
+                .where(FollowerSnapshot.team_id == team_id, FollowerSnapshot.captured_at >= since)
+                .order_by(FollowerSnapshot.captured_at)
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     email_counts = (
-        await db.execute(
-            text(
-                "SELECT c.kind::text AS kind, r.status::text AS status, count(*) AS n"
-                " FROM email_recipients r JOIN email_campaigns c ON c.id=r.campaign_id"
-                " WHERE r.team_id=:t GROUP BY 1,2"
-            ),
-            {"t": team_id},
+        (
+            await db.execute(
+                text(
+                    "SELECT c.kind::text AS kind, r.status::text AS status, count(*) AS n"
+                    " FROM email_recipients r JOIN email_campaigns c ON c.id=r.campaign_id"
+                    " WHERE r.team_id=:t GROUP BY 1,2"
+                ),
+                {"t": team_id},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
 
     coaching = (
-        await db.execute(
-            text(
-                "SELECT occurred_at, meta_data FROM analytics_events"
-                " WHERE team_id=:t AND event_type='coaching_action'"
-                " ORDER BY occurred_at DESC LIMIT 10"
-            ),
-            {"t": team_id},
+        (
+            await db.execute(
+                text(
+                    "SELECT occurred_at, meta_data FROM analytics_events WHERE team_id=:t AND event_type='coaching_action' ORDER BY occurred_at DESC LIMIT 10"
+                ),
+                {"t": team_id},
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     signals = compute_survey_signals([{"answers": a} for a in responses])
     signals.update(compute_lead_signals([dict(r) for r in leads]))
     signals.update(compute_funnel_signals([dict(r) for r in funnel_rows]))
     signals.update(compute_engagement_signals([dict(r) for r in post_metrics]))
     signals.update(compute_growth_signals([dict(r) for r in followers]))
     signals.update(compute_email_signals([dict(r) for r in email_counts]))
-    signals.update(compute_ad_signals([
-        {"campaign": r["campaign_name"], "spend_eur": r["spend_eur"],
-         "leads": r["leads"], "impressions": r["impressions"]}
-        for r in ad_daily
-    ]))
+    signals.update(
+        compute_ad_signals(
+            [{"campaign": r["campaign_name"], "spend_eur": r["spend_eur"], "leads": r["leads"], "impressions": r["impressions"]} for r in ad_daily]
+        )
+    )
     if coaching:
         latest = coaching[0]
-        signals["coaching"] = [
-            {"occurred_at": str(r["occurred_at"]), **(r["meta_data"] or {})}
-            for r in coaching
-        ]
+        signals["coaching"] = [{"occurred_at": str(r["occurred_at"]), **(r["meta_data"] or {})} for r in coaching]
         signals["coaching_latest"] = dict(latest["meta_data"] or {})
     signals["team_id"] = str(team_id)
     signals["computed_at"] = datetime.now(UTC).isoformat()
@@ -387,29 +469,25 @@ async def apply_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     and is the audit trail for why downstream actions fired.
     """
     signals = await build_signals(db, team_id)
-    db.add(AnalyticsEvent(
-        team_id=team_id,
-        event_type="datalake_signals",
-        platform="datalake",
-        occurred_at=datetime.now(UTC),
-        meta_data=signals,
-    ))
+    db.add(
+        AnalyticsEvent(
+            team_id=team_id,
+            event_type="datalake_signals",
+            platform="datalake",
+            occurred_at=datetime.now(UTC),
+            meta_data=signals,
+        )
+    )
     await db.commit()
     return signals
 
 
 def render_slack_lines(signals: dict[str, Any]) -> list[str]:
     """Human-readable summary for the alert channel."""
-    lines = [
-        f"*datalake signals* — {signals.get('responses', 0)} survey resp · "
-        f"{signals.get('lead_volume_30d', 0)} leads/30d"
-    ]
+    lines = [f"*datalake signals* — {signals.get('responses', 0)} survey resp · {signals.get('lead_volume_30d', 0)} leads/30d"]
     if signals.get("best_converting"):
         f = (signals.get("platform_funnels") or {}).get(signals["best_converting"], {})
-        lines.append(
-            f"• best funnel: {signals['best_converting']} "
-            f"({f.get('views', 0)} views → {f.get('leads', 0)} leads)"
-        )
+        lines.append(f"• best funnel: {signals['best_converting']} ({f.get('views', 0)} views → {f.get('leads', 0)} leads)")
     for src, n in (signals.get("lead_sources") or [])[:2]:
         lines.append(f"• leads from {src}: {n}")
     for camp, c in (signals.get("ad_campaigns") or {}).items():
@@ -432,7 +510,7 @@ def render_slack_lines(signals: dict[str, Any]) -> list[str]:
         lines.append(f"• price anchor: €{signals['price_anchor_median']:.0f}/mo median")
     if signals.get("coaching_latest"):
         cl = signals["coaching_latest"]
-        lines.append(f"• coaching: {cl.get('topic','')} — due {cl.get('homework_due','')}")
+        lines.append(f"• coaching: {cl.get('topic', '')} — due {cl.get('homework_due', '')}")
     for o, n in (signals.get("top_objections") or [])[:2]:
         lines.append(f"• objection ({n}x): {o[:60]}")
     return lines
