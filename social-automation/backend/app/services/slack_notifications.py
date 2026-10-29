@@ -429,8 +429,9 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     """Route an alert to the severity's private admin channel.
     'critical' also posts to ops (continue-matching — complete record)."""
     from sqlalchemy import select
+
     from app.models.social_account import SocialAccount
-    from app.services.telegram_agent import _bot_token, TelegramAPIClient
+    from app.services.telegram_agent import TelegramAPIClient, _bot_token
     from app.worker._async import task_session
     chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
     try:
