@@ -25,9 +25,7 @@ from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-BRIDGE = os.environ.get(
-    "ADHOC_BRIDGE_URL", os.environ.get("BROWSER_BRIDGE_URL", "http://stack-ops:9223")
-)
+BRIDGE = os.environ.get("ADHOC_BRIDGE_URL", os.environ.get("BROWSER_BRIDGE_URL", "http://stack-ops:9223"))
 TRACK_URL = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"
 MAIL = os.environ.get("SYNIGOROS_MAIL", "")
 KPA = os.environ.get("SYNIGOROS_KPA", "")
@@ -78,8 +76,7 @@ def _poll_inner() -> dict:
             "(()=>{const m=document.getElementById('webMail');m.value=%s;"
             "m.dispatchEvent(new Event('input',{bubbles:true}));"
             "const c=document.getElementById('webCode');c.value=%s;"
-            "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
-            % (json.dumps(MAIL), json.dumps(KPA))
+            "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()" % (json.dumps(MAIL), json.dumps(KPA))
         )
         _bridge("/session/click", {"selector": "button", "text": "Ταυτοποίηση"})
         # bounded poll for the status view or the explicit failure text —
@@ -106,9 +103,7 @@ def _poll_inner() -> dict:
     )
     result = json.loads(out)
     if result.get("kpa") and result["kpa"] != KPA:
-        raise RuntimeError(
-            f"cached session showed ΚΠΑ {result['kpa']}, expected {KPA} — reset required"
-        )
+        raise RuntimeError(f"cached session showed ΚΠΑ {result['kpa']}, expected {KPA} — reset required")
     if not result.get("status"):
         raise RuntimeError("status extraction empty — challenge or transition state")
     return result

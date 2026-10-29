@@ -182,20 +182,19 @@ CONTENT_WORKFLOW_CONFIGS: dict[str, dict] = {
 # Video has no Workers AI model — ComfyUI Wan/LTX stays the only path.
 CF_TASK_MODELS = {
     # carousel backgrounds + static images — schnell: 4 steps, proven
-    "carousel_bg":  CF_TXT2IMG_FREE,
+    "carousel_bg": CF_TXT2IMG_FREE,
     "static_image": CF_TXT2IMG_FREE,
     # infographics / posters — same schnell; sharper prompts matter more
-    "infographic":  CF_TXT2IMG_FREE,
-    "poster":       CF_TXT2IMG_FREE,
+    "infographic": CF_TXT2IMG_FREE,
+    "poster": CF_TXT2IMG_FREE,
     # image enhancement (resize/style-transfer of existing art)
-    "img2img":      CF_IMG2IMG_FREE,
+    "img2img": CF_IMG2IMG_FREE,
     # video — no Workers AI model; ComfyUI Wan2.2/LTX is the only path
-    "video":        None,
+    "video": None,
     # text for each task
-    "copy":         CF_TEXT_FREE,
-    "nlp_short":    CF_TEXT_CHEAP,
-    "caption":      CF_TEXT_CHEAP,
-    "embeddings":   CF_EMBEDDING_MULTILINGUAL,
-    "vision":       CF_VISION_PRIMARY,
+    "copy": CF_TEXT_FREE,
+    "nlp_short": CF_TEXT_CHEAP,
+    "caption": CF_TEXT_CHEAP,
+    "embeddings": CF_EMBEDDING_MULTILINGUAL,
+    "vision": CF_VISION_PRIMARY,
 }
-
