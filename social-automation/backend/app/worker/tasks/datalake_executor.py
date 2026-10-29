@@ -14,9 +14,9 @@ Runs after the insights sweep (same 6h cadence, +25min offset).
 
 import asyncio
 import logging
-from typing import Any
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import select, text
 
