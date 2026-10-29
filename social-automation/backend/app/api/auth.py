@@ -1336,6 +1336,7 @@ async def oauth_callback(
     try:
         token = await client.get_access_token(code, redirect_uri, code_verifier=code_verifier)
     except Exception as exc:
+        logger.warning("OAuth token exchange failed for %s: %r", platform, exc)
         raise HTTPException(
             status_code=400,
             detail=f"Token exchange failed for {platform}: {exc}",
