@@ -135,7 +135,8 @@ async def _bridge_health() -> str:
         if "login" in cur or "i/flow" in cur:
             await post_alert_to_slack(":warning: X session stale — refresh X_WEB_AUTH_TOKEN (x.com devtools cookies).")
             return "stale"
-        return "live" if "x.com" in cur else f"rotated ({cur[:40]})"
+        host = urllib.parse.urlparse(cur).hostname or ""
+        return "live" if host == "x.com" or host.endswith(".x.com") else f"rotated ({cur[:40]})"
     except Exception as e:
         return f"busy ({str(e)[:60]})"
 
@@ -174,8 +175,11 @@ async def _try_bridge_reauth(team_id: str) -> str:
     # generate fresh auth URL via the api's own authorize endpoint
     try:
         # build the authorize URL inline — same PKCE+state the api does
-        import base64 as _b64, hashlib as _hash, secrets as _sec
+        import base64 as _b64
+        import hashlib as _hash
+        import secrets as _sec
         from urllib.parse import urlencode
+
         from app.core.config import settings
         from app.core.security import sign_oauth_state
         cv = _sec.token_urlsafe(64)
