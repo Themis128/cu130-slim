@@ -72,12 +72,21 @@ migration (`wa_onboard_retry.py`).
 - `scripts/meta_appeal_form.py` — opens Meta's canonical disabled-account
   appeal form (`help/contact/2026068680760273`) and inventories its
   fields/buttons so the fill is known before a human types a word.
-- `scripts/meta_restriction_heal.py status|step|shot|nav <url>` — the
-  remediation stepper for the USER'S REAL CHROME via CDP :9222 (the
-  flaky sidecar can't do this surface): navigates the reauth → /id/hub →
-  Protect-your-account → accountscenter 2FA → verification chain, clicks
-  the next action per screen, screenshots to Downloads. Pair with
-  `totp-ops` secret capture when the authenticator QR lands.
+- `scripts/meta_restriction_heal.py` — the remediation driver for the
+  USER'S REAL CHROME via CDP :9222 (the sidecar can't do this surface):
+  `status` / `shot` / `nav` / `step` / `login <email>` / `twofa` /
+  `confirm <code>` / `totp`. Real Input-event clicks for the
+  iframe-walled accountscenter pages; `FB_PASSWORD`/`FB_TOTP_SECRET`
+  env vars for the credential+TOTP steps.
+
+**Device-trust gate (learned 2026-10-29):** a fresh Chrome session hits
+"you can't make this change at the moment" on sensitive changes — the
+notification-approval from a trusted device does NOT instantly clear it;
+the device must age in (normal use) OR do the change on the trusted
+device (the phone's Facebook app: ☰ → Settings and privacy → Settings →
+Accounts Center → Password and security → Two-factor → profile →
+Authentication app). Approve the "new device" login notification on the
+phone first — it makes the CDP session trusted-enough to proceed.
 
 ## Notes
 
