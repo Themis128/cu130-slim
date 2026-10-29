@@ -258,6 +258,59 @@ async def remove_background(image_bytes: bytes) -> tuple[bytes, str]:
         raise RuntimeError("Background removal unavailable — Cloudflare not configured and rembg not installed")
 
 
+# ── Add Background (composite transparent cutout onto backdrop) ───────────────
+
+
+def _hex_to_rgb(h: str) -> tuple[int, int, int]:
+    h = h.lstrip("#")
+    return tuple(int(h[i : i + 2], 16) for i in (0, 2, 4))
+
+
+def add_background(
+    image_bytes: bytes,
+    *,
+    style: str = "gradient",
+    color_top: str = "#B0C4DE",
+    color_bottom: str = "#788CAA",
+    spotlight: bool = True,
+) -> tuple[bytes, str]:
+    """Composite a transparent (RGBA) cutout onto a backdrop.
+
+    style: "gradient" (vertical two-color + soft spotlight) or "solid" (color_top).
+    Returns (jpeg_bytes, mime).
+    """
+    from PIL import ImageDraw, ImageFilter
+
+    img = Image.open(io.BytesIO(image_bytes))
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    w, h = img.size
+
+    bg = Image.new("RGBA", (w, h))
+    top = _hex_to_rgb(color_top)
+    if style == "solid":
+        for y in range(h):
+            for x in range(w):
+                bg.putpixel((x, y), top + (255,))
+    else:
+        bot = _hex_to_rgb(color_bottom)
+        for y in range(h):
+            t = y / h
+            c = tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3)) + (255,)
+            for x in range(w):
+                bg.putpixel((x, y), c)
+        if spotlight:
+            d = ImageDraw.Draw(bg)
+            light = tuple(min(255, c + 55) for c in top) + (255,)
+            d.ellipse([w * 0.15, -h * 0.05, w * 0.85, h * 0.75], fill=light)
+            bg = bg.filter(ImageFilter.GaussianBlur(60))
+
+    bg.alpha_composite(img)
+    buf = io.BytesIO()
+    bg.convert("RGB").save(buf, format="JPEG", quality=92)
+    return buf.getvalue(), "image/jpeg"
+
+
 # ── Smart Crop (AI subject detection + Pillow crop) ───────────────────────────
 
 

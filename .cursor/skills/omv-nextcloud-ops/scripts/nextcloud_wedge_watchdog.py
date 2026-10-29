@@ -21,6 +21,7 @@ Units:      nextcloud-wedge-watchdog.service + .timer (every 2 min)
 """
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -35,7 +36,12 @@ SEGFAULT_WINDOW_MIN = 4
 SEGFAULT_THRESHOLD = 5
 RESTART_COOLDOWN_SEC = 1800     # at most one restart per 30 min
 STATE = Path("/var/lib/nextcloud-wedge-watchdog/state.json")
-NTFY_URL = "https://ntfy.cloudless.gr/nextcloud-ops"
+# ntfy.cloudless.gr sits behind Cloudflare Access (302 SSO challenge the
+# watchdog can never answer) — publish over the local k3s NodePort instead.
+# Bearer token comes from EnvironmentFile /etc/nextcloud-wedge-watchdog.env
+# (root:root 0600) — never embed it here, this file lands in git.
+NTFY_URL = os.environ.get("NTFY_URL", "http://127.0.0.1:30080/nextcloud-ops")
+NTFY_TOKEN = os.environ.get("NTFY_TOKEN", "")
 
 
 def log(msg: str) -> None:
@@ -45,10 +51,13 @@ def log(msg: str) -> None:
 
 def notify(title: str, body: str, priority: str = "4") -> None:
     try:
+        headers = {"Title": title, "Priority": priority, "Tags": "warning"}
+        if NTFY_TOKEN:
+            headers["Authorization"] = f"Bearer {NTFY_TOKEN}"
         req = urllib.request.Request(
             NTFY_URL,
             data=body.encode(),
-            headers={"Title": title, "Priority": priority, "Tags": "warning"},
+            headers=headers,
         )
         urllib.request.urlopen(req, timeout=8)
     except Exception as exc:  # alerting must never break the watchdog

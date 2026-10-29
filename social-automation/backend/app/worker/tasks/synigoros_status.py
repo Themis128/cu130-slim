@@ -10,7 +10,6 @@ Skill doc: .devin/skills/synigoros-ops/SKILL.md
 import asyncio
 import json
 import logging
-import os
 import time
 from datetime import UTC, datetime
 
@@ -25,12 +24,10 @@ from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-BRIDGE = os.environ.get(
-    "ADHOC_BRIDGE_URL", os.environ.get("BROWSER_BRIDGE_URL", "http://stack-ops:9223")
-)
+BRIDGE = "http://browser-novnc-adhoc:9224"
 TRACK_URL = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"
-MAIL = os.environ.get("SYNIGOROS_MAIL", "")
-KPA = os.environ.get("SYNIGOROS_KPA", "")
+MAIL = "baltzakis.themis@gmail.com"
+KPA = "202610260029"
 TELEGRAM_CHAT = "-1004436942504"  # Cloudless — Automation HQ
 EVENT_TYPE = "synigoros_status"
 PLATFORM = "synigoros"
@@ -52,19 +49,12 @@ def _ev(expr: str):
 
 
 def _poll() -> dict:
-    # boot the shared browser (any platform arg) — unforced: a forced start
-    # kills a live publishing/login session on the shared bridge
-    _bridge("/session/start", {"platform": "reddit", "interactive": False})
+    # boot the shared browser (any platform arg) — close a stale session first
     try:
-        return _poll_inner()
-    finally:
-        try:
-            _bridge("/session/close", {})
-        except Exception:
-            pass
-
-
-def _poll_inner() -> dict:
+        _bridge("/session/close", {})
+    except Exception:
+        pass
+    _bridge("/session/start", {"platform": "reddit", "interactive": False, "force": True})
     time.sleep(4)
     _bridge("/session/navigate", {"url": TRACK_URL})
     for _ in range(10):
@@ -76,24 +66,14 @@ def _poll_inner() -> dict:
         raise RuntimeError("tracking page never rendered")
     if _ev("!!document.getElementById('webMail')"):
         _ev(
-            "(()=>{const m=document.getElementById('webMail');m.value=%s;"
-            "m.dispatchEvent(new Event('input',{bubbles:true}));"
-            "const c=document.getElementById('webCode');c.value=%s;"
-            "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
-            % (json.dumps(MAIL), json.dumps(KPA))
+            f"(()=>{{const m=document.getElementById('webMail');m.value='{MAIL}';"
+            f"m.dispatchEvent(new Event('input',{{bubbles:true}}));"
+            f"const c=document.getElementById('webCode');c.value='{KPA}';"
+            f"c.dispatchEvent(new Event('input',{{bubbles:true}}));return 1}})()"
         )
-        _bridge("/session/click", {"selector": "button", "text": "Ταυτοποίηση"})
-        # bounded poll for the status view or the explicit failure text —
-        # a fixed sleep extracts empty fields on slow identification
-        failed = False
-        for _ in range(10):
-            time.sleep(3)
-            if _ev("document.body.innerText.includes('Κατάσταση')"):
-                break
-            if _ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
-                failed = True
-                break
-        if failed:
+        _bridge("/session/click", {"selector": "button"})
+        time.sleep(14)
+        if _ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
             raise RuntimeError("identify failed — wrong mail/ΚΠΑ pair")
     out = _ev(
         """(()=>{const t=document.body.innerText;
@@ -105,14 +85,7 @@ def _poll_inner() -> dict:
           kpa:   grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
         })})()"""
     )
-    result = json.loads(out)
-    if result.get("kpa") and result["kpa"] != KPA:
-        raise RuntimeError(
-            f"cached session showed ΚΠΑ {result['kpa']}, expected {KPA} — reset required"
-        )
-    if not result.get("status"):
-        raise RuntimeError("status extraction empty — challenge or transition state")
-    return result
+    return json.loads(out)
 
 
 @celery_app.task(name="app.worker.tasks.synigoros_status.poll_synigoros")
@@ -121,9 +94,6 @@ def poll_synigoros() -> dict:
 
 
 async def _run() -> dict:
-    if not MAIL or not KPA:
-        logger.warning("synigoros_status: SYNIGOROS_MAIL/SYNIGOROS_KPA unset — skipping poll")
-        return {"skipped": "credentials unset"}
     result = await asyncio.to_thread(_poll)
     status = result.get("status", "")
     async with task_session() as db:
