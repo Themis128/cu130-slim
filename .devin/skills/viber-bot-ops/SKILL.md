@@ -1,14 +1,21 @@
 ---
 name: viber-bot-ops
-description: Provision the Viber bot — drive the partners.viber.com portal on
-  the adhoc session to reach the bot list + App Token, then auto-provision
-  via viber_provision.py (connect → validate → webhook). The one human gate
-  is the Viber phone-OTP login on the portal (partners.viber.com needs the
-  account phone). Tool: scripts/viber_token.py.
+description: Provision the Viber bot — partners.viber.com is RETIRED (site
+  dead — 'please refer to your app'). The App Token now comes from the Viber
+  mobile app — your bot → Edit Info → the token field. Copy it, then
+  viber_provision.py --token <token> --name cloudless does the rest
+  unattended (connect → validate → webhook set). Tool: viber_token.py
+  --check reports connection state; adb_sms.py reads OTP SMS off the
+  ADB-connected phone for any phone-gated step.
 ---
 
 # Viber bot provisioning
 
-`viber_token.py` → partners.viber.com on the adhoc session → bot list → App
-Token → `viber_provision.py --token` (connect/validate/webhook). The portal
-login needs the account phone's OTP — the only irreducible step.
+The web portal's gone — the token's in the app:
+
+1. Viber app → your bot (Cloudless) → Edit Info → App Token → copy
+2. `viber_provision.py --token <token> --name cloudless`
+
+`adb_sms.py` reads phone-SMS codes via ADB for any OTP step. The portal drive
+in `viber_token.py` is kept for the token-capture path if a new web surface
+appears.
