@@ -35,6 +35,20 @@
 - Mail: signature wired + Nextcloud sync; mailbox triaged (funnel notifications verified)
 - Funnel docs: Nextcloud Funnels/ + docs/funnel-media-architecture.md (#910)
 
+- **facebook-browser-sidecar wedged on profile-picker** — Docker shows
+  Up+healthy but the daemon livelocks clicking "Continue as"; every
+  /debug/* and /session/validate call times out. Heal per session-ops:
+  full session re-seed (or browser-novnc noVNC manual pick). Until then
+  meta_appeal_form.py + wa_onboard_retry.py can't run (both drive 9226).
+- **ntfy phone DONE** — subs live on 192.168.1.200:30080 (LAN-direct, no
+  VPN/CF needed) with notifications flowing; battery/hibernation exempted.
+  Optional: add `phone`/`Oabmv3U4vCtDXbeOaDns` for ntfy-ws.cloudless.gr
+  in Manage users for off-home-WiFi delivery.
+- **Meta appeal** — entry = facebook.com/help/contact/2026068680760273
+  (disabled-account appeal form; meta_ads_appeal_form.py inventories
+  fields). Geo fix = the unusual-activity trigger. One-shot unblock for
+  ads + finance_permission + whatsapp-onboarding-block.
+
 ## Leftovers (human gates)
 - X re-auth: click x-reconnect.sh output URL (works — verified live)
 - LinkedIn password + li_at rotation (exposed earlier in session)
