@@ -1027,7 +1027,13 @@ _KEEP_WARM_EXTRA = ("ai/llama3.2",)
 
 
 def _keep_warm_models() -> list[str]:
-    return [m for m in (getattr(settings, "DMR_MID_MODEL", ""), *_KEEP_WARM_EXTRA) if m]
+    # Only the 0.6B embedding model stays warm — it serves every recall/
+    # remember() call and costs trivial VRAM. Mid-4B + llama3.2 (~7GB
+    # combined) were being held resident, saturating VRAM to 95% and
+    # cascading into cold-start stalls + daemon instability (2026-10-28).
+    # Big models unload when idle; the 30s fail-fast embedding bound +
+    # Cloudflare fallback already covers calls that arrive cold.
+    return [m for m in (settings.DMR_EMBEDDING_MODEL,) if m]
 
 
 async def _running_dmr_models() -> set[str]:

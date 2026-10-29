@@ -16,6 +16,7 @@ from app.models.content import MediaAsset, StorageBackend
 from app.models.user import Team, TeamMember, User
 from app.services import minio_storage, r2_storage
 from app.services.image_enhance import (
+    add_background,
     generate_alt_text,
     remove_background,
     score_image_quality,
@@ -119,6 +120,13 @@ class SmartCropRequest(BaseModel):
     target_width: int
     target_height: int
     use_ai: bool = True
+
+
+class AddBackgroundRequest(BaseModel):
+    style: str = "gradient"  # "gradient" | "solid"
+    color_top: str = "#B0C4DE"
+    color_bottom: str = "#788CAA"
+    spotlight: bool = True
 
 
 class QualityScoreResponse(BaseModel):
@@ -318,6 +326,26 @@ async def remove_bg_asset(
         out_bytes, mime = await remove_background(image_bytes)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _stream_response(out_bytes, mime)
+
+
+@router.post("/assets/{asset_id}/add-background")
+async def add_bg_asset(
+    asset_id: uuid.UUID,
+    body: AddBackgroundRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Composite a transparent cutout onto a gradient/solid studio backdrop."""
+    asset = await _get_asset(asset_id, current_user, db)
+    image_bytes = await _load_asset_bytes(asset)
+    out_bytes, mime = add_background(
+        image_bytes,
+        style=body.style,
+        color_top=body.color_top,
+        color_bottom=body.color_bottom,
+        spotlight=body.spotlight,
+    )
     return _stream_response(out_bytes, mime)
 
 

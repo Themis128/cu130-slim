@@ -37,3 +37,14 @@ async def test_audit_escalation_dedup(monkeypatch):
     out = await M._exec_audit_escalation(db, "t1", {"emails": ["a@x"]})
     assert out["skipped"].startswith("already")
 
+
+def test_factory_custom():
+    from app.worker.tasks import datalake_executor as M
+    f = object()
+    assert M._factory(custom=f) is f
+
+
+def test_factory_default():
+    from app.worker.tasks import datalake_executor as M
+    out = M._factory()
+    assert out is not None
