@@ -238,3 +238,56 @@ def heal_consents() -> dict:
         }
 
     return run_async(_go())
+
+
+@celery_app.task(name="app.worker.tasks.consent_healers.media_backfill")
+def media_backfill() -> dict:
+    """Sweep draft posts flagged needs_media — generate+attach an image so
+    they become schedulable (the flag was a dead signal; this consumes it)."""
+    import asyncio
+    return asyncio.run(_media_backfill())
+
+
+async def _media_backfill() -> dict:
+    import base64
+
+    from sqlalchemy import select
+
+    from app.models.content import Post
+    from app.services.inference import _call_workers_ai_image
+    from app.services.media_storage import persist_generated_image
+    from app.worker._async import task_session
+
+    FLUX = "stable-diffusion-xl-1.0"
+    done, failed = 0, 0
+    async with task_session() as db:
+        posts = (await db.execute(
+            select(Post).where(
+                Post.status == "draft",
+                Post.meta_data["needs_media"].astext == "true",
+            ).limit(5))).scalars().all()
+        for post in posts:
+            topic = (post.meta_data or {}).get("topic") or (
+                post.content_text or "")[:120]
+            try:
+                res = await _call_workers_ai_image(
+                    f"Clean professional social-media visual for: {topic}",
+                    FLUX)
+                b64 = (res or {}).get("image_base64")
+                if not b64:
+                    failed += 1
+                    continue
+                asset = await persist_generated_image(
+                    db, team_id=post.team_id, user_id=post.user_id,
+                    image_bytes=base64.b64decode(b64),
+                    prompt=f"media_backfill: {topic}",
+                    source="media-backfill")
+                post.media_ids = [asset.id]
+                md = dict(post.meta_data or {})
+                md["needs_media"] = False
+                post.meta_data = md
+                done += 1
+            except Exception:
+                failed += 1
+        await db.commit()
+    return {"attached": done, "failed": failed}
