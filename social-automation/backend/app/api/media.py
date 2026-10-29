@@ -379,11 +379,10 @@ async def view_media(
             data = await minio_storage.get_object(path)
             if data:
                 return _serve_image_bytes(data)
-        except HTTPException as exc:
-            if exc.status_code == 404:
-                pass  # not in MinIO — try R2
-            else:
-                raise
+        except HTTPException:
+            pass  # MinIO miss/unreachable — try R2
+        except Exception:
+            pass
 
     # --- Try R2 ---
     try:

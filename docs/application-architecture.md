@@ -956,13 +956,17 @@ See `docs/api-integration-audit.md` for the full endpoint-by-endpoint crosscheck
 │  └─────────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────────┘
 
-Two Cloudflare Tunnels, one per node (split 2026-10-05): `social-cloudless`
-(on this host) serves `social.cloudless.gr` only; `omv-cloudless`
-(`cloudflared-omv` on omv, compose mirror `deploy/omv-workspace/cloudflared/`)
-serves `cloud`/`office`/`signal`/`push.cloudless.gr`. Remote-managed tunnels
-share ONE ingress config across all replicas — never join a second replica
-to a tunnel unless it can resolve every origin in that ingress (a rogue omv
-replica on the social tunnel 502'd `/api` traffic until removed).
+Three remotely-managed Cloudflare Tunnels (as of 2026-10-29):
+`social-cloudless` (on this host) serves `social.cloudless.gr` only;
+`omv-cloudless` (`cloudflared-omv` on omv, compose mirror
+`deploy/omv-workspace/cloudflared/`) serves `cloud`/`office`/`signal`/
+`push.cloudless.gr`; and **`cloudless`** (id `e977a490-…`, connector on
+omv) serves the omv ops hostnames — ntfy, ntfy-ws, kuma, grafana, meili,
+docs, espocrm, n8n, postiz, omv, webmail, ftp, manage, pi-origin,
+appflowy, logs. Remote-managed tunnels share ONE ingress config across
+all replicas — never join a second replica to a tunnel unless it can
+resolve every origin in that ingress (a rogue omv replica on the social
+tunnel 502'd `/api` traffic until removed).
 ```
 
 **Observability (self-hosted, on omv):** Cloudflare zone tracing exports
@@ -1672,6 +1676,55 @@ prefixes third parties must always reach unauthenticated:
 `/api/v1/leads/public` has no dedicated path app — it is reachable
 publicly like the rest of the site (the endpoint is designed for
 unauthenticated use: 10/min rate limit, honeypot, email-only payload).
+
+**Zero Trust Access topology (verified 2026-10-29):** the `cloudless-gr`
+ZT org lives on account `fb7dc7b6…` — the unified dashboard may show a
+"finish setup / choose a plan" wall until **Zero Trust Free** ($0) is
+activated (done 2026-10-29); the org + 18 per-hostname Access apps are
+then fully manageable. Gating is **per-hostname, not wildcard** — a new
+tunnel hostname escapes coverage by construction (that's how
+`ntfy-ws.cloudless.gr` was opened instantly via tunnel+DNS API). Machine
+paths are ungated with explicit **bypass** policies, matching the
+`socialauto-web-*` convention: `machine-bypass` (Everyone → bypass) is
+attached to the `ntfy` app, so `ntfy.cloudless.gr` serves machine
+clients publicly — ntfy's own ACLs remain the auth boundary. Probe any
+host's gate state with `cf-access-ops` (`scripts/cf_access_audit.py`).
+
+### Alerting & notifications (ntfy)
+
+```
+publishers (watchdogs, git hooks, kuma, ops tasks)
+   → ntfy k3s pod on omv (NodePort :30080, auth_default_access: deny-all)
+      ├─ tailnet: http://github-omv:30080        (internal publishers)
+      └─ public:  https://ntfy.cloudless.gr      (machine-bypass policy)
+                  https://ntfy-ws.cloudless.gr   (ungated-by-omission alt)
+   → topics: cloudless-alerts, cloudless-ops, nextcloud-ops
+   → phone subscription (ntfy app, `phone` user) + server publishers
+     (`cloudless-app` Bearer token, env-file only — never committed)
+```
+
+- Server-side publisher auth = non-expiring `ntfy token add` Bearer
+  tokens; the Nextcloud wedge watchdog on omv posts to
+  `127.0.0.1:30080/nextcloud-ops` with a token from
+  `/etc/nextcloud-wedge-watchdog.env` (root 600).
+- Phone credential + endpoint inventory lives in `/etc/ntfy-ops.env`
+  (omv, root 600): `NTFY_PHONE_USER`/`_PASSWORD`, `NTFY_HTTP_URL`
+  (`ntfy.cloudless.gr`), `NTFY_WS_URL` (`ntfy-ws.cloudless.gr`),
+  `NTFY_TAILNET_URL` (`github-omv:30080`). To re-credential the app:
+  ntfy → ⋮ → Settings → Manage users → + → `phone`/`<NTFY_PHONE_PASSWORD>`
+  for the public host — or `ntfy-phone-ops` `ntfy_set_server.py
+  <url> --topic <t> --user phone` (reads `NTFY_PHONE_PW` env). The app is
+  battery/hibernation-exempted (`deviceidle whitelist` +
+  `RUN_ANY_IN_BACKGROUND`) — Android used to auto-suspend it between
+  sessions, which is why subscriptions kept dying.
+- Ops tooling: `ntfy-ops` (server users/ACLs/tokens, repo-wide publisher
+  audit) + `ntfy-phone-ops` (ADB-driven phone app reconfig).
+- **Telegram alert channels** are the second notify surface — private
+  broadcast channels created via the Telethon user session
+  (`telegram-channel-ops`); Cloudless_newbot posts via
+  `/api/v1/telegram/{acc}/send` (e.g. `micro1 alerts`, chat
+  `-1004358324988`). Slack remains the third surface
+  (`slack_notifications` TG_CH_* channel map).
 `cloudless.gr` still reaches it server-to-server with the
 `cloudless-site-bridge` Access **service token** headers
 (`CF-Access-Client-Id` / `CF-Access-Client-Secret`); those pass through

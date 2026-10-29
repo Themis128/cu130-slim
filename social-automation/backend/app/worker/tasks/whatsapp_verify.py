@@ -225,7 +225,13 @@ async def _check_and_request() -> dict[str, Any]:
                     # endpoint for it. Mark so we stop retrying; the fix is
                     # a manual `whatsapp_tool.py register` (post-verify PIN).
                     stats["errors"] += 1
+<<<<<<< HEAD
                     stats["details"].append(f"{account.id}: 2388091 not-migrating — needs manual register (whatsapp_tool.py register), stopping retries")
+=======
+                    stats["details"].append(
+                        f"{account.id}: 2388091 not-migrating — needs manual "
+                        "register (whatsapp_tool.py register), stopping retries")
+>>>>>>> origin/feat/audit-autobook
                     meta["whatsapp_code_status"] = "needs_manual_register"
                     meta["whatsapp_code_error"] = code_resp.get("error", {}).get("error_user_msg", "")
                     account.meta_data = meta

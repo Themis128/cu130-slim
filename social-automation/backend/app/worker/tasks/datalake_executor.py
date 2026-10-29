@@ -22,6 +22,7 @@ from sqlalchemy import select, text
 
 from app.core.security import decrypt_token
 from app.models import AnalyticsEvent, Post, SocialAccount
+from app.services.email_digest import send_email
 from app.services.telegram_api import TelegramAPIClient
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
@@ -76,17 +77,64 @@ async def _exec_content_topic(db, team_id, action) -> dict:
     return {"post_id": str(post.id), "platform": platform}
 
 
+_AUDIT_INVITE_BODY = (
+    "Hi,\n\n"
+    "Thanks for your interest in the free Cloudless audit.\n\n"
+    "Pick your own 30-minute slot (Athens time, Mon–Fri, 09:00–17:00):\n"
+    "open https://cloudless.gr/en/contact and ask the assistant for an "
+    "audit slot — it will show you live availability and confirm "
+    "instantly with a Google Meet link + calendar invite.\n\n"
+    "— Themistoklis, Cloudless.gr")
+
+
 async def _exec_audit_escalation(db, team_id, action) -> dict:
-    """audit_escalation → Telegram booking ping with the emails."""
+    """audit_escalation → auto-invite each requester to self-book via the
+    site chatbot (check_calendar_availability + book_slot), then a
+    Telegram record of who was invited."""
     emails = action.get("emails") or []
     key = ",".join(sorted(emails))[:200]
     if await _already_executed(db, "audit_escalation", key):
         return {"skipped": "already pinged <24h"}
+<<<<<<< HEAD
     acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram", SocialAccount.status == "active").limit(1))).scalar_one()
     enc = acc.meta_data.get("bot_token_enc")
     tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
     await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, "📞 Audit requests pending booking:\n" + "\n".join(emails[:8]))
     return {"pinged": len(emails)}
+=======
+    invited = 0
+    for email in emails[:10]:
+        ikey = email.lower().strip()
+        if not ikey or await _already_executed(db, "audit_invite", ikey):
+            continue
+        try:
+            await send_email(
+                subject="Your Cloudless audit — pick your slot",
+                text_body=_AUDIT_INVITE_BODY,
+                to_addrs=[ikey],
+                from_name="Cloudless")
+        except Exception:
+            continue
+        db.add(AnalyticsEvent(
+            team_id=team_id, event_type=ACTIONS_TYPE, platform="datalake",
+            occurred_at=datetime.now(UTC),
+            meta_data={"action_type": "audit_invite", "key": ikey}))
+        invited += 1
+    acc = (
+        await db.execute(
+            select(SocialAccount).where(
+                SocialAccount.platform == "telegram",
+                SocialAccount.status == "active").limit(1))
+    ).scalar_one()
+    enc = acc.meta_data.get("bot_token_enc")
+    tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) \
+        if enc else decrypt_token(acc.access_token_enc)
+    await TelegramAPIClient(tok).send_message(
+        TELEGRAM_CHAT,
+        f"📞 Audit requests — {invited} auto-invited to self-book:\n"
+        + "\n".join(emails[:8]))
+    return {"pinged": len(emails), "invited": invited}
+>>>>>>> origin/feat/audit-autobook
 
 
 def _exec_platform_focus(action) -> dict:

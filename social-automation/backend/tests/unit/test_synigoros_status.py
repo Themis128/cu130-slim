@@ -1,5 +1,8 @@
 """Coverage: synigoros_status — bridge retry, poll parse, _run notify, wrapper."""
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -14,21 +17,30 @@ def _resp(status=200, body=None, text=""):
     r.raise_for_status = MagicMock()
     if status >= 400 and status != 409:
         import httpx
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
         r.raise_for_status.side_effect = httpx.HTTPStatusError("err", request=None, response=r)
     return r
 
 
 def test_bridge_success(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     monkeypatch.setattr(M.httpx, "post", MagicMock(return_value=_resp(200, {"result": 5})))
     assert M._bridge("/x", {}) == {"result": 5}
 
 
 def test_bridge_409_retries_then_ok(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     seq = [_resp(409), _resp(200, {"ok": 1})]
     monkeypatch.setattr(M.httpx, "post", MagicMock(side_effect=seq))
     monkeypatch.setattr(M.time, "sleep", lambda s: None)
@@ -37,7 +49,10 @@ def test_bridge_409_retries_then_ok(monkeypatch):
 
 def test_bridge_exhausts(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     monkeypatch.setattr(M.httpx, "post", MagicMock(return_value=_resp(409)))
     monkeypatch.setattr(M.time, "sleep", lambda s: None)
     assert M._bridge("/x", {}, tries=2) == {}
@@ -45,7 +60,10 @@ def test_bridge_exhausts(monkeypatch):
 
 def test_bridge_context_destroyed_retries(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     seq = [_resp(500, text="context was destroyed"), _resp(200, {"ok": 1})]
     monkeypatch.setattr(M.httpx, "post", MagicMock(side_effect=seq))
     monkeypatch.setattr(M.time, "sleep", lambda s: None)
@@ -54,14 +72,20 @@ def test_bridge_context_destroyed_retries(monkeypatch):
 
 def test_ev_delegates(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     monkeypatch.setattr(M, "_bridge", lambda p, d, **k: {"result": "v"})
     assert M._ev("1") == "v"
 
 
 def test_poll_parses_status(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     calls = {"n": 0}
 
     def _ev(expr):
@@ -83,7 +107,10 @@ def test_poll_parses_status(monkeypatch):
 
 def test_poll_never_renders(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     monkeypatch.setattr(M, "_bridge", lambda p, d, **k: {"ok": 1})
     monkeypatch.setattr(M, "_ev", lambda e: False)
     monkeypatch.setattr(M.time, "sleep", lambda s: None)
@@ -125,7 +152,10 @@ def _db(last=None, acc=None):
 @pytest.mark.asyncio
 async def test_run_unchanged_no_telegram(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     last = MagicMock(meta_data={"status": "Αναμονή"}, team_id="t")
     acc = MagicMock(team_id="t", meta_data={}, access_token_enc=b"e")
     monkeypatch.setattr(M, "_poll", lambda: {"status": "Αναμονή", "proto": "11"})
@@ -139,7 +169,10 @@ async def test_run_unchanged_no_telegram(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_changed_notifies(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     last = MagicMock(meta_data={"status": "Αναμονή"}, team_id="t")
     acc = MagicMock(team_id="t", meta_data={"bot_token_enc": "enc"}, access_token_enc=b"e")
     monkeypatch.setattr(M, "_poll", lambda: {"status": "Ολοκληρώθηκε", "proto": "11"})
@@ -156,7 +189,10 @@ async def test_run_changed_notifies(monkeypatch):
 @pytest.mark.asyncio
 async def test_run_new_row_no_last(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     acc = MagicMock(team_id="t", meta_data={}, access_token_enc=b"e")
     monkeypatch.setattr(M, "_poll", lambda: {"status": "Αναμονή"})
     monkeypatch.setattr(M, "task_session", lambda: _db(None, acc))
@@ -170,6 +206,9 @@ async def test_run_new_row_no_last(monkeypatch):
 
 def test_wrapper_calls_run_async(monkeypatch):
     from app.worker.tasks import synigoros_status as M
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/feat/audit-autobook
     monkeypatch.setattr(M, "run_async", lambda c: (c.close(), {"ok": 1})[1])
     assert M.poll_synigoros() == {"ok": 1}

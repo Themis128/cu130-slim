@@ -44,7 +44,9 @@ async def _query_loki(minutes: int) -> list[str]:
     lines = []
     for stream in r.json().get("data", {}).get("result") or []:
         labels = stream.get("stream", {})
-        svc = labels.get("container_name") or labels.get("service") or labels.get("job", "?")
+        svc = (labels.get("container_name") or labels.get("service_name")
+               or labels.get("service") or labels.get("container")
+               or labels.get("job", "?"))
         for _, line in stream.get("values", []):
             lines.append(f"[{svc}] {line[:200]}")
     return lines[:MAX_LINES]

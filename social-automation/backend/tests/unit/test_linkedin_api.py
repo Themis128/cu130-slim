@@ -316,7 +316,12 @@ async def test_create_post_success(monkeypatch, client):
 
 @pytest.mark.asyncio
 async def test_create_post_api_error_403(monkeypatch, client):
+<<<<<<< HEAD
     fake = _FakeAsyncClient([_FakeResponse(403, {"status": 403, "message": "unauthorized"}), _FakeResponse(403, {"status": 403, "message": "unauthorized"})])
+=======
+    fake = _FakeAsyncClient([_FakeResponse(403, {"status": 403, "message": "unauthorized"}),
+                             _FakeResponse(403, {"status": 403, "message": "unauthorized"})])
+>>>>>>> origin/feat/audit-autobook
     monkeypatch.setattr(api.httpx, "AsyncClient", lambda timeout=60.0: fake)
 
     result = await client.create_post(

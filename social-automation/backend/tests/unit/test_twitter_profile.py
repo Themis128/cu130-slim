@@ -141,7 +141,6 @@ def test_update_profile_banner_error(monkeypatch):
 
 def test_missing_oauthlib(monkeypatch):
     import sys
-
     monkeypatch.setitem(sys.modules, "requests_oauthlib", None)
     with pytest.raises(TwitterProfileError) as e:
         TwitterProfileService("k", "s", "t", "ts")
