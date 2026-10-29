@@ -185,6 +185,21 @@ async def _x_credentials_login(c: httpx.AsyncClient, bridge: str) -> None:
         await asyncio.sleep(1)
         await c.post(f"{bridge}/session/click", json={"selector": "button:has-text('Next'),button:has-text('Log in')"})
         await asyncio.sleep(5)
+        # TOTP step — if X asks for the app code and a secret's stored,
+        # compute it and fill the verify input.
+        s = os.environ.get("TWITTER_TOTP_SECRET", "")
+        if s:
+            try:
+                import pyotp
+                code = pyotp.TOTP(s).now()
+                await c.post(f"{bridge}/session/fill",
+                             json={"selector": "input >> nth=0", "value": code})
+                await asyncio.sleep(1)
+                await c.post(f"{bridge}/session/click",
+                             json={"selector": "button:has-text('Verify'),button:has-text('Next')"})
+                await asyncio.sleep(5)
+            except Exception:
+                pass
 
 
 async def _try_bridge_reauth(team_id: str) -> str:
