@@ -40,15 +40,39 @@ def main() -> int:
     if "--check" in sys.argv:
         print("viber:", "connected" if _connected() else "no accounts — needs token")
         return 0 if _connected() else 1
-    # drive the partners portal — needs the Viber login once (QR/phone)
+    # full OTP-driven portal login — phone number → OTP via adb_sms → token
+    import adb_sms
+    phone = os.environ.get("VIBER_PORTAL_PHONE", "")
     _call("/session/start", {"platform": "viber"})
     time.sleep(2)
-    _ev('location.href="https://partners.viber.com/"')
+    _ev('location.href="https://partners.viber.com/login"')
     time.sleep(8)
-    print("page:", _ev("(document.body&&document.body.innerText||'').slice(0,200)"))
-    print("portal reached — the bot list / App Token copy needs the Viber")
-    print("login on the session (phone-OTP). Once the token's visible, run:")
-    print("  viber_provision.py --token <token> --name cloudless")
+    if phone:
+        _call("/session/fill", {"selector": "input[type=tel],input[type=text] >> nth=0", "value": phone})
+        time.sleep(1)
+        _call("/session/click", {"selector": "button[type=submit],button:has-text('Continue'),button:has-text('Send')"})
+        time.sleep(8)
+        code, row = adb_sms.read_code()
+        if code:
+            _call("/session/fill", {"selector": "input[type=tel],input[type=text] >> nth=0", "value": code})
+            time.sleep(1)
+            _call("/session/click", {"selector": "button[type=submit],button:has-text('Verify'),button:has-text('Log')"})
+            time.sleep(8)
+            print("logged in — page:", _ev("(document.body&&document.body.innerText||'').slice(0,150)"))
+            # capture the App Token from the bot page
+            tok = _ev("((document.body.innerText||'').match(/app[_ ]?token[:\s]+([a-f0-9]{32,})/i)||[])[1]||''")
+            if tok:
+                r = subprocess.run(["python3",
+                                    ".devin/skills/viber-ops/scripts/viber_provision.py",
+                                    "--token", tok, "--name", "cloudless"],
+                                   capture_output=True, text=True, timeout=60)
+                print("provision:", r.stdout[:150])
+            else:
+                print("no token found on page — check the bot list manually")
+        else:
+            print("no OTP SMS yet — the login's armed; rerun after the code lands")
+    else:
+        print("VIBER_PORTAL_PHONE unset — set the account phone to drive the login")
     return 0
 
 
