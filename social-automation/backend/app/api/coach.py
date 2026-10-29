@@ -1,13 +1,14 @@
 """Coach endpoint — Sofia-voice coaching persona on the doctrine corpus."""
 import logging
 
-from app.services.loop_harness import llm_call
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_current_user
+from app.api.deps import TeamId
 from app.models.user import User
 from app.services.kakkava import doctrine_context
+from app.services.loop_harness import llm_call
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -30,9 +31,9 @@ class CoachOut(BaseModel):
 
 
 @router.post("/chat", response_model=CoachOut)
-async def coach_chat(body: CoachIn, current_user: User = Depends(get_current_user)):
+async def coach_chat(body: CoachIn, team_id: TeamId, current_user: User = Depends(get_current_user)):
     ctx = await doctrine_context(
-        current_user.team_id, body.message, n_results=4)
+        team_id, body.message, n_results=4)
     prompt = (f"{ctx}\n\nMember asks: {body.message}" if ctx else body.message)
     reply = await llm_call(prompt, system=SYSTEM,
                            expect=lambda t: len(t) > 20, tag="coach")
