@@ -41,6 +41,9 @@ same underlying account/risk state, so inspect them together.
   "Take action"/"Request review" button on Ads Manager, clicks it, dumps
   the resulting dialog/page so the next step is visible. Retries on the
   sleepy-sidecar timeouts; idempotent (safe to re-run).
+- `scripts/meta_appeal_form.py` — opens Meta's canonical disabled-account
+  appeal form (`help/contact/2026068680760273`) and inventories its
+  fields/buttons so the fill is known before a human types a word.
 
 ## Notes
 

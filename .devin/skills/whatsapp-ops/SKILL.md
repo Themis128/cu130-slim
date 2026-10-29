@@ -630,3 +630,10 @@ After it exits, run `auto-verify.py` to complete the verify + register steps.
 - `whatsapp-ops` — Automated verification with retry logic
 - `social-stack-ops` — Docker Compose stack operations
 - `social-accounts-manager` — Account management via SocialAuto API
+## ON_PREMISE → Cloud migration retry
+
+- `scripts/wa_onboard_retry.py [--tries N] [--wait SEC]` — drives the
+  dev-console WhatsApp Business Platform onboarding (cloudless.gr portfolio
+  → Continue) on a loop until Meta's 'temporarily blocked' clears, then
+  stops so the OTP chain (`request_code` → ADB SMS → `verify_code` →
+  `register`) runs via `whatsapp_tool.py`. Default: 6 tries × 15 min.
