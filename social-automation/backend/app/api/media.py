@@ -567,6 +567,38 @@ async def bulk_delete_media(body: BulkDeleteRequest, team_id: TeamId, current_us
     return {"deleted": deleted}
 
 
+@router.post("/assets/sweep-orphans", status_code=200)
+async def sweep_orphans(team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db), dry_run: bool = Query(False)):
+    """Delete asset records whose backing file no longer exists."""
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    result = await db.execute(select(MediaAsset).where(MediaAsset.team_id == team.id))
+    assets = result.scalars().all()
+    orphans, kept = [], 0
+    for asset in assets:
+        exists = False
+        try:
+            import asyncio as _aio
+            if asset.storage_backend == "r2":
+                exists = await _aio.wait_for(r2_storage.object_exists(asset.storage_path), 15)
+            elif asset.storage_backend == "minio":
+                exists = await _aio.wait_for(minio_storage.object_exists(asset.storage_path), 15)
+            else:
+                exists = safe_resolve(UPLOAD_DIR, asset.storage_path).is_file()
+        except Exception:
+            exists = False
+        if exists:
+            kept += 1
+        else:
+            orphans.append({"id": str(asset.id), "filename": asset.filename, "backend": asset.storage_backend})
+            if not dry_run:
+                await db.delete(asset)
+    if not dry_run:
+        await db.commit()
+    return {"kept": kept, "orphans": len(orphans), "deleted": orphans}
+
+
 class MediaGenerateOptions(BaseModel):
     width: int | None = None
     height: int | None = None
