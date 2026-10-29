@@ -1,6 +1,8 @@
 """Coverage tails: log_intel loki, mastersheet bridge, datalake_executor helpers."""
 from unittest.mock import AsyncMock, MagicMock
 
+import httpx
+
 import pytest
 
 
@@ -60,7 +62,6 @@ def test_ms_bridge_409_retries(monkeypatch):
 
 def test_ms_bridge_raises_last(monkeypatch):
     from app.worker.tasks import mastersheet_watch as M
-    import httpx
     r = _resp(500, text="fatal")
     r.raise_for_status.side_effect = httpx.HTTPStatusError("e", request=None, response=r)
     monkeypatch.setattr(M.httpx, "post", MagicMock(return_value=r))
