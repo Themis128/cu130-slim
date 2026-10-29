@@ -2,7 +2,6 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 import pytest
 
 
@@ -70,6 +69,8 @@ def test_ms_bridge_409_retries(monkeypatch):
 
 
 def test_ms_bridge_raises_last(monkeypatch):
+    import httpx
+
     from app.worker.tasks import mastersheet_watch as M
 
     r = _resp(500, text="fatal")

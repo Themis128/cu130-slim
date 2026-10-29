@@ -13,18 +13,20 @@ description: >
 ## The flow (learned 2026-10-28)
 
 - Tracking page: `https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas`
-- Identify needs **email + ΚΠΑ** (tracking code). The complaint lives under
-  `baltzakis.themis@gmail.com` — ΚΠΑ `202610260029`, protocol `81750`.
-- The protocol # shown at submission IS the ΚΠΑ.
+- Identify needs **email + ΚΠΑ** (tracking code) — supplied via
+  `SYNIGOROS_MAIL` + `SYNIGOROS_KPA` env vars (or `--mail`/`--kpa` flags);
+  no identifying values are committed to the repo.
+- ΚΠΑ (tracking code) and Αριθμός Πρωτοκόλλου (protocol #) are DISTINCT
+  numbers on the receipt — identify uses ΚΠΑ, the status page shows both.
 - **Wrong email ⇒ "Δεν έγινε ταυτοποίηση!"** — themis.baltzakis@gmail.com
-  fails; baltzakis.themis@gmail.com works.
+  fails; the complaint's registered email works.
 - A live session skips the form (status view renders directly) — the script
   handles both states.
 
 ## Commands
 
 ```bash
-synigoros_status.py                    # default mail+ΚΠΑ → {"status": "..."}
+synigoros_status.py                    # env mail+ΚΠΑ → {"status": "..."}
 synigoros_status.py --bridge http://localhost:9232   # from host (dockerless)
 synigoros_status.py --mail X --kpa Y   # different complaint
 ```
