@@ -36,9 +36,14 @@ def adb_code() -> str | None:
     for adb in ADBS:
         try:
             r = subprocess.run(
-                [adb, "shell", "content", "query", "--uri", "content://sms/inbox", "--sort", "date DESC"],
+                [adb, "shell", "content", "query", "--uri", "content://sms/inbox",
+                 "--projection", "address,date,body", "--sort", "date DESC"],
                 capture_output=True, text=True, timeout=8)
-            m = CODE_RE.search(r.stdout)
+            # Meta/WhatsApp senders only — a generic 6-digit match can grab
+            # other services' codes (e.g. the 'Link' 246930 false positive)
+            rows = [l for l in r.stdout.splitlines() if re.search(
+                r'whatsapp|facebook|meta|AUTHMSG', l, re.I)]
+            m = CODE_RE.search(" ".join(rows)) if rows else CODE_RE.search(r.stdout)
             if m:
                 return m.group(1)
         except Exception:
