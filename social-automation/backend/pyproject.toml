@@ -71,6 +71,7 @@ dependencies = [
     "lxml>=6.1.0,<7.0.0",
     # Twitter/X profile updates via v1.1 API — requests-oauthlib OAuth1Session
     # (tweepy dropped: caps oauthlib<4, conflicts with the CVE-2026-49272 pin)
+    "requests-oauthlib>=2.0.0",
     # Free X web fallback (app/services/x_web.py) — cookie-auth x.com GraphQL.
     # tweety (MIT): PyPI 2.4.1 is stale, so pin a main-branch commit archive
     # (2026-09-13, after the 2026-08-26 fix merges #278/#292/#293/#297).
