@@ -141,3 +141,27 @@ WHERE pq.status='completed' AND pq.scheduled_at < now() - interval '2 hours'
   AND t.status='pending'" 2>/dev/null)
 [ -n "${LATE:-}" ] && ALERT "publish-verify" ":warning: platform(s) ${LATE} show pending >2h after queue completed — check publish errors in UI"
 exit 0
+
+# 5. Cloudflare tunnel — container can be "Up" while the tunnel itself is
+#    dead (Error 1033 seen 2026-10-28). Probe the real endpoint.
+T=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 https://social.cloudless.gr/api/v1/health 2>/dev/null || echo 000)
+if [ "$T" != "200" ]; then
+  TN=$(docker ps --format '{{.Names}}' | grep -i cloudflared | head -1)
+  [ -n "$TN" ] && docker restart "$TN" >/dev/null 2>&1 && ALERT "tunnel" ":warning: tunnel was dead (http $T) — restarted $TN"
+fi
+# 6. social-api HTTP health — catches unhealthy startup (import errors)
+A=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 http://localhost:8083/health 2>/dev/null || echo 000)
+if [ "$A" != "200" ]; then
+  docker restart social-api >/dev/null 2>&1 && ALERT "api-health" ":warning: social-api unhealthy (http $A) — restarted"
+fi
+# 7. Slack token expiry — probe auth.test, run the sync if expired
+S=$(docker compose exec -T social-api python -c "
+import os,json,urllib.request
+try:
+  r=urllib.request.Request('https://slack.com/api/auth.test',headers={'Authorization':'Bearer '+os.environ.get('SLACK_BOT_TOKEN','')})
+  print(json.loads(urllib.request.urlopen(r,timeout=8).read()).get('ok'))
+except Exception: print('False')" 2>/dev/null | tail -1)
+if [ "$S" != "True" ]; then
+  python3 /home/tbaltzakis/cu130-slim/.devin/skills/slack-ops/scripts/slack_token_sync.py >/dev/null 2>&1 && ALERT "slack-token" ":warning: Slack token expired — rotated via slack_token_sync"
+fi
+exit 0
