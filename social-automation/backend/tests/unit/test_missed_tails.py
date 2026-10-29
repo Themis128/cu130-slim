@@ -2,7 +2,6 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
-
 import pytest
 
 
