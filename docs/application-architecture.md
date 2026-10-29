@@ -1707,6 +1707,16 @@ publishers (watchdogs, git hooks, kuma, ops tasks)
   tokens; the Nextcloud wedge watchdog on omv posts to
   `127.0.0.1:30080/nextcloud-ops` with a token from
   `/etc/nextcloud-wedge-watchdog.env` (root 600).
+- Phone credential + endpoint inventory lives in `/etc/ntfy-ops.env`
+  (omv, root 600): `NTFY_PHONE_USER`/`_PASSWORD`, `NTFY_HTTP_URL`
+  (`ntfy.cloudless.gr`), `NTFY_WS_URL` (`ntfy-ws.cloudless.gr`),
+  `NTFY_TAILNET_URL` (`github-omv:30080`). To re-credential the app:
+  ntfy → ⋮ → Settings → Manage users → + → `phone`/`<NTFY_PHONE_PASSWORD>`
+  for the public host — or `ntfy-phone-ops` `ntfy_set_server.py
+  <url> --topic <t> --user phone` (reads `NTFY_PHONE_PW` env). The app is
+  battery/hibernation-exempted (`deviceidle whitelist` +
+  `RUN_ANY_IN_BACKGROUND`) — Android used to auto-suspend it between
+  sessions, which is why subscriptions kept dying.
 - Ops tooling: `ntfy-ops` (server users/ACLs/tokens, repo-wide publisher
   audit) + `ntfy-phone-ops` (ADB-driven phone app reconfig).
 - **Telegram alert channels** are the second notify surface — private
