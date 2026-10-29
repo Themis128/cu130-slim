@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 import httpx
 
@@ -414,3 +415,36 @@ async def upload_file_to_slack(
     except Exception as exc:
         logger.debug("Slack file upload failed (non-fatal)", exc_info=True)
         return False, None, str(exc)
+
+
+# Severity-routed Telegram alerts — private admin channels
+TG_CHANNELS = {
+    "critical": os.environ.get("TG_CH_CRITICAL", "-1004389402878"),
+    "ops": os.environ.get("TG_CH_OPS", "-1004429103353"),
+    "intel": os.environ.get("TG_CH_INTEL", "-1004362141941"),
+    "digest": os.environ.get("TG_CH_DIGEST", "-1004363123500"),
+}
+
+
+async def send_telegram_alert(severity: str, text: str) -> bool:
+    """Route an alert to the severity's private admin channel.
+    'critical' also posts to ops (continue-matching — complete record)."""
+    from sqlalchemy import select
+    from app.models.social_account import SocialAccount
+    from app.services.telegram_agent import _bot_token, TelegramAPIClient
+    from app.worker._async import task_session
+    chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
+    try:
+        async with task_session() as db:
+            acc = (await db.execute(select(SocialAccount).where(
+                SocialAccount.platform == "telegram"))).scalars().first()
+        token = _bot_token(acc) if acc else None
+        if not token:
+            return False
+        client = TelegramAPIClient(token)
+        await client.send_message(chat, text)
+        if severity == "critical":
+            await client.send_message(TG_CHANNELS["ops"], f"[P1] {text}")
+        return True
+    except Exception:
+        return False
