@@ -14,7 +14,7 @@ Wraps dmr.chat in a structured control loop:
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -54,8 +54,9 @@ async def llm_call(
             except Exception:
                 # service payload shape (tools/schema params) can hang on
                 # small models — fall back to a bare chat call
-                import httpx
                 import os
+
+                import httpx
                 url = os.environ.get(
                     "DMR_URL",
                     "http://host.docker.internal:12435/engines/llama.cpp/v1")
