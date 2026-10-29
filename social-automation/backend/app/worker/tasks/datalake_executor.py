@@ -14,6 +14,7 @@ Runs after the insights sweep (same 6h cadence, +25min offset).
 
 import asyncio
 import logging
+from typing import Any
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -133,7 +134,7 @@ async def _run() -> dict:
             signals.get("team_id"), str) else signals["team_id"]
         results = []
         for action in actions:
-            fn = _EXECUTORS.get(action.get("type"))
+            fn: Any = _EXECUTORS.get(action.get("type"))
             if not fn:
                 continue
             key = str(action.get("topic") or action.get("platform") or
