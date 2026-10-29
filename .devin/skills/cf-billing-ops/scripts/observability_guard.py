@@ -119,4 +119,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    if len(sys.argv) > 1 and sys.argv[1] == "ack":
+        os.makedirs(os.path.dirname(ACK), exist_ok=True)
+        open(ACK, "w").write(str(dt.date.today()))
+        print("ack recorded — deadline pings off")
+    else:
+        sys.exit(main())
