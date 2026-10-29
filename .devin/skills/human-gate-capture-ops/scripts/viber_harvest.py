@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""viber_harvest — pull the bot auth token from partners.viber.com via the
+"""viber_harvest — pull the bot auth token from webadmin.viber.com via the
 operator's logged-in browser session (CDP), then wire the account.
 
     viber_harvest.py run     # navigate partners → extract token → provision
@@ -26,15 +26,15 @@ def _tab(host_frag: str):
 
 
 def check() -> int:
-    t = _tab("partners.viber.com")
-    print("partners tab:", "found" if t else "absent — open partners.viber.com logged in")
+    t = _tab("webadmin.viber.com")
+    print("partners tab:", "found" if t else "absent — open webadmin.viber.com logged in")
     return 0 if t else 2
 
 
 def run() -> int:
-    t = _tab("partners.viber.com")
+    t = _tab("webadmin.viber.com")
     if not t:
-        print("open partners.viber.com (logged in) in the debug browser first")
+        print("open webadmin.viber.com (logged in) in the debug browser first")
         return 2
     import websocket
     ws = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=20)
