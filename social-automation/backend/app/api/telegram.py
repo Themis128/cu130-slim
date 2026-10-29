@@ -310,6 +310,21 @@ def _client_for(account: SocialAccount) -> TelegramAPIClient:
     return TelegramAPIClient(_decrypt_bot_token(account))
 
 
+def _owner_chat_id() -> str:
+    return (getattr(settings, "TELEGRAM_OWNER_CHAT_ID", "") or "7017840434").strip()
+
+
+async def _dm_owner(account: SocialAccount, text: str) -> None:
+    """DM the owner via the same community bot — notify on every member event."""
+    chat_id = _owner_chat_id()
+    if not chat_id:
+        return
+    try:
+        await _client_for(account).send_message(int(chat_id), text, )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Telegram owner DM failed: %s", exc)
+
+
 def _webhook_base() -> str:
     base = (getattr(settings, "TELEGRAM_WEBHOOK_BASE", None) or "").rstrip("/")
     if base:
@@ -1613,6 +1628,11 @@ async def receive_webhook(
                 chat_id=membership["chat_id"],
                 details=[f"status: {membership.get('old_status') or '?'} → {new_status or '?'}"],
             )
+            try:
+                blabel = {"bot_admin":"Bot promoted to admin","bot_member":"Bot added","bot_removed":"Bot removed"}.get(event, event.replace("_"," ").title())
+                await _dm_owner(account, chr(10).join([f"*{blabel}* — {membership.get('chat_title') or membership['chat_id']}", f"status: {membership.get('old_status') or '?'} → {new_status or '?'}", f"chat_id `{membership['chat_id']}`"]))
+            except Exception as _e:
+                logger.warning("owner DM bot-event failed: %s", _e)
         except Exception as exc:
             logger.warning(
                 "Telegram membership handler failed account=%s: %s",
@@ -1670,6 +1690,12 @@ async def receive_webhook(
                 actor=f"@{actor}" if member_event.get("username") else actor,
                 details=details,
             )
+            try:
+                label = {"member_joined":"Member joined","member_left":"Member left","bot_admin":"Bot promoted","bot_member":"Bot added","bot_removed":"Bot removed"}.get(event, event.replace("_"," ").title())
+                actor_txt = ("@"+member_event["username"]) if member_event.get("username") else actor
+                await _dm_owner(account, chr(10).join([f"*{label}* — {member_event.get('chat_title') or member_event['chat_id']}", f"by {actor_txt}", f"chat_id `{member_event['chat_id']}`"]))
+            except Exception as _e:
+                logger.warning("owner DM member-event failed: %s", _e)
         except Exception as exc:
             logger.warning(
                 "Telegram member-event notify failed account=%s: %s",
@@ -1706,6 +1732,11 @@ async def receive_webhook(
                     },
                 )
                 await db.commit()
+                try:
+                    who = join_req.get("username") or join_req.get("first_name") or join_req.get("user_id")
+                    await _dm_owner(account, chr(10).join([f"*Join request approved* — {join_req.get('chat_title') or join_req['chat_id']}", f"user: {who}", f"chat_id `{join_req['chat_id']}`"]))
+                except Exception as _e:
+                    logger.warning("owner DM join-request failed: %s", _e)
             else:
                 response["join_request"] = "pending_manual"
         except Exception as exc:  # noqa: BLE001

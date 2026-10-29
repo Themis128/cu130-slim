@@ -41,6 +41,7 @@
 
 ## Leftovers (new 2026-10-29)
 - **Cloudflare Access gates every omv-tunnel hostname** (ntfy/kuma/grafana/
+<<<<<<< HEAD
   meili/docs/espocrm/n8n/postiz…). Machine/app clients can't SSO → the ntfy
   public endpoint is unusable for the phone and for unauthenticated POSTs.
   `CLOUDFLARE_API_TOKEN` lacks Access perms (`access/groups` → 10000) and the
@@ -61,6 +62,21 @@
   safe to `docker rm`; `facebook-browser-sidecar` sleep-managed (Exited).
 - Scheduled posts verified queued: FB 11:00Z 10-29 (AX-Pass), IG+Threads
   10-30, LI 08:30Z+IG 09:00Z 10-29 — verify platform-side after they fire.
+=======
+  meili/docs/espocrm/n8n/postiz…). The `cloudless-gr.cloudflareaccess.com`
+  ZT org lives on a DIFFERENT Cloudflare account — the gmail-login dashboard
+  account shows "You need an active plan" for Zero Trust. Fix needs the other
+  account's login → add a bypass/service-token policy for `ntfy.cloudless.gr`.
+  Until then all ntfy traffic uses tailnet `github-omv:30080` + auth (works).
+- ~~Server-side ntfy publishers broken~~ **FIXED**: watchdog now posts to
+  `http://127.0.0.1:30080/nextcloud-ops` with a `cloudless-app` Bearer token
+  (env file `/etc/nextcloud-wedge-watchdog.env`, root 600). Topic granted,
+  phone subscribed to `nextcloud-ops` too — verified live 200 + on-device.
+- ~~Uncommitted WIP~~ **LANDED** (68 tests green): CF-first media pipeline,
+  twitter_profile, synigoros_status, media/image enhance + tests. Synced to
+  containers + restarted api/workers/beat.
+- Posts publishing on schedule — 4 live today already (LI×3, IG×1).
+>>>>>>> origin/feat/audit-autobook
 
 ## Done 2026-10-25
 - Survey funnel + platform-aware nurture (#909 platform field fix; meta_data.platform drives PLATFORM openers)
@@ -75,6 +91,53 @@
 - human-gate-ops scripts: x-reconnect/x-status/cmapi-check/check-inbox
 - Mail: signature wired + Nextcloud sync; mailbox triaged (funnel notifications verified)
 - Funnel docs: Nextcloud Funnels/ + docs/funnel-media-architecture.md (#910)
+
+- **micro1 alerts Telegram channel** created 2026-10-29 — private,
+  id `4358324988`, invite https://t.me/+CyNSh67c6qk3NTdk, Cloudless_newbot
+  admin (post/edit/pin/invite). Bot send verified (msg_id 2) via
+  `/api/v1/telegram/{acc}/send`. Created via Telethon session
+  (Windows-side run — `wsl -e` was WSAETIMEDOUT-flaky; `\wsl$` UNC path
+  worked for file reads).
+- **WhatsApp number is ON_PREMISE** (`+30 697 777 7838`, NOT_VERIFIED) —
+  that's why Meta returns 2388091 "not being migrated"; fix is Cloud API
+  migration in the Meta console, not code retries. DB `revoked` flag is
+  stale (whatsapp_tool.py status works).
+
+- **slack_notifications.py container corruption FIXED** — the running copy
+  had live `<<<<<<< Updated upstream` markers (repo clean). Re-synced to all
+  6 app containers + restarted; would have broken every Slack alert on next
+  import. Repo + containers scanned — no other markers.
+- **X onboarding-URL regression test** landed (test_consent_healers.py):
+  `/i/jf/onboarding/web?mode=login` reads `stale` — the #1074 review case.
+- **li_at rotation DEPRIORITIZED** — sidecar session is the real credential;
+  raw cookie replay 401s on everything but /voyager/api/me anyway. Sidecar
+  was circuit-open to 14:51Z at check time.
+- Stashes: stash@{0}=2-file WIP (compose+sidecar Dockerfile), stash@{1}
+  ~empty — both kept, no value in landing.
+
+- **Access bypass FULLY RESOLVED**: ZT org was on this account all along
+  (the unified dash hid it behind a plan-activation wall). Activated Zero
+  Trust Free ($0), opened Access → Applications, added `machine-bypass`
+  (Everyone→bypass) to the `ntfy` app and saved — `ntfy.cloudless.gr`
+  verified 200 + publish 200 (2026-10-29). `ntfy-ws.cloudless.gr` remains
+  as the alternate route; phone subscribed to both topics on ntfy-ws.
+
+- **ntfy phone creds on ntfy-ws** — both topics subscribed but stuck
+  "reconnecting" (no stored `phone` credential for the new host). Fix on
+  phone: ntfy → ⋮ → Settings → Manage users → + → user `phone` /
+  `Oabmv3U4vCtDXbeOaDns` for `ntfy-ws.cloudless.gr`. Battery/hibernation
+  already exempted via ADB (`deviceidle whitelist`, RUN_ANY_IN_BACKGROUND)
+  — the app shouldn't die anymore. Re-drive via `ntfy_set_server.py` when
+  the phone isn't in active use.
+- **TikTok business registration REJECTED** — "The business can't be
+  verified" (the cert.pdf upload denied). Needs a different qualification
+  doc via Edit — in-app: profile → Business registration → Edit → re-upload.
+- **WhatsApp Cloud API onboarding blocked by Meta** — "temporarily blocked
+  from performing this action" (12:30Z + 17:15Z retries). Try from a
+  personal browser/device (different fingerprint) or wait 24-48h; then the
+  OTP chain (request_code → ADB SMS → verify_code → register PIN) runs
+  unattended.
+- FB 11:00Z post published on schedule; IG+Threads for tomorrow queued.
 
 ## Leftovers (human gates)
 - X re-auth: click x-reconnect.sh output URL (works — verified live)
