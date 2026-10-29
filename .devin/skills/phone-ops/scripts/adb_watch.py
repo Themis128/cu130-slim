@@ -7,8 +7,11 @@ ADB = "/tmp/platform-tools/adb"
 
 
 def sh(*a, t=10):
-    return subprocess.run(a, capture_output=True, text=True,
-                          timeout=t).stdout.strip()
+    try:
+        return subprocess.run(a, capture_output=True, text=True,
+                              timeout=t).stdout.strip()
+    except subprocess.TimeoutExpired:
+        return ""
 
 
 def device_up():
