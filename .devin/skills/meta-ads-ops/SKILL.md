@@ -37,6 +37,10 @@ same underlying account/risk state, so inspect them together.
 - `scripts/meta_ads_audit.py [quick|full]` — drives the sidecar through all
   surfaces, extracts restriction/verify/disabled flags, prints a status
   report. `quick` = ads manager + payment settings only.
+- `scripts/meta_appeal.py` — drives the disabled-account appeal: finds the
+  "Take action"/"Request review" button on Ads Manager, clicks it, dumps
+  the resulting dialog/page so the next step is visible. Retries on the
+  sleepy-sidecar timeouts; idempotent (safe to re-run).
 
 ## Notes
 
