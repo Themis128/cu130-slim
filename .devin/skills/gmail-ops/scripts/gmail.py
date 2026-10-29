@@ -14,8 +14,14 @@ ENV = REPO / ".env"
 SECRET_JSON = Path("/mnt/c/Users/tbaltzakis/Downloads/client_secret_2_252848180858-rlv4jkvs95a4ct9gs2bf0kggm8tc4rq6.apps.googleusercontent.com.json")
 
 def _load_secret():
-    d = json.loads(SECRET_JSON.read_text())
-    return d.get("installed") or d["web"]
+    if SECRET_JSON.exists():
+        d = json.loads(SECRET_JSON.read_text())
+        return d.get("installed") or d["web"]
+    cid, csec = _env("GOOGLE_PHOTOS_CLIENT_ID"), _env("GOOGLE_PHOTOS_CLIENT_SECRET")
+    if cid and csec:
+        return {"client_id": cid, "client_secret": csec,
+                "redirect_uris": ["http://localhost:50000/auth/callback"]}
+    raise SystemExit(f"no client secret at {SECRET_JSON} and no GOOGLE_PHOTOS_* in env")
 
 def _env(key):
     for line in ENV.read_text(errors="replace").splitlines():
@@ -158,6 +164,32 @@ def search(query):
         h = {x["name"]: x["value"] for x in json.loads(urllib.request.urlopen(r, timeout=30).read())["payload"]["headers"]}
         print(f"{h.get('Date','')} | {h.get('From','')[:50]} | {h.get('Subject','')[:80]}")
 
+def links(query, account=""):
+    """Print one http(s) URL per line from bodies of messages matching query."""
+    key = (f"GMAIL_REFRESH_TOKEN_{account.upper().replace('.', '_').replace('@', '_')}"
+           if account else "GMAIL_REFRESH_TOKEN")
+    a = _access(key)
+    q = urllib.parse.urlencode({"q": query, "maxResults": 5})
+    r = urllib.request.Request(f"https://gmail.googleapis.com/gmail/v1/users/me/messages?{q}",
+                               headers={"Authorization": f"Bearer {a}"})
+    import base64
+    for m in json.loads(urllib.request.urlopen(r, timeout=30).read()).get("messages", []):
+        r = urllib.request.Request(
+            f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{m['id']}?format=full",
+            headers={"Authorization": f"Bearer {a}"})
+        msg = json.loads(urllib.request.urlopen(r, timeout=30).read())
+        def bodies(pl):
+            if pl.get("mimeType","").startswith("text/") and pl.get("body",{}).get("data"):
+                yield base64.urlsafe_b64decode(pl["body"]["data"]).decode("utf-8","replace")
+            for p_ in pl.get("parts",[]):
+                yield from bodies(p_)
+        seen=set()
+        for b in bodies(msg["payload"]):
+            for u in re.findall(r"https?://\S+", b):
+                u=u.rstrip(".,);")
+                if u not in seen:
+                    seen.add(u); print(u)
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(__doc__); sys.exit(1)
@@ -166,5 +198,9 @@ if __name__ == "__main__":
         login(sys.argv[2]); sys.exit(0)
     if cmd == "search-account" and len(sys.argv) > 3:
         search_account(sys.argv[3], sys.argv[2]); sys.exit(0)
+    if cmd == "links":
+        links(" ".join(sys.argv[2:])); sys.exit(0)
+    if cmd == "links-account" and len(sys.argv) > 3:
+        links(sys.argv[3], sys.argv[2]); sys.exit(0)
     {"login": login, "login-admin": login_admin, "enable": enable_gmail}.get(
         cmd, lambda: search(" ".join(sys.argv[1:])))()

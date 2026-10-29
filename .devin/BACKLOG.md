@@ -17,9 +17,50 @@
 - cloudless subset PRs (#2294/2295/2296/2292/2289) to close once #2305 lands —
   their content lands via tops; diffs shrink to nothing.
 - dependabot #2301/#2302 rebuilt on main + auto-merge armed (lockfile regen).
-- X re-auth, LinkedIn li_at rotation, Community Management API submission —
+- LinkedIn li_at rotation, Community Management API submission —
   unchanged from prior entry.
 - 2 live posts link cloudless.com not .gr — still awaiting go-ahead.
+
+## Done 2026-10-29
+- **X OAuth re-auth: COMPLETE.** `twitter | TBaltzakis | active`, full scope
+  set (incl. offline.access + media.write). Earlier 400s were a self-inflicted
+  PKCE mismatch (hand-typed authorize URL with wrong code_challenge — the
+  backend was never broken). `auth.py` now logs token-exchange failures.
+- **ntfy phone: FIXED end-to-end.** Failure chain: phone Tailscale VPN off +
+  subscription on dead `ntfy.tail4ecae1.ts.net` + public `ntfy.cloudless.gr`
+  behind Cloudflare Access (302 SSO challenge — every tunnel hostname gated)
+  + ntfy `deny-all` needing a user. Fix: CONNECT_VPN broadcast → default
+  server `http://100.74.191.58:30080` (k3s NodePort by IP) → resubscribed
+  `cloudless-alerts` as `phone` user (password rotated via
+  `NTFY_PASSWORD=… ntfy user change-pass`). Test ping verified on-device.
+  Skill: `.devin/skills/ntfy-phone-ops` (mirrored to .cursor).
+- **n8n encryption-key error resolved** — `signing.hmac` errors gone, editor
+  up, 25 workflows intact (all active).
+- **Chroma/company brain healthy** — `remember()` verified True; earlier
+  False was the container sitting in `Created` state post-bounce.
+
+## Leftovers (new 2026-10-29)
+- **Cloudflare Access gates every omv-tunnel hostname** (ntfy/kuma/grafana/
+  meili/docs/espocrm/n8n/postiz…). Machine/app clients can't SSO → the ntfy
+  public endpoint is unusable for the phone and for unauthenticated POSTs.
+  `CLOUDFLARE_API_TOKEN` lacks Access perms (`access/groups` → 10000) and the
+  ZT org isn't visible via API. Fix needs dashboard: Zero Trust → Access →
+  add a bypass/service-token policy for `ntfy.cloudless.gr`. Until then all
+  ntfy traffic must use tailnet `github-omv:30080` + basic auth.
+- **Server-side ntfy publishers broken same way**: `nextcloud_wedge_watchdog`
+  posts to `https://ntfy.cloudless.gr/nextcloud-ops` (302s to Access) and
+  `nextcloud-ops` isn't even a granted topic (only cloudless-ops/alerts).
+  Repoint watchdog to `http://github-omv:30080/nextcloud-ops` + grant a
+  write-only user; or consolidate on `cloudless-alerts`/`cloudless-ops`.
+- **Uncommitted WIP in tree** (NOT mine — edits today 00:52–09:52, never
+  synced to containers): media_enhance.py, carousel_pipeline.py (CF-first
+  flip), cf_models.py, image_enhance.py, twitter_profile.py,
+  synigoros_status.py + 3 test files. Left alone — likely another session's
+  live work. If abandoned: review + commit or stash.
+- Orphan container `d9e8a72aabec_social-worker-default` (Created state)
+  safe to `docker rm`; `facebook-browser-sidecar` sleep-managed (Exited).
+- Scheduled posts verified queued: FB 11:00Z 10-29 (AX-Pass), IG+Threads
+  10-30, LI 08:30Z+IG 09:00Z 10-29 — verify platform-side after they fire.
 
 ## Done 2026-10-25
 - Survey funnel + platform-aware nurture (#909 platform field fix; meta_data.platform drives PLATFORM openers)
