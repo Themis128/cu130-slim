@@ -74,6 +74,18 @@ def scan() -> int:
             print(f"viber drop → rc={rc} {out[:80]}")
             if rc == 0:
                 _mark(f); os.remove(f); hits += 1
+    # auto-harvest: if no drops and channels still missing, try the
+    # logged-in browser sessions (bsky.app session, partners.viber.com)
+    if hits == 0:
+        for plat in ("bsky", "viber"):
+            if plat in _done():
+                continue
+            rc = subprocess.run(
+                ["python3", os.path.join(os.path.dirname(__file__),
+                                        f"{plat}_harvest.py"), "run"],
+                capture_output=True, text=True, timeout=90)
+            if rc.returncode == 0:
+                print(f"{plat}: auto-harvested + wired"); _mark(plat); hits += 1
     print(f"scan: {hits} wired")
     return hits
 
