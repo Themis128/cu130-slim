@@ -219,6 +219,7 @@ async def test_dispatch_full_sweep(monkeypatch):
         _DB(
             [
                 [fresh],
+                [],  # hi-score repost query (none in this fixture)
                 [drafted, long_draft, no_cand, empty],
                 [cand_li],
                 [cand_m],
@@ -289,7 +290,7 @@ async def test_dispatch_viral_tiktok_becomes_gated_duet_flag(monkeypatch):
     and produces a gated duet_flag instead of an auto-like."""
     now = dt.datetime(2026, 10, 1, 12, tzinfo=dt.UTC)
     fresh = _row_cand(platform="tiktok", post_id="tt-viral-1", posted_at=now - dt.timedelta(seconds=7200), meta_data={"views": 12000, "viral": True})
-    db = _use_db(monkeypatch, _DB([[fresh], [], [], []]))
+    db = _use_db(monkeypatch, _DB([[fresh], [], [], [], []]))
 
     out = await ENG._run(5)
 
@@ -306,7 +307,7 @@ async def test_dispatch_alert_failure_is_swallowed(monkeypatch):
     import app.services.slack_notifications as SN
 
     a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
-    _use_db(monkeypatch, _DB([[], [a], [_row_cand(platform="linkedin")], []]))
+    _use_db(monkeypatch, _DB([[], [], [a], [_row_cand(platform="linkedin")], []]))
     monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(return_value={"text": "draft"}))
     monkeypatch.setattr(SN, "_post_slack_text", AsyncMock(side_effect=RuntimeError("slack down")))
     monkeypatch.delenv("SLACK_ENGAGEMENT_WEBHOOK_URL", raising=False)
@@ -351,16 +352,16 @@ async def test_gate_ping_sent_once_not_on_every_sweep(monkeypatch):
     _patch_actors(monkeypatch, {})
     a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
 
-    _use_db(monkeypatch, _DB([[], [a], [_row_cand(platform="linkedin")], []]))
+    _use_db(monkeypatch, _DB([[], [], [a], [_row_cand(platform="linkedin")], []]))
     await ENG._run(5)
     assert slack.await_count == 1
     assert "<!channel>" in slack.await_args.kwargs["text"]
 
     # next beat tick: same row still pending_human_gate, but already drafted
-    db2 = _use_db(monkeypatch, _CountingDB([[], [], []]))
+    db2 = _use_db(monkeypatch, _CountingDB([[], [], [], []]))
     out = await ENG._run(5)
     assert slack.await_count == 1  # no re-ping
-    assert db2.queries == 3  # score, drafts_needed, dispatch — no 2h gate re-query
+    assert db2.queries == 4  # score, drafts_needed, dispatch — no 2h gate re-query
     assert out == {"scored": 0, "drafted": 0, "dispatched": [], "failed": []}
 
 
@@ -379,6 +380,7 @@ async def test_gate_ping_skips_undrafted_and_truncates(monkeypatch):
         _DB(
             [
                 [],
+                [],  # hi-score repost query
                 [exact, blank],
                 [_row_cand(platform="linkedin", post_id="p1")],
                 [_row_cand(platform="linkedin", post_id="p2")],
@@ -395,7 +397,7 @@ async def test_gate_ping_skips_undrafted_and_truncates(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_dispatch_nothing_to_do(monkeypatch):
-    _use_db(monkeypatch, _DB([[], [], []]))
+    _use_db(monkeypatch, _DB([[], [], [], []]))
     _patch_actors(monkeypatch, {})
     out = await ENG._run(1)
     assert out == {"scored": 0, "drafted": 0, "dispatched": [], "failed": []}
