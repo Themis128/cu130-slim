@@ -49,8 +49,71 @@ def _run(script: str, args: list[str]) -> tuple[int, str]:
     return r.returncode, (r.stdout + r.stderr)[-400:]
 
 
-def scan() -> int:
+_TG_PARSE = __import__("re").compile(
+    r"\b(bsky|viber)[:\s]+([A-Za-z0-9_\-\.]{8,})", __import__("re").I)
+
+
+def _tg_drops() -> int:
+    """Poll the bot's getUpdates for 'bsky <pw>' / 'viber <tok>' drops and
+    provision them — the phone-friendly alternative to file drops."""
+    script = """
+import asyncio, json, re
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import select
+from app.models import SocialAccount
+from app.core.config import get_settings
+from app.core.security import decrypt_token
+import httpx
+async def go():
+    eng = create_async_engine(get_settings().DATABASE_URL)
+    S = sessionmaker(eng, class_=AsyncSession)
+    async with S() as db:
+        acc = (await db.execute(select(SocialAccount).where(
+            SocialAccount.platform=='telegram',
+            SocialAccount.status=='active').limit(1))).scalar_one()
+        enc = acc.meta_data.get('bot_token_enc')
+        tok = decrypt_token(enc.encode() if isinstance(enc,str) else enc) \
+            if enc else decrypt_token(acc.access_token_enc)
+        r = await httpx.AsyncClient().get(
+            f'https://api.telegram.org/bot{tok}/getUpdates',
+            params={'offset': -20, 'timeout': 2})
+        out = []
+        for u in r.json().get('result', []):
+            m = u.get('message') or {}
+            txt = m.get('text') or ''
+            out.append(txt)
+        print(json.dumps(out))
+asyncio.run(go())
+"""
+    r = subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
+                       input=script, capture_output=True, text=True,
+                       timeout=60)
+    try:
+        msgs = json.loads(r.stdout.strip().splitlines()[-1])
+    except Exception:
+        return 0
     hits = 0
+    for m in msgs:
+        hit = _TG_PARSE.search(m or "")
+        if not hit:
+            continue
+        plat, sec = hit.group(1).lower(), hit.group(2)
+        fn = ("bluesky-ops/scripts/bsky_provision.py"
+              if plat == "bsky" else "viber-ops/scripts/viber_provision.py")
+        args = (["connect", "--handle", "cloudless.gr", "--password", sec]
+                if plat == "bsky" else ["--token", sec])
+        rc, out = _run(fn, args)
+        if rc == 0:
+            _mark(f"tg:{plat}:{sec[-4:]}"); hits += 1
+            print(f"tg {plat} drop → wired")
+        else:
+            print(f"tg {plat} drop → rc={rc} {out[:60]}")
+    return hits
+
+
+def scan() -> int:
+    hits = _tg_drops()
     for f in sorted(glob.glob(os.path.join(DL, "*"))):
         name = os.path.basename(f).lower()
         if not os.path.isfile(f) or f in _done():
