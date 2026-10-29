@@ -79,8 +79,8 @@ def _poll() -> dict:
         """(()=>{const t=document.body.innerText;
         const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
         return JSON.stringify({
-          status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) ||
-                  grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
+          status: grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*|Σε εξέλιξη[^\\n]*|Σε επεξεργασία[^\\n]*)/) ||
+                  grab(/Κατάσταση\\s*\\n([^\\n]+)/),
           proto: grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
           kpa:   grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
         })})()"""
