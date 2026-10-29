@@ -99,6 +99,23 @@
   verified 200 + publish 200 (2026-10-29). `ntfy-ws.cloudless.gr` remains
   as the alternate route; phone subscribed to both topics on ntfy-ws.
 
+- **ntfy phone creds on ntfy-ws** — both topics subscribed but stuck
+  "reconnecting" (no stored `phone` credential for the new host). Fix on
+  phone: ntfy → ⋮ → Settings → Manage users → + → user `phone` /
+  `Oabmv3U4vCtDXbeOaDns` for `ntfy-ws.cloudless.gr`. Battery/hibernation
+  already exempted via ADB (`deviceidle whitelist`, RUN_ANY_IN_BACKGROUND)
+  — the app shouldn't die anymore. Re-drive via `ntfy_set_server.py` when
+  the phone isn't in active use.
+- **TikTok business registration REJECTED** — "The business can't be
+  verified" (the cert.pdf upload denied). Needs a different qualification
+  doc via Edit — in-app: profile → Business registration → Edit → re-upload.
+- **WhatsApp Cloud API onboarding blocked by Meta** — "temporarily blocked
+  from performing this action" (12:30Z + 17:15Z retries). Try from a
+  personal browser/device (different fingerprint) or wait 24-48h; then the
+  OTP chain (request_code → ADB SMS → verify_code → register PIN) runs
+  unattended.
+- FB 11:00Z post published on schedule; IG+Threads for tomorrow queued.
+
 ## Leftovers (human gates)
 - X re-auth: click x-reconnect.sh output URL (works — verified live)
 - LinkedIn password + li_at rotation (exposed earlier in session)
