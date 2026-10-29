@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import urllib.parse
 
 import httpx
 from sqlalchemy import select
@@ -135,7 +136,8 @@ async def _bridge_health() -> str:
         if "login" in cur or "i/flow" in cur:
             await post_alert_to_slack(":warning: X session stale — refresh X_WEB_AUTH_TOKEN (x.com devtools cookies).")
             return "stale"
-        return "live" if "x.com" in cur else f"rotated ({cur[:40]})"
+        host = urllib.parse.urlparse(cur).hostname or ""
+        return "live" if host == "x.com" or host.endswith(".x.com") else f"rotated ({cur[:40]})"
     except Exception as e:
         return f"busy ({str(e)[:60]})"
 
