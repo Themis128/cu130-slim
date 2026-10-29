@@ -1,8 +1,10 @@
-"""Twitter/X profile update service via tweepy (v1.1 API).
+"""Twitter/X profile update service via requests-oauthlib (v1.1 API).
 
-This module wraps tweepy's v1.1 ``API.update_profile``,
-``API.update_profile_image``, and ``API.update_profile_banner`` methods
-to enable profile metadata writes that the v2 free tier does not support.
+Uses raw OAuth1Session calls to the v1.1 ``account/*`` endpoints —
+``verify_credentials``, ``update_profile``, ``update_profile_image``,
+``update_profile_banner`` — which the v2 free tier does not support.
+requests-oauthlib is used instead of tweepy so the stack can pin
+``oauthlib>=4`` (CVE-2026-49272); tweepy caps it at ``<4``.
 
 Requirements:
     - Twitter API v1.1 credentials (API key/secret + access token/secret)
@@ -16,11 +18,12 @@ Config:
 
 from __future__ import annotations
 
-import io
 import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_BASE = "https://api.twitter.com/1.1/account"
 
 
 class TwitterProfileError(Exception):
@@ -33,7 +36,7 @@ class TwitterProfileError(Exception):
 
 
 class TwitterProfileService:
-    """Profile update service using tweepy's v1.1 API.
+    """Profile update service using OAuth1Session's v1.1 calls.
 
     Created per-request with the account's v1.1 credentials.
     """
@@ -46,40 +49,43 @@ class TwitterProfileService:
         access_token_secret: str,
     ) -> None:
         try:
-            import tweepy
+            from requests_oauthlib import OAuth1Session
         except ImportError as e:
             raise TwitterProfileError(
                 500,
-                "tweepy is not installed. Run: pip install tweepy>=4.14.0",
+                "requests-oauthlib is not installed.",
             ) from e
 
-        auth = tweepy.OAuth1UserHandler(
+        self._api = OAuth1Session(
             api_key,
             api_secret,
             access_token,
             access_token_secret,
         )
-        self._api = tweepy.API(auth, wait_on_rate_limit=True)
 
     def get_profile(self) -> dict[str, Any]:
         """Get the authenticated user's profile via verify_credentials."""
         try:
-            user = self._api.verify_credentials()
+            r = self._api.get(f"{_BASE}/verify_credentials.json")
+            user = r.json() if r.status_code == 200 else None
         except Exception as e:
             raise TwitterProfileError(401, f"Twitter authentication failed: {e}") from e
+        if user is None:
+            raise TwitterProfileError(401, f"Twitter authentication failed: {r.status_code}")
 
+        pic = user.get("profile_image_url_https")
         return {
-            "id": str(user.id),
-            "username": user.screen_name,
-            "full_name": user.name,
-            "biography": user.description,
-            "location": user.location,
-            "website": user.url,
-            "profile_pic_url": user.profile_image_url_https.replace("_normal", "") if user.profile_image_url_https else None,
-            "cover_url": user.profile_banner_url if hasattr(user, "profile_banner_url") else None,
-            "followers": user.followers_count,
-            "is_verified": getattr(user, "verified", False),
-            "raw": user._json if hasattr(user, "_json") else {},
+            "id": str(user.get("id", "")),
+            "username": user.get("screen_name", ""),
+            "full_name": user.get("name", ""),
+            "biography": user.get("description", ""),
+            "location": user.get("location", ""),
+            "website": user.get("url"),
+            "profile_pic_url": pic.replace("_normal", "") if pic else None,
+            "cover_url": user.get("profile_banner_url"),
+            "followers": user.get("followers_count", 0),
+            "is_verified": user.get("verified", False),
+            "raw": user,
         }
 
     def update_profile(
@@ -108,37 +114,49 @@ class TwitterProfileService:
             raise TwitterProfileError(400, "At least one field must be provided")
 
         try:
-            user = self._api.update_profile(**kwargs)
+            r = self._api.post(f"{_BASE}/update_profile.json", data=kwargs)
+            user = r.json() if r.status_code == 200 else {}
         except Exception as e:
             raise TwitterProfileError(500, f"Twitter profile update failed: {e}") from e
+        if r.status_code != 200:
+            raise TwitterProfileError(500, f"Twitter profile update failed: {r.status_code}")
 
         return {
             "success": True,
             "updated_fields": list(kwargs.keys()),
-            "username": user.screen_name,
+            "username": user.get("screen_name", ""),
         }
 
     def update_profile_image(self, image_bytes: bytes) -> dict[str, Any]:
         """Upload a new profile picture."""
         try:
-            file_obj = io.BytesIO(image_bytes)
-            user = self._api.update_profile_image(filename="profile.jpg", file=file_obj)
+            r = self._api.post(
+                f"{_BASE}/update_profile_image.json",
+                files={"image": ("profile.jpg", image_bytes)},
+            )
+            user = r.json() if r.status_code == 200 else {}
         except Exception as e:
             raise TwitterProfileError(500, f"Twitter profile image upload failed: {e}") from e
+        if r.status_code != 200:
+            raise TwitterProfileError(500, f"Twitter profile image upload failed: {r.status_code}")
 
         return {
             "success": True,
             "updated_fields": ["profile_picture"],
-            "username": user.screen_name,
+            "username": user.get("screen_name", ""),
         }
 
     def update_profile_banner(self, image_bytes: bytes) -> dict[str, Any]:
         """Upload a new profile banner."""
         try:
-            file_obj = io.BytesIO(image_bytes)
-            self._api.update_profile_banner(filename="banner.jpg", file=file_obj)
+            r = self._api.post(
+                f"{_BASE}/update_profile_banner.json",
+                files={"banner": ("banner.jpg", image_bytes)},
+            )
         except Exception as e:
             raise TwitterProfileError(500, f"Twitter banner upload failed: {e}") from e
+        if r.status_code != 200:
+            raise TwitterProfileError(500, f"Twitter banner upload failed: {r.status_code}")
 
         return {
             "success": True,
