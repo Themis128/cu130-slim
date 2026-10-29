@@ -19,6 +19,7 @@ def device_up():
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", help="on-device .sh to run when device is up")
+    ap.add_argument("--push", help="local file to push to /sdcard/ first")
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--poll", type=int, default=15)
     a = ap.parse_args()
@@ -27,6 +28,10 @@ def main() -> int:
         r = sh(ADB, "connect", f"{HOST}:{PORT}")
         if device_up():
             print(f"device up ({r})")
+            if a.push:
+                out = sh(ADB, "-s", f"{HOST}:{PORT}", "push", a.push,
+                         f"/sdcard/{a.push.rsplit('/', 1)[-1]}", t=30)
+                print("pushed:", out[:120])
             if a.script:
                 out = sh(ADB, "-s", f"{HOST}:{PORT}", "shell",
                          "sh", a.script, t=180)
