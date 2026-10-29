@@ -24,6 +24,7 @@ def main() -> int:
     ap.add_argument("--host", default=HOST, help="phone IP (default Tailscale)")
     ap.add_argument("--poll", type=int, default=15)
     a = ap.parse_args()
+    global target
     target = f"{a.host}:{PORT}"
     end = time.time() + a.timeout
     while time.time() < end:
