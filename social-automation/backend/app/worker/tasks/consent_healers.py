@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import urllib.parse
 
 import httpx
 from sqlalchemy import select
@@ -176,8 +175,11 @@ async def _try_bridge_reauth(team_id: str) -> str:
     # generate fresh auth URL via the api's own authorize endpoint
     try:
         # build the authorize URL inline — same PKCE+state the api does
-        import base64 as _b64, hashlib as _hash, secrets as _sec
+        import base64 as _b64
+        import hashlib as _hash
+        import secrets as _sec
         from urllib.parse import urlencode
+
         from app.core.config import settings
         from app.core.security import sign_oauth_state
         cv = _sec.token_urlsafe(64)
