@@ -17,7 +17,35 @@ same underlying account/risk state, so inspect them together.
 | Account quality | `facebook.com/accountquality` (redirects to business-support-home) | outstanding violations / support cases (last 30 days) |
 | WhatsApp onboarding | `developers.facebook.com/apps/<app>/whatsapp-business/wa-settings/` | ON_PREMISE→Cloud "Continue" + the temporary-block state |
 
-## Restriction taxonomy (what the text means)
+## Restriction taxonomy (verified 2026-10-29, web + Meta AI)
+
+**Levels** — restrictions sit on the personal profile / business portfolio /
+individual ad account; each has a different fix, and a flagged owning
+profile cascades to everything below it.
+
+**Status codes** (Restrictions Info in Account Quality):
+- `2FAC` — needs 2FA on the personal profile; lifts **immediately** when set
+- `DISABLED RISK` / `RISK_REVIEW` — suspicious payment/geo activity (e.g.
+  the Kazakhstan-address-on-Greek-business flag); review-able
+- `PREHARM` — identity verification failed; doc-upload loop, fix via
+  Meta ADS app → Help Center → account quality → upload doc
+- `REJECT_NORETRY` / `BUSINESS_INTEGRITY_RAR` — permanent, no recovery
+
+**Hard rules:**
+- Ad account disabled **>180 days cannot be reinstated** — create a new
+  ad account inside a healthy portfolio instead (Meta's own advice)
+- Missing "Request Review" = not eligible / already reviewed / permanent —
+  another **verified admin** may raise it
+- Only ONE appeal — repeat submissions delay, don't help
+- Meta Support Pro exists for disabled accounts (ad account ID required)
+
+**Our case (2026-10-29):** profile `1134463867` flagged + ad acct
+`657781691826702` disabled Jan-2021 → appeal window expired. Remediation
+chain: profile 2FA + identity confirmation (`/id/hub` → "Protect your
+account") → portfolio business verification → NEW ad account → WhatsApp
+migration (`wa_onboard_retry.py`).
+
+## Restriction flags (what page text means)
 
 - **"can't calculate a score when your account is restricted"** (Ads Mgr) —
   account carries SOME restriction; check Payment settings for the type.
@@ -37,6 +65,28 @@ same underlying account/risk state, so inspect them together.
 - `scripts/meta_ads_audit.py [quick|full]` — drives the sidecar through all
   surfaces, extracts restriction/verify/disabled flags, prints a status
   report. `quick` = ads manager + payment settings only.
+- `scripts/meta_appeal.py` — drives the disabled-account appeal: finds the
+  "Take action"/"Request review" button on Ads Manager, clicks it, dumps
+  the resulting dialog/page so the next step is visible. Retries on the
+  sleepy-sidecar timeouts; idempotent (safe to re-run).
+- `scripts/meta_appeal_form.py` — opens Meta's canonical disabled-account
+  appeal form (`help/contact/2026068680760273`) and inventories its
+  fields/buttons so the fill is known before a human types a word.
+- `scripts/meta_restriction_heal.py` — the remediation driver for the
+  USER'S REAL CHROME via CDP :9222 (the sidecar can't do this surface):
+  `status` / `shot` / `nav` / `step` / `login <email>` / `twofa` /
+  `confirm <code>` / `totp`. Real Input-event clicks for the
+  iframe-walled accountscenter pages; `FB_PASSWORD`/`FB_TOTP_SECRET`
+  env vars for the credential+TOTP steps.
+
+**Device-trust gate (learned 2026-10-29):** a fresh Chrome session hits
+"you can't make this change at the moment" on sensitive changes — the
+notification-approval from a trusted device does NOT instantly clear it;
+the device must age in (normal use) OR do the change on the trusted
+device (the phone's Facebook app: ☰ → Settings and privacy → Settings →
+Accounts Center → Password and security → Two-factor → profile →
+Authentication app). Approve the "new device" login notification on the
+phone first — it makes the CDP session trusted-enough to proceed.
 
 ## Notes
 
