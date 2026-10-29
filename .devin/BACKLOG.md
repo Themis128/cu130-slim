@@ -80,6 +80,18 @@
   migration in the Meta console, not code retries. DB `revoked` flag is
   stale (whatsapp_tool.py status works).
 
+- **slack_notifications.py container corruption FIXED** — the running copy
+  had live `<<<<<<< Updated upstream` markers (repo clean). Re-synced to all
+  6 app containers + restarted; would have broken every Slack alert on next
+  import. Repo + containers scanned — no other markers.
+- **X onboarding-URL regression test** landed (test_consent_healers.py):
+  `/i/jf/onboarding/web?mode=login` reads `stale` — the #1074 review case.
+- **li_at rotation DEPRIORITIZED** — sidecar session is the real credential;
+  raw cookie replay 401s on everything but /voyager/api/me anyway. Sidecar
+  was circuit-open to 14:51Z at check time.
+- Stashes: stash@{0}=2-file WIP (compose+sidecar Dockerfile), stash@{1}
+  ~empty — both kept, no value in landing.
+
 ## Leftovers (human gates)
 - X re-auth: click x-reconnect.sh output URL (works — verified live)
 - LinkedIn password + li_at rotation (exposed earlier in session)
