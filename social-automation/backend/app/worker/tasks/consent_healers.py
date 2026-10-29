@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -44,7 +45,7 @@ async def _twitter() -> str:
             await db.commit()
             await post_alert_to_slack(":white_check_mark: X re-auth detected — account back to *active*.")
             return "healed"
-        return "still-expired"
+        return await _try_bridge_reauth(str(acc.team_id))
 
 
 async def _linkedin_snapshot() -> str:
@@ -104,6 +105,7 @@ async def _bridge_health() -> str:
     import json
     import os
     import time
+    import urllib.parse
     import urllib.request
 
     tok, ct0 = os.environ.get("X_WEB_AUTH_TOKEN", ""), os.environ.get("X_WEB_CT0", "")
@@ -134,7 +136,8 @@ async def _bridge_health() -> str:
         if "login" in cur or "i/flow" in cur:
             await post_alert_to_slack(":warning: X session stale — refresh X_WEB_AUTH_TOKEN (x.com devtools cookies).")
             return "stale"
-        return "live" if "x.com" in cur else f"rotated ({cur[:40]})"
+        host = urllib.parse.urlparse(cur).hostname or ""
+        return "live" if host == "x.com" or host.endswith(".x.com") else f"rotated ({cur[:40]})"
     except Exception as e:
         return f"busy ({str(e)[:60]})"
 
@@ -161,6 +164,92 @@ async def _dmr_health() -> str:
         return f"down ({type(e).__name__})"
 
 
+async def _x_credentials_login(c: httpx.AsyncClient, bridge: str) -> None:
+    """Credentials login on the adhoc session — X's 3-step flow
+    (username → maybe-email-verify → password). Fills via /session/fill
+    (trusted input) then continues. TOTP/2FA not stored — lands on
+    trusted-device or email-code paths only."""
+    import os
+
+    u = os.environ.get("TWITTER_LOGIN_USERNAME", "")
+    e = os.environ.get("TWITTER_LOGIN_EMAIL", "")
+    pw = os.environ.get("TWITTER_LOGIN_PASSWORD", "")
+    if not (u and pw):
+        return
+    await c.post(f"{bridge}/session/evaluate", json={"expression": 'location.href="https://x.com/i/flow/login"'})
+    await asyncio.sleep(6)
+    for i, val in enumerate([u, e, pw]):
+        if not val:
+            continue
+        await c.post(f"{bridge}/session/fill", json={"selector": "input >> nth=0", "value": val})
+        await asyncio.sleep(1)
+        await c.post(f"{bridge}/session/click", json={"selector": "button:has-text('Next'),button:has-text('Log in')"})
+        await asyncio.sleep(5)
+
+
+async def _try_bridge_reauth(team_id: str) -> str:
+    """Self-heal: drive the X consent on the adhoc bridge (:9232/adhoc),
+    which is a dedicated session slot — no shared-novnc 409 contention.
+    Seeds the stored X cookies (X_WEB_AUTH_TOKEN/X_WEB_CT0), navigates
+    the fresh authorize URL, ticks the trust checkbox, then fires the
+    trusted /session/click on Authorize — the exact flow that delivers
+    code -> callback -> active."""
+    import os
+
+    bridge = os.environ.get("BROWSER_ADHOC_URL", "http://browser-novnc-adhoc:9224")
+    try:
+        import base64 as _b64
+        import hashlib as _hash
+        import secrets as _sec
+        from urllib.parse import urlencode
+
+        from app.core.config import settings
+        from app.core.security import sign_oauth_state
+
+        cv = _sec.token_urlsafe(64)
+        cc = _b64.urlsafe_b64encode(_hash.sha256(cv.encode()).digest()).rstrip(b"=").decode()
+        state = sign_oauth_state({"t": team_id, "cv": cv})
+        auth_url = "https://x.com/i/oauth2/authorize?" + urlencode(
+            {
+                "response_type": "code",
+                "client_id": settings.TWITTER_CLIENT_ID,
+                "redirect_uri": settings.TWITTER_REDIRECT_URI,
+                "state": state,
+                "scope": "tweet.read tweet.write users.read media.write offline.access dm.read dm.write like.write like.read follows.write bookmark.read",
+                "code_challenge": cc,
+                "code_challenge_method": "S256",
+            }
+        )
+        cookies = [
+            {"name": "auth_token", "value": os.environ.get("X_WEB_AUTH_TOKEN", ""), "domain": ".x.com", "path": "/"},
+            {"name": "ct0", "value": os.environ.get("X_WEB_CT0", ""), "domain": ".x.com", "path": "/"},
+        ]
+        cookies = [c for c in cookies if c["value"]]
+        async with httpx.AsyncClient(timeout=30) as c:
+            await c.post(f"{bridge}/session/start", json={"platform": "twitter"})
+            await asyncio.sleep(2)
+            if cookies:
+                await c.post(f"{bridge}/session/seed", json={"cookies": cookies})
+            await c.post(f"{bridge}/session/evaluate", json={"expression": 'location.href="https://x.com"'})
+            await asyncio.sleep(5)
+            # login-wall fallback — cookies dead → credentials login on the
+            # same session before continuing to the authorize URL.
+            wall = await c.post(
+                f"{bridge}/session/evaluate", json={"expression": "document.title + '|' + (document.body&&document.body.innerText||'').slice(0,200)"}
+            )
+            if "login" in str(wall.json()).lower() or "sign in" in str(wall.json()).lower():
+                await _x_credentials_login(c, bridge)
+            await c.post(f"{bridge}/session/evaluate", json={"expression": f"location.href={__import__('json').dumps(auth_url)}"})
+            await asyncio.sleep(7)
+            # trust checkbox → enables Authorize
+            await c.post(f"{bridge}/session/click", json={"selector": "[role=checkbox]"})
+            await asyncio.sleep(2)
+            click = await c.post(f"{bridge}/session/click", json={"selector": "button:has-text('Authorize')"})
+            return f"approve-fired {click.json() if click.status_code == 200 else click.status_code}"
+    except Exception as e:
+        return f"still-expired ({type(e).__name__})"
+
+
 @celery_app.task(name="app.worker.tasks.consent_healers.heal_consents")
 def heal_consents() -> dict:
     async def _go():
@@ -173,3 +262,66 @@ def heal_consents() -> dict:
         }
 
     return run_async(_go())
+
+
+@celery_app.task(name="app.worker.tasks.consent_healers.media_backfill")
+def media_backfill() -> dict:
+    """Sweep draft posts flagged needs_media — generate+attach an image so
+    they become schedulable (the flag was a dead signal; this consumes it)."""
+    import asyncio
+
+    return asyncio.run(_media_backfill())
+
+
+async def _media_backfill() -> dict:
+    import base64
+
+    from sqlalchemy import select
+
+    from app.models.content import Post
+    from app.services.inference import _call_workers_ai_image
+    from app.services.media_storage import persist_generated_image
+    from app.worker._async import task_session
+
+    FLUX = "stable-diffusion-xl-1.0"
+    done, failed = 0, 0
+    async with task_session() as db:
+        posts = (
+            (
+                await db.execute(
+                    select(Post)
+                    .where(
+                        Post.status == "draft",
+                        Post.meta_data["needs_media"].astext == "true",
+                    )
+                    .limit(5)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for post in posts:
+            topic = (post.meta_data or {}).get("topic") or (post.content_text or "")[:120]
+            try:
+                res = await _call_workers_ai_image(f"Clean professional social-media visual for: {topic}", FLUX)
+                b64 = (res or {}).get("image_base64")
+                if not b64:
+                    failed += 1
+                    continue
+                asset = await persist_generated_image(
+                    db,
+                    team_id=post.team_id,
+                    user_id=post.user_id,
+                    image_bytes=base64.b64decode(b64),
+                    prompt=f"media_backfill: {topic}",
+                    source="media-backfill",
+                )
+                post.media_ids = [asset.id]
+                md = dict(post.meta_data or {})
+                md["needs_media"] = False
+                post.meta_data = md
+                done += 1
+            except Exception:
+                failed += 1
+        await db.commit()
+    return {"attached": done, "failed": failed}

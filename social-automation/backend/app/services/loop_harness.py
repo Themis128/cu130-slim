@@ -48,9 +48,23 @@ async def llm_call(
     last_err: Exception | None = None
     for attempt in range(1, max_retries + 1):
         try:
-            resp = await dmr.call_dmr_chat(
-                prompt, system=system or None, model_override=model)
-            text = resp.get("text") if isinstance(resp, dict) else str(resp)
+            try:
+                resp = await dmr.call_dmr_chat(prompt, system=system or None, model_override=model)
+                text = resp.get("text") if isinstance(resp, dict) else str(resp)
+            except Exception:
+                # service payload shape (tools/schema params) can hang on
+                # small models — fall back to a bare chat call
+                import os
+
+                import httpx
+
+                url = os.environ.get("DMR_URL", "http://host.docker.internal:12435/engines/llama.cpp/v1")
+                m = model or os.environ.get("DMR_TEXT_MODEL", "docker.io/ai/smollm2:latest")
+                msgs = ([{"role": "system", "content": system}] if system else []) + [{"role": "user", "content": prompt}]
+                async with httpx.AsyncClient(timeout=60) as c:
+                    r = await c.post(f"{url}/chat/completions", json={"model": m, "messages": msgs, "max_tokens": 500})
+                d = r.json()
+                text = (d.get("choices") or [{}])[0].get("message", {}).get("content", "")
         except Exception as e:
             last_err = e
             logger.warning("%s: attempt %d transport error: %s", tag, attempt, e)

@@ -19,6 +19,7 @@ Commands:
 Env used: WHATSAPP_ACCESS_TOKEN, WHATSAPP_BUSINESS_ACCOUNT_ID,
 WHATSAPP_PHONE_NUMBER_ID, WHATSAPP_APP_ID. Never prints tokens.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,6 +61,7 @@ def _graph_get(path: str, **params) -> dict:
         raise SystemExit(json.dumps(data["error"], indent=2))
     return data
 
+
 def _graph_post(path: str, **params) -> dict:
     import requests
 
@@ -95,16 +97,23 @@ def cmd_verify_code(code: str) -> None:
 
 
 def cmd_register() -> None:
-    """POST /{phone_number_id}/register — the non-migration registration path.
+    """POST /{phone_number_id}/register — finalize registration with a PIN.
 
-    Meta error 2388091 ("not being migrated") means request_code is the wrong
-    endpoint for a number that isn't migrating — the standard flow is
-    /register (which triggers the SMS) followed by /verify_code.
+    True sequence per Meta docs: /request_code (fires the SMS) →
+    /verify_code (proves possession) → /register (activates, needs PIN).
+    Use this when a number verified but never completed registration —
+    e.g. request_code rejected with 2388091 ("not being migrated").
+
+    Requires WA_REGISTRATION_PIN — a hardcoded default would leave the
+    number's two-step verification protected by a public value.
     """
+    pin = os.environ.get("WA_REGISTRATION_PIN")
+    if not pin:
+        raise SystemExit("set WA_REGISTRATION_PIN — no default (predictable PIN = insecure 2SV)")
     out = _graph_post(
         f"{_need('WHATSAPP_PHONE_NUMBER_ID')}/register",
         messaging_product="whatsapp",
-        pin=os.environ.get("WA_REGISTRATION_PIN", "123456"),
+        pin=pin,
     )
     print(json.dumps(out, indent=2))
 
@@ -130,10 +139,7 @@ def cmd_templates() -> None:
         print("(no message templates on the WABA)")
     for t in rows:
         rej = f" rejected={t['rejected_reason']}" if t.get("rejected_reason") else ""
-        print(
-            f"{t.get('name')}\t{t.get('status')}\t{t.get('category')}\t"
-            f"{t.get('language')}{rej}"
-        )
+        print(f"{t.get('name')}\t{t.get('status')}\t{t.get('category')}\t{t.get('language')}{rej}")
 
 
 def cmd_waba() -> None:

@@ -10,6 +10,7 @@ Skill doc: .devin/skills/synigoros-ops/SKILL.md
 import asyncio
 import json
 import logging
+import os
 import time
 from datetime import UTC, datetime
 
@@ -24,10 +25,10 @@ from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-BRIDGE = "http://browser-novnc-adhoc:9224"
+BRIDGE = os.environ.get("ADHOC_BRIDGE_URL", os.environ.get("BROWSER_BRIDGE_URL", "http://stack-ops:9223"))
 TRACK_URL = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"
-MAIL = "baltzakis.themis@gmail.com"
-KPA = "202610260029"
+MAIL = os.environ.get("SYNIGOROS_MAIL", "")
+KPA = os.environ.get("SYNIGOROS_KPA", "")
 TELEGRAM_CHAT = "-1004436942504"  # Cloudless — Automation HQ
 EVENT_TYPE = "synigoros_status"
 PLATFORM = "synigoros"
@@ -49,31 +50,46 @@ def _ev(expr: str):
 
 
 def _poll() -> dict:
-    # boot the shared browser (any platform arg) — close a stale session first
+    # boot the shared browser (any platform arg) — unforced: a forced start
+    # kills a live publishing/login session on the shared bridge
+    _bridge("/session/start", {"platform": "reddit", "interactive": False})
     try:
-        _bridge("/session/close", {})
-    except Exception:
-        pass
-    _bridge("/session/start", {"platform": "reddit", "interactive": False, "force": True})
+        return _poll_inner()
+    finally:
+        try:
+            _bridge("/session/close", {})
+        except Exception:
+            pass
+
+
+def _poll_inner() -> dict:
     time.sleep(4)
     _bridge("/session/navigate", {"url": TRACK_URL})
     for _ in range(10):
-        if _ev("!!document.getElementById('webMail')") or \
-           _ev("document.body.innerText.includes('Κατάσταση')"):
+        if _ev("!!document.getElementById('webMail')") or _ev("document.body.innerText.includes('Κατάσταση')"):
             break
         time.sleep(3)
     else:
         raise RuntimeError("tracking page never rendered")
     if _ev("!!document.getElementById('webMail')"):
         _ev(
-            f"(()=>{{const m=document.getElementById('webMail');m.value='{MAIL}';"
-            f"m.dispatchEvent(new Event('input',{{bubbles:true}}));"
-            f"const c=document.getElementById('webCode');c.value='{KPA}';"
-            f"c.dispatchEvent(new Event('input',{{bubbles:true}}));return 1}})()"
+            "(()=>{const m=document.getElementById('webMail');m.value=%s;"
+            "m.dispatchEvent(new Event('input',{bubbles:true}));"
+            "const c=document.getElementById('webCode');c.value=%s;"
+            "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()" % (json.dumps(MAIL), json.dumps(KPA))
         )
-        _bridge("/session/click", {"selector": "button"})
-        time.sleep(14)
-        if _ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
+        _bridge("/session/click", {"selector": "button", "text": "Ταυτοποίηση"})
+        # bounded poll for the status view or the explicit failure text —
+        # a fixed sleep extracts empty fields on slow identification
+        failed = False
+        for _ in range(10):
+            time.sleep(3)
+            if _ev("document.body.innerText.includes('Κατάσταση')"):
+                break
+            if _ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
+                failed = True
+                break
+        if failed:
             raise RuntimeError("identify failed — wrong mail/ΚΠΑ pair")
     out = _ev(
         """(()=>{const t=document.body.innerText;
@@ -85,7 +101,12 @@ def _poll() -> dict:
           kpa:   grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
         })})()"""
     )
-    return json.loads(out)
+    result = json.loads(out)
+    if result.get("kpa") and result["kpa"] != KPA:
+        raise RuntimeError(f"cached session showed ΚΠΑ {result['kpa']}, expected {KPA} — reset required")
+    if not result.get("status"):
+        raise RuntimeError("status extraction empty — challenge or transition state")
+    return result
 
 
 @celery_app.task(name="app.worker.tasks.synigoros_status.poll_synigoros")
@@ -94,23 +115,23 @@ def poll_synigoros() -> dict:
 
 
 async def _run() -> dict:
+    if not MAIL or not KPA:
+        logger.warning("synigoros_status: SYNIGOROS_MAIL/SYNIGOROS_KPA unset — skipping poll")
+        return {"skipped": "credentials unset"}
     result = await asyncio.to_thread(_poll)
     status = result.get("status", "")
     async with task_session() as db:
         last = (
-            await db.execute(
-                select(AnalyticsEvent)
-                .where(AnalyticsEvent.event_type == EVENT_TYPE)
-                .order_by(AnalyticsEvent.occurred_at.desc())
-                .limit(1)
-            )
+            await db.execute(select(AnalyticsEvent).where(AnalyticsEvent.event_type == EVENT_TYPE).order_by(AnalyticsEvent.occurred_at.desc()).limit(1))
         ).scalar_one_or_none()
         acc = (
             await db.execute(
-                select(SocialAccount).where(
+                select(SocialAccount)
+                .where(
                     SocialAccount.platform == "telegram",
                     SocialAccount.status == "active",
-                ).limit(1)
+                )
+                .limit(1)
             )
         ).scalar_one()
         team_id = last.team_id if last else acc.team_id
@@ -126,13 +147,7 @@ async def _run() -> dict:
         )
         if changed:
             enc = acc.meta_data.get("bot_token_enc")
-            tok = (
-                decrypt_token(enc.encode() if isinstance(enc, str) else enc)
-                if enc
-                else decrypt_token(acc.access_token_enc)
-            )
-            await TelegramAPIClient(tok).send_message(
-                TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{status}"
-            )
+            tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
+            await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{status}")
             result["telegram_notified"] = True
     return result

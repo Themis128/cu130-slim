@@ -189,6 +189,10 @@ x-worker-volumes: &worker-volumes
   # slack_tool, monetization_tool, viber_tool, dedup_scan) — read-only.
   - ./social-automation/backend/scripts:/app/scripts:ro
   - ./social-automation/uploads:/app/uploads
+  # Skill tooling + repo env for host-side scripts (gmail-ops, human-gate,
+  # devapp watchers) — read-only; lets containerized tasks call them.
+  - ./.devin:/repo/.devin:ro
+  - ./.env:/repo/.env:ro
   - tunnel_url:/run/tunnel
   # Kakkava doctrine corpus — read-only mount; kakkava_sync re-walks it
   # daily and embeds chunks into team_<id>_doctrine for copy grounding.
@@ -2146,11 +2150,35 @@ services:
     image: grafana/promtail:3.0.0
     container_name: promtail
     restart: unless-stopped
+    environment:
+      # Must resolve to the same Loki the worker's LOKI_URL reads —
+      # ingestion and query sides share one deployment.
+      - LOKI_PUSH_URL=${LOKI_PUSH_URL:-http://192.168.1.200:30100}
     volumes:
       - ./promtail.yml:/etc/promtail/config.yml:ro
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - ./promtail-data:/var/lib/promtail
+    command: -config.file=/etc/promtail/config.yml -config.expand-env=true
+    networks:
+      - backend
+    depends_on:
+      docker-socket-proxy:
+        condition: service_started
+
+  # Minimal-permission Docker socket proxy — promtail discovers containers
+  # through this instead of holding the real docker.sock (which grants
+  # host-level Docker API access even when mounted :ro).
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3.0
+    container_name: docker-socket-proxy
+    restart: unless-stopped
+    environment:
+      - CONTAINERS=1
+      - INFO=1
+      - NETWORKS=1
+      - POST=0
+    volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    command: -config.file=/etc/promtail/config.yml
     networks:
       - backend
 

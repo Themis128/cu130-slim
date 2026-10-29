@@ -168,6 +168,10 @@ async def _check_and_request() -> dict[str, Any]:
                 if now - rl_at < hold:
                     window_end = rl_at + hold
                     skip_reason = f"post-136024 cooldown (until {window_end:%Y-%m-%d %H:%M}Z)"
+            elif meta.get("whatsapp_code_status") == "needs_manual_register":
+                # Terminal until a human runs the register path — the beat
+                # stays quiet instead of burning Meta quota on doomed retries.
+                skip_reason = "needs manual register (whatsapp_tool.py register) — retries parked"
             elif meta.get("whatsapp_code_status") == "sent" and sent_at and sent_phone in (None, phone_id) and now - sent_at < timedelta(hours=24):
                 # A code is already outstanding for this phone — the user has
                 # 24h to enter it before we auto-resend. Without this gate the
@@ -212,6 +216,17 @@ async def _check_and_request() -> dict[str, Any]:
                     meta["whatsapp_code_status"] = "rate_limited"
                     meta["whatsapp_rate_limited_at"] = now.isoformat()
                     meta["whatsapp_rate_limited_phone_id"] = phone_id
+                    meta["whatsapp_code_error"] = code_resp.get("error", {}).get("error_user_msg", "")
+                    account.meta_data = meta
+                    flag_modified(account, "meta_data")
+                    await db.commit()
+                elif error_code == 2388091:
+                    # non-migration number — request_code is the wrong
+                    # endpoint for it. Mark so we stop retrying; the fix is
+                    # a manual `whatsapp_tool.py register` (post-verify PIN).
+                    stats["errors"] += 1
+                    stats["details"].append(f"{account.id}: 2388091 not-migrating — needs manual register (whatsapp_tool.py register), stopping retries")
+                    meta["whatsapp_code_status"] = "needs_manual_register"
                     meta["whatsapp_code_error"] = code_resp.get("error", {}).get("error_user_msg", "")
                     account.meta_data = meta
                     flag_modified(account, "meta_data")
