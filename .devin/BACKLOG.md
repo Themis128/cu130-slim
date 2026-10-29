@@ -69,6 +69,17 @@
 - Mail: signature wired + Nextcloud sync; mailbox triaged (funnel notifications verified)
 - Funnel docs: Nextcloud Funnels/ + docs/funnel-media-architecture.md (#910)
 
+- **micro1 alerts Telegram channel** created 2026-10-29 — private,
+  id `4358324988`, invite https://t.me/+CyNSh67c6qk3NTdk, Cloudless_newbot
+  admin (post/edit/pin/invite). Bot send verified (msg_id 2) via
+  `/api/v1/telegram/{acc}/send`. Created via Telethon session
+  (Windows-side run — `wsl -e` was WSAETIMEDOUT-flaky; `\wsl$` UNC path
+  worked for file reads).
+- **WhatsApp number is ON_PREMISE** (`+30 697 777 7838`, NOT_VERIFIED) —
+  that's why Meta returns 2388091 "not being migrated"; fix is Cloud API
+  migration in the Meta console, not code retries. DB `revoked` flag is
+  stale (whatsapp_tool.py status works).
+
 ## Leftovers (human gates)
 - X re-auth: click x-reconnect.sh output URL (works — verified live)
 - LinkedIn password + li_at rotation (exposed earlier in session)
