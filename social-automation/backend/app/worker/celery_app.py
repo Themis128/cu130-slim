@@ -624,6 +624,10 @@ celery_app.conf.update(
         "consent-healers": {
             "task": "app.worker.tasks.consent_healers.heal_consents",
             "schedule": 3600.0,  # hourly — finish the chain when consent lands
+        },
+        "media-backfill": {
+            "task": "app.worker.tasks.consent_healers.media_backfill",
+            "schedule": 3600.0,  # hourly — attach media to needs_media drafts
             "options": {"queue": "default"},
         },
         "post-autoapprove": {
