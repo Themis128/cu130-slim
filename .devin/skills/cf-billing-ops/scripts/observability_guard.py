@@ -113,8 +113,23 @@ def main() -> int:
             f"⚠️ Cloudflare Observability billing starts Dec 1 ({days}d). "
             "Cancel the Observability subscription: dashboard → Billing → "
             "Subscriptions → Observability → Cancel. Workers plan untouched. "
-            "Then: touch .devin/skills/cf-billing-ops/OBS_ACK")
+            "Then run observability_guard.py ack")
         print("deadline ping sent")
+        # final-week escalation: drive the logged-in dashboard ourselves
+        if days <= 4:
+            try:
+                r = subprocess.run(
+                    ["python3", os.path.join(os.path.dirname(__file__),
+                                             "obs_cancel.py"), "run"],
+                    capture_output=True, text=True, timeout=60)
+                ok = "clicked" in r.stdout
+                _telegram(
+                    "🤖 Observability auto-cancel: " +
+                    ("cancel button clicked — verify + run ack" if ok
+                     else "couldn't reach dashboard (no CDP/session) — manual cancel needed"))
+                print("auto-cancel:", "clicked" if ok else "failed")
+            except Exception as e:
+                print("auto-cancel err:", str(e)[:80])
     return 0
 
 
