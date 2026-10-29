@@ -191,12 +191,11 @@ async def _x_credentials_login(c: httpx.AsyncClient, bridge: str) -> None:
         if s:
             try:
                 import pyotp
+
                 code = pyotp.TOTP(s).now()
-                await c.post(f"{bridge}/session/fill",
-                             json={"selector": "input >> nth=0", "value": code})
+                await c.post(f"{bridge}/session/fill", json={"selector": "input >> nth=0", "value": code})
                 await asyncio.sleep(1)
-                await c.post(f"{bridge}/session/click",
-                             json={"selector": "button:has-text('Verify'),button:has-text('Next')"})
+                await c.post(f"{bridge}/session/click", json={"selector": "button:has-text('Verify'),button:has-text('Next')"})
                 await asyncio.sleep(5)
             except Exception:
                 pass
