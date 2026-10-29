@@ -306,3 +306,34 @@
 - TikTok cert: ~/Downloads/cert.pdf found; sidecar /business-verification/fill automates fields; upload+submit is manual-by-design in sidecar code.
 - WhatsApp: wa_verify_daemon fully automated, ADB reads SMS; rate-limited until 02:30Z.
 - Sidecars expose /debug/navigate + /debug/eval — generic browser-drive surface (LinkedIn 9225, TikTok 9224, FB 9226, bridge 9223 w/ 'expression' field).
+
+## 2026-10-29 — gate-capture + disk-heal + billing-guard architecture
+
+**human-gate-capture-ops** (new) — every residual human input terminates at
+`gate_capture.py` (15-min cron):
+- **creds**: `bsky/viber/whatsapp/meta <secret>` via Telegram msg to the bot,
+  or `*.txt` in Downloads → provisioned + file shredded
+- **sessions**: `*_harvest.py` pulls live browser creds via CDP
+  (bsky.app→app-pw mint, webadmin.viber.com→token, business.facebook.com→sysuser token)
+- **probes**: `_waba_watch` polls payment state → pings on change
+- **floor tools**: `viber_phone_capture.py` (ADB uiautomator→token),
+  `meta_payment_helper.py` (CDP billing fill, env-only card, submit stays manual)
+
+**consent-root-ops** additions — `cdp_ensure.py` (multi-path :9222 launcher),
+`install-chromedebug-task.ps1` (current-user logon task, no admin).
+start-chrome-debug.bat already in Windows Startup.
+
+**cf-billing-ops** — `observability_guard.py` (daily): forces obs off/5% on
+all workers, pings cancel-steps Nov 20→Dec 1, `obs_cancel.py` auto-clicks
+the dashboard cancel via CDP at T-4d, `ack` silences.
+
+**omv sda1 disk** — `omv-disk-prune.yml`: diagnose_only audit (proved k3s
+innocent — real consumer: docker-cache blobs 20G, NAS-Backup 11G, runner-work
+7G), targeted prunes reclaimed 94G→69G (82%→60%), weekly Sun-04:20 auto-heal.
+
+**Bluesky** — `bsky_claim_handle.py` claimed `cloudless.gr` on the wired
+account via _atproto DNS verification (no password needed).
+
+**Audit auto-booking** — `datalake_executor.audit_escalation` auto-emails
+requesters the self-book link (chatbot's cal APIs); per-email audit_invite
+dedup. Cal.com→google-calendar fallback merged (#2316).
