@@ -112,6 +112,44 @@ def click_text(t, pattern: str):
       } return 'not found';})()""")
 
 
+def gsi_click() -> bool:
+    """Click 'Continue with Google' inside the accounts.google.com/gsi iframe."""
+    for t in pages():
+        if "accounts.google.com/gsi" in t.get("url", ""):
+            r = eval_tab(t, """(() => {
+              const b=[...document.querySelectorAll('div[role=button],button')][0];
+              if(b){b.click();return 'clicked'} return 'none'})()""")
+            print("gsi:", r)
+            return r == "clicked"
+    return False
+
+
+def watch_x(timeout_s: int = 14400) -> None:
+    """Watch for X login → auto-approve OAuth consent if present."""
+    print("[*] watching for X session…")
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        ts = [t for t in pages() if t.get("type") == "page"
+              and ("x.com" in t.get("url", "") or "twitter" in t.get("url", ""))]
+        for t in ts:
+            try:
+                txt = body(t).lower()
+            except Exception:
+                continue
+            if "authorize" in txt or "allow" in txt:
+                r = click_text(t, "authorize|approve|allow|continue")
+                print("oauth click:", r)
+                if r != "not found":
+                    print("X_GATE_DONE"); return
+            elif "sign in" not in txt and "log in" not in txt and txt.strip():
+                print("[+] X session live")
+                return
+        if int(time.time() - t0) % 300 < 20:
+            gsi_click()   # retry the Google button periodically
+        time.sleep(20)
+    print("x-watch timeout")
+
+
 def watch(timeout_s: int = 14400) -> None:
     print("[*] watching for Meta login…")
     t0 = time.time()
@@ -168,6 +206,8 @@ def main() -> int:
         print("no tabs — check win_agent/Chrome"); return 1
     print("[3/3] " + ("armed watch" if not no_watch else "done (no-watch)"))
     if not no_watch:
+        import threading
+        threading.Thread(target=watch_x, daemon=True).start()
         watch()
     return 0
 
