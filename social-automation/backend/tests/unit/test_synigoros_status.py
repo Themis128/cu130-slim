@@ -95,10 +95,8 @@ def test_poll_identify_fails(monkeypatch):
     from app.worker.tasks import synigoros_status as M
 
     def _ev(expr):
-        if "Δεν έγινε" in expr:
-            return True
-        if "webMail" in expr:
-            return True
+        if "Κατάσταση" in expr:
+            return False  # status never renders — failure path must win
         return True
 
     monkeypatch.setattr(M, "_bridge", lambda p, d, **k: {"ok": 1})
@@ -142,6 +140,7 @@ async def test_run_changed_notifies(monkeypatch):
 
     last = MagicMock(meta_data={"status": "Αναμονή"}, team_id="t")
     acc = MagicMock(team_id="t", meta_data={"bot_token_enc": "enc"}, access_token_enc=b"e")
+    monkeypatch.setattr(M, "MAIL", "m"); monkeypatch.setattr(M, "KPA", "k")
     monkeypatch.setattr(M, "_poll", lambda: {"status": "Ολοκληρώθηκε", "proto": "11"})
     monkeypatch.setattr(M, "task_session", lambda: _db(last, acc))
     monkeypatch.setattr(M, "decrypt_token", lambda b: "tok")
@@ -158,6 +157,7 @@ async def test_run_new_row_no_last(monkeypatch):
     from app.worker.tasks import synigoros_status as M
 
     acc = MagicMock(team_id="t", meta_data={}, access_token_enc=b"e")
+    monkeypatch.setattr(M, "MAIL", "m"); monkeypatch.setattr(M, "KPA", "k")
     monkeypatch.setattr(M, "_poll", lambda: {"status": "Αναμονή"})
     monkeypatch.setattr(M, "task_session", lambda: _db(None, acc))
     monkeypatch.setattr(M, "decrypt_token", lambda b: "tok")
