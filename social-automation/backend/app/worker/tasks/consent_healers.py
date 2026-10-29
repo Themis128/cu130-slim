@@ -164,6 +164,31 @@ async def _dmr_health() -> str:
         return f"down ({type(e).__name__})"
 
 
+async def _x_credentials_login(c: httpx.AsyncClient, bridge: str) -> None:
+    """Credentials login on the adhoc session — X's 3-step flow
+    (username → maybe-email-verify → password). Fills via /session/fill
+    (trusted input) then continues. TOTP/2FA not stored — lands on
+    trusted-device or email-code paths only."""
+    import os
+    u = os.environ.get("TWITTER_LOGIN_USERNAME", "")
+    e = os.environ.get("TWITTER_LOGIN_EMAIL", "")
+    pw = os.environ.get("TWITTER_LOGIN_PASSWORD", "")
+    if not (u and pw):
+        return
+    await c.post(f"{bridge}/session/evaluate",
+                 json={"expression": 'location.href="https://x.com/i/flow/login"'})
+    await asyncio.sleep(6)
+    for i, val in enumerate([u, e, pw]):
+        if not val:
+            continue
+        await c.post(f"{bridge}/session/fill",
+                     json={"selector": "input >> nth=0", "value": val})
+        await asyncio.sleep(1)
+        await c.post(f"{bridge}/session/click",
+                     json={"selector": "button:has-text('Next'),button:has-text('Log in')"})
+        await asyncio.sleep(5)
+
+
 async def _try_bridge_reauth(team_id: str) -> str:
     """Self-heal: drive the X consent on the adhoc bridge (:9232/adhoc),
     which is a dedicated session slot — no shared-novnc 409 contention.
@@ -210,6 +235,12 @@ async def _try_bridge_reauth(team_id: str) -> str:
             await c.post(f"{bridge}/session/evaluate",
                          json={"expression": 'location.href="https://x.com"'})
             await asyncio.sleep(5)
+            # login-wall fallback — cookies dead → credentials login on the
+            # same session before continuing to the authorize URL.
+            wall = await c.post(f"{bridge}/session/evaluate", json={"expression":
+                "document.title + '|' + (document.body&&document.body.innerText||'').slice(0,200)"})
+            if "login" in str(wall.json()).lower() or "sign in" in str(wall.json()).lower():
+                await _x_credentials_login(c, bridge)
             await c.post(f"{bridge}/session/evaluate",
                          json={"expression": f"location.href={__import__('json').dumps(auth_url)}"})
             await asyncio.sleep(7)
