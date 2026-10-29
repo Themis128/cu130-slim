@@ -27,3 +27,23 @@
 - test_dispatch_full_sweep: fixed stale meta_data assertion + added missing gated-items fake result (slack 4→2)
 - _Res.scalar() added for daily-cap count query; new test_dispatch_viral_tiktok_becomes_gated_duet_flag (ingest→dispatch)
 - 49 engagement unit tests green in social-api container; pushed as branch (PR #948 head lives on bot fork — merge/cherry-pick needed)
+
+## 2026-10-29 — phone/gates wiring session
+- TikTok #789: business verification RESUBMITTED — "Under Review" (~3 business days).
+  Clean ΑΑΔΕ cert (ΑΦΜ 115307716) uploaded via Business Suite → Verify → Edit → Submit;
+  prior rejection was name/doc-type mismatch. phone-ops skills landed (#1132/#1135/#1137/#1139/#1140).
+- ntfy phone app WIRED: subscribed cloudless-alerts + cloudless-ops + nextcloud-ops on
+  http://192.168.1.200:30080 (k3s NodePort, LAN path — no Tailscale dep). `phone` pw rotated;
+  stale ntfy-ws sub deleted. Learnings PR #1147. Server users/ACLs verified via ntfy-ops.
+- Windows bridge live: win_agent at http://100.83.120.93:8765 (Startup launcher staged —
+  survives logon). Used for adb tcpip 5555 + debug-Edge launch. CDP forwarder
+  http://100.83.120.93:9223 → localhost:9222 (cdp_fwd.py running via agent).
+- Debug Edge open on desktop with 3 gate tabs: WA terms (#786), x.com login, social.cloudless.gr.
+
+## Leftovers (human gates) — updated 10-29
+- ONE interactive login in the open debug Edge unlocks: #786 WA terms, #785 Meta evidence,
+  X OAuth. After X login: run totp-ops totp_setup.py to enroll TOTP → future re-auths unattended.
+- #788: INSTAGRAM_PASSWORD empty in .env — set it, then session_bootstrap.py runs.
+- #793/#794/#795: reply approve/done (owner-gate pipeline consumes on 6h beat).
+- Phone: wireless-debugging toggle persists; tcpip 5555 does NOT survive reboot (win_agent redoes it).
+- ntfy phone must NOT be force-stopped (re-enables itself anyway; kills nothing critical).
