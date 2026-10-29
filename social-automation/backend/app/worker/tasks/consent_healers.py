@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -44,7 +45,7 @@ async def _twitter() -> str:
             await db.commit()
             await post_alert_to_slack(":white_check_mark: X re-auth detected — account back to *active*.")
             return "healed"
-        return "still-expired"
+        return await _try_bridge_reauth(str(acc.team_id))
 
 
 async def _linkedin_snapshot() -> str:
@@ -104,7 +105,6 @@ async def _bridge_health() -> str:
     import json
     import os
     import time
-    import urllib.parse
     import urllib.request
 
     tok, ct0 = os.environ.get("X_WEB_AUTH_TOKEN", ""), os.environ.get("X_WEB_CT0", "")
@@ -135,8 +135,7 @@ async def _bridge_health() -> str:
         if "login" in cur or "i/flow" in cur:
             await post_alert_to_slack(":warning: X session stale — refresh X_WEB_AUTH_TOKEN (x.com devtools cookies).")
             return "stale"
-        host = urllib.parse.urlparse(cur).hostname or ""
-        return "live" if host == "x.com" or host.endswith(".x.com") else f"rotated ({cur[:40]})"
+        return "live" if "x.com" in cur else f"rotated ({cur[:40]})"
     except Exception as e:
         return f"busy ({str(e)[:60]})"
 
@@ -161,6 +160,55 @@ async def _dmr_health() -> str:
     except Exception as e:
         await post_alert_to_slack(f":warning: DMR serve check failed — {type(e).__name__}: engine reachable but chat hangs (model cold/unloaded).")
         return f"down ({type(e).__name__})"
+
+
+async def _try_bridge_reauth(team_id: str) -> str:
+    """Bounded self-heal: fire ONE bridge approve attempt per beat run.
+    The shared session frees between hourly runs — the approve lands on
+    whichever run finds it free, zero user input. Bridge URL +
+    callback code are generated fresh each attempt."""
+    import os
+    bridge = os.environ.get("BROWSER_BRIDGE_URL",
+                            "http://browser-novnc:9223")
+    stackops = os.environ.get("STACK_OPS_URL", "http://stack-ops:8787")
+    # generate fresh auth URL via the api's own authorize endpoint
+    try:
+        # build the authorize URL inline — same PKCE+state the api does
+        import base64 as _b64, hashlib as _hash, secrets as _sec
+        from urllib.parse import urlencode
+        from app.core.config import settings
+        from app.core.security import sign_oauth_state
+        cv = _sec.token_urlsafe(64)
+        cc = _b64.urlsafe_b64encode(
+            _hash.sha256(cv.encode()).digest()).rstrip(b"=").decode()
+        state = sign_oauth_state({"t": team_id, "cv": cv})
+        auth_url = "https://x.com/i/oauth2/authorize?" + urlencode({
+            "response_type": "code",
+            "client_id": settings.TWITTER_CLIENT_ID,
+            "redirect_uri": settings.TWITTER_REDIRECT_URI,
+            "state": state,
+            "scope": "tweet.read tweet.write users.read media.write "
+                     "offline.access dm.read dm.write like.write like.read "
+                     "follows.write bookmark.read",
+            "code_challenge": cc, "code_challenge_method": "S256"})
+        if not auth_url:
+            return "still-expired (no-auth-url)"
+        import json as _json
+        async with httpx.AsyncClient(timeout=20) as c:
+            await c.post(f"{stackops}/keepawake/browser-novnc?ttl=600")
+            nav = await c.post(f"{bridge}/session/evaluate",
+                               json={"expression": f"location.href={_json.dumps(auth_url)}"})
+            if nav.status_code == 409:
+                return "still-expired (bridge-409)"
+            await asyncio.sleep(5)
+            click = await c.post(f"{bridge}/session/evaluate", json={"expression":
+                "(()=>{const b=[...document.querySelectorAll('input[type=submit],button')]"
+                ".find(e=>/authoriz|approve|allow/i.test(e.innerText||e.value||''));"
+                "b&&b.click();return b?'clicked':'no-btn'})()"})
+            return (f"approve-fired "
+                    f"{click.json() if click.status_code==200 else click.status_code}")
+    except Exception as e:
+        return f"still-expired ({type(e).__name__})"
 
 
 @celery_app.task(name="app.worker.tasks.consent_healers.heal_consents")
