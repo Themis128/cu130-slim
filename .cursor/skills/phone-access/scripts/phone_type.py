@@ -15,6 +15,7 @@ Usage: phone_type.py --device RFCTA0AEKZP --value 804910
        phone_type.py --clear-x 956 1214 --value CODE
 """
 import argparse
+import sys
 import re
 import subprocess
 import time
