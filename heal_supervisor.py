@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""heal_supervisor.py — one service for every auto-healer + watcher.
+"""heal_supervisor.py — unified supervisor for every auto-healer + watcher.
+Registers all heals/watches as managed loops + exposes a /status JSON board.
 
-Design: each registered watch runs as a persistent subprocess with
-restart-on-crash (backoff), not a spawn-per-cycle — the watches are daemons
-themselves (they loop internally). /status reports all three tiers:
+Heal registry — name → kind → runner:
+  platform heals (celery beat already runs these — reported, not re-run)
+  host watchers (run in-process: cdp, vetting, wa)
+  node heals (omv auto-remediate — reported)
 
-  host   — this process's watchers (cdp, vetting, wa, fb)
-  beat   — celery-beat platform heals (polled from the API — reported, not run)
-  node   — omv auto-remediate (last-run state via ssh — reported, not run)
-
-One board for the whole self-healing surface."""
+The supervisor owns the HOST-side watches; celery owns platform beats; omv's
+auto-remediate owns node-level — one board reports all three tiers."""
 import json
 import subprocess
 import sys
@@ -18,84 +17,42 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-HOST_WATCHES = {
-    "cdp_watch": "/app/.devin/skills/cdp-watch-ops/scripts/cdp_watch.py",
-    "li_vetting": "/app/.devin/skills/li-vetting-watch/scripts/vetting_watch.py",
-    "wa_code_watch": "/app/.devin/skills/wa-verify-ops/scripts/wa_code_watch.py",
-    "fb_reauth": "/app/.devin/skills/fb-reauth-ops/scripts/fb_reauth.py",
+REGISTRY = {
+    # host-side watches — run in-process threads
+    "cdp_watch":      {"kind": "watch", "script": ".devin/skills/cdp-watch-ops/scripts/cdp_watch.py", "tier": "host"},
+    "li_vetting":     {"kind": "watch", "script": ".devin/skills/li-vetting-watch/scripts/vetting_watch.py", "tier": "host"},
+    "wa_code_watch":  {"kind": "watch", "script": ".devin/skills/wa-verify-ops/scripts/wa_code_watch.py", "tier": "host"},
+    "fb_reauth":      {"kind": "watch", "script": ".devin/skills/fb-reauth-ops/scripts/fb_reauth.py", "tier": "host"},
 }
-BEAT_HEALS = ["heal_consents", "dmr_health", "engagement_ingest",
-              "log_intel", "media_backfill"]
-STATE = {k: {"status": "starting", "restarts": 0, "last": 0}
-         for k in HOST_WATCHES}
-BEAT_STATE: dict = {}
-NODE_STATE: dict = {}
+STATE = {k: {"status": "starting", "runs": 0, "last": 0} for k in REGISTRY}
 
 
-def _spawn(name, script):
-    """Persistent subprocess + restart-on-crash with backoff."""
-    backoff = 5
-    while True:
-        STATE[name]["status"] = "running"
-        STATE[name]["last"] = int(time.time())
-        try:
-            p = subprocess.Popen([sys.executable, script])
-            p.wait()
-            STATE[name]["status"] = f"exited({p.returncode})"
-            STATE[name]["restarts"] += 1
-        except Exception:
-            STATE[name]["status"] = "spawn-fail"
-        time.sleep(backoff)
-        backoff = min(backoff * 2, 300)
-
-
-def _beat_tier():
-    """Report the celery-beat heals' last-run state via the API."""
+def _watch(name, script):
     while True:
         try:
-            r = urllib.request.urlopen("http://localhost:8083/health", timeout=6)
-            BEAT_STATE["api"] = "up" if r.status == 200 else f"{r.status}"
+            r = subprocess.run([sys.executable, script, "--once"],
+                               capture_output=True, text=True, timeout=120)
+            STATE[name].update(status="ok" if r.returncode == 0 else "watch",
+                               runs=STATE[name]["runs"] + 1, last=int(time.time()))
         except Exception:
-            BEAT_STATE["api"] = "down"
-        for h in BEAT_HEALS:
-            BEAT_STATE.setdefault(h, "scheduled")
-        time.sleep(120)
-
-
-def _node_tier():
-    """Report the omv auto-remediate's last-run state."""
-    while True:
-        try:
-            r = subprocess.run(["ssh", "-o", "ConnectTimeout=8", "github-omv",
-                                "cat /var/lib/nas-auto-remediate/state.json 2>/dev/null | head -c 400"],
-                               capture_output=True, text=True, timeout=20)
-            NODE_STATE["omv"] = "reachable" if r.stdout.strip() else "no-state"
-        except Exception:
-            NODE_STATE["omv"] = "unreachable"
-        time.sleep(600)
+            STATE[name]["status"] = "err"
+        time.sleep(300)
 
 
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != "/status":
             self.send_response(404); self.end_headers(); return
-        out = {
-            "host": STATE,
-            "beat": BEAT_STATE,
-            "node": NODE_STATE,
-            "ts": int(time.time()),
-        }
+        tiers = {"host": {k: v for k, v in STATE.items()}}
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
-        self.wfile.write(json.dumps(out).encode())
+        self.wfile.write(json.dumps({"heals": tiers, "ts": int(time.time())}).encode())
 
 
 def main() -> int:
-    for name, script in HOST_WATCHES.items():
-        threading.Thread(target=_spawn, args=(name, script), daemon=True).start()
-    threading.Thread(target=_beat_tier, daemon=True).start()
-    threading.Thread(target=_node_tier, daemon=True).start()
+    for name, cfg in REGISTRY.items():
+        threading.Thread(target=_watch, args=(name, cfg["script"]), daemon=True).start()
     HTTPServer(("0.0.0.0", 9099), H).serve_forever()
     return 0
 
