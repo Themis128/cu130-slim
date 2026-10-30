@@ -583,7 +583,6 @@ async def publish_to_platform(
     db: AsyncSession,
 ) -> PublishResult:
     from app.services.content_sanitizer import sanitize_post_text
-
     post.content_text = sanitize_post_text(post.content_text)
 
     # WhatsApp/Viber are messaging channels, not feed-style social platforms.

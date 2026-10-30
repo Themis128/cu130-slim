@@ -501,7 +501,7 @@ class TestKeepWarm:
         # model still gets its keep_alive refresh.
         spy = self._patch(
             monkeypatch,
-            running={dmr.settings.DMR_EMBEDDING_MODEL.lower().replace("hf.co/", "huggingface.co/")},
+            running={dmr.settings.DMR_EMBEDDING_MODEL.lower().replace("hf.co/","huggingface.co/")},
             vram_ok=False,
         )
         result = await dmr.keep_warm_models()
@@ -514,7 +514,7 @@ class TestKeepWarm:
         # A loaded model costs ~0 extra VRAM to ping — always refresh it.
         self._patch(
             monkeypatch,
-            running={dmr.settings.DMR_EMBEDDING_MODEL.lower().replace("hf.co/", "huggingface.co/")},
+            running={dmr.settings.DMR_EMBEDDING_MODEL.lower().replace("hf.co/","huggingface.co/")},
             vram_ok=False,
         )
         result = await dmr.keep_warm_models()
