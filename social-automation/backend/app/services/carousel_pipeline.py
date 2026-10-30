@@ -1011,7 +1011,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
-    text_provider: str = "cf",   # CF Workers AI primary (paid plan); DMR fallback
+    text_provider: str = "cf",  # CF Workers AI primary (paid plan); DMR fallback
     txt2img_model: str = CF_TXT2IMG_FREE,
     target_account_id: str | None = None,
     publish: bool = True,
@@ -1073,7 +1073,7 @@ async def run_cloudless_carousel_pipeline(
         slides, caption, nlp_report = await run_nlp_check_and_fix(
             slides=slides,
             caption=caption,
-            provider_name="cf",   # CF primary for short NLP tasks (paid plan)
+            provider_name="cf",  # CF primary for short NLP tasks (paid plan)
             model="ai/llama3.2",  # fast 3B model on CPU
             db=db,
             team_id=team.id,
@@ -1135,7 +1135,7 @@ async def run_cloudless_carousel_pipeline(
     try:
         title_result = await call_inference(
             title_prompt,
-            provider_name="cf",   # CF primary for short title gen (paid plan)
+            provider_name="cf",  # CF primary for short title gen (paid plan)
             db=db,
             team_id=team.id,
             schema=title_schema,
