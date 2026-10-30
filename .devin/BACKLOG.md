@@ -144,3 +144,11 @@
 - WhatsApp: Meta SMS cooldown — `request_code` bounces ~1h, armed
 - Viber: App Token from the mobile app's bot Edit Info (portal retired)
 - Bluesky: app-password rotate at bsky.app → `.env`
+
+## 2026-10-30 session 2 closeout
+
+**Landed**: `content_sanitizer` (emoji shortcode→emoji, connective dedupe, near-dup gate — PR #1182), `slop_scan`+`voice_check` (PR #1183), generation-side gate wired into `brand_agent` with prior-output exclusion (PR #1184), TOTP secret-log fix (PR #1180), `fb-reauth-ops` (PR #1178), `pending-triggers-ops` (PR #1172), `win-trigger-ops` AtLogOn task registered live (PR #1173), `viber_app_token` ADB-UI capture (PR #1175), `cdp-watch-ops` (PR #1162). omv node recovered via power-cycle (was hard-down — root SD 80%, /home 28G → sda1 move is the real fix).
+
+**External gates**: `:9222` auto-fires on logon (CloudlessDebugChrome task). Viber = paid commercial channel (€115/mo) — decision, not a build.
+
+**Content-quality research applied**: slop-keyword scan, voice constraints, prior-output exclusion, platform-fit (content_guides has limits, unenforced).
