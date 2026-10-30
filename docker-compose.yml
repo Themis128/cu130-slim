@@ -2235,10 +2235,11 @@ services:
     <<: *public-dns
     environment:
       - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_PORT=3306
       - MAUTIC_DB_USER=mautic
       - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
-      - MAUTIC_DB_NAME=mautic
-      - MAUTIC_TRUSTED_PROXIES=0.0.0.0/0
+      - MAUTIC_DB_DATABASE=mautic
+      - MAUTIC_TRUSTED_PROXIES=["0.0.0.0/0"]
       - MAUTIC_URL=${MAUTIC_PUBLIC_URL:-http://localhost:8021}
       - MAUTIC_RUN_CRON_JOBS=true
       - DOCKER_MAUTIC_ROLE=mautic_web
@@ -2262,9 +2263,10 @@ services:
       - mautic
     environment:
       - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_PORT=3306
       - MAUTIC_DB_USER=mautic
       - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
-      - MAUTIC_DB_NAME=mautic
+      - MAUTIC_DB_DATABASE=mautic
       - DOCKER_MAUTIC_ROLE=mautic_cron
     mem_limit: 384m
     restart: unless-stopped
