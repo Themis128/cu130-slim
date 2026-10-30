@@ -21,6 +21,9 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, os.path.normpath(os.path.join(
+    os.path.dirname(__file__), "..", "..", "_lib")))
+
 CDP = "http://localhost:9222"
 ENV_PATH = r"C:\Users\tbaltzakis\cu130-slim\.env"
 WEBADMIN = "https://partners.viber.com/account/edit-bot-account"
@@ -28,7 +31,9 @@ WEBADMIN = "https://partners.viber.com/account/edit-bot-account"
 
 def try_cdp():
     try:
+        from cdp_common import ensure_cdp
         import websocket
+        ensure_cdp()
         tabs = json.load(urllib.request.urlopen(f"{CDP}/json", timeout=6))
         pages = [t for t in tabs if t.get("type") == "page"]
         if not pages:
