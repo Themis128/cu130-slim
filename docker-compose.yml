@@ -1412,6 +1412,18 @@ services:
       social-api:
         condition: service_healthy
 
+  authentik-outpost:
+    image: ghcr.io/goauthentik/proxy:2025.10.1
+    container_name: authentik-outpost
+    networks:
+      - backend
+    environment:
+      - AUTHENTIK_HOST=https://auth.cloudless.gr
+      - AUTHENTIK_HOST_BROWSER=https://auth.cloudless.gr
+      - AUTHENTIK_TOKEN=${AUTHENTIK_OUTPOST_TOKEN:-}
+      - AUTHENTIK_INSECURE=false
+    restart: unless-stopped
+
   social-frontend:
     image: ghcr.io/themis128/cu130-slim:social-frontend-latest
     pull_policy: always
