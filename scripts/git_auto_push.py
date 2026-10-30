@@ -4,7 +4,8 @@
 Strategy (researched against gitwatch, supsrc, watch-and-commit, and
 documented auto-committer incident reports):
 
-* Poll `git status --porcelain`; when >= --threshold files are dirty,
+* Poll `git status --porcelain`
+when >= --threshold files are dirty,
   stage + commit + push. Polling gives natural debounce (bursts of saves
   land in one pass instead of one commit per save).
 * Protected branches (main/master) are never committed on — the watcher
@@ -21,7 +22,8 @@ documented auto-committer incident reports):
   unchanged, hard-stop after --max-failures identical failures until the
   working tree actually changes.
 
-Daemon mode runs under a systemd user service; --once is used by the
+Daemon mode runs under a systemd user service
+--once is used by the
 paired systemd timer for cron-like invocations.
 """
 

@@ -11,7 +11,11 @@ Usage:
   cdp_gate_runner.py --once   # fire gates now if CDP is up
   cdp_gate_runner.py --status # which gates are armed vs done
 """
-import json, subprocess, sys, time, urllib.request
+import json
+import subprocess
+import sys
+import time
+import urllib.request
 from pathlib import Path
 
 BASE = Path("/home/tbaltzakis/cu130-slim")
@@ -60,8 +64,10 @@ def main():
     for _ in range(720):  # ~24h at 120s
         if not cdp_up():
             if mode == "--once":
-                print("cdp: down"); return
-            time.sleep(120); continue
+                print("cdp: down")
+                return
+            time.sleep(120)
+            continue
         for name, script, args, _ in GATES:
             if state.get(name):
                 continue

@@ -6,12 +6,19 @@ verify_code. Last resort: wa_verify.py <code>.
     wa_verify.py            # request code → poll ADB + mail → verify
     wa_verify.py <code>     # manual fallback
 """
-import json, os, re, subprocess, sys, time, urllib.request
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
 
 CID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "")
 TOK = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")
 KEY = os.path.expanduser("~/.ssh/id_rsa_win")
-USER = os.environ.get("OMV_SSH_USER", ""); HOST = os.environ.get("OMV_SSH_HOST", "")
+USER = os.environ.get("OMV_SSH_USER", "")
+HOST = os.environ.get("OMV_SSH_HOST", "")
 CODE_RE = re.compile(r"\b([0-9]{6})\b")
 
 
@@ -41,7 +48,7 @@ def adb_code() -> str | None:
                 capture_output=True, text=True, timeout=8)
             # Meta/WhatsApp senders only — a generic 6-digit match can grab
             # other services' codes (e.g. the 'Link' 246930 false positive)
-            rows = [l for l in r.stdout.splitlines() if re.search(
+            rows = [l for l in r.stdout.splitlines() if re.search(  # noqa: E741
                 r'whatsapp|facebook|meta|AUTHMSG', l, re.I)]
             m = CODE_RE.search(" ".join(rows)) if rows else CODE_RE.search(r.stdout)
             if m:

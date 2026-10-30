@@ -5,7 +5,12 @@
     omv_disk.py run       # gh workflow run omv-disk-prune.yml
     omv_disk.py watch     # poll the latest run until done, print df delta
 """
-import json, os, subprocess, sys, time, imaplib, re
+import json
+import os
+import subprocess
+import sys
+import time
+import imaplib
 
 REPO = "Themis128/cloudless.gr"
 
@@ -23,7 +28,8 @@ def status():
     _, d = m.search(None, '(SUBJECT "Disk" SINCE "29-Oct-2026")')
     nums = d[0].split() or []
     if not nums:
-        print("no disk alerts"); return
+        print("no disk alerts")
+        return
     _, msg = m.fetch(nums[-1], "(BODY[HEADER.FIELDS (SUBJECT)])")
     print(msg[0][1].decode("utf-8", "replace").split("Subject:")[-1].strip()[:80])
     m.logout()
@@ -42,7 +48,8 @@ def watch():
         try:
             run = json.loads(r.stdout)[0]
         except Exception:
-            time.sleep(10); continue
+            time.sleep(10)
+            continue
         print(run["status"], run.get("conclusion") or "…")
         if run["status"] == "completed":
             _gh("run", "view", str(run["databaseId"]), "--repo", REPO,

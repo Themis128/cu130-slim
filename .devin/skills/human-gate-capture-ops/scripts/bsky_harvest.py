@@ -11,7 +11,6 @@ logged-in bsky.app tab/session.
 import json
 import sys
 import urllib.request
-from urllib.error import URLError
 
 CDP = "http://localhost:9222"
 SKILLS = "/home/tbaltzakis/cu130-slim/.devin/skills"
@@ -22,7 +21,8 @@ def _eval_tabs(expr: str) -> str:
     try:
         tabs = json.loads(urllib.request.urlopen(CDP + "/json", timeout=8).read())
     except Exception:
-        print("debug browser down — start-chrome-debug.bat"); return []
+        print("debug browser down — start-chrome-debug.bat")
+        return []
     for t in tabs if isinstance(tabs,list) else []:
         if "bsky.app" not in t.get("url", ""):
             continue
@@ -38,11 +38,11 @@ def _eval_tabs(expr: str) -> str:
 
 def check() -> int:
     js = """(()=>{const ks=Object.keys(localStorage);
-      const sk=ks.find(k=>k.includes('session'));
+      const sk=ks.find(k=>k.includes('session'))
       if(!sk) return 'no-session';
       try{const s=JSON.parse(localStorage.getItem(sk));
-        const accts=s.accounts||s;
-        const h=Object.values(accts).find(a=>a&&(a.refreshJwt||a.accessJwt));
+        const accts=s.accounts||s
+        const h=Object.values(accts).find(a=>a&&(a.refreshJwt||a.accessJwt))
         return h?'live:'+(h.handle||'?'):'no-session'}catch(e){return 'parse:'+e}
     })()"""
     r = _eval_tabs(js) or "no-bsky-tab"
@@ -55,11 +55,11 @@ def run() -> int:
         print("no live bsky session in debug browser — log into bsky.app first")
         return 2
     js = """(()=>{const ks=Object.keys(localStorage);
-      const sk=ks.find(k=>k.includes('session'));
-      const s=JSON.parse(localStorage.getItem(sk));
-      const accts=s.accounts||s;
-      const a=Object.values(accts).find(a=>a&&(a.refreshJwt||a.accessJwt));
-      return JSON.stringify({handle:a.handle,refresh:a.refreshJwt||'',svc:a.service||'https://bsky.social'});
+      const sk=ks.find(k=>k.includes('session'))
+      const s=JSON.parse(localStorage.getItem(sk))
+      const accts=s.accounts||s
+      const a=Object.values(accts).find(a=>a&&(a.refreshJwt||a.accessJwt))
+      return JSON.stringify({handle:a.handle,refresh:a.refreshJwt||'',svc:a.service||'https://bsky.social'})
     })()"""
     raw = _eval_tabs(js)
     sess = json.loads(raw)
@@ -74,7 +74,8 @@ def run() -> int:
                        json={"name": "socialauto-auto"}, timeout=20).json()
     app_pw = pw.get("password", "")
     if not app_pw:
-        print("app-password mint failed:", str(pw)[:120]); return 1
+        print("app-password mint failed:", str(pw)[:120])
+        return 1
     import subprocess
     r = subprocess.run(
         ["python3", f"{SKILLS}/bluesky-ops/scripts/bsky_provision.py",

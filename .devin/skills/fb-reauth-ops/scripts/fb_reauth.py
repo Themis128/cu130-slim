@@ -3,7 +3,6 @@
 drive it on the bound debug Chrome (:9222), complete the consent → fresh
 token → the dead-token heal flag clears."""
 import json
-import os
 import time
 import urllib.parse
 import urllib.request
@@ -41,7 +40,8 @@ def _eval(ws_url, js):
     import websocket
     ws = websocket.create_connection(ws_url, suppress_origin=True, timeout=15)
     ws.send(json.dumps({"id":1,"method":"Runtime.evaluate","params":{"expression":js,"returnByValue":True}}))
-    r = json.loads(ws.recv()); ws.close()
+    r = json.loads(ws.recv())
+    ws.close()
     return str(r.get("result",{}).get("result",{}).get("value",""))
 
 def main() -> int:

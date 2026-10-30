@@ -9,7 +9,12 @@ Supported: instagram (INSTAGRAM_USERNAME/PASSWORD). X/FB have no stored
 passwords — they stay physical (reports that explicitly).
 """
 from __future__ import annotations
-import json, sys, time, urllib.request, urllib.error, urllib.parse
+import json
+import sys
+import time
+import urllib.request
+import urllib.error
+import urllib.parse
 
 BRIDGE = "http://localhost:9223"
 
@@ -25,14 +30,16 @@ def ev(expr: str, bridge: str = BRIDGE, tries: int = 6) -> dict:
         except urllib.error.HTTPError as e:
             last = e
             if e.code == 409:
-                time.sleep(20); continue
+                time.sleep(20)
+                continue
             return {"error": str(e)}
         except Exception as e:
             return {"error": str(e)}
     return {"error": f"bridge busy: {last}"}
 
 def nav(url: str, bridge: str = BRIDGE):
-    ev(f"location.href={json.dumps(url)}", bridge); time.sleep(5)
+    ev(f"location.href={json.dumps(url)}", bridge)
+    time.sleep(5)
 
 def creds(platform: str) -> dict:
     import subprocess
@@ -45,7 +52,8 @@ def creds(platform: str) -> dict:
              f"SELECT value FROM social_secrets WHERE key='{k}'"],
             capture_output=True, text=True)
         v = r.stdout.strip()
-        if v: out[k.lower()] = v
+        if v:
+            out[k.lower()] = v
     return out
 
 def ig_login(bridge: str) -> str:
@@ -80,11 +88,13 @@ def main():
     platform = sys.argv[1] if len(sys.argv) > 1 else ""
     bridge = next((a.split("=",1)[1] for a in sys.argv if a.startswith("--bridge")), BRIDGE)
     if platform == "instagram":
-        print(ig_login(bridge)); return 0
+        print(ig_login(bridge))
+        return 0
     if platform in ("x", "facebook"):
         print(f"{platform}: no stored password — physical login via noVNC")
         return 1
-    print(__doc__); return 1
+    print(__doc__)
+    return 1
 
 if __name__ == "__main__":
     sys.exit(main())

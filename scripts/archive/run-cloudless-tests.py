@@ -3,7 +3,6 @@
 Usage: run-cloudless-tests.py [unit|e2e|all]"""
 
 import os
-import shutil
 import subprocess
 import sys
 import time

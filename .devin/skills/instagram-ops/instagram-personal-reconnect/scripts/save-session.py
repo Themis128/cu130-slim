@@ -31,7 +31,8 @@ SET meta_data = meta_data || jsonb_build_object(
   'private_api_settings', '{sj}'::jsonb,
   'private_api_connected_at', now()::text
 )
-WHERE id = '{account_id}';""")
+WHERE id = '{account_id}'
+""")
 
 print(f"✅ Session saved to SocialAuto for account {account_id}", file=sys.stderr)
 print(f"  session_id: {session_id[:8]}...", file=sys.stderr)

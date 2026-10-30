@@ -8,7 +8,9 @@ scope r_dma_portability_member (or _3rd_party). Version must be 202312.
 
     li_member_snapshot.py <account_id> [--attach <CID>]
 """
-import asyncio, json, sys, urllib.parse, uuid
+import asyncio
+import sys
+import uuid
 
 import httpx
 from sqlalchemy import select
@@ -62,7 +64,8 @@ async def _snapshot(account_id: str) -> list[dict]:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print(__doc__); return 1
+        print(__doc__)
+        return 1
     rows = asyncio.run(_snapshot(sys.argv[1]))
     print(f"{len(rows)} connections")
     for r in rows[:30]:

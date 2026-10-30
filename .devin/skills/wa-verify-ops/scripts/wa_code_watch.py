@@ -5,7 +5,6 @@ handles the SMS-code read via ADB after the code lands.
     wa_code_watch.py        # retry loop until code sent or 90 min
     wa_code_watch.py --once # single attempt
 """
-import json
 import subprocess
 import sys
 import time

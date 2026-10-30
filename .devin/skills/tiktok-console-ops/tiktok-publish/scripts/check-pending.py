@@ -35,7 +35,8 @@ async def main():
             "select access_token_enc, account_id from social_accounts "
             "where platform='tiktok' limit 1"))).first()
         if not acct:
-            print("no tiktok account"); return
+            print("no tiktok account")
+            return
         try:
             plain = decrypt_token(acct[0])
         except Exception:

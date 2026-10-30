@@ -78,7 +78,9 @@ def _node_tier():
 class H(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path != "/status":
-            self.send_response(404); self.end_headers(); return
+            self.send_response(404)
+            self.end_headers()
+            return
         out = {
             "host": STATE,
             "beat": BEAT_STATE,

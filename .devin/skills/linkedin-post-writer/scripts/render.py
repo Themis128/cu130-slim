@@ -13,7 +13,9 @@ JSON schema:
   "scores": {"voice":1,"pov":1,"specificity":1,"asking":1}
 }
 """
-import argparse, json, sys
+import argparse
+import json
+import sys
 from pathlib import Path
 
 TEMPLATE = Path(__file__).parent / "template.html"
@@ -36,12 +38,18 @@ def render(data: dict) -> str:
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--json"); p.add_argument("--in", dest="infile"); p.add_argument("--out", required=True)
+    p.add_argument("--json")
+    p.add_argument("--in", dest="infile")
+    p.add_argument("--out", required=True)
     args = p.parse_args()
-    if args.json: data = json.loads(args.json)
-    elif args.infile: data = json.loads(Path(args.infile).read_text())
-    else: data = json.loads(sys.stdin.read())
+    if args.json:
+        data = json.loads(args.json)
+    elif args.infile:
+        data = json.loads(Path(args.infile).read_text())
+    else:
+        data = json.loads(sys.stdin.read())
     Path(args.out).write_text(render(data))
     print(f"✓ Rendered {Path(args.out).resolve()}")
 
-if __name__ == "__main__": main()
+if __name__ == "__main__":
+    main()

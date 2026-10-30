@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
-from skill_http import die, social_api, upload, usage  # noqa: E402
+from skill_http import social_api, upload, usage  # noqa: E402
 
 if len(sys.argv) < 3 or not Path(sys.argv[2]).is_file():
     usage("upload-picture.py <account-id> <image-file>")

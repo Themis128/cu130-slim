@@ -5,7 +5,10 @@ Drives the user's actual logged-in session via CDP :9222 (debug profile —
 start with start-chrome-debug.bat). Finds the first button/link/input whose
 visible text or value matches the regex and clicks it.
 """
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 
 CDP = "http://localhost:9222"
 
@@ -36,18 +39,20 @@ def main() -> int:
         print("no-tab — start the debug Chrome first")
         return 1
     ws = _ws(tabs[0]["webSocketDebuggerUrl"])
-    _send(ws, 1, "Page.enable"); _send(ws, 2, "Runtime.enable")
+    _send(ws, 1, "Page.enable")
+    _send(ws, 2, "Runtime.enable")
     _send(ws, 3, "Page.navigate", {"url": url})
     time.sleep(wait_s)
     js = f"""(() => {{
-      const pat = /{pat}/i;
+      const pat = /{pat}/i
       const c = [...document.querySelectorAll(
         'button,a,[role=button],[role=link],input[type=submit],input[type=button]')]
         .filter(e => !e.disabled && e.offsetParent !== null)
-        .find(e => pat.test((e.innerText || e.value || e.getAttribute('aria-label') || '').slice(0, 100)));
+        .find(e => pat.test((e.innerText || e.value || e.getAttribute('aria-label') || '').slice(0, 100)))
       if (!c) return 'no-match — page: ' + document.title + ' @ ' + location.href;
-      c.scrollIntoView({{block:'center'}}); c.click();
-      return 'clicked: ' + (c.innerText || c.value || c.tagName);
+      c.scrollIntoView({{block:'center'}})
+ c.click()
+      return 'clicked: ' + (c.innerText || c.value || c.tagName)
     }})()"""
     r = _send(ws, 4, "Runtime.evaluate", {"expression": js, "returnByValue": True})
     ws.close()

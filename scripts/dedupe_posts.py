@@ -18,7 +18,8 @@ as app/services/publishing.py), then calls the platform client's delete:
     facebook  -> FacebookAPIClient.delete_post(post_id)   (page token)
     linkedin  -> LinkedInAPIClient.delete_post(post_urn)
     twitter   -> TwitterAPIClient.delete_tweet(tweet_id)  (likely 402 —
-                 credits depleted; falls back to "use the browser path")
+                 credits depleted
+                 falls back to "use the browser path")
     instagram/tiktok -> not supported via API, exit 2 (delete manually in app)
 
 After a successful external delete, post_targets.status is set to 'deleted'

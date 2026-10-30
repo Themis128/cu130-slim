@@ -4,7 +4,6 @@ VNC/authorize URL. Pass --open to auto-open in browser-novnc."""
 
 import json
 import sys
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

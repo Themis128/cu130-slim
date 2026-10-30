@@ -47,7 +47,7 @@ def main():
     dev = a.device
     if not dev:
         out = adb("", "devices")
-        devs = [l.split()[0] for l in out.splitlines()[1:]
+        devs = [l.split()[0] for l in out.splitlines()[1:]  # noqa: E741
                 if l.strip() and l.rstrip().endswith("device")]
         if not devs:
             raise SystemExit("no device")

@@ -142,7 +142,7 @@ def main() -> None:
                     print(f"      {h}")
             if not hits:
                 prune_candidates.append(f"{platform}:{scope}")
-    print(f"\n=== prune candidates (verify console API-call counts first) ===")
+    print("\n=== prune candidates (verify console API-call counts first) ===")
     for c in prune_candidates:
         print(f"  {c}")
     if not prune_candidates:

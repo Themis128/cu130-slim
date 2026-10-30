@@ -5,7 +5,6 @@ via ADB UI-automation (phone must be plugged in, USB-debugging on).
     viber_phone_capture.py run     # navigate app → dump UI → extract → provision
     viber_phone_capture.py devices # is a phone attached?
 """
-import json
 import re
 import subprocess
 import sys
@@ -23,7 +22,7 @@ def _adb(*args) -> str:
 
 def devices() -> int:
     out = _adb("devices")
-    devs = [l for l in out.splitlines() if "\tdevice" in l]
+    devs = [l for l in out.splitlines() if "\tdevice" in l]  # noqa: E741
     print("devices:", len(devs) or "none — plug the phone (USB-debugging on)")
     return 0 if devs else 2
 

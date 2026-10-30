@@ -10,7 +10,8 @@ standard library — communicates via JSON-RPC over stdin/stdout.
 
 Configuration (env vars):
   N8N_API_URL   - default http://localhost:5678
-  N8N_API_KEY   - UI-minted API key; falls back to parsing N8N_API_KEY from
+  N8N_API_KEY   - UI-minted API key
+  falls back to parsing N8N_API_KEY from
                   the repo .env file (never printed or returned in results)
   N8N_CONTAINER - docker container name, default "n8n"
   N8N_REPO_DIR  - workflow JSON dir, default <repo>/n8n-workflows
@@ -27,7 +28,8 @@ Usage in MCP config:
 
 n8n 2.x notes baked into the tools:
   - `import:workflow` DEACTIVATES the workflow — always republish after import.
-  - `publish:workflow --all` is deprecated; publish per-ID then restart n8n.
+  - `publish:workflow --all` is deprecated
+  publish per-ID then restart n8n.
   - Trigger/webhook registration only takes effect after restart.
 
 Tools exposed (13):
@@ -323,7 +325,8 @@ def _rehydrate(data: list) -> Any:
     """Rehydrate n8n 2.x's deduplicated execution_data format.
 
     The row stores a flat array where dict/list string values are indices into
-    the same array; non-string values are literals. Terminal strings live as
+    the same array
+    non-string values are literals. Terminal strings live as
     array elements.
     """
     def resolve(v: Any) -> Any:

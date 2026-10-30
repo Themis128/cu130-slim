@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """ax_pass_ingest.py — ingest the AX Pass (Shift.Forward) post-event page.
 
-Drop the saved HTML (Ctrl+S) or pasted text into Downloads; the script
+Drop the saved HTML (Ctrl+S) or pasted text into Downloads
+the script
 extracts resource links/tools/frameworks and maps them to stack surfaces.
 
     ax_pass_ingest.py [file]            # auto-picks newest axpass/after file
@@ -12,7 +13,6 @@ import json
 import re
 import sys
 import time
-import urllib.parse
 from pathlib import Path
 
 DIRS = [Path("/mnt/c/Users/tbaltzakis/Downloads"), Path.home() / "Downloads"]
@@ -65,7 +65,8 @@ def extract(path: Path) -> dict:
     if path.suffix == ".txt":
         text, links = raw, [(t, u) for u in LINK.findall(raw) for t in [u]]
     else:
-        p = P(); p.feed(raw)
+        p = P()
+        p.feed(raw)
         text, links = " ".join(p.text), p.links
     urls = []
     for label, u in links:

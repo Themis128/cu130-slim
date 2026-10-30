@@ -21,7 +21,6 @@ Usage:
   bm_settings_drive.py upload <file>           # inject file into input[type=file]
 """
 import argparse
-import base64
 import json
 import sys
 import time
@@ -80,7 +79,8 @@ def main():
 
     tabs = [t for t in get_targets() if t.get("type") == "page"]
     if not tabs:
-        print("no page targets"); return
+        print("no page targets")
+        return
     c = Cdp(tabs[0]["webSocketDebuggerUrl"])
     c.send("Page.enable")
     c.send("Runtime.enable")
@@ -92,33 +92,40 @@ def main():
             print("  " * d, f.get("id", "")[:16], f.get("url", "")[:80])
             for ch in node.get("childFrames") or []:
                 walk(ch, d + 1)
-        walk(tree["frameTree"]); return
+        walk(tree["frameTree"])
+        return
 
     if a.cmd == "nav":
-        c.send("Page.navigate", {"url": a.arg}); time.sleep(8)
-        print(c.ev("location.href")); return
+        c.send("Page.navigate", {"url": a.arg})
+        time.sleep(8)
+        print(c.ev("location.href"))
+        return
 
     if a.cmd == "text":
-        print((c.ev("document.body.innerText.slice(0,2500)") or "")[:2500]); return
+        print((c.ev("document.body.innerText.slice(0,2500)") or "")[:2500])
+        return
 
     if a.cmd in ("click", "toggle"):
         # search every context (top + iframes) for the label
-        ctxs = c.send("Runtime.evaluate", {
+        ctxs = c.send("Runtime.evaluate", {  # noqa: F841
             "expression": "1", "returnByValue": True})  # warm contexts
         r = c.ev(f"""(()=>{{
-            const pat={json.dumps(a.arg.lower())};
-            const els=[...document.querySelectorAll('a,button,div[role=button],span,div')];
-            const b=els.find(e=>{{const t=(e.innerText||'').trim().toLowerCase();return t===pat||t.startsWith(pat)}});
+            const pat={json.dumps(a.arg.lower())}
+            const els=[...document.querySelectorAll('a,button,div[role=button],span,div')]
+            const b=els.find(e=>{{const t=(e.innerText||'').trim().toLowerCase()
+return t===pat||t.startsWith(pat)}})
             if(!b)return null;
-            b.scrollIntoView({{block:'center'}});
-            const r=b.getBoundingClientRect();
+            b.scrollIntoView({{block:'center'}})
+            const r=b.getBoundingClientRect()
             return [r.left+r.width/2,r.top+r.height/2]}})()""")
         if not r:
-            print("not found:", a.arg); return
+            print("not found:", a.arg)
+            return
         x, y = r[0], r[1]
         c.click_xy(x, y)
         time.sleep(6)
-        print("clicked at", x, y); return
+        print("clicked at", x, y)
+        return
 
     if a.cmd == "upload":
         # intercept the native file dialog, then set files on the input

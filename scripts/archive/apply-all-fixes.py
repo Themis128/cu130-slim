@@ -2,7 +2,6 @@
 """Apply all docker-compose.yml fixes"""
 
 import yaml
-import sys
 
 with open('docker-compose.yml', 'r') as f:
     compose = yaml.safe_load(f)

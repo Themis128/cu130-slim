@@ -60,9 +60,9 @@ def capture() -> str:
     time.sleep(7)
     ws.send(json.dumps({"id": 2, "method": "Runtime.evaluate", "params": {
         "expression": """(() => {
-          const a=[...document.querySelectorAll('a[href*=otpauth],[data-otp]')];
+          const a=[...document.querySelectorAll('a[href*=otpauth],[data-otp]')]
           const m=document.body && document.body.innerHTML.match(/otpauth:[^"'\\s<]+/);
-          return (a[0]&&a[0].href)||(m&&m[0])||'no-secret-yet';
+          return (a[0]&&a[0].href)||(m&&m[0])||'no-secret-yet'
         })()""", "returnByValue": True}}))
     while True:
         r = json.loads(ws.recv())
@@ -81,10 +81,13 @@ def main() -> int:
             print("code:", code())
         return 0
     if "--code" in sys.argv:
-        print(code() or "no secret"); return 0
+        print(code() or "no secret")
+        return 0
     if "--capture" in sys.argv:
-        print(capture()); return 0
-    print("usage: --status | --code | --capture"); return 1
+        print(capture())
+        return 0
+    print("usage: --status | --code | --capture")
+    return 1
 
 
 if __name__ == "__main__":

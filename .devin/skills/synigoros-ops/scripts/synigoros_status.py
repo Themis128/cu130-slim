@@ -8,7 +8,12 @@ extract Κατάσταση + Αριθμός Πρωτοκόλλου. Exit 0 with 
 identification failure / bridge error. Designed to run inside social-api
 (BRIDGE=http://browser-novnc-adhoc:9224) or anywhere the bridge is reachable.
 """
-import json, os, sys, time, urllib.request, urllib.error
+import json
+import os
+import sys
+import time
+import urllib.request
+import urllib.error
 
 BRIDGE = "http://browser-novnc-adhoc:9224"
 TRACK = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"
@@ -25,7 +30,8 @@ def call(path, data, tries=3):
         except urllib.error.HTTPError as e:
             body = e.read()[:150]
             if (e.code == 409 or (e.code == 500 and b"context was destroyed" in body)) and i < tries - 1:
-                time.sleep(15); continue
+                time.sleep(15)
+                continue
             raise SystemExit(f"bridge {e.code}: {body}")
 
 def ev(expr):
@@ -35,16 +41,21 @@ def main() -> int:
     global BRIDGE, MAIL, KPA
     args = sys.argv[1:]
     for i, a in enumerate(args):
-        if a == "--bridge": BRIDGE = args[i+1]
-        if a == "--mail":   MAIL   = args[i+1]
-        if a == "--kpa":    KPA    = args[i+1]
+        if a == "--bridge":
+            BRIDGE = args[i+1]
+        if a == "--mail":
+            MAIL   = args[i+1]
+        if a == "--kpa":
+            KPA    = args[i+1]
     if not MAIL or not KPA:
         raise SystemExit("need SYNIGOROS_MAIL + SYNIGOROS_KPA (env or --mail/--kpa)")
 
     # any platform arg just boots the browser — navigate handles the real URL.
     # close first: another task may hold the shared session (409).
-    try: call("/session/close", {})
-    except SystemExit: pass
+    try:
+        call("/session/close", {})
+    except SystemExit:
+        pass
     call("/session/start", {"platform": "reddit", "interactive": False, "force": True})
     time.sleep(4)
     call("/session/navigate", {"url": TRACK})
@@ -67,7 +78,8 @@ def main() -> int:
             print("IDENTIFY FAILED — wrong mail/ΚΠΑ pair")
             return 1
     out = ev("""(()=>{const t=document.body.innerText;
-      const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
+      const grab=(re)=>{const m=t.match(re)
+return m?m[1].trim():''}
       return JSON.stringify({
         status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) || grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
         proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
@@ -96,8 +108,10 @@ def main() -> int:
 
 def _release() -> None:
     """Release the pinned bridge session — a held session 409s other platforms."""
-    try: call("/session/close", {})
-    except Exception: pass
+    try:
+        call("/session/close", {})
+    except Exception:
+        pass
 
 STATE = "/tmp/synigoros_last.json"
 CHAT  = "-1004436942504"                 # Cloudless — Automation HQ channel

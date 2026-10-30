@@ -3,15 +3,19 @@
 
 The field is mobile-app-only (verified: no web surface). Drives the S22+
 through adb taps + text input. Coordinates are for TikTok 2026 UI at
-1080x2400; verify with `adb shell uiautomator dump` if the layout shifts.
+1080x2400
+verify with `adb shell uiautomator dump` if the layout shifts.
 """
-import subprocess, sys, time
+import subprocess
+import sys
+import time
 
 def sh(*args):
     return subprocess.run(["adb", "shell", *args],
                           capture_output=True, text=True).stdout.strip()
 
-def tap(x, y): sh("input", "tap", str(x), str(y)); time.sleep(1.2)
+def tap(x, y): sh("input", "tap", str(x), str(y))
+time.sleep(1.2)
 def text(t): sh("input", "text", t.replace(":", "%3a").replace("/", "%2f").replace(" ", "%s"))
 def screencap(name):
     sh("screencap", "-p", "/sdcard/_gate.png")
