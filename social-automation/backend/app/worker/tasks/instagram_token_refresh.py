@@ -382,6 +382,7 @@ async def _refresh_instagram_tokens_async() -> dict:
                     account.meta_data = meta
                     flag_modified(account, "meta_data")
                     flag_modified(account, "access_token_enc")
+                    account.token_expires_at = new_expires_at
                     await db.commit()
 
                     stats["tokens_refreshed"] += 1
