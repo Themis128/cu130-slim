@@ -163,7 +163,17 @@ def _row_cand(**kw):
 
 
 def _row_action(**kw):
-    base = dict(platform="twitter", action="like", target_post_id="p1", target_author="h", score=9.0, comment_draft=None, status="pending", acted_at=None)
+    base = dict(
+        platform="twitter",
+        action="like",
+        target_post_id="p1",
+        target_author="h",
+        score=9.0,
+        comment_draft=None,
+        status="pending",
+        acted_at=None,
+        meta_data=None,
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -209,12 +219,12 @@ async def test_dispatch_full_sweep(monkeypatch):
         _DB(
             [
                 [fresh],
+                [],  # hi-score repost query (none in this fixture)
                 [drafted, long_draft, no_cand, empty],
                 [cand_li],
                 [cand_m],
                 [],
                 [cand_t],
-                [drafted, long_draft],
                 [ok_like, skip_like, fail_like, no_actor],
             ]
         ),
@@ -252,14 +262,14 @@ async def test_dispatch_full_sweep(monkeypatch):
     assert dmr.await_count == 3
     prompt = dmr.await_args_list[0].args[0]
     assert "h's post" in prompt  # author_name empty → handle
-    # gate pings: only rows with drafts; deep link only for known platforms
+    # gate pings: one per recent gated row; deep link only for known platforms
     assert slack.await_count == 2
     t0 = slack.await_args_list[0].kwargs
     assert t0["webhook_url"] == "https://hooks.example/x"
     assert t0["channel_id"] == "C1"
     assert "linkedin://feed" in t0["text"]
     t1 = slack.await_args_list[1].kwargs["text"]
-    assert "y" * 140 in t1  # draft truncated to 140 chars, no ellipsis suffix
+    assert "y" * 140 in t1 and "y" * 141 not in t1  # draft truncated to 140 chars
     assert "Open source post" not in t1
     assert tg.await_count == 2
     # 3. dispatch
@@ -280,7 +290,7 @@ async def test_dispatch_viral_tiktok_becomes_gated_duet_flag(monkeypatch):
     and produces a gated duet_flag instead of an auto-like."""
     now = dt.datetime(2026, 10, 1, 12, tzinfo=dt.UTC)
     fresh = _row_cand(platform="tiktok", post_id="tt-viral-1", posted_at=now - dt.timedelta(seconds=7200), meta_data={"views": 12000, "viral": True})
-    db = _use_db(monkeypatch, _DB([[fresh], [], [], []]))
+    db = _use_db(monkeypatch, _DB([[fresh], [], [], [], []]))
 
     out = await ENG._run(5)
 
@@ -297,7 +307,7 @@ async def test_dispatch_alert_failure_is_swallowed(monkeypatch):
     import app.services.slack_notifications as SN
 
     a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
-    _use_db(monkeypatch, _DB([[], [a], [_row_cand(platform="linkedin")], []]))
+    _use_db(monkeypatch, _DB([[], [], [a], [_row_cand(platform="linkedin")], []]))
     monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(return_value={"text": "draft"}))
     monkeypatch.setattr(SN, "_post_slack_text", AsyncMock(side_effect=RuntimeError("slack down")))
     monkeypatch.delenv("SLACK_ENGAGEMENT_WEBHOOK_URL", raising=False)
@@ -308,9 +318,86 @@ async def test_dispatch_alert_failure_is_swallowed(monkeypatch):
     assert out == {"scored": 0, "drafted": 1, "dispatched": [], "failed": []}
 
 
+class _CountingDB(_DB):
+    def __init__(self, results=()):
+        super().__init__(results)
+        self.queries = 0
+
+    async def execute(self, stmt):
+        self.queries += 1
+        return await super().execute(stmt)
+
+
+def _patch_alerts(monkeypatch):
+    import app.services.slack_notifications as SN
+    import app.services.telegram_notify as TN
+
+    slack = AsyncMock(return_value=(True, None, None))
+    monkeypatch.setattr(SN, "_post_slack_text", slack)
+    monkeypatch.setattr(TN, "send_telegram", AsyncMock(return_value=True))
+    monkeypatch.setenv("SLACK_ENGAGEMENT_WEBHOOK_URL", "https://hooks.example/x")
+    monkeypatch.setenv("SLACK_ENGAGEMENT_CHANNEL_ID", "C1")
+    return slack
+
+
+@pytest.mark.asyncio
+async def test_gate_ping_sent_once_not_on_every_sweep(monkeypatch):
+    """A gated comment is announced in the sweep that drafts it; the next
+    sweep (row now has a draft, so it is no longer in drafts_needed) must
+    not re-ping <!channel> for it or run any extra gate query."""
+    import app.services.dmr as DMR
+
+    slack = _patch_alerts(monkeypatch)
+    monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(return_value={"text": "nice"}))
+    _patch_actors(monkeypatch, {})
+    a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
+
+    _use_db(monkeypatch, _DB([[], [], [a], [_row_cand(platform="linkedin")], []]))
+    await ENG._run(5)
+    assert slack.await_count == 1
+    assert "<!channel>" in slack.await_args.kwargs["text"]
+
+    # next beat tick: same row still pending_human_gate, but already drafted
+    db2 = _use_db(monkeypatch, _CountingDB([[], [], [], []]))
+    out = await ENG._run(5)
+    assert slack.await_count == 1  # no re-ping
+    assert db2.queries == 4  # score, drafts_needed, dispatch — no 2h gate re-query
+    assert out == {"scored": 0, "drafted": 0, "dispatched": [], "failed": []}
+
+
+@pytest.mark.asyncio
+async def test_gate_ping_skips_undrafted_and_truncates(monkeypatch):
+    import app.services.dmr as DMR
+
+    slack = _patch_alerts(monkeypatch)
+    _patch_actors(monkeypatch, {})
+    exact = _row_action(platform="linkedin", action="comment", status="pending_human_gate", target_post_id="p1")
+    blank = _row_action(platform="linkedin", action="comment", status="pending_human_gate", target_post_id="p2")
+    replies = iter([{"text": "z" * 140}, {"text": ""}])
+    monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(side_effect=lambda *a, **k: next(replies)))
+    _use_db(
+        monkeypatch,
+        _DB(
+            [
+                [],
+                [],  # hi-score repost query
+                [exact, blank],
+                [_row_cand(platform="linkedin", post_id="p1")],
+                [_row_cand(platform="linkedin", post_id="p2")],
+                [],
+            ]
+        ),
+    )
+    await ENG._run(5)
+    assert blank.comment_draft is None
+    assert slack.await_count == 1  # blank draft → no ping
+    text = slack.await_args.kwargs["text"]
+    assert "z" * 140 in text and "…" not in text  # exactly 140 → not truncated
+
+
 @pytest.mark.asyncio
 async def test_dispatch_nothing_to_do(monkeypatch):
-    _use_db(monkeypatch, _DB([[], [], []]))
+    _use_db(monkeypatch, _DB([[], [], [], []]))
     _patch_actors(monkeypatch, {})
     out = await ENG._run(1)
     assert out == {"scored": 0, "drafted": 0, "dispatched": [], "failed": []}

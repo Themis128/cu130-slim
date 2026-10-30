@@ -43,7 +43,7 @@ def login():
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             code_holder["code"] = q.get("code", [None])[0]
             self.send_response(200); self.end_headers()
-            self.wfile.write(b"<h3>Gmail access granted — you can close this tab.</h3>")
+            self.wfile.write("<h3>Gmail access granted — you can close this tab.</h3>".encode())
         def log_message(self, *a): pass
     srv = HTTPServer(("127.0.0.1", 0), H)
     port = srv.server_address[1]
