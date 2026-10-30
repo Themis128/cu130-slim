@@ -436,6 +436,9 @@ services:
       - N8N_RUNNERS_AUTO_SHUTDOWN_TIMEOUT=60
       - GENERIC_TIMEZONE=Europe/Athens
       - TZ=Europe/Athens
+      # The launcher's nested tini can't be PID 1; register as subreaper so
+      # spawned tasks' zombies get reaped (was crash-looping on build-up).
+      - TINI_SUBREAPER=true
     depends_on:
       n8n:
         condition: service_healthy

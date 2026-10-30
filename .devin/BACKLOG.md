@@ -152,13 +152,3 @@
 **External gates**: `:9222` auto-fires on logon (CloudlessDebugChrome task). Viber = paid commercial channel (€115/mo) — decision, not a build.
 
 **Content-quality research applied**: slop-keyword scan, voice constraints, prior-output exclusion, platform-fit (content_guides has limits, unenforced).
-
-## Session 2026-10-30 — platform + phone + healing closeout
-- Phone: phone-automation-ops skill + phone_ctl.py (cover-lock fix via pm-disable + display-4 detection, unlock seq, Play Store -p deep-links); WA Business profile verified optimal; greeting toggle left as 1 in-app tap (cover gate).
-- Slack alerts swept: n8n-task-runner/cloudflared/promtail bounced; sanitizer f-string brace-backslash bug fixed (content_sanitizer.py:124 — broke every sanitize_post_text import incl. notebook reports + monetization).
-- Skills landed: notebook-lint-ops (nb_lint.py — await-safe cell lint), pr-landing-ops (pr_rescue.py — worktree rebase + generated-file auto-resolve), phone-automation-ops.
-- PR boards: ~10 conflicted PRs rescued/merged; cu130-slim cleared to 1, cloudless.gr to 0 (#2319 closed — content already on main).
-- Agency pipeline verified fully on master (models/api/pipeline/catalog/audit + 3 test files).
-
-## Leftovers (unchanged human gates)
-- bsky app password drop, `viber <token>` drop, Meta card confirm, LinkedIn restriction manual check, WA greeting toggle (1 tap), Smart Cover off in Settings→Accessibility.
