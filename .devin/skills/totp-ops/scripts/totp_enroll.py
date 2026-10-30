@@ -57,7 +57,9 @@ def main() -> int:
         if "TWITTER_TOTP_SECRET" not in t:
             t += f"\nTWITTER_TOTP_SECRET={secret}\n"
             open(".env", "w").write(t)
-        print("secret captured:", secret[:6] + "…")
+        # CodeQL: never log the secret — .env is the repo's gitignored secret
+        # store; report only that the capture landed.
+        print("TOTP secret captured to .env (masked)")
         return 0
     print("no secret found — page:", body[:200])
     return 1
