@@ -48,7 +48,7 @@ def adb_code() -> str | None:
                 capture_output=True, text=True, timeout=8)
             # Meta/WhatsApp senders only — a generic 6-digit match can grab
             # other services' codes (e.g. the 'Link' 246930 false positive)
-            rows = [l for l in r.stdout.splitlines() if re.search(
+            rows = [l for l in r.stdout.splitlines() if re.search(  # noqa: E741
                 r'whatsapp|facebook|meta|AUTHMSG', l, re.I)]
             m = CODE_RE.search(" ".join(rows)) if rows else CODE_RE.search(r.stdout)
             if m:

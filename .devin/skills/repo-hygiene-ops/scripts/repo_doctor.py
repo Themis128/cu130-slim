@@ -75,7 +75,7 @@ def main() -> None:
         else:
             classify_path(path, status)
 
-    wts = [l for l in git("worktree", "list").splitlines() if "prunable" in l]
+    wts = [l for l in git("worktree", "list").splitlines() if "prunable" in l]  # noqa: E741
 
     if "--json" in sys.argv:
         print(json.dumps({"core.fileMode": fm, "paths": report,
@@ -91,7 +91,7 @@ def main() -> None:
             print(f"  … +{len(v)-40} more")
     if wts:
         print(f"\nPRUNABLE WORKTREES ({len(wts)}) — `git worktree prune`:")
-        for l in wts:
+        for l in wts:  # noqa: E741
             print(f"  {l}")
     if report["ROOT-OWNED"]:
         print("\nFIX: sudo chown -R $(id -un):$(id -gn) " + repo)

@@ -29,4 +29,5 @@ def main() -> int:
     print("no token on screen — navigate to the bot's Edit Info, then rerun")
     return 1
 
-if __name__=="__main__": sys.exit(main())
+if __name__=="__main__":
+    sys.exit(main())

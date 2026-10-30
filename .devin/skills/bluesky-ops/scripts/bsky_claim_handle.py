@@ -26,7 +26,7 @@ def _tok() -> str:
     for p in ("/home/tbaltzakis/cu130-slim/.env",
               "/mnt/c/Users/tbaltzakis/cu130-slim/.env"):
         if os.path.exists(p):
-            for l in open(p):
+            for l in open(p):  # noqa: E741
                 if l.startswith("CLOUDFLARE_API_TOKEN="):
                     return l.split("=", 1)[1].strip().strip('"')
     sys.exit("no CF token")

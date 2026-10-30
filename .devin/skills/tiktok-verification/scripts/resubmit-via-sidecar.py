@@ -12,14 +12,18 @@ def post(p, b):
     r = subprocess.run(["docker","exec","engagement-browser","curl","-s","-X","POST",
         S+p,"-H","Content-Type: application/json","-d",json.dumps(b)],
         capture_output=True, text=True)
-    try: return json.loads(r.stdout)
-    except Exception: return {}
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        return {}
 
 def get(p):
     r = subprocess.run(["docker","exec","engagement-browser","curl","-s",S+p],
                        capture_output=True, text=True)
-    try: return json.loads(r.stdout)
-    except Exception: return {}
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        return {}
 
 def js(e): return post("/session/evaluate", {"expression": e})
 

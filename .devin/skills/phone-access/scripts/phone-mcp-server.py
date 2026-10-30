@@ -47,7 +47,9 @@ def call(name, args):
             import uiautomator2 as u2
             d = u2.connect(DEVICE)
             e = d(text=args["text"])
-            if e.exists: e.click(); return "clicked"
+            if e.exists:
+                e.click()
+            return "clicked"
             return "not found"
         except Exception as ex:
             return f"error: {ex}"

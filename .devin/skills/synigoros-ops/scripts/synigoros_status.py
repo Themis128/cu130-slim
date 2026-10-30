@@ -41,16 +41,21 @@ def main() -> int:
     global BRIDGE, MAIL, KPA
     args = sys.argv[1:]
     for i, a in enumerate(args):
-        if a == "--bridge": BRIDGE = args[i+1]
-        if a == "--mail":   MAIL   = args[i+1]
-        if a == "--kpa":    KPA    = args[i+1]
+        if a == "--bridge":
+            BRIDGE = args[i+1]
+        if a == "--mail":
+            MAIL   = args[i+1]
+        if a == "--kpa":
+            KPA    = args[i+1]
     if not MAIL or not KPA:
         raise SystemExit("need SYNIGOROS_MAIL + SYNIGOROS_KPA (env or --mail/--kpa)")
 
     # any platform arg just boots the browser — navigate handles the real URL.
     # close first: another task may hold the shared session (409).
-    try: call("/session/close", {})
-    except SystemExit: pass
+    try:
+        call("/session/close", {})
+    except SystemExit:
+        pass
     call("/session/start", {"platform": "reddit", "interactive": False, "force": True})
     time.sleep(4)
     call("/session/navigate", {"url": TRACK})
@@ -103,8 +108,10 @@ return m?m[1].trim():''}
 
 def _release() -> None:
     """Release the pinned bridge session — a held session 409s other platforms."""
-    try: call("/session/close", {})
-    except Exception: pass
+    try:
+        call("/session/close", {})
+    except Exception:
+        pass
 
 STATE = "/tmp/synigoros_last.json"
 CHAT  = "-1004436942504"                 # Cloudless — Automation HQ channel

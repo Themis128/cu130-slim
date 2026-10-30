@@ -25,7 +25,8 @@ def die(msg, code=1):
 def call(op, asset_id, payload):
     url = f"{API}/api/v1/media/enhance/assets/{asset_id}/video/{op}"
     status, body = request("POST", url, token=TOKEN, json=payload, raw=True)
-    if status != 200: die(f"{op} returned {status}: {body[:300] if isinstance(body,str) else body}")
+    if status != 200:
+        die(f"{op} returned {status}: {body[:300] if isinstance(body,str) else body}")
     return body if isinstance(body, bytes) else body.encode()
 
 def main():
@@ -37,7 +38,8 @@ def main():
     asset_id = args[1]
     kv = dict(zip(args[2::2], args[3::2]))
     out = kv.get("-o") or kv.get("--out")
-    if not out: die("need -o OUTPUT")
+    if not out:
+        die("need -o OUTPUT")
 
     if op == "trim":
         b = call("trim", asset_id, {"start": float(kv.get("--start", 0)), "end": float(kv["--end"])})
@@ -45,7 +47,8 @@ def main():
         b = call("convert", asset_id, {"format": kv.get("--format", "mp4")})
     elif op == "attach-audio":
         b = call("attach-audio", asset_id, {"audio_asset_id": args[2], "loop_audio": "--no-loop" not in args})
-        if "-o" in args: out = args[args.index("-o")+1]
+        if "-o" in args:
+            out = args[args.index("-o")+1]
     elif op == "mute":
         b = call("mute", asset_id, {})
     elif op == "extract-audio":

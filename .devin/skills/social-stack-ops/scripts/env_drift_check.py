@@ -40,7 +40,7 @@ def running_containers():
             names.append(json.loads(line)["Name"])
         except Exception:
             pass
-    return names or [l.split()[-1] for l in
+    return names or [l.split()[-1] for l in  # noqa: E741
                      subprocess.run(["docker", "compose", "ps", "--services"],
                                     capture_output=True, text=True, cwd=ROOT).stdout.splitlines()]
 

@@ -63,15 +63,20 @@ def main():
     dry = "--dry" in sys.argv
     a = sys.argv[1:]
     for i, x in enumerate(a):
-        if x == "--url": url = a[i+1]
-        if x == "--answers": answers_file = a[i+1]
-        if x == "--bridge": BRIDGE = a[i+1]
+        if x == "--url":
+            url = a[i+1]
+        if x == "--answers":
+            answers_file = a[i+1]
+        if x == "--bridge":
+            BRIDGE = a[i+1]
     if not url or not answers_file:
         raise SystemExit("need --url + --answers")
     with open(answers_file) as _f:
         answers = json.load(_f)
-    try: call("/session/close", {})
-    except SystemExit: pass
+    try:
+        call("/session/close", {})
+    except SystemExit:
+        pass
     call("/session/start", {"platform":"reddit","interactive":False,"force":True})
     time.sleep(4)
     call("/session/navigate", {"url": url})

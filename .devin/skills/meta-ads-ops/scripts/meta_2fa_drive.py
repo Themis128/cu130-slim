@@ -99,7 +99,7 @@ def main():
     a = ap.parse_args()
     pw = a.pw or os.environ.get("FB_PASSWORD") or getpass.getpass("FB password: ")
 
-    devs = [l.split()[0] for l in subprocess.run(
+    devs = [l.split()[0] for l in subprocess.run(  # noqa: E741
         ["adb", "devices"], capture_output=True, text=True).stdout.splitlines()[1:]
         if l.strip() and "device" in l and "offline" not in l]
     if not devs:

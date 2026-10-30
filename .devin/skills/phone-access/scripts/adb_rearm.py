@@ -24,7 +24,7 @@ def sh(cmd):
 
 def devices():
     out = sh("adb devices").stdout
-    return [l.split()[0] for l in out.splitlines()[1:]
+    return [l.split()[0] for l in out.splitlines()[1:]  # noqa: E741
             if l.strip() and "device" in l and "offline" not in l]
 
 

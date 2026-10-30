@@ -14,7 +14,8 @@ def sh(*args):
     return subprocess.run(["adb", "shell", *args],
                           capture_output=True, text=True).stdout.strip()
 
-def tap(x, y): sh("input", "tap", str(x), str(y)); time.sleep(1.2)
+def tap(x, y): sh("input", "tap", str(x), str(y))
+time.sleep(1.2)
 def text(t): sh("input", "text", t.replace(":", "%3a").replace("/", "%2f").replace(" ", "%s"))
 def screencap(name):
     sh("screencap", "-p", "/sdcard/_gate.png")

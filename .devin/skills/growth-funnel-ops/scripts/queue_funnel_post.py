@@ -19,7 +19,7 @@ BRAND_CTAS = ("https://cloudless.gr/contact", "https://social.cloudless.gr/prici
 
 async def main(args):
     async with async_session_maker() as db:
-        team = (await db.scalars(select(Team))).first()
+        team = (await db.scalars(select(Team))).first()  # noqa: F841
         # 1-in-3 cadence check for the personal funnel
         if args.funnel == "personal":
             recent = (await db.scalars(

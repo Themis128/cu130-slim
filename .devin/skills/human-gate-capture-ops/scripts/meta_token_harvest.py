@@ -58,7 +58,7 @@ def run() -> int:
         print("no token in DOM — open the app's System Users → token page first")
         return 1
     tok = toks[0]
-    r = subprocess.run(
+    r = subprocess.run(  # noqa: F841
         ["python3", f"{SKILLS}/human-gate-capture-ops/scripts/gate_capture.py",
          "scan"], capture_output=True, text=True, timeout=90)
     # direct row update via the shared helper

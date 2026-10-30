@@ -107,7 +107,7 @@ def main():
 
     if a.cmd in ("click", "toggle"):
         # search every context (top + iframes) for the label
-        ctxs = c.send("Runtime.evaluate", {
+        ctxs = c.send("Runtime.evaluate", {  # noqa: F841
             "expression": "1", "returnByValue": True})  # warm contexts
         r = c.ev(f"""(()=>{{
             const pat={json.dumps(a.arg.lower())}

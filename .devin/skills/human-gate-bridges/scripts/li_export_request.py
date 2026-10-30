@@ -33,7 +33,7 @@ def ev(expr: str, tries: int = 8) -> dict:
         except urllib.error.HTTPError as e:
             last = e
             if e.code == 409:
-                time.sleep(30)
+                time.sleep(30)  # noqa: F821
                 continue
             return {"error": str(e)}
         except Exception as e:

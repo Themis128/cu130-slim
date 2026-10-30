@@ -41,7 +41,7 @@ def _env() -> dict:
     for p in ("/mnt/c/Users/tbaltzakis/cu130-slim/.env",
               "/home/tbaltzakis/cu130-slim/.env"):
         if os.path.exists(p):
-            for l in open(p):
+            for l in open(p):  # noqa: E741
                 if "=" in l and not l.startswith("#"):
                     k, v = l.split("=", 1)
                     env[k.strip()] = v.strip().strip('"')
@@ -101,7 +101,7 @@ def from_password(handle: str, password: str) -> None:
     if s != 200:
         print("createSession failed:", s, str(sess)[:150])
         return
-    jwt, did = sess["accessJwt"], sess["did"]
+    jwt, did = sess["accessJwt"], sess["did"]  # noqa: F841
     s2, ap = _xrpc("com.atproto.server.createAppPassword",
                    {"name": "socialauto-" + secrets.token_hex(3)}, jwt=jwt)
     if s2 != 200:
@@ -115,8 +115,10 @@ def from_password(handle: str, password: str) -> None:
 def create(handle: str, email: str, phone=None, code=None) -> None:
     pw = "bsk" + secrets.token_urlsafe(18)
     body = {"handle": handle, "email": email, "password": pw}
-    if phone: body["verificationPhone"] = phone
-    if code: body["verificationCode"] = code
+    if phone:
+        body["verificationPhone"] = phone
+    if code:
+        body["verificationCode"] = code
     s, d = _xrpc("com.atproto.server.createAccount", body)
     if s != 200:
         print("createAccount:", s, str(d)[:250])
@@ -148,9 +150,12 @@ def main() -> int:
     cn.add_argument("--handle", required=True)
     cn.add_argument("--app-password", required=True)
     a = ap.parse_args()
-    if a.cmd == "from-password": from_password(a.handle, a.password)
-    elif a.cmd == "create": create(a.handle, a.email, a.phone, a.code)
-    else: _connect(a.handle, a.app_password)
+    if a.cmd == "from-password":
+        from_password(a.handle, a.password)
+    elif a.cmd == "create":
+        create(a.handle, a.email, a.phone, a.code)
+    else:
+        _connect(a.handle, a.app_password)
     return 0
 
 

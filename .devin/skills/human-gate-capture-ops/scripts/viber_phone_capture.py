@@ -22,7 +22,7 @@ def _adb(*args) -> str:
 
 def devices() -> int:
     out = _adb("devices")
-    devs = [l for l in out.splitlines() if "\tdevice" in l]
+    devs = [l for l in out.splitlines() if "\tdevice" in l]  # noqa: E741
     print("devices:", len(devs) or "none — plug the phone (USB-debugging on)")
     return 0 if devs else 2
 

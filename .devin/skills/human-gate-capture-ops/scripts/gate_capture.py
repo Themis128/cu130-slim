@@ -108,7 +108,8 @@ asyncio.run(go())
                     if plat == "bsky" else ["--token", sec])
             rc, out = _run(fn, args)
         if rc == 0:
-            _mark(f"tg:{plat}:{sec[-4:]}"); hits += 1
+            _mark(f"tg:{plat}:{sec[-4:]}")
+            hits += 1
             print(f"tg {plat} drop → wired")
         else:
             print(f"tg {plat} drop → rc={rc} {out[:60]}")
@@ -173,7 +174,9 @@ def scan() -> int:
                 rc, out = _whatsapp_token(sec)
                 print(f"whatsapp drop → rc={rc} {out[:80]}")
                 if rc == 0:
-                    _mark(f); os.remove(f); hits += 1
+                    _mark(f)
+                    os.remove(f)
+                    hits += 1
         elif name.startswith("bsky") and name.endswith((".txt", ".key")):
             sec = _read_secret(f)
             if not sec:
@@ -183,7 +186,8 @@ def scan() -> int:
                             "--app-password", sec])
             print(f"bsky drop → rc={rc} {out[:80]}")
             if rc == 0:
-                _mark(f); os.remove(f); hits += 1
+                _mark(f)
+                os.remove(f); hits += 1
         elif name.startswith("viber") and name.endswith((".txt", ".key")):
             sec = _read_secret(f)
             if not sec:
@@ -192,7 +196,8 @@ def scan() -> int:
                            ["--token", sec])
             print(f"viber drop → rc={rc} {out[:80]}")
             if rc == 0:
-                _mark(f); os.remove(f); hits += 1
+                _mark(f)
+                os.remove(f); hits += 1
     _waba_watch()
     # auto-harvest: if no drops and channels still missing, try the
     # logged-in browser sessions (bsky.app session, partners.viber.com)
@@ -206,7 +211,8 @@ def scan() -> int:
                                         f"{script}.py"), "run"],
                 capture_output=True, text=True, timeout=90)
             if rc.returncode == 0:
-                print(f"{plat}: auto-harvested + wired"); _mark(plat); hits += 1
+                print(f"{plat}: auto-harvested + wired")
+                _mark(plat); hits += 1
     print(f"scan: {hits} wired")
     return hits
 

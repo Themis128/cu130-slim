@@ -52,7 +52,8 @@ def creds(platform: str) -> dict:
              f"SELECT value FROM social_secrets WHERE key='{k}'"],
             capture_output=True, text=True)
         v = r.stdout.strip()
-        if v: out[k.lower()] = v
+        if v:
+            out[k.lower()] = v
     return out
 
 def ig_login(bridge: str) -> str:

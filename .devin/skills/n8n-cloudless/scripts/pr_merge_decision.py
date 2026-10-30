@@ -38,11 +38,11 @@ def gh(repo, path):
 def evaluate(repo, num):
     pr = gh(repo, f"/pulls/{num}")
     checks = gh(repo, f"/commits/{pr['head']['sha']}/check-runs?per_page=50").get("check_runs", [])
-    labels = [l["name"] for l in pr.get("labels", [])]
+    labels = [l["name"] for l in pr.get("labels", [])]  # noqa: E741
     draft = pr.get("draft")
     state = pr.get("mergeable_state") or pr.get("mergeable")
 
-    blockers, failing, pending = [], [], []
+    blockers, failing, pending = [], [], []  # noqa: F841
     for c in checks:
         if c["conclusion"] in ("failure", "cancelled", "timed_out", "action_required"):
             failing.append(c["name"])

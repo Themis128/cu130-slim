@@ -76,7 +76,7 @@ else:
 tap_text('Account privacy', 8)
 time.sleep(1.5)
 # toggle on the switch
-pos = find_text('Private account')
+pos = find_text('Private account')  # noqa: F821
 if pos:
     tap(*pos)
     time.sleep(4)

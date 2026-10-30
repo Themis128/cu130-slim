@@ -52,7 +52,7 @@ def main():
     else:
         # resolve generated-file conflicts by taking base
         st = run("git status --porcelain", wt).stdout
-        conflicts = [l[3:] for l in st.splitlines() if l.startswith(("UU","AA"))]
+        conflicts = [l[3:] for l in st.splitlines() if l.startswith(("UU","AA"))]  # noqa: E741
         manual = [c for c in conflicts if not is_generated(c)]
         for c in conflicts:
             if is_generated(c):

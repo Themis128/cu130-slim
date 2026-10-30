@@ -42,7 +42,7 @@ def api_py(code: str) -> str:
     r = subprocess.run(
         ["docker", "compose", "exec", "-T", "social-api", "python3", "-c", code],
         cwd=repo_root(), capture_output=True, text=True)
-    out = "\n".join(l for l in r.stdout.splitlines()
+    out = "\n".join(l for l in r.stdout.splitlines()  # noqa: E741
                     if "INFO sqlalchemy" not in l)
     return out
 

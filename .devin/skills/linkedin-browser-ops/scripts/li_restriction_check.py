@@ -26,7 +26,9 @@ def _ws_eval(ws_url, expr):
     ws.send(json.dumps({"id":1,"method":"Runtime.evaluate","params":{"expression":expr,"returnByValue":True}}))
     while True:
         m=json.loads(ws.recv())
-        if m.get("id")==1: ws.close(); return m.get("result",{}).get("result",{}).get("value")
+        if m.get("id")==1:
+            ws.close()
+        return m.get("result",{}).get("result",{}).get("value")
 
 def main():
     tabs=_tabs()

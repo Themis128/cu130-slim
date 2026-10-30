@@ -33,10 +33,13 @@ print("  Built-in endpoint failed, using manual browser automation...")
 post("/debug/navigate", {"url": "https://www.linkedin.com/in/baltzakis-themis/"})
 time.sleep(5)
 
-click_js = lambda text: f"""(async () => {{
+click_js = lambda text: f"""(async () => {{  # noqa: E731
     const els = document.querySelectorAll('a, button, span, div')
     for (const e of els) {{
-        if (e.textContent.trim() === '{text}') {{ e.click(); await new Promise(r => setTimeout(r, 3000)); return 'clicked'; }}
+        if (e.textContent.trim() === '{text}') {{ e.click()
+ await new Promise(r => setTimeout(r, 3000))
+ return 'clicked'
+        }}
     }}
     return 'not found'
 }})()"""
@@ -60,7 +63,10 @@ if "already exists" in existing:
     evaluate("""(async () => {
         const btns = document.querySelectorAll('button')
         for (const b of btns) {
-            if (b.textContent.trim() === 'Cancel' || b.getAttribute('aria-label') === 'Close') { b.click(); await new Promise(r => setTimeout(r, 2000)); return 'closed'; }
+            if (b.textContent.trim() === 'Cancel' || b.getAttribute('aria-label') === 'Close') { b.click()
+ await new Promise(r => setTimeout(r, 2000))
+ return 'closed'
+            }
         }
         return 'no close'
     })()""", 10)

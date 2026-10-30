@@ -125,7 +125,7 @@ def _consent(scope: str, env_key: str) -> None:
     _save_env(env_key, tok["refresh_token"])
     print(f"saved {env_key} to .env")
 
-def login(account: str = ""):
+def login(account: str = ""):  # noqa: F811
     key = "GMAIL_REFRESH_TOKEN" + (f"_{account.upper().replace('.', '_').replace('@', '_')}" if account else "")
     _consent("https://www.googleapis.com/auth/gmail.readonly", key)
 
@@ -161,7 +161,7 @@ def enable_gmail():
         out = json.loads(urllib.request.urlopen(r, timeout=30).read())
         print("enabled:", out.get("name") or out)
     except Exception as e:
-        print("err:", getattr(e, "read", lambda: e)() if hasattr(e, "read") else e)
+        print("err:", getattr(e, "read", lambda: e)() if hasattr(e, "read") else e)  # noqa: F821
 
 def search(query):
     a = _access()

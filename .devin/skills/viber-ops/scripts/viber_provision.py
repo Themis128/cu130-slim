@@ -23,7 +23,7 @@ def _env():
     for p in ("/mnt/c/Users/tbaltzakis/cu130-slim/.env",
               "/home/tbaltzakis/cu130-slim/.env"):
         if os.path.exists(p):
-            return dict(l.split("=", 1) for l in open(p) if "=" in l and not l.startswith("#"))
+            return dict(l.split("=", 1) for l in open(p) if "=" in l and not l.startswith("#"))  # noqa: E741
     return {}
 
 
@@ -67,9 +67,12 @@ def main():
     ap.add_argument("--name", default="cloudless")
     ap.add_argument("--verify", action="store_true")
     a = ap.parse_args()
-    if a.verify: verify()
-    elif a.token: connect(a.token, a.name)
-    else: ap.print_help()
+    if a.verify:
+        verify()
+    elif a.token:
+        connect(a.token, a.name)
+    else:
+        ap.print_help()
 
 
 if __name__ == "__main__":

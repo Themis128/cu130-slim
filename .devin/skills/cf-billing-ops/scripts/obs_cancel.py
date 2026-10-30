@@ -38,7 +38,7 @@ def check() -> int:
         print("no dashboard tab — open dash.cloudflare.com in the debug browser")
         return 2
     print("observability rows:",
-          [l for l in txt.splitlines() if "bservability" in l][:3] or "none visible")
+          [l for l in txt.splitlines() if "bservability" in l][:3] or "none visible")  # noqa: E741
     return 0
 
 
@@ -62,7 +62,7 @@ def run() -> int:
     time.sleep(8)
     _call(3, "Runtime.evaluate", {"expression": "document.body.innerText.slice(0,6000)",
                                   "returnByValue": True})
-    body = _call(3, "Runtime.evaluate", {})["result"]["result"].get("value", "")
+    body = _call(3, "Runtime.evaluate", {})["result"]["result"].get("value", "")  # noqa: F841
     # find + click the Observability cancel control
     js = """(()=>{
       const rows=[...document.querySelectorAll('*')].filter(e=>

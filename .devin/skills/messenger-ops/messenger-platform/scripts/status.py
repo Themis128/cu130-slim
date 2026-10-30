@@ -12,7 +12,7 @@ account_id = sys.argv[1] if len(sys.argv) > 1 else "3f2f59c4-f190-44ad-aefe-4321
 api, token = social_api()
 print(f"=== Messenger Status for account {account_id} ===\n")
 
-import json
+import json  # noqa: E402
 
 code, body = request_status("GET", f"{api}/api/v1/messenger/{account_id}/profile", token=token)
 p = json.loads(body) if body.strip().startswith("{") else {}
