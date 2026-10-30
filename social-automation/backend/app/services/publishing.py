@@ -582,6 +582,9 @@ async def publish_to_platform(
     post: Post,
     db: AsyncSession,
 ) -> PublishResult:
+    from app.services.content_sanitizer import sanitize_post_text
+    post.content_text = sanitize_post_text(post.content_text)
+
     # WhatsApp/Viber are messaging channels, not feed-style social platforms.
     # If a post target includes one (e.g. legacy UI or automation), skip it so
     # other platforms can still publish successfully. Telegram is NOT in this
