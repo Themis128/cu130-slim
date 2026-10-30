@@ -169,3 +169,10 @@ Every item has a verified tool/skill + the one act it waits on.
 - `gate_runner2.py` — clone→launch→forwarder→watch→click, one command
 - Phone: ADB `192.168.1.77:5555` (LAN) — notification-dump path can read WhatsApp/FB 2FA codes directly (`dumpsys notification --noredact`, proven 2026-10-29 — pulled the live Meta code off the device)
 - ntfy phone wired to `cloudless-alerts`/`cloudless-ops`/`nextcloud-ops` on `192.168.1.200:30080`
+
+## 2026-10-30 — Meta 2FA enabled (phone, trusted device)
+
+- Facebook 2FA turned ON via phone FB app (fb://settings -> Accounts Center -> Password & security -> Two-factor -> FB row -> password -> email code 804910 via Gmail API -> SMS/WhatsApp method to **38).
+- Profile 'protect your account' requirement satisfied. Next: watch if profile restriction lifts (flag may clear immediately or need review) -> then business verification for cloudless.gr portfolio -> NEW ad account -> WhatsApp Cloud migration via wa_onboard_retry.py.
+- gmail_code_fetch.py (mail-code-fetch) reads FB codes via API instantly — replaces the SMS/Gmail-app read.
+- ADB input-text appends trailing chars on this IME — type via keyevents or clear via field's own X.
