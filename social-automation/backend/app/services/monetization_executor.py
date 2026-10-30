@@ -35,6 +35,7 @@ from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team
 from app.services.monetization_report import MonetizationAction
+from app.services.content_sanitizer import sanitize_post_text
 
 logger = logging.getLogger(__name__)
 
@@ -375,7 +376,7 @@ async def schedule_report_actions(
         post = Post(
             team_id=team.id,
             user_id=owner.id if owner else None,
-            content_text=content,
+            content_text=sanitize_post_text(content),
             hashtags=hashtags,
             media_ids=[media_id] if media_id else [],
             status=status,

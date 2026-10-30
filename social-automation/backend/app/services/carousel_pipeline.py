@@ -1,5 +1,9 @@
 """End-to-end Cloudflare carousel pipeline for n8n / automation."""
 
+def _sanitize_caption(c):
+    from app.services.content_sanitizer import sanitize_post_text
+    return sanitize_post_text(c)
+
 from __future__ import annotations
 
 import base64
@@ -1206,7 +1210,7 @@ async def run_cloudless_carousel_pipeline(
         team_id=team.id,
         user_id=user.id,
         status=PostStatus.DRAFT,
-        content_text=full_caption,
+        content_text=_sanitize_caption(full_caption),
         media_ids=media_ids,
         hashtags=hashtags,
         link_url="https://www.cloudless.gr",
