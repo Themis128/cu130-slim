@@ -23,16 +23,11 @@ Usage:
 import argparse
 import base64
 import json
-import os
 import sys
 import time
 import urllib.request
 
 import websocket
-
-sys.path.insert(0, os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "_lib")))
-from cdp_common import ensure_cdp  # noqa: E402
 
 CDP = "http://localhost:9222"
 IMG = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
@@ -40,7 +35,6 @@ IMG = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
 
 
 def get_targets():
-    ensure_cdp()  # auto-relaunch debug Chrome when :9222 is down
     return json.load(urllib.request.urlopen(f"{CDP}/json", timeout=8))
 
 
