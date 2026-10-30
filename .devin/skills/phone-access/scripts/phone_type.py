@@ -32,7 +32,8 @@ def dump(dev):
 
 def field_texts(dev):
     xml = dump(dev)
-    return re.findall(r'class="android.widget.EditText"[^>]*text="([^"]*)"', xml)
+    return re.findall(r'class="[^"]*(?:EditText|AutoCompleteTextView|SearchView)'
+                      r'[^"]*"[^>]*text="([^"]*)"', xml)
 
 
 def main():
@@ -53,10 +54,14 @@ def main():
         dev = devs[0]
 
     xml = dump(dev)
-    m = re.search(r'class="android.widget.EditText"[^>]*'
-                  r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
+    # prefer the focused field (whatever React/Material class it uses),
+    # else any editable-looking node
+    m = (re.search(r'focused="true"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
+         or re.search(r'class="[^"]*(?:EditText|AutoCompleteTextView|SearchView)'
+                      r'[^"]*"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
+         or re.search(r'editable="true"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml))
     if not m:
-        raise SystemExit("no EditText on screen")
+        raise SystemExit("no editable field on screen")
     adb(dev, "shell", "input", "tap",
         str((int(m[1]) + int(m[3])) // 2),
         str((int(m[2]) + int(m[4])) // 2))
