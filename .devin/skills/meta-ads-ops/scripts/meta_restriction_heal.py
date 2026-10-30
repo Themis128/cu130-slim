@@ -44,7 +44,8 @@ TWOFA = "https://accountscenter.facebook.com/password_and_security/two_factor"
 def conn():
     tabs = json.load(urllib.request.urlopen(f"{CDP}/json", timeout=8))
     pages = [t for t in tabs if t.get("type") == "page"]
-    ws = websocket.create_connection(pages[0]["webSocketDebuggerUrl"], timeout=15)
+    ws = websocket.create_connection(pages[0]["webSocketDebuggerUrl"],
+                                     timeout=15, suppress_origin=True)
     i = [0]
     send(ws, i, "Page.enable")
     send(ws, i, "Runtime.enable")

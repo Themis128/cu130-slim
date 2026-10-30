@@ -466,7 +466,8 @@ class TestWarmupLock:
 
 
 class TestKeepWarm:
-    """Periodic keep_alive refresh for the warm tier (mid 4B + llama3.2)."""
+    """Periodic keep_alive refresh for the warm tier (embedding only —
+    mid-4B + llama3.2 unload when idle since the 2026-10-28 VRAM fix)."""
 
     def _patch(self, monkeypatch, *, busy=False, running=(), vram_ok=True):
         monkeypatch.setattr(dmr, "_check_dmr_health", AsyncMock(return_value=True))
@@ -484,7 +485,7 @@ class TestKeepWarm:
         spy = self._patch(monkeypatch)
         result = await dmr.keep_warm_models()
         models = [c.kwargs["model_override"] for c in spy.await_args_list]
-        assert models == [dmr.settings.DMR_MID_MODEL, "ai/llama3.2"]
+        assert models == [dmr.settings.DMR_EMBEDDING_MODEL]
         assert result["warmed"] == models
 
     @pytest.mark.asyncio
@@ -500,27 +501,24 @@ class TestKeepWarm:
         # model still gets its keep_alive refresh.
         spy = self._patch(
             monkeypatch,
-            running={"huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:q4_k_m"},
+            running={dmr.settings.DMR_EMBEDDING_MODEL.lower().replace("hf.co/","huggingface.co/")},
             vram_ok=False,
         )
         result = await dmr.keep_warm_models()
         models = [c.kwargs["model_override"] for c in spy.await_args_list]
-        assert models == [dmr.settings.DMR_MID_MODEL]
-        assert result["skipped"] == ["ai/llama3.2"]
+        assert models == [dmr.settings.DMR_EMBEDDING_MODEL]
+        assert result["skipped"] == []
 
     @pytest.mark.asyncio
     async def test_resident_model_pings_despite_tight_vram(self, monkeypatch):
         # A loaded model costs ~0 extra VRAM to ping — always refresh it.
         self._patch(
             monkeypatch,
-            running={
-                "huggingface.co/unsloth/qwen3-4b-instruct-2507-gguf:q4_k_m",
-                "docker.io/ai/llama3.2:latest",
-            },
+            running={dmr.settings.DMR_EMBEDDING_MODEL.lower().replace("hf.co/","huggingface.co/")},
             vram_ok=False,
         )
         result = await dmr.keep_warm_models()
-        assert result["warmed"] == [dmr.settings.DMR_MID_MODEL, "ai/llama3.2"]
+        assert result["warmed"] == [dmr.settings.DMR_EMBEDDING_MODEL]
         assert result["skipped"] == []
 
 
