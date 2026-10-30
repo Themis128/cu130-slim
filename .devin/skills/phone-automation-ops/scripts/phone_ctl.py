@@ -55,35 +55,6 @@ def main():
                 "-d", f"market://details?id={sys.argv[2]}", "-p", "com.android.vending"))
     elif cmd == "ui-tap" and len(sys.argv) > 2:
         print(tap_text(" ".join(sys.argv[2:])))
-    elif cmd == "wa-greeting":
-        # retry daemon: attempts the WA Business greeting toggle every 5min;
-        # exits once the switch reports checked. Run detached:
-        #   nohup phone_ctl.py wa-greeting &
-        import os, subprocess as sp
-        for attempt in range(48):  # ~4h
-            f = focus()
-            if "whatsapp" not in f:
-                a("shell", "am", "start", "-n", "com.whatsapp.w4b/com.whatsapp.HomeActivity"); time.sleep(4)
-            a("shell", "input", "keyevent", "224"); a("shell", "input", "swipe", "540", "2000", "540", "400", "300"); time.sleep(3)
-            xml = dump()
-            if "Send greeting message" in xml and 'checked="true"' in xml:
-                print("greeting toggle ON — done"); return
-            # Tools tab → scroll → Greeting → toggle
-            a("shell", "input", "tap", "944", "2144"); time.sleep(3)
-            a("shell", "input", "swipe", "540", "1400", "540", "900"); time.sleep(2)
-            m = re.search(r'Greeting message[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', dump())
-            if m:
-                x, y = (int(m[1])+int(m[3]))//2, (int(m[2])+int(m[4]))//2
-                a("shell", "input", "tap", str(x), str(y)); time.sleep(3)
-                g = dump()
-                m2 = re.search(r'bounds="\[0,(\d+)\]\[(\d+),(\d+)\]"[^>]*Send greeting', g)
-                if m2:
-                    a("shell", "input", "tap", "945", str((int(m2[1])+int(m2[3]))//2)); time.sleep(2)
-                    if 'checked="true"' in dump():
-                        print("greeting toggled ON — done"); return
-            print(f"attempt {attempt}: cover/focus gate — retrying in 5m")
-            time.sleep(300)
-        print("gave up — do it in-app (Tools → Greeting → toggle)")
     elif cmd == "ui-dump":
         xml = dump()
         for m in re.finditer(r'text="([^"]{3,45})"[^>]*bounds="([^"]*)"', xml):
