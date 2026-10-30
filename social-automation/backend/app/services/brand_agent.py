@@ -149,6 +149,14 @@ async def run_autopilot(
     created_count = 0
     skipped_count = 0
 
+    # Prior-output exclusion set — recent post texts + this batch's drafts, so
+    # the quality gate blocks repeats of both published and just-generated copy.
+    recent = await db.execute(
+        select(Post.content_text).where(Post.team_id == team_id)
+        .order_by(Post.created_at.desc()).limit(30)
+    )
+    recent_texts: list[str] = [r[0] for r in recent.all() if r[0]]
+
     for i, slot in enumerate(slots):
         # Cycle through pillars
         pillar = pillars[i % len(pillars)]
@@ -182,6 +190,18 @@ async def run_autopilot(
                 skipped_count += 1
                 continue
 
+            # Content-quality gate — reject slop + near-duplicates before the
+            # draft queues (generation-side, per content-quality-ops).
+            from app.services.content_sanitizer import content_quality_gate, voice_check
+            ok, reason = voice_check(content)
+            if not ok:
+                skipped_count += 1
+                continue
+            ok, reason = content_quality_gate(content, recent_texts)
+            if not ok:
+                skipped_count += 1
+                continue
+
             # Create draft post
             post = Post(
                 team_id=team_id,
@@ -190,6 +210,7 @@ async def run_autopilot(
                 status=PostStatus.DRAFT,
                 scheduled_at=slot,
             )
+            recent_texts.append(content)
             db.add(post)
             await db.commit()
             await db.refresh(post)
