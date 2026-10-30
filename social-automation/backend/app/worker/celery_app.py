@@ -395,6 +395,11 @@ celery_app.conf.update(
         # CRM engagement — poll the dovecot mailbox every 30 min; a reply
         # from a CRM email attaches a "Reply received" note and bumps the
         # lead to In Process. Closes the loop that drip-send notes open.
+        "engagement-ingest": {
+            "task": "app.worker.tasks.engagement.engagement_ingest",
+            "schedule": crontab(minute=15),
+            "options": {"queue": "default"},
+        },
         "crm-engagement-sweep": {
             "task": "app.worker.tasks.crm_engagement.run_crm_engagement_sweep",
             "schedule": crontab(minute="*/30"),

@@ -73,10 +73,10 @@ def _poll_inner() -> dict:
         raise RuntimeError("tracking page never rendered")
     if _ev("!!document.getElementById('webMail')"):
         _ev(
-            "(()=>{const m=document.getElementById('webMail');m.value=%s;"
+            f"(()=>{{const m=document.getElementById('webMail');m.value={json.dumps(MAIL)};"
             "m.dispatchEvent(new Event('input',{bubbles:true}));"
-            "const c=document.getElementById('webCode');c.value=%s;"
-            "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()" % (json.dumps(MAIL), json.dumps(KPA))
+            f"const c=document.getElementById('webCode');c.value={json.dumps(KPA)};"
+            "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
         )
         _bridge("/session/click", {"selector": "button", "text": "Ταυτοποίηση"})
         # bounded poll for the status view or the explicit failure text —
