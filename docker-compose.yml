@@ -2196,6 +2196,79 @@ services:
       - backend
     restart: unless-stopped
 
+  # Mautic — self-hosted funnel/marketing-automation manager (campaigns,
+  # landing pages, drip sequences, lead scoring, forms). Dedicated MariaDB.
+  mautic-db:
+    image: mariadb:11.4
+    container_name: mautic-db
+    networks:
+      - db
+    volumes:
+      - mautic_db_data:/var/lib/mysql
+    environment:
+      - MARIADB_DATABASE=mautic
+      - MARIADB_USER=mautic
+      - MARIADB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=${MAUTIC_DB_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: 512m
+    restart: unless-stopped
+
+  mautic:
+    image: mautic/mautic:latest
+    container_name: mautic
+    networks:
+      - backend
+      - db
+    ports:
+      - 127.0.0.1:8021:80
+    volumes:
+      - mautic_data:/var/www/html
+    depends_on:
+      mautic-db:
+        condition: service_healthy
+    <<: *public-dns
+    environment:
+      - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_USER=mautic
+      - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MAUTIC_DB_NAME=mautic
+      - MAUTIC_TRUSTED_PROXIES=0.0.0.0/0
+      - MAUTIC_URL=${MAUTIC_PUBLIC_URL:-http://localhost:8021}
+      - MAUTIC_RUN_CRON_JOBS=true
+      - DOCKER_MAUTIC_ROLE=mautic_web
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    mem_limit: 1g
+    restart: unless-stopped
+
+  mautic-cron:
+    image: mautic/mautic:latest
+    container_name: mautic-cron
+    networks:
+      - db
+    volumes:
+      - mautic_data:/var/www/html
+    depends_on:
+      - mautic
+    environment:
+      - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_USER=mautic
+      - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MAUTIC_DB_NAME=mautic
+      - DOCKER_MAUTIC_ROLE=mautic_cron
+    mem_limit: 384m
+    restart: unless-stopped
+
 volumes:
   portainer_data: null
   postgres_data: null
@@ -2220,6 +2293,8 @@ volumes:
   facebook_browser_data: null
   airbyte_mcp_data: null
   nextcloud_mcp_data: null
+  mautic_db_data: null
+  mautic_data: null
 
 # Explicit network topology (restored 2026-09-06 to match runtime state).
 # Names are pinned so compose adopts the existing networks instead of
