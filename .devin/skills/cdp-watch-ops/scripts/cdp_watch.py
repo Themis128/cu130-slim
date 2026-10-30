@@ -46,9 +46,9 @@ def main() -> int:
         ws = _ws()
         if ws:
             print("CDP bound — driving pending gates")
-            # read gmail for the linkedin code
-            code = _eval(ws, """(async()=>{const w=window.open('https://mail.google.com/mail/u/0/#search/linkedin','_blank');await new Promise(r=>setTimeout(r,8000));const t=document.body.innerText;const m=t.match(/\\b(\\d{6})\\b/);return m?m[1]:'none'})()""")
-            print("linkedin code:", code[:30])
+            # read gmail for the linkedin OR micro1 code
+            code = _eval(ws, """(async()=>{const w=window.open('https://mail.google.com/mail/u/0/#search/linkedin OR micro1','_blank');await new Promise(r=>setTimeout(r,8000));const t=document.body.innerText;const m=t.match(/\\b(\\d{6})\\b/);return m?m[1]:'none'})()""")
+            print("linkedin OR micro1 code:", code[:30])
             return 0
         print("waiting for :9222 …" if not once else "not bound")
         if once:
