@@ -7,7 +7,13 @@
 The token comes from partners.viber.com (create/select bot → App Token).
 Everything after the paste is automated: connect → validate → webhook set.
 """
-import argparse, json, os, sys, subprocess, urllib.parse, urllib.request
+import argparse
+import json
+import os
+import sys
+import subprocess
+import urllib.parse
+import urllib.request
 
 API = os.environ.get("SOCIAL_API", "http://127.0.0.1:8083")
 TEAM = os.environ.get("SOCIAL_TEAM_ID", "10024d25-2ea4-40ea-86c6-ba89f515a2eb")

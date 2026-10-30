@@ -5,7 +5,10 @@ Opens the TikTok login in the noVNC browser, polls until a session
 cookie lands (user logs in manually in the VNC window), then confirms.
 Usage: python login-bootstrap.py [--wait-minutes 10]
 """
-import json, subprocess, sys, time
+import json
+import subprocess
+import sys
+import time
 
 S = "http://localhost:9223"
 

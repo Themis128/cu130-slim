@@ -5,7 +5,10 @@ prints the authorization URL.
 
     x_oauth_approve.py <authorization_url>
 """
-import json, sys, time, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 
 BRIDGE = "http://browser-novnc:9223"
 

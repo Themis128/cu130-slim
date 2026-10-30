@@ -9,7 +9,12 @@ Supported: instagram (INSTAGRAM_USERNAME/PASSWORD). X/FB have no stored
 passwords — they stay physical (reports that explicitly).
 """
 from __future__ import annotations
-import json, sys, time, urllib.request, urllib.error, urllib.parse
+import json
+import sys
+import time
+import urllib.request
+import urllib.error
+import urllib.parse
 
 BRIDGE = "http://localhost:9223"
 

@@ -13,7 +13,9 @@ JSON schema:
   "scores": {"voice":1,"pov":1,"specificity":1,"asking":1}
 }
 """
-import argparse, json, sys
+import argparse
+import json
+import sys
 from pathlib import Path
 
 TEMPLATE = Path(__file__).parent / "template.html"

@@ -8,7 +8,10 @@ wires `bsky <password>` automatically within its cycle.
 
 Usage: python3 bsky_apppw_gen.py
 """
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 from pathlib import Path
 
 CDP = "http://127.0.0.1:9222"

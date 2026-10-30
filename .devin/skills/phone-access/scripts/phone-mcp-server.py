@@ -4,7 +4,10 @@
 Tools: phone_tap, phone_swipe, phone_text, phone_click_text, phone_app_start,
 phone_screenshot, phone_dump, phone_state. Device: 192.168.1.77:5555.
 """
-import json, subprocess, sys, re
+import json
+import subprocess
+import sys
+import re
 
 DEVICE = "192.168.1.77:5555"
 

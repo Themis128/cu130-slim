@@ -4,7 +4,11 @@
 Run once: `python win_agent.py` (leave open). Lets WSL sidecars reach
 Windows without interop: exec, launch debug Chrome, adb, screenshot.
 """
-import http.server, json, os, subprocess, sys, threading
+import http.server
+import json
+import os
+import subprocess
+import sys
 
 PORT = int(os.environ.get("WIN_AGENT_PORT", "8765"))
 TOKEN = os.environ.get("WIN_AGENT_TOKEN", "")

@@ -8,7 +8,9 @@ scope r_dma_portability_member (or _3rd_party). Version must be 202312.
 
     li_member_snapshot.py <account_id> [--attach <CID>]
 """
-import asyncio, json, sys, urllib.parse, uuid
+import asyncio
+import sys
+import uuid
 
 import httpx
 from sqlalchemy import select

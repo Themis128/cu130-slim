@@ -5,7 +5,10 @@ Drives the user's actual logged-in session via CDP :9222 (debug profile —
 start with start-chrome-debug.bat). Finds the first button/link/input whose
 visible text or value matches the regex and clicks it.
 """
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 
 CDP = "http://localhost:9222"
 

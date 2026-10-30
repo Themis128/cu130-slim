@@ -22,7 +22,6 @@ Never commit the creds file.
 """
 
 import json
-import os
 import stat
 import subprocess
 import sys

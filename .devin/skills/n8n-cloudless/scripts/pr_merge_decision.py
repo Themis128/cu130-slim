@@ -14,7 +14,10 @@ Verdicts:
   DO-NOT-MERGE   — explicit label/blocker set by owner; leave for user
   NEEDS-OWNER    — mergeable but requires owner's call (scope, secrets, prod)
 """
-import json, os, subprocess, sys, urllib.request
+import json
+import subprocess
+import sys
+import urllib.request
 
 def token():
     out = subprocess.run(["git", "credential", "fill"], input="protocol=https\nhost=github.com\n\n",

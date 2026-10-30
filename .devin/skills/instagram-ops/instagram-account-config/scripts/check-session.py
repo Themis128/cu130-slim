@@ -3,10 +3,8 @@
 Usage: check-session.py"""
 
 import json
-import sys
 import time
 import urllib.request
-from pathlib import Path
 
 BRIDGE = "http://localhost:9223"
 

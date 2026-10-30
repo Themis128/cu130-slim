@@ -4,7 +4,10 @@ Usage: fetch-code.py [sender-substring] [subject-substring] [max-age-mins]
 Defaults target TikTok mails on tbaltzakis@cloudless.gr (dovecot on omv-ha).
 Prints the newest 4-8 digit code found, newest first.
 """
-import re, shlex, subprocess, sys
+import re
+import shlex
+import subprocess
+import sys
 
 sender = sys.argv[1] if len(sys.argv) > 1 else "tiktok"
 subject = sys.argv[2] if len(sys.argv) > 2 else "tiktok"

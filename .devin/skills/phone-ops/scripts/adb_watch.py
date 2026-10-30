@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """adb_watch.py — reconnect to the S22+ and act the moment adbd returns."""
-import argparse, subprocess, sys, time
+import argparse
+import subprocess
+import sys
+import time
 
 HOST, PORT = "100.84.31.85", 5555
 ADB = "/tmp/platform-tools/adb"

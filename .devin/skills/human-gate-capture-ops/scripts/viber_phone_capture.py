@@ -5,7 +5,6 @@ via ADB UI-automation (phone must be plugged in, USB-debugging on).
     viber_phone_capture.py run     # navigate app → dump UI → extract → provision
     viber_phone_capture.py devices # is a phone attached?
 """
-import json
 import re
 import subprocess
 import sys

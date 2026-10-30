@@ -2,7 +2,9 @@
 """Drive the TikTok Business Center verification resubmit via the
 engagement-browser sidecar (real DOM — the app WebView refuses injected taps).
 Prereq: TikTok session in the sidecar (run login-bootstrap.py first)."""
-import json, subprocess, sys, time
+import json
+import subprocess
+import time
 
 S = "http://localhost:9223"
 

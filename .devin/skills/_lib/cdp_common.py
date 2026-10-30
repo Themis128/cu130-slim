@@ -40,7 +40,7 @@ def ensure_cdp(launch=True):
     except Exception:
         pass
     if not launch:
-        sys.exit(f"CDP :9222 unreachable — launch debug Chrome")
+        sys.exit("CDP :9222 unreachable — launch debug Chrome")
     r = subprocess.run([sys.executable, "-X", "utf8",
                         os.path.normpath(ENSURE)],
                        capture_output=True, text=True, timeout=60)

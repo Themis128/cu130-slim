@@ -10,7 +10,7 @@ Usage:
 
 Env: SOCIAL_API (default http://localhost:8083), SOCIAL_TOKEN.
 """
-import os, sys
+import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
 from skill_http import env, request  # noqa

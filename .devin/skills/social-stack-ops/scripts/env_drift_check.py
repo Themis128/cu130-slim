@@ -14,7 +14,11 @@ silent-break pattern).
 
 Usage: python -X utf8 .devin/skills/social-stack-ops/scripts/env_drift_check.py
 """
-import json, os, re, subprocess, sys
+import json
+import os
+import re
+import subprocess
+import sys
 
 def _root():
     d = os.path.dirname(os.path.abspath(__file__))

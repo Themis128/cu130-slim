@@ -9,7 +9,11 @@ field_map_json maps selector->value:
 submit_selector defaults to "button[type=submit],input[type=submit]".
 Handles 409 shared-session contention with backoff; pins keepawake.
 """
-import json, sys, time, urllib.request, urllib.error
+import json
+import sys
+import time
+import urllib.request
+import urllib.error
 
 B = "http://browser-novnc:9223"
 

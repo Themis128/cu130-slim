@@ -14,7 +14,9 @@ Strategies (auto-applied):
     (base wins — regenerated artifacts belong to the newer base)
   - everything else → list conflicted files and stop for manual resolution
 """
-import subprocess, sys, os, glob, shutil
+import subprocess
+import sys
+import os
 
 def run(cmd, cwd, check=True, cap=True):
     r = subprocess.run(cmd, cwd=cwd, shell=True, capture_output=cap, text=True)

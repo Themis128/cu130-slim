@@ -21,7 +21,6 @@ Usage:
   bm_settings_drive.py upload <file>           # inject file into input[type=file]
 """
 import argparse
-import base64
 import json
 import sys
 import time

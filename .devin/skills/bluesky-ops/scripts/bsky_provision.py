@@ -22,7 +22,13 @@ Three credential paths, in order of preference:
 Run host-side; calls the social-api /api/v1/bluesky/connect endpoint via
 admin creds from repo .env (SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD).
 """
-import argparse, json, os, secrets, sys, urllib.parse, urllib.request
+import argparse
+import json
+import os
+import secrets
+import sys
+import urllib.parse
+import urllib.request
 
 PDS = "https://bsky.social"
 API = os.environ.get("SOCIAL_API", "http://127.0.0.1:8083")

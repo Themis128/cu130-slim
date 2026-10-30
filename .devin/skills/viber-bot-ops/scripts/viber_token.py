@@ -3,7 +3,6 @@
 RETIRED (dead site, in-app management only) — the token comes from the
 Viber mobile app's bot-edit panel. This tool: --check reports connection
 state, --token <t> runs viber_provision directly."""
-import os
 import subprocess
 import sys
 

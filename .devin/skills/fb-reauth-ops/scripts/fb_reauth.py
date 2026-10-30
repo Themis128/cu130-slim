@@ -3,7 +3,6 @@
 drive it on the bound debug Chrome (:9222), complete the consent → fresh
 token → the dead-token heal flag clears."""
 import json
-import os
 import time
 import urllib.parse
 import urllib.request

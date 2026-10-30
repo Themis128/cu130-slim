@@ -5,7 +5,13 @@
   python3 gmail.py search "<gmail query>"         # e.g. 'newer_than:2d synigoros OR ombudsman'
 Saves refresh token to GMAIL_REFRESH_TOKEN in .env; uses Gmail REST list/get.
 """
-import json, os, re, sys, urllib.parse, urllib.request, threading, webbrowser
+import json
+import re
+import sys
+import urllib.parse
+import urllib.request
+import threading
+import webbrowser
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 

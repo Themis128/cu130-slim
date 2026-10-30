@@ -10,7 +10,6 @@ clicks Authorize — no manual step, no cookie-seeding needed.
     root_approve.py <oauth_url>     # navigate + approve in the user's Chrome
 """
 import json
-import subprocess
 import sys
 import urllib.request
 

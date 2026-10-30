@@ -13,7 +13,6 @@ Usage: adb_rearm.py [--ip 192.168.1.77] [--wait 180]
 """
 import argparse
 import subprocess
-import sys
 import time
 
 SSH = "ssh -p 8022 -o ConnectTimeout=8 -o StrictHostKeyChecking=no u0_a357@{ip}"

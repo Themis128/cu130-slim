@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """gate_check.py — open issues → one-line unblock each."""
-import json, subprocess, sys
+import json
+import subprocess
+import sys
 
 UNBLOCK = {
     786: "accept Cloud API terms on business.facebook.com/wa/manage/home/ (or debug-Chrome cdp_click)",

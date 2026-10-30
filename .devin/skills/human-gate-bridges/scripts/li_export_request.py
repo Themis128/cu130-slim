@@ -2,7 +2,9 @@
 """li_export_request.py — click LinkedIn's 'Request data export' via the
 shared browser bridge (same /session/evaluate pattern as skool-ops).
 Requires an active LinkedIn session on the bridge."""
-import json, sys, urllib.request
+import json
+import sys
+import urllib.request
 
 BRIDGE = "http://browser-novnc:9223"
 

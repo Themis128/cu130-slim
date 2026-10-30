@@ -9,7 +9,6 @@
 import argparse
 import json
 import os
-import re
 import sys
 import urllib.request
 
@@ -65,7 +64,6 @@ def api_token() -> str:
 
 
 def orgs() -> int:
-    import subprocess  # noqa: PLC0415
     tok = api_token()
     if not tok:
         print("no CLOUDFLARE_API_TOKEN found (.env or social-api env)")

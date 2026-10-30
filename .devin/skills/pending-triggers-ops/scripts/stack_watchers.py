@@ -3,7 +3,10 @@
 cdp_watch (:9222 bind → LinkedIn/WhatsApp consents), li-vetting-watch
 (mailbox → Telegram), wa_code_watch (Meta SMS cooldown → verify).
 Runs as the stack-watchers compose service."""
-import subprocess, sys, threading, time
+import subprocess
+import sys
+import threading
+import time
 
 WATCHES = {
     "cdp": ".devin/skills/cdp-watch-ops/scripts/cdp_watch.py",

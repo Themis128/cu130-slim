@@ -5,7 +5,6 @@ adhoc browser (:9232) and capture the otpauth secret into .env.
 Nav -> Authentication app -> password confirm -> read the secret shown.
 """
 import json
-import os
 import re
 import sys
 import time

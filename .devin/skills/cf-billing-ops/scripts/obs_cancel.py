@@ -9,7 +9,6 @@ browser logged into dash.cloudflare.com.
     obs_cancel.py run       # navigate → cancel → verify
     obs_cancel.py check     # just report the subscription row state
 """
-import base64
 import json
 import sys
 import time

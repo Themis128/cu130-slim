@@ -5,7 +5,10 @@ The Personal card on Account-type screen is display-only on some builds —
 the real switch is the "Switch to personal account" link at the bottom of
 Account type and tools. Falls back to reporting if the link isn't found.
 """
-import subprocess, re, sys, time
+import subprocess
+import re
+import sys
+import time
 
 DEVICE = "192.168.1.77:5555"
 

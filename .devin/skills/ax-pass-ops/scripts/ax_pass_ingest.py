@@ -12,7 +12,6 @@ import json
 import re
 import sys
 import time
-import urllib.parse
 from pathlib import Path
 
 DIRS = [Path("/mnt/c/Users/tbaltzakis/Downloads"), Path.home() / "Downloads"]

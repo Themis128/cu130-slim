@@ -8,7 +8,12 @@ extract Κατάσταση + Αριθμός Πρωτοκόλλου. Exit 0 with 
 identification failure / bridge error. Designed to run inside social-api
 (BRIDGE=http://browser-novnc-adhoc:9224) or anywhere the bridge is reachable.
 """
-import json, os, sys, time, urllib.request, urllib.error
+import json
+import os
+import sys
+import time
+import urllib.request
+import urllib.error
 
 BRIDGE = "http://browser-novnc-adhoc:9224"
 TRACK = "https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas"

@@ -10,7 +10,11 @@ Qualtrics fields are anonymous (no ids) — matching is by label text, the
 only stable anchor. Radios use mc-choice-input-QIDx-y (click yth choice).
 Navigates pages via the Next button until Submit (or stops with --dry).
 """
-import json, sys, time, urllib.request, urllib.error
+import json
+import sys
+import time
+import urllib.request
+import urllib.error
 
 BRIDGE = "http://browser-novnc-adhoc:9224"
 

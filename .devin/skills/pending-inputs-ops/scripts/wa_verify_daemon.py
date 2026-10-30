@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """wa_verify_daemon.py — retry WhatsApp request_code hourly until Meta's
 rate-limit clears, then dual-poll (ADB+mail) and verify_code."""
-import os, subprocess, sys, time
+import os
+import subprocess
+import sys
+import time
 
 CID = os.environ["WHATSAPP_PHONE_NUMBER_ID"]
 TOK = os.environ["WHATSAPP_ACCESS_TOKEN"]

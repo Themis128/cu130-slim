@@ -2,7 +2,10 @@
 """viber_app_token.py — drive the Viber app's bot Edit Info via ADB
 uiautomator and read the App Token off the screen. The token's app-local
 (release app, no run-as) — the UI dump is the automated surface."""
-import re, subprocess, sys, time
+import re
+import subprocess
+import sys
+import time
 ADB = "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 DEV = "RFCTA0AEKZP"
 

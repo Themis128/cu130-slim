@@ -11,5 +11,5 @@ from skill_http import usage  # noqa: E402
 
 val = sys.argv[1] if len(sys.argv) > 1 else usage('Usage: li-personal-update-headline.py "Headline text"')
 print(f"→ Updating ({len(val)} chars)...")
-print_result(http("POST", f"http://localhost:9225/profile/headline",
+print_result(http("POST", "http://localhost:9225/profile/headline",
                   json_body={"headline": val}))

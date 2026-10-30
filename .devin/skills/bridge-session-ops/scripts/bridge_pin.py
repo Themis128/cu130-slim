@@ -5,7 +5,9 @@ so seed+click runs survive session rotation.
     bridge_pin.py pin [ttl]   # keepawake browser-novnc (default 600s)
     bridge_pin.py unpin       # release (keepawake ttl=0)
 """
-import json, sys, urllib.request
+import json
+import sys
+import urllib.request
 
 OPS = "http://stack-ops:8787"   # stack-ops control API
 

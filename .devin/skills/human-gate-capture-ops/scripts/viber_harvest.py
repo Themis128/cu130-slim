@@ -8,7 +8,6 @@ operator's logged-in browser session (CDP), then wire the account.
 import json
 import sys
 import urllib.request
-from urllib.error import URLError
 
 CDP = "http://localhost:9222"
 SKILLS = "/home/tbaltzakis/cu130-slim/.devin/skills"

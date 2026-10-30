@@ -24,7 +24,11 @@ Commands:
 Env: runs against the compose stack (containers `n8n`, `social-postgres`,
 db `n8n`, user `social_user`). Requires N8N_ENCRYPTION_KEY from .env.
 """
-import json, os, re, subprocess, sys, uuid
+import json
+import os
+import subprocess
+import sys
+import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 N8N_DB = ["docker", "exec", "social-postgres", "psql", "-U", "social_user", "-d", "n8n", "-t", "-A", "-c"]

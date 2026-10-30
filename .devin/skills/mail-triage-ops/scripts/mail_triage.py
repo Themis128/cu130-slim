@@ -11,8 +11,11 @@ Findings map:
   - publish/report/connected mails → "signal"
   - everything else                → "review"
 """
-import imaplib, re, os, sys, email
-from email.header import decode_header
+import imaplib
+import re
+import os
+import sys
+import email
 
 IMAP_HOST = os.getenv("IMAP_HOST", "192.168.1.130")
 USER = "tbaltzakis@cloudless.gr"

@@ -12,7 +12,6 @@ Flow (fully automated — we control the DNS):
 """
 import json
 import os
-import subprocess
 import sys
 import time
 import urllib.request
@@ -43,7 +42,7 @@ def _cf(method, path, body=None):
 
 
 def _zone_id() -> str:
-    return _cf("GET", f"?name=cloudless.gr")["result"][0]["id"]
+    return _cf("GET", "?name=cloudless.gr")["result"][0]["id"]
 
 
 def _xrpc(method, payload, tok):

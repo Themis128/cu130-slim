@@ -4,7 +4,6 @@ Usage: fix-docker-compose.py"""
 
 import re
 import shutil
-import sys
 import time
 from pathlib import Path
 

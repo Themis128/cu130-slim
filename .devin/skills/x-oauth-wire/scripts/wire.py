@@ -3,7 +3,11 @@
 
 Usage: python wire.py <client_id> <client_secret>
 """
-import sys, subprocess, re, time, urllib.request
+import sys
+import subprocess
+import re
+import time
+import urllib.request
 
 REPO = r"C:\Users\tbaltzakis\cu130-slim"
 ENV = REPO + r"\.env"

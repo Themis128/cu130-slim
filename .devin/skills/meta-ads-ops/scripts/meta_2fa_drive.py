@@ -16,7 +16,6 @@ Requires: adb device + gmail-token.json (mail-code-fetch).
 """
 import argparse
 import getpass
-import json
 import os
 import re
 import subprocess

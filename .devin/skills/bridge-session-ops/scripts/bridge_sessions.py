@@ -6,7 +6,12 @@ browser bridge (browser-novnc:9223). Run inside social-api.
     bridge_sessions.py seed-x            # inject X auth_token/ct0 cookies
     bridge_sessions.py eval <js>         # raw /session/evaluate passthrough
 """
-import json, os, sys, time, urllib.request, urllib.error
+import json
+import os
+import sys
+import time
+import urllib.request
+import urllib.error
 
 BRIDGE = os.environ.get("BROWSER_BRIDGE_URL", "http://browser-novnc:9223")
 PLATFORMS = {

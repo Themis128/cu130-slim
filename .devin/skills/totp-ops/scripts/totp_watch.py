@@ -2,12 +2,7 @@
 """totp_watch.py — poll Telegram for the TOTP secret reply and auto-wire it
 into .env TWITTER_TOTP_SECRET. Run as a background watch until it lands.
 """
-import json
-import os
-import re
 import sys
-import time
-import urllib.request
 
 
 def _latest_from_self() -> str:

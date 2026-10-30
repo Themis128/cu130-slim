@@ -38,7 +38,7 @@ def post(payload):
 
 
 def test_message(text="Hello from test"):
-    print(f"=== Webhook POST (text message) ===")
+    print("=== Webhook POST (text message) ===")
     code, body = post({"object": "page", "entry": [{"id": PAGE_ID, "messaging": [{
         "sender": {"id": "test_psid_123"}, "recipient": {"id": PAGE_ID},
         "message": {"mid": "m_test", "text": text}}], "time": 1700000000000}]})

@@ -6,7 +6,8 @@ sends via the campaign/email service. Run inside social-api or via cron.
     pending_digest.py               # send now
     pending_digest.py --dry         # print, don't send
 """
-import os, sys, subprocess
+import sys
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]

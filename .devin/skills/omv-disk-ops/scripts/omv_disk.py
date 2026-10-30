@@ -5,7 +5,12 @@
     omv_disk.py run       # gh workflow run omv-disk-prune.yml
     omv_disk.py watch     # poll the latest run until done, print df delta
 """
-import json, os, subprocess, sys, time, imaplib, re
+import json
+import os
+import subprocess
+import sys
+import time
+import imaplib
 
 REPO = "Themis128/cloudless.gr"
 

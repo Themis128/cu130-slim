@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """approval_status — list pending approval cards in Nextcloud Approvals/."""
 import base64
-import json
 import os
-import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET

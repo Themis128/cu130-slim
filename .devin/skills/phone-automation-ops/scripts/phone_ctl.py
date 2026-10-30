@@ -7,7 +7,10 @@ Play Store install + uiautomator bounds-tap. See SKILL.md for the design.
 Usage:
   phone_ctl.py devices|unlock|cover-off|focus|install <pkg>|ui-tap <text>|ui-dump
 """
-import re, subprocess, sys, time
+import re
+import subprocess
+import sys
+import time
 
 ADB = "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe"
 DEV = "RFCTA0AEKZP"
@@ -59,7 +62,6 @@ def main():
         # retry daemon: attempts the WA Business greeting toggle every 5min;
         # exits once the switch reports checked. Run detached:
         #   nohup phone_ctl.py wa-greeting &
-        import os, subprocess as sp
         for attempt in range(48):  # ~4h
             f = focus()
             if "whatsapp" not in f:

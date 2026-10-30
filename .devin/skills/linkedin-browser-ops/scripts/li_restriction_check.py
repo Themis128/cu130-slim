@@ -8,7 +8,9 @@ restriction needs (wait-it-out vs identity-verify vs appeal).
 
 Usage: python3 li_restriction_check.py
 """
-import json, sys, urllib.request
+import json
+import sys
+import urllib.request
 
 CDP = "http://127.0.0.1:9222"
 
