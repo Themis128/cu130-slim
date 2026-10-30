@@ -76,6 +76,16 @@ async def _exec_content_topic(db, team_id, action) -> dict:
     return {"post_id": str(post.id), "platform": platform}
 
 
+def _factory(custom=None):
+    """Email-sender factory — returns the injected sender or the shared
+    dispatcher (provider-aware, suppress-filtered) as default."""
+    if custom is not None:
+        return custom
+    from app.services.email_digest import send_email
+
+    return send_email
+
+
 async def _exec_audit_escalation(db, team_id, action) -> dict:
     """audit_escalation → Telegram booking ping with the emails."""
     emails = action.get("emails") or []
