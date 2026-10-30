@@ -144,19 +144,26 @@ def test_task_wrappers_submit_coroutine(monkeypatch, task, args):
 def _row_cand(**kw):
     now = dt.datetime(2026, 10, 1, 12, tzinfo=dt.UTC)
     base = dict(
-        platform="twitter", author_handle="h", author_name="N", post_id="p1",
-        post_text="serverless edge", posted_at=now - dt.timedelta(minutes=5),
-        ingested_at=now, connection_tier="medium", is_followed=True,
-        is_connection=False, in_crm=False, scored=False, meta_data={"viral": False},
+        platform="twitter",
+        author_handle="h",
+        author_name="N",
+        post_id="p1",
+        post_text="serverless edge",
+        posted_at=now - dt.timedelta(minutes=5),
+        ingested_at=now,
+        connection_tier="medium",
+        is_followed=True,
+        is_connection=False,
+        in_crm=False,
+        scored=False,
+        meta_data={"viral": False},
     )
     base.update(kw)
     return SimpleNamespace(**base)
 
 
 def _row_action(**kw):
-    base = dict(platform="twitter", action="like", target_post_id="p1",
-                target_author="h", score=9.0, comment_draft=None,
-                status="pending", acted_at=None)
+    base = dict(platform="twitter", action="like", target_post_id="p1", target_author="h", score=9.0, comment_draft=None, status="pending", acted_at=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -171,8 +178,7 @@ def _patch_actors(monkeypatch, result_by_platform):
         x_actor,
     )
 
-    mods = {"twitter": x_actor, "threads": threads_actor, "linkedin": linkedin_actor,
-            "instagram": ig_actor, "facebook": fb_actor, "tiktok": tiktok_actor}
+    mods = {"twitter": x_actor, "threads": threads_actor, "linkedin": linkedin_actor, "instagram": ig_actor, "facebook": fb_actor, "tiktok": tiktok_actor}
     for plat, mod in mods.items():
         monkeypatch.setattr(mod, "act", AsyncMock(return_value=result_by_platform.get(plat, {"ok": True})))
 
@@ -198,13 +204,21 @@ async def test_dispatch_full_sweep(monkeypatch):
     fail_like = _row_action(platform="facebook", target_author="fb")
     no_actor = _row_action(platform="mastodon")
 
-    db = _use_db(monkeypatch, _DB([
-        [fresh],
-        [drafted, long_draft, no_cand, empty],
-        [cand_li], [cand_m], [], [cand_t],
-        [drafted, long_draft],
-        [ok_like, skip_like, fail_like, no_actor],
-    ]))
+    db = _use_db(
+        monkeypatch,
+        _DB(
+            [
+                [fresh],
+                [drafted, long_draft, no_cand, empty],
+                [cand_li],
+                [cand_m],
+                [],
+                [cand_t],
+                [drafted, long_draft],
+                [ok_like, skip_like, fail_like, no_actor],
+            ]
+        ),
+    )
     queued = []
     monkeypatch.setattr(SVC, "queue_engagement", AsyncMock(side_effect=lambda c, d: queued.append(c) or {}))
     replies = iter([{"text": '"Sharp take — what about D1?"'}, {"text": "y" * 200}, {"text": "  "}])
@@ -216,10 +230,13 @@ async def test_dispatch_full_sweep(monkeypatch):
     monkeypatch.setattr(TN, "send_telegram", tg)
     monkeypatch.setenv("SLACK_ENGAGEMENT_WEBHOOK_URL", "https://hooks.example/x")
     monkeypatch.setenv("SLACK_ENGAGEMENT_CHANNEL_ID", "C1")
-    _patch_actors(monkeypatch, {
-        "instagram": {"error": "busy", "skip": True},
-        "facebook": {"error": "x" * 100},
-    })
+    _patch_actors(
+        monkeypatch,
+        {
+            "instagram": {"error": "busy", "skip": True},
+            "facebook": {"error": "x" * 100},
+        },
+    )
 
     out = await ENG._run(5)
 
@@ -262,9 +279,7 @@ async def test_dispatch_viral_tiktok_becomes_gated_duet_flag(monkeypatch):
     """Ingest → dispatch path: stored viral meta_data reaches queue_engagement
     and produces a gated duet_flag instead of an auto-like."""
     now = dt.datetime(2026, 10, 1, 12, tzinfo=dt.UTC)
-    fresh = _row_cand(platform="tiktok", post_id="tt-viral-1",
-                      posted_at=now - dt.timedelta(seconds=7200),
-                      meta_data={"views": 12000, "viral": True})
+    fresh = _row_cand(platform="tiktok", post_id="tt-viral-1", posted_at=now - dt.timedelta(seconds=7200), meta_data={"views": 12000, "viral": True})
     db = _use_db(monkeypatch, _DB([[fresh], [], [], []]))
 
     out = await ENG._run(5)
