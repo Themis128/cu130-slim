@@ -20,11 +20,15 @@ BASE = "http://localhost:5678"
 
 
 def api_key():
-    k = subprocess.run(["docker", "exec", "n8n", "printenv", "N8N_API_KEY"],
-                       capture_output=True, text=True).stdout.strip()
+    # .env's N8N_API_KEY is stale — the live JWT lives in the n8n DB
+    k = subprocess.run(
+        ["docker", "exec", "social-postgres", "psql", "-U", "social_user",
+         "-d", "n8n", "-t", "-A", "-c",
+         "SELECT \"apiKey\" FROM user_api_keys ORDER BY id LIMIT 1;"],
+        capture_output=True, text=True).stdout.strip()
     if k:
         return k
-    raise SystemExit("couldn't read N8N_API_KEY from the n8n container")
+    raise SystemExit("couldn't read an apiKey from social-postgres n8n DB")
 
 
 def req(path, method="GET"):
