@@ -579,6 +579,7 @@ async def sweep_orphans(team_id: TeamId, current_user: User = Depends(get_curren
         exists = False
         try:
             import asyncio as _aio
+
             if asset.storage_backend == "r2":
                 exists = await _aio.wait_for(r2_storage.object_exists(asset.storage_path), 15)
             elif asset.storage_backend == "minio":

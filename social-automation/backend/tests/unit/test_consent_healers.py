@@ -91,9 +91,7 @@ async def test_bridge_health_onboarding_url_is_stale(monkeypatch):
         class R(_Resp):
             def read(self):
                 if "/session/evaluate" in url and body.get("expression") == "location.href":
-                    return json.dumps(
-                        {"result": "https://x.com/i/jf/onboarding/web?mode=login"}
-                    ).encode()
+                    return json.dumps({"result": "https://x.com/i/jf/onboarding/web?mode=login"}).encode()
                 return b"{}"
 
         return R()
