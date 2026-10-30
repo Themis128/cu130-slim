@@ -1,4 +1,5 @@
 """Research workspace — visual docs + sources + data + AI assist."""
+
 import uuid
 from datetime import UTC, datetime
 
@@ -20,6 +21,4 @@ class ResearchDoc(Base):
     sources: Mapped[list] = mapped_column(JSONB, default=list, nullable=False)
     meta_data: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC))
-    updated_at: Mapped[datetime] = mapped_column(
-        default=lambda: datetime.now(UTC),
-        onupdate=lambda: datetime.now(UTC))
+    updated_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC))

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +59,7 @@ class EngagementCandidate:
     is_followed: bool
     is_connection: bool
     in_crm: bool  # lead/contact in espocrm
-    meta_data: dict | None = None  # ingest extras (tiktok views/viral)
+    meta_data: dict = field(default_factory=dict)  # e.g. {"viral": True}
 
 
 @dataclass
@@ -166,7 +166,7 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
     """Score + queue an engagement action (respecting daily caps)."""
     from sqlalchemy import select
 
-    plan = score_candidate(candidate, ryr_tier=candidate.connection_tier or "medium")
+    plan = score_candidate(candidate)
     if plan.action is None:
         return {"skipped": plan.reason, "kill_switched": plan.kill_switched}
 
@@ -223,4 +223,4 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
     )
     db.add(row)
     await db.commit()
-    return {"queued": action_name, "score": plan.score, "needs_approval": gated}
+    return {"queued": plan.action, "score": plan.score, "needs_approval": plan.action in ("comment", "repost")}

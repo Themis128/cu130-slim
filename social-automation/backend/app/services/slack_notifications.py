@@ -434,11 +434,11 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     from app.models.social_account import SocialAccount
     from app.services.telegram_agent import TelegramAPIClient, _bot_token
     from app.worker._async import task_session
+
     chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
     try:
         async with task_session() as db:
-            acc = (await db.execute(select(SocialAccount).where(
-                SocialAccount.platform == "telegram"))).scalars().first()
+            acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram"))).scalars().first()
         token = _bot_token(acc) if acc else None
         if not token:
             return False

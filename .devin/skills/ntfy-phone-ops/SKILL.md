@@ -59,6 +59,25 @@ ssh github-omv "sudo k3s kubectl -n ntfy exec deploy/ntfy -- \
     ntfy access phone '<topic>' ro"
 ```
 
+## Also verified working (2026-10-29)
+
+- **LAN endpoint:** `http://192.168.1.200:30080` works too — same NodePort,
+  no Tailscale dependency on the phone. Preferred when the phone is on home
+  Wi-Fi.
+- **Fast path — `ntfy://` deep links:** `am start -a VIEW -d
+  'ntfy://<host>/<topic>' io.heckel.ntfy` opens a subscribed topic screen
+  directly, skipping the dialog. CAUTION: this build maps `ntfy://` to
+  **https** (`ntfys://` is not registered) — only use for TLS endpoints;
+  for plain-http servers it produces "Unable to parse TLS packet header".
+- **Subscribe dialog validation:** the AutoCompleteTextView server field
+  must be *re-typed after checking "Use another server"* for SUBSCRIBE to
+  enable (`enabled:false` otherwise — typed-before values don't count).
+  Clear with `input keycombination 113 29` (CTRL+A) + `input keyevent 67`.
+- **Per-server auth is cached:** once `phone` logs in for a server, later
+  subscriptions on the same server skip the Login dialog entirely.
+- **Stale-sub delete:** row tap opens topic screen -> 3-dot menu ->
+  "Unsubscribe" -> "Delete permanently" (long-press does NOT work).
+
 ## Traps learned (do not rediscover)
 
 - Launcher activity is `io.heckel.ntfy/.ui.MainActivity` (not `.MainActivity`)

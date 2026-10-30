@@ -826,9 +826,9 @@ async def _cf_generate_background(
 ) -> Image.Image | None:
     """Generate a unique realistic background.
 
-    DMR-first architecture:
-    1. ComfyUI FLUX.1-schnell GGUF — primary local (SD 1.5 retired 2026-10-05)
-    2. Cloudflare Workers AI (FLUX schnell) — fallback, free, 4 steps
+    CF-first architecture (paid Workers plan — flip back if it lapses):
+    1. Cloudflare Workers AI (FLUX schnell) — primary, 4 steps
+    2. ComfyUI FLUX.1-schnell GGUF — fallback, local GPU
     3. None — brand canvas only (no photo background)
 
     Adds random photographic style and mood modifiers to ensure every generation
@@ -838,7 +838,20 @@ async def _cf_generate_background(
     mood = random.choice(_MOODS)
     prompt_t2i = f"{image_prompt}, {style}, {mood}, professional photography, high quality, sharp focus, no text, no letters, no words, no watermark"
 
-    # 1) Try ComfyUI FLUX.1-schnell (GPU) under the media lock
+    # 1) Cloudflare Workers AI first — paid plan carries the quota
+    try:
+        t2i_result = await _call_workers_ai_image(
+            prompt_t2i,
+            model=txt2img_model,
+            steps=4,
+        )
+        raw_bytes = base64.b64decode(t2i_result["image_base64"])
+        logger.info("[carousel] background via Cloudflare Workers AI (primary)")
+        return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+    except Exception as e:
+        logger.warning(f"[carousel] CF txt2img failed: {e}")
+
+    # 2) Fallback to ComfyUI FLUX (GPU)
     try:
         from app.services.comfyui_image import generate_image as comfyui_generate_image
         from app.services.gpu_arbiter import media_gpu_lock
@@ -850,23 +863,10 @@ async def _cf_generate_background(
                 height=512,
                 steps=4,
             )
-        logger.info("[carousel] background via ComfyUI FLUX (GPU)")
+        logger.info("[carousel] background via ComfyUI FLUX (GPU fallback)")
         return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
     except Exception as e:
-        logger.warning(f"[carousel] ComfyUI FLUX txt2img failed: {e}")
-
-    # 2) Fallback to Cloudflare Workers AI
-    try:
-        t2i_result = await _call_workers_ai_image(
-            prompt_t2i,
-            model=txt2img_model,
-            steps=4,
-        )
-        raw_bytes = base64.b64decode(t2i_result["image_base64"])
-        logger.info("[carousel] background via Cloudflare Workers AI (fallback)")
-        return Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-    except Exception as e:
-        logger.warning(f"[carousel] CF txt2img failed (non-fatal): {e}")
+        logger.warning(f"[carousel] ComfyUI FLUX txt2img failed (non-fatal): {e}")
 
     # 3) No background — brand canvas only
     return None
@@ -1015,7 +1015,7 @@ async def run_cloudless_carousel_pipeline(
     tone: str = "clear and friendly",
     include_cta: bool = True,
     text_model: str = CF_TEXT_FREE,
-    text_provider: str = "dmr",  # DMR primary for copy; CF Workers AI fallback
+    text_provider: str = "cf",  # CF Workers AI primary (paid plan); DMR fallback
     txt2img_model: str = CF_TXT2IMG_FREE,
     target_account_id: str | None = None,
     publish: bool = True,
@@ -1077,7 +1077,7 @@ async def run_cloudless_carousel_pipeline(
         slides, caption, nlp_report = await run_nlp_check_and_fix(
             slides=slides,
             caption=caption,
-            provider_name="dmr",  # DMR primary for short NLP tasks
+            provider_name="cf",  # CF primary for short NLP tasks (paid plan)
             model="ai/llama3.2",  # fast 3B model on CPU
             db=db,
             team_id=team.id,
@@ -1139,7 +1139,7 @@ async def run_cloudless_carousel_pipeline(
     try:
         title_result = await call_inference(
             title_prompt,
-            provider_name="dmr",  # DMR primary for short title gen
+            provider_name="cf",  # CF primary for short title gen (paid plan)
             db=db,
             team_id=team.id,
             schema=title_schema,

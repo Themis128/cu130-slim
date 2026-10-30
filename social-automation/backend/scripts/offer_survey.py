@@ -23,6 +23,7 @@ Safety:
 Reads SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD from repo .env.
 API base: SOCIAL_API_URL or http://127.0.0.1:8083
 """
+
 from __future__ import annotations
 
 import json
@@ -117,9 +118,7 @@ def _origin(url: str) -> tuple:
 class SafeRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if _origin(newurl) != _origin(req.full_url):
-            raise urllib.error.HTTPError(
-                newurl, code, f"Refused cross-origin redirect to {newurl}",
-                headers, fp)
+            raise urllib.error.HTTPError(newurl, code, f"Refused cross-origin redirect to {newurl}", headers, fp)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -131,10 +130,7 @@ def check_api_url() -> None:
     if p.scheme not in {"http", "https"}:
         raise SystemExit(f"SOCIAL_API_URL must be http(s): {API}")
     if p.scheme == "http" and p.hostname not in LOCAL_HOSTS:
-        raise SystemExit(
-            f"Refusing cleartext http:// for non-localhost API: {API}. "
-            "Use https:// or run against the local stack."
-        )
+        raise SystemExit(f"Refusing cleartext http:// for non-localhost API: {API}. Use https:// or run against the local stack.")
 
 
 def load_env() -> tuple[str, str]:
@@ -172,13 +168,17 @@ def cmd_draft(token: str) -> None:
         if c.get("name") == CAMPAIGN_NAME and c.get("status") == "draft":
             print(json.dumps({"reused": True, "id": c["id"], "name": CAMPAIGN_NAME}))
             return
-    c = req("/api/v1/email-campaigns", token, body={
-        "name": CAMPAIGN_NAME,
-        "kind": "survey",
-        "subject": SUBJECT,
-        "text_body": TEXT_BODY,
-        "questions": QUESTIONS,
-    })
+    c = req(
+        "/api/v1/email-campaigns",
+        token,
+        body={
+            "name": CAMPAIGN_NAME,
+            "kind": "survey",
+            "subject": SUBJECT,
+            "text_body": TEXT_BODY,
+            "questions": QUESTIONS,
+        },
+    )
     print(json.dumps({"reused": False, "id": c.get("id"), "name": CAMPAIGN_NAME}))
 
 
@@ -224,8 +224,7 @@ def cmd_responses(token: str, cid: str) -> None:
 
 
 _JUNK_DOMAINS = {"messenger.local", "test.dev", "example.com", "localhost"}
-_OWNER_ADDRS = {"tbaltzakis@cloudless.gr", "themis.baltzakis@gmail.com",
-                "baltzakis.themis@gmail.com", "admin@example.com"}
+_OWNER_ADDRS = {"tbaltzakis@cloudless.gr", "themis.baltzakis@gmail.com", "baltzakis.themis@gmail.com", "admin@example.com"}
 
 
 def _classify(lead: dict, seen: set[str]) -> tuple[str | None, str | None]:
@@ -250,8 +249,7 @@ def cmd_suggest(token: str) -> None:
     leads: list[dict] = []
     off = 0
     while True:
-        r = req(f"/api/v1/email-campaigns/crm/clients?limit=100&offset={off}",
-                token, method="GET")
+        r = req(f"/api/v1/email-campaigns/crm/clients?limit=100&offset={off}", token, method="GET")
         batch = (r.get("leads") or []) + (r.get("contacts") or [])
         leads += batch
         if len(batch) < 100:
@@ -259,9 +257,9 @@ def cmd_suggest(token: str) -> None:
         off += 100
     good, junk = [], []
     seen: set[str] = set()
-    for l in leads:
-        e, why = _classify(l, seen)
-        (good if e else junk).append((e or l.get("email") or "-", why or l.get("name", "")))
+    for lead in leads:
+        e, why = _classify(lead, seen)
+        (good if e else junk).append((e or lead.get("email") or "-", why or lead.get("name", "")))
     print(f"leads: {len(leads)}  mailable: {len(good)}  filtered: {len(junk)}")
     print("\nMAILABLE:")
     for e, name in good:

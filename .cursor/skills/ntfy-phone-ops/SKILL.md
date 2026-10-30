@@ -59,6 +59,16 @@ ssh github-omv "sudo k3s kubectl -n ntfy exec deploy/ntfy -- \
     ntfy access phone '<topic>' ro"
 ```
 
+## Also verified working (2026-10-29)
+
+- **LAN endpoint:** `http://192.168.1.200:30080` works too — same NodePort,
+  no Tailscale dependency on the phone.
+- **`ntfy://` deep links** map to https on this build; `ntfys://` is not
+  registered. Plain-http servers need the dialog path.
+- Subscribe dialog SUBSCRIBE stays `enabled:false` until the server field
+  is re-typed after "Use another server" is checked.
+- Per-server auth is cached — later subscriptions skip the Login dialog.
+
 ## Traps learned (do not rediscover)
 
 - Launcher activity is `io.heckel.ntfy/.ui.MainActivity` (not `.MainActivity`)

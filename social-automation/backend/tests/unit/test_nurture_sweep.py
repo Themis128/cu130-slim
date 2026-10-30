@@ -1,4 +1,5 @@
 """Coverage: nurture_sequence.nurture_sweep — scan/skip/send paths."""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -24,9 +25,11 @@ def _db(leads):
 @pytest.mark.asyncio
 async def test_sweep_sends(monkeypatch):
     from app.services import nurture_sequence as M
+
     lead = _lead({"form": "newsletter"})
     send = AsyncMock()
     import app.services.email_digest as ed
+
     monkeypatch.setattr(ed, "send_email", send)
     monkeypatch.setattr(M, "_due_step", lambda lead: {"step": 2, "subject": "s", "body": "hi {name}"})
     out = await M.nurture_sweep(_db([lead]), MagicMock())
@@ -39,6 +42,7 @@ async def test_sweep_sends(monkeypatch):
 @pytest.mark.asyncio
 async def test_sweep_skips_wrong_form_and_no_step(monkeypatch):
     from app.services import nurture_sequence as M
+
     wrong = _lead({"form": "contact"})
     nostep = _lead({"form": "free-audit"})
     monkeypatch.setattr(M, "_due_step", lambda lead: None)
@@ -49,8 +53,10 @@ async def test_sweep_skips_wrong_form_and_no_step(monkeypatch):
 @pytest.mark.asyncio
 async def test_sweep_send_failure_skips(monkeypatch):
     from app.services import nurture_sequence as M
+
     lead = _lead({"form": "newsletter"}, name=None)
     import app.services.email_digest as ed
+
     monkeypatch.setattr(ed, "send_email", AsyncMock(side_effect=RuntimeError("smtp")))
     monkeypatch.setattr(M, "_due_step", lambda lead: {"step": 1, "subject": "s", "body": "hi {name}"})
     out = await M.nurture_sweep(_db([lead]), MagicMock())
@@ -60,5 +66,6 @@ async def test_sweep_send_failure_skips(monkeypatch):
 @pytest.mark.asyncio
 async def test_sweep_no_email_leads(monkeypatch):
     from app.services import nurture_sequence as M
+
     out = await M.nurture_sweep(_db([]), MagicMock())
     assert out == {"scanned": 0, "sent": 0, "skipped": 0}

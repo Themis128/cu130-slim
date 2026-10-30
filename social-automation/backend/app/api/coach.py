@@ -1,4 +1,5 @@
 """Coach endpoint — Sofia-voice coaching persona on the doctrine corpus."""
+
 import logging
 
 from fastapi import APIRouter, Depends
@@ -32,10 +33,7 @@ class CoachOut(BaseModel):
 
 @router.post("/chat", response_model=CoachOut)
 async def coach_chat(body: CoachIn, team_id: TeamId, current_user: User = Depends(get_current_user)):
-    ctx = await doctrine_context(
-        team_id, body.message, n_results=4)
-    prompt = (f"{ctx}\n\nMember asks: {body.message}" if ctx else body.message)
-    reply = await llm_call(prompt, system=SYSTEM,
-                           expect=lambda t: len(t) > 20, tag="coach")
-    return CoachOut(reply=reply or "No answer — coach offline",
-                    doctrine_used=ctx.count("\n\n") if ctx else 0)
+    ctx = await doctrine_context(team_id, body.message, n_results=4)
+    prompt = f"{ctx}\n\nMember asks: {body.message}" if ctx else body.message
+    reply = await llm_call(prompt, system=SYSTEM, expect=lambda t: len(t) > 20, tag="coach")
+    return CoachOut(reply=reply or "No answer — coach offline", doctrine_used=ctx.count("\n\n") if ctx else 0)

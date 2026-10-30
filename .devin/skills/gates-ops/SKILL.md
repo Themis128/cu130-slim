@@ -30,3 +30,15 @@ Needs `websocket-client` on Windows python and the debug Chrome running.
 ADB (S22+): opens TikTok → profile → Edit profile → website field → Save.
 Runs `adb shell` taps/text-input at known-good coordinates; screenshots
 before/after into /tmp for verification. App-side only surface.
+
+## Consolidated remaining-input map (2026-10-29)
+
+| Gate | State | The one act | Auto-finisher |
+|---|---|---|---|
+| X OAuth/2FA | armed | Google sign-in in debug window | `gate_runner2.py` x-watch + `totp-ops` |
+| #786/#785 Meta | **blocked** | co-admin or new portfolio — Meta's own answer | none — account-level restriction |
+| #788 Instagram | needs secret | `INSTAGRAM_PASSWORD` in `.env` | `session_bootstrap.py` |
+| #793–795 | needs word | `approve`/`done` replies | owner-gate 6h pipeline |
+| TikTok #789 | rejected ×2 | doc-type fix — see `tiktok-verification` | rerun flow after type fix |
+
+Runner: `gate_runner2.py` = clone→debug→forwarder→watch→click, single call.

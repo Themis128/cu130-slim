@@ -19,7 +19,7 @@ CDP = "http://localhost:9222"
 
 def _ws(url: str) -> object:
     import websocket  # websocket-client — pip install
-    return websocket.create_connection(url, timeout=15)
+    return websocket.create_connection(url, timeout=15, suppress_origin=True)
 
 
 def _send(ws, method: str, params: dict | None = None) -> dict:

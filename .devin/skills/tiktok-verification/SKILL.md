@@ -39,3 +39,37 @@ Do NOT fabricate or alter the legal document — owner provides it.
 
 Verification rejected once already. Re-submit only after replacing the cert
 with the clean official document, else TikTok may flag repeat submissions.
+# tiktok-verification — field notes (2026-10-29)
+
+## Rejection root cause (two submissions, same verdict)
+
+Business Suite → Verify → Business registration shows **"Not approved"**
+twice. The form field is **"Official General Commercial Registry
+Certificate: 115307716"** — 115307716 is the owner's **ΑΦΜ (tax number)**,
+NOT a ΓΕΜΗ registry number. Greek sole traders have no ΓΕΜΗ entry, so the
+"registry certificate" doc type can never match — review rejects on
+doc-type mismatch regardless of image quality.
+
+## Fix paths (in order)
+
+1. **Doc-type selector** — the certification step has a type dropdown;
+   pick "tax registration"/"sole trader" if offered and re-upload the
+   ΑΑΔΕ ενημερότητα (`/sdcard/Download/cert.png`, ΑΦΜ matches name field).
+2. **Business type in basic info** — if the form allows "individual/sole
+   trader" instead of company, the ΑΑΔΕ cert becomes valid input.
+3. **Real ΓΕΜΗ extract** — only if an ΙΚΕ/company entity exists; free PDF
+   from businessportal.gr publicity search (needs recaptcha — do it in a
+   browser, not ADB).
+
+## Verified coordinates (1080x2340, guard with screenshots)
+
+- Profile tab: (957,2148) → Business Suite: (585,729) → Verify: (777,900)
+- "Got it" modal: (540,1342) → Edit: (184,544) → dialog Edit: (337,1307)
+- Next: (540,2057) → upload tile: (480,778) → Submit: (540,2070)
+- Picker: re-push cert to make it newest → tile-1 circle (222,237) → OK (1) (1020,128)
+- ntfy steals focus — `pm suspend io.heckel.ntfy` mid-run, restore after.
+
+## Status
+
+Submitted 2026-10-29 ~20:00 → rejected ~22:00 same day (review is FAST,
+not 3 business days). Next attempt must fix the doc TYPE, not the file.

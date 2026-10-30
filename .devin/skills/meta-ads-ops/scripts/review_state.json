@@ -1,0 +1,4 @@
+{
+ "ads-manager": "restricted; verify-geo",
+ "payment-settings": "disabled; verify-geo; unusual-activity"
+}

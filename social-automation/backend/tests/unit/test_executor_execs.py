@@ -1,4 +1,5 @@
 """Coverage: datalake_executor exec paths — content_topic, dedup."""
+
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -19,6 +20,7 @@ def _db(executed=None, user_id=None):
 @pytest.mark.asyncio
 async def test_content_topic_skips_dedup(monkeypatch):
     from app.worker.tasks import datalake_executor as M
+
     db = _db(executed=MagicMock())
     out = await M._exec_content_topic(db, "t1", {"topic": "pain"})
     assert out["skipped"].startswith("already")
@@ -27,6 +29,7 @@ async def test_content_topic_skips_dedup(monkeypatch):
 @pytest.mark.asyncio
 async def test_content_topic_creates_post(monkeypatch):
     from app.worker.tasks import datalake_executor as M
+
     db = _db(executed=None, user_id="u1")
     added = []
     db.add.side_effect = lambda o: added.append(o)
@@ -40,6 +43,7 @@ async def test_content_topic_creates_post(monkeypatch):
 @pytest.mark.asyncio
 async def test_content_topic_defaults_platform(monkeypatch):
     from app.worker.tasks import datalake_executor as M
+
     db = _db(executed=None, user_id="u1")
     out = await M._exec_content_topic(db, "t1", {"topic": "x"})
     assert out["platform"] == "linkedin"
