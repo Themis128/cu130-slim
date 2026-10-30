@@ -257,9 +257,9 @@ def cmd_suggest(token: str) -> None:
         off += 100
     good, junk = [], []
     seen: set[str] = set()
-    for l in leads:
-        e, why = _classify(l, seen)
-        (good if e else junk).append((e or l.get("email") or "-", why or l.get("name", "")))
+    for lead in leads:
+        e, why = _classify(lead, seen)
+        (good if e else junk).append((e or lead.get("email") or "-", why or lead.get("name", "")))
     print(f"leads: {len(leads)}  mailable: {len(good)}  filtered: {len(junk)}")
     print("\nMAILABLE:")
     for e, name in good:
