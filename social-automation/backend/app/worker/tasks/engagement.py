@@ -191,13 +191,9 @@ async def _run(limit: int):
 
 
 ENGAGE_KEYWORDS = [
-    "SMB IT support",
-    "small business IT",
-    "digital agency automation",
-    "website maintenance small business",
-    "affordable web design",
-    "IT services SMB",
-    "cloud hosting small business",
+    "SMB IT support", "small business IT", "digital agency automation",
+    "website maintenance small business", "affordable web design",
+    "IT services SMB", "cloud hosting small business",
 ]
 
 
@@ -226,16 +222,14 @@ def engagement_ingest(self, limit: int = 20):
                     pid = (m.get("url") or "").rsplit("/", 1)[-1]
                     if not pid or pid in seen:
                         continue
-                    db.add(
-                        EngagementCandidate(
-                            platform="twitter",
-                            author_handle=m.get("author", ""),
-                            post_id=pid,
-                            post_text=m.get("content", "")[:2000],
-                            posted_at=datetime.fromisoformat(m["mentioned_at"].replace("Z", "+00:00")) if m.get("mentioned_at") else datetime.utcnow(),
-                            meta_data={"source": "keyword", "keyword": kw, "engagement": m.get("engagement", 0)},
-                        )
-                    )
+                    db.add(EngagementCandidate(
+                        platform="twitter",
+                        author_handle=m.get("author", ""),
+                        post_id=pid,
+                        post_text=m.get("content", "")[:2000],
+                        posted_at=datetime.fromisoformat(m["mentioned_at"].replace("Z", "+00:00")) if m.get("mentioned_at") else datetime.utcnow(),
+                        meta_data={"source": "keyword", "keyword": kw, "engagement": m.get("engagement", 0)},
+                    ))
                     seen.add(pid)
                     n += 1
                     if n >= limit:
@@ -244,5 +238,4 @@ def engagement_ingest(self, limit: int = 20):
                     break
             await db.commit()
         return {"ingested": n}
-
     return _run_sync(_run())
