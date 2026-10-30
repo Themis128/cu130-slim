@@ -4,6 +4,8 @@ def _sanitize_caption(c):
     from app.services.content_sanitizer import sanitize_post_text
     return sanitize_post_text(c)
 
+from __future__ import annotations
+
 from __future__ import annotations  # noqa: E402
 
 import base64  # noqa: E402
