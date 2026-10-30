@@ -35,7 +35,11 @@ IMG = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
 
 
 def get_targets():
-    return json.load(urllib.request.urlopen(f"{CDP}/json", timeout=8))
+    try:
+        return json.load(urllib.request.urlopen(f"{CDP}/json", timeout=8))
+    except Exception:
+        sys.exit("CDP :9222 unreachable — run cdp_ensure.py or relaunch "
+                 "debug Chrome (chrome-debug-launch.bat)")
 
 
 class Cdp:
