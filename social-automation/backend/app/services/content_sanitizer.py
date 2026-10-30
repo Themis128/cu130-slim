@@ -121,5 +121,6 @@ def voice_check(text: str) -> tuple[bool, str]:
         return False, f"slop: {', '.join(hits[:4])}"
     for s in re.split(r"(?<=[.!?])\s+", text):
         if len(re.findall(r"\w+", s)) > MAX_SENTENCE_WORDS:
-            return False, f"run-on ({len(re.findall(r'\w+', s))}w)"
+            words = len(re.findall(r"\w+", s))
+            return False, f"run-on ({words}w)"
     return True, "ok"
