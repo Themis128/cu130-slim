@@ -12,7 +12,11 @@ Usage:
   cdp_gate_runner.py --once   # fire armed gates now if CDP is up
   cdp_gate_runner.py --status # every front's real state
 """
-import json, os, subprocess, sys, time, urllib.request
+import json
+import subprocess
+import sys
+import time
+import urllib.request
 from pathlib import Path
 
 BASE = Path("/home/tbaltzakis/cu130-slim")
@@ -26,7 +30,8 @@ DROPS = Path("/mnt/c/Users/tbaltzakis/Downloads")
 
 def cdp_up():
     try:
-        urllib.request.urlopen(CDP_VER, timeout=3); return True
+        urllib.request.urlopen(CDP_VER, timeout=3)
+        return True
     except Exception:
         return False
 
@@ -127,11 +132,14 @@ def sweep_once(state):
         # try to bring it up once
         if not state.get("_ensure_tried"):
             print("[runner] CDP down — trying cdp_ensure")
-            run(ENSURE); state["_ensure_tried"] = True; save(state)
+            run(ENSURE)
+            state["_ensure_tried"] = True
+            save(state)
         return False
     for name, script, args, pend in GATES:
         if not pend():
-            state[name] = "skip:wired"; continue
+            state[name] = "skip:wired"
+            continue
         last = state.get(name, "")
         if last.startswith("done") or last == "skip:wired":
             continue
@@ -152,7 +160,8 @@ def sweep_once(state):
 def main():
     mode = sys.argv[1] if len(sys.argv) > 1 else "watch"
     if mode == "--status":
-        status(); return
+        status()
+        return
     state = load()
     if mode == "--once":
         sweep_once(state)
@@ -165,7 +174,8 @@ def main():
             print(f"[runner] sweep error: {e}")
         state = load()
         if all(str(v).startswith(("done", "skip")) for k, v in state.items() if k in [n for n, *_ in GATES]):
-            print("[runner] all gates resolved — exiting"); return
+            print("[runner] all gates resolved — exiting")
+            return
         time.sleep(120)
 
 if __name__ == "__main__":

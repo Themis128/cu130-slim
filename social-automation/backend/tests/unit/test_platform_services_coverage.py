@@ -6,7 +6,6 @@ against the real classes.
 """
 import pytest  # noqa: F401 — pytest-style naming only
 
-
 # ── publishing dispatcher + media rules ────────────────────────────────────
 
 
