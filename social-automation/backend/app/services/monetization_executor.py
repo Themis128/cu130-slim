@@ -36,7 +36,6 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team
 from app.services.content_sanitizer import sanitize_post_text
 from app.services.monetization_report import MonetizationAction
-from app.services.content_sanitizer import sanitize_post_text
 
 logger = logging.getLogger(__name__)
 
