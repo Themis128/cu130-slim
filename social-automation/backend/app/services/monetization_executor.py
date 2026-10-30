@@ -34,8 +34,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.content import Post, PostStatus, PostTarget
 from app.models.social_account import SocialAccount
 from app.models.user import Team
-from app.services.monetization_report import MonetizationAction
 from app.services.content_sanitizer import sanitize_post_text
+from app.services.monetization_report import MonetizationAction
 
 logger = logging.getLogger(__name__)
 
