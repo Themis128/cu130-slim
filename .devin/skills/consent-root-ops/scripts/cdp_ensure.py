@@ -15,7 +15,6 @@ import urllib.request
 
 CHROME = (r"C:\Program Files\Google\Chrome\Application\chrome.exe")
 ARGS = ("--remote-debugging-port=9222 "
-        "--remote-allow-origins=* "
         "--user-data-dir=C:\\Users\\tbaltzakis\\chrome-debug-profile")
 
 

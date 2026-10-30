@@ -188,3 +188,54 @@ async def _run(limit: int):
                 failed.append(f"{r.target_author}:{res.get('error', '?')[:60]}")
         await db.commit()
         return {"scored": len(fresh), "drafted": len(drafts_needed), "dispatched": done, "failed": failed}
+
+
+ENGAGE_KEYWORDS = [
+    "SMB IT support", "small business IT", "digital agency automation",
+    "website maintenance small business", "affordable web design",
+    "IT services SMB", "cloud hosting small business",
+]
+
+
+@shared_task(name="app.worker.tasks.engagement.engagement_ingest", bind=True, max_retries=1)
+def engagement_ingest(self, limit: int = 20):
+    """Feed the funnel — search X for keyword matches → EngagementCandidate rows."""
+    from datetime import datetime
+
+    from app.models.engagement import EngagementCandidate
+    from app.services.brand_monitoring import search_twitter_mentions
+
+    async def _run():
+        env = dict(os.environ)
+        if os.path.exists("/app/.env"):
+            env.update(dict(x.split("=", 1) for x in open("/app/.env").read().splitlines() if "=" in x and not x.startswith("#")))
+        bearer = env.get("TWITTER_BEARER_TOKEN", "") or env.get("X_BEARER_TOKEN", "")
+        if not bearer:
+            return {"ingested": 0, "reason": "no bearer"}
+        seen = set()
+        n = 0
+        async with task_session() as db:
+            have = (await db.execute(select(EngagementCandidate.post_id))).scalars().all()
+            seen = set(have)
+            for kw in ENGAGE_KEYWORDS:
+                for m in await search_twitter_mentions(kw, bearer, max_results=10):
+                    pid = (m.get("url") or "").rsplit("/", 1)[-1]
+                    if not pid or pid in seen:
+                        continue
+                    db.add(EngagementCandidate(
+                        platform="twitter",
+                        author_handle=m.get("author", ""),
+                        post_id=pid,
+                        post_text=m.get("content", "")[:2000],
+                        posted_at=datetime.fromisoformat(m["mentioned_at"].replace("Z", "+00:00")) if m.get("mentioned_at") else datetime.utcnow(),
+                        meta_data={"source": "keyword", "keyword": kw, "engagement": m.get("engagement", 0)},
+                    ))
+                    seen.add(pid)
+                    n += 1
+                    if n >= limit:
+                        break
+                if n >= limit:
+                    break
+            await db.commit()
+        return {"ingested": n}
+    return _run_sync(_run())

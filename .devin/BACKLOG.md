@@ -35,20 +35,6 @@
 - Mail: signature wired + Nextcloud sync; mailbox triaged (funnel notifications verified)
 - Funnel docs: Nextcloud Funnels/ + docs/funnel-media-architecture.md (#910)
 
-- **facebook-browser-sidecar wedged on profile-picker** — Docker shows
-  Up+healthy but the daemon livelocks clicking "Continue as"; every
-  /debug/* and /session/validate call times out. Heal per session-ops:
-  full session re-seed (or browser-novnc noVNC manual pick). Until then
-  meta_appeal_form.py + wa_onboard_retry.py can't run (both drive 9226).
-- **ntfy phone DONE** — subs live on 192.168.1.200:30080 (LAN-direct, no
-  VPN/CF needed) with notifications flowing; battery/hibernation exempted.
-  Optional: add `phone`/`Oabmv3U4vCtDXbeOaDns` for ntfy-ws.cloudless.gr
-  in Manage users for off-home-WiFi delivery.
-- **Meta appeal** — entry = facebook.com/help/contact/2026068680760273
-  (disabled-account appeal form; meta_ads_appeal_form.py inventories
-  fields). Geo fix = the unusual-activity trigger. One-shot unblock for
-  ads + finance_permission + whatsapp-onboarding-block.
-
 ## Leftovers (human gates)
 - X re-auth: click x-reconnect.sh output URL (works — verified live)
 - LinkedIn password + li_at rotation (exposed earlier in session)
@@ -147,32 +133,22 @@
 - [ ] Prime bootcamp/YES-Maxxing outcomes into offer_survey copy + 4-YES diagnostic after the sessions
 - Mastersheet Zoom: https://us06web.zoom.us/j/88010824977
 
+## 2026-10-30 session closeout
 
-## Remaining human gates — live state (2026-10-29, post-ntfy session)
+**Landed**: Qualtrics CM-API standard-tier submitted (real-browser playwright driver — `qualtrics-ops/qualtrics_real_fill.cjs`), `engagement_ingest` 15-min keyword feed (PR #1164), `token_expires_at` persistence fix — FB re-renew thrash (PR #1166), alertmanager single-node cluster fix (PR #1168), `cdp-watch-ops` (PR #1162), `li-vetting-watch` (PR #1152), `viber-bot-ops` portal→app correction (PR #1156), `wa_verify` Meta-sender filter, `adb_sms` shared reader.
 
-Every item has a verified tool/skill + the one act it waits on.
+**Armed watchers**: `cdp_watch` (pid) → auto-completes LinkedIn consent on :9222 · `wa_code_watch` → WhatsApp post-cooldown · `li-vetting-watch` → Telegram on review email.
 
-| # | Task | State | The act | Auto-finisher |
-|---|------|-------|---------|---------------|
-| 1 | Meta #785/#786 (WA terms, evidence) | **blocked at account level** — `wa/manage/*` returns "Page Isn't Available" even with a live logged-in session (verified 2026-10-29). Personal profile carries the 2021 permanent restriction; Meta's own answer: co-admin in good standing OR new portfolio under a clean profile | people decision | none — no code path exists |
-| 2 | X gate | armed | Google sign-in once in debug browser | `gate-runner-ops` x-watch → gsi iframe click → OAuth approve → `totp-ops` enrolls TOTP for permanent re-auth |
-| 3 | #788 Instagram password rotation | needs secret | `INSTAGRAM_PASSWORD` in `.env` | `session_bootstrap.py` |
-| 4 | #793/#794/#795 approvals | needs word | reply `approve`/`done` on each issue | 6h owner-gate pipeline consumes |
-| 5 | TikTok #789 verification | **rejected ×2** — doc-type mismatch: ΑΦΜ 115307716 sits in "Official General Commercial Registry Certificate" field; sole trader has no ΓΕΜΗ number | doc-type selector / business-type change / ΓΕΜΗ extract if entity exists — `tiktok-verification` SKILL.md has paths + coordinates | park until decided |
-| 6 | Meta TOTP capture | **ready** — live FB session in debug Edge (2FA passed 2026-10-29) | run `totp-ops` flow while session is warm | unattended Meta re-auth after |
-| 7 | CWV audit flake | `/en` perf median 0.53 vs 0.55 (runs ranged to 0.80 — ARM-runner variance) | re-run `core-web-vitals-audit.yml`; if red twice → real perf pass on /en | audit artifact lands in aggregator |
+**External gates (not code gaps)**:
+- `chrome-debug-launch.bat` on Windows → :9222 → LinkedIn gmail-code consent completes
+- WhatsApp: Meta SMS cooldown — `request_code` bounces ~1h, armed
+- Viber: App Token from the mobile app's bot Edit Info (portal retired)
+- Bluesky: app-password rotate at bsky.app → `.env`
 
-### Tooling that carries all of it
+## 2026-10-30 session 2 closeout
 
-- `win_agent` @ `100.83.120.93:8765` — autostarts at logon; /exec, /screenshot, /adb, /launch-chrome
-- CDP debug browser via clone profile `C:\tmp\edge-full` / `chrome-full` + forwarder `:9223`
-- `gate_runner2.py` — clone→launch→forwarder→watch→click, one command
-- Phone: ADB `192.168.1.77:5555` (LAN) — notification-dump path can read WhatsApp/FB 2FA codes directly (`dumpsys notification --noredact`, proven 2026-10-29 — pulled the live Meta code off the device)
-- ntfy phone wired to `cloudless-alerts`/`cloudless-ops`/`nextcloud-ops` on `192.168.1.200:30080`
+**Landed**: `content_sanitizer` (emoji shortcode→emoji, connective dedupe, near-dup gate — PR #1182), `slop_scan`+`voice_check` (PR #1183), generation-side gate wired into `brand_agent` with prior-output exclusion (PR #1184), TOTP secret-log fix (PR #1180), `fb-reauth-ops` (PR #1178), `pending-triggers-ops` (PR #1172), `win-trigger-ops` AtLogOn task registered live (PR #1173), `viber_app_token` ADB-UI capture (PR #1175), `cdp-watch-ops` (PR #1162). omv node recovered via power-cycle (was hard-down — root SD 80%, /home 28G → sda1 move is the real fix).
 
-## 2026-10-30 — Meta 2FA enabled (phone, trusted device)
+**External gates**: `:9222` auto-fires on logon (CloudlessDebugChrome task). Viber = paid commercial channel (€115/mo) — decision, not a build.
 
-- Facebook 2FA turned ON via phone FB app (fb://settings -> Accounts Center -> Password & security -> Two-factor -> FB row -> password -> email code 804910 via Gmail API -> SMS/WhatsApp method to **38).
-- Profile 'protect your account' requirement satisfied. Next: watch if profile restriction lifts (flag may clear immediately or need review) -> then business verification for cloudless.gr portfolio -> NEW ad account -> WhatsApp Cloud migration via wa_onboard_retry.py.
-- gmail_code_fetch.py (mail-code-fetch) reads FB codes via API instantly — replaces the SMS/Gmail-app read.
-- ADB input-text appends trailing chars on this IME — type via keyevents or clear via field's own X.
+**Content-quality research applied**: slop-keyword scan, voice constraints, prior-output exclusion, platform-fit (content_guides has limits, unenforced).
