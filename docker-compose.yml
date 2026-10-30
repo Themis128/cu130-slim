@@ -2186,7 +2186,7 @@ services:
   stack-watchers:
     image: python:3.12-slim
     container_name: stack-watchers
-    command: python /app/scripts/stack_watchers.py
+    command: python /app/.devin/skills/pending-triggers-ops/scripts/heal_supervisor.py
     volumes:
       - .:/app
     networks:
