@@ -25,8 +25,10 @@ blocks = re.split(r'(?=uid: \d+)', out)
 for b in reversed(blocks):
     m = re.search(r'(?:code|is)[^0-9]{0,40}\b(\d{4,8})\b', b, re.I)
     if m:
-        print(m.group(1)); sys.exit(0)
+        print(m.group(1))
+        sys.exit(0)
     m = re.search(r'>\s*(\d{6})\s*<', b)
     if m:
-        print(m.group(1)); sys.exit(0)
+        print(m.group(1))
+        sys.exit(0)
 sys.exit("no code found")

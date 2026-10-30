@@ -30,7 +30,8 @@ def call(path, data, tries=3):
         except urllib.error.HTTPError as e:
             body = e.read()[:150]
             if (e.code == 409 or (e.code == 500 and b"context was destroyed" in body)) and i < tries - 1:
-                time.sleep(15); continue
+                time.sleep(15)
+                continue
             raise SystemExit(f"bridge {e.code}: {body}")
 
 def ev(expr):
@@ -72,7 +73,8 @@ def main() -> int:
             print("IDENTIFY FAILED — wrong mail/ΚΠΑ pair")
             return 1
     out = ev("""(()=>{const t=document.body.innerText;
-      const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
+      const grab=(re)=>{const m=t.match(re)
+return m?m[1].trim():''}
       return JSON.stringify({
         status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) || grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
         proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),

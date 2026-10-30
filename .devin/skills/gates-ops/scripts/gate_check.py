@@ -19,7 +19,8 @@ issues = json.loads(subprocess.run(
      "--state", "open", "--json", "number,title", "--limit", "30"],
     capture_output=True, text=True).stdout or "[]")
 if not issues:
-    print("no open issues"); sys.exit(0)
+    print("no open issues")
+    sys.exit(0)
 for i in issues:
     hint = UNBLOCK.get(i["number"], "see issue — reply consume loop watches it")
     print(f"#{i['number']:<4} {i['title'][:58]}\n       → {hint}")

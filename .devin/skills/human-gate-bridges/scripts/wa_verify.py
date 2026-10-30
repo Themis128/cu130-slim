@@ -17,7 +17,8 @@ import urllib.request
 CID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "")
 TOK = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")
 KEY = os.path.expanduser("~/.ssh/id_rsa_win")
-USER = os.environ.get("OMV_SSH_USER", ""); HOST = os.environ.get("OMV_SSH_HOST", "")
+USER = os.environ.get("OMV_SSH_USER", "")
+HOST = os.environ.get("OMV_SSH_HOST", "")
 CODE_RE = re.compile(r"\b([0-9]{6})\b")
 
 

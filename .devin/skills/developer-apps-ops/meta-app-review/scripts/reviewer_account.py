@@ -5,7 +5,8 @@ Reviewers need working credentials to log in and exercise the app. This
 creates a dedicated EDITOR user on the admin (enterprise) team — it sees all
 connected accounts/posts but cannot touch admin-only settings. The user gets
 NO team of their own, because SocialAuto's team resolution prefers teams
-where the user is OWNER; with only the EDITOR membership they land on the
+where the user is OWNER
+with only the EDITOR membership they land on the
 admin team's workspace on first login.
 
 Usage (run from the repo root):

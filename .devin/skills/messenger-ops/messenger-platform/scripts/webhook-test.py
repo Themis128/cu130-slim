@@ -70,9 +70,12 @@ p.add_argument("--empty", action="store_true")
 a = p.parse_args()
 
 if not any([a.verify, a.message, a.postback, a.empty]):
-    test_verify(); print()
-    test_empty(); print()
-    test_message("Hello from test"); print()
+    test_verify()
+    print()
+    test_empty()
+    print()
+    test_message("Hello from test")
+    print()
     test_postback("GET_STARTED")
 else:
     if a.verify:

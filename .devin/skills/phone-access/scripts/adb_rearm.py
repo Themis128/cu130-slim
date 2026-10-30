@@ -35,13 +35,15 @@ def main():
     a = ap.parse_args()
 
     if devices():
-        print("adb already up:", devices()); return
+        print("adb already up:", devices())
+        return
 
     print("try: wireless reconnect")
     sh(f"adb connect {a.ip}:5555")
     time.sleep(2)
     if devices():
-        print("connected:", devices()); return
+        print("connected:", devices())
+        return
 
     print("try: termux re-arm")
     ssh = SSH.format(ip=a.ip)
@@ -50,7 +52,8 @@ def main():
              'setprop service.adb.tcp.port 5555"')
     time.sleep(2)
     if devices():
-        print("connected:", devices()); return
+        print("connected:", devices())
+        return
 
     print("try: open wireless-debugging screen on the phone")
     sh(ssh + ' "am start -a android.settings.ADB_WIRELESS_SETTINGS ||'

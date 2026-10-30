@@ -3,7 +3,8 @@
 
   python3 gmail.py login                          # mint GMAIL_REFRESH_TOKEN (opens browser)
   python3 gmail.py search "<gmail query>"         # e.g. 'newer_than:2d synigoros OR ombudsman'
-Saves refresh token to GMAIL_REFRESH_TOKEN in .env; uses Gmail REST list/get.
+Saves refresh token to GMAIL_REFRESH_TOKEN in .env
+uses Gmail REST list/get.
 """
 import json
 import re
@@ -58,10 +59,12 @@ def login():
             if self.path.startswith("/auth/callback"):
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 code_holder["code"] = q.get("code", [None])[0]
-                self.send_response(200); self.end_headers()
+                self.send_response(200)
+                self.end_headers()
                 self.wfile.write("<h3>Gmail access granted — you can close this tab.</h3>".encode())
             else:
-                self.send_response(404); self.end_headers()
+                self.send_response(404)
+                self.end_headers()
         def log_message(self, *a): pass
     srv = HTTPServer(("127.0.0.1", 50000), H)
     url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode({
@@ -96,15 +99,18 @@ def _consent(scope: str, env_key: str) -> None:
             if self.path.startswith("/auth/callback"):
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 code_holder["code"] = q.get("code", [None])[0]
-                self.send_response(200); self.end_headers()
+                self.send_response(200)
+                self.end_headers()
                 self.wfile.write("<h3>Access granted — you can close this tab.</h3>".encode())
             else:
-                self.send_response(404); self.end_headers()
+                self.send_response(404)
+                self.end_headers()
         def log_message(self, *a): pass
     try:
         srv = HTTPServer(("127.0.0.1", 50000), H)
     except OSError:
-        print("port 50000 busy — is another consent flow running?"); raise SystemExit(1)
+        print("port 50000 busy — is another consent flow running?")
+        raise SystemExit(1)
     url = "https://accounts.google.com/o/oauth2/v2/auth?" + urllib.parse.urlencode({
         "client_id": cs["client_id"], "redirect_uri": redirect,
         "response_type": "code", "scope": scope,
@@ -194,19 +200,25 @@ def links(query, account=""):
             for u in re.findall(r"https?://\S+", b):
                 u=u.rstrip(".,);")
                 if u not in seen:
-                    seen.add(u); print(u)
+                    seen.add(u)
+                    print(u)
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print(__doc__); sys.exit(1)
+        print(__doc__)
+        sys.exit(1)
     cmd = sys.argv[1]
     if cmd == "login" and len(sys.argv) > 2:
-        login(sys.argv[2]); sys.exit(0)
+        login(sys.argv[2])
+        sys.exit(0)
     if cmd == "search-account" and len(sys.argv) > 3:
-        search_account(sys.argv[3], sys.argv[2]); sys.exit(0)
+        search_account(sys.argv[3], sys.argv[2])
+        sys.exit(0)
     if cmd == "links":
-        links(" ".join(sys.argv[2:])); sys.exit(0)
+        links(" ".join(sys.argv[2:]))
+        sys.exit(0)
     if cmd == "links-account" and len(sys.argv) > 3:
-        links(sys.argv[3], sys.argv[2]); sys.exit(0)
+        links(sys.argv[3], sys.argv[2])
+        sys.exit(0)
     {"login": login, "login-admin": login_admin, "enable": enable_gmail}.get(
         cmd, lambda: search(" ".join(sys.argv[1:])))()

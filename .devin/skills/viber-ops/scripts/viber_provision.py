@@ -63,7 +63,8 @@ def verify():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--token"); ap.add_argument("--name", default="cloudless")
+    ap.add_argument("--token")
+    ap.add_argument("--name", default="cloudless")
     ap.add_argument("--verify", action="store_true")
     a = ap.parse_args()
     if a.verify: verify()

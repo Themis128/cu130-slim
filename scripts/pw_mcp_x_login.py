@@ -142,85 +142,87 @@ def main():
         # snapshot round-trips keep catching the Loading dialog and the
         # background page's duplicate DOM.
         login_code = """async (page) => {
-            const IDENT = __IDENT__, PASS = __PASS__, HANDLE = __HANDLE__;
-            const log = [];
+            const IDENT = __IDENT__, PASS = __PASS__, HANDLE = __HANDLE__
+            const log = []
             const clickNamed = async (names) => {
                 const t = await page.evaluate((names) => {
                     const els = [...document.querySelectorAll('div[role=button],button,[role=button]')]
-                        .filter(e => e.offsetParent !== null);
-                    const el = els.find(e => names.includes((e.innerText || '').trim()));
+                        .filter(e => e.offsetParent !== null)
+                    const el = els.find(e => names.includes((e.innerText || '').trim()))
                     if (!el) return null;
-                    el.scrollIntoView({ block: 'center' });
-                    const r = el.getBoundingClientRect();
-                    return { x: r.x + r.width / 2, y: r.y + r.height / 2, label: (el.innerText || '').trim() };
-                }, names);
+                    el.scrollIntoView({ block: 'center' })
+                    const r = el.getBoundingClientRect()
+                    return { x: r.x + r.width / 2, y: r.y + r.height / 2, label: (el.innerText || '').trim() }
+                }, names)
                 if (!t) return false;
-                await page.mouse.click(t.x, t.y);
-                log.push('clicked:' + t.label.slice(0, 40));
-                return true;
-            };
+                await page.mouse.click(t.x, t.y)
+                log.push('clicked:' + t.label.slice(0, 40))
+                return true
+            }
 
-            await page.goto('https://x.com/i/flow/login', { waitUntil: 'domcontentloaded' });
-            const shot = (n) => page.screenshot({ path: '/workspace/.playwright-mcp/xlogin-' + n + '.png' });
+            await page.goto('https://x.com/i/flow/login', { waitUntil: 'domcontentloaded' })
+            const shot = (n) => page.screenshot({ path: '/workspace/.playwright-mcp/xlogin-' + n + '.png' })
             const waitIdle = async () => {
-                await page.locator('progressbar').first().waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-                await page.locator('[data-testid=mask]').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
-            };
-            await waitIdle();
+                await page.locator('progressbar').first().waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {})
+                await page.locator('[data-testid=mask]').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {})
+            }
+            await waitIdle()
             const clickRole = async (name) => {
-                const b = page.getByRole('button', { name, exact: true }).locator('visible=true').first();
+                const b = page.getByRole('button', { name, exact: true }).locator('visible=true').first()
                 if (!(await b.count())) { log.push('btn-missing:' + name); return false; }
                 try {
-                    await b.waitFor({ state: 'visible', timeout: 15000 });
-                    await b.click({ timeout: 10000 });
-                    log.push('clicked:' + name);
-                    return true;
-                } catch (e) { log.push('btn-fail:' + name + ':' + String(e).slice(0, 80)); return false; }
-            };
+                    await b.waitFor({ state: 'visible', timeout: 15000 })
+                    await b.click({ timeout: 10000 })
+                    log.push('clicked:' + name)
+                    return true
+                } catch (e) { log.push('btn-fail:' + name + ':' + String(e).slice(0, 80))
+ return false
+                }
+            }
 
-            const idIn = page.locator('input[name="username_or_email"]:visible').first();
-            await idIn.waitFor({ timeout: 40000 });
-            await idIn.fill(IDENT);
-            log.push('identifier filled');
-            await shot('1-ident');
+            const idIn = page.locator('input[name="username_or_email"]:visible').first()
+            await idIn.waitFor({ timeout: 40000 })
+            await idIn.fill(IDENT)
+            log.push('identifier filled')
+            await shot('1-ident')
             // Continue enables only after the field registers input.
-            await clickRole('Continue') || await clickRole('Next') || await clickRole('Συνέχεια');
-            await waitIdle();
+            await clickRole('Continue') || await clickRole('Next') || await clickRole('Συνέχεια')
+            await waitIdle()
 
-            const pass = page.locator('input[name="password"]:visible').first();
+            const pass = page.locator('input[name="password"]:visible').first()
             for (let i = 0; i < 5; i++) {
                 try { await pass.waitFor({ timeout: 20000 }); break; } catch {}
-                await shot('3-wait-' + i);
+                await shot('3-wait-' + i)
                 if (await clickRole('Use password')) { await waitIdle(); continue; }
                 const v = await page.evaluate(() => {
                     const el = [...document.querySelectorAll('input')]
-                        .find(e => e.offsetParent && !e.disabled && e.type !== 'hidden' && e.type !== 'password');
-                    return el ? (el.name || null) : null;
-                });
-                log.push('iter' + i + ' verify-input=' + v);
+                        .find(e => e.offsetParent && !e.disabled && e.type !== 'hidden' && e.type !== 'password')
+                    return el ? (el.name || null) : null
+                })
+                log.push('iter' + i + ' verify-input=' + v)
                 if (v) {
-                    const vin = page.locator('input[name="' + v + '"]:visible').first();
+                    const vin = page.locator('input[name="' + v + '"]:visible').first()
                     if (await vin.count() && await vin.isEditable()) {
-                        await vin.fill(HANDLE);
-                        log.push('verify-handle filled via ' + v);
-                        await clickRole('Next') || await clickRole('Continue') || await clickRole('Συνέχεια');
-                        await waitIdle();
+                        await vin.fill(HANDLE)
+                        log.push('verify-handle filled via ' + v)
+                        await clickRole('Next') || await clickRole('Continue') || await clickRole('Συνέχεια')
+                        await waitIdle()
                     }
                 }
             }
-            await shot('4-before-pass');
+            await shot('4-before-pass')
             if (!(await pass.count())) { log.push('NO_PASSWORD_FIELD url=' + page.url()); return log.join('\\n'); }
-            await pass.fill(PASS);
-            log.push('password filled');
-            await clickRole('Log in') || await clickRole('Continue') || await clickRole('Σύνδεση') || await clickRole('Συνέχεια');
-            await shot('5-after-login');
-            await page.waitForURL(u => !u.pathname.includes('/i/flow') && !u.pathname.includes('/i/jf'), { timeout: 60000 }).catch(() => {});
-            await waitIdle();
-            log.push('url=' + page.url());
-            log.push('switcher=' + !!(await page.locator('[data-testid=SideNav_AccountSwitcher_Button]').count()));
-            log.push('arkose=' + !!(await page.locator('iframe[src*=arkose]').count()));
-            log.push('body=' + (await page.locator('body').innerText()).replace(/\\s+/g, ' ').slice(0, 200));
-            return log.join('\\n');
+            await pass.fill(PASS)
+            log.push('password filled')
+            await clickRole('Log in') || await clickRole('Continue') || await clickRole('Σύνδεση') || await clickRole('Συνέχεια')
+            await shot('5-after-login')
+            await page.waitForURL(u => !u.pathname.includes('/i/flow') && !u.pathname.includes('/i/jf'), { timeout: 60000 }).catch(() => {})
+            await waitIdle()
+            log.push('url=' + page.url())
+            log.push('switcher=' + !!(await page.locator('[data-testid=SideNav_AccountSwitcher_Button]').count()))
+            log.push('arkose=' + !!(await page.locator('iframe[src*=arkose]').count()))
+            log.push('body=' + (await page.locator('body').innerText()).replace(/\\s+/g, ' ').slice(0, 200))
+            return log.join('\\n')
         }""".replace("__IDENT__", json.dumps(ident)) \
              .replace("__PASS__", json.dumps(password)) \
              .replace("__HANDLE__", json.dumps(handle))
@@ -250,9 +252,11 @@ def main():
             print("state:", res[:300] or state[-200:])
             compact = res.replace(" ", "")
             if '"captcha":true' in compact:
-                print("CAPTCHA — manual noVNC needed"); sys.exit(2)
+                print("CAPTCHA — manual noVNC needed")
+                sys.exit(2)
             if '"err":"' in res and "incorrect" in res:
-                print("BAD PASSWORD"); sys.exit(3)
+                print("BAD PASSWORD")
+                sys.exit(3)
             if '"loggedIn":true' in compact:
                 break
             time.sleep(3)
@@ -265,8 +269,8 @@ def main():
 def export(client):
     code = """async (page) => {
         const cookies = (await page.context().cookies())
-            .filter(c => c.domain.includes('x.com') || c.domain.includes('twitter.com'));
-        return JSON.stringify(cookies);
+            .filter(c => c.domain.includes('x.com') || c.domain.includes('twitter.com'))
+        return JSON.stringify(cookies)
     }"""
     out = client.call("browser_run_code_unsafe", {"code": code})
     m = re.search(r'### Result\n(.*?)(?:\n### |\Z)', out, re.DOTALL)

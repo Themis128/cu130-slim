@@ -47,7 +47,8 @@ def run() -> int:
     target = json.loads(urllib.request.urlopen(CDP + "/json").read())
     tab = next((t for t in target if "dash.cloudflare.com" in t.get("url", "")), None)
     if not tab:
-        print("no CF dashboard tab found"); return 2
+        print("no CF dashboard tab found")
+        return 2
     import websocket
     ws = websocket.create_connection(tab["webSocketDebuggerUrl"], timeout=20)
     def _call(mid, method, params=None):
@@ -65,12 +66,13 @@ def run() -> int:
     # find + click the Observability cancel control
     js = """(()=>{
       const rows=[...document.querySelectorAll('*')].filter(e=>
-        /observability/i.test(e.textContent||'') && e.children.length<8);
+        /observability/i.test(e.textContent||'') && e.children.length<8)
       if(!rows.length) return 'no-row';
       const btn=[...document.querySelectorAll('button,a')].find(b=>
-        /cancel|downgrade|free plan/i.test(b.textContent||''));
+        /cancel|downgrade|free plan/i.test(b.textContent||''))
       if(!btn) return 'no-cancel-btn';
-      btn.click(); return 'clicked';
+      btn.click()
+ return 'clicked'
     })()"""
     r = _call(4, "Runtime.evaluate",
               {"expression": js, "returnByValue": True})["result"]["result"].get("value")

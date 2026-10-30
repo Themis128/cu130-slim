@@ -11,7 +11,8 @@ Usage:
   # or creds login (2FA aware):
   SA_EMAIL=... SA_PASSWORD=... SA_OTP=... python3 profile_audit.py
 
-Exit code 0 always; findings are in the report.
+Exit code 0 always
+findings are in the report.
 """
 
 from __future__ import annotations

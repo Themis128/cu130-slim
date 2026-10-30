@@ -29,7 +29,8 @@ def main() -> int:
     elif cmd == "unpin":
         print(json.dumps(_post("/keepawake/browser-novnc?ttl=0")))
     else:
-        print(__doc__); return 1
+        print(__doc__)
+        return 1
     return 0
 
 

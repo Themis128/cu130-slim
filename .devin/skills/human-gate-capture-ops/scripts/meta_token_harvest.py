@@ -38,7 +38,8 @@ def check() -> int:
 def run() -> int:
     t = _tab()
     if not t:
-        print("open business.facebook.com in the debug browser first"); return 2
+        print("open business.facebook.com in the debug browser first")
+        return 2
     import websocket
     ws = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=20)
     # system-user tokens surface in the page only on the generate-token UI —
@@ -47,8 +48,8 @@ def run() -> int:
         "expression": """(()=>{
           const cands=[...document.querySelectorAll('input,code,pre,td,span')]
             .map(e=>(e.value||e.textContent||'').trim())
-            .filter(s=>/^EAA[Ba-zA-Z0-9_-]{40,}$/.test(s));
-          return JSON.stringify(cands.slice(0,3));
+            .filter(s=>/^EAA[Ba-zA-Z0-9_-]{40,}$/.test(s))
+          return JSON.stringify(cands.slice(0,3))
         })()""", "returnByValue": True}}))
     out = json.loads(ws.recv())["result"]["result"].get("value")
     ws.close()

@@ -46,9 +46,9 @@ def approve(auth_url: str) -> str:
     js = """
       (() => {
         const b = [...document.querySelectorAll('input[type=submit],button,a')]
-          .find(e => /authoriz|approve|allow/i.test(e.innerText || e.value || ''));
+          .find(e => /authoriz|approve|allow/i.test(e.innerText || e.value || ''))
         if (b) { b.click(); return 'clicked ' + (e=>e.innerText||e.value)(b); }
-        return 'no-authorize-button — page: ' + document.title;
+        return 'no-authorize-button — page: ' + document.title
       })()
     """
     r = _send(ws, "Runtime.evaluate",

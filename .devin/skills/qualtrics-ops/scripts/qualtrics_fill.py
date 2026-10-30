@@ -27,7 +27,8 @@ def call(path, data, tries=3):
             return json.loads(urllib.request.urlopen(r, timeout=45).read())
         except urllib.error.HTTPError as e:
             if e.code in (409,) or (e.code == 500 and b"context was destroyed" in e.read()):
-                time.sleep(15); continue
+                time.sleep(15)
+                continue
             raise SystemExit(f"bridge {e.code}: {e.read()[:120]}")
     raise SystemExit(f"bridge {path}: all {tries} tries failed (409/context-destroyed)")
 
@@ -35,24 +36,25 @@ def ev(expr):
     return call("/session/evaluate", {"expression": expr}).get("result")
 
 FILL_JS = """
-(()=>{const label=%s, value=%s;
+(()=>{const label=%s, value=%s
 const el=[...document.querySelectorAll('.question-display,.QuestionText,label,legend,div')]
- .find(e=>e.children.length<6&&e.textContent.trim().toLowerCase().includes(label.toLowerCase()));
+ .find(e=>e.children.length<6&&e.textContent.trim().toLowerCase().includes(label.toLowerCase()))
 if(!el) return 'NO_FIELD:'+label;
-let q=el;
+let q=el
 while(q&&!q.querySelector('input,textarea')&&q.parentElement)q=q.parentElement;
 if(!q||!q.querySelector('input,textarea'))return 'NO_INPUT:'+label;
-const txt=q.querySelector('input[type=text],textarea');
+const txt=q.querySelector('input[type=text],textarea')
 if(txt){txt.focus();txt.value=value;['input','keyup','change'].forEach(t=>txt.dispatchEvent(new Event(t,{bubbles:true})));return 'filled:'+label;}
-const radios=[...q.querySelectorAll('input[type=radio]')];
-const i=parseInt(value)-1;
+const radios=[...q.querySelectorAll('input[type=radio]')]
+const i=parseInt(value)-1
 if(radios[i]){const lbl=radios[i].closest('label')||radios[i].parentElement;lbl.click();radios[i].click();return 'radio:'+label+'->'+(i+1);}
-const checks=[...q.querySelectorAll('input[type=checkbox]')];
+const checks=[...q.querySelectorAll('input[type=checkbox]')]
 if(checks.length&&i>=0&&checks[i]){checks[i].click();return 'check:'+label;}
-return 'NO_INPUT:'+label;})()"""
+return 'NO_INPUT:'+label
+})()"""
 
 NEXT_JS = """(()=>{const b=[...document.querySelectorAll('button,input[type=submit],[role=button]')]
- .find(b=>/next|submit|continue/i.test(b.textContent||b.value||''));
+ .find(b=>/next|submit|continue/i.test(b.textContent||b.value||''))
  if(b){b.click();return b.textContent||b.value;} return 'NO_NEXT'})()"""
 
 def main():
@@ -80,7 +82,8 @@ def main():
             if r and r.startswith(("NO_FIELD","NO_INPUT")):
                 pass  # field on a later page — retried next page
         if dry:
-            print("dry — stopping before Next"); return 0
+            print("dry — stopping before Next")
+            return 0
         r = ev(NEXT_JS)
         print(f"page {page+1}: next={r}")
         if not r or r == "NO_NEXT" or "submit" in r.lower():

@@ -95,7 +95,8 @@ def seed_x() -> int:
 
 
 def err(msg: str) -> int:
-    print(msg); return 1
+    print(msg)
+    return 1
 
 
 def main() -> int:

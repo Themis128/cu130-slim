@@ -3,7 +3,7 @@
 
 Lesson (2026-10-25): vars injected into a container's env that aren't declared
 in docker-compose.yml are silently LOST on `compose up` recreate — the digest's
-NEXTCLOUD_* IntraVox auth broke this way. `docker restart` preserves old env;
+NEXTCLOUD_* IntraVox auth broke this way. `docker restart` preserves old env
 only recreate injects .env — so drift hides until the next recreate.
 
 For every running compose container, compares `docker inspect` env keys

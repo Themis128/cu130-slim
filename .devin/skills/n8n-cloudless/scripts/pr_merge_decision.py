@@ -10,8 +10,10 @@ Usage:
 
 Verdicts:
   MERGE          — safe to merge now (green checks, no blockers)
-  WAIT-CI        — checks still running or failing; recheck later
-  DO-NOT-MERGE   — explicit label/blocker set by owner; leave for user
+  WAIT-CI        — checks still running or failing
+  recheck later
+  DO-NOT-MERGE   — explicit label/blocker set by owner
+  leave for user
   NEEDS-OWNER    — mergeable but requires owner's call (scope, secrets, prod)
 """
 import json

@@ -19,7 +19,8 @@ Three credential paths, in order of preference:
     bsky_provision.py connect --handle <h> --app-password <p>
         # wire an already-known app password into social_accounts.
 
-Run host-side; calls the social-api /api/v1/bluesky/connect endpoint via
+Run host-side
+calls the social-api /api/v1/bluesky/connect endpoint via
 admin creds from repo .env (SOCIAL_ADMIN_EMAIL / SOCIAL_ADMIN_PASSWORD).
 """
 import argparse
@@ -98,12 +99,14 @@ def from_password(handle: str, password: str) -> None:
     s, sess = _xrpc("com.atproto.server.createSession",
                     {"identifier": handle, "password": password})
     if s != 200:
-        print("createSession failed:", s, str(sess)[:150]); return
+        print("createSession failed:", s, str(sess)[:150])
+        return
     jwt, did = sess["accessJwt"], sess["did"]
     s2, ap = _xrpc("com.atproto.server.createAppPassword",
                    {"name": "socialauto-" + secrets.token_hex(3)}, jwt=jwt)
     if s2 != 200:
-        print("createAppPassword failed:", s2, str(ap)[:150]); return
+        print("createAppPassword failed:", s2, str(ap)[:150])
+        return
     app_pw = ap["password"]
     print("app password created:", app_pw)
     _connect(handle, app_pw)
@@ -134,12 +137,16 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     fp = sub.add_parser("from-password")
-    fp.add_argument("--handle", required=True); fp.add_argument("--password", required=True)
+    fp.add_argument("--handle", required=True)
+    fp.add_argument("--password", required=True)
     cr = sub.add_parser("create")
-    cr.add_argument("--handle", required=True); cr.add_argument("--email", required=True)
-    cr.add_argument("--phone"); cr.add_argument("--code")
+    cr.add_argument("--handle", required=True)
+    cr.add_argument("--email", required=True)
+    cr.add_argument("--phone")
+    cr.add_argument("--code")
     cn = sub.add_parser("connect")
-    cn.add_argument("--handle", required=True); cn.add_argument("--app-password", required=True)
+    cn.add_argument("--handle", required=True)
+    cn.add_argument("--app-password", required=True)
     a = ap.parse_args()
     if a.cmd == "from-password": from_password(a.handle, a.password)
     elif a.cmd == "create": create(a.handle, a.email, a.phone, a.code)

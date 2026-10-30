@@ -5,7 +5,8 @@ Runs daily via cron. Two jobs:
 
 1. DRIFT: PATCH any worker whose observability.enabled drifted back on
    (CI deploys can re-enable it — wrangler defaults it on in some flows).
-   Prod-critical workers stay at 5% sampling; everything else forced off.
+   Prod-critical workers stay at 5% sampling
+   everything else forced off.
 2. DEADLINE: from Nov 20, daily Telegram ping — "cancel the Observability
    subscription in dashboard" until ACK file exists (touch
    .devin/skills/cf-billing-ops/OBS_ACK after cancelling).

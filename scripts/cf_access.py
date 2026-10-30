@@ -197,7 +197,7 @@ def cmd_public_mode(action: str) -> None:
     """Permanent public bypass — SocialAuto is a public SaaS (live Polar
     billing, public pricing/features). The app gate's admin-email allowlist
     gated /, /register and /login, breaking the signup funnel for anyone
-    without an Access identity. App-level JWT auth protects every endpoint;
+    without an Access identity. App-level JWT auth protects every endpoint
     this removes only the redundant dev-era edge layer. `off` restores the
     admin-only gate."""
     _set_bypass_policy(action, PUBLIC_POLICY, "public bypass")

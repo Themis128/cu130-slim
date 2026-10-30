@@ -2,7 +2,8 @@
 """Offer-validation survey for the Cloudless SMB signature offer.
 
 Creates and operates a `kind:"survey"` email campaign via the SocialAuto API.
-Each recipient gets a hosted per-recipient form at /s/{token}; submissions
+Each recipient gets a hosted per-recipient form at /s/{token}
+submissions
 land in `survey_responses` and write back to EspoCRM Notes when the recipient
 matches a CRM entity.
 

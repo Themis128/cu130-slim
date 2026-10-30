@@ -19,7 +19,8 @@ API = env("SOCIAL_API") or "http://localhost:8083"
 TOKEN = env("SOCIAL_TOKEN") or env("SOCIAL_ADMIN_TOKEN")
 
 def die(msg, code=1):
-    print(f"ERROR: {msg}", file=sys.stderr); sys.exit(code)
+    print(f"ERROR: {msg}", file=sys.stderr)
+    sys.exit(code)
 
 def call(op, asset_id, payload):
     url = f"{API}/api/v1/media/enhance/assets/{asset_id}/video/{op}"
@@ -30,8 +31,10 @@ def call(op, asset_id, payload):
 def main():
     args = sys.argv[1:]
     if len(args) < 2:
-        print(__doc__); sys.exit(2)
-    op = args[0]; asset_id = args[1]
+        print(__doc__)
+        sys.exit(2)
+    op = args[0]
+    asset_id = args[1]
     kv = dict(zip(args[2::2], args[3::2]))
     out = kv.get("-o") or kv.get("--out")
     if not out: die("need -o OUTPUT")

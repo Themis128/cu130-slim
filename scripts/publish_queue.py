@@ -18,6 +18,7 @@ by the worker after STALE_LOCK_MINUTES; `unstick` forces it immediately.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path

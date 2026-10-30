@@ -64,7 +64,8 @@ async def _snapshot(account_id: str) -> list[dict]:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print(__doc__); return 1
+        print(__doc__)
+        return 1
     rows = asyncio.run(_snapshot(sys.argv[1]))
     print(f"{len(rows)} connections")
     for r in rows[:30]:

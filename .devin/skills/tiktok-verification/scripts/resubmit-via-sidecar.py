@@ -28,7 +28,7 @@ time.sleep(7)
 print("page:", js("document.title").get("result"))
 
 res = js("""(function(){
-    var els=[...document.querySelectorAll('*')].filter(e=>(e.innerText||'').trim()==='Edit');
+    var els=[...document.querySelectorAll('*')].filter(e=>(e.innerText||'').trim()==='Edit')
     if(els.length){els[0].click();return 'clicked'}
     return 'edit not found — may already be logged out or no rejected card'
 })()""")

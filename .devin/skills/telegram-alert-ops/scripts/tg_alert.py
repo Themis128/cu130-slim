@@ -65,13 +65,15 @@ def status() -> str:
 
 def main() -> int:
     if "--status" in sys.argv:
-        print(status()); return 0
+        print(status())
+        return 0
     if "--test" in sys.argv:
         for sev in CH:
             print(sev, send(sev, f"tg-alert test — {sev} channel live"))
         return 0
     if len(sys.argv) >= 3:
-        print(send(sys.argv[1], sys.argv[2])); return 0
+        print(send(sys.argv[1], sys.argv[2]))
+        return 0
     print("usage: tg_alert.py --status|--test|<severity> '<text>'")
     return 2
 

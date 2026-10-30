@@ -64,8 +64,10 @@ def main():
     for _ in range(720):  # ~24h at 120s
         if not cdp_up():
             if mode == "--once":
-                print("cdp: down"); return
-            time.sleep(120); continue
+                print("cdp: down")
+                return
+            time.sleep(120)
+            continue
         for name, script, args, _ in GATES:
             if state.get(name):
                 continue

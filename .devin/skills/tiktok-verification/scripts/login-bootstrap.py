@@ -47,7 +47,8 @@ while time.time() < deadline:
         time.sleep(3)
     time.sleep(5)
 else:
-    print("timeout — no session yet"); sys.exit(1)
+    print("timeout — no session yet")
+    sys.exit(1)
 
 # 3 — extract + persist
 post("/session/extract", {"platform":"tiktok"})

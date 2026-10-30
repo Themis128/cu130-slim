@@ -15,7 +15,8 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-USER = os.environ["OMV_SSH_USER"]; HOST = os.environ["OMV_SSH_HOST"]
+USER = os.environ["OMV_SSH_USER"]
+HOST = os.environ["OMV_SSH_HOST"]
 KEY = os.path.expanduser("~/.ssh/id_rsa_win")
 OUT = Path("/mnt/c/Users/tbaltzakis/Downloads")
 LINK = re.compile(r"https://[^\s\"'>]+linkedin\.com[^\s\"'>]*", re.I)

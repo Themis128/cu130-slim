@@ -33,7 +33,8 @@ def main():
     page=next((t for t in tabs if t.get("type")=="page"),None) or tabs[0]
     _ws_eval(page["webSocketDebuggerUrl"],
              'location.href="https://www.linkedin.com/feed/"')
-    import time; time.sleep(5)
+    import time
+    time.sleep(5)
     body=_ws_eval(page["webSocketDebuggerUrl"],
         'document.body.innerText.slice(0,1500)')
     url=_ws_eval(page["webSocketDebuggerUrl"],'location.href')

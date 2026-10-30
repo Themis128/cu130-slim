@@ -44,14 +44,17 @@ def main() -> int:
     pin()
     # navigate to the data-privacy export page
     ev("location.href='https://www.linkedin.com/mypreferences/d/categories/data-privacy'")
-    import time; time.sleep(5)
+    import time
+    time.sleep(5)
     # click the 'Get a copy of your data' → request export flow
     out = ev("""
     (()=>{
       const click=(txt)=>{const el=[...document.querySelectorAll('button,li,a,span,div[role=button]')]
-        .find(e=>e.innerText&&e.innerText.trim().toLowerCase().includes(txt));if(el){el.click();return true}return false};
-      click('get a copy of your data')||click('data export')||click('export');
-      return document.title;
+        .find(e=>e.innerText&&e.innerText.trim().toLowerCase().includes(txt))
+if(el){el.click()
+return true}return false}
+      click('get a copy of your data')||click('data export')||click('export')
+      return document.title
     })()
     """)
     print("page:", out.get("result") or out.get("url") or out)
@@ -60,9 +63,9 @@ def main() -> int:
     out2 = ev("""
     (()=>{
       const b=[...document.querySelectorAll('button')]
-        .find(e=>/request|done|export|submit/i.test(e.innerText||''));
+        .find(e=>/request|done|export|submit/i.test(e.innerText||''))
       if(b){b.click();return 'clicked:'+b.innerText.slice(0,40)}
-      return 'no confirm button found — session may need login or UI changed';
+      return 'no confirm button found — session may need login or UI changed'
     })()
     """)
     res = out2.get("result") or out2.get("url") or out2

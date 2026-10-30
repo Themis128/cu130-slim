@@ -103,10 +103,12 @@ def policy(host: str) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
-    pr = sub.add_parser("probe"); pr.add_argument("hosts", nargs="+")
+    pr = sub.add_parser("probe")
+    pr.add_argument("hosts", nargs="+")
     sub.add_parser("scan")
     sub.add_parser("orgs")
-    po = sub.add_parser("policy"); po.add_argument("host")
+    po = sub.add_parser("policy")
+    po.add_argument("host")
     a = ap.parse_args()
 
     if a.cmd == "probe":

@@ -6,7 +6,7 @@ Buckets each `git status` entry as:
   WIP        worktree differs from origin/master (real local work — keep)
   UNTRACKED-UPSTREAM  untracked file that exists on origin/master
   UNTRACKED-WIP       untracked file not on origin/master
-  ROOT-OWNED          file/dir owned by root — write/unlink will fail;
+  ROOT-OWNED          file/dir owned by root — write/unlink will fail
                       needs `sudo chown -R <user>:<user> <repo>`
 
 Also reports: core.fileMode, CRLF-in-porcelain, stale worktrees,

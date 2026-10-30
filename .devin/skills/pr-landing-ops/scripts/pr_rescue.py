@@ -21,7 +21,8 @@ import os
 def run(cmd, cwd, check=True, cap=True):
     r = subprocess.run(cmd, cwd=cwd, shell=True, capture_output=cap, text=True)
     if check and r.returncode != 0:
-        print(r.stdout[-400:], r.stderr[-400:]); sys.exit(1)
+        print(r.stdout[-400:], r.stderr[-400:])
+        sys.exit(1)
     return r
 
 GENERATED = ("package-lock.json","pnpm-lock.yaml","yarn.lock","BACKLOG.md",
@@ -42,7 +43,8 @@ def main():
         run(f"git fetch origin {branch}", repo)
         r = run(f"git worktree add {wt} {branch}", repo, check=False)
         if r.returncode != 0 or not os.path.isdir(wt):
-            print("worktree add failed:", (r.stderr or "")[-300:]); sys.exit(1)
+            print("worktree add failed:", (r.stderr or "")[-300:])
+            sys.exit(1)
     run(f"git fetch origin {base}", wt)
     r = run(f"git rebase origin/{base}", wt, check=False)
     if r.returncode == 0:
@@ -56,8 +58,10 @@ def main():
             if is_generated(c):
                 run(f"git checkout --theirs '{c}' && git add '{c}'", wt)
         if manual:
-            print("MANUAL RESOLUTION NEEDED:"); [print(" ", m) for m in manual]
-            print(f"worktree at {wt} — resolve, `git add`, `git rebase --continue`"); sys.exit(2)
+            print("MANUAL RESOLUTION NEEDED:")
+            [print(" ", m) for m in manual]
+            print(f"worktree at {wt} — resolve, `git add`, `git rebase --continue`")
+            sys.exit(2)
         run("git rebase --continue", wt, check=False)
     run(f"git push -f origin HEAD:{branch}", wt)
     print(f"pushed clean {branch}")

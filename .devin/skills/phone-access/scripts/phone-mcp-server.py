@@ -54,13 +54,16 @@ def call(name, args):
     if name == "phone_app_start":
         try:
             import uiautomator2 as u2
-            u2.connect(DEVICE).app_start(args["package"]); return "started"
+            u2.connect(DEVICE).app_start(args["package"])
+            return "started"
         except Exception as ex:
             return f"error: {ex}"
     if name == "phone_back":
-        adb("shell", "input", "keyevent", "KEYCODE_BACK"); return "ok"
+        adb("shell", "input", "keyevent", "KEYCODE_BACK")
+        return "ok"
     if name == "phone_home":
-        adb("shell", "input", "keyevent", "KEYCODE_HOME"); return "ok"
+        adb("shell", "input", "keyevent", "KEYCODE_HOME")
+        return "ok"
     if name == "phone_dump":
         return texts()
     if name == "phone_state":
@@ -90,6 +93,8 @@ for line in sys.stdin:
         else:
             out = None
         if mid is not None:
-            sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":out or {}}) + "\n"); sys.stdout.flush()
+            sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":mid,"result":out or {}}) + "\n")
+            sys.stdout.flush()
     except Exception as e:
-        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":req.get("id"),"error":{"code":-32000,"message":str(e)}}) + "\n"); sys.stdout.flush()
+        sys.stdout.write(json.dumps({"jsonrpc":"2.0","id":req.get("id"),"error":{"code":-32000,"message":str(e)}}) + "\n")
+        sys.stdout.flush()
