@@ -2052,3 +2052,14 @@ All components verified live:
 - **TikTok business verification** — rejected ("can't be verified"); resubmit with a doc tying the personal AFM cert to the business.
 - **Log intelligence pipeline (2026-10-28)** — `promtail` (grafana/promtail:3.0.0) discovers every container via `docker-socket-proxy` (minimal `CONTAINERS=1 INFO=1 POST=0` — never the raw docker.sock), relabels compose service → `service_name`, and ships stdout/stderr to Loki at `LOKI_PUSH_URL` (defaults to the k3s VIP `192.168.1.200:30100`; must resolve to the same Loki the worker's `LOKI_URL` reads). Positions persist on `./promtail-data`. `log_intel.py` queries `{service_name=~".+"} |~ "error|Error|ERROR|failed|exception|warning|WARNING"` and triages via DMR → Slack digest.
 - **Loki persistence cutover (2026-10-28)** — `loki_persist.sh` upgrades the omv k3s single-binary Loki from `useTestSchema`+filesystem to a two-entry schemaConfig: filesystem/tsdb/v12 for pre-cutover logs (history stays queryable) + s3/tsdb/v13 from the cutover date (chunks land on the datalake R2 bucket). R2 creds ride a `loki-r2-creds` k8s Secret surfaced via `singleBinary.extraEnv` AWS_* vars — never helm `--set` (values persist in release metadata). Memberlist/ring values included — the single-binary still needs the memberlist service or the ring never forms. Post-upgrade verify: rollout status + `/loki/api/v1/labels`.
+
+## Content-quality layer (2026-10-30)
+
+`app/services/content_sanitizer.py` — the post-text pipeline:
+
+- `sanitize_post_text` — Slack emoji-shortcodes → real emoji + connective
+  dedupe; runs inside `publish_to_platform` (every post).
+- `slop_scan` + `voice_check` — LLM-filler markers + run-on ceiling; run
+  inside `brand_agent` at generation (rejects before queue).
+- `content_quality_gate` — 3-gram near-dup vs recent posts + in-batch, fed
+  by a 30-post prior-output exclusion set in `brand_agent`.

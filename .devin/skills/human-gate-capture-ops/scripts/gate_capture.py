@@ -88,7 +88,7 @@ asyncio.run(go())
 """
     r = subprocess.run(["docker", "exec", "-i", "social-api", "python", "-"],
                        input=script, capture_output=True, text=True,
-                       stdin=subprocess.PIPE, timeout=45)
+                       timeout=45)
     try:
         msgs = json.loads(r.stdout.strip().splitlines()[-1])
     except Exception:
@@ -104,7 +104,7 @@ asyncio.run(go())
         else:
             fn = ("bluesky-ops/scripts/bsky_provision.py"
                   if plat == "bsky" else "viber-ops/scripts/viber_provision.py")
-            args = (["connect", "--handle", "cloudless.gr", "--password", sec]
+            args = (["connect", "--handle", "cloudless.gr", "--app-password", sec]
                     if plat == "bsky" else ["--token", sec])
             rc, out = _run(fn, args)
         if rc == 0:
@@ -180,7 +180,7 @@ def scan() -> int:
                 continue
             rc, out = _run("bluesky-ops/scripts/bsky_provision.py",
                            ["connect", "--handle", "cloudless.gr",
-                            "--password", sec])
+                            "--app-password", sec])
             print(f"bsky drop → rc={rc} {out[:80]}")
             if rc == 0:
                 _mark(f); os.remove(f); hits += 1

@@ -8,4 +8,4 @@ $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoi
 Register-ScheduledTask -TaskName "ChromeDebug" -Action $action -Trigger $trigger -Settings $settings -Force | Out-Null
 Write-Host "ChromeDebug task registered for $env:USERNAME"
 Start-ScheduledTask -TaskName "ChromeDebug"
-Write-Host "fired once now - :9222 should bind in ~10s"
+Write-Host "fired once now — :9222 should bind in ~10s"
