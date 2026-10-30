@@ -428,7 +428,24 @@ TG_CHANNELS = {
 
 async def send_telegram_alert(severity: str, text: str) -> bool:
     """Route an alert to the severity's private admin channel.
-    'critical' also posts to ops (continue-matching — complete record)."""
+    'critical' also posts to ops (continue-matching — complete record).
+
+    Dedup: the same alert text (fingerprint = severity + text) sends at most
+    once per DEDUP_WINDOW_S — a heal reporting 'token invalid' every 30min
+    alerts once, then stays quiet until the state changes."""
+    import hashlib
+
+    DEDUP_WINDOW_S = 6 * 3600
+    fp = hashlib.sha1(f"{severity}|{text}".encode()).hexdigest()[:16]
+    try:
+        from app.worker._async import _redis
+        r = _redis()
+        if await r.exists(f"alert-dedup:{fp}"):
+            return True  # already reported — silent ack
+        await r.setex(f"alert-dedup:{fp}", DEDUP_WINDOW_S, "1")
+    except Exception:
+        pass  # dedup failure must not block the alert
+
     from sqlalchemy import select
 
     from app.models.social_account import SocialAccount
