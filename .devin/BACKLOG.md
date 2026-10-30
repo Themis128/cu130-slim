@@ -132,3 +132,15 @@
 - [ ] Business Mastery Bootcamp Oct 30–Nov 1 — live offer pitch + feedback; expected outputs: refined ICP + core offer, sales-conversation practice
 - [ ] Prime bootcamp/YES-Maxxing outcomes into offer_survey copy + 4-YES diagnostic after the sessions
 - Mastersheet Zoom: https://us06web.zoom.us/j/88010824977
+
+## 2026-10-30 session closeout
+
+**Landed**: Qualtrics CM-API standard-tier submitted (real-browser playwright driver — `qualtrics-ops/qualtrics_real_fill.cjs`), `engagement_ingest` 15-min keyword feed (PR #1164), `token_expires_at` persistence fix — FB re-renew thrash (PR #1166), alertmanager single-node cluster fix (PR #1168), `cdp-watch-ops` (PR #1162), `li-vetting-watch` (PR #1152), `viber-bot-ops` portal→app correction (PR #1156), `wa_verify` Meta-sender filter, `adb_sms` shared reader.
+
+**Armed watchers**: `cdp_watch` (pid) → auto-completes LinkedIn consent on :9222 · `wa_code_watch` → WhatsApp post-cooldown · `li-vetting-watch` → Telegram on review email.
+
+**External gates (not code gaps)**:
+- `chrome-debug-launch.bat` on Windows → :9222 → LinkedIn gmail-code consent completes
+- WhatsApp: Meta SMS cooldown — `request_code` bounces ~1h, armed
+- Viber: App Token from the mobile app's bot Edit Info (portal retired)
+- Bluesky: app-password rotate at bsky.app → `.env`
