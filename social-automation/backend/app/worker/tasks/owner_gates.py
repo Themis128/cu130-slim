@@ -17,6 +17,7 @@ beat task closes the loop:
 State lives in a temp JSON file (same pattern as synigoros_status) — a
 container restart re-digests once, harmless.
 """
+
 from __future__ import annotations
 
 import json
@@ -51,6 +52,7 @@ def _token() -> str:
         return t
     try:
         from app.core.config import get_settings
+
         return getattr(get_settings(), "GITHUB_TOKEN", "") or ""
     except Exception:
         return ""
@@ -61,9 +63,7 @@ async def _gh(token: str, path: str, method: str = "GET", **kw):
         r = await c.request(
             method,
             f"{API}{path}",
-            headers={"Authorization": f"Bearer {token}",
-                     "Accept": "application/vnd.github+json",
-                     "X-GitHub-Api-Version": "2022-11-28"},
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"},
             **kw,
         )
     if r.status_code >= 400:
@@ -118,8 +118,7 @@ async def _poll() -> dict:
             continue  # already consumed
         replies[str(n)] = kind
         if kind == "done":
-            await _gh(token, f"/repos/{REPO}/issues/{n}", method="PATCH",
-                      json={"state": "closed"})
+            await _gh(token, f"/repos/{REPO}/issues/{n}", method="PATCH", json={"state": "closed"})
             actions.append(f":white_check_mark: #{n} closed — owner marked *done*")
         else:
             actions.append(f":ballot_box_with_check: #{n} *approved* — queued gate greenlit")

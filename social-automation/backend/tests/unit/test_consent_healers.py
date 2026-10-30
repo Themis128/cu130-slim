@@ -57,3 +57,49 @@ async def test_heal_consents_wrapper(monkeypatch):
     monkeypatch.setattr(CH, "run_async", lambda c: {"twitter": "skip"})
     out = CH.heal_consents()
     assert isinstance(out, dict)
+
+
+@pytest.mark.asyncio
+async def test_bridge_health_onboarding_url_is_stale(monkeypatch):
+    """Regression: X login funnel /i/jf/onboarding/web?mode=login must read
+    as 'stale' — flagged in Devin Review #1074."""
+    import json
+
+    from app.worker.tasks import consent_healers as CH
+
+    monkeypatch.setenv("X_WEB_AUTH_TOKEN", "tok")
+    monkeypatch.setenv("X_WEB_CT0", "ct0")
+    monkeypatch.setattr(CH, "post_alert_to_slack", AsyncMock())
+
+    calls = {"n": 0}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(req, timeout=15):
+        calls["n"] += 1
+        url = req.full_url if hasattr(req, "full_url") else req
+        body = json.loads(req.data or b"{}")
+
+        class R(_Resp):
+            def read(self):
+                if "/session/evaluate" in url and body.get("expression") == "location.href":
+                    return json.dumps({"result": "https://x.com/i/jf/onboarding/web?mode=login"}).encode()
+                return b"{}"
+
+        return R()
+
+    import urllib.request
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+
+    out = await CH._bridge_health()
+    assert out == "stale"

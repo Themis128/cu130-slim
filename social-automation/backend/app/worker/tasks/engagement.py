@@ -2,7 +2,7 @@
 queued actions honoring jitter + caps."""
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
 from sqlalchemy import select
@@ -46,24 +46,12 @@ async def _run(limit: int):
                     is_followed=c.is_followed,
                     is_connection=c.is_connection,
                     in_crm=c.in_crm,
-                    meta_data=c.meta_data,
+                    meta_data=c.meta_data or {},
                 ),
                 db,
             )
             c.scored = True
         await db.commit()
-
-        # auto-approve repost actions scoring >= the gate threshold — high-
-        # confidence reposts skip the human review queue (post_autoapprove pattern)
-        hi = (await db.execute(
-            select(EngagementAction).where(
-                EngagementAction.action == "repost",
-                EngagementAction.status == "pending_human_gate",
-                EngagementAction.score >= 8.0))).scalars().all()
-        for a in hi:
-            a.status = "approved"
-        if hi:
-            await db.commit()
 
         # 2. draft 3C comments for gated comment actions
         drafts_needed = (
@@ -97,10 +85,18 @@ async def _run(limit: int):
 
         # real-time per-item gate pings — dedicated channel webhook with
         # native deep links (platform:// schemes open the mobile app)
-        # Ping only the rows drafted in this sweep, so each gated comment is
-        # announced once. Re-querying every pending_human_gate row from the
-        # last 2h re-sent <!channel> for the same items on every beat tick.
-        if drafts_needed:
+        gated_items = (
+            (
+                await db.execute(
+                    select(EngagementAction).where(
+                        EngagementAction.status == "pending_human_gate", EngagementAction.created_at > datetime.now(UTC) - timedelta(hours=2)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if gated_items:
             try:
                 import os
 
@@ -118,11 +114,9 @@ async def _run(limit: int):
                     "twitter": "twitter://timeline",
                     "threads": "instagram://app",
                 }
-                for a in drafts_needed:
-                    if not a.comment_draft:
-                        continue  # nothing to review (no candidate / empty LLM reply)
+                for a in gated_items:
                     dl = deeplink.get(a.platform, "")
-                    draft = a.comment_draft[:140] + "…" if len(a.comment_draft) > 140 else a.comment_draft
+                    draft = (a.comment_draft or "manual review")[:140]
                     await _post_slack_text(
                         webhook_url=hook,
                         token=os.environ.get("SLACK_BOT_TOKEN", ""),
@@ -144,7 +138,6 @@ async def _run(limit: int):
                         )
                     except Exception:
                         pass
-                    a.meta_data = {**(a.meta_data or {}), "gate_notified": "1"}
             except Exception as exc:  # noqa: BLE001 — alerting never breaks the task
                 logger.warning("gate alert failed: %s", exc)
 
@@ -153,7 +146,6 @@ async def _run(limit: int):
             fb_actor,
             ig_actor,
             linkedin_actor,
-            skool_actor,
             threads_actor,
             tiktok_actor,
             x_actor,
@@ -166,13 +158,12 @@ async def _run(limit: int):
             "instagram": ig_actor.act,
             "facebook": fb_actor.act,
             "tiktok": tiktok_actor.act,
-            "skool": skool_actor.act,
         }
         rows = (
             (
                 await db.execute(
                     select(EngagementAction)
-                    .where(EngagementAction.status.in_(["pending", "pending_actor"]), EngagementAction.action != "duet_flag")
+                    .where(EngagementAction.status.in_(["pending", "pending_actor"]))
                     .order_by(EngagementAction.score.desc())
                     .limit(limit)
                 )
