@@ -11,7 +11,19 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[4]
 ENV = REPO / ".env"
-SECRET_JSON = Path("/mnt/c/Users/tbaltzakis/Downloads/client_secret_2_252848180858-rlv4jkvs95a4ct9gs2bf0kggm8tc4rq6.apps.googleusercontent.com.json")
+def _find_secret() -> Path:
+    """Locate the OAuth client-secret — scans candidate paths so a renamed
+    download or a repo copy works without code edits."""
+    cands = list(Path("/mnt/c/Users/tbaltzakis/Downloads").glob("client_secret*.json"))
+    cands += list(Path("/home/tbaltzakis").glob("**/client_secret*.json"))
+    cands += list(Path.home().glob(".config/gmail/client_secret*.json"))
+    if not cands:
+        raise SystemExit(
+            "client_secret JSON not found — drop it in Downloads or "
+            "~/.config/gmail/ (Google Cloud console → OAuth client → download)")
+    return sorted(cands, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+
+SECRET_JSON = _find_secret()
 
 def _load_secret():
     d = json.loads(SECRET_JSON.read_text())
