@@ -36,7 +36,8 @@ def try_cmd(args, timeout=15):
 
 def fire():
     if bound():
-        print("already bound"); return 0
+        print("already bound")
+        return 0
     paths = [
         [SCHTASKS, "/run", "/tn", "CloudlessDebugChrome"],
         [EXPLORER, BAT],
@@ -47,7 +48,8 @@ def fire():
         try_cmd(p)
         time.sleep(6)
         if bound():
-            print(f"bound via {p[0]}"); return 0
+            print(f"bound via {p[0]}")
+            return 0
     # fallback — the file-drop trigger for the Windows watcher
     os.makedirs(os.path.dirname(FLAG), exist_ok=True)
     open(FLAG, "w").write(str(int(time.time())))
