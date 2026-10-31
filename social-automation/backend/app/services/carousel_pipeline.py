@@ -1,10 +1,13 @@
 """End-to-end Cloudflare carousel pipeline for n8n / automation."""
 
+from __future__ import annotations
+
+
 def _sanitize_caption(c):
     from app.services.content_sanitizer import sanitize_post_text
+
     return sanitize_post_text(c)
 
-from __future__ import annotations  # noqa: E402
 
 import base64  # noqa: E402
 import io  # noqa: E402
