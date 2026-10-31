@@ -69,6 +69,7 @@ celery_app = Celery(
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
         "app.worker.tasks.funnel_sync",
+        "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
     ],
@@ -274,6 +275,7 @@ celery_app.conf.update(
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
+        "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
@@ -300,6 +302,12 @@ celery_app.conf.update(
         "account-status-reconcile": {
             "task": "app.worker.tasks.account_status_reconcile.reconcile_account_status",
             "schedule": crontab(minute=40, hour="*/6"),
+        },
+        # Gate-sweep — fires pending human-gates via the CDP bridge when
+        # the debug Chrome is live (consent/OAuth stops queuing for clicks).
+        "gate-sweep": {
+            "task": "app.worker.tasks.gate_sweep.run_gate_sweep",
+            "schedule": crontab(minute=15),
         },
         # Funnel sync — EspoCRM→Mautic contacts + MinIO funnel-zone export.
         "funnel-sync": {
