@@ -2152,6 +2152,12 @@ services:
   promtail:
     image: grafana/promtail:3.0.0
     container_name: promtail
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:9080/ready >/dev/null 2>&1 || pgrep -f promtail >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
     restart: unless-stopped
     environment:
       # Must resolve to the same Loki the worker's LOKI_URL reads —
@@ -2174,6 +2180,12 @@ services:
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3.0
     container_name: docker-socket-proxy
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f docker-socket-proxy >/dev/null || pgrep -f 'proxy' >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
     restart: unless-stopped
     environment:
       - CONTAINERS=1
@@ -2194,6 +2206,12 @@ services:
       - .:/app
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f heal_supervisor >/dev/null"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 45s
     restart: unless-stopped
 
   # Mautic — self-hosted funnel/marketing-automation manager (campaigns,

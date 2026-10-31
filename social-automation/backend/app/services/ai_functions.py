@@ -160,50 +160,68 @@ async def ai_classify(labels: list[str] | str, text: str) -> str:
     if isinstance(labels, str):
         labels = [x.strip() for x in labels.split(",")]
     opts = " / ".join(labels)
+    import time as _t
+    t0 = _t.monotonic()
     try:
         out = await _chat(
             "Classify the text's INTENT. Pick EXACTLY ONE label from "
             f"[{opts}]. Judge by what the sender wants — asking for help, "
             "pricing, or a service = buying interest, not a casual note. "
             f"Output ONLY the label.\n\nText: {text[:1200]}", 12)
+        _audit("ai_classify", "ok", (_t.monotonic()-t0)*1000, text)
         return out if out in labels else labels[0]
     except Exception as e:
         logger.warning("ai_classify failed: %s", e)
+        _audit("ai_classify", "error", (_t.monotonic()-t0)*1000, text)
         return labels[0] if labels else ""
 
 
 async def ai_extract(field: str, text: str, quality: bool = False) -> str:
     """Extract a single field from text — NONE if absent.
     quality=True routes to the bigger DMR model (Q&A, scoring)."""
+    import time as _t
+    t0 = _t.monotonic()
     try:
-        return await _chat(
+        out = await _chat(
             "You are a precise extractor. From the text, extract only the "
             "requested field. If absent output NONE. Output ONLY the value, "
             f"no prose.\nField: {field}\n\nText: {text[:1200]}", 30,
             quality=quality)
+        _audit("ai_extract", "ok", (_t.monotonic()-t0)*1000, text)
+        return out
     except Exception as e:
         logger.warning("ai_extract failed: %s", e)
+        _audit("ai_extract", "error", (_t.monotonic()-t0)*1000, text)
         return "NONE"
 
 
 async def ai_mask(text: str, labels: str = "person,email,phone") -> str:
     """Mask PII spans — for datalake/audit writes, never the CRM record."""
+    import time as _t
+    t0 = _t.monotonic()
     try:
-        return await _chat(
+        out = await _chat(
             f"Redact every {labels} in the text to [REDACTED-<type>]. Keep "
             "all other content identical. Output ONLY the redacted text.\n\n" + text)
+        _audit("ai_mask", "ok", (_t.monotonic()-t0)*1000, text)
+        return out
     except Exception as e:
         logger.warning("ai_mask failed: %s", e)
+        _audit("ai_mask", "error", (_t.monotonic()-t0)*1000, text)
         return text
 
 
 async def ai_similarity(a: str, b: str) -> float:
     """Embedding-cosine similarity — the cross-format dedup signal."""
+    import time as _t
+    t0 = _t.monotonic()
     try:
         ea, eb = await _embed(a), await _embed(b)
+        _audit("ai_similarity", "ok", (_t.monotonic()-t0)*1000, a)
         return round(_cos(ea, eb), 4)
     except Exception as e:
         logger.warning("ai_similarity failed: %s", e)
+        _audit("ai_similarity", "error", (_t.monotonic()-t0)*1000, a)
         return 0.0
 
 
