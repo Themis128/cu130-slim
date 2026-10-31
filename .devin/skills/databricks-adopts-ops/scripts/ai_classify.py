@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """ai_classify.py — SQL-callable AI data functions via the DMR model.
-ai_classify("is this a lead?", text) → one-word label; ai_extract(text, field)
+ai_classify("is this a lead?", text) → one-word label; ai_extract(field, text)
 → a value. The Databricks AI-Functions pattern on the datalake."""
 import json
 import sys
 import urllib.request
 
 DMR = "http://localhost:12435/engines/v1/chat/completions"
+COMMANDS = ("ai_classify", "ai_extract")
 
 
 def _dmr(prompt: str) -> str:
@@ -25,9 +26,17 @@ def ai_extract(field: str, text: str) -> str:
     return _dmr(f"Extract the {field} from this text. Reply with ONLY the value.\n\n{text[:1500]}")
 
 
+def _usage() -> None:
+    print("usage: ai_classify.py {ai_classify|ai_extract} <instruction|field> <text>",
+          file=sys.stderr)
+    sys.exit(2)
+
+
 if __name__ == "__main__":
-    cmd, text = sys.argv[1], sys.argv[-1]
+    if len(sys.argv) < 4 or sys.argv[1] not in COMMANDS:
+        _usage()
+    cmd, arg, text = sys.argv[1], sys.argv[2], " ".join(sys.argv[3:])
     if cmd == "ai_classify":
-        print(ai_classify(sys.argv[2], text))
+        print(ai_classify(arg, text))
     else:
-        print(ai_extract(sys.argv[2], text))
+        print(ai_extract(arg, text))
