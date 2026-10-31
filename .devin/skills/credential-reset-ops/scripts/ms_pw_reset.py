@@ -72,8 +72,8 @@ def adb_code():
                 [b, "shell", "content", "query", "--uri", "content://sms/inbox",
                  "--projection", "address,date,body", "--sort", "date DESC"],
                 capture_output=True, text=True, timeout=8)
-            rows = [l for l in r.stdout.splitlines() if re.search(
-                r'microsoft|accountprotection|AUTHMSG', l, re.I)]
+            rows = [row for row in r.stdout.splitlines() if re.search(
+                r'microsoft|accountprotection|AUTHMSG', row, re.I)]
             m = CODE_RE.search(" ".join(rows)) if rows else None
             if m:
                 return m.group(1)
@@ -89,8 +89,8 @@ def termux_code():
              "-o", "StrictHostKeyChecking=no", "-i", KEY,
              f"u0_a357@{PHONE_IP}", "termux-sms-list -l 5"],
             capture_output=True, text=True, timeout=12)
-        rows = [l for l in r.stdout.splitlines() if re.search(
-            r'microsoft|accountprotection|AUTHMSG', l, re.I)]
+        rows = [row for row in r.stdout.splitlines() if re.search(
+            r'microsoft|accountprotection|AUTHMSG', row, re.I)]
         m = CODE_RE.search(" ".join(rows)) if rows else None
         return m.group(1) if m else None
     except Exception:
