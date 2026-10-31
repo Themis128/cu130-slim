@@ -838,12 +838,12 @@ services:
     cpus: '2'
     restart: unless-stopped
   social-api:
-    image: ghcr.io/themis128/cu130-slim:social-api-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: api
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-api
@@ -1179,12 +1179,12 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
-    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-publishing
@@ -1219,12 +1219,12 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-media
@@ -1261,12 +1261,12 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-default
@@ -1300,12 +1300,12 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-messenger
@@ -1340,12 +1340,12 @@ services:
     cpus: '4'
     restart: unless-stopped
   celery-beat:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: celery-beat

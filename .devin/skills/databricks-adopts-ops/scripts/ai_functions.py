@@ -13,7 +13,7 @@ DMR_EMBED = "http://localhost:12435/engines/v1/embeddings"
 
 
 def _chat(prompt, tok=200):
-    body = json.dumps({"model": "ai/smollm3", "messages": [
+    body = json.dumps({"model": "ai/llama3.2", "messages": [
         {"role": "user", "content": prompt}], "temperature": 0.0, "max_tokens": tok}).encode()
     r = urllib.request.urlopen(urllib.request.Request(
         DMR, data=body, headers={"Content-Type": "application/json"}), timeout=90)
@@ -38,17 +38,30 @@ def fix_grammar(text):
                  "hashtags, URLs, numbers EXACTLY. Return ONLY the corrected text.\n\n" + text)
 
 
-def ai_classify(instruction, text):
-    return _chat(f"Classify strictly. {instruction}. Reply ONE word.\n\n{text[:1200]}", 10)
+def ai_classify(labels, text):
+    """Databricks-style classify — pick ONE of the given labels."""
+    if isinstance(labels, str):
+        labels = [x.strip() for x in labels.split(",")]
+    opts = " / ".join(labels)
+    return _chat(
+        "Classify the text's INTENT. Pick EXACTLY ONE label from "
+        f"[{opts}]. Judge by what the sender wants — asking for help, pricing, "
+        "or a service = buying interest, not a casual note. Output ONLY the "
+        f"label.\n\nText: {text[:1200]}", 12)
 
 
 def ai_extract(field, text):
-    return _chat(f"Extract the {field}. Reply ONLY the value.\n\n{text[:1200]}", 30)
+    return _chat("You are a precise extractor. From the text, extract only the "
+                 f"requested field. If absent output NONE. Output ONLY the value, "
+                 f"no prose.\nField: {field}\n\nText: {text[:1200]}", 30)
 
 
 def ai_mask(text, labels="person,email,phone"):
-    return _chat(f"Replace all {labels} in this text with [MASKED]. "
-                 f"Return ONLY the masked text.\n\n{text[:1200]}")
+    return _chat(
+        f"You are a PII redactor. Replace every {labels} value in the text "
+        "with [MASKED] — including addresses/usernames inside emails and "
+        "handles. Keep all other text identical. Output ONLY the masked text.\n\n"
+        f"{text[:1200]}")
 
 
 def ai_similarity(a, b):
