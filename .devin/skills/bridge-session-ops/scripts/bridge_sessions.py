@@ -94,6 +94,34 @@ def seed_x() -> int:
         return 1
 
 
+def seed_linkedin() -> int:
+    li_at = os.environ.get("LINKEDIN_LI_AT", "")
+    jsid = os.environ.get("LINKEDIN_JSESSIONID", "")
+    if not li_at:
+        return err("need LINKEDIN_LI_AT (the li_at session cookie) in env")
+    # li_at + JSESSIONID are the LinkedIn session pair — both HttpOnly,
+    # so the bridge cookie endpoint is the only injection path.
+    cookies = [
+        {"name": "li_at", "value": li_at, "domain": ".linkedin.com",
+         "path": "/", "secure": True, "httpOnly": True},
+    ]
+    if jsid:
+        cookies.append({"name": "JSESSIONID", "value": jsid.strip('"'),
+                        "domain": ".linkedin.com", "path": "/",
+                        "secure": True, "httpOnly": True})
+    r = urllib.request.Request(
+        BRIDGE + "/session/cookies",
+        data=json.dumps({"cookies": cookies}).encode(),
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(r, timeout=15) as f:
+            print("cookies:", f.read()[:200])
+            return 0
+    except Exception as e:
+        print("cookie endpoint failed:", str(e)[:120])
+        return 1
+
+
 def err(msg: str) -> int:
     print(msg)
     return 1
@@ -106,6 +134,8 @@ def main() -> int:
         return status()
     if cmd == "seed-x":
         return seed_x()
+    if cmd == "seed-linkedin":
+        return seed_linkedin()
     if cmd == "eval":
         print(ev(" ".join(sys.argv[2:])))
         return 0
