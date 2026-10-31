@@ -87,6 +87,21 @@ def content_quality_gate(text: str, recent_texts: list[str],
     return True, "ok"
 
 
+async def content_semantic_gate(text: str, recent_texts: list[str],
+                                sim_max: float = 0.85) -> tuple[bool, str]:
+    """Embedding-level dedup — catches repackaged duplicates the shingle
+    overlap misses (same piece, different words). Databricks-pattern:
+    ai_similarity via the DMR embedding model. Degrades open when the DMR
+    is unreachable — the shingle gate still guards the floor."""
+    from app.services import ai_functions
+
+    for prev in recent_texts[:10]:
+        sim = await ai_functions.ai_similarity(text, prev)
+        if sim >= sim_max:
+            return False, f"semantic-duplicate (sim={sim:.2f})"
+    return True, "ok"
+
+
 # --- generation-side quality gates (2026 AI-slop research) ---
 
 # LLM-favorite filler that flags synthetic copy — the "slop" markers.

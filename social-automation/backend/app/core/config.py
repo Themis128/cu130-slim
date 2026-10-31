@@ -553,6 +553,12 @@ class Settings(BaseSettings):
     MAUTIC_USERNAME: str = ""
     MAUTIC_PASSWORD: str = ""
 
+    # Docker Model Runner — the AI-Functions transport (adopts ops)
+    DMR_BASE_URL: str = "http://localhost:12435/engines/v1/chat/completions"
+    DMR_EMBED_URL: str = "http://localhost:12435/engines/v1/embeddings"
+    DMR_MODEL: str = "ai/llama3.2"
+    DMR_EMBED_MODEL: str = "docker.io/ai/qwen3-embedding:latest"
+
     # Website analytics ingestion from cloudless.gr.
     # Each tenant manages its own sink credentials; these defaults apply only to the
     # shared cloudless.gr domain when no per-tenant config exists.
