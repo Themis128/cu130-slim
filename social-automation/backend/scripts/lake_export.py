@@ -41,17 +41,15 @@ async def export(apply: bool = False) -> None:
                 await ai_functions.ai_mask(json.dumps(i, default=str))
                 for i in items)
             path = f"{BUCKET_PREFIX}/{zone}/{stamp}.jsonl"
-            await minio_client.put_object(path, payload.encode(),
-                                          content_type="application/x-ndjson")
+            await minio_storage.upload_object(path, payload.encode(),
+                                              content_type="application/x-ndjson")
             print(f"exported {len(items)} -> {path}")
         else:
             print(f"{zone}: {len(items)} rows (dry)")
 
 
 async def status() -> None:
-    for zone in ("leads", "contacts", "segments"):
-        objs = await minio_client.list_objects(f"{BUCKET_PREFIX}/{zone}/")
-        print(f"{zone}: {len(objs)} exports")
+    print("minio enabled:", minio_storage.minio_enabled())
 
 
 if __name__ == "__main__":
