@@ -141,6 +141,7 @@ async def test_run_changed_notifies(monkeypatch):
     last = MagicMock(meta_data={"status": "Αναμονή"}, team_id="t")
     acc = MagicMock(team_id="t", meta_data={"bot_token_enc": "enc"}, access_token_enc=b"e")
     monkeypatch.setattr(M, "MAIL", "m")
+
     monkeypatch.setattr(M, "KPA", "k")
     monkeypatch.setattr(M, "_poll", lambda: {"status": "Ολοκληρώθηκε", "proto": "11"})
     monkeypatch.setattr(M, "task_session", lambda: _db(last, acc))
