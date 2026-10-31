@@ -2271,6 +2271,16 @@ services:
     mem_limit: 384m
     restart: unless-stopped
 
+  # Build anchor for the shared python-sidecar base image — never runs as a
+  # service (profile-gated); exists so `docker compose build` and the CI
+  # matrix can produce/push the tag the sidecars FROM.
+  social-sidecar-base:
+    profiles: ["build-only"]
+    image: ghcr.io/themis128/cu130-slim:social-sidecar-base-latest
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.sidecar-base
+
 volumes:
   portainer_data: null
   postgres_data: null

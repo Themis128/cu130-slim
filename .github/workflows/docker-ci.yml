@@ -49,15 +49,10 @@ jobs:
           - name: env-manager-frontend
             context: env-manager/frontend
             dockerfile: env-manager/frontend/Dockerfile
-          - name: social-api
+          - name: social-backend
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
-            target: api
-            build_contexts: browser=browser-novnc
-          - name: social-worker-publishing
-            context: social-automation/backend
-            dockerfile: social-automation/backend/Dockerfile
-            target: worker
+            target: base
             build_contexts: browser=browser-novnc
           - name: social-frontend
             context: social-automation/frontend
@@ -119,12 +114,12 @@ jobs:
             type=raw,value=${{ matrix.service.name }}-{{sha}}
             type=ref,event=branch,prefix=${{ matrix.service.name }}-
             type=ref,event=pr,prefix=${{ matrix.service.name }}-
-            # The worker stage is shared: the publishing build also backs the
-            # social-worker-* tags used by social-worker-default/media/messenger
-            # and celery-beat (mirrors build-and-push.yml).
-            type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
-            type=raw,value=social-worker-${{ steps.version.outputs.tag }},enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
-            type=raw,value=social-worker-{{sha}},enable=${{ matrix.service.name == 'social-worker-publishing' }}
+            # The backend builds once; the same image backs every social-*
+            # service (api + all queue workers + beat). Publish the legacy
+            # aliases so old compose checkouts/rollbacks keep resolving.
+            type=raw,value=social-api-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-worker-publishing-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
 
       - name: Build and push ${{ matrix.service.name }}
         id: build

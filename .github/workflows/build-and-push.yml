@@ -39,6 +39,7 @@ jobs:
           # service overrides `command:` anyway). The tag-push step also
           # publishes the legacy social-api/social-worker-* aliases.
           - social-api
+          - social-sidecar-base
           - env-manager-backend
           - env-manager-frontend
           - social-frontend
