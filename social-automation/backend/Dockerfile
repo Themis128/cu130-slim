@@ -76,11 +76,12 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # ── Slim api builder: core deps only (no worker media/PDF/notebook stack) ──
 FROM builder AS builder-api
-RUN python -m venv /opt/venv-api && \
-    /opt/venv-api/bin/pip install --no-cache-dir -e . && \
-    /opt/venv-api/bin/pip install --no-cache-dir "instagrapi==2.6.9" --no-deps && \
-    /opt/venv-api/bin/pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0" && \
-    find /opt/venv-api/lib/python*/site-packages \
+# The venv must live at its final path — console scripts hardcode the shebang.
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir -e . && \
+    /opt/venv/bin/pip install --no-cache-dir "instagrapi==2.6.9" --no-deps && \
+    /opt/venv/bin/pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0" && \
+    find /opt/venv/lib/python*/site-packages \
     -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete 2>/dev/null || true
 
 # ── Targets ──
@@ -96,7 +97,7 @@ USER app
 # `api` = slim image — core venv only; worker-extra import sites are all
 # function-lazy or ImportError-guarded.
 FROM runtime-common AS api
-COPY --from=builder-api /opt/venv-api /opt/venv
+COPY --from=builder-api /opt/venv /opt/venv
 CMD ["sh", "-c", "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
 
 FROM base AS worker
