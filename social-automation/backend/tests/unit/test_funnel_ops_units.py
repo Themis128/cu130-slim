@@ -192,7 +192,7 @@ async def test_funnel_score_tiers(monkeypatch):
         _lead(interest="pricing"),
         _lead(),
     ]
-    monkeypatch.setattr(wa, "get_session_factory", lambda: (lambda: _session(rows)))
+    monkeypatch.setattr(wa, "get_session_factory", lambda: lambda: _session(rows))
     logged = []
     monkeypatch.setattr(mt, "log_funnel_score", lambda s, t: logged.append((dict(s), t)))
     out = await FS._score()
@@ -205,7 +205,7 @@ async def test_funnel_score_mlflow_failure_ignored(monkeypatch):
     import app.services.mlflow_track as mt
     import app.worker._async as wa
 
-    monkeypatch.setattr(wa, "get_session_factory", lambda: (lambda: _session([])))
+    monkeypatch.setattr(wa, "get_session_factory", lambda: lambda: _session([]))
 
     def boom(*a):
         raise RuntimeError("no mlflow")

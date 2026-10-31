@@ -10,6 +10,7 @@ Usage (inside social-api):
     python scripts/lake_export.py --status   # report current zone state
     python scripts/lake_export.py --apply    # perform the export
 """
+
 import asyncio
 import json
 import re
@@ -24,8 +25,8 @@ from app.services import espocrm_client, mautic_client, minio_storage
 BUCKET_PREFIX = "funnel"
 
 _RE_PII = re.compile(
-    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"   # emails
-    r"|\+?\d[\d\s().-]{7,}\d"                            # phone-like
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"  # emails
+    r"|\+?\d[\d\s().-]{7,}\d"  # phone-like
 )
 
 
@@ -48,21 +49,17 @@ async def export(apply: bool = False) -> None:
     if apply:
         # compact summary the Q&A layer answers over — avoids streaming
         # 200 masked rows into a small model on every question.
-        summary = {"exported_at": stamp, **{
-            z: {"rows": len(items)} for z, items in rows.items()}}
+        summary = {"exported_at": stamp, **{z: {"rows": len(items)} for z, items in rows.items()}}
         statuses: dict[str, int] = {}
         for lead in rows["leads"]:
-            statuses[(lead.get("status") or "?").lower()] = \
-                statuses.get((lead.get("status") or "?").lower(), 0) + 1
+            statuses[(lead.get("status") or "?").lower()] = statuses.get((lead.get("status") or "?").lower(), 0) + 1
         summary["lead_status_counts"] = statuses
-        summary["segments"] = [s.get("name") or s.get("alias")
-                               for s in rows["segments"]]
-        await minio_storage.upload_object(
-            f"{BUCKET_PREFIX}/summary.json",
-            json.dumps(summary).encode(), content_type="application/json")
+        summary["segments"] = [s.get("name") or s.get("alias") for s in rows["segments"]]
+        await minio_storage.upload_object(f"{BUCKET_PREFIX}/summary.json", json.dumps(summary).encode(), content_type="application/json")
     for zone, items in rows.items():
         if apply and items:
             from app.services import ai_functions
+
             rows_masked = []
             for i in items:
                 raw = _regex_mask(json.dumps(i, default=str))
@@ -73,12 +70,9 @@ async def export(apply: bool = False) -> None:
                 rows_masked.append(raw)
             payload = "\n".join(rows_masked)
             path = f"{BUCKET_PREFIX}/{zone}/{stamp}.jsonl"
-            await minio_storage.upload_object(path, payload.encode(),
-                                              content_type="application/x-ndjson")
+            await minio_storage.upload_object(path, payload.encode(), content_type="application/x-ndjson")
             # stable key the Q&A layer reads
-            await minio_storage.upload_object(
-                f"{BUCKET_PREFIX}/{zone}/latest.jsonl", payload.encode(),
-                content_type="application/x-ndjson")
+            await minio_storage.upload_object(f"{BUCKET_PREFIX}/{zone}/latest.jsonl", payload.encode(), content_type="application/x-ndjson")
             print(f"exported {len(items)} -> {path}")
             _write_delta(zone, rows_masked, stamp)
         else:
@@ -88,6 +82,7 @@ async def export(apply: bool = False) -> None:
 def _delta_storage_options() -> dict[str, str]:
     """MinIO S3-compatible storage options for delta-rs."""
     from app.core.config import get_settings
+
     settings = get_settings()
     endpoint = (settings.MINIO_ENDPOINT or "").strip()
     if not endpoint.startswith("http"):
@@ -108,12 +103,15 @@ def _write_delta(zone: str, rows_masked: list[str], stamp: str) -> None:
     try:
         import pyarrow as pa
         from deltalake import write_deltalake
+
         bucket = (minio_storage._bucket() or "social-media").strip()
-        table = pa.table({
-            "zone": pa.array([zone] * len(rows_masked), type=pa.string()),
-            "exported_at": pa.array([stamp] * len(rows_masked), type=pa.string()),
-            "payload": pa.array(rows_masked, type=pa.string()),
-        })
+        table = pa.table(
+            {
+                "zone": pa.array([zone] * len(rows_masked), type=pa.string()),
+                "exported_at": pa.array([stamp] * len(rows_masked), type=pa.string()),
+                "payload": pa.array(rows_masked, type=pa.string()),
+            }
+        )
         write_deltalake(
             f"s3://{bucket}/{BUCKET_PREFIX}/{zone}_delta",
             table,
