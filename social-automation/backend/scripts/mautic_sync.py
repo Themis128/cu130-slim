@@ -23,8 +23,9 @@ async def sync(apply: bool = False) -> None:
     if not mautic_client.configured():
         print("mautic not configured (MAUTIC_BASE_URL/USERNAME/PASSWORD)")
         return
-    contacts = await espocrm_client.list_contacts()
-    print(f"espocrm contacts: {len(contacts)}")
+    data = await espocrm_client.espo_get("/Lead", params={"maxSize": 200})
+    contacts = data.get("list") or []
+    print(f"espocrm leads: {data.get('total')} (page {len(contacts)})")
     if not apply:
         for c in contacts[:10]:
             print("  dry:", c.get("emailAddress") or c.get("name"))
@@ -34,16 +35,18 @@ async def sync(apply: bool = False) -> None:
         "CRM Sync", "crm-sync", "Contacts synced from EspoCRM"
     )
     seg_id = (seg.get("list") or {}).get("id") or seg.get("id")
+    junk = ("example.com", "test.dev", "test.local", "probe@", "platform-test")
     for c in contacts:
         email = (c.get("emailAddress") or "").strip().lower()
-        if not email:
+        if not email or any(j in email for j in junk):
             skipped += 1
             continue
         fields = {
             "firstname": c.get("firstName") or "",
             "lastname": c.get("lastName") or "",
             "company": c.get("accountName") or "",
-            "tags": ["espo-sync"],
+            "title": c.get("title") or "",
+            "tags": ["espo-sync", f"espo-status:{(c.get('status') or 'none').lower()}"],
         }
         r = await mautic_client.upsert_contact(email, fields)
         contact_id = (r.get("contact") or {}).get("id")

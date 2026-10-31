@@ -13,7 +13,7 @@ DMR_EMBED = "http://localhost:12435/engines/v1/embeddings"
 
 
 def _chat(prompt, tok=200):
-    body = json.dumps({"model": "ai/llama3.2", "messages": [
+    body = json.dumps({"model": "ai/smollm3", "messages": [
         {"role": "user", "content": prompt}], "temperature": 0.0, "max_tokens": tok}).encode()
     r = urllib.request.urlopen(urllib.request.Request(
         DMR, data=body, headers={"Content-Type": "application/json"}), timeout=90)
