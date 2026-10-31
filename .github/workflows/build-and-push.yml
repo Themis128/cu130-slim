@@ -98,15 +98,17 @@ jobs:
           docker push "${PACKAGE}:${SVC}-latest"
           docker push "${PACKAGE}:${SVC}-${SHA_TAG}"
           echo "Pushed ${PACKAGE}:${SVC}-latest and ${PACKAGE}:${SVC}-${SHA_TAG}"
-          # Worker matrix builds the `worker` stage of the shared backend
-          # Dockerfile; also publish shared social-worker-* tags
-          # so media/default/messenger/celery-beat compose refs keep working.
-          if [ "$SVC" = "social-worker-publishing" ]; then
-            docker tag "$BUILT" "${PACKAGE}:social-worker-latest"
-            docker tag "$BUILT" "${PACKAGE}:social-worker-${SHA_TAG}"
-            docker push "${PACKAGE}:social-worker-latest"
-            docker push "${PACKAGE}:social-worker-${SHA_TAG}"
-            echo "Also pushed ${PACKAGE}:social-worker-latest and ${PACKAGE}:social-worker-${SHA_TAG}"
+          # The backend builds once; publish the canonical social-backend tag
+          # plus the legacy social-api/social-worker-* aliases so old
+          # compose checkouts and rollbacks keep resolving.
+          if [ "$SVC" = "social-api" ]; then
+            for TAG in social-backend-latest social-api-latest social-worker-latest social-worker-publishing-latest; do
+              docker tag "$BUILT" "${PACKAGE}:${TAG}"
+              docker push "${PACKAGE}:${TAG}"
+            done
+            docker tag "$BUILT" "${PACKAGE}:social-backend-${SHA_TAG}"
+            docker push "${PACKAGE}:social-backend-${SHA_TAG}"
+            echo "Also pushed social-backend-latest + legacy aliases"
           fi
 
   build-and-push-comfyui:

@@ -1,4 +1,7 @@
-FROM mirror.gcr.io/library/python:3.11-slim
+ARG SIDECAR_BASE=ghcr.io/themis128/cu130-slim:social-sidecar-base-latest
+FROM ${SIDECAR_BASE}
+
+USER root
 
 WORKDIR /app
 
