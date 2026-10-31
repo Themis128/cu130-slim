@@ -41,13 +41,15 @@ def alert(txt):
     for cmd, args in (
         (TG, ["intel", txt]),
         (None, ["ntfy", "pub", "-T", "meta-review", "cloudless-ops", txt]),
+        (None, ["curl", "-s", "-d", txt, "-H", "Title: meta-review",
+                "https://ntfy.sh/cloudless-ops"]),
     ):
         try:
             if cmd:
                 subprocess.run([sys.executable, "-X", "utf8", cmd, *args],
                                timeout=20, capture_output=True)
             else:
-                subprocess.run(args, timeout=20, capture_output=True, shell=True)
+                subprocess.run(args, timeout=20, capture_output=True)
         except Exception:
             pass
 
