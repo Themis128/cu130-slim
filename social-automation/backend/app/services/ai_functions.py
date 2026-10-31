@@ -115,7 +115,8 @@ async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> st
               or "docker.io/ai/qwen3:8b-q4_K_M").strip()
         if qm:
             model = qm
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+    async with httpx.AsyncClient(
+            timeout=_TIMEOUT * 3 if quality else _TIMEOUT) as c:
         r = await c.post(base, json={
             "model": model,
             "messages": [{"role": "user", "content": prompt}],

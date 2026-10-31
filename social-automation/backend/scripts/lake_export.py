@@ -64,9 +64,15 @@ async def export(apply: bool = False) -> None:
     for zone, items in rows.items():
         if apply and items:
             from app.services import ai_functions
-            rows_masked = [await ai_functions.ai_mask(json.dumps(i, default=str))
-                           for i in items]
-            payload = "\n".join(_regex_mask(r) for r in rows_masked)
+            rows_masked = []
+            for i in items:
+                raw = _regex_mask(json.dumps(i, default=str))
+                # model pass only where PII was actually detected — regex
+                # alone already strips emails/phones; ai_mask catches names.
+                if "[REDACTED]" in raw:
+                    raw = await ai_functions.ai_mask(raw)
+                rows_masked.append(raw)
+            payload = "\n".join(rows_masked)
             path = f"{BUCKET_PREFIX}/{zone}/{stamp}.jsonl"
             await minio_storage.upload_object(path, payload.encode(),
                                               content_type="application/x-ndjson")
