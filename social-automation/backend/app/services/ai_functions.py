@@ -26,7 +26,7 @@ from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-_TIMEOUT = 30.0
+_TIMEOUT = 90.0
 
 
 def _cfg() -> tuple[str, str, str, str]:

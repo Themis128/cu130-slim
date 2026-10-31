@@ -554,9 +554,9 @@ class Settings(BaseSettings):
     MAUTIC_PASSWORD: str = ""
 
     # Docker Model Runner — the AI-Functions transport (adopts ops)
-    DMR_BASE_URL: str = "http://localhost:12435/engines/v1/chat/completions"
-    DMR_EMBED_URL: str = "http://localhost:12435/engines/v1/embeddings"
-    DMR_MODEL: str = "ai/llama3.2"
+    DMR_BASE_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1/chat/completions"
+    DMR_EMBED_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1/embeddings"
+    DMR_MODEL: str = "docker.io/ai/smollm3:latest"
     DMR_EMBED_MODEL: str = "docker.io/ai/qwen3-embedding:latest"
 
     # Website analytics ingestion from cloudless.gr.
