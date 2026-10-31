@@ -219,6 +219,7 @@ async def _rollup_post_status(post: Post, db: AsyncSession) -> None:
         post.failure_reason = None
         if new_status == PostStatus.PUBLISHED and not post.published_at:
             post.published_at = datetime.now(UTC)
+            _notify_publish_success(post, statuses)
 
     # Store a small summary for the UI (without adding a new PostStatus enum).
     meta = post.meta_data or {}
@@ -269,6 +270,21 @@ async def _notify_publish_failure(
     blocks: list[dict] = [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]
     blocks += publish_failure_buttons(queue_id)
     await post_alert_to_slack(text, blocks=blocks)
+    try:
+        from app.services.slack_notifications import send_telegram_alert
+        tg = [
+            f"❌ *Publish failed* — `{platform}`",
+            f"• Post: `{post_id}`",
+            f"• Reason: {reason_clean[:400] or 'Unknown error'}",
+        ]
+        if preview:
+            tg.append(f"• Content: {preview[:200]}")
+        if targets_summary:
+            tg.append(f"• Other targets: {targets_summary}")
+        tg.append("→ SocialAuto → Posts → Failed to retry")
+        await send_telegram_alert("ops", "\n".join(tg))
+    except Exception:
+        pass
 
 
 async def _notify_publish_success(post: Post, account: SocialAccount, platform_url: str | None) -> None:
