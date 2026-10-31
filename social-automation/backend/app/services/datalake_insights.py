@@ -530,7 +530,7 @@ async def funnel_answer(question: str) -> dict[str, Any]:
     for name in ("leads", "contacts", "segments"):
         key = f"funnel/{name}/latest.jsonl"
         try:
-            zone += await (await minio_storage.get_object(key)).decode() + "\n"
+            zone += (await minio_storage.get_object(key)).decode() + "\n"
         except Exception:
             pass
     if not zone.strip():

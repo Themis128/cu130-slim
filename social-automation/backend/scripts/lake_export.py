@@ -12,6 +12,7 @@ Usage (inside social-api):
 """
 import asyncio
 import json
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,17 @@ from app.services import espocrm_client, mautic_client, minio_storage
 
 
 BUCKET_PREFIX = "funnel"
+
+_RE_PII = re.compile(
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"   # emails
+    r"|\+?\d[\d\s().-]{7,}\d"                            # phone-like
+)
+
+
+def _regex_mask(text: str) -> str:
+    """Model-independent PII floor — the lake never holds raw lead PII even
+    when the DMR mask call is unreachable."""
+    return _RE_PII.sub("[REDACTED]", text)
 
 
 async def export(apply: bool = False) -> None:
@@ -37,9 +49,9 @@ async def export(apply: bool = False) -> None:
     for zone, items in rows.items():
         if apply and items:
             from app.services import ai_functions
-            payload = "\n".join(
-                await ai_functions.ai_mask(json.dumps(i, default=str))
-                for i in items)
+            rows_masked = [await ai_functions.ai_mask(json.dumps(i, default=str))
+                           for i in items]
+            payload = "\n".join(_regex_mask(r) for r in rows_masked)
             path = f"{BUCKET_PREFIX}/{zone}/{stamp}.jsonl"
             await minio_storage.upload_object(path, payload.encode(),
                                               content_type="application/x-ndjson")
