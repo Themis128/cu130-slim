@@ -9,20 +9,24 @@ def run_funnel_score() -> dict:
     return run_async(_score())
 
 async def _score() -> dict:
-    from app.services.db_router import get_session_factory
+    from app.worker._async import get_session_factory
     async with get_session_factory()() as s:
-        # score = engagement recency + source quality + publish-CTA clicks
+        # score on real intent signals: interest field, active thread, recency
         rows = (await s.execute(text("""
-            SELECT l.id, l.email, l.source,
-                   count(ea.id) FILTER (WHERE ea.created_at > now()-interval '14 days') recent_actions
-            FROM leads l LEFT JOIN engagement_actions ea ON ea.lead_id = l.id
-            GROUP BY l.id, l.email, l.source
+            SELECT l.id, l.email, l.source, l.interest, l.thread_id, l.updated_at
+            FROM leads l
         """))).fetchall()
         scored = {"hot":0,"warm":0,"cold":0}
+        from datetime import UTC, datetime, timedelta
+        week_ago = datetime.now(UTC) - timedelta(days=7)
         for r in rows:
-            n = r.recent_actions or 0
-            tier = "hot" if n>=3 else ("warm" if n>=1 else "cold")
-            scored[tier]+=1
+            if r.interest == "audit" or r.thread_id or (
+                    r.updated_at and r.updated_at > week_ago):
+                scored["hot"] += 1
+            elif r.interest and r.email:
+                scored["warm"] += 1
+            else:
+                scored["cold"] += 1
         try:
             from app.services.mlflow_track import log_funnel_score
             log_funnel_score(scored, len(rows))
