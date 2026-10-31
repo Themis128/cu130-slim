@@ -72,3 +72,56 @@ def survey_autosend() -> dict:
 @celery_app.task(name="app.worker.tasks.auto_gates.post_autoapprove")
 def post_autoapprove() -> dict:
     return run_async(_post_autoapprove())
+
+
+# ── Engagement-gate autonomy dial ──
+# AUTONOMY_LEVEL env (Code of Honor #2: approval given once, as config):
+#   0 = manual (default) — every gated action waits for a human click
+#   1 = notify-only — same as 0, used for future escalation hooks
+#   2 = auto-safe — approve only low-risk actions (comment/duet_flag with a
+#       drafted comment and score >= threshold); reposts still gate
+#   3 = full — every pending_human_gate re-enters dispatch; the human gate
+#       becomes an audit log, not a blocker
+def _autonomy_level() -> int:
+    try:
+        return int(os.environ.get("AUTONOMY_LEVEL", "0"))
+    except ValueError:
+        return 0
+
+
+_SAFE_ACTIONS = {"comment", "duet_flag"}
+_SCORE_MIN = 60
+
+
+async def _engagement_autoapprove() -> dict:
+    lvl = _autonomy_level()
+    if lvl < 2:
+        return {"approved": 0, "off": True, "level": lvl}
+    from app.models.engagement import EngagementAction
+
+    approved = 0
+    async with task_session() as db:
+        rows = (await db.execute(
+            select(EngagementAction).where(
+                EngagementAction.status == "pending_human_gate")
+            .order_by(EngagementAction.score.desc()).limit(50))).scalars().all()
+        for r in rows:
+            if lvl == 2 and not (
+                    r.action in _SAFE_ACTIONS
+                    and r.comment_draft
+                    and (r.score or 0) >= _SCORE_MIN):
+                continue
+            r.status = "pending"  # same transition the manual /approve does
+            approved += 1
+            try:
+                from app.services.slack_notifications import notify_engagement_autoapprove
+                notify_engagement_autoapprove(r)
+            except Exception:
+                logger.debug("autoapprove notify skipped", exc_info=True)
+        await db.commit()
+    return {"approved": approved, "level": lvl}
+
+
+@celery_app.task(name="app.worker.tasks.auto_gates.engagement_autoapprove")
+def engagement_autoapprove() -> dict:
+    return run_async(_engagement_autoapprove())
