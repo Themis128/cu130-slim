@@ -43,3 +43,20 @@ SMS to the phone. Contact options shown masked are picked for you.
 
 After reset, Meta may still gate the *next* sensitive change on
 device-trust — the drive lands the password; the trust-aging is separate.
+
+## ms_totp_enroll.py + totp_code.py — TOTP enrollment without sign-in (2026-10-31)
+
+The Authenticator sign-in paths fail (`AADSTS90023`, stuck "Adding account")
+— the manual-secret path works:
+
+```
+ms_totp_enroll.py            # full drive: security page -> secret -> enroll -> store
+totp_code.py MS              # current 6-digit code (unattended logins)
+```
+
+- Captures the secret from `account.live.com/proofs/manage/additional`
+  -> "Use an app" -> "different Authenticator app" -> "I can't scan the bar code"
+- Enrolls via Authenticator `+` -> Other account -> enter code manually
+- Stores `MS_TOTP_SECRET` in `.env` + the `ms-totp-secret` key in the
+  `authentik-secret` k3s slot on omv
+- `totp_code.py` works without pyotp too (stdlib HMAC-SHA1 fallback)
