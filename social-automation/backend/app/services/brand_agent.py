@@ -201,6 +201,16 @@ async def run_autopilot(
             if not ok:
                 skipped_count += 1
                 continue
+            # Quantitative LLM-judge gate (databricks content_eval adopt) —
+            # the heuristic gate's pass isn't proof of publish quality.
+            try:
+                from app.services.content_eval import eval_post_async
+                score = await eval_post_async(content, db)
+                if score < 6:
+                    skipped_count += 1
+                    continue
+            except Exception:
+                pass  # eval unavailable — the heuristic gate still stands
 
             # Create draft post
             post = Post(
