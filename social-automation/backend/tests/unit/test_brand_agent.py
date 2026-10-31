@@ -24,6 +24,17 @@ class _ResFirst(_Res):
         return self._first
 
 
+class _ResAll(_Res):
+    """Result for the recent-post-texts query (``recent.all()`` rows)."""
+
+    def __init__(self, rows=()):
+        super().__init__()
+        self._rows = list(rows)
+
+    def all(self):
+        return self._rows
+
+
 class _DB:
     def __init__(self, results):
         self.results = list(results)  # deque of _Res
@@ -145,7 +156,7 @@ async def test_autopilot_values_fallback_no_slots(monkeypatch):
 async def test_autopilot_full_run(monkeypatch):
     brand = _brand()
     voice = _voice()
-    db = _DB([_ResFirst(first=brand), _ResFirst(first=voice)])
+    db = _DB([_ResFirst(first=brand), _ResFirst(first=voice), _ResAll([("older post",), (None,)])])
 
     slots = [Mock(**{"isoformat.return_value": f"t{i}"}) for i in range(3)]
     monkeypatch.setattr(A, "find_empty_calendar_slots", AsyncMock(return_value=slots))

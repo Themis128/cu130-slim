@@ -157,3 +157,6 @@ storage-models/**/*.pth
 storage-models/**/*.bin
 metabase-mcp.env
 promtail-data/
+
+# deploy lock (see AGENTS.md "Deploy lock & auto-healers")
+.deploy.lock
