@@ -6,8 +6,8 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 
-revision = "a1b2c3d4e5f6"
-down_revision = "z9k0l1m2n3o4"
+revision = "f9a1b2c3d4e5"
+down_revision = "f7a8b9c0d1e2"
 branch_labels = None
 depends_on = None
 
