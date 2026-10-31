@@ -838,7 +838,7 @@ services:
     cpus: '2'
     restart: unless-stopped
   social-api:
-    image: ghcr.io/themis128/cu130-slim:social-api-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-api-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1179,12 +1179,12 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
-    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-publishing
@@ -1219,12 +1219,12 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-media
@@ -1261,12 +1261,12 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-default
@@ -1300,12 +1300,12 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-messenger
@@ -1340,12 +1340,12 @@ services:
     cpus: '4'
     restart: unless-stopped
   celery-beat:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: worker
+      target: base
       additional_contexts:
         browser: ./browser-novnc
     container_name: celery-beat
@@ -2196,10 +2196,112 @@ services:
       - backend
     restart: unless-stopped
 
+  # Mautic — self-hosted funnel/marketing-automation manager (campaigns,
+  # landing pages, drip sequences, lead scoring, forms). Dedicated MariaDB.
+  mautic-db:
+    image: mariadb:11.4
+    container_name: mautic-db
+    networks:
+      - db
+    volumes:
+      - mautic_db_data:/var/lib/mysql
+    environment:
+      - MARIADB_DATABASE=mautic
+      - MARIADB_USER=mautic
+      - MARIADB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=${MAUTIC_DB_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: 512m
+    restart: unless-stopped
+
+  mautic:
+    image: mautic/mautic:latest
+    container_name: mautic
+    networks:
+      - backend
+      - db
+    ports:
+      - 127.0.0.1:8021:80
+    volumes:
+      - mautic_data:/var/www/html
+    depends_on:
+      mautic-db:
+        condition: service_healthy
+    <<: *public-dns
+    environment:
+      - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_PORT=3306
+      - MAUTIC_DB_USER=mautic
+      - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MAUTIC_DB_DATABASE=mautic
+      - MAUTIC_TRUSTED_PROXIES=["0.0.0.0/0"]
+      - MAUTIC_URL=${MAUTIC_PUBLIC_URL:-http://localhost:8021}
+      - MAUTIC_RUN_CRON_JOBS=true
+      - DOCKER_MAUTIC_ROLE=mautic_web
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    mem_limit: 1g
+    restart: unless-stopped
+
+  mautic-cron:
+    image: mautic/mautic:latest
+    container_name: mautic-cron
+    networks:
+      - db
+    volumes:
+      - mautic_data:/var/www/html
+    depends_on:
+      - mautic
+    environment:
+      - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_PORT=3306
+      - MAUTIC_DB_USER=mautic
+      - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MAUTIC_DB_DATABASE=mautic
+      - DOCKER_MAUTIC_ROLE=mautic_cron
+    mem_limit: 384m
+    restart: unless-stopped
+
+  # Build anchor for the shared python-sidecar base image — never runs as a
+  # service (profile-gated); exists so `docker compose build` and the CI
+  # matrix can produce/push the tag the sidecars FROM.
+  social-sidecar-base:
+    profiles: ["build-only"]
+    image: ghcr.io/themis128/cu130-slim:social-sidecar-base-latest
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.sidecar-base
+
+  # Centralized container healer — watches the Docker socket and restarts any
+  # container whose HEALTHCHECK goes unhealthy (label `autoheal=true` on the
+  # service to opt in, or AUTOHEAL_CONTAINER_LABEL=all for everything).
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: "30"
+      AUTOHEAL_START_PERIOD: "60"
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: "20"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
 volumes:
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
+  mautic_data: null
+  mautic_db_data: null
   # Pre-created via docker volume create during the PG16→17 migration;
   # external keeps `compose down -v` from ever deleting the live data.
   social_postgres_data_v17:
