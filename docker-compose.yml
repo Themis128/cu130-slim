@@ -188,6 +188,8 @@ x-worker-volumes: &worker-volumes
   # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
   # slack_tool, monetization_tool, viber_tool, dedup_scan) — read-only.
   - ./social-automation/backend/scripts:/app/scripts:ro
+  - ./social-automation/backend/dbt:/app/dbt
+  - ./social-automation/backend/mlruns:/app/mlruns
   - ./social-automation/uploads:/app/uploads
   # Skill tooling + repo env for host-side scripts (gmail-ops, human-gate,
   # devapp watchers) — read-only; lets containerized tasks call them.
@@ -847,6 +849,8 @@ services:
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-api
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
       - db
@@ -1073,6 +1077,8 @@ services:
       # Ops CLIs (meta_tool, linkedin_tool, x_tool, tiktok_tool, bluesky_tool,
       # slack_tool, monetization_tool, viber_tool) — read-only.
       - ./social-automation/backend/scripts:/app/scripts:ro
+      - ./social-automation/backend/dbt:/app/dbt
+      - ./social-automation/backend/mlruns:/app/mlruns
       # Deploy seeds (content_prompt_templates etc.) — idempotent, applied on boot.
       - ./deploy/seeds:/app/deploy/seeds:ro
       - ./social-automation/uploads:/app/uploads
@@ -1121,6 +1127,8 @@ services:
     image: nginx:1.27-alpine
     pull_policy: if_not_present
     container_name: social-metrics
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
     ports:
@@ -1145,6 +1153,8 @@ services:
     image: nginx:1.27-alpine
     pull_policy: if_not_present
     container_name: social-api-gateway
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
     volumes:
@@ -1188,6 +1198,8 @@ services:
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-publishing
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
       - db
@@ -1228,6 +1240,8 @@ services:
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-media
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
       - db
@@ -1270,6 +1284,8 @@ services:
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-default
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
       - db
@@ -1309,6 +1325,8 @@ services:
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-worker-messenger
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
       - db
@@ -1349,6 +1367,8 @@ services:
       additional_contexts:
         browser: ./browser-novnc
     container_name: celery-beat
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     networks:
       - backend
       - db
@@ -1422,6 +1442,8 @@ services:
       context: ./social-automation/frontend
       dockerfile: Dockerfile
     container_name: social-frontend
+    labels:
+      - autoheal=true  # opt-in: autoheal restarts it when its healthcheck goes unhealthy
     command: ["node", "novnc-server.cjs"]
     ports:
       - 127.0.0.1:8082:8083
@@ -2190,10 +2212,119 @@ services:
     image: python:3.12-slim
     container_name: stack-watchers
     command: python /app/.devin/skills/pending-triggers-ops/scripts/heal_supervisor.py
+    # Never restarts the stack (compose-watchdog.sh owns that); pauses while
+    # the deploy lock is held. Repo is mounted read-only.
+    working_dir: /app
+    environment:
+      - DEPLOY_LOCK=/app/.deploy.lock
+      - DEPLOY_LOCK_MAX_AGE=3600
     volumes:
-      - .:/app
+      - .:/app:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker:/usr/bin/docker:ro
+      - /mnt/wsl/docker-desktop/cli-tools/usr/local/lib/docker/cli-plugins/docker-compose:/root/.docker/cli-plugins/docker-compose:ro
     networks:
       - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0 if b'heal_supervisor' in open('/proc/1/cmdline','rb').read() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── autoheal — restarts opted-in APP containers whose HEALTHCHECK goes
+  # unhealthy. Opt-in only (label autoheal=true): never postgres/redis/infra.
+  # Never restarts the whole stack — scripts/compose-watchdog.sh owns that.
+  # Image pinned by digest (bump deliberately, not via :latest drift).
+  autoheal:
+    image: willfarrell/autoheal:latest@sha256:53320121f32db551b8e19cdd5ff28eb1e5cece62845cc46683d4479b6a58b77e
+    container_name: autoheal
+    restart: unless-stopped
+    environment:
+      - AUTOHEAL_CONTAINER_LABEL=autoheal
+      - AUTOHEAL_INTERVAL=30
+      - AUTOHEAL_START_PERIOD=120
+      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=20
+      - WEBHOOK_URL=${SLACK_ALERTS_WEBHOOK_URL:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - backend
+
+  # Mautic — self-hosted funnel/marketing-automation manager (campaigns,
+  # landing pages, drip sequences, lead scoring, forms). Dedicated MariaDB.
+  mautic-db:
+    image: mariadb:11.4
+    container_name: mautic-db
+    networks:
+      - db
+    volumes:
+      - mautic_db_data:/var/lib/mysql
+    environment:
+      - MARIADB_DATABASE=mautic
+      - MARIADB_USER=mautic
+      - MARIADB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MARIADB_ROOT_PASSWORD=${MAUTIC_DB_ROOT_PASSWORD}
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    mem_limit: 512m
+    restart: unless-stopped
+
+  mautic:
+    image: mautic/mautic:latest
+    container_name: mautic
+    networks:
+      - backend
+      - db
+    ports:
+      - 127.0.0.1:8021:80
+    volumes:
+      - mautic_data:/var/www/html
+    depends_on:
+      mautic-db:
+        condition: service_healthy
+    <<: *public-dns
+    environment:
+      - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_PORT=3306
+      - MAUTIC_DB_USER=mautic
+      - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MAUTIC_DB_DATABASE=mautic
+      - MAUTIC_TRUSTED_PROXIES=["0.0.0.0/0"]
+      - MAUTIC_URL=${MAUTIC_PUBLIC_URL:-http://localhost:8021}
+      - MAUTIC_RUN_CRON_JOBS=true
+      - DOCKER_MAUTIC_ROLE=mautic_web
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 90s
+    mem_limit: 1g
+    restart: unless-stopped
+
+  mautic-cron:
+    image: mautic/mautic:latest
+    container_name: mautic-cron
+    networks:
+      - db
+    volumes:
+      - mautic_data:/var/www/html
+    depends_on:
+      - mautic
+    environment:
+      - MAUTIC_DB_HOST=mautic-db
+      - MAUTIC_DB_PORT=3306
+      - MAUTIC_DB_USER=mautic
+      - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
+      - MAUTIC_DB_DATABASE=mautic
+      - DOCKER_MAUTIC_ROLE=mautic_cron
+    mem_limit: 384m
     restart: unless-stopped
 
 volumes:
@@ -2220,6 +2351,8 @@ volumes:
   facebook_browser_data: null
   airbyte_mcp_data: null
   nextcloud_mcp_data: null
+  mautic_db_data: null
+  mautic_data: null
 
 # Explicit network topology (restored 2026-09-06 to match runtime state).
 # Names are pinned so compose adopts the existing networks instead of
