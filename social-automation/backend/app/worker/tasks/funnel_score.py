@@ -1,7 +1,9 @@
 """Data-driven funnel scoring — score leads by engagement + source, route to Mautic segments."""
-from app.worker.celery_app import celery_app
-from app.worker._async import run_async
 from sqlalchemy import text
+
+from app.worker._async import run_async
+from app.worker.celery_app import celery_app
+
 
 @celery_app.task(name="app.worker.tasks.funnel_score.run_funnel_score")
 def run_funnel_score() -> dict:

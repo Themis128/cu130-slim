@@ -18,7 +18,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services import espocrm_client, mautic_client
 
-
 _ESPO_TIER = {
     "converted": "hot",
     "in process": "hot",

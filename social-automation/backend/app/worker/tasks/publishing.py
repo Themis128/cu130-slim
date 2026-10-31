@@ -219,7 +219,6 @@ async def _rollup_post_status(post: Post, db: AsyncSession) -> None:
         post.failure_reason = None
         if new_status == PostStatus.PUBLISHED and not post.published_at:
             post.published_at = datetime.now(UTC)
-            _notify_publish_success(post, statuses)
 
     # Store a small summary for the UI (without adding a new PostStatus enum).
     meta = post.meta_data or {}
