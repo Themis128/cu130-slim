@@ -9,6 +9,7 @@ fn, model, input sha, outcome, latency. Auditable-outcomes mandate +
 fine-tune corpus.
 """
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "b8c9d0e1f2a3"

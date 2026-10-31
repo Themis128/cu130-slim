@@ -2,9 +2,10 @@
 
 revision: a1b2c3d4e5f6
 """
-from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+
+from alembic import op
 
 revision = "f9a1b2c3d4e5"
 down_revision = "b8c9d0e1f2a3"
