@@ -19,6 +19,7 @@ from app.api import (
     engagement,
     inbox,
     instagram,
+    funnel,
     leads,
     linkedin,
     mcp,
@@ -106,6 +107,8 @@ router.include_router(profile.router, prefix="/profile", tags=["profile"])
 router.include_router(messenger.router, prefix="/messenger", tags=["messenger"])
 
 router.include_router(inbox.router, prefix="/inbox", tags=["inbox"])
+
+router.include_router(funnel.router, prefix="/funnel", tags=["funnel"])
 
 router.include_router(leads.router, prefix="/leads", tags=["leads"])
 
