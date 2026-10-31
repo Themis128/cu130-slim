@@ -276,6 +276,11 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/engagement/{action_id}/approve` — POST
 - `/api/v1/engagement/{action_id}/reject` — POST
 
+## `funnel`
+
+- `/api/v1/funnel/conversion` — POST
+- `/api/v1/funnel/state` — GET
+
 ## `inbox`
 
 - `/api/v1/inbox/inbox` — GET
