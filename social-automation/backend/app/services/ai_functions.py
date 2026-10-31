@@ -30,6 +30,31 @@ _TIMEOUT = 90.0
 
 
 def _audit(fn: str, outcome: str, latency_ms: float, input_text: str = "") -> None:
+    """Fire-and-forget row into ai_function_calls — never blocks; input
+    stored as a sha only (same PII boundary as the lake)."""
+    import asyncio, hashlib
+
+    async def _write() -> None:
+        try:
+            from app.db.session import async_session_maker
+            from app.models.ai_function_call import AIFunctionCall
+            _, _, model, _ = _cfg()
+            async with async_session_maker() as s:
+                s.add(AIFunctionCall(
+                    fn=fn, model=model, outcome=outcome,
+                    latency_ms=latency_ms,
+                    input_sha=hashlib.sha256(input_text.encode()).hexdigest()[:32]))
+                await s.commit()
+        except Exception as e:
+            logger.debug("ai_function audit write failed: %s", e)
+
+    try:
+        asyncio.get_running_loop().create_task(_write())
+    except RuntimeError:
+        pass
+
+
+def _audit(fn: str, outcome: str, latency_ms: float, input_text: str = "") -> None:
     """Fire-and-forget row into ai_function_calls — never blocks the caller.
     input is stored as a sha (never raw — same PII boundary as the lake)."""
     import asyncio
@@ -110,12 +135,17 @@ def _cos(a: list[float], b: list[float]) -> float:
 async def fix_grammar(text: str) -> str:
     """Correct spelling/grammar only — preserves meaning, proper nouns,
     hashtags, URLs, numbers exactly."""
+    import time as _t
+    t0 = _t.monotonic()
     try:
-        return await _chat(
+        out = await _chat(
             "Fix ONLY spelling and grammar. Preserve meaning, proper nouns, "
             "hashtags, URLs, numbers EXACTLY. Return ONLY the corrected text.\n\n" + text)
+        _audit("fix_grammar", "ok", (_t.monotonic()-t0)*1000, text)
+        return out
     except Exception as e:
         logger.warning("fix_grammar failed: %s", e)
+        _audit("fix_grammar", "error", (_t.monotonic()-t0)*1000, text)
         return text
 
 
