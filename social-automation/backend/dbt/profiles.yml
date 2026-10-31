@@ -1,0 +1,10 @@
+social_funnel:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: /app/dbt/funnel.duckdb
+      attach:
+        - path: "dbname=social_automation user={{ env_var('PGUSER','social_user') }} password={{ env_var('PGPASSWORD','') }} host={{ env_var('PGHOST','social-postgres') }}"
+          alias: pg
+          type: postgres
