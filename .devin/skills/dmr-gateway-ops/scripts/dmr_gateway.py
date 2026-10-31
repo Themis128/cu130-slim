@@ -164,6 +164,19 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(json.dumps(obj).encode())
 
+    def _status_payload(self):
+        now = time.time()
+        return {
+            "endpoints": {k: [m for m, _ in v] for k, v in ENDPOINTS.items()},
+            "unhealthy": {m: round(u - now, 1)
+                          for m, u in UNHEALTHY.items() if u > now}}
+
+    def do_GET(self):
+        if self.path == "/v1/status":
+            self._send(200, self._status_payload())
+        else:
+            self._send(404, {"error": "not-found"})
+
     def do_POST(self):
         p = self.path
         if p.startswith("/v1/ep/"):      # /v1/ep/<endpoint>/chat or /embed
@@ -184,11 +197,7 @@ class H(BaseHTTPRequestHandler):
             status, out = _forward(path, body, "model", models, ep)
             self._send(status, out)
         elif p == "/v1/status":
-            now = time.time()
-            self._send(200, {
-                "endpoints": {k: [m for m, _ in v] for k, v in ENDPOINTS.items()},
-                "unhealthy": {m: round(u - now, 1)
-                              for m, u in UNHEALTHY.items() if u > now}})
+            self._send(200, self._status_payload())
         else:
             self._send(404, {"error": "not-found"})
 
@@ -204,5 +213,18 @@ if __name__ == "__main__":
     if cmd == "serve":
         print(f"dmr-gateway on :{PORT}")
         GW(("127.0.0.1", PORT), H).serve_forever()
+    elif cmd == "status":
+        # Query the running gateway's /v1/status; fall back to the static
+        # route table when it isn't up.
+        try:
+            with urllib.request.urlopen(
+                    f"http://127.0.0.1:{PORT}/v1/status", timeout=3) as r:
+                print(json.dumps(json.loads(r.read()), indent=1))
+        except Exception:
+            print(json.dumps({
+                "endpoints": {k: [m for m, _ in v] for k, v in ENDPOINTS.items()},
+                "unhealthy": {},
+                "note": "gateway not running — static route table"}, indent=1))
     else:
-        print(json.dumps({"endpoints": {k: v for k, v in ENDPOINTS.items()}}, indent=1))
+        print("usage: dmr_gateway.py [serve|status]", file=sys.stderr)
+        sys.exit(2)
