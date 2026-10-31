@@ -8,6 +8,7 @@ sources:
       - name: mv_publish_success
       - name: mv_engagement_rate
       - name: mv_survey_response
+      - name: funnel_conversions
       - name: leads
       - name: engagement_actions
       - name: posts

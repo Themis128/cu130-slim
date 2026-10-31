@@ -547,6 +547,11 @@ class Settings(BaseSettings):
     # `socialauto` API user (X-Api-Key).
     ESPOCRM_BASE_URL: str = ""  # e.g. http://192.168.1.200:30700
     ESPOCRM_API_KEY: str = ""
+    MAUTIC_BASE_URL: str = ""   # e.g. http://mautic:80
+    MAUTIC_USERNAME: str = ""   # admin user email (basic auth)
+    MAUTIC_PASSWORD: str = ""
+    MAUTIC_PUBLIC_HOST: str = ""  # canonical host for Host header
+    FUNNEL_INGEST_TOKEN: str = ""  # shared token for /funnel/conversion posts
 
     # Website analytics ingestion from cloudless.gr.
     # Each tenant manages its own sink credentials; these defaults apply only to the
