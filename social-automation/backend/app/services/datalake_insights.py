@@ -527,6 +527,13 @@ async def funnel_answer(question: str) -> dict[str, Any]:
     if not minio_storage.minio_enabled():
         return {"answer": None, "error": "datalake offline"}
     zone = ""
+    # the structured summary carries counts + statuses — the model answers
+    # over it without streaming 200 rows.
+    try:
+        zone = (await minio_storage.get_object(
+            "funnel/summary.json")).decode() + "\n"
+    except Exception:
+        pass
     for name in ("leads", "contacts", "segments"):
         key = f"funnel/{name}/latest.jsonl"
         try:

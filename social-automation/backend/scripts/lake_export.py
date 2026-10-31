@@ -46,6 +46,21 @@ async def export(apply: bool = False) -> None:
         "contacts": contacts,
         "segments": segments,
     }
+    if apply:
+        # compact summary the Q&A layer answers over — avoids streaming
+        # 200 masked rows into a small model on every question.
+        summary = {"exported_at": stamp, **{
+            z: {"rows": len(items)} for z, items in rows.items()}}
+        statuses: dict[str, int] = {}
+        for lead in rows["leads"]:
+            statuses[(lead.get("status") or "?").lower()] = \
+                statuses.get((lead.get("status") or "?").lower(), 0) + 1
+        summary["lead_status_counts"] = statuses
+        summary["segments"] = [s.get("name") or s.get("alias")
+                               for s in rows["segments"]]
+        await minio_storage.upload_object(
+            f"{BUCKET_PREFIX}/summary.json",
+            json.dumps(summary).encode(), content_type="application/json")
     for zone, items in rows.items():
         if apply and items:
             from app.services import ai_functions

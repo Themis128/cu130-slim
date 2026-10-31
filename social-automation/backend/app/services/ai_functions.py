@@ -29,6 +29,51 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 90.0
 
 
+def _audit(fn: str, outcome: str, latency_ms: float, input_text: str = "") -> None:
+    """Fire-and-forget row into ai_function_calls — never blocks the caller.
+    input is stored as a sha (never raw — same PII boundary as the lake)."""
+    import asyncio
+    import hashlib
+    import time as _t
+
+    async def _write() -> None:
+        try:
+            from app.db.session import async_session_maker
+            from app.models.ai_function_call import AIFunctionCall
+            _, _, model, _ = _cfg()
+            async with async_session_maker() as s:
+                s.add(AIFunctionCall(
+                    fn=fn, model=model, outcome=outcome,
+                    latency_ms=latency_ms,
+                    input_sha=hashlib.sha256(input_text.encode()).hexdigest()[:32]))
+                await s.commit()
+        except Exception as e:
+            logger.debug("ai_function audit write failed: %s", e)
+
+    try:
+        asyncio.get_running_loop().create_task(_write())
+    except RuntimeError:
+        pass  # no loop — audit skipped, call itself succeeded
+
+
+class _timed:
+    """async context manager: wraps each public fn, audits outcome+latency."""
+
+    def __init__(self, fn: str, text: str):
+        self.fn, self.text = fn, text
+
+    async def __aenter__(self):
+        import time
+        self._t0 = time.monotonic()
+        return self
+
+    async def __aexit__(self, exc, *_):
+        import time
+        _audit(self.fn, "error" if exc else "ok",
+               (time.monotonic() - self._t0) * 1000, self.text)
+        return False  # never swallow — the function's own guards still apply
+
+
 def _cfg() -> tuple[str, str, str, str]:
     s = get_settings()
     base = (getattr(s, "DMR_BASE_URL", "") or "http://localhost:12435/engines/v1/chat/completions").strip()
