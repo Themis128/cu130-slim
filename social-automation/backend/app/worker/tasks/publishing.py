@@ -271,6 +271,7 @@ async def _notify_publish_failure(
     await post_alert_to_slack(text, blocks=blocks)
     try:
         from app.services.slack_notifications import send_telegram_alert
+
         tg = [
             f"❌ *Publish failed* — `{platform}`",
             f"• Post: `{post_id}`",

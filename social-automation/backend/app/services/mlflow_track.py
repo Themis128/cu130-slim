@@ -4,6 +4,7 @@ Experiment `social-funnel` logs the funnel_score tiers per run; experiment
 `content-eval` logs per-post quality scores. Swap MLFLOW_TRACKING_URI to a
 Databricks workspace URI later — no code changes needed.
 """
+
 from __future__ import annotations
 
 import os
@@ -14,6 +15,7 @@ _URI = os.environ.get("MLFLOW_TRACKING_URI", "file:///app/mlruns")
 
 def _mlflow():
     import mlflow
+
     mlflow.set_tracking_uri(_URI)
     return mlflow
 
@@ -35,8 +37,7 @@ def log_funnel_score(scored: dict[str, int], total: int) -> None:
         m.log_metric("leads_total", total)
 
 
-def log_content_eval(post_id: str, total: float, model: str,
-                     dims: dict[str, float] | None = None) -> None:
+def log_content_eval(post_id: str, total: float, model: str, dims: dict[str, float] | None = None) -> None:
     """Log one content_eval judgement — total + per-dimension scores."""
     with run("content-eval", tags={"model": model}) as (m, _):
         m.log_param("post_id", post_id)
@@ -45,8 +46,7 @@ def log_content_eval(post_id: str, total: float, model: str,
             m.log_metric(f"score_{k}", v)
 
 
-def log_dmr_usage(endpoint: str, model: str, latency_ms: float,
-                  ok: bool) -> None:
+def log_dmr_usage(endpoint: str, model: str, latency_ms: float, ok: bool) -> None:
     """Log one DMR-gateway call — latency + success per logical endpoint."""
     with run("dmr-gateway", tags={"endpoint": endpoint, "model": model}) as (m, _):
         m.log_metric("latency_ms", latency_ms)
