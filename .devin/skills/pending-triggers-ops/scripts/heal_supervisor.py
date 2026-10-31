@@ -63,16 +63,30 @@ def _beat_tier():
 
 
 def _node_tier():
-    """Report the omv auto-remediate's last-run state."""
+    """Report omv auto-remediate + every cloudflared tunnel; restarts a down tunnel's daemon."""
     while True:
         try:
-            r = subprocess.run(["ssh", "-o", "ConnectTimeout=8", "github-omv",
-                                "cat /var/lib/nas-auto-remediate/state.json 2>/dev/null | head -c 400"],
-                               capture_output=True, text=True, timeout=20)
-            NODE_STATE["omv"] = "reachable" if r.stdout.strip() else "no-state"
+            r = subprocess.run(["ssh", "-o", "ConnectTimeout=10", "github-omv",
+                                "cat /var/lib/nas-auto-remediate/state.json 2>/dev/null | head -c 400;"
+                                "sudo cloudflared tunnel list 2>/dev/null"],
+                               capture_output=True, text=True, timeout=30)
+            NODE_STATE["omv"] = "reachable" if "state.json" not in r.stderr else "degraded"
+            for line in r.stdout.splitlines():
+                if "cloudless" in line:
+                    name = line.split()[1]
+                    conns = line.rsplit(None, 1)[-1] if line.split() else ""
+                    up = "x" in conns and not conns.startswith("0")
+                    NODE_STATE[f"tunnel-{name}"] = "up" if up else "down"
+                    if not up:
+                        svc = {"cloudless": "cloudflared", "omv-cloudless": "cloudflared-omv",
+                               "social-cloudless": "cloudflared"}.get(name, "cloudflared")
+                        subprocess.run(["ssh", "-o", "ConnectTimeout=10", "github-omv",
+                                        f"sudo systemctl restart {svc}"],
+                                       capture_output=True, timeout=30)
+                        NODE_STATE[f"tunnel-{name}"] = "restarting"
         except Exception:
             NODE_STATE["omv"] = "unreachable"
-        time.sleep(600)
+        time.sleep(120)
 
 
 class H(BaseHTTPRequestHandler):
@@ -98,6 +112,7 @@ def main() -> int:
         threading.Thread(target=_spawn, args=(name, script), daemon=True).start()
     threading.Thread(target=_beat_tier, daemon=True).start()
     threading.Thread(target=_node_tier, daemon=True).start()
+
     HTTPServer(("0.0.0.0", 9099), H).serve_forever()
     return 0
 
