@@ -2275,6 +2275,8 @@ volumes:
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
+  mautic_data: null
+  mautic_db_data: null
   # Pre-created via docker volume create during the PG16→17 migration;
   # external keeps `compose down -v` from ever deleting the live data.
   social_postgres_data_v17:

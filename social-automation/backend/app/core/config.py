@@ -548,6 +548,11 @@ class Settings(BaseSettings):
     ESPOCRM_BASE_URL: str = ""  # e.g. http://192.168.1.200:30700
     ESPOCRM_API_KEY: str = ""
 
+    # Mautic funnel manager — container-to-container API (basic auth)
+    MAUTIC_BASE_URL: str = ""  # e.g. http://mautic:80
+    MAUTIC_USERNAME: str = ""
+    MAUTIC_PASSWORD: str = ""
+
     # Website analytics ingestion from cloudless.gr.
     # Each tenant manages its own sink credentials; these defaults apply only to the
     # shared cloudless.gr domain when no per-tenant config exists.
