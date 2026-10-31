@@ -18,6 +18,14 @@ dependencies = [
     "httpx[socks]>=0.27.0,<1.0.0",
     "redis>=7.0.0,<8.0.0",
     "celery>=5.4.0,<6.0.0",
+    "deltalake>=0.20",
+    "duckdb>=1.1",
+    "dbt-duckdb>=1.8",
+    # mlflow-skinny: tracking client only (no server/UI). >=3.17.2 clears
+    # the mlflow 2.x CVEs flagged by pip-audit/Trivy (path traversal, SSRF, RCE).
+    "mlflow-skinny>=3.17.2,<4",
+    # pyarrow used by scripts/lake_export.py; >=23.0.1 fixes PYSEC-2026-113.
+    "pyarrow>=23.0.1",
     "python-dotenv>=1.2.2",
     "cryptography>=43.0.0",
     "msgpack>=1.2.1",

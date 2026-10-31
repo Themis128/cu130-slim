@@ -924,13 +924,18 @@ async def test_view_unsafe_path_falls_to_remote(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_view_minio_non404_propagates(tmp_path, monkeypatch):
+async def test_view_minio_error_falls_back_to_r2(tmp_path, monkeypatch):
+    # A MinIO error (even non-404) is treated as unreachable and falls through
+    # to R2; when R2 misses too, the endpoint answers 404.
     monkeypatch.setattr(media, "UPLOAD_DIR", str(tmp_path))
     monkeypatch.setattr(media.minio_storage, "minio_enabled", lambda: True)
     monkeypatch.setattr(media.minio_storage, "get_object", AsyncMock(side_effect=HTTPException(status_code=500, detail="s3 down")))
+    r2_get = AsyncMock(side_effect=HTTPException(status_code=404))
+    monkeypatch.setattr(media.r2_storage, "get_object", r2_get)
     with pytest.raises(HTTPException) as e:
         await view_media(path="remote/pic.png", format=None)
-    assert e.value.status_code == 500
+    assert e.value.status_code == 404
+    r2_get.assert_awaited_once_with("remote/pic.png")
 
 
 @pytest.mark.asyncio
