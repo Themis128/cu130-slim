@@ -189,6 +189,7 @@ x-worker-volumes: &worker-volumes
   # slack_tool, monetization_tool, viber_tool, dedup_scan) — read-only.
   - ./social-automation/backend/scripts:/app/scripts:ro
   - ./social-automation/backend/dbt:/app/dbt
+  - ./social-automation/backend/mlruns:/app/mlruns
   - ./social-automation/uploads:/app/uploads
   # Skill tooling + repo env for host-side scripts (gmail-ops, human-gate,
   # devapp watchers) — read-only; lets containerized tasks call them.
@@ -1075,6 +1076,7 @@ services:
       # slack_tool, monetization_tool, viber_tool) — read-only.
       - ./social-automation/backend/scripts:/app/scripts:ro
       - ./social-automation/backend/dbt:/app/dbt
+      - ./social-automation/backend/mlruns:/app/mlruns
       # Deploy seeds (content_prompt_templates etc.) — idempotent, applied on boot.
       - ./deploy/seeds:/app/deploy/seeds:ro
       - ./social-automation/uploads:/app/uploads
