@@ -41,7 +41,10 @@ logger = logging.getLogger(__name__)
 GRAPH_IG_URL = "https://graph.instagram.com"
 # Versioned Graph API base (Meta recommends explicit versioning).
 GRAPH_FB_URL = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
-REFRESH_THRESHOLD_DAYS = 5  # Refresh if token expires within 5 days
+# Must exceed the beat interval (daily) with margin: the old weekly run with a
+# 5-day window let a token at 6 days left lapse before the next run (401s).
+# Meta allows ig_refresh_token any time after the token is 24h old.
+REFRESH_THRESHOLD_DAYS = 14  # Refresh if token expires within 14 days
 
 
 def _is_facebook_token(token: str) -> bool:
