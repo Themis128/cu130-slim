@@ -107,7 +107,7 @@ async def funnel_state(
         FROM funnel_conversions GROUP BY 1 ORDER BY 2 DESC"""))).fetchall()
     totals = (await db.execute(text("""
         SELECT count(*), coalesce(sum(value),0) FROM funnel_conversions"""))
-        ).fetchone()
+        ).one()
     return {
         "leads": {r.tier: r.count for r in tiers},
         "conversions": [
