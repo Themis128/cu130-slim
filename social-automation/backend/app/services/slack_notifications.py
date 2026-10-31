@@ -439,6 +439,7 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     fp = hashlib.sha1(f"{severity}|{text}".encode()).hexdigest()[:16]
     try:
         from app.worker._async import _redis
+
         r = _redis()
         if await r.exists(f"alert-dedup:{fp}"):
             return True  # already reported — silent ack
