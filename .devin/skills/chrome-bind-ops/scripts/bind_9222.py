@@ -29,8 +29,13 @@ def status():
         except Exception:
             pass
     import socket
-    gw = [l.split()[2] for l in open("/proc/net/route").read().splitlines()[1:]
-          if l.split()[1] == "00000000"] or ["172.22.144.1"]
+    gw = []
+    for l in open("/proc/net/route").read().splitlines()[1:]:
+        f = l.split()
+        if len(f) > 2 and f[1] == "00000000":
+            h = f[2]
+            gw.append(".".join(str(int(h[i:i+2], 16)) for i in (6, 4, 2, 0)))
+    gw = gw or ["172.22.144.1"]
     try:
         r = urllib.request.urlopen(f"http://{gw[0]}:9222/json/version", timeout=4)
         return {"bound": True, "browser": json.loads(r.read()).get("Browser"), "via": gw[0]}
