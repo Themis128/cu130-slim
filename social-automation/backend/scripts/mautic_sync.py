@@ -35,7 +35,8 @@ async def sync(apply: bool = False) -> None:
         "CRM Sync", "crm-sync", "Contacts synced from EspoCRM"
     )
     seg_id = (seg.get("list") or {}).get("id") or seg.get("id")
-    junk = ("example.com", "test.dev", "test.local", "probe@", "platform-test")
+    junk = ("example.com", "example.invalid", "test.dev", "test.local",
+            ".local", "probe@", "platform-test", "ci-test")
     for c in contacts:
         email = (c.get("emailAddress") or "").strip().lower()
         if not email or any(j in email for j in junk):
