@@ -2196,8 +2196,17 @@ services:
     command: python /app/.devin/skills/pending-triggers-ops/scripts/heal_supervisor.py
     volumes:
       - .:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /mnt/wsl/docker-desktop/cli-tools/usr/bin/docker:/usr/bin/docker:ro
+      - /mnt/wsl/docker-desktop/cli-tools/usr/local/lib/docker/cli-plugins/docker-compose:/root/.docker/cli-plugins/docker-compose:ro
     networks:
       - backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0 if b'heal_supervisor' in open('/proc/1/cmdline','rb').read() else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
 
   # Mautic — self-hosted funnel/marketing-automation manager (campaigns,
