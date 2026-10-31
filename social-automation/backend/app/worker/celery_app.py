@@ -730,10 +730,11 @@ celery_app.conf.update(
             "options": {"queue": "messenger"},
         },
         # Refresh Instagram long-lived access tokens before they expire (60 days).
-        # Runs weekly to refresh tokens that will expire within 5 days.
+        # Runs daily to refresh tokens that will expire within 14 days (the
+        # old weekly/5-day pairing left a gap where tokens expired unrefreshed).
         "refresh-instagram-tokens": {
             "task": "app.worker.tasks.instagram_token_refresh.refresh_instagram_tokens",
-            "schedule": 604800.0,  # every 7 days
+            "schedule": crontab(hour=3, minute=20),  # daily
             "options": {"queue": "default"},
         },
         # Validate and refresh LinkedIn browser sessions weekly.
