@@ -514,3 +514,28 @@ def render_slack_lines(signals: dict[str, Any]) -> list[str]:
     for o, n in (signals.get("top_objections") or [])[:2]:
         lines.append(f"• objection ({n}x): {o[:60]}")
     return lines
+
+
+async def funnel_answer(question: str) -> dict[str, Any]:
+    """Genie-style funnel Q&A — pulls the latest MinIO funnel-zone exports
+    and answers a natural-language question over them via the DMR.
+    The compute_* signals are the metrics surface; this is the
+    plain-English front door.  Degrades to an error dict when the DMR
+    or the zone is unavailable."""
+    from app.services import ai_functions, minio_storage
+
+    if not minio_storage.minio_enabled():
+        return {"answer": None, "error": "datalake offline"}
+    zone = ""
+    for name in ("leads", "contacts", "segments"):
+        key = f"funnel/{name}/latest.jsonl"
+        try:
+            zone += await (await minio_storage.get_object(key)).decode() + "\n"
+        except Exception:
+            pass
+    if not zone.strip():
+        return {"answer": None, "error": "funnel zone empty"}
+    answer = await ai_functions.ai_extract(
+        f"the direct answer to: {question}", zone[:8000])
+    return {"answer": None if answer == "NONE" else answer,
+            "question": question, "rows_seen": zone.count("\n")}

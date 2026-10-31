@@ -43,6 +43,10 @@ async def export(apply: bool = False) -> None:
             path = f"{BUCKET_PREFIX}/{zone}/{stamp}.jsonl"
             await minio_storage.upload_object(path, payload.encode(),
                                               content_type="application/x-ndjson")
+            # stable key the Q&A layer reads
+            await minio_storage.upload_object(
+                f"{BUCKET_PREFIX}/{zone}/latest.jsonl", payload.encode(),
+                content_type="application/x-ndjson")
             print(f"exported {len(items)} -> {path}")
         else:
             print(f"{zone}: {len(items)} rows (dry)")
