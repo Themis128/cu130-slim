@@ -20,7 +20,7 @@ def _schema() -> str:
     r = subprocess.run(
         ["docker", "compose", "exec", "-T", "social-postgres",
          "psql", "-U", "social_user", "-d", "social_automation", "-tA", "-c",
-         "SELECT table_name FROM information_schema.tables WHERE table_schema='public'"],
+         "SELECT table_name||'('||string_agg(column_name,',')||')' FROM information_schema.columns WHERE table_schema='public' GROUP BY table_name"],
         capture_output=True, text=True, timeout=30)
     return r.stdout.strip() or ",".join(SCHEMA_TABLES)
 
