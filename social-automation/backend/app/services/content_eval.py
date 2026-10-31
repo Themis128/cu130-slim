@@ -11,11 +11,12 @@ import json
 from sqlalchemy.ext.asyncio import AsyncSession
 
 RUBRIC = (
-    "Score this social post 0-10 on: 1) brand-voice fit (plain, direct, no "
-    "AI-cliches), 2) specificity (one concrete detail vs generic claims), "
-    "3) readability (sentence length, structure), 4) CTA clarity. "
-    "Reply with ONLY a JSON: {\"total\":N,\"voice\":N,\"specificity\":N,"
-    "\"readability\":N,\"cta\":N,\"why\":\"one phrase\"}."
+    "Score this social post 0-10 STRICTLY. total = the LOWEST of: voice "
+    "(penalize AI-cliches like leverage/unlock/elevate/delve/synergy hard), "
+    "specificity (ONE concrete number/name/outcome — generic = 2), "
+    "readability (short sentences, real paragraphs), cta (one clear ask — "
+    "vague/none = 2). Reply with ONLY JSON: {\"total\":N,\"voice\":N,"
+    "\"specificity\":N,\"readability\":N,\"cta\":N,\"why\":\"one phrase\"}."
 )
 
 
