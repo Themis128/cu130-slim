@@ -56,7 +56,7 @@ MODULE_ALIASES = {
 
 
 def _dep_name(dep: str) -> str:
-    return re.split(r"[<>=!~ @\[]", dep, 1)[0].strip()
+    return re.split(r"[<>=!~ @\[]", dep, maxsplit=1)[0].strip()
 
 
 def _modules(dep: str) -> list[str]:
@@ -96,24 +96,25 @@ def deps_report() -> None:
     for dep in core + worker:
         name = _dep_name(dep)
         mods = _modules(dep)
-        top = lazy = guarded = 0
+        top = lazy = 0
         for m in mods:
-            for hits in (_scan(API_DIRS[0], [m]) if API_DIRS[0].exists() else {}):
-                for f, ln, is_top in hits[m]:
+            if API_DIRS[0].exists():
+                for f, ln, is_top in _scan(API_DIRS[0], [m]).get(m, []):
                     if is_top:
                         top += 1
                     else:
                         lazy += 1
-            # whole-app scan for unguarded lazy (services imported by api)
-            svc = _scan(BACKEND / "app", [m])
-            for _, arr in svc.items():
-                for f, ln, is_top in arr:
-                    if not is_top:
-                        lazy += 1
+            # whole-app scan for lazy imports (services imported by api)
+            for f, ln, is_top in _scan(BACKEND / "app", [m]).get(m, []):
+                if not is_top:
+                    lazy += 1
         tier = "worker" if dep in worker else "core"
-        verdict = "keep-core" if top or (tier == "core") else "-> worker"
         if top:
             verdict = "REQUIRED-core"
+        elif tier == "worker":
+            verdict = "worker"
+        else:
+            verdict = "-> worker?"  # no api top-imports; check unguarded lazy manually
         print(f"{name:38} {tier:7} {top:>7} {lazy:>12} {verdict}")
     print("\nScan: top-level imports under app/api/ + lazy imports app-wide.")
 
