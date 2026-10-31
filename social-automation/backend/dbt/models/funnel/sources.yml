@@ -1,0 +1,14 @@
+version: 2
+
+sources:
+  - name: social
+    database: pg
+    schema: public
+    tables:
+      - name: mv_publish_success
+      - name: mv_engagement_rate
+      - name: mv_survey_response
+      - name: leads
+      - name: engagement_actions
+      - name: posts
+      - name: post_targets
