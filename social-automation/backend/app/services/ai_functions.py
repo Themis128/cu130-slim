@@ -108,8 +108,13 @@ def _cfg() -> tuple[str, str, str, str]:
     return base, embed, model, embed_model
 
 
-async def _chat(prompt: str, max_tokens: int = 200) -> str:
+async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> str:
     base, _, model, _ = _cfg()
+    if quality:
+        qm = (getattr(get_settings(), "DMR_QUALITY_MODEL", "")
+              or "docker.io/ai/qwen3:8b-q4_K_M").strip()
+        if qm:
+            model = qm
     async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
         r = await c.post(base, json={
             "model": model,
@@ -166,13 +171,15 @@ async def ai_classify(labels: list[str] | str, text: str) -> str:
         return labels[0] if labels else ""
 
 
-async def ai_extract(field: str, text: str) -> str:
-    """Extract a single field from text — NONE if absent."""
+async def ai_extract(field: str, text: str, quality: bool = False) -> str:
+    """Extract a single field from text — NONE if absent.
+    quality=True routes to the bigger DMR model (Q&A, scoring)."""
     try:
         return await _chat(
             "You are a precise extractor. From the text, extract only the "
             "requested field. If absent output NONE. Output ONLY the value, "
-            f"no prose.\nField: {field}\n\nText: {text[:1200]}", 30)
+            f"no prose.\nField: {field}\n\nText: {text[:1200]}", 30,
+            quality=quality)
     except Exception as e:
         logger.warning("ai_extract failed: %s", e)
         return "NONE"
@@ -208,7 +215,8 @@ async def media_gate(text: str, recent_texts: list[str] | None = None,
     """
     clean = await fix_grammar(text)
     score_text = await ai_extract(
-        "a plain-English quality score 0-100 for a social post", clean)
+        "a plain-English quality score 0-100 for a social post", clean,
+        quality=True)
     try:
         score = int("".join(ch for ch in score_text if ch.isdigit()) or "0")
     except ValueError:

@@ -543,6 +543,6 @@ async def funnel_answer(question: str) -> dict[str, Any]:
     if not zone.strip():
         return {"answer": None, "error": "funnel zone empty"}
     answer = await ai_functions.ai_extract(
-        f"the direct answer to: {question}", zone[:8000])
+        f"the direct answer to: {question}", zone[:8000], quality=True)
     return {"answer": None if answer == "NONE" else answer,
             "question": question, "rows_seen": zone.count("\n")}

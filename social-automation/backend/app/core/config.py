@@ -557,6 +557,8 @@ class Settings(BaseSettings):
     DMR_BASE_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1/chat/completions"
     DMR_EMBED_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1/embeddings"
     DMR_MODEL: str = "docker.io/ai/smollm3:latest"
+    # quality tasks (Q&A, scoring) route to the bigger model — verified serving
+    DMR_QUALITY_MODEL: str = "docker.io/ai/qwen3:8b-q4_K_M"
     DMR_EMBED_MODEL: str = "docker.io/ai/qwen3-embedding:latest"
 
     # Website analytics ingestion from cloudless.gr.
