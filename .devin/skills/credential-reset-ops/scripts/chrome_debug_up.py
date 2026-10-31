@@ -27,7 +27,8 @@ def up():
 
 def main():
     if up():
-        print("already up"); return
+        print("already up")
+        return
     for cmd in (
         ["cmd.exe", "/c", "start", "", CHROME, *ARGS],
         ["powershell.exe", "-Command",
@@ -43,7 +44,8 @@ def main():
         for _ in range(15):
             time.sleep(1)
             if up():
-                print("chrome :9222 up"); return
+                print("chrome :9222 up")
+                return
     print("FAILED — check Chrome path / profile")
 
 
