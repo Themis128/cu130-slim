@@ -949,10 +949,66 @@ async def generate_video_status(task_id: str, team_id: TeamId, current_user: Use
     res = AsyncResult(task_id, app=celery_app)
     out = MediaGenerateVideoStatus(task_id=task_id, status=res.status)
     if res.successful():
-        out.asset_id = str(res.result)
+        result = res.result
+        out.asset_id = str(result.get("asset_id")) if isinstance(result, dict) else str(result)
     elif res.failed():
         out.error = str(res.result)[:500]
     return out
+
+
+class AvatarStoryScene(BaseModel):
+    clip: str  # e.g. "sad" / "happy" — the avatar clip to animate
+    line1: str
+    line2: str = ""
+    duration: int = 7
+
+
+class AvatarStoryRequest(BaseModel):
+    scenes: list[AvatarStoryScene]
+    filename: str = "avatar-story.mp4"
+    alt_text: str = "AI-generated avatar story video"
+    tags: list[str] | None = None
+    avatar_asset_id: str | None = None
+    source_photo_asset_id: str | None = None
+    music_url: str | None = None
+    width: int = 576
+    height: int = 1024
+
+
+@router.post("/avatar-story", response_model=MediaGenerateVideoResponse, status_code=status.HTTP_202_ACCEPTED)
+async def avatar_story(body: AvatarStoryRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Enqueue a captioned avatar-story video (FLUX avatar -> Wan2.2 clips ->
+    captions -> music -> media_assets). Poll ``GET /media/generate-video/{task_id}``
+    for status + the saved ``asset_id``.
+    """
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    if not body.scenes:
+        raise HTTPException(status_code=400, detail="scenes is required")
+    if len(body.scenes) > 12:
+        raise HTTPException(status_code=400, detail="scenes limited to 12")
+    task = celery_app.send_task(
+        "app.worker.tasks.avatar_video.generate_avatar_story",
+        queue="media",
+        kwargs=dict(
+            scenes=[s.model_dump() for s in body.scenes],
+            filename=body.filename,
+            alt_text=body.alt_text,
+            tags=",".join(body.tags) if body.tags else "ai-video,avatar",
+            team_id=str(team.id),
+            user_id=str(current_user.id),
+            avatar_asset_id=body.avatar_asset_id,
+            source_photo_asset_id=body.source_photo_asset_id,
+            music_url=body.music_url,
+            width=body.width,
+            height=body.height,
+        ),
+    )
+    return MediaGenerateVideoResponse(
+        task_id=task.id,
+        poll_url=f"/api/v1/media/generate-video/{task.id}",
+    )
 
 
 # ---------------------------------------------------------------------------
