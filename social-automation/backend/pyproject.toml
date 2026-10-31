@@ -84,6 +84,7 @@ dependencies = [
     # installs it --no-deps (see Dockerfile); the client lazy-imports it, so
     # test/CI envs work without it.
     # PDF libraries — carousel PDF generation, page extraction, and rendering
+    "PyMuPDF>=1.24.0",        # fitz — api-reachable (research ingest, kakkava doctrine)
     "mcp>=2.2.0",             # MCP stdio server (app.mcp.server)
     # Notebook-driven reporting — papermill executes report notebooks in the
     # worker env (inherits DATABASE_URL, AI + Slack secrets, /app imports);
@@ -96,7 +97,6 @@ dependencies = [
 # slim api image degrades gracefully when they're absent.
 worker = [
     "yt-dlp==2026.08.19",
-    "PyMuPDF>=1.24.0",        # primary: fast PDF read/render (fitz)
     "pypdf>=4.0.0",           # lightweight PDF read/merge/split
     "reportlab>=4.0.0",       # PDF generation from scratch
     "pdfplumber>=0.11.0",     # text/table extraction from PDFs
