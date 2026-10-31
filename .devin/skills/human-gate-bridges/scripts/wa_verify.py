@@ -6,7 +6,13 @@ verify_code. Last resort: wa_verify.py <code>.
     wa_verify.py            # request code → poll ADB + mail → verify
     wa_verify.py <code>     # manual fallback
 """
-import json, os, re, subprocess, sys, time, urllib.request
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
 
 CID = os.environ.get("WHATSAPP_PHONE_NUMBER_ID", "")
 TOK = os.environ.get("WHATSAPP_ACCESS_TOKEN", "")

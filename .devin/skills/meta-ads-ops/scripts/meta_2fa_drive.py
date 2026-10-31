@@ -16,7 +16,6 @@ Requires: adb device + gmail-token.json (mail-code-fetch).
 """
 import argparse
 import getpass
-import json
 import os
 import re
 import subprocess
@@ -24,14 +23,36 @@ import sys
 import time
 
 ADB = None  # resolved at runtime
+ADBS = ["adb",
+        "/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe",
+        "/mnt/c/platform-tools/adb.exe"]
 GMAIL_FETCH = os.path.join(os.path.dirname(__file__), "..", "..",
                           "mail-code-fetch", "scripts", "gmail_code_fetch.py")
 ENV_PATH = r"C:\Users\tbaltzakis\cu130-slim\.env"
 
 
+ADB_BIN = None
+
+
+def adb_bin():
+    global ADB_BIN
+    if ADB_BIN:
+        return ADB_BIN
+    for b in ADBS:
+        try:
+            r = subprocess.run([b, "version"], capture_output=True,
+                               text=True, timeout=10)
+            if "Android Debug Bridge" in (r.stdout + r.stderr):
+                ADB_BIN = b
+                return b
+        except Exception:
+            continue
+    return "adb"
+
+
 def adb(*a):
     dev = ADB
-    return subprocess.run(["adb", "-s", dev, *a],
+    return subprocess.run([adb_bin(), "-s", dev, *a],
                           capture_output=True, text=True).stdout
 
 
@@ -101,7 +122,7 @@ def main():
     pw = a.pw or os.environ.get("FB_PASSWORD") or getpass.getpass("FB password: ")
 
     devs = [l.split()[0] for l in subprocess.run(
-        ["adb", "devices"], capture_output=True, text=True).stdout.splitlines()[1:]
+        [adb_bin(), "devices"], capture_output=True, text=True).stdout.splitlines()[1:]
         if l.strip() and "device" in l and "offline" not in l]
     if not devs:
         print("no adb device — run adb_rearm.py first"); return
@@ -112,6 +133,12 @@ def main():
     adb("shell", "am", "start", "-a", "android.intent.action.VIEW",
         "-d", "fb://settings", "com.facebook.katana")
     time.sleep(6)
+
+    # profile gate: the app may be on a page/business profile — 2FA needs
+    # the main profile. Tap "Switch profiles" when offered.
+    if any("Switch" in t for t in texts()):
+        tap("Switch profiles") or tap("Switch to your main profile")
+        time.sleep(5)
 
     if not tap("Accounts Center"):
         print("settings not on screen:", texts()[:8]); return
@@ -124,6 +151,9 @@ def main():
         field_clear_and_type(pw)
         tap("Continue")
         time.sleep(4)
+        if "incorrect" in " ".join(texts()).lower():
+            print("PASSWORD REJECTED — supply correct FB password via --pw or FB_PASSWORD env")
+            return
 
     if "confirmation code" in " ".join(texts()).lower():
         tap("Get a new code")
