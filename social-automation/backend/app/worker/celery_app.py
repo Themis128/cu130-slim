@@ -69,6 +69,7 @@ celery_app = Celery(
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
         "app.worker.tasks.funnel_sync",
+        "app.worker.tasks.funnel_score",
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
@@ -275,6 +276,7 @@ celery_app.conf.update(
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
+        "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
         "app.worker.tasks.auto_gates.engagement_autoapprove": {"queue": "default"},
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
@@ -316,6 +318,10 @@ celery_app.conf.update(
             "schedule": crontab(minute=15),
         },
         # Funnel sync — EspoCRM→Mautic contacts + MinIO funnel-zone export.
+        "funnel-score": {
+            "task": "app.worker.tasks.funnel_score.run_funnel_score",
+            "schedule": crontab(minute=15),
+        },
         "funnel-sync": {
             "task": "app.worker.tasks.funnel_sync.run_funnel_sync",
             "schedule": crontab(minute=20),
