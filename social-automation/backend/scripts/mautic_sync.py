@@ -10,6 +10,7 @@ Usage (inside social-api container):
     python scripts/mautic_sync.py --apply        # performs the upserts
     python scripts/mautic_sync.py --status       # mautic funnel_state snapshot
 """
+
 import asyncio
 import sys
 from pathlib import Path
@@ -30,11 +31,13 @@ async def _socialauto_hot_emails() -> set[str]:
     """Emails of SocialAuto leads scored hot (interest=audit, active thread,
     recent touch) — forces the Mautic tier up regardless of Espo status."""
     import os
+
     url = os.environ.get("DATABASE_URL", "")
     if not url.startswith("postgresql"):
         return set()
     try:
         import asyncpg
+
         dsn = url.replace("postgresql+asyncpg://", "postgresql://")
         conn = await asyncpg.connect(dsn)
         try:
@@ -68,20 +71,16 @@ async def sync(apply: bool = False) -> None:
         return
     synced = skipped = 0
     tiers: dict[str, int] = {"hot": 0, "warm": 0, "cold": 0}
-    seg = await mautic_client.create_segment(
-        "CRM Sync", "crm-sync", "Contacts synced from EspoCRM"
-    )
+    seg = await mautic_client.create_segment("CRM Sync", "crm-sync", "Contacts synced from EspoCRM")
     seg_id = (seg.get("list") or {}).get("id") or seg.get("id")
     tier_segs: dict[str, int] = {}
     for t in ("hot", "warm", "cold"):
-        ts = await mautic_client.create_segment(
-            f"CRM {t.title()}", f"crm-{t}", f"EspoCRM leads scored {t}")
+        ts = await mautic_client.create_segment(f"CRM {t.title()}", f"crm-{t}", f"EspoCRM leads scored {t}")
         tid = (ts.get("list") or {}).get("id") or ts.get("id")
         if tid:
             tier_segs[t] = int(tid)
     hot_emails = await _socialauto_hot_emails()
-    junk = ("example.com", "example.invalid", "test.dev", "test.local",
-            ".local", "probe@", "platform-test", "ci-test")
+    junk = ("example.com", "example.invalid", "test.dev", "test.local", ".local", "probe@", "platform-test", "ci-test")
     for c in contacts:
         email = (c.get("emailAddress") or "").strip().lower()
         if not email or any(j in email for j in junk):
@@ -93,8 +92,7 @@ async def sync(apply: bool = False) -> None:
             "lastname": c.get("lastName") or "",
             "company": c.get("accountName") or "",
             "title": c.get("title") or "",
-            "tags": ["espo-sync", f"espo-status:{(c.get('status') or 'none').lower()}",
-                     f"tier:{tier}"],
+            "tags": ["espo-sync", f"espo-status:{(c.get('status') or 'none').lower()}", f"tier:{tier}"],
         }
         r = await mautic_client.upsert_contact(email, fields)
         contact_id = (r.get("contact") or {}).get("id")
@@ -105,8 +103,7 @@ async def sync(apply: bool = False) -> None:
                 await mautic_client.add_to_segment(int(contact_id), tid)
         tiers[tier] += 1
         synced += 1
-    print(f"synced={synced} skipped={skipped} segment=crm-sync({seg_id}) "
-          f"tiers={tiers}")
+    print(f"synced={synced} skipped={skipped} segment=crm-sync({seg_id}) tiers={tiers}")
 
 
 async def status() -> None:
