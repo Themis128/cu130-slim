@@ -39,7 +39,6 @@ dependencies = [
     # image; imagehash is the pure-Python equivalent.
     # Official Meta Business SDK — used by the meta-graph-ops skill tooling
     # for token introspection, page insights, and IG account discovery.
-    "facebook-business>=21.0.0",
     # Official LinkedIn Rest.li client — used by scripts/linkedin_tool.py for
     # token introspection (AuthClient.introspect_access_token) and as the
     # reference client for new versioned-API work.
@@ -71,11 +70,8 @@ dependencies = [
     # Free X web fallback (app/services/x_web.py) — cookie-auth x.com GraphQL.
     # tweety (MIT): PyPI 2.4.1 is stale, so pin a main-branch commit archive
     # (2026-09-13, after the 2026-08-26 fix merges #278/#292/#293/#297).
-    "tweety-ns @ https://github.com/mahrtayyab/tweety/archive/f6bfc8610bd3ec8af2fe000076bc1b53a6327e7d.zip",
     # twscrape (MIT): read-only secondary for tweet/user metrics.
-    "twscrape==0.20.1",
     # TikTok profile updates via private mobile API (signing server)
-    "tiktok-private-api>=0.4.3",
     # NOTE: no playwright/patchright here — all browser automation runs in the
     # dedicated sidecar containers; the backend talks to them over HTTP.
     # Instagram private API (instagrapi) is NOT a resolved dependency: every
@@ -84,7 +80,7 @@ dependencies = [
     # installs it --no-deps (see Dockerfile); the client lazy-imports it, so
     # test/CI envs work without it.
     # PDF libraries — carousel PDF generation, page extraction, and rendering
-    "PyMuPDF>=1.24.0",        # fitz — api-reachable (research ingest, kakkava doctrine)
+    "PyMuPDF>=1.24.0,<2.0.0",        # fitz — api-reachable (research ingest, kakkava doctrine)
     "mcp>=2.2.0",             # MCP stdio server (app.mcp.server)
     # Notebook-driven reporting — papermill executes report notebooks in the
     # worker env (inherits DATABASE_URL, AI + Slack secrets, /app imports);
@@ -105,6 +101,10 @@ worker = [
     "ipykernel>=6.29.0,<7.0.0",
     "pandas>=2.2.0,<3.0.0",
     "matplotlib>=3.8.0,<4.0.0",
+    "tweety-ns @ https://github.com/mahrtayyab/tweety/archive/f6bfc8610bd3ec8af2fe000076bc1b53a6327e7d.zip",
+    "twscrape==0.20.1",
+    "tiktok-private-api>=0.4.3",
+    "facebook-business>=21.0.0",
     "imagehash>=4.3.1",
     "pillow-heif>=0.13.0",
     "pillow-avif-plugin>=1.4.6",
