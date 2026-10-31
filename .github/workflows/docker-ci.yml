@@ -54,6 +54,11 @@ jobs:
             dockerfile: social-automation/backend/Dockerfile
             target: base
             build_contexts: browser=browser-novnc
+          - name: social-backend-api
+            context: social-automation/backend
+            dockerfile: social-automation/backend/Dockerfile
+            target: api
+            build_contexts: browser=browser-novnc
           - name: social-frontend
             context: social-automation/frontend
             dockerfile: social-automation/frontend/Dockerfile
@@ -114,12 +119,12 @@ jobs:
             type=raw,value=${{ matrix.service.name }}-{{sha}}
             type=ref,event=branch,prefix=${{ matrix.service.name }}-
             type=ref,event=pr,prefix=${{ matrix.service.name }}-
-            # The backend builds once; the same image backs every social-*
-            # service (api + all queue workers + beat). Publish the legacy
-            # aliases so old compose checkouts/rollbacks keep resolving.
-            type=raw,value=social-api-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
+            # Two backend images: social-backend (full, workers) and
+            # social-backend-api (slim, api). Legacy aliases keep old compose
+            # checkouts/rollbacks resolving.
             type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
             type=raw,value=social-worker-publishing-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-api-latest,enable=${{ matrix.service.name == 'social-backend-api' && github.ref == 'refs/heads/master' }}
 
       - name: Build and push ${{ matrix.service.name }}
         id: build

@@ -76,9 +76,21 @@ jobs:
             fi
           done
 
-          # Every social-* service shares the single social-backend image
-          # (one build; services differ only by command:).
-          for backend_service in social-api social-worker-publishing social-worker-media social-worker-default social-worker-messenger celery-beat; do
+          # social-api runs the slim image; every social-worker-* + celery-beat
+          # shares the full social-backend image.
+          for api_service in social-api; do
+            if echo "$config_output" | jq -e --arg s "$api_service" '.services[$s]' > /dev/null 2>&1; then
+              actual_image=$(echo "$config_output" | jq -r --arg s "$api_service" '.services[$s].image')
+              expected_image="${PACKAGE}:social-backend-api-latest"
+              if [[ "$actual_image" == "$expected_image" ]]; then
+                echo "✅ $api_service uses correct image: $actual_image"
+              else
+                echo "❌ $api_service has incorrect image: $actual_image (expected: $expected_image)"
+                exit 1
+              fi
+            fi
+          done
+          for backend_service in social-worker-publishing social-worker-media social-worker-default social-worker-messenger celery-beat; do
             if echo "$config_output" | jq -e --arg s "$backend_service" '.services[$s]' > /dev/null 2>&1; then
               actual_image=$(echo "$config_output" | jq -r --arg s "$backend_service" '.services[$s].image')
               expected_image="${PACKAGE}:social-backend-latest"

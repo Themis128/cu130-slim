@@ -838,12 +838,12 @@ services:
     cpus: '2'
     restart: unless-stopped
   social-api:
-    image: ghcr.io/themis128/cu130-slim:social-backend-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-api-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
       dockerfile: Dockerfile
-      target: base
+      target: api
       additional_contexts:
         browser: ./browser-novnc
     container_name: social-api

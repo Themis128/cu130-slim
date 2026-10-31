@@ -34,11 +34,11 @@ jobs:
       fail-fast: false
       matrix:
         service:
-          # The social backend builds once as `social-backend` (compose target
-          # `base` — the api/worker targets differ only in CMD and every
-          # service overrides `command:` anyway). The tag-push step also
-          # publishes the legacy social-api/social-worker-* aliases.
+          # Backend builds twice with shared base layers: social-api → slim
+          # `social-backend-api` (core deps), social-worker-publishing → full
+          # `social-backend` (worker extra). Legacy aliases publish alongside.
           - social-api
+          - social-worker-publishing
           - social-sidecar-base
           - env-manager-backend
           - env-manager-frontend
@@ -99,17 +99,27 @@ jobs:
           docker push "${PACKAGE}:${SVC}-latest"
           docker push "${PACKAGE}:${SVC}-${SHA_TAG}"
           echo "Pushed ${PACKAGE}:${SVC}-latest and ${PACKAGE}:${SVC}-${SHA_TAG}"
-          # The backend builds once; publish the canonical social-backend tag
-          # plus the legacy social-api/social-worker-* aliases so old
-          # compose checkouts and rollbacks keep resolving.
+          # The api build produces the slim image; publish it under the
+          # canonical social-backend-api tag plus the legacy social-api alias.
           if [ "$SVC" = "social-api" ]; then
-            for TAG in social-backend-latest social-api-latest social-worker-latest social-worker-publishing-latest; do
+            for TAG in social-backend-api-latest social-api-latest; do
+              docker tag "$BUILT" "${PACKAGE}:${TAG}"
+              docker push "${PACKAGE}:${TAG}"
+            done
+            docker tag "$BUILT" "${PACKAGE}:social-backend-api-${SHA_TAG}"
+            docker push "${PACKAGE}:social-backend-api-${SHA_TAG}"
+            echo "Also pushed social-backend-api-latest + social-api-latest"
+          fi
+          # The worker build produces the full image; publish the canonical
+          # social-backend tag plus the legacy social-worker-* aliases.
+          if [ "$SVC" = "social-worker-publishing" ]; then
+            for TAG in social-backend-latest social-worker-latest social-worker-publishing-latest; do
               docker tag "$BUILT" "${PACKAGE}:${TAG}"
               docker push "${PACKAGE}:${TAG}"
             done
             docker tag "$BUILT" "${PACKAGE}:social-backend-${SHA_TAG}"
             docker push "${PACKAGE}:social-backend-${SHA_TAG}"
-            echo "Also pushed social-backend-latest + legacy aliases"
+            echo "Also pushed social-backend-latest + worker aliases"
           fi
 
   build-and-push-comfyui:
