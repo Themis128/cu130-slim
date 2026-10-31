@@ -51,6 +51,25 @@ def adb_code() -> str | None:
     return None
 
 
+PHONE_IP = os.environ.get("PHONE_ADB_IP", "192.168.1.77")
+
+
+def termux_code() -> str | None:
+    """Termux SSH lane — termux-sms-list over :8022 (needs READ_SMS grant once)."""
+    try:
+        r = subprocess.run(
+            ["ssh", "-p", "8022", "-o", "ConnectTimeout=8",
+             "-o", "StrictHostKeyChecking=no", "-i", KEY,
+             f"u0_a357@{PHONE_IP}", "termux-sms-list -l 5"],
+            capture_output=True, text=True, timeout=12)
+        rows = [l for l in r.stdout.splitlines() if re.search(
+            r'whatsapp|facebook|meta|AUTHMSG', l, re.I)]
+        m = CODE_RE.search(" ".join(rows)) if rows else CODE_RE.search(r.stdout)
+        return m.group(1) if m else None
+    except Exception:
+        return None
+
+
 def mail_code() -> str | None:
     """SMS→email forward lands in the inbox; doveadm scans it for a 6-digit code."""
     if not (USER and HOST):
@@ -72,7 +91,7 @@ def main() -> int:
         out = graph(f"{CID}/request_code", code_method=os.environ.get("WA_CODE_METHOD", "SMS"), language="en_US")
         print("request_code:", out)
         for _ in range(24):
-            code = adb_code() or mail_code()
+            code = adb_code() or termux_code() or mail_code()
             if code:
                 break
             time.sleep(10)
