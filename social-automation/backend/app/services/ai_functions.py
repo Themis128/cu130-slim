@@ -30,36 +30,10 @@ _TIMEOUT = 90.0
 
 
 def _audit(fn: str, outcome: str, latency_ms: float, input_text: str = "") -> None:
-    """Fire-and-forget row into ai_function_calls — never blocks; input
-    stored as a sha only (same PII boundary as the lake)."""
-    import asyncio, hashlib
-
-    async def _write() -> None:
-        try:
-            from app.db.session import async_session_maker
-            from app.models.ai_function_call import AIFunctionCall
-            _, _, model, _ = _cfg()
-            async with async_session_maker() as s:
-                s.add(AIFunctionCall(
-                    fn=fn, model=model, outcome=outcome,
-                    latency_ms=latency_ms,
-                    input_sha=hashlib.sha256(input_text.encode()).hexdigest()[:32]))
-                await s.commit()
-        except Exception as e:
-            logger.debug("ai_function audit write failed: %s", e)
-
-    try:
-        asyncio.get_running_loop().create_task(_write())
-    except RuntimeError:
-        pass
-
-
-def _audit(fn: str, outcome: str, latency_ms: float, input_text: str = "") -> None:
     """Fire-and-forget row into ai_function_calls — never blocks the caller.
     input is stored as a sha (never raw — same PII boundary as the lake)."""
     import asyncio
     import hashlib
-    import time as _t
 
     async def _write() -> None:
         try:

@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.services import espocrm_client, mautic_client, minio_storage
 
-
 BUCKET_PREFIX = "funnel"
 
 _RE_PII = re.compile(
