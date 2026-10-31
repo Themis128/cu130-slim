@@ -151,6 +151,8 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/auth/login` — POST
 - `/api/v1/auth/me` — GET, PATCH
 - `/api/v1/auth/notifications/preferences` — GET, PUT
+- `/api/v1/auth/oidc/authorize` — GET
+- `/api/v1/auth/oidc/callback` — GET
 - `/api/v1/auth/oauth/instagram-onboarding/authorize` — GET
 - `/api/v1/auth/oauth/instagram2/authorize` — GET
 - `/api/v1/auth/oauth/instagram2/callback` — GET
@@ -214,6 +216,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/cf-db/sync` — POST
 - `/api/v1/cf-db/sync-tables` — GET
 - `/api/v1/cf-db/tables` — GET
+
+## `coach`
+
+- `/api/v1/coach/chat` — POST
 
 ## `content`
 
@@ -326,6 +332,7 @@ asserts every live route appears here — regenerate this file when adding route
 
 - `/api/v1/media/assets` — GET
 - `/api/v1/media/assets/bulk-delete` — POST
+- `/api/v1/media/assets/sweep-orphans` — POST
 - `/api/v1/media/assets/{asset_id}` — GET, PATCH, DELETE
 - `/api/v1/media/assets/{asset_id}/similar` — GET
 - `/api/v1/media/assets/{asset_id}/tag` — POST
@@ -333,6 +340,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/media/collections/{collection_id}` — GET, PATCH, DELETE
 - `/api/v1/media/collections/{collection_id}/assets` — POST
 - `/api/v1/media/collections/{collection_id}/assets/{asset_id}` — DELETE
+- `/api/v1/media/enhance/assets/{asset_id}/add-background` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/alt-text` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/compress` — POST
 - `/api/v1/media/enhance/assets/{asset_id}/convert` — POST

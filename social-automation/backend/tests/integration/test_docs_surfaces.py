@@ -59,7 +59,7 @@ def _documented_api_paths() -> set[str]:
         f = REPO_ROOT / rel
         if not f.exists():
             continue
-        for m in re.findall(r"(/api/v1/[a-zA-Z0-9_/{},\-]+/?|/health)", f.read_text()):
+        for m in re.findall(r"(?<![A-Za-z0-9_/])(/api/v1/[a-zA-Z0-9_/{},\-]+/?|/health)", f.read_text()):
             found.add(m.rstrip(".,)"))
     return found
 
@@ -206,6 +206,7 @@ KNOWN_PUBLIC_GET = {
     "/api/v1/media/view",  # public media serving — Access bypass by design
     "/api/v1/cf-db/health",  # documented ops probe (tokens_available counts, no secrets)
     "/api/v1/ai-providers/catalog",  # deliberately public — static provider metadata
+    "/api/v1/auth/oidc/authorize",  # SSO login start — returns only the authentik authorize URL
     "/api/v1/openapi.json",  # if served under /api/v1
 }
 
