@@ -97,7 +97,7 @@ async def list_contacts(email_contains: str | None = None, limit: int = _PAGE) -
     """List contacts — optionally filtered by email substring."""
     params: dict[str, Any] = {"limit": limit, "minimal": "true"}
     if email_contains:
-        params["search"] = f"email:*{email_contains}*"
+        params["search"] = f"email:{email_contains}"
     data = await mautic_get("/contacts", params=params)
     return list((data.get("contacts") or {}).values()) if isinstance(data.get("contacts"), dict) else data.get("contacts") or []
 

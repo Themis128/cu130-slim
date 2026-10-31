@@ -62,7 +62,7 @@ def media_gate(text):
     try:
         safe = fixed.replace('"', "'")[:800]
         r = subprocess.run(
-            ["docker", "compose", "exec", "-T", "social-api", "python", "-c",
+            ["docker", "exec", "social-worker-default", "python", "-c",
              'from app.services.plain_english import sofia_nlp_score;'
              f'print(sofia_nlp_score("{safe}")[0])'],
             cwd="social-automation/backend",
