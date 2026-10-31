@@ -81,8 +81,49 @@ async def export(apply: bool = False) -> None:
                 f"{BUCKET_PREFIX}/{zone}/latest.jsonl", payload.encode(),
                 content_type="application/x-ndjson")
             print(f"exported {len(items)} -> {path}")
+            _write_delta(zone, rows_masked, stamp)
         else:
             print(f"{zone}: {len(items)} rows (dry)")
+
+
+def _delta_storage_options() -> dict[str, str]:
+    """MinIO S3-compatible storage options for delta-rs."""
+    from app.core.config import get_settings
+    settings = get_settings()
+    endpoint = (settings.MINIO_ENDPOINT or "").strip()
+    if not endpoint.startswith("http"):
+        endpoint = f"{'https' if settings.MINIO_SECURE else 'http'}://{endpoint}"
+    return {
+        "AWS_ENDPOINT_URL": endpoint,
+        "AWS_ACCESS_KEY_ID": (settings.MINIO_ACCESS_KEY or "").strip(),
+        "AWS_SECRET_ACCESS_KEY": (settings.MINIO_SECRET_KEY or "").strip(),
+        "AWS_REGION": "us-east-1",
+        "AWS_ALLOW_HTTP": "true",
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+
+def _write_delta(zone: str, rows_masked: list[str], stamp: str) -> None:
+    """Append the zone batch as a Delta table on MinIO — ACID + time-travel,
+    Databricks/DuckDB/Spark-readable. Schema-stable: zone, exported_at, payload."""
+    try:
+        import pyarrow as pa
+        from deltalake import write_deltalake
+        bucket = (minio_storage._bucket() or "social-media").strip()
+        table = pa.table({
+            "zone": pa.array([zone] * len(rows_masked), type=pa.string()),
+            "exported_at": pa.array([stamp] * len(rows_masked), type=pa.string()),
+            "payload": pa.array(rows_masked, type=pa.string()),
+        })
+        write_deltalake(
+            f"s3://{bucket}/{BUCKET_PREFIX}/{zone}_delta",
+            table,
+            mode="append",
+            storage_options=_delta_storage_options(),
+        )
+        print(f"delta: {zone}_delta += {len(rows_masked)}")
+    except Exception as exc:
+        print(f"delta write skipped ({zone}): {exc}")
 
 
 async def status() -> None:

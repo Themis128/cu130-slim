@@ -23,4 +23,9 @@ async def _score() -> dict:
             n = r.recent_actions or 0
             tier = "hot" if n>=3 else ("warm" if n>=1 else "cold")
             scored[tier]+=1
+        try:
+            from app.services.mlflow_track import log_funnel_score
+            log_funnel_score(scored, len(rows))
+        except Exception:
+            pass
         return {"scored": scored, "total": len(rows)}
