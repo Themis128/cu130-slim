@@ -5,13 +5,13 @@ description: >
   automates the "Forgot password" chain end-to-end: identify account,
   request code, self-read the code off the phone/Gmail (same lanes as
   wa_verify), set new password, store to .env/secret-store. Currently
-  covers Facebook (sidecar). Tool: scripts/fb_pw_reset.py.
+  covers Facebook + Microsoft accounts (sidecar). Tools: scripts/.
 ---
 
 # Credential Reset Ops — automate "Forgot password"
 
-The FB login credential isn't in any secret store (only OAuth tokens) —
-when the password is lost, this drives the legitimate recovery flow.
+Lost login credentials (not tokens) drive the legitimate recovery flow —
+identify -> verify contact -> code self-reads -> new password -> stored.
 
 ## `fb_pw_reset.py <new-password>`
 
@@ -27,9 +27,15 @@ Chain (all via the facebook sidecar `:9226` + the phone code lanes):
 
 `--dry` prints the chain without driving.
 
+## `ms_pw_reset.py <email> <new-password>`
+
+Microsoft account recovery via `account.live.com/password/reset` —
+same chain, codes from `accountprotection.microsoft.com` (Gmail) or
+SMS to the phone. Contact options shown masked are picked for you.
+
 ## Inputs
 
-- Live sidecar session (logged-in FB) — `session_healer` keeps it
+- Live sidecar session — `session_healer` keeps it
 - Phone reachable on any code lane (USB-ADB, Termux, or the mail forward)
 - The `gmail-token.json` secret for the email lane
 
