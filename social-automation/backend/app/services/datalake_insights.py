@@ -542,6 +542,25 @@ async def funnel_answer(question: str) -> dict[str, Any]:
             pass
     if not zone.strip():
         return {"answer": None, "error": "funnel zone empty"}
+    # deterministic path — count/how-many questions answer from the
+    # summary's structured counts, not the model (smollm-class models
+    # can't reliably extract from JSON rows).
+    import re as _re
+    ql = question.lower()
+    if zone.lstrip().startswith("{") and _re.search(
+            r"how many|count|total|number of", ql):
+        try:
+            import json as _json
+            s = _json.loads(zone.split("\n", 1)[0])
+            for z in s:
+                if z != "exported_at" and z in ql:
+                    return {"answer": str(s[z]["rows"]),
+                            "question": question, "via": "summary"}
+            if "lead" in ql:
+                return {"answer": str(s["leads"]["rows"]),
+                        "question": question, "via": "summary"}
+        except Exception:
+            pass
     answer = await ai_functions.ai_extract(
         f"the direct answer to: {question}", zone[:8000], quality=True)
     return {"answer": None if answer == "NONE" else answer,

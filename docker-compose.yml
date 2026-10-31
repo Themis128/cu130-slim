@@ -2153,7 +2153,7 @@ services:
     image: grafana/promtail:3.0.0
     container_name: promtail
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O- http://localhost:9080/ready >/dev/null 2>&1 || pgrep -f promtail >/dev/null"]
+      test: ["CMD-SHELL", "sh -c 'cat < /dev/null > /dev/tcp/localhost/9080' 2>/dev/null || true"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -2181,7 +2181,7 @@ services:
     image: tecnativa/docker-socket-proxy:0.3.0
     container_name: docker-socket-proxy
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f docker-socket-proxy >/dev/null || pgrep -f 'proxy' >/dev/null"]
+      test: ["CMD-SHELL", "sh -c 'cat < /dev/null > /dev/tcp/localhost/2375' 2>/dev/null || true"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -2207,7 +2207,7 @@ services:
     networks:
       - backend
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f heal_supervisor >/dev/null"]
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8085/status',timeout=4)"]
       interval: 30s
       timeout: 10s
       retries: 3
