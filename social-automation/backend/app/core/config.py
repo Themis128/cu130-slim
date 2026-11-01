@@ -200,6 +200,12 @@ class Settings(BaseSettings):
     TWITTER_CLIENT_ID: str = ""
     TWITTER_CLIENT_SECRET: str = ""
     TWITTER_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/twitter/callback"
+
+    # ── Authentik OIDC (SSO into SocialAuto itself) ──
+    # Secret lives in .env (gitignored) / compose passthrough — never in source.
+    AUTHENTIK_ISSUER: str = "https://auth.cloudless.gr/application/o"
+    AUTHENTIK_CLIENT_ID: str = "social_client"
+    AUTHENTIK_CLIENT_SECRET: str = ""  # empty = OIDC SSO disabled (warned at import)
     # Credentials for the browser-fallback login flow (x.com web UI). The
     # username must be the account handle — entering an email routes into
     # X's signup funnel ("Email signups are only allowed on the apps").
