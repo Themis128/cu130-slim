@@ -32,6 +32,10 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
+          cache-dependency-path: |
+            social-automation/backend/pyproject.toml
+            env-manager/backend/requirements.txt
+            slack-apps/socialauto-digest/requirements.txt
 
       # Each dir is linted with the ruff version its own manifest pins, so a
       # required check never disagrees with what a dev runs locally:
