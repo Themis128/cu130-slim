@@ -2774,7 +2774,7 @@ async def generate_carousel_pipeline(
     # We'll do this for each asset after they're all created
     try:
         from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
-        
+
         # Build combined text from all slides
         slide_texts = []
         for slide in cleaned_slides:
@@ -2785,7 +2785,7 @@ async def generate_carousel_pipeline(
             if slide.get("highlight"):
                 slide_texts.append(slide["highlight"])
         combined_text = " ".join(slide_texts) + " " + (cleaned_caption or "")
-        
+
         for asset_id in media_ids:
             asset = await db.get(MediaAsset, asset_id)
             if asset:
