@@ -54,9 +54,12 @@ async def backfill_media_quality(
     stats = {"processed": 0, "updated": 0, "skipped": 0, "errors": 0}
     
     # Build query for assets without quality metadata
+    from sqlalchemy import or_
     query = select(MediaAsset).where(
-        (MediaAsset.meta_data.is_(None)) | 
-        (MediaAsset.meta_data.not_().has_key("quality"))
+        or_(
+            MediaAsset.meta_data.is_(None),
+            ~MediaAsset.meta_data.has_key("quality")
+        )
     )
     
     if team_id:
