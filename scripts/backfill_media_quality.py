@@ -148,7 +148,12 @@ async def main():
     settings = get_settings()
     db_url = args.db_url or settings.DATABASE_URL
     
-    engine = create_async_engine(db_url, pool_pre_ping=True)
+    # If running on host, use container-internal URL
+    if "localhost" in db_url or "127.0.0.1" in db_url:
+        db_url = db_url.replace("localhost", "social-postgres").replace("127.0.0.1", "social-postgres")
+        db_url = db_url.replace(":5433", ":5432")
+    
+    engine = create_async_engine(db_url, pool_pre_ping=True, connect_args={"ssl": False})
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with async_session() as db:
