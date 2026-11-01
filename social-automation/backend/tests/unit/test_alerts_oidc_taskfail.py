@@ -191,3 +191,27 @@ async def test_oidc_callback_existing_user():
     assert ui.calls[0].request.headers["Authorization"] == "Bearer a"
     # NOTE: the new-user branch builds User(role=...) but User has no `role`
     # column (roles live on TeamMember) -> TypeError in prod; not covered here.
+
+
+# ── OIDC secret hygiene (2026-11-01: secret moved out of source) ─────────
+
+
+def test_authentik_config_bound_to_settings():
+    """The OIDC config comes from Settings (.env / compose), not literals."""
+    from app.core.config import get_settings
+
+    s = get_settings()
+    assert AU.AUTHENTIK_ISSUER == s.AUTHENTIK_ISSUER
+    assert AU.AUTHENTIK_CLIENT_ID == s.AUTHENTIK_CLIENT_ID
+    assert AU.AUTHENTIK_CLIENT_SECRET == s.AUTHENTIK_CLIENT_SECRET
+
+
+def test_no_hardcoded_authentik_secret_in_source():
+    """Regression guard: the client secret must never be a source literal."""
+    import inspect
+    import re
+
+    src = inspect.getsource(AU)
+    assert not re.search(
+        r'AUTHENTIK_CLIENT_SECRET\s*=\s*"[0-9a-fA-F]{16,}"', src
+    ), "AUTHENTIK_CLIENT_SECRET is hardcoded in auth.py — move it to settings/.env"
