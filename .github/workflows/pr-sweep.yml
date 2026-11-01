@@ -1,0 +1,34 @@
+name: pr-sweep
+# Autonomous PR-landing sweep — rebase + arm auto-merge on every open PR.
+# Kills the merge-treadmill's manual grind: the strict-protected master
+# invalidates every branch on merge, this keeps the queue current without
+# a human grinding the worktree pattern.
+on:
+  schedule:
+    - cron: "*/30 * * * *"     # every 30 min — the queue stays green-eligible
+  workflow_dispatch:
+    inputs: {}
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  REPO: ${{ github.workspace }}
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: sweep open PRs (rebase + arm auto-merge)
+        run: |
+          git config user.email "devin-ai-integration[bot]@users.noreply.github.com"
+          git config user.name "Devin AI"
+          git fetch origin master -q
+          python .devin/skills/pr-landing-ops/scripts/pr_sweep.py
