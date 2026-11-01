@@ -1483,6 +1483,7 @@ services:
   # volume so Instagram login survives container restarts.
   instagram-private-api:
     image: subzeroid/aiograpi-rest:latest
+    restart: unless-stopped
     build:
       context: ./instagram-private-api
       dockerfile: Dockerfile
@@ -1518,6 +1519,7 @@ services:
   # Free, no account required. Uses WireGuard tunnel via wgcf.
   warp-proxy:
     image: caomingjun/warp
+    restart: unless-stopped
     container_name: warp-proxy
     networks:
       - backend
