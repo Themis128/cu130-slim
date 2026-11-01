@@ -175,7 +175,7 @@ services:
     init: true
     environment:
       - NC_DOMAIN=cloud.cloudless.gr
-      - TALK_HOST=signal.cloudless.gr
+      - TALK_HOST=192.168.1.200
       - TALK_PORT=3478
       - TURN_SECRET=${TALK_TURN_SECRET}
       - SIGNALING_SECRET=${TALK_SIGNALING_SECRET}
