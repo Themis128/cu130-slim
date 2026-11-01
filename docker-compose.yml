@@ -13,6 +13,7 @@ x-public-dns: &public-dns
 x-worker-env: &worker-env
   - TZ=Europe/Athens
   - APP_TIMEZONE=Europe/Athens
+  - AUTONOMY_LEVEL=${AUTONOMY_LEVEL:-0}  # engagement-gate auto-approve dial (0=manual, 2=safe, 3=full)
   - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
   - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
   - MESSENGER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
