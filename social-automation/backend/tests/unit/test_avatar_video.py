@@ -374,7 +374,7 @@ class _MusicClient:
 def _patch_run_deps(monkeypatch, db, music_status=200):
     import httpx
 
-    from app.services import media_dedup, media_storage
+    from app.services import media_dedup, media_storage, url_safety
     from app.worker import _async
 
     seen = {}
@@ -395,6 +395,9 @@ def _patch_run_deps(monkeypatch, db, music_status=200):
     monkeypatch.setattr(media_storage, "save_uploaded_media", fake_save)
     monkeypatch.setattr(media_dedup, "load_asset_bytes", fake_load)
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _MusicClient(music_status))
+    # The task now re-validates music_url server-side (SSRF guard); passthrough
+    # here keeps the fetch-path test deterministic without real DNS.
+    monkeypatch.setattr(url_safety, "validate_public_http_url", lambda u, allow_http=True: u)
     return seen
 
 
@@ -443,8 +446,27 @@ async def test_run_explicit_ids_assets_and_music(monkeypatch, status, expected):
     db = _DB([_Result(one="photo")])
     seen = _patch_run_deps(monkeypatch, db, music_status=status)
     uid, tid = uuid.uuid4(), uuid.uuid4()
-    await T._run(**_kw(user_id=str(uid), team_id=str(tid), source_photo_asset_id=str(uuid.uuid4()), music_url="http://music/x.mp3"))
+    await T._run(**_kw(user_id=str(uid), team_id=str(tid), source_photo_asset_id=str(uuid.uuid4()), music_url="https://music.example/x.mp3"))
     g = seen["generate"]
     assert g["source_photo"] == b"BYTES-photo"
     assert g["music_bytes"] == expected
     assert seen["save"]["user_id"] == uid and seen["save"]["team_id"] == tid
+
+
+@pytest.mark.asyncio
+async def test_run_unsafe_music_url_skipped(monkeypatch):
+    """A music_url that fails SSRF validation is skipped, never fetched —
+    the route validates too, but tasks can be enqueued directly."""
+    from app.services import url_safety
+    from app.worker.tasks import avatar_video as T
+
+    db = _DB([_Result(one="photo")])
+    seen = _patch_run_deps(monkeypatch, db)
+
+    def _reject(u, allow_http=True):
+        raise url_safety.UnsafeUrlError("not a public URL")
+
+    monkeypatch.setattr(url_safety, "validate_public_http_url", _reject)
+    uid, tid = uuid.uuid4(), uuid.uuid4()
+    await T._run(**_kw(user_id=str(uid), team_id=str(tid), source_photo_asset_id=str(uuid.uuid4()), music_url="https://evil.internal/x.mp3"))
+    assert seen["generate"]["music_bytes"] is None
