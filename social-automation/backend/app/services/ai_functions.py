@@ -89,17 +89,30 @@ async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> st
         qm = (getattr(get_settings(), "DMR_QUALITY_MODEL", "") or "docker.io/ai/qwen3:8b-q4_K_M").strip()
         if qm:
             model = qm
-    async with httpx.AsyncClient(timeout=_TIMEOUT * 3 if quality else _TIMEOUT) as c:
-        r = await c.post(
-            base,
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                "max_tokens": max_tokens,
-            },
-        )
-    return r.json()["choices"][0]["message"]["content"].strip()
+    # DMR is flaky under load — an empty body or transient failure is common
+    # while the engine hot-swaps models. Retry once so agents see the serving
+    # model, not the swap window.
+    import asyncio as _aio
+    timeout = _TIMEOUT * 3 if quality else _TIMEOUT
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as c:
+                r = await c.post(
+                    base,
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.0,
+                        "max_tokens": max_tokens,
+                    },
+                )
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            last_err = e
+            if attempt == 0:
+                await _aio.sleep(2)
+    raise last_err  # type: ignore[misc]
 
 
 async def _embed(text: str) -> list[float]:
