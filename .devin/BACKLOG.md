@@ -1,5 +1,46 @@
 # BACKLOG (living)
 
+## 2026-11-01 session — full PR + branch consolidation, image-text spelling guard
+
+**Landed (all via squash PRs to protected master):**
+- #1208 databricks-adopts, #1211 dmr-gateway, #1214 ai-functions, #1215 avatar-video
+  register, #1217 avatar-story route, #1228 screen-drive-ops (add/add conflict on
+  credential-reset-ops SKILL.md resolved — #1226 content kept + TOTP docs), #1243
+  **image-text guard** (see below), #1244 ops-tools (nc_dav_probe + n8n_exec DB-key),
+  #1245 fb-reauth signed oauth state, #1246 cdp_gate_runner v2 + meta_2fa ADB
+  discovery, #1247 mautic-clean port (ai_function_call MODEL — was missing while
+  ai_functions.py imported it; gate_sweep beat + engagement_autoapprove;
+  datalake_insights.funnel_answer; pr-sweep.yml 30-min PR rebase+arm cron;
+  shared sidecar-base image + split social-backend-api/social-backend Dockerfile
+  targets; compose renamed to match, legacy image names kept as GHCR aliases).
+- #1248 (healer) fixed test_media_ai expectation for the new guard output.
+
+**Image-text guard (#1243) — the "garbled caption on media" fix:** FLUX/Wan cannot
+spell; a monetization brief "…with a caption highlighting…" painted a garbled
+banner into the pixels (LinkedIn activity 7521477348517363712, asset 582ca53c).
+`app/services/image_text_guard.py`: strips caption/banner/text clauses from
+generation prompts (wired into expand_visual_prompt → covers image+video+monetization),
+routes explicit quoted-text requests to the PIL infographic overlay, and QA-checks
+generated pixels (qwen3-vl transcribe → detect_gibberish) with one no-text retry →
+brand-banner fallback in monetization; `meta_data.text_qa` on the endpoint path.
+19 unit tests.
+
+**Branch consolidation:** 20 remote branches deleted (content landed or superseded):
+heal/2026102x-*, heal/20261031-*, feat/autoheal, feat/autoheal-all, feat/heal-supervisor-v2,
+fix/stack-watchers-health, feat/chrome-bind-ops, feat/credential-reset-ops(+v2),
+ops/gate-capture, feat/databricks-friendly, feat/meta-ads-ops-3, fix/master-ci-engagement-tests,
+local/master-20261028-071718; local wt-1208/wt-1211 worktrees + stale local branches removed.
+Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date compare
++ 3-way merge for files both sides touched.
+
+**Leftovers:**
+- [ ] Delete `ops/mautic-clean` + `ops/mautic-funnel` remotes once #1247 lands (port carried their unique content; mautic-funnel ⊂ mautic-clean lineage).
+- [ ] Restart social-api + 4 workers + beat after #1247 (container rules: model/celery/compose changes).
+- [ ] First `docker compose pull && up -d` after #1247 pulls the renamed `social-backend-api-latest`/`social-backend-latest` images — verify /health + celery inspect ping (4 nodes) before traffic.
+- [ ] **Secret hygiene**: `AUTHENTIK_CLIENT_SECRET` is hardcoded in `app/api/auth.py` (~line 2537, pre-existing on master, both sides of #1228) — move to settings/env.
+- [ ] Stash `grokbot-20261101` (compose autoheal labels) intentionally kept — labeled superseded by #1237; drop when convenient.
+- [ ] The 2026-10-28 garbled asset (582ca53c) predates the fix; its LinkedIn post is live — delete+recreate is a content decision (same bucket as the cloudless.com→.gr posts).
+
 ## Done 2026-10-27 (PR sweep — umbrella merge)
 - Skool→IntraVox pipeline: Sofia Kakkava community content now has an IntraVox hub (page `kakkava-visibility-era`, nav under Visibility Era & Social). TODO: scheduled `trend_scan`→IntraVox `en/news` digest. **Blocked**: shared browser bridge returns 409 'busy with facebook session' — needs retry-with-backoff in `skool_sync` or a dedicated sidecar; also needs one manual Skool login on browser-novnc to seed the session.
 - Celery send_task anomaly (2026-10-27): `app.worker.tasks.email_campaigns.send_campaign` enqueued via `celery_app.send_task` from social-api returns a task id but never reaches workers (PENDING forever; `inspect reserved/scheduled` empty) — while other tasks on the same `default` queue flow fine. Bypass: run `send_campaign()` service directly in social-api container. Repro: send_task id `79229b44` stayed PENDING. Needs delivery-tag/routing instrumentation.
