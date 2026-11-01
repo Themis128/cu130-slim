@@ -1,0 +1,52 @@
+---
+# Always-on ruff gate. The path-filtered service workflows (social-automation-
+# backend.yml, env-manager-frontend.yml) already run ruff, but because they do
+# not trigger on every PR they cannot be required status checks — lint drift
+# (e.g. the ruff I001 regressions fixed in #1240/#1250/#1254) merged unchecked.
+# This job reports `ruff` on every PR so branch protection can require it.
+
+name: Ruff Lint
+
+"on":
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install ruff
+        run: pip install "ruff==0.4.3"
+
+      - name: Lint social-automation backend
+        run: |
+          cd social-automation/backend
+          ruff check .
+
+      - name: Lint env-manager backend
+        run: |
+          cd env-manager/backend
+          ruff check .
+
+      - name: Lint slack-apps socialauto-digest
+        run: |
+          cd slack-apps/socialauto-digest
+          ruff check .
