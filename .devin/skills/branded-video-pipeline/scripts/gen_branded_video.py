@@ -13,7 +13,8 @@ Stages (each skippable output is cached in --workdir):
                 +faststart)
   3. qa      — ffprobe spec checks + frame extraction for eyeball review
   4. upload  — --upload: media asset + DRAFT post (--publish also fires
-               publish-now; default stays draft for review)
+               publish-now
+               default stays draft for review)
 
 Usage:
   gen_branded_video.py --spec slides.json --out /tmp/out.mp4

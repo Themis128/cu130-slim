@@ -2,7 +2,6 @@
 """pending_status.py — one-line status of every remaining human input.
 Updated 2026-10-29: reflects the gate-capture system (15-min watcher).
 """
-import json
 import subprocess
 
 

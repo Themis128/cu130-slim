@@ -261,7 +261,8 @@ def _recreate_services(targets: list[str]) -> tuple[int, list[str]]:
 def _pending_services() -> list[str]:
     """Services still awaiting recreation from an earlier run.
 
-    Marker holds a JSON list written by this script; a bare marker from
+    Marker holds a JSON list written by this script
+    a bare marker from
     older runs (or an unreadable file) fails safe to the full consumer set.
     """
     try:

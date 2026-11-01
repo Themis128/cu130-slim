@@ -6,7 +6,8 @@ Expert / Storyteller / Energizer), applies the resulting voice formula to
 the SocialAuto brand voice (`brand_voices.voice_signature`), and verifies
 that /api/v1/ai/generate-content produces posts in that style.
 
-Stdlib-only; runs on the host. API auth: TOTP login against the admin
+Stdlib-only
+runs on the host. API auth: TOTP login against the admin
 account (same flow as the n8n workflows and SocialAuto MCP).
 
 Usage:

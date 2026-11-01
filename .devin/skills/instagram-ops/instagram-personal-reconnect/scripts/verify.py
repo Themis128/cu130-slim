@@ -16,7 +16,8 @@ account_id = sys.argv[1] if len(sys.argv) > 1 else usage("verify.py <account_id>
 
 session_id = psql(f"""SELECT meta_data->>'private_api_session_id'
 FROM social_accounts
-WHERE id = '{account_id}';""", tuples_only=True).strip()
+WHERE id = '{account_id}'
+""", tuples_only=True).strip()
 
 if not session_id or session_id == "null":
     print(f"❌ No session_id found for account {account_id}", file=sys.stderr)

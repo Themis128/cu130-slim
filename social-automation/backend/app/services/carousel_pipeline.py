@@ -1,42 +1,45 @@
 """End-to-end Cloudflare carousel pipeline for n8n / automation."""
 
-def _sanitize_caption(c):
-    from app.services.content_sanitizer import sanitize_post_text
-    return sanitize_post_text(c)
-
 from __future__ import annotations
 
-import base64
-import io
-import logging
-import os
-import random
-import re
-import uuid
-from datetime import UTC, datetime
 
-from fastapi import HTTPException
-from PIL import Image, ImageDraw, ImageFont
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+def _sanitize_caption(c):
+    from app.services.content_sanitizer import sanitize_post_text
 
-from app.models.content import Post, PostStatus, PostTarget
-from app.models.social_account import SocialAccount
-from app.models.user import Team, User
-from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE
-from app.services.duplicate_detector import is_duplicate
-from app.services.inference import (
+    return sanitize_post_text(c)
+
+
+import base64  # noqa: E402
+import io  # noqa: E402
+import logging  # noqa: E402
+import os  # noqa: E402
+import random  # noqa: E402
+import re  # noqa: E402
+import uuid  # noqa: E402
+from datetime import UTC, datetime  # noqa: E402
+
+from fastapi import HTTPException  # noqa: E402
+from PIL import Image, ImageDraw, ImageFont  # noqa: E402
+from sqlalchemy import select  # noqa: E402
+from sqlalchemy.ext.asyncio import AsyncSession  # noqa: E402
+from sqlalchemy.orm import selectinload  # noqa: E402
+
+from app.models.content import Post, PostStatus, PostTarget  # noqa: E402
+from app.models.social_account import SocialAccount  # noqa: E402
+from app.models.user import Team, User  # noqa: E402
+from app.services.cf_models import CF_TEXT_FREE, CF_TXT2IMG_FREE  # noqa: E402
+from app.services.duplicate_detector import is_duplicate  # noqa: E402
+from app.services.inference import (  # noqa: E402
     _call_workers_ai_image,
     call_inference,
 )
-from app.services.media_storage import persist_generated_image
-from app.services.plain_english import (
+from app.services.media_storage import persist_generated_image  # noqa: E402
+from app.services.plain_english import (  # noqa: E402
     PLAIN_ENGLISH_RULES,
     build_linkedin_caption,
     run_nlp_check_and_fix,
 )
-from app.services.spellcheck import auto_correct, preprocess_for_render
+from app.services.spellcheck import auto_correct, preprocess_for_render  # noqa: E402
 
 logger = logging.getLogger(__name__)
 

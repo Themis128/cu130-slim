@@ -16,7 +16,6 @@ Requires: adb device + gmail-token.json (mail-code-fetch).
 """
 import argparse
 import getpass
-import json
 import os
 import re
 import subprocess
@@ -100,11 +99,12 @@ def main():
     a = ap.parse_args()
     pw = a.pw or os.environ.get("FB_PASSWORD") or getpass.getpass("FB password: ")
 
-    devs = [l.split()[0] for l in subprocess.run(
+    devs = [l.split()[0] for l in subprocess.run(  # noqa: E741
         ["adb", "devices"], capture_output=True, text=True).stdout.splitlines()[1:]
         if l.strip() and "device" in l and "offline" not in l]
     if not devs:
-        print("no adb device — run adb_rearm.py first"); return
+        print("no adb device — run adb_rearm.py first")
+        return
     ADB = devs[0]
     print("adb:", ADB)
 
@@ -114,10 +114,13 @@ def main():
     time.sleep(6)
 
     if not tap("Accounts Center"):
-        print("settings not on screen:", texts()[:8]); return
-    tap("Password and security"); tap("Two-factor")
+        print("settings not on screen:", texts()[:8])
+        return
+    tap("Password and security")
+    tap("Two-factor")
     if not tap("Facebook"):
-        print("chooser not up:", texts()[:10]); return
+        print("chooser not up:", texts()[:10])
+        return
     time.sleep(3)
 
     if "re-enter your password" in " ".join(texts()):
@@ -130,7 +133,8 @@ def main():
         print("code requested — polling Gmail…")
         code = gmail_code()
         if not code:
-            print("no fresh code in 150s — retry"); return
+            print("no fresh code in 150s — retry")
+            return
         print("code:", code)
         field_clear_and_type(code)
         tap("Next")
@@ -139,7 +143,8 @@ def main():
     print("screen:", texts()[:16])
     # method picker: choose Authentication app
     if tap("Authentication app") or tap("authenticator"):
-        tap("Next"); time.sleep(4)
+        tap("Next")
+        time.sleep(4)
         tap("Set up manually") or tap("manually")
         time.sleep(4)
         t = texts()

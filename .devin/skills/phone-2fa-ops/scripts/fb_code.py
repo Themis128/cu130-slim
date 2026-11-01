@@ -73,11 +73,12 @@ def fill_cdp(code: str) -> bool:
     ws = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=15,
                                      suppress_origin=True)
     expr = """(() => {
-      const inp=[...document.querySelectorAll('input')].find(i=>['text','number','tel'].includes(i.type)||i.name==='code');
+      const inp=[...document.querySelectorAll('input')].find(i=>['text','number','tel'].includes(i.type)||i.name==='code')
       if(!inp) return 'no-input';
-      const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;
-      s.call(inp,'%s'); inp.dispatchEvent(new Event('input',{bubbles:true}));
-      const b=[...document.querySelectorAll('button,div[role=button],span')].find(x=>/^Continue$/i.test((x.innerText||'').trim()));
+      const s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set
+      s.call(inp,'%s')
+ inp.dispatchEvent(new Event('input',{bubbles:true}))
+      const b=[...document.querySelectorAll('button,div[role=button],span')].find(x=>/^Continue$/i.test((x.innerText||'').trim()))
       if(b) b.click(); return 'submitted';
     })()""" % code
     ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
@@ -95,7 +96,8 @@ def main() -> int:
     wake()
     code = latest_code(to)
     if not code:
-        print("no code found"); return 1
+        print("no code found")
+        return 1
     print(code)
     if fill:
         ok = fill_cdp(code)

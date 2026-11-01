@@ -7,7 +7,13 @@
 The token comes from partners.viber.com (create/select bot → App Token).
 Everything after the paste is automated: connect → validate → webhook set.
 """
-import argparse, json, os, sys, subprocess, urllib.parse, urllib.request
+import argparse
+import json
+import os
+import sys
+import subprocess
+import urllib.parse
+import urllib.request
 
 API = os.environ.get("SOCIAL_API", "http://127.0.0.1:8083")
 TEAM = os.environ.get("SOCIAL_TEAM_ID", "10024d25-2ea4-40ea-86c6-ba89f515a2eb")
@@ -17,7 +23,7 @@ def _env():
     for p in ("/mnt/c/Users/tbaltzakis/cu130-slim/.env",
               "/home/tbaltzakis/cu130-slim/.env"):
         if os.path.exists(p):
-            return dict(l.split("=", 1) for l in open(p) if "=" in l and not l.startswith("#"))
+            return dict(l.split("=", 1) for l in open(p) if "=" in l and not l.startswith("#"))  # noqa: E741
     return {}
 
 
@@ -57,12 +63,16 @@ def verify():
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--token"); ap.add_argument("--name", default="cloudless")
+    ap.add_argument("--token")
+    ap.add_argument("--name", default="cloudless")
     ap.add_argument("--verify", action="store_true")
     a = ap.parse_args()
-    if a.verify: verify()
-    elif a.token: connect(a.token, a.name)
-    else: ap.print_help()
+    if a.verify:
+        verify()
+    elif a.token:
+        connect(a.token, a.name)
+    else:
+        ap.print_help()
 
 
 if __name__ == "__main__":

@@ -49,7 +49,7 @@ def main() -> int:
         if not as_json:
             tail = out.strip().splitlines()[-3:] or ["(no output)"]
             print(f"\n== {name} [{flag}] ==")
-            for l in tail:
+            for l in tail:  # noqa: E741
                 print("  " + l[:160])
     if as_json:
         print(json.dumps(rows, indent=1))

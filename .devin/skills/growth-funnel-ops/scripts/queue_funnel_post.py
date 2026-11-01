@@ -2,8 +2,9 @@
 """Queue a funnel post through the real quality pipeline.
 generate-content -> nlp-check (>=80) -> UTM tag -> create -> schedule.
 Run inside social-api:  python /app/skills/queue_funnel_post.py --funnel personal --platform linkedin --topic "..." --cta URL --at HH:MM"""
-import argparse, asyncio, sys
-from datetime import datetime, timedelta
+import argparse
+import asyncio
+import sys
 from zoneinfo import ZoneInfo
 sys.path.insert(0, "/app")
 from sqlalchemy import select
@@ -18,7 +19,7 @@ BRAND_CTAS = ("https://cloudless.gr/contact", "https://social.cloudless.gr/prici
 
 async def main(args):
     async with async_session_maker() as db:
-        team = (await db.scalars(select(Team))).first()
+        team = (await db.scalars(select(Team))).first()  # noqa: F841
         # 1-in-3 cadence check for the personal funnel
         if args.funnel == "personal":
             recent = (await db.scalars(

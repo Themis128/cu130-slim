@@ -42,23 +42,26 @@ def fill() -> int:
         return 2
     t = _tab()
     if not t:
-        print("open business.facebook.com in the debug browser first"); return 2
+        print("open business.facebook.com in the debug browser first")
+        return 2
     import websocket
     ws = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=20)
     ws.send(json.dumps({"id": 1, "method": "Page.navigate",
                         "params": {"url": BILLING_URL}}))
-    ws.recv(); time.sleep(8)
+    ws.recv()
+    time.sleep(8)
     # fill the card fields by placeholder/name — Meta's billing form is
     # React-controlled; set value + dispatch input event
     js = """(()=>{
       const set=(el,v)=>{const r=Object.getOwnPropertyDescriptor(
-        HTMLInputElement.prototype,'value').set;r.call(el,v);
-        el.dispatchEvent(new Event('input',{bubbles:true}))};
+        HTMLInputElement.prototype,'value').set
+r.call(el,v)
+        el.dispatchEvent(new Event('input',{bubbles:true}))}
       const f=(re)=>[...document.querySelectorAll('input')].find(i=>
-        re.test(i.name+i.placeholder+i.getAttribute('aria-label')||''));
+        re.test(i.name+i.placeholder+i.getAttribute('aria-label')||''))
       const num=f(/card.*number|number/i), exp=f(/exp|month|yy/i),
-            cvc=f(/cvc|cvv|security/i);
-      return JSON.stringify({num:!!num,exp:!!exp,cvc:!!cvc});
+            cvc=f(/cvc|cvv|security/i)
+      return JSON.stringify({num:!!num,exp:!!exp,cvc:!!cvc})
     })()"""
     ws.send(json.dumps({"id": 2, "method": "Runtime.evaluate",
                         "params": {"expression": js, "returnByValue": True}}))

@@ -107,9 +107,10 @@ def click_text(t, pattern: str):
     return eval_tab(t, """(() => {
       const re = /""" + pattern + """/i;
       for (const e of document.querySelectorAll('button,[role=button],a')) {
-        const s=(e.innerText||'').trim();
+        const s=(e.innerText||'').trim()
         if (s && s.length<50 && re.test(s) && e.offsetParent) {e.click();return 'clicked:'+s}
-      } return 'not found';})()""")
+      } return 'not found'
+      })()""")
 
 
 def gsi_click() -> bool:
@@ -117,7 +118,7 @@ def gsi_click() -> bool:
     for t in pages():
         if "accounts.google.com/gsi" in t.get("url", ""):
             r = eval_tab(t, """(() => {
-              const b=[...document.querySelectorAll('div[role=button],button')][0];
+              const b=[...document.querySelectorAll('div[role=button],button')][0]
               if(b){b.click();return 'clicked'} return 'none'})()""")
             print("gsi:", r)
             return r == "clicked"
@@ -140,7 +141,8 @@ def watch_x(timeout_s: int = 14400) -> None:
                 r = click_text(t, "authorize|approve|allow|continue")
                 print("oauth click:", r)
                 if r != "not found":
-                    print("X_GATE_DONE"); return
+                    print("X_GATE_DONE")
+                    return
             elif "sign in" not in txt and "log in" not in txt and txt.strip():
                 print("[+] X session live")
                 return
@@ -160,7 +162,8 @@ def watch(timeout_s: int = 14400) -> None:
             try:
                 txt = body(ts[0]).lower()
             except Exception:
-                time.sleep(15); continue
+                time.sleep(15)
+                continue
             if "must log in" not in txt and "log into facebook" not in txt:
                 print("[+] session live — hunting consent")
                 for _ in range(30):
@@ -173,7 +176,8 @@ def watch(timeout_s: int = 14400) -> None:
                         r = click_text(t, "accept|agree|continue|get started|review")
                         print("click:", r)
                         if r != "not found":
-                            print("GATE_DONE"); return
+                            print("GATE_DONE")
+                            return
                     except Exception as e:
                         print("err:", e)
                     time.sleep(10)
@@ -188,8 +192,10 @@ def main() -> int:
         i = sys.argv.index("--eval")
         for t in pages():
             if sys.argv[i + 1] in t.get("url", "") and t["type"] == "page":
-                print(eval_tab(t, sys.argv[i + 2])); return 0
-        print("no matching tab"); return 1
+                print(eval_tab(t, sys.argv[i + 2]))
+                return 0
+        print("no matching tab")
+        return 1
     print("[1/3] clone + launch (robocopy on Windows takes ~40s)")
     clone_and_launch()
     print("[2/3] waiting for CDP + real targets")
@@ -203,7 +209,8 @@ def main() -> int:
     for t in real:
         print("  tab:", t["url"][:80])
     if not real:
-        print("no tabs — check win_agent/Chrome"); return 1
+        print("no tabs — check win_agent/Chrome")
+        return 1
     print("[3/3] " + ("armed watch" if not no_watch else "done (no-watch)"))
     if not no_watch:
         import threading

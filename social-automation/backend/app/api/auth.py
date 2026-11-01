@@ -1,5 +1,6 @@
 import json
 import logging
+import secrets
 import uuid
 from datetime import UTC, datetime
 
@@ -99,7 +100,8 @@ async def _replay_rotated_refresh(jti: str) -> "TokenResponse | None":
     """Handle a previously-used refresh token.
 
     Inside the grace window the stored replacement pair is returned so
-    racing/retried refreshes succeed; after it, a burned jti means token
+    racing/retried refreshes succeed
+    after it, a burned jti means token
     theft or a stale client — reject with 401.
     """
     try:
@@ -265,7 +267,9 @@ TWITTER_SCOPES: list[str] = [
 def _granted_scopes(token: dict, requested: list[str]) -> list[str]:
     """Scopes actually granted, from the token response ``scope`` field.
 
-    X returns the granted set as a space-separated string; fall back to the
+    X returns the granted set as a space-separated string
+
+    fall back to the
     requested list when the provider omits it.
     """
     raw = token.get("scope") if isinstance(token, dict) else None
@@ -2522,3 +2526,59 @@ async def meta_data_deletion_callback(request: Request):
 
     # Return the confirmation code immediately (Meta requirement)
     return {"url": confirmation_code, "confirmation_code": confirmation_code}
+
+
+# ── authentik OIDC login (SSO into SocialAuto itself) ─────────────────────────
+AUTHENTIK_ISSUER = "https://auth.cloudless.gr/application/o"
+AUTHENTIK_CLIENT_ID = "social_client"
+AUTHENTIK_CLIENT_SECRET = "76fee596b382bd7a6ed9700bff93bfba29335f2d"
+
+
+@router.get("/oidc/authorize")
+async def oidc_authorize():
+    """Redirect to authentik to start the SSO login."""
+    import urllib.parse
+
+    q = urllib.parse.urlencode(
+        {
+            "client_id": AUTHENTIK_CLIENT_ID,
+            "redirect_uri": "https://social.cloudless.gr/api/v1/auth/oidc/callback",
+            "response_type": "code",
+            "scope": "openid email profile",
+        }
+    )
+    return {"url": f"{AUTHENTIK_ISSUER}/authorize/?{q}"}
+
+
+@router.get("/oidc/callback")
+async def oidc_callback(code: str, db: AsyncSession = Depends(get_db)):
+    """Exchange the authentik code → userinfo → upsert → app JWT."""
+    import httpx
+
+    async with httpx.AsyncClient(verify=False, timeout=15) as http:
+        tok = await http.post(
+            f"{AUTHENTIK_ISSUER}/token/",
+            data={
+                "grant_type": "authorization_code",
+                "client_id": AUTHENTIK_CLIENT_ID,
+                "client_secret": AUTHENTIK_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": "https://social.cloudless.gr/api/v1/auth/oidc/callback",
+            },
+        )
+        if tok.status_code != 200:
+            raise HTTPException(400, f"OIDC token exchange failed: {tok.text[:200]}")
+        ui = await http.get(f"{AUTHENTIK_ISSUER}/userinfo/", headers={"Authorization": f"Bearer {tok.json()['access_token']}"})
+        info = ui.json()
+    email = (info.get("email") or "").lower()
+    if not email:
+        raise HTTPException(400, "OIDC userinfo returned no email")
+    res = await db.execute(select(User).where(User.email == email))
+    user = res.scalar_one_or_none()
+    if not user:
+        user = User(email=email, password_hash=hash_password(secrets.token_urlsafe(32)), role=UserRole.ADMIN, is_active=True)
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    token = create_access_token({"sub": str(user.id), "email": user.email})
+    return {"access_token": token, "token_type": "bearer", "email": email}

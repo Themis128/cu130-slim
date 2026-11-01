@@ -6,7 +6,8 @@ sends via the campaign/email service. Run inside social-api or via cron.
     pending_digest.py               # send now
     pending_digest.py --dry         # print, don't send
 """
-import os, sys, subprocess
+import sys
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -33,7 +34,8 @@ def main() -> int:
         print(body)
         return 0
     # Slack is the proven notify surface (same channel as digests)
-    payload = body.replace("\\", "\\\\").replace('"', '\\"')
+    payload = (body.replace("\\", "\\\\").replace('"', '\\"')
+               .replace("\n", "\\n"))
     r = subprocess.run(
         ["docker", "compose", "exec", "-T", "social-api", "python", "-c",
          f"import asyncio;from app.services.slack_notifications import post_alert_to_slack;"

@@ -14,12 +14,15 @@ Strategies (auto-applied):
     (base wins — regenerated artifacts belong to the newer base)
   - everything else → list conflicted files and stop for manual resolution
 """
-import subprocess, sys, os, glob, shutil
+import subprocess
+import sys
+import os
 
 def run(cmd, cwd, check=True, cap=True):
     r = subprocess.run(cmd, cwd=cwd, shell=True, capture_output=cap, text=True)
     if check and r.returncode != 0:
-        print(r.stdout[-400:], r.stderr[-400:]); sys.exit(1)
+        print(r.stdout[-400:], r.stderr[-400:])
+        sys.exit(1)
     return r
 
 GENERATED = ("package-lock.json","pnpm-lock.yaml","yarn.lock","BACKLOG.md",
@@ -40,7 +43,8 @@ def main():
         run(f"git fetch origin {branch}", repo)
         r = run(f"git worktree add {wt} {branch}", repo, check=False)
         if r.returncode != 0 or not os.path.isdir(wt):
-            print("worktree add failed:", (r.stderr or "")[-300:]); sys.exit(1)
+            print("worktree add failed:", (r.stderr or "")[-300:])
+            sys.exit(1)
     run(f"git fetch origin {base}", wt)
     r = run(f"git rebase origin/{base}", wt, check=False)
     if r.returncode == 0:
@@ -48,14 +52,16 @@ def main():
     else:
         # resolve generated-file conflicts by taking base
         st = run("git status --porcelain", wt).stdout
-        conflicts = [l[3:] for l in st.splitlines() if l.startswith(("UU","AA"))]
+        conflicts = [l[3:] for l in st.splitlines() if l.startswith(("UU","AA"))]  # noqa: E741
         manual = [c for c in conflicts if not is_generated(c)]
         for c in conflicts:
             if is_generated(c):
                 run(f"git checkout --theirs '{c}' && git add '{c}'", wt)
         if manual:
-            print("MANUAL RESOLUTION NEEDED:"); [print(" ", m) for m in manual]
-            print(f"worktree at {wt} — resolve, `git add`, `git rebase --continue`"); sys.exit(2)
+            print("MANUAL RESOLUTION NEEDED:")
+            [print(" ", m) for m in manual]
+            print(f"worktree at {wt} — resolve, `git add`, `git rebase --continue`")
+            sys.exit(2)
         run("git rebase --continue", wt, check=False)
     run(f"git push -f origin HEAD:{branch}", wt)
     print(f"pushed clean {branch}")

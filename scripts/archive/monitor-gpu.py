@@ -7,8 +7,6 @@ Usage:
   monitor-gpu.py 600 5            # sample every 5 seconds
   monitor-gpu.py 600 5 /path/log  # custom log path"""
 
-import csv
-import io
 import json
 import shutil
 import subprocess

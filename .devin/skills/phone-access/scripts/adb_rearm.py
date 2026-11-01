@@ -13,7 +13,6 @@ Usage: adb_rearm.py [--ip 192.168.1.77] [--wait 180]
 """
 import argparse
 import subprocess
-import sys
 import time
 
 SSH = "ssh -p 8022 -o ConnectTimeout=8 -o StrictHostKeyChecking=no u0_a357@{ip}"
@@ -25,7 +24,7 @@ def sh(cmd):
 
 def devices():
     out = sh("adb devices").stdout
-    return [l.split()[0] for l in out.splitlines()[1:]
+    return [l.split()[0] for l in out.splitlines()[1:]  # noqa: E741
             if l.strip() and "device" in l and "offline" not in l]
 
 
@@ -36,13 +35,15 @@ def main():
     a = ap.parse_args()
 
     if devices():
-        print("adb already up:", devices()); return
+        print("adb already up:", devices())
+        return
 
     print("try: wireless reconnect")
     sh(f"adb connect {a.ip}:5555")
     time.sleep(2)
     if devices():
-        print("connected:", devices()); return
+        print("connected:", devices())
+        return
 
     print("try: termux re-arm")
     ssh = SSH.format(ip=a.ip)
@@ -51,7 +52,8 @@ def main():
              'setprop service.adb.tcp.port 5555"')
     time.sleep(2)
     if devices():
-        print("connected:", devices()); return
+        print("connected:", devices())
+        return
 
     print("try: open wireless-debugging screen on the phone")
     sh(ssh + ' "am start -a android.settings.ADB_WIRELESS_SETTINGS ||'

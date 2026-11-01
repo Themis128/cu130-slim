@@ -2,12 +2,11 @@
 """Get profile for a connected social account."""
 
 import json
-import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
-from skill_http import api_base, api_login, env, request, usage  # noqa: E402
+from skill_http import api_base, api_login, env, request  # noqa: E402
 
 api = api_base("SOCIAL_API_URL", "http://127.0.0.1:8083")
 admin_email = env("SOCIAL_ADMIN_EMAIL")

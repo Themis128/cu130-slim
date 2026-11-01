@@ -25,27 +25,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]
 from mcp_client import PlaywrightMCP  # noqa: E402
 
 COMMENT_JS = """async (page) => {
-  const SEL = 'div[contenteditable="true"][aria-label*="Comment as"]';
-  let boxes = page.locator(SEL);
-  let n = await boxes.count();
-  let box = n > %(idx)d ? boxes.nth(%(idx)d) : boxes.first();
+  const SEL = 'div[contenteditable="true"][aria-label*="Comment as"]'
+  let boxes = page.locator(SEL)
+  let n = await boxes.count()
+  let box = n > %(idx)d ? boxes.nth(%(idx)d) : boxes.first()
   if (n === 0 || !(await box.isVisible().catch(() => false))) {
-    const btn = page.locator('div[role="button"][aria-label*="Comment on"]').nth(%(idx)d);
-    await btn.scrollIntoViewIfNeeded();
-    await btn.click();
-    await page.waitForTimeout(1200);
-    box = page.locator(SEL).nth(%(idx)d);
+    const btn = page.locator('div[role="button"][aria-label*="Comment on"]').nth(%(idx)d)
+    await btn.scrollIntoViewIfNeeded()
+    await btn.click()
+    await page.waitForTimeout(1200)
+    box = page.locator(SEL).nth(%(idx)d)
   }
-  await box.scrollIntoViewIfNeeded();
-  await box.click();
-  await page.waitForTimeout(800);
-  await page.keyboard.type(%(text)s, {delay: 25});
-  await page.waitForTimeout(600);
-  await page.keyboard.press('Enter');
-  await page.waitForTimeout(3500);
+  await box.scrollIntoViewIfNeeded()
+  await box.click()
+  await page.waitForTimeout(800)
+  await page.keyboard.type(%(text)s, {delay: 25})
+  await page.waitForTimeout(600)
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(3500)
   const found = await page.evaluate(
-    (t) => document.body.innerText.includes(t), %(verify)s);
-  return JSON.stringify({postedInDom: found, url: page.url()});
+    (t) => document.body.innerText.includes(t), %(verify)s)
+  return JSON.stringify({postedInDom: found, url: page.url()})
 }"""
 
 

@@ -77,24 +77,25 @@ def attempt(user, password, target_url):
         client.notify("notifications/initialized")
 
         login = """async (page) => {
-            const log = [];
+            const log = []
             try {
                 await page.goto('https://www.linkedin.com/login',
-                    {waitUntil:'domcontentloaded', timeout:60000});
-                await page.waitForTimeout(2500);
-                log.push('at ' + page.url());
-                await page.locator('input#username').fill(USER_JSON);
-                await page.locator('input#password').fill(PASS_JSON);
-                await page.waitForTimeout(600);
-                await page.locator('button[type=submit]').first().click();
+                    {waitUntil:'domcontentloaded', timeout:60000})
+                await page.waitForTimeout(2500)
+                log.push('at ' + page.url())
+                await page.locator('input#username').fill(USER_JSON)
+                await page.locator('input#password').fill(PASS_JSON)
+                await page.waitForTimeout(600)
+                await page.locator('button[type=submit]').first().click()
                 for (let i = 0; i < 15; i++) {
-                    await page.waitForTimeout(2000);
-                    const u = page.url();
+                    await page.waitForTimeout(2000)
+                    const u = page.url()
                     if (u.includes('/feed') || /checkpoint|challenge|two-step/i.test(u)) break;
                 }
-                const body = (await page.locator('body').innerText()).slice(0, 600);
-                return JSON.stringify({log, url: page.url(), body});
-            } catch (e) { return 'ERR: ' + log.join('|') + ' :: ' + e.message.slice(0,200); }
+                const body = (await page.locator('body').innerText()).slice(0, 600)
+                return JSON.stringify({log, url: page.url(), body})
+            } catch (e) { return 'ERR: ' + log.join('|') + ' :: ' + e.message.slice(0,200)
+            }
         }"""
         login = login.replace("USER_JSON", json.dumps(user)).replace("PASS_JSON", json.dumps(password))
         out = run_code(client, login, secrets=secrets)
@@ -106,44 +107,45 @@ def attempt(user, password, target_url):
             return "login_failed"
 
         claim = """async (page) => {
-            const shot = (n) => page.screenshot({path: '/workspace/.playwright-mcp/li-' + n + '.png', fullPage: false});
-            const find = async (re) => page.locator('button, a, [role=button]').filter({hasText: re});
-            const steps = [];
+            const shot = (n) => page.screenshot({path: '/workspace/.playwright-mcp/li-' + n + '.png', fullPage: false})
+            const find = async (re) => page.locator('button, a, [role=button]').filter({hasText: re})
+            const steps = []
             try {
-                const r = await page.goto(TARGET, {waitUntil:'domcontentloaded', timeout:90000});
-                await page.waitForTimeout(7000);
-                steps.push('cm status=' + (r && r.status()) + ' url=' + page.url());
-                await shot('01-cm');
+                const r = await page.goto(TARGET, {waitUntil:'domcontentloaded', timeout:90000})
+                await page.waitForTimeout(7000)
+                steps.push('cm status=' + (r && r.status()) + ' url=' + page.url())
+                await shot('01-cm')
 
                 // Ad-account picker: pick the first account if listed.
-                const acct = page.locator('a[href*="/campaignmanager/accounts/"], [data-test-account-row] a, .account-selector a').first();
+                const acct = page.locator('a[href*="/campaignmanager/accounts/"], [data-test-account-row] a, .account-selector a').first()
                 if (await acct.count()) { await acct.click(); await page.waitForTimeout(6000); steps.push('picked account -> ' + page.url()); }
-                await shot('02-account');
+                await shot('02-account')
 
                 // Billing -> Credits and promotions -> Redeem coupon.
                 for (const [name, re] of [['billing', /^billing/i], ['credits', /credits and promotions|credits & promotions/i], ['redeem', /redeem coupon|redeem/i]]) {
-                    const el = await find(re).first();
+                    const el = await find(re).first()
                     if (await el.count()) { await el.click(); await page.waitForTimeout(4000); steps.push('clicked ' + name + ' -> ' + page.url()); }
                     else steps.push('NOT FOUND: ' + name);
-                    await shot('03-' + name);
+                    await shot('03-' + name)
                 }
 
                 // Coupon field.
-                const field = page.locator('input[name*="coupon" i], input[placeholder*="coupon" i], input[aria-label*="coupon" i], input[type=text]:visible').first();
+                const field = page.locator('input[name*="coupon" i], input[placeholder*="coupon" i], input[aria-label*="coupon" i], input[type=text]:visible').first()
                 if (await field.count()) {
-                    await field.fill(COUPON_JSON);
-                    steps.push('filled coupon');
-                    const apply = await find(/apply|redeem|submit/i).first();
+                    await field.fill(COUPON_JSON)
+                    steps.push('filled coupon')
+                    const apply = await find(/apply|redeem|submit/i).first()
                     if (await apply.count()) { await apply.click(); await page.waitForTimeout(5000); steps.push('applied'); }
-                } else steps.push('NOT FOUND: coupon field');
-                await shot('04-coupon');
+                } else steps.push('NOT FOUND: coupon field')
+                await shot('04-coupon')
 
                 const cardForm = await page.locator(
                     'input[autocomplete*="cc"], input[name*="card" i], iframe[src*="card" i]'
-                ).count();
-                const body = (await page.locator('body').innerText()).slice(0, 1200);
-                return JSON.stringify({steps, url: page.url(), cardForm, body});
-            } catch (e) { return 'ERR: ' + steps.join('|') + ' :: ' + e.message.slice(0,200); }
+                ).count()
+                const body = (await page.locator('body').innerText()).slice(0, 1200)
+                return JSON.stringify({steps, url: page.url(), cardForm, body})
+            } catch (e) { return 'ERR: ' + steps.join('|') + ' :: ' + e.message.slice(0,200)
+            }
         }"""
         claim = claim.replace("TARGET", json.dumps(target_url)).replace("COUPON_JSON", json.dumps(COUPON))
         out = run_code(client, claim, timeout=240, secrets=secrets)

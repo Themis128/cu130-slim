@@ -9,7 +9,6 @@ runs chrome-debug-launch.bat), then auto-drive the pending gates:
 Run it as a background watch — it fires the moment CDP binds.
 """
 import json
-import subprocess
 import sys
 import time
 import urllib.request

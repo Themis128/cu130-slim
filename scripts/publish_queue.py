@@ -12,13 +12,14 @@ Usage:
 
 The queue claims rows atomically via SELECT ... FOR UPDATE SKIP LOCKED
 (app/worker/tasks/publishing.py). Rows stuck in 'processing' are reclaimed
-by the worker after STALE_LOCK_MINUTES; `unstick` forces it immediately.
+by the worker after STALE_LOCK_MINUTES
+`unstick` forces it immediately.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
+#import json
 import subprocess
 import sys
 from pathlib import Path
@@ -112,11 +113,22 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p = sub.add_parser("list"); p.add_argument("--status"); p.add_argument("--limit", type=int, default=20); p.set_defaults(f=cmd_list)
-    p = sub.add_parser("targets"); p.add_argument("post_id"); p.set_defaults(f=cmd_targets)
-    p = sub.add_parser("reset"); p.add_argument("queue_id"); p.set_defaults(f=cmd_reset)
-    p = sub.add_parser("unstick"); p.add_argument("--minutes", type=int, default=15); p.set_defaults(f=cmd_unstick)
-    p = sub.add_parser("dupes"); p.add_argument("post_id"); p.set_defaults(f=cmd_dupes)
+    p = sub.add_parser("list")
+    p.add_argument("--status")
+    p.add_argument("--limit", type=int, default=20)
+    p.set_defaults(f=cmd_list)
+    p = sub.add_parser("targets")
+    p.add_argument("post_id")
+    p.set_defaults(f=cmd_targets)
+    p = sub.add_parser("reset")
+    p.add_argument("queue_id")
+    p.set_defaults(f=cmd_reset)
+    p = sub.add_parser("unstick")
+    p.add_argument("--minutes", type=int, default=15)
+    p.set_defaults(f=cmd_unstick)
+    p = sub.add_parser("dupes")
+    p.add_argument("post_id")
+    p.set_defaults(f=cmd_dupes)
 
     args = ap.parse_args()
     args.f(args)

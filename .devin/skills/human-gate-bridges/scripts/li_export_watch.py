@@ -6,11 +6,17 @@ picks it up. Run after requesting the export once in LinkedIn's UI.
     li_export_watch.py             # poll once + exit when found
     li_export_watch.py --daemon    # poll every 10 min
 """
-import os, re, subprocess, sys, time, urllib.request, zipfile
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.request
+import zipfile
 from pathlib import Path
-from datetime import datetime, timedelta
 
-USER = os.environ["OMV_SSH_USER"]; HOST = os.environ["OMV_SSH_HOST"]
+USER = os.environ["OMV_SSH_USER"]
+HOST = os.environ["OMV_SSH_HOST"]
 KEY = os.path.expanduser("~/.ssh/id_rsa_win")
 OUT = Path("/mnt/c/Users/tbaltzakis/Downloads")
 LINK = re.compile(r"https://[^\s\"'>]+linkedin\.com[^\s\"'>]*", re.I)

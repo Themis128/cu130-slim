@@ -5,7 +5,10 @@ Opens the TikTok login in the noVNC browser, polls until a session
 cookie lands (user logs in manually in the VNC window), then confirms.
 Usage: python login-bootstrap.py [--wait-minutes 10]
 """
-import json, subprocess, sys, time
+import json
+import subprocess
+import sys
+import time
 
 S = "http://localhost:9223"
 
@@ -13,14 +16,18 @@ def post(p, b):
     r = subprocess.run(["docker","exec","engagement-browser","curl","-s","-X","POST",
         S+p,"-H","Content-Type: application/json","-d",json.dumps(b)],
         capture_output=True, text=True)
-    try: return json.loads(r.stdout)
-    except Exception: return {}
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        return {}
 
 def get(p):
     r = subprocess.run(["docker","exec","engagement-browser","curl","-s",S+p],
                        capture_output=True, text=True)
-    try: return json.loads(r.stdout)
-    except Exception: return {}
+    try:
+        return json.loads(r.stdout)
+    except Exception:
+        return {}
 
 def js(e): return post("/session/evaluate", {"expression": e})
 
@@ -44,7 +51,8 @@ while time.time() < deadline:
         time.sleep(3)
     time.sleep(5)
 else:
-    print("timeout — no session yet"); sys.exit(1)
+    print("timeout — no session yet")
+    sys.exit(1)
 
 # 3 — extract + persist
 post("/session/extract", {"platform":"tiktok"})
