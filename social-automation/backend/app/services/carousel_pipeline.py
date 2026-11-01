@@ -1188,7 +1188,7 @@ async def run_cloudless_carousel_pipeline(
     # Note: we use the already-spellchecked caption and run NLP on it
     try:
         from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
-        
+
         # Combine slide text for quality check
         slide_texts = []
         for slide in slides:
@@ -1199,7 +1199,7 @@ async def run_cloudless_carousel_pipeline(
             if slide.get("highlight"):
                 slide_texts.append(slide["highlight"])
         combined_text = " ".join(slide_texts) + " " + (caption or "")
-        
+
         quality_result = await apply_media_quality(
             caption=combined_text,
             alt_text=ai_title,
