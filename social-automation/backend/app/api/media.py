@@ -670,7 +670,11 @@ async def generate_image(body: MediaGenerateImageRequest, team_id: TeamId, curre
     user_prompt = prompt  # original intent, used by the semantic QA judge
     prompt = await expand_visual_prompt(prompt, media_type="image")
 
-    is_infographic = is_infographic_request(prompt)
+    # Explicit "render this text" requests (quoted strings / text: ...) go
+    # through the overlay path too — the diffusion model would garble them.
+    from app.services.image_text_guard import wants_rendered_text
+
+    is_infographic = is_infographic_request(prompt) or wants_rendered_text(user_prompt)
     infographic_content = None
     bg_prompt = prompt
     if is_infographic:
@@ -779,6 +783,45 @@ async def generate_image(body: MediaGenerateImageRequest, team_id: TeamId, curre
         except Exception as exc:  # noqa: BLE001
             logger.warning("[media/generate] semantic-QA retry failed: %s", type(exc).__name__)
 
+    # ── Image-text QA: transcribe visible text from the pixels and reject
+    # garbled renderings (diffusion models cannot spell). Garbled → one
+    # regeneration with the hard no-text prompt; still garbled → keep the
+    # image but flag it in meta_data so the UI can surface the warning.
+    from app.services.image_text_guard import check_image_text
+
+    text_qa: dict = {"checked": False}
+    if not is_infographic:  # overlay path renders text via PIL — correct by construction
+        text_qa = await check_image_text(base64.b64decode(image_b64))
+        if text_qa.get("garbled"):
+            logger.warning("[media/generate] garbled in-image text %s — regenerating once without text", text_qa.get("tokens"))
+            from app.services.infographic_renderer import sanitize_prompt_for_background
+
+            retry_prompt = sanitize_prompt_for_background(prompt)
+            try:
+                if generated.get("provider") == "comfyui-flux":
+                    from app.services.comfyui_image import generate_image as comfyui_generate_image
+                    from app.services.gpu_arbiter import media_gpu_lock
+
+                    async with media_gpu_lock():
+                        png_bytes, _m = await comfyui_generate_image(prompt=retry_prompt, width=width, height=height, steps=max(1, min(steps, 8)))
+                    generated = {"image_base64": base64.b64encode(png_bytes).decode(), "model": _m.get("model", "flux1-schnell"), "provider": "comfyui-flux"}
+                else:
+                    generated = await _call_workers_ai_image(
+                        prompt=retry_prompt,
+                        model=opts.model or CF_TXT2IMG_FREE,
+                        negative_prompt=negative_prompt,
+                        width=width,
+                        height=height,
+                        steps=steps,
+                        cfg_scale=opts.cfg_scale or 3.5,
+                    )
+                new_b64 = generated.get("image_base64") or ""
+                if new_b64:
+                    image_b64 = new_b64
+                    text_qa = await check_image_text(base64.b64decode(image_b64))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[media/generate] text-QA retry failed: %s", type(exc).__name__)
+
     # ── Infographic text overlay: composite correctly-spelled text via PIL.
     if is_infographic and infographic_content:
         try:
@@ -811,6 +854,7 @@ async def generate_image(body: MediaGenerateImageRequest, team_id: TeamId, curre
     asset.meta_data["inference_provider"] = generated.get("provider") or ("comfyui-flux" if "schnell" in gen_model else "cloudflare")
     asset.meta_data["inference_model"] = gen_model
     asset.meta_data["semantic_qa"] = qa
+    asset.meta_data["text_qa"] = text_qa
     flag_modified(asset, "meta_data")
     await db.commit()
 

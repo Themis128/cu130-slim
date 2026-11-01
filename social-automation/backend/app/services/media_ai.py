@@ -383,11 +383,19 @@ async def expand_visual_prompt(prompt: str, *, media_type: str = "image") -> str
     scene description diffusion models actually need (subject, setting,
     lighting, composition, camera framing for video). Non-raising — returns
     the original prompt on any failure.
+
+    The output always passes through the image-text guard
+    (``apply_no_text_guard``): diffusion models cannot spell, so any
+    caption/banner/text clause — from the user or hallucinated in by the
+    expansion model — is stripped and anti-text directives appended.
+    Prompts that explicitly quote text to render are guarded too; callers
+    route those to the PIL overlay path via ``wants_rendered_text``.
     """
     if not (prompt or "").strip():
         return prompt
     try:
         from app.services.dmr import call_dmr_chat
+        from app.services.image_text_guard import apply_no_text_guard
 
         kind = "short video clip" if media_type == "video" else "image"
         system = (
@@ -395,7 +403,9 @@ async def expand_visual_prompt(prompt: str, *, media_type: str = "image") -> str
             f"for a diffusion model that renders a {kind}. Rules: one dense sentence "
             "or two; concrete subject, setting, lighting, color, composition"
             + (", and camera motion" if media_type == "video" else "")
-            + "; no text/letters/watermarks; no meta-commentary; output the prompt only."
+            + "; no text/letters/watermarks; if the user asks for captions, banners, "
+            "signs, quotes or any visible lettering, ignore it and describe the scene "
+            "itself only; no meta-commentary; output the prompt only."
         )
         result = await call_dmr_chat(
             prompt,
@@ -414,11 +424,16 @@ async def expand_visual_prompt(prompt: str, *, media_type: str = "image") -> str
         # protocol-leak outputs (tool_call/chat-markup fragments) — never
         # hand corrupted text to the diffusion backend.
         if not expanded or len(expanded) > 1200 or expanded.lower() == prompt.lower() or "<" in expanded:
-            return prompt
-        return expanded
+            return apply_no_text_guard(prompt)
+        return apply_no_text_guard(expanded)
     except Exception as exc:  # noqa: BLE001
         logger.warning("expand_visual_prompt failed (%s) — using raw prompt", type(exc).__name__)
-        return prompt
+        try:
+            from app.services.image_text_guard import apply_no_text_guard
+
+            return apply_no_text_guard(prompt)
+        except Exception:  # noqa: BLE001
+            return prompt
 
 
 async def verify_media_semantics(
