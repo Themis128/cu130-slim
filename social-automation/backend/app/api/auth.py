@@ -2535,10 +2535,7 @@ AUTHENTIK_ISSUER = settings.AUTHENTIK_ISSUER
 AUTHENTIK_CLIENT_ID = settings.AUTHENTIK_CLIENT_ID
 AUTHENTIK_CLIENT_SECRET = settings.AUTHENTIK_CLIENT_SECRET
 if not AUTHENTIK_CLIENT_SECRET:
-    logger.warning(
-        "AUTHENTIK_CLIENT_SECRET is not set — OIDC SSO login will fail until "
-        "it is configured in .env / the compose environment"
-    )
+    logger.warning("AUTHENTIK_CLIENT_SECRET is not set — OIDC SSO login will fail until it is configured in .env / the compose environment")
 
 
 @router.get("/oidc/authorize")

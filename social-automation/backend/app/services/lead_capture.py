@@ -206,8 +206,7 @@ async def classify_inbound_intent(text: str) -> str:
     Degrades to 'casual' when the DMR is unreachable."""
     from app.services import ai_functions
 
-    return await ai_functions.ai_classify(
-        ["buying-interest", "support", "casual", "spam"], text)
+    return await ai_functions.ai_classify(["buying-interest", "support", "casual", "spam"], text)
 
 
 def is_lead_capture_exit(text: str) -> bool:

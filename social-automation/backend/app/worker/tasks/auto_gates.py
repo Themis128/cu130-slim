@@ -101,20 +101,23 @@ async def _engagement_autoapprove() -> dict:
 
     approved = 0
     async with task_session() as db:
-        rows = (await db.execute(
-            select(EngagementAction).where(
-                EngagementAction.status == "pending_human_gate")
-            .order_by(EngagementAction.score.desc()).limit(50))).scalars().all()
+        rows = (
+            (
+                await db.execute(
+                    select(EngagementAction).where(EngagementAction.status == "pending_human_gate").order_by(EngagementAction.score.desc()).limit(50)
+                )
+            )
+            .scalars()
+            .all()
+        )
         for r in rows:
-            if lvl == 2 and not (
-                    r.action in _SAFE_ACTIONS
-                    and r.comment_draft
-                    and (r.score or 0) >= _SCORE_MIN):
+            if lvl == 2 and not (r.action in _SAFE_ACTIONS and r.comment_draft and (r.score or 0) >= _SCORE_MIN):
                 continue
             r.status = "pending"  # same transition the manual /approve does
             approved += 1
             try:
                 from app.services.slack_notifications import notify_engagement_autoapprove
+
                 notify_engagement_autoapprove(r)
             except Exception:
                 logger.debug("autoapprove notify skipped", exc_info=True)
