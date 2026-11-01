@@ -96,6 +96,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # env-manager-backend FROMs the shared sidecar base — build+push it
+      # first when missing from GHCR (idempotent manifest check). Own login:
+      # the shared GHCR login only runs on master pushes, but PR builds of
+      # the dependent image still need the base pullable. Fork PRs never
+      # see the token, so they can't push.
+      - name: Ensure shared sidecar base exists
+        if: matrix.service.name == 'env-manager-backend'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          BASE="ghcr.io/${OWNER}/cu130-slim:social-sidecar-base-latest"
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if ! docker manifest inspect "$BASE" >/dev/null 2>&1; then
+            echo "sidecar base missing — building+pushing $BASE"
+            docker buildx build --push \
+              -f docker/Dockerfile.sidecar-base \
+              -t "$BASE" docker/
+          else
+            echo "sidecar base present"
+          fi
+
       - name: Compute version tag
         id: version
         run: echo "tag=v2.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
