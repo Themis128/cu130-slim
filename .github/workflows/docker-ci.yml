@@ -49,15 +49,15 @@ jobs:
           - name: env-manager-frontend
             context: env-manager/frontend
             dockerfile: env-manager/frontend/Dockerfile
-          - name: social-api
+          - name: social-backend
+            context: social-automation/backend
+            dockerfile: social-automation/backend/Dockerfile
+            target: base
+            build_contexts: browser=browser-novnc
+          - name: social-backend-api
             context: social-automation/backend
             dockerfile: social-automation/backend/Dockerfile
             target: api
-            build_contexts: browser=browser-novnc
-          - name: social-worker-publishing
-            context: social-automation/backend
-            dockerfile: social-automation/backend/Dockerfile
-            target: worker
             build_contexts: browser=browser-novnc
           - name: social-frontend
             context: social-automation/frontend
@@ -96,6 +96,29 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # env-manager-backend FROMs the shared sidecar base — build+push it
+      # first when missing from GHCR (idempotent manifest check). Own login:
+      # the shared GHCR login only runs on master pushes, but PR builds of
+      # the dependent image still need the base pullable. Fork PRs never
+      # see the token, so they can't push.
+      - name: Ensure shared sidecar base exists
+        if: matrix.service.name == 'env-manager-backend'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          BASE="ghcr.io/${OWNER}/cu130-slim:social-sidecar-base-latest"
+          echo "${GH_TOKEN}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          if ! docker manifest inspect "$BASE" >/dev/null 2>&1; then
+            echo "sidecar base missing — building+pushing $BASE"
+            docker buildx build --push \
+              -f docker/Dockerfile.sidecar-base \
+              -t "$BASE" docker/
+          else
+            echo "sidecar base present"
+          fi
+
       - name: Compute version tag
         id: version
         run: echo "tag=v2.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
@@ -119,12 +142,12 @@ jobs:
             type=raw,value=${{ matrix.service.name }}-{{sha}}
             type=ref,event=branch,prefix=${{ matrix.service.name }}-
             type=ref,event=pr,prefix=${{ matrix.service.name }}-
-            # The worker stage is shared: the publishing build also backs the
-            # social-worker-* tags used by social-worker-default/media/messenger
-            # and celery-beat (mirrors build-and-push.yml).
-            type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
-            type=raw,value=social-worker-${{ steps.version.outputs.tag }},enable=${{ matrix.service.name == 'social-worker-publishing' && github.ref == 'refs/heads/master' }}
-            type=raw,value=social-worker-{{sha}},enable=${{ matrix.service.name == 'social-worker-publishing' }}
+            # Two backend images: social-backend (full, workers) and
+            # social-backend-api (slim, api). Legacy aliases keep old compose
+            # checkouts/rollbacks resolving.
+            type=raw,value=social-worker-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-worker-publishing-latest,enable=${{ matrix.service.name == 'social-backend' && github.ref == 'refs/heads/master' }}
+            type=raw,value=social-api-latest,enable=${{ matrix.service.name == 'social-backend-api' && github.ref == 'refs/heads/master' }}
 
       - name: Build and push ${{ matrix.service.name }}
         id: build

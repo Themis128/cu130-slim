@@ -840,7 +840,7 @@ services:
     cpus: '2'
     restart: unless-stopped
   social-api:
-    image: ghcr.io/themis128/cu130-slim:social-api-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-api-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1189,7 +1189,7 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
-    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1231,7 +1231,7 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1275,7 +1275,7 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1316,7 +1316,7 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1358,7 +1358,7 @@ services:
     cpus: '4'
     restart: unless-stopped
   celery-beat:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -2232,6 +2232,17 @@ services:
       retries: 3
       start_period: 20s
     restart: unless-stopped
+
+  # ── social-sidecar-base — shared base image for the python sidecars
+  # (messenger-sidecar, env-manager-backend, browser-novnc). build-only
+  # profile: CI builds+pushes it (build-and-push.yml), the sidecars' own
+  # Dockerfiles FROM the published image.
+  social-sidecar-base:
+    profiles: ["build-only"]
+    image: ghcr.io/themis128/cu130-slim:social-sidecar-base-latest
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.sidecar-base
 
   # ── autoheal — restarts opted-in APP containers whose HEALTHCHECK goes
   # unhealthy. Opt-in only (label autoheal=true): never postgres/redis/infra.

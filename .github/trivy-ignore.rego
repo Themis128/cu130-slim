@@ -44,3 +44,25 @@ ignore {
   input.PkgName == "accelerate"
   input.VulnerabilityID == "CVE-2026-69112"
 }
+
+# pip 26.x vendors msgpack 1.1.2 inside pip/_vendor for its own internal use —
+# Trivy's python-pkg scanner attributes it to the image. The RUNTIME msgpack is
+# floored to >=1.2.1 in both pyproject.toml and the Dockerfile (installed 1.2.4+),
+# and the vendored copy is a build tool never imported by application code.
+ignore {
+  input.PkgName == "msgpack"
+  input.VulnerabilityID == "CVE-2026-114613"
+}
+
+ignore {
+  input.PkgName == "msgpack"
+  input.VulnerabilityID == "GHSA-6v7p-g79w-8964"
+}
+
+# Same class: the setuptools copy Trivy sees (70.3.0) is the toolchain copy, not
+# the runtime one — Dockerfile line 20 and pyproject.toml both floor
+# setuptools>=78.1.1 (CVE-2025-47273 fixed in 78.1.1) for the app venv.
+ignore {
+  input.PkgName == "setuptools"
+  input.VulnerabilityID == "CVE-2025-47273"
+}
