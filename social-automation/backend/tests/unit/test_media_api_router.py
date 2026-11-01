@@ -771,7 +771,8 @@ async def test_avatar_story_defaults_no_music(monkeypatch):
     """No music_url / no tags → task gets None and the default tag set."""
     sent = {}
     monkeypatch.setattr(
-        media.celery_app, "send_task",
+        media.celery_app,
+        "send_task",
         lambda name, queue=None, kwargs=None: sent.update(kwargs=kwargs) or SimpleNamespace(id="t2"),
     )
     team = _team()

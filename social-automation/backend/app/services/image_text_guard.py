@@ -63,9 +63,7 @@ _BARE_TEXT_RE = re.compile(r"\btext\b", re.IGNORECASE)
 _SEGMENT_SPLIT_RE = re.compile(r"(?<=[,;])\s+")
 
 _ANTITEXT_SUFFIX = (
-    "absolutely NO TEXT, NO WORDS, NO LETTERS, NO WRITING, NO TYPOGRAPHY, "
-    "NO CAPTIONS, NO LABELS, NO NUMBERS, NO SIGNS, NO WATERMARKS, "
-    "clean scene, no overlays"
+    "absolutely NO TEXT, NO WORDS, NO LETTERS, NO WRITING, NO TYPOGRAPHY, NO CAPTIONS, NO LABELS, NO NUMBERS, NO SIGNS, NO WATERMARKS, clean scene, no overlays"
 )
 
 # Explicit "render this exact text" requests: quoted strings or "text: ..."
