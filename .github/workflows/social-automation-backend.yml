@@ -7,11 +7,12 @@ name: Social Automation Backend CI
     paths:
       - 'social-automation/backend/**'
       - '.github/workflows/social-automation-backend.yml'
+  # Required-check note: pull_request must stay UNFILTERED -- the `test`
+  # check is branch-protection-required, and a filtered trigger leaves it
+  # "Expected" forever on unrelated PRs (see secret-scan.yml). Relevance is
+  # gated inside the `changes` job instead.
   pull_request:
     branches: [master]
-    paths:
-      - 'social-automation/backend/**'
-      - '.github/workflows/social-automation-backend.yml'
   workflow_dispatch:
 
 permissions:
@@ -22,7 +23,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail closed: if the diff cannot be computed, assume relevant so the
+          # real job runs -- a skipped gate must never silently turn green.
+          files=$(git diff --name-only "origin/${BASE_REF}...HEAD") || {
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if printf '%s\n' "$files" | grep -qE '^(social-automation/backend/|\.github/workflows/social-automation-backend\.yml)'; then
+            echo "backend=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "backend=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     timeout-minutes: 30
     runs-on: ubuntu-24.04
     services:

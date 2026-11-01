@@ -16,20 +16,11 @@ name: Full Stack Integration Tests
       - 'docs/application-architecture.md'
       - 'AGENTS.md'
       - 'README.md'
+  # Required-check note: pull_request must stay UNFILTERED -- `integration-test`
+  # is branch-protection-required; a filtered trigger leaves it "Expected" on
+  # unrelated PRs. Relevance is gated inside the `changes` job instead.
   pull_request:
     branches: [master]
-    paths:
-      - 'social-automation/**'
-      - 'env-manager/**'
-      - 'docker-compose*.yml'
-      - '.github/workflows/integration-tests.yml'
-      - '.github/test.env'
-      # test_docs_surfaces.py reads these; a docs-only fix (e.g. #274) must re-run the suite
-      - 'docs/api-surface-inventory.md'
-      - 'docs/CODEMAP.md'
-      - 'docs/application-architecture.md'
-      - 'AGENTS.md'
-      - 'README.md'
   workflow_dispatch:
 
 permissions:
@@ -40,7 +31,38 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: filter
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Fail closed: if the diff cannot be computed, assume relevant so the
+          # real job runs -- a skipped gate must never silently turn green.
+          files=$(git diff --name-only "origin/${BASE_REF}...HEAD") || {
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+          if printf '%s\n' "$files" | grep -qE '^(social-automation/|env-manager/|docker-compose.*\.yml|\.github/workflows/integration-tests\.yml|\.github/test\.env|docs/api-surface-inventory\.md|docs/CODEMAP\.md|docs/application-architecture\.md|AGENTS\.md|README\.md)'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+          fi
+
   integration-test:
+    needs: changes
+    if: needs.changes.outputs.relevant == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
