@@ -12,7 +12,7 @@ from app.db.base import Base
 
 
 def _sha(text: str) -> str:
-    return hashlib.sha256(text.encode())[:32].hex()
+    return hashlib.sha256(text.encode()).hexdigest()[:32]
 
 
 class AIFunctionCall(Base):
