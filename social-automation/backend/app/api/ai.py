@@ -2769,9 +2769,6 @@ async def generate_carousel_pipeline(
                 storage_path=asset.storage_path,
             )
         )
-
-    # ── Persist quality metadata to each slide asset ──────────────────────
-    # We'll do this for each asset after they're all created
     try:
         from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
 
