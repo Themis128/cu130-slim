@@ -80,7 +80,7 @@ def main(email, newpw, dev):
     hit = screen.find(dev, "password")
     screen.tapxy(dev, 539, (hit[1] + 60) if hit else 700)
     time.sleep(1)
-    log(" ", screen.type_text(dev, newpw))
+    log(" ", screen.type_text(dev, newpw, masked=True))
     tap_wait(dev, "Next", 8)
     log(" ", (screen.wait(dev, "password", 8) or ("", "", "")))
     log("DONE")
