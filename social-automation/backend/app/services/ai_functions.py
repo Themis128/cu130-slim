@@ -192,8 +192,22 @@ async def ai_extract(field: str, text: str, quality: bool = False) -> str:
         return "NONE"
 
 
+import re as _re
+
+_RE_PII = _re.compile(
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"|\+?\d[\d\s().-]{7,}\d")
+
+
+def _pii_floor(text: str) -> str:
+    """Model-independent PII floor — emails/phones redacted regardless of
+    DMR health. Applied on top of whatever the model returns (and alone
+    when it fails) so no caller ever sees unmasked PII."""
+    return _RE_PII.sub("[REDACTED]", text)
+
+
 async def ai_mask(text: str, labels: str = "person,email,phone") -> str:
-    """Mask PII spans — for datalake/audit writes, never the CRM record."""
+    """Mask PII spans — model pass + regex floor, always returns masked."""
     import time as _t
 
     t0 = _t.monotonic()
@@ -202,11 +216,11 @@ async def ai_mask(text: str, labels: str = "person,email,phone") -> str:
             f"Redact every {labels} in the text to [REDACTED-<type>]. Keep all other content identical. Output ONLY the redacted text.\n\n" + text
         )
         _audit("ai_mask", "ok", (_t.monotonic() - t0) * 1000, text)
-        return out
+        return _pii_floor(out)
     except Exception as e:
         logger.warning("ai_mask failed: %s", e)
         _audit("ai_mask", "error", (_t.monotonic() - t0) * 1000, text)
-        return text
+        return _pii_floor(text)
 
 
 async def ai_similarity(a: str, b: str) -> float:
