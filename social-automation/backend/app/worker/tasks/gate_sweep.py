@@ -26,7 +26,7 @@ def _pending() -> list[str]:
         r = subprocess.run(
             ["python", "/app/.devin/skills/gate-cdp-runner/scripts/cdp_gate_runner.py",
              "--list"], capture_output=True, text=True, timeout=15, cwd="/app")
-        return [l.strip() for l in r.stdout.splitlines() if "pending" in l.lower()]
+        return [ln.strip() for ln in r.stdout.splitlines() if "pending" in ln.lower()]
     except Exception:
         return []
 

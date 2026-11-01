@@ -71,10 +71,7 @@ celery_app = Celery(
         "app.worker.tasks.nurture",
         "app.worker.tasks.funnel_sync",
         "app.worker.tasks.funnel_score",
-<<<<<<< master
-=======
         "app.worker.tasks.gate_sweep",
->>>>>>> mautic-clean
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
     ],
@@ -290,11 +287,8 @@ celery_app.conf.update(
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
         "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
-<<<<<<< master
-=======
         "app.worker.tasks.auto_gates.engagement_autoapprove": {"queue": "default"},
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
->>>>>>> mautic-clean
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
@@ -322,8 +316,6 @@ celery_app.conf.update(
             "task": "app.worker.tasks.account_status_reconcile.reconcile_account_status",
             "schedule": crontab(minute=40, hour="*/6"),
         },
-<<<<<<< master
-=======
         # Engagement-gate auto-approve — AUTONOMY_LEVEL dial (2=safe, 3=full).
         "engagement-autoapprove": {
             "task": "app.worker.tasks.auto_gates.engagement_autoapprove",
@@ -335,7 +327,6 @@ celery_app.conf.update(
             "task": "app.worker.tasks.gate_sweep.run_gate_sweep",
             "schedule": crontab(minute=15),
         },
->>>>>>> mautic-clean
         # Funnel sync — EspoCRM→Mautic contacts + MinIO funnel-zone export.
         "funnel-score": {
             "task": "app.worker.tasks.funnel_score.run_funnel_score",
