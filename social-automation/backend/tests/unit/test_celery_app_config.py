@@ -49,5 +49,5 @@ def test_avatar_story_routed_to_media_queue():
     annotations = celery_app.conf.task_annotations or {}
     limits = annotations.get(task, {})
     assert limits.get("soft_time_limit") and limits.get("time_limit"), (
-        "avatar story needs explicit soft/hard limits — the global 1h "
-        "default is sized for sweeps, not a GPU render")
+        "avatar story needs explicit soft/hard limits — the global 1h default is sized for sweeps, not a GPU render"
+    )
