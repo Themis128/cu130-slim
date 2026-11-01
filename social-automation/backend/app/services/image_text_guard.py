@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 
 # Segments (comma/semicolon/period-separated clauses) containing any of
 # these are text-render requests and get dropped from generation prompts.
-# Word-boundary matched, case-insensitive.
+# Word-boundary matched, case-insensitive. Kept precise — ambiguous scene
+# verbs ("reading books", "saying goodbye") must survive; the pixel-level
+# QA (check_image_text) catches whatever the strip misses.
 _TEXT_RENDER_KEYWORDS = (
     "caption",
     "captions",
@@ -44,9 +46,6 @@ _TEXT_RENDER_KEYWORDS = (
     "text overlay",
     "overlay text",
     "that says",
-    "saying",
-    "reads",
-    "reading",
     "with the text",
     "with text",
     "text that",
