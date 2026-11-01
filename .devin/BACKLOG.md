@@ -37,7 +37,7 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 - [ ] Delete `ops/mautic-clean` + `ops/mautic-funnel` remotes once #1247 lands (port carried their unique content; mautic-funnel ⊂ mautic-clean lineage).
 - [ ] Restart social-api + 4 workers + beat after #1247 (container rules: model/celery/compose changes).
 - [ ] First `docker compose pull && up -d` after #1247 pulls the renamed `social-backend-api-latest`/`social-backend-latest` images — verify /health + celery inspect ping (4 nodes) before traffic.
-- [ ] **Secret hygiene**: `AUTHENTIK_CLIENT_SECRET` is hardcoded in `app/api/auth.py` (~line 2537, pre-existing on master, both sides of #1228) — move to settings/env.
+- [x] **Secret hygiene** (DONE 2026-11-01): #1251 moved `AUTHENTIK_CLIENT_SECRET` to settings/.env + compose passthrough, and the secret was **rotated live** via the authentik worker shell on omv (k3s: `kubectl exec -n authentik authentik-worker-… -- ak shell`) — old 40-char value is dead server-side, new 48-char value verified against the token endpoint (`invalid_grant` probe) and loaded in social-api. The old value remains in git history but is invalid; `.env` holds the current one (gitignored).
 - [ ] Stash `grokbot-20261101` (compose autoheal labels) intentionally kept — labeled superseded by #1237; drop when convenient.
 - [ ] The 2026-10-28 garbled asset (582ca53c) predates the fix; its LinkedIn post is live — delete+recreate is a content decision (same bucket as the cloudless.com→.gr posts).
 
