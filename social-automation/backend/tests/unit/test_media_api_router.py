@@ -20,6 +20,8 @@ from PIL import Image
 
 from app.api import media
 from app.api.media import (
+    AvatarStoryRequest,
+    AvatarStoryScene,
     BulkDeleteRequest,
     CollectionAssetRequest,
     CompleteUploadRequest,
@@ -34,6 +36,7 @@ from app.api.media import (
     _reencode_image_bytes,
     _score_and_store_quality,
     add_asset_to_collection,
+    avatar_story,
     bulk_delete_media,
     complete_upload,
     create_collection,
@@ -679,6 +682,104 @@ async def test_generate_video_status(monkeypatch):
     out = await generate_video_status("t1", uuid.uuid4(), _user())
     assert out.status == "SUCCESS"
     assert out.asset_id == res.result
+
+
+@pytest.mark.asyncio
+async def test_generate_video_status_dict_result(monkeypatch):
+    """avatar_video-style tasks return {"asset_id": ...} — the status
+    endpoint must unwrap dict results, not stringify the whole dict."""
+    aid = str(uuid.uuid4())
+    res = SimpleNamespace(status="SUCCESS", successful=lambda: True, failed=lambda: False, result={"asset_id": aid})
+    monkeypatch.setattr("celery.result.AsyncResult", lambda *a, **k: res)
+    out = await generate_video_status("t3", uuid.uuid4(), _user())
+    assert out.asset_id == aid
+
+
+# ── avatar_story ──────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_avatar_story_400_no_team():
+    body = AvatarStoryRequest(scenes=[AvatarStoryScene(clip="happy", line1="hi")])
+    with pytest.raises(HTTPException) as e:
+        await avatar_story(body, uuid.uuid4(), _user(), _DB())
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_avatar_story_400_empty_scenes():
+    with pytest.raises(HTTPException) as e:
+        await avatar_story(AvatarStoryRequest(scenes=[]), uuid.uuid4(), _user(), _DB(team=_team()))
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_avatar_story_400_scene_cap():
+    scenes = [AvatarStoryScene(clip="happy", line1="x") for _ in range(13)]
+    with pytest.raises(HTTPException) as e:
+        await avatar_story(AvatarStoryRequest(scenes=scenes), uuid.uuid4(), _user(), _DB(team=_team()))
+    assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_avatar_story_400_ssrf_music_url():
+    """music_url is fetched server-side by the media worker — internal
+    targets must be rejected before enqueue (SSRF guard)."""
+    for bad in ("https://169.254.169.254/latest/meta-data", "http://169.254.169.254/x.mp3"):
+        body = AvatarStoryRequest(
+            scenes=[AvatarStoryScene(clip="happy", line1="x")],
+            music_url=bad,
+        )
+        with pytest.raises(HTTPException) as e:
+            await avatar_story(body, uuid.uuid4(), _user(), _DB(team=_team()))
+        assert e.value.status_code == 400, bad
+
+
+@pytest.mark.asyncio
+async def test_avatar_story_enqueues_media_queue(monkeypatch):
+    sent = {}
+
+    def _send(name, queue=None, kwargs=None):
+        sent.update(name=name, queue=queue, kwargs=kwargs)
+        return SimpleNamespace(id="task-av-1")
+
+    monkeypatch.setattr(media.celery_app, "send_task", _send)
+    # Passthrough validator keeps the happy path off real DNS; the
+    # rejection path is covered by the SSRF test above.
+    monkeypatch.setattr(media, "validate_public_http_url", lambda u, allow_http=True: u)
+    team = _team()
+    body = AvatarStoryRequest(
+        scenes=[AvatarStoryScene(clip="happy", line1="l1", line2="l2", duration=5)],
+        filename="s.mp4",
+        tags=["a", "b"],
+        music_url="https://cdn.example.com/song.mp3",
+    )
+    out = await avatar_story(body, team.id, _user(), _DB(team=team))
+    assert out.task_id == "task-av-1"
+    assert out.poll_url == "/api/v1/media/generate-video/task-av-1"
+    assert sent["name"] == "app.worker.tasks.avatar_video.generate_avatar_story"
+    assert sent["queue"] == "media"
+    kw = sent["kwargs"]
+    assert kw["scenes"][0]["clip"] == "happy" and kw["scenes"][0]["duration"] == 5
+    assert kw["tags"] == "a,b"
+    assert kw["music_url"] == "https://cdn.example.com/song.mp3"
+    assert kw["team_id"] == str(team.id)
+
+
+@pytest.mark.asyncio
+async def test_avatar_story_defaults_no_music(monkeypatch):
+    """No music_url / no tags → task gets None and the default tag set."""
+    sent = {}
+    monkeypatch.setattr(
+        media.celery_app, "send_task",
+        lambda name, queue=None, kwargs=None: sent.update(kwargs=kwargs) or SimpleNamespace(id="t2"),
+    )
+    team = _team()
+    body = AvatarStoryRequest(scenes=[AvatarStoryScene(clip="sad", line1="x")])
+    out = await avatar_story(body, team.id, _user(), _DB(team=team))
+    assert out.task_id == "t2"
+    assert sent["kwargs"]["music_url"] is None
+    assert sent["kwargs"]["tags"] == "ai-video,avatar"
 
 
 # ── presigned upload ──────────────────────────────────────────────────
