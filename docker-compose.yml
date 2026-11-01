@@ -1518,7 +1518,6 @@ services:
   # Free, no account required. Uses WireGuard tunnel via wgcf.
   warp-proxy:
     image: caomingjun/warp
-    restart: unless-stopped
     container_name: warp-proxy
     networks:
       - backend
