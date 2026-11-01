@@ -8,7 +8,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse, Response
 from PIL import Image
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -25,6 +25,7 @@ from app.services.media_ai import get_similar_assets
 from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
 from app.services.media_spellcheck import correct_tags, correct_text
 from app.services.media_storage import downscale_image_bytes, persist_generated_image, save_uploaded_media
+from app.services.url_safety import UnsafeUrlError, validate_public_http_url
 from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
@@ -993,10 +994,76 @@ async def generate_video_status(task_id: str, team_id: TeamId, current_user: Use
     res = AsyncResult(task_id, app=celery_app)
     out = MediaGenerateVideoStatus(task_id=task_id, status=res.status)
     if res.successful():
-        out.asset_id = str(res.result)
+        result = res.result
+        out.asset_id = str(result.get("asset_id")) if isinstance(result, dict) else str(result)
     elif res.failed():
         out.error = str(res.result)[:500]
     return out
+
+
+class AvatarStoryScene(BaseModel):
+    clip: str = Field(..., max_length=40)  # e.g. "sad" / "happy" — the avatar clip to animate
+    line1: str = Field(..., max_length=200)
+    line2: str = Field("", max_length=200)
+    duration: int = Field(7, ge=1, le=15)
+
+
+class AvatarStoryRequest(BaseModel):
+    scenes: list[AvatarStoryScene]
+    filename: str = Field("avatar-story.mp4", max_length=120)
+    alt_text: str = Field("AI-generated avatar story video", max_length=500)
+    tags: list[str] | None = None
+    avatar_asset_id: str | None = None
+    source_photo_asset_id: str | None = None
+    music_url: str | None = None
+    # Wan2.2 wants multiples of 16; cap both ends so one request can't tie
+    # up the media GPU queue with an absurd render size.
+    width: int = Field(576, ge=256, le=1280, multiple_of=16)
+    height: int = Field(1024, ge=256, le=1280, multiple_of=16)
+
+
+@router.post("/avatar-story", response_model=MediaGenerateVideoResponse, status_code=status.HTTP_202_ACCEPTED)
+async def avatar_story(body: AvatarStoryRequest, team_id: TeamId, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    """Enqueue a captioned avatar-story video (FLUX avatar -> Wan2.2 clips ->
+    captions -> music -> media_assets). Poll ``GET /media/generate-video/{task_id}``
+    for status + the saved ``asset_id``.
+    """
+    team = await db.get(Team, team_id)
+    if not team:
+        raise HTTPException(status_code=400, detail="No team found")
+    if not body.scenes:
+        raise HTTPException(status_code=400, detail="scenes is required")
+    if len(body.scenes) > 12:
+        raise HTTPException(status_code=400, detail="scenes limited to 12")
+    # SSRF guard: the media worker fetches music_url server-side — only a
+    # validated public https URL may leave the box (no redirects followed).
+    music_url = None
+    if body.music_url:
+        try:
+            music_url = validate_public_http_url(body.music_url, allow_http=False)
+        except UnsafeUrlError as exc:
+            raise HTTPException(status_code=400, detail=f"music_url rejected: {exc}") from exc
+    task = celery_app.send_task(
+        "app.worker.tasks.avatar_video.generate_avatar_story",
+        queue="media",
+        kwargs=dict(
+            scenes=[s.model_dump() for s in body.scenes],
+            filename=body.filename,
+            alt_text=body.alt_text,
+            tags=",".join(body.tags) if body.tags else "ai-video,avatar",
+            team_id=str(team.id),
+            user_id=str(current_user.id),
+            avatar_asset_id=body.avatar_asset_id,
+            source_photo_asset_id=body.source_photo_asset_id,
+            music_url=music_url,
+            width=body.width,
+            height=body.height,
+        ),
+    )
+    return MediaGenerateVideoResponse(
+        task_id=task.id,
+        poll_url=f"/api/v1/media/generate-video/{task.id}",
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.worker.tasks.analytics",
         "app.worker.tasks.digest",
         "app.worker.tasks.media",
+        "app.worker.tasks.avatar_video",
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
@@ -156,6 +157,12 @@ celery_app.conf.update(
             "soft_time_limit": 1800,
             "time_limit": 2400,
         },
+        # Avatar story: FLUX img2img per scene + ffmpeg mux — cheaper than
+        # a Wan2.2 T2V render but still media-queue work (GPU lock + mux).
+        "app.worker.tasks.avatar_video.generate_avatar_story": {
+            "soft_time_limit": 1800,
+            "time_limit": 2400,
+        },
         # ── default queue: intermediate ─────────────────────────────────
         "app.worker.tasks.analytics.sync_all_analytics": {
             "soft_time_limit": 900,
@@ -221,6 +228,9 @@ celery_app.conf.update(
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
+        # FLUX img2img + ffmpeg — belongs on the media worker, not the
+        # default queue with analytics/digest/agency sweeps.
+        "app.worker.tasks.avatar_video.generate_avatar_story": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
         # DMR keep-warm/health fire every 90s and can hold a worker slot ~10min
         # via gpu:dmr_lock — on the 2-slot default worker they starve all
