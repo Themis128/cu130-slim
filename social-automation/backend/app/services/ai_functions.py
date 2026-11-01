@@ -8,7 +8,6 @@ Transport: Docker Model Runner OpenAI-compatible endpoints.
     DMR_BASE_URL   e.g. http://localhost:12435/engines/v1/chat/completions
     DMR_EMBED_URL  e.g. http://localhost:12435/engines/v1/embeddings
     DMR_MODEL      chat model (default ai/llama3.2)
-import re as _re
     DMR_EMBED_MODEL embedding model (default docker.io/ai/qwen3-embedding:latest)
 
 Every call is a guarded async op — failures return a safe default (never
@@ -18,7 +17,9 @@ block a publish path on a model hiccup) and log a warning.
 from __future__ import annotations
 
 import logging
+import time as _t
 import math
+import re as _re
 from typing import Any
 
 import httpx
@@ -29,23 +30,10 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = 90.0
 
-
-def _audit(fn: str, outcome: str, latency_ms: float, input_text: str = "") -> None:
-    """Fire-and-forget row into ai_function_calls — never blocks the caller.
-    input is stored as a sha (never raw — same PII boundary as the lake)."""
-    import asyncio
-    import hashlib
-
-    async def _write() -> None:
-        try:
-            from app.models.ai_function_call import AIFunctionCall
-
-            from app.db.session import async_session_maker
-
-            _, _, model, _ = _cfg()
-            async with async_session_maker() as s:
-                s.add(
-                    AIFunctionCall(fn=fn, model=model, outcome=outcome, latency_ms=latency_ms, input_sha=hashlib.sha256(input_text.encode()).hexdigest()[:32])
+_RE_PII = _re.compile(
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"|\+?\d[\d\s().-]{7,}\d"
+)
                 )
                 await s.commit()
         except Exception as e:
@@ -206,7 +194,6 @@ def _pii_floor(text: str) -> str:
     return _RE_PII.sub("[REDACTED]", text)
 
 
-async def ai_mask(text: str, labels: str = "person,email,phone") -> str:
     """Mask PII spans — model pass + regex floor, always returns masked."""
     import time as _t
 
