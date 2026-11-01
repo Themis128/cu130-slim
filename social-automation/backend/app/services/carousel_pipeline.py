@@ -38,6 +38,7 @@ from app.services.plain_english import (  # noqa: E402
     PLAIN_ENGLISH_RULES,
     build_linkedin_caption,
     run_nlp_check_and_fix,
+    sofia_nlp_score,
 )
 from app.services.spellcheck import auto_correct, preprocess_for_render  # noqa: E402
 
@@ -1182,6 +1183,40 @@ async def run_cloudless_carousel_pipeline(
     await db.refresh(carousel_asset)
     media_ids = [carousel_asset.id]
 
+    # ── Persist quality metadata to the carousel asset ────────────────────
+    # Build a quality report for the asset (caption = AI title + slides text)
+    # Note: we use the already-spellchecked caption and run NLP on it
+    try:
+        from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
+        
+        # Combine slide text for quality check
+        slide_texts = []
+        for slide in slides:
+            if slide.get("title"):
+                slide_texts.append(slide["title"])
+            if slide.get("body"):
+                slide_texts.append(slide["body"])
+            if slide.get("highlight"):
+                slide_texts.append(slide["highlight"])
+        combined_text = " ".join(slide_texts) + " " + (caption or "")
+        
+        quality_result = await apply_media_quality(
+            caption=combined_text,
+            alt_text=ai_title,
+            tags=carousel_asset.tags or [],
+            platform=account.platform,
+            db=db,
+            team_id=team.id,
+            provider_name="dmr",
+            run_nlp=True,
+            run_spellcheck=True,
+            run_seo=True,
+        )
+        await persist_media_quality_metadata(carousel_asset, quality_result, db)
+        logger.info(f"[n8n-pipeline] Quality metadata persisted to carousel asset {carousel_asset.id}")
+    except Exception as exc:
+        logger.warning(f"[n8n-pipeline] Quality metadata persistence failed (non-fatal): {exc}")
+
     full_caption = build_linkedin_caption(caption, hashtags)
 
     # ── Spellcheck the final caption ───────────────────────────────────
@@ -1209,6 +1244,16 @@ async def run_cloudless_carousel_pipeline(
             if _seo_attempt == 2:
                 logger.warning(f"[n8n-pipeline] SEO scoring failed after retry (non-fatal): {exc}")
 
+    # ── Sofia scoring on the final caption + hashtags ────────────────────
+    sofia_score: int | None = None
+    try:
+        full_caption_for_sofia = build_linkedin_caption(caption, hashtags)
+        full_caption_for_sofia = await auto_correct(full_caption_for_sofia)
+        sofia_score, sofia_issues = sofia_nlp_score(full_caption_for_sofia)
+        logger.info(f"[n8n-pipeline] Sofia score: {sofia_score}/100")
+    except Exception as exc:
+        logger.warning(f"[n8n-pipeline] Sofia scoring failed (non-fatal): {exc}")
+
     post = Post(
         team_id=team.id,
         user_id=user.id,
@@ -1224,6 +1269,7 @@ async def run_cloudless_carousel_pipeline(
                 "text_model": text_model,
                 "nlp": nlp_report.to_dict(),
                 "seo": seo_score,
+                "sofia_score": sofia_score,
                 "slides": slides,
                 "ai_title": ai_title,
                 "account": account.display_name,
@@ -1245,6 +1291,8 @@ async def run_cloudless_carousel_pipeline(
         "caption": caption,
         "hashtags": hashtags,
         "nlp_report": nlp_report.to_dict(),
+        "seo_score": seo_score,
+        "sofia_score": sofia_score,
         "target_account": {
             "id": str(account.id),
             "display_name": account.display_name,
