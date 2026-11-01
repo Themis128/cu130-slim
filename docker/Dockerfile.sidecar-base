@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1
+
+# Shared base for the python sidecar services (messenger-sidecar,
+# env-manager-backend, browser-novnc). One published image so each sidecar's
+# own Dockerfile is FROM-this + COPY + CMD — no repeated bootstrap layers.
+FROM mirror.gcr.io/library/python:3.11-slim
+
+WORKDIR /app
+
+# Common runtime dep set — the overlap across the sidecars' requirements.
+# Security pins mirror the backend Dockerfile's known-CVE floors.
+RUN pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" && \
+    pip install --no-cache-dir \
+      "fastapi>=0.110,<1.0" \
+      "uvicorn[standard]>=0.27,<1.0" \
+      "httpx>=0.27,<1.0" \
+      "pydantic>=2.9,<3.0" \
+      "pydantic-settings>=2.3,<3.0" \
+      "python-dotenv>=1.2" \
+      "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
+
+# Non-root convention shared with the backend image.
+RUN addgroup --gid 1001 app \
+    && adduser --uid 1001 --gid 1001 --disabled-password --gecos "" app
+USER app

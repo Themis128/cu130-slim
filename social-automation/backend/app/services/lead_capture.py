@@ -199,6 +199,17 @@ def is_lead_capture_trigger(text: str, payload: str | None = None) -> bool:
     )
 
 
+async def classify_inbound_intent(text: str) -> str:
+    """Databricks-pattern intent triage on an inbound message — returns one of
+    buying-interest / support / casual / spam. Drives funnel routing: hot
+    leads fast-track into EspoCRM + Mautic, casual stays log-only.
+    Degrades to 'casual' when the DMR is unreachable."""
+    from app.services import ai_functions
+
+    return await ai_functions.ai_classify(
+        ["buying-interest", "support", "casual", "spam"], text)
+
+
 def is_lead_capture_exit(text: str) -> bool:
     """True when the user wants out of the lead-capture form."""
     t = (text or "").strip().lower()

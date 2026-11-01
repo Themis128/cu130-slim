@@ -514,3 +514,54 @@ def render_slack_lines(signals: dict[str, Any]) -> list[str]:
     for o, n in (signals.get("top_objections") or [])[:2]:
         lines.append(f"• objection ({n}x): {o[:60]}")
     return lines
+
+
+async def funnel_answer(question: str) -> dict[str, Any]:
+    """Genie-style funnel Q&A — pulls the latest MinIO funnel-zone exports
+    and answers a natural-language question over them via the DMR.
+    The compute_* signals are the metrics surface; this is the
+    plain-English front door.  Degrades to an error dict when the DMR
+    or the zone is unavailable."""
+    from app.services import ai_functions, minio_storage
+
+    if not minio_storage.minio_enabled():
+        return {"answer": None, "error": "datalake offline"}
+    zone = ""
+    # the structured summary carries counts + statuses — the model answers
+    # over it without streaming 200 rows.
+    try:
+        zone = (await minio_storage.get_object(
+            "funnel/summary.json")).decode() + "\n"
+    except Exception:
+        pass
+    for name in ("leads", "contacts", "segments"):
+        key = f"funnel/{name}/latest.jsonl"
+        try:
+            zone += (await minio_storage.get_object(key)).decode() + "\n"
+        except Exception:
+            pass
+    if not zone.strip():
+        return {"answer": None, "error": "funnel zone empty"}
+    # deterministic path — count/how-many questions answer from the
+    # summary's structured counts, not the model (smollm-class models
+    # can't reliably extract from JSON rows).
+    import re as _re
+    ql = question.lower()
+    if zone.lstrip().startswith("{") and _re.search(
+            r"how many|count|total|number of", ql):
+        try:
+            import json as _json
+            s = _json.loads(zone.split("\n", 1)[0])
+            for z in s:
+                if z != "exported_at" and z in ql:
+                    return {"answer": str(s[z]["rows"]),
+                            "question": question, "via": "summary"}
+            if "lead" in ql:
+                return {"answer": str(s["leads"]["rows"]),
+                        "question": question, "via": "summary"}
+        except Exception:
+            pass
+    answer = await ai_functions.ai_extract(
+        f"the direct answer to: {question}", zone[:8000], quality=True)
+    return {"answer": None if answer == "NONE" else answer,
+            "question": question, "rows_seen": zone.count("\n")}

@@ -2529,9 +2529,16 @@ async def meta_data_deletion_callback(request: Request):
 
 
 # ── authentik OIDC login (SSO into SocialAuto itself) ─────────────────────────
-AUTHENTIK_ISSUER = "https://auth.cloudless.gr/application/o"
-AUTHENTIK_CLIENT_ID = "social_client"
-AUTHENTIK_CLIENT_SECRET = "76fee596b382bd7a6ed9700bff93bfba29335f2d"
+# Sourced from settings (.env / compose passthrough) — never hardcode the
+# client secret here; it must stay out of git history going forward.
+AUTHENTIK_ISSUER = settings.AUTHENTIK_ISSUER
+AUTHENTIK_CLIENT_ID = settings.AUTHENTIK_CLIENT_ID
+AUTHENTIK_CLIENT_SECRET = settings.AUTHENTIK_CLIENT_SECRET
+if not AUTHENTIK_CLIENT_SECRET:
+    logger.warning(
+        "AUTHENTIK_CLIENT_SECRET is not set — OIDC SSO login will fail until "
+        "it is configured in .env / the compose environment"
+    )
 
 
 @router.get("/oidc/authorize")

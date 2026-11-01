@@ -22,8 +22,10 @@ RUN pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools
 # Install Python dependencies into the venv. Upgraded versions fix starlette,
 # python-multipart, python-jose, cryptography, jaraco.context vulnerabilities;
 # the trailing upgrade re-pins them in case a dep dragged an older release.
+# The worker extra pulls the media/PDF/notebook stack (~1GB) that only the
+# celery images need — the api target builds its own slim venv below.
 COPY pyproject.toml .
-RUN pip install --no-cache-dir -e . && \
+RUN pip install --no-cache-dir -e ".[worker]" && \
     pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
 
 # instagrapi is installed --no-deps: every release >=2.6.9 (the
@@ -33,10 +35,11 @@ RUN pip install --no-cache-dir -e . && \
 RUN pip install --no-cache-dir "instagrapi==2.6.9" --no-deps && \
     pip install --no-cache-dir "PySocks>=1.7.1" "pycryptodomex>=3.23.0"
 
-# ── Runtime base shared by the API and every worker ──
+# ── Runtime layers shared by the api and every worker — everything except
+# the venv, which each target copies in from its own builder stage. ──
 # No compilers, no browser engines — browser automation lives in the
 # dedicated sidecar containers, not in this codebase.
-FROM mirror.gcr.io/library/python:3.11-slim AS base
+FROM mirror.gcr.io/library/python:3.11-slim AS runtime-common
 
 WORKDIR /app
 
@@ -50,10 +53,6 @@ RUN apt-get update && apt-get update --fix-missing && \
     apt-get autoremove -y && \
     rm -rf /var/lib/apt/lists/*
 
-# Application venv from the builder (all deps, no toolchain).
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
 # Upgrade the interpreter's own packaging tools too — Trivy scans the base
 # interpreter, not just the venv:
 # - wheel 0.46.2 (RCE via wheel)
@@ -64,10 +63,6 @@ ENV PATH="/opt/venv/bin:$PATH"
 # - pip 25.0 (various security fixes)
 RUN /usr/local/bin/pip install --no-cache-dir --upgrade "pip>=25.0" "wheel>=0.46.2" "setuptools>=78.1.1" "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0"
 
-# Remove bundled SBOM files that can confuse Trivy with stale package versions.
-RUN find /opt/venv/lib/python*/site-packages /usr/local/lib/python*/site-packages \
-    -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete 2>/dev/null || true
-
 # Copy application code
 COPY . .
 COPY --from=browser browser-bridge.py /app/browser-bridge.py
@@ -77,9 +72,32 @@ RUN addgroup --gid 1001 app \
     && adduser --uid 1001 --gid 1001 --disabled-password --gecos "" app \
     && chown -R app:app /app
 USER app
+ENV PATH="/opt/venv/bin:$PATH"
+
+# ── Slim api builder: core deps only (no worker media/PDF/notebook stack) ──
+FROM builder AS builder-api
+# The venv must live at its final path — console scripts hardcode the shebang.
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir -e . && \
+    /opt/venv/bin/pip install --no-cache-dir "instagrapi==2.6.9" --no-deps && \
+    /opt/venv/bin/pip install --no-cache-dir --upgrade "msgpack>=1.2.1" "jaraco.context>=6.1.0" "cryptography>=43.0.0" && \
+    find /opt/venv/lib/python*/site-packages \
+    -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete 2>/dev/null || true
 
 # ── Targets ──
-FROM base AS api
+# `base` = full worker image (all deps incl. the worker extra).
+FROM runtime-common AS base
+COPY --from=builder /opt/venv /opt/venv
+# Remove bundled SBOM files that can confuse Trivy with stale package versions.
+USER root
+RUN find /opt/venv/lib/python*/site-packages \
+    -type f \( -name "*.cdx.json" -o -name "*.spdx.json" \) -delete 2>/dev/null || true
+USER app
+
+# `api` = slim image — core venv only; worker-extra import sites are all
+# function-lazy or ImportError-guarded.
+FROM runtime-common AS api
+COPY --from=builder-api /opt/venv /opt/venv
 CMD ["sh", "-c", "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
 
 FROM base AS worker
