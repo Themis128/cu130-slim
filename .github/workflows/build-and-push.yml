@@ -64,6 +64,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # env-manager-backend FROMs the shared sidecar base — build+push it
+      # first when missing (first run after the split; idempotent after).
+      - name: Ensure shared sidecar base exists
+        if: matrix.service == 'env-manager-backend'
+        run: |
+          set -euo pipefail
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          BASE="ghcr.io/${OWNER}/cu130-slim:social-sidecar-base-latest"
+          if ! docker manifest inspect "$BASE" >/dev/null 2>&1; then
+            echo "sidecar base missing — building+pushing $BASE"
+            docker buildx build --push \
+              -f docker/Dockerfile.sidecar-base \
+              -t "$BASE" docker/
+          else
+            echo "sidecar base present"
+          fi
+
       - name: Derive short sha tag
         id: meta
         run: |
