@@ -138,11 +138,13 @@ class TestMonetizationGarbleFallback:
 
         persist = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
         gen = AsyncMock(return_value=(b"flux-png", {"model": "flux1-schnell"}))
-        with patch("app.services.media_ai.expand_visual_prompt", new=AsyncMock(side_effect=lambda p, **k: p)), \
-             patch("app.services.comfyui_image.generate_image", new=gen), \
-             patch("app.services.gpu_arbiter.media_gpu_lock", new=_fake_gpu_lock), \
-             patch("app.services.image_text_guard.check_image_text", new=fake_check), \
-             patch("app.services.media_storage.persist_generated_image", new=persist):
+        with (
+            patch("app.services.media_ai.expand_visual_prompt", new=AsyncMock(side_effect=lambda p, **k: p)),
+            patch("app.services.comfyui_image.generate_image", new=gen),
+            patch("app.services.gpu_arbiter.media_gpu_lock", new=_fake_gpu_lock),
+            patch("app.services.image_text_guard.check_image_text", new=fake_check),
+            patch("app.services.media_storage.persist_generated_image", new=persist),
+        ):
             team = SimpleNamespace(id=uuid.uuid4())
             action = SimpleNamespace(instruction=PRODUCTION_PROMPT)
             asset_id = await monetization_executor._generate_media(None, team, None, action)
@@ -169,13 +171,15 @@ class TestMonetizationGarbleFallback:
         persist = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
         gen = AsyncMock(return_value=(b"flux-png", {"model": "flux1-schnell"}))
         og = MagicMock(return_value=b"banner-png")
-        with patch("app.services.media_ai.expand_visual_prompt", new=AsyncMock(side_effect=lambda p, **k: p)), \
-             patch("app.services.comfyui_image.generate_image", new=gen), \
-             patch("app.services.gpu_arbiter.media_gpu_lock", new=_fake_gpu_lock), \
-             patch("app.services.image_text_guard.check_image_text", new=fake_check), \
-             patch("app.services.brand_assets.generate_og_image", new=og), \
-             patch("app.services.spellcheck.auto_correct", new=fake_correct), \
-             patch("app.services.media_storage.persist_generated_image", new=persist):
+        with (
+            patch("app.services.media_ai.expand_visual_prompt", new=AsyncMock(side_effect=lambda p, **k: p)),
+            patch("app.services.comfyui_image.generate_image", new=gen),
+            patch("app.services.gpu_arbiter.media_gpu_lock", new=_fake_gpu_lock),
+            patch("app.services.image_text_guard.check_image_text", new=fake_check),
+            patch("app.services.brand_assets.generate_og_image", new=og),
+            patch("app.services.spellcheck.auto_correct", new=fake_correct),
+            patch("app.services.media_storage.persist_generated_image", new=persist),
+        ):
             team = SimpleNamespace(id=uuid.uuid4())
             action = SimpleNamespace(instruction=PRODUCTION_PROMPT)
             asset_id = await monetization_executor._generate_media(None, team, None, action)
@@ -193,11 +197,13 @@ class TestMonetizationGarbleFallback:
 
         persist = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
         gen = AsyncMock(return_value=(b"flux-png", {"model": "flux1-schnell"}))
-        with patch("app.services.media_ai.expand_visual_prompt", new=AsyncMock(side_effect=lambda p, **k: p)), \
-             patch("app.services.comfyui_image.generate_image", new=gen), \
-             patch("app.services.gpu_arbiter.media_gpu_lock", new=_fake_gpu_lock), \
-             patch("app.services.image_text_guard.check_image_text", new=fake_check), \
-             patch("app.services.media_storage.persist_generated_image", new=persist):
+        with (
+            patch("app.services.media_ai.expand_visual_prompt", new=AsyncMock(side_effect=lambda p, **k: p)),
+            patch("app.services.comfyui_image.generate_image", new=gen),
+            patch("app.services.gpu_arbiter.media_gpu_lock", new=_fake_gpu_lock),
+            patch("app.services.image_text_guard.check_image_text", new=fake_check),
+            patch("app.services.media_storage.persist_generated_image", new=persist),
+        ):
             team = SimpleNamespace(id=uuid.uuid4())
             action = SimpleNamespace(instruction="team holding a video camera")
             await monetization_executor._generate_media(None, team, None, action)

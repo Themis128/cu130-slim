@@ -37,8 +37,9 @@ def _audit(fn: str, outcome: str, latency_ms: float, input_text: str = "") -> No
 
     async def _write() -> None:
         try:
-            from app.db.session import async_session_maker
             from app.models.ai_function_call import AIFunctionCall
+
+            from app.db.session import async_session_maker
 
             _, _, model, _ = _cfg()
             async with async_session_maker() as s:
