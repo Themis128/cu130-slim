@@ -1,5 +1,26 @@
 # BACKLOG (living)
 
+## 2026-11-02 session — Devin Review #1083 tails (synigoros-ops)
+
+- Devin Review on merged PR #1083 flagged 6 items; 4 were already fixed on
+  master (ba2f2b45 + 0a7db738 + 0548f6c6), but the "session release" fix
+  called `/session/close` — an endpoint that does not exist on
+  browser-bridge.py (real: `/session/stop`), so the 404 was silently
+  swallowed and the waiting session still pinned the adhoc bridge ~5 min.
+- Fix branch `fix/synigoros-ops-review-1083`: `/session/stop` everywhere,
+  skipped when `/session/start` returned `reused` (another caller's session);
+  `.devin` mirror script brought to parity (was stale: force:true start,
+  fixed 14s sleep, no bounded poll, close×3); residual personal email
+  scrubbed from both SKILL.md copies; +3 unit tests (stop on success,
+  stop on error, no-stop on reused).
+
+**Leftovers:**
+- [ ] Restart the 4 social-worker-* containers + beat after merge
+  (worker task code changed — container rules).
+- [ ] Gmail MCP connector in Devin Desktop fails to connect client-side
+  (endpoint https://gmailmcp.googleapis.com/mcp/v1 is up — likely expired
+  OAuth); repo gmail-ops OAuth path works as fallback.
+
 ## 2026-11-01 session — full PR + branch consolidation, image-text spelling guard
 
 **Landed (all via squash PRs to protected master):**

@@ -18,8 +18,8 @@ description: >
   no identifying values are committed to the repo.
 - ΚΠΑ (tracking code) and Αριθμός Πρωτοκόλλου (protocol #) are DISTINCT
   numbers on the receipt — identify uses ΚΠΑ, the status page shows both.
-- **Wrong email ⇒ "Δεν έγινε ταυτοποίηση!"** — themis.baltzakis@gmail.com
-  fails; the complaint's registered email works.
+- **Wrong email ⇒ "Δεν έγινε ταυτοποίηση!"** — only the complaint's
+  registered email works; any other address fails identification.
 - A live session skips the form (status view renders directly) — the script
   handles both states.
 

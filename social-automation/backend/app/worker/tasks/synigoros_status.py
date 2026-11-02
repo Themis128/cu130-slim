@@ -52,14 +52,19 @@ def _ev(expr: str):
 def _poll() -> dict:
     # boot the shared browser (any platform arg) — unforced: a forced start
     # kills a live publishing/login session on the shared bridge
-    _bridge("/session/start", {"platform": "reddit", "interactive": False})
+    start = _bridge("/session/start", {"platform": "reddit", "interactive": False})
+    owns = not start.get("reused")  # a reused session belongs to another caller
     try:
         return _poll_inner()
     finally:
-        try:
-            _bridge("/session/close", {})
-        except Exception:
-            pass
+        # /session/stop is the real bridge endpoint (there is no
+        # /session/close — a 404 here left the waiting session pinning the
+        # bridge for five minutes); skip it when we reused someone else's.
+        if owns:
+            try:
+                _bridge("/session/stop", {}, tries=1)
+            except Exception:
+                pass
 
 
 def _poll_inner() -> dict:
