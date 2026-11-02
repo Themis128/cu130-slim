@@ -24,7 +24,6 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
-from app.models.ai_function_call import AIFunctionCall
 
 logger = logging.getLogger(__name__)
 
