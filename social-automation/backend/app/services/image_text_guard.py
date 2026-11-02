@@ -128,13 +128,18 @@ async def check_image_text(image_bytes: bytes) -> dict:
     """QA the generated pixels for garbled text.
 
     Transcribes visible text via DMR vision (qwen3-vl, local) and runs
-    :func:`detect_gibberish` on the transcription. Returns::
+    :func:`detect_gibberish_detailed` on the transcription. Returns::
 
         {"checked": bool, "has_text": bool, "transcription": str,
          "garbled": bool, "tokens": [str], "reason": str}
 
-    Never raises — ``checked: False`` means QA infrastructure was
-    unavailable and the caller must treat the image as pass-through.
+    Never raises — ``checked: False`` means the image is *unverified*: the
+    vision pass or the LanguageTool dictionary pass did not run, so text
+    may be present and garbled without detection. Publish-bound callers
+    must treat ``checked=False`` the same as ``garbled=True`` (retry or
+    deterministic fallback) rather than pass the image through — a
+    LanguageTool cold start once let "hinkesty / inenesity" ship onto a
+    live LinkedIn post (2026-11-02).
     """
     result: dict = {
         "checked": False,
@@ -150,13 +155,20 @@ async def check_image_text(image_bytes: bytes) -> dict:
         from app.services.media_ai import _call_dmr_vision
 
         b64 = base64.b64encode(image_bytes).decode()
-        transcription = (await _call_dmr_vision(b64, _TRANSCRIBE_PROMPT, max_tokens=200)) or ""
+        transcription = await _call_dmr_vision(b64, _TRANSCRIBE_PROMPT, max_tokens=200)
     except Exception as exc:  # noqa: BLE001
         result["reason"] = f"vision unavailable: {type(exc).__name__}"
         return result
 
+    # call_dmr_vision returns None on internal failure — that is NOT a
+    # verified "no text". Treat None/empty as unverified; only an explicit
+    # NONE-style reply counts as no visible text.
+    if transcription is None or not transcription.strip():
+        result["reason"] = "vision returned no response"
+        return result
+
     transcription = transcription.strip()
-    if not transcription or transcription.lower() in _NONE_REPLIES:
+    if transcription.lower() in _NONE_REPLIES:
         result["checked"] = True
         result["reason"] = "no visible text"
         return result
@@ -165,16 +177,24 @@ async def check_image_text(image_bytes: bytes) -> dict:
     result["has_text"] = True
     result["transcription"] = transcription[:600]
     try:
-        from app.services.spellcheck import detect_gibberish
+        from app.services.spellcheck import detect_gibberish_detailed
 
-        tokens = await detect_gibberish(transcription)
+        tokens, dictionary_checked = await detect_gibberish_detailed(transcription)
     except Exception as exc:  # noqa: BLE001
+        result["checked"] = False
         result["reason"] = f"gibberish check failed: {type(exc).__name__}"
         return result
 
     result["tokens"] = tokens[:20]
     result["garbled"] = bool(tokens)
-    result["reason"] = "garbled in-image text" if tokens else "text looks clean"
     if tokens:
+        result["reason"] = "garbled in-image text"
         logger.warning("[image-text-guard] garbled text in generated image: %s", tokens[:8])
+    elif not dictionary_checked:
+        # The LanguageTool pass never ran — mixed-case pattern alone cannot
+        # vouch for the text. Unverified, not clean.
+        result["checked"] = False
+        result["reason"] = "dictionary check unavailable — text unverified"
+    else:
+        result["reason"] = "text looks clean"
     return result
