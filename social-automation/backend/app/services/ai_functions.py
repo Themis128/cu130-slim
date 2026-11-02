@@ -83,8 +83,8 @@ def _cfg() -> tuple[str, str, str, str]:
     root = raw.removesuffix("/chat/completions")
     base = f"{root}/chat/completions" if raw.endswith("/chat/completions") else f"{root}/v1/chat/completions"
     embed = (getattr(s, "DMR_EMBED_URL", "") or f"{root}/v1/embeddings").strip()
-    model = (getattr(s, "DMR_MODEL", "") or getattr(s, "DMR_TINY_MODEL", "") or "smollm2").strip()
-    embed_model = (getattr(s, "DMR_EMBED_MODEL", "") or getattr(s, "DMR_EMBEDDING_MODEL", "") or "nomic-embed-text").strip()
+    model = (getattr(s, "DMR_MODEL", "") or getattr(s, "DMR_TEXT_MODEL", "") or "ai/llama3.2").strip()
+    embed_model = (getattr(s, "DMR_EMBED_MODEL", "") or getattr(s, "DMR_EMBEDDING_MODEL", "") or "docker.io/ai/qwen3-embedding:latest").strip()
     return base, embed, model, embed_model
 
 

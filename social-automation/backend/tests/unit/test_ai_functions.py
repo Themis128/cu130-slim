@@ -12,7 +12,14 @@ from app.services import ai_functions as af
 
 
 def _settings(**over):
-    base = dict(DMR_BASE_URL="", DMR_EMBED_URL="", DMR_MODEL="", DMR_EMBED_MODEL="", DMR_QUALITY_MODEL="")
+    base = dict(
+        DMR_BASE_URL="",
+        DMR_EMBED_URL="",
+        DMR_MODEL="",
+        DMR_EMBED_MODEL="",
+        DMR_QUALITY_MODEL="",
+        DMR_MID_MODEL="hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M",
+    )
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -84,7 +91,8 @@ async def test_chat_default_and_quality(client, monkeypatch):
     assert client.timeouts[-1] == af._TIMEOUT
 
     assert await af._chat("p", quality=True) == "hi"
-    assert client.calls[-1][1]["model"] == "docker.io/ai/qwen3:8b-q4_K_M"
+    # DMR_MID_MODEL is used when DMR_QUALITY_MODEL is not set
+    assert client.calls[-1][1]["model"] == "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
     assert client.timeouts[-1] == af._TIMEOUT * 3
 
     monkeypatch.setattr(af, "get_settings", lambda: _settings(DMR_QUALITY_MODEL="big"))
