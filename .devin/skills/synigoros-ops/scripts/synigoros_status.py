@@ -125,7 +125,9 @@ def main() -> int:
         if owns:
             try:
                 call("/session/stop", {}, tries=1)
-            except Exception:
+            # BaseException: call() raises SystemExit on non-retryable
+            # errors — a stop failure must never mask the poll result
+            except BaseException:
                 pass
 
 STATE = "/tmp/synigoros_last.json"

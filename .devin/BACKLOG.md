@@ -1,5 +1,31 @@
 # BACKLOG (living)
 
+## 2026-11-02 session 2 — synigoros alerting went live + leftovers
+
+- **#1261 merged**: session/stop fix + .devin parity + creds scrub + SYNIGOROS_*
+  x-worker-env passthrough + monitor.js notify fix (was 403 via social-api
+  endpoint — now direct Bot API, verified msg in automation-hq) + gmail lane.
+- **#1266 merged**: monitor EBUSY log-lock — run-monitor.bat `>>` + node's
+  appendFileSync double-handled monitor.log; every scheduled run crashed for
+  days (Last Result 1). Bat redirect dropped, log() is non-fatal.
+- **Deployed live**: `SynigorosMonitor` task now every **15min** (was 4h) and
+  works; Gmail early-check relays Ombudsman status emails in ~minutes;
+  SYNIGOROS_MAIL/KPA set in WSL-clone + Windows .env; workers+beat recreated
+  (env verified present, 4/4 celery nodes).
+- **WSL clone note**: `~/cu130-slim` runs divergent branch
+  `chore/autonomy-level-passthrough` (35 ahead/32 behind, other agent's
+  in-flight work) — applied only the 3 needed file edits to its working
+  tree, branch untouched. When that branch syncs with master it'll
+  reconcile (same content for our files).
+- **Reviewer follow-ups** (from #1261 review): BaseException catch in both
+  skill scripts + worker stop-warning logging landed in fix/synigoros-leftovers;
+  own-reddit-reuse stop NOT implemented — /session/status exposes no
+  `interactive` flag so our leftovers can't be told from a real interactive
+  login; WAITING_TIMEOUT bounds it anyway.
+
+**Leftovers:**
+- [x] All session items landed or mitigated.
+
 ## 2026-11-02 session — Devin Review #1083 tails (synigoros-ops)
 
 - Devin Review on merged PR #1083 flagged 6 items; 4 were already fixed on

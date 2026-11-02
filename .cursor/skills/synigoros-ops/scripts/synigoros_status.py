@@ -109,7 +109,9 @@ def main() -> int:
         # someone else's session.
         if owns:
             try: call("/session/stop", {}, tries=1)
-            except Exception: pass
+            # BaseException: call() raises SystemExit on non-retryable
+            # errors — a stop failure must never mask the poll result
+            except BaseException: pass
 
 if __name__ == "__main__":
     sys.exit(main())

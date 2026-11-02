@@ -62,9 +62,11 @@ def _poll() -> dict:
         # bridge for five minutes); skip it when we reused someone else's.
         if owns:
             try:
-                _bridge("/session/stop", {}, tries=1)
-            except Exception:
-                pass
+                stopped = _bridge("/session/stop", {}, tries=1)
+                if not stopped.get("status"):
+                    logger.warning("synigoros_status: /session/stop no-op — session may pin the bridge ~5min")
+            except Exception as e:
+                logger.warning("synigoros_status: /session/stop failed: %s", e)
 
 
 def _poll_inner() -> dict:
