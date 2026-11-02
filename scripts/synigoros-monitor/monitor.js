@@ -117,7 +117,7 @@ async function notify(text) {
       await notify(`📨 Νέο email από Συνήγορο του Πολίτη!\n${g.newSubjects.map(s => '• ' + s).join('\n')}\n\nΗ κατάσταση της αναφοράς πιθανόν άλλαξε — έλεγξε το Gmail.`);
       log(`NEW MAIL: ${g.newSubjects.join(' | ')}`);
     }
-    if (g) prev = { ...(prev || {}), mailId: g.mailId };
+    if (g) prev = { ...(prev || {}), mailId: g.mailId, lastNews: new Date().toISOString() };
   } catch (e) { log('gmail check skip: ' + e.message); }
 
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -142,12 +142,26 @@ async function notify(text) {
       await notify(`📋 Synigoros monitor armed.\nΚατάσταση: ${status}\nΠρωτόκολλο: ${CFG.kpa}`);
       log(`armed, status: ${status}`);
     } else if (prev.status !== status) {
+      prev.lastNews = new Date().toISOString();
       await notify(`🔔 ΑΛΛΑΓΗ αναφοράς Συνηγόρου!\nΠριν: ${prev.status}\nΤώρα: ${status}\n\nΈλεγξε: https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas\nΚΠΑ: ${CFG.kpa}`);
       log(`CHANGE: ${prev.status} -> ${status}`);
     } else {
       log(`no change: ${status}`);
     }
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ status, updates, mailId: prev && prev.mailId, checked: new Date().toISOString() }, null, 2));
+    // 3-day no-news rule → send the prepared follow-up once.
+    if (prev && !prev.followupSent && prev.lastNews &&
+        Date.now() - new Date(prev.lastNews).getTime() >= 3 * 24 * 3600e3) {
+      try {
+        require('child_process').execFileSync(
+          'C:\\Program Files\\nodejs\\node.exe',
+          [path.join(DIR, 'followup.js')], { stdio: 'inherit' });
+        prev.followupSent = new Date().toISOString();
+        log('follow-up sent (3d no news)');
+      } catch (e) { log('followup failed: ' + e.message); }
+    }
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ status, updates, mailId: prev && prev.mailId,
+      lastNews: prev && prev.lastNews, followupSent: prev && prev.followupSent,
+      checked: new Date().toISOString() }, null, 2));
   } catch (e) {
     log('ERROR: ' + e.message);
     await notify(`⚠️ Synigoros monitor error: ${e.message}`);
