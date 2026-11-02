@@ -8,6 +8,7 @@ Transport: Docker Model Runner OpenAI-compatible endpoints.
     DMR_BASE_URL   e.g. http://localhost:12435/engines/v1/chat/completions
     DMR_EMBED_URL  e.g. http://localhost:12435/engines/v1/embeddings
     DMR_MODEL      chat model (default ai/llama3.2)
+import re as _re
     DMR_EMBED_MODEL embedding model (default docker.io/ai/qwen3-embedding:latest)
 
 Every call is a guarded async op — failures return a safe default (never
@@ -76,30 +77,47 @@ class _timed:
 
 def _cfg() -> tuple[str, str, str, str]:
     s = get_settings()
-    base = (getattr(s, "DMR_BASE_URL", "") or "http://localhost:12435/engines/v1/chat/completions").strip()
-    embed = (getattr(s, "DMR_EMBED_URL", "") or "http://localhost:12435/engines/v1/embeddings").strip()
-    model = (getattr(s, "DMR_MODEL", "") or "ai/llama3.2").strip()
-    embed_model = (getattr(s, "DMR_EMBED_MODEL", "") or "docker.io/ai/qwen3-embedding:latest").strip()
+    raw = (getattr(s, "DMR_BASE_URL", "") or "http://localhost:12435/engines/v1").strip().rstrip("/")
+    # DMR_BASE_URL may be a bare host root or a full /chat/completions path —
+    # normalize to the API root so both endpoints derive correctly.
+    root = raw.removesuffix("/chat/completions")
+    base = f"{root}/chat/completions" if raw.endswith("/chat/completions") else f"{root}/v1/chat/completions"
+    embed = (getattr(s, "DMR_EMBED_URL", "") or f"{root}/v1/embeddings").strip()
+    model = (getattr(s, "DMR_MODEL", "") or getattr(s, "DMR_TINY_MODEL", "") or "smollm2").strip()
+    embed_model = (getattr(s, "DMR_EMBED_MODEL", "") or getattr(s, "DMR_EMBEDDING_MODEL", "") or "nomic-embed-text").strip()
     return base, embed, model, embed_model
 
 
 async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> str:
     base, _, model, _ = _cfg()
     if quality:
-        qm = (getattr(get_settings(), "DMR_QUALITY_MODEL", "") or "docker.io/ai/qwen3:8b-q4_K_M").strip()
+        qm = (getattr(get_settings(), "DMR_MID_MODEL", "") or getattr(get_settings(), "DMR_QUALITY_MODEL", "")).strip()
         if qm:
             model = qm
-    async with httpx.AsyncClient(timeout=_TIMEOUT * 3 if quality else _TIMEOUT) as c:
-        r = await c.post(
-            base,
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.0,
-                "max_tokens": max_tokens,
-            },
-        )
-    return r.json()["choices"][0]["message"]["content"].strip()
+    # DMR is flaky under load — an empty body or transient failure is common
+    # while the engine hot-swaps models. Retry once so agents see the serving
+    # model, not the swap window.
+    import asyncio as _aio
+    timeout = _TIMEOUT * 3 if quality else _TIMEOUT
+    last_err: Exception | None = None
+    for attempt in range(2):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as c:
+                r = await c.post(
+                    base,
+                    json={
+                        "model": model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.0,
+                        "max_tokens": max_tokens,
+                    },
+                )
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            last_err = e
+            if attempt == 0:
+                await _aio.sleep(2)
+    raise last_err  # type: ignore[misc]
 
 
 async def _embed(text: str) -> list[float]:
@@ -177,9 +195,22 @@ async def ai_extract(field: str, text: str, quality: bool = False) -> str:
         _audit("ai_extract", "error", (_t.monotonic() - t0) * 1000, text)
         return "NONE"
 
+import re as _re
+
+_RE_PII = _re.compile(
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
+    r"|\+?\d[\d\s().-]{7,}\d")
+
+
+def _pii_floor(text: str) -> str:
+    """Model-independent PII floor — emails/phones redacted regardless of
+    DMR health. Applied on top of whatever the model returns (and alone
+    when it fails) so no caller ever sees unmasked PII."""
+    return _RE_PII.sub("[REDACTED]", text)
+
 
 async def ai_mask(text: str, labels: str = "person,email,phone") -> str:
-    """Mask PII spans — for datalake/audit writes, never the CRM record."""
+    """Mask PII spans — model pass + regex floor, always returns masked."""
     import time as _t
 
     t0 = _t.monotonic()
@@ -188,11 +219,11 @@ async def ai_mask(text: str, labels: str = "person,email,phone") -> str:
             f"Redact every {labels} in the text to [REDACTED-<type>]. Keep all other content identical. Output ONLY the redacted text.\n\n" + text
         )
         _audit("ai_mask", "ok", (_t.monotonic() - t0) * 1000, text)
-        return out
+        return _pii_floor(out)
     except Exception as e:
         logger.warning("ai_mask failed: %s", e)
         _audit("ai_mask", "error", (_t.monotonic() - t0) * 1000, text)
-        return text
+        return _pii_floor(text)
 
 
 async def ai_similarity(a: str, b: str) -> float:

@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     DMR_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1"
     # Base URL (no /engines/... suffix) for sidecars and worker tasks.
     DMR_BASE_URL: str = "http://host.docker.internal:12435"
+    # ai_functions transport aliases (ollama-compatible OpenAI endpoints).
+    DMR_EMBED_URL: str = ""
+    DMR_MODEL: str = ""
+    DMR_QUALITY_MODEL: str = ""
+    DMR_EMBED_MODEL: str = ""
     DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"  # long-form + schema/JSON (thinking model, ~5.2GB)
     DMR_VISION_MODEL: str = "ai/qwen3-vl"
     DMR_EMBEDDING_MODEL: str = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"

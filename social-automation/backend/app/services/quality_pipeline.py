@@ -197,12 +197,13 @@ SEO issues to fix:
 Current SEO score: {overall}/100
 
 Requirements:
-- Write at least 440 characters of natural, engaging content.
+- Write at least 600 characters of natural, engaging content (minimum for LinkedIn SEO).
 - Use plain everyday English (no jargon).
 - Keep the same topic and meaning.
 - Make it more detailed and valuable to the reader.
 - Include a clear hook in the first line.
 - End with a call to action.
+- Include one relevant link for LinkedIn/Facebook (avoid links on Twitter/Threads/Instagram/TikTok).
 
 Return JSON with: content (string), hashtags (array of strings without #)"""
 

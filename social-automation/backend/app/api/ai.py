@@ -37,7 +37,7 @@ from app.services.inference import (
     transcribe_workers_ai,
 )
 from app.services.media_storage import persist_generated_image
-from app.services.plain_english import check_plain_english
+from app.services.plain_english import check_plain_english, sofia_nlp_score
 from app.worker.celery_app import celery_app
 from app.worker.tasks.publishing import process_publish_queue, publish_post_now
 
@@ -2613,6 +2613,7 @@ class GenerateCarouselPipelineResponse(BaseModel):
     models: dict
     nlp_report: dict = {}
     seo_score: dict | None = None
+    sofia_score: int | None = None
 
 
 @router.post("/generate-carousel-pipeline", response_model=GenerateCarouselPipelineResponse)
@@ -2768,6 +2769,39 @@ async def generate_carousel_pipeline(
                 storage_path=asset.storage_path,
             )
         )
+    try:
+        from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
+
+        # Build combined text from all slides
+        slide_texts = []
+        for slide in cleaned_slides:
+            if slide.get("title"):
+                slide_texts.append(slide["title"])
+            if slide.get("body"):
+                slide_texts.append(slide["body"])
+            if slide.get("highlight"):
+                slide_texts.append(slide["highlight"])
+        combined_text = " ".join(slide_texts) + " " + (cleaned_caption or "")
+
+        for asset_id in media_ids:
+            asset = await db.get(MediaAsset, asset_id)
+            if asset:
+                quality_result = await apply_media_quality(
+                    caption=combined_text,
+                    alt_text=copy.suggested_caption or "",
+                    tags=["carousel", request.platform, f"slides:{len(cleaned_slides)}"],
+                    platform=request.platform,
+                    db=db,
+                    team_id=team.id,
+                    provider_name="dmr",
+                    run_nlp=True,
+                    run_spellcheck=True,
+                    run_seo=True,
+                )
+                await persist_media_quality_metadata(asset, quality_result, db)
+                logger.info(f"[carousel-pipeline] Quality metadata persisted to slide asset {asset_id}")
+    except Exception as exc:
+        logger.warning(f"[carousel-pipeline] Quality metadata persistence failed (non-fatal): {exc}")
 
     # ── Spellcheck the caption + SEO scoring ───────────────────────────
     from app.services import seo as _seo_service
@@ -2797,6 +2831,19 @@ async def generate_carousel_pipeline(
             if attempt == 2:
                 logger.warning(f"[carousel-pipeline] SEO scoring failed after retry: {exc}")
 
+    # ── Sofia scoring on the final caption + hashtags ────────────────────
+    sofia_score = None
+    try:
+        full_caption_for_sofia = cleaned_caption
+        if copy.hashtags:
+            tag_str = " ".join(f"#{h.lstrip('#')}" for h in copy.hashtags)
+            full_caption_for_sofia = f"{full_caption_for_sofia}\n\n{tag_str}"
+        full_caption_for_sofia = await _auto_correct(full_caption_for_sofia)
+        sofia_score, _sofia_issues = sofia_nlp_score(full_caption_for_sofia)
+        logger.info(f"[carousel-pipeline] Sofia score: {sofia_score}/100")
+    except Exception as exc:
+        logger.warning(f"[carousel-pipeline] Sofia scoring failed (non-fatal): {exc}")
+
     pipeline_response = GenerateCarouselPipelineResponse(
         slides=slide_results,
         suggested_caption=cleaned_caption,
@@ -2811,6 +2858,7 @@ async def generate_carousel_pipeline(
         },
         nlp_report=nlp_report.to_dict(),
         seo_score=seo_score,
+        sofia_score=sofia_score,
     )
 
     # Auto-save successful generation as a reusable workflow template
