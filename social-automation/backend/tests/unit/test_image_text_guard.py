@@ -94,10 +94,15 @@ class TestCheckImageText:
 
     async def test_garbled_text_detected(self):
         # "GGr" (dropped-separator) mangling is caught by the pattern-only
-        # path, so this is deterministic whether or not LanguageTool is
-        # reachable; in production the LanguageTool misspelling path also
-        # flags lowercase garble ("exppertals", "successwher").
-        with patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(return_value="SuccessWher GGrteams story")):
+        # path; in production the LanguageTool misspelling path also flags
+        # lowercase garble ("exppertals", "successwher").
+        with (
+            patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(return_value="SuccessWher GGrteams story")),
+            patch(
+                "app.services.spellcheck.detect_gibberish_detailed",
+                new=AsyncMock(return_value=(["GGrteams"], True)),
+            ),
+        ):
             result = await check_image_text(b"png-bytes")
         assert result["checked"] is True
         assert result["has_text"] is True
@@ -105,14 +110,60 @@ class TestCheckImageText:
         assert result["tokens"]
 
     async def test_clean_text_passes(self):
-        with patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(return_value="Welcome aboard")):
+        with (
+            patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(return_value="Welcome aboard")),
+            patch(
+                "app.services.spellcheck.detect_gibberish_detailed",
+                new=AsyncMock(return_value=([], True)),
+            ),
+        ):
             result = await check_image_text(b"png-bytes")
+        assert result["garbled"] is False
+        assert result["checked"] is True
+
+    async def test_dictionary_down_is_unverified_not_clean(self):
+        # LanguageTool outage mid-check: no tokens, but the dictionary pass
+        # never ran → unverified, NOT clean (2026-11-02 regression:
+        # "hinkesty/inenesity" shipped while LT was cold-starting).
+        with (
+            patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(return_value="hinkesty in irety")),
+            patch(
+                "app.services.spellcheck.detect_gibberish_detailed",
+                new=AsyncMock(return_value=([], False)),
+            ),
+        ):
+            result = await check_image_text(b"png-bytes")
+        assert result["has_text"] is True
+        assert result["checked"] is False
+        assert result["garbled"] is False
+        assert "unverified" in result["reason"]
+
+    async def test_gibberish_call_failing_is_unverified(self):
+        with (
+            patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(return_value="some text")),
+            patch(
+                "app.services.spellcheck.detect_gibberish_detailed",
+                new=AsyncMock(side_effect=RuntimeError("boom")),
+            ),
+        ):
+            result = await check_image_text(b"png-bytes")
+        assert result["checked"] is False
         assert result["garbled"] is False
 
     async def test_vision_unavailable_is_pass_through(self):
         with patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(side_effect=RuntimeError("dmr down"))):
             result = await check_image_text(b"png-bytes")
         assert result["checked"] is False
+        assert result["garbled"] is False
+
+    async def test_vision_none_is_unverified_not_clean(self):
+        # call_dmr_vision returns None on internal failure — must not be
+        # read as "no visible text" (observed 2026-11-02: RemoteProtocolError
+        # inside the DMR call would have passed as a clean image).
+        with patch("app.services.media_ai._call_dmr_vision", new=AsyncMock(return_value=None)):
+            result = await check_image_text(b"png-bytes")
+        assert result["checked"] is False
+        assert result["has_text"] is False
         assert result["garbled"] is False
 
     async def test_empty_bytes(self):
@@ -131,7 +182,7 @@ class TestMonetizationGarbleFallback:
         from app.services import monetization_executor
 
         # first check garbled → retry; second check clean → retry png wins
-        checks = iter([{"garbled": True}, {"garbled": False}])
+        checks = iter([{"garbled": True, "checked": True}, {"garbled": False, "checked": True}])
 
         async def fake_check(png):
             return next(checks)
@@ -160,7 +211,7 @@ class TestMonetizationGarbleFallback:
     async def test_garbled_twice_falls_back_to_brand_banner(self):
         from app.services import monetization_executor
 
-        checks = iter([{"garbled": True}, {"garbled": True}])
+        checks = iter([{"garbled": True, "checked": True}, {"garbled": True, "checked": True}])
 
         async def fake_check(png):
             return next(checks)
@@ -193,7 +244,7 @@ class TestMonetizationGarbleFallback:
         from app.services import monetization_executor
 
         async def fake_check(png):
-            return {"garbled": False}
+            return {"garbled": False, "checked": True}
 
         persist = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
         gen = AsyncMock(return_value=(b"flux-png", {"model": "flux1-schnell"}))
@@ -209,3 +260,38 @@ class TestMonetizationGarbleFallback:
             await monetization_executor._generate_media(None, team, None, action)
 
         assert gen.await_count == 1  # no QA retry
+
+    @pytest.mark.asyncio
+    async def test_unchecked_qa_falls_back_to_brand_banner(self):
+        # QA infra down (checked=False, e.g. LanguageTool cold start) must
+        # behave like garbled — never ship an unverified image to a live
+        # post (2026-11-02 LinkedIn regression).
+        from app.services import monetization_executor
+
+        checks = iter([{"garbled": False, "checked": False}, {"garbled": False, "checked": False}])
+
+        async def fake_check(png):
+            return next(checks)
+
+        async def fake_correct(text, **kw):
+            return text
+
+        persist = AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4()))
+        gen = AsyncMock(return_value=(b"flux-png", {"model": "flux1-schnell"}))
+        og = MagicMock(return_value=b"banner-png")
+        with (
+            patch("app.services.media_ai.expand_visual_prompt", new=AsyncMock(side_effect=lambda p, **k: p)),
+            patch("app.services.comfyui_image.generate_image", new=gen),
+            patch("app.services.gpu_arbiter.media_gpu_lock", new=_fake_gpu_lock),
+            patch("app.services.image_text_guard.check_image_text", new=fake_check),
+            patch("app.services.brand_assets.generate_og_image", new=og),
+            patch("app.services.spellcheck.auto_correct", new=fake_correct),
+            patch("app.services.media_storage.persist_generated_image", new=persist),
+        ):
+            team = SimpleNamespace(id=uuid.uuid4())
+            action = SimpleNamespace(instruction=PRODUCTION_PROMPT)
+            asset_id = await monetization_executor._generate_media(None, team, None, action)
+
+        assert asset_id == persist.return_value.id
+        assert gen.await_count == 2  # original + no-text retry
+        assert persist.await_args.kwargs["image_bytes"] == b"banner-png"
