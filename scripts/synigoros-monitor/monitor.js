@@ -10,7 +10,7 @@ const LOG = path.join(DIR, 'monitor.log');
 
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
-  fs.appendFileSync(LOG, line + '\n');
+  try { fs.appendFileSync(LOG, line + '\n'); } catch {}
   console.log(line);
 }
 
