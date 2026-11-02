@@ -8,7 +8,6 @@ Transport: Docker Model Runner OpenAI-compatible endpoints.
     DMR_BASE_URL   e.g. http://localhost:12435/engines/v1/chat/completions
     DMR_EMBED_URL  e.g. http://localhost:12435/engines/v1/embeddings
     DMR_MODEL      chat model (default ai/llama3.2)
-import re as _re
     DMR_EMBED_MODEL embedding model (default docker.io/ai/qwen3-embedding:latest)
 
 Every call is a guarded async op — failures return a safe default (never
@@ -19,11 +18,13 @@ from __future__ import annotations
 
 import logging
 import math
+import re as _re
 from typing import Any
 
 import httpx
 
 from app.core.config import get_settings
+from app.models.ai_function_call import AIFunctionCall
 
 logger = logging.getLogger(__name__)
 
