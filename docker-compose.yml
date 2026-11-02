@@ -27,7 +27,7 @@ x-worker-env: &worker-env
   - N8N_API_KEY=${N8N_API_KEY}
   - N8N_USER=${N8N_USER}
   - N8N_PASSWORD=${N8N_PASSWORD}
-  - COMFYUI_URL=http://stack-ops:8199
+  - COMFYUI_URL=http://social-media-comfyui-gpu:8000
   - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
   - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}
   - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
@@ -219,7 +219,7 @@ x-worker-depends: &worker-depends
   n8n:
     condition: service_healthy
   # comfyui intentionally absent: workers reach it through the stack-ops
-  # wake proxy (COMFYUI_URL=http://stack-ops:8199); a depends_on here would
+  # wake proxy (COMFYUI_URL=http://social-media-comfyui-gpu:8000); a depends_on here would
   # force-start the GPU container on every worker recreate.
   chroma:
     condition: service_healthy
@@ -876,7 +876,7 @@ services:
       - N8N_API_KEY=${N8N_API_KEY}
       - N8N_USER=${N8N_USER}
       - N8N_PASSWORD=${N8N_PASSWORD}
-      - COMFYUI_URL=http://stack-ops:8199
+      - COMFYUI_URL=http://social-media-comfyui-gpu:8000
       - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
       - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434/v1/chat/completions}
       - DMR_EMBED_URL=${DMR_EMBED_URL:-http://ollama:11434/v1/embeddings}
