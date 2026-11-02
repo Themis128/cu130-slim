@@ -140,6 +140,9 @@ Get-ScheduledTask -TaskPath '\DevOptimizer\' | % { $_.Actions[0].Execute + ' ' +
   delivery (a Telegram outage must not leave the stack broken).
 - Retry policy: `Failed` state re-attempts repair after a 15-min cooldown;
   `Repairing` older than 10 min means the last run died mid-flight -> retry.
+- Escalation: `consecutive-failures.txt` counts repair failures; the 2nd+
+  consecutive failure also posts `[P1]` to the critical channel. Counter
+  resets on recovery.
 - `-Mode TestAlert` sends a one-shot verification message; `-Mode Install`
   re-registers the task (conhost --headless). Keep the script **pure ASCII**
   (PS 5.1 BOM-less-UTF8 em-dash parser trap — see above).
