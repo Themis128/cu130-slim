@@ -33,9 +33,11 @@ def _sess(acc):
 
 class _Client:
     sent: list = []
+    tokens: list = []
 
     def __init__(self, token):
         self.token = token
+        _Client.tokens.append(token)
 
     async def send_message(self, chat, text):
         _Client.sent.append((chat, text))
@@ -44,6 +46,7 @@ class _Client:
 @pytest.fixture
 def tg(monkeypatch):
     _Client.sent = []
+    _Client.tokens = []
     monkeypatch.setattr(TA, "TelegramAPIClient", _Client)
     monkeypatch.setattr(TA, "_bot_token", lambda acc: acc.tok)
     return monkeypatch
@@ -66,6 +69,7 @@ async def test_alert_unknown_severity_falls_back_to_ops(tg):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("acc", [None, SimpleNamespace(tok="")])
 async def test_alert_no_token(tg, acc):
+    tg.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     tg.setattr(WA, "task_session", _sess(acc))
     assert await SN.send_telegram_alert("intel", "i") is False
 
@@ -75,8 +79,43 @@ async def test_alert_send_error(tg):
     def bad():
         raise RuntimeError("db")
 
+    tg.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     tg.setattr(WA, "task_session", bad)
     assert await SN.send_telegram_alert("ops", "e") is False
+
+
+@pytest.mark.asyncio
+async def test_alert_env_token_fallback_no_account(tg):
+    """No telegram account row -> env TELEGRAM_BOT_TOKEN still delivers."""
+    tg.setenv("TELEGRAM_BOT_TOKEN", "env-tok")
+    tg.setattr(WA, "task_session", _sess(None))
+    assert await SN.send_telegram_alert("ops", "hi") is True
+    assert _Client.sent == [(SN.TG_CHANNELS["ops"], "hi")]
+
+
+@pytest.mark.asyncio
+async def test_alert_env_token_fallback_db_down(tg):
+    """Postgres unreachable -> env token keeps P1 alerts deliverable."""
+    tg.setenv("TELEGRAM_BOT_TOKEN", "env-tok")
+
+    def bad():
+        raise RuntimeError("db down")
+
+    tg.setattr(WA, "task_session", bad)
+    assert await SN.send_telegram_alert("critical", "api down") is True
+    assert _Client.sent == [
+        (SN.TG_CHANNELS["critical"], "api down"),
+        (SN.TG_CHANNELS["ops"], "[P1] api down"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_alert_db_token_wins_over_env(tg):
+    """DB token (rotation-aware source) is preferred when both exist."""
+    tg.setenv("TELEGRAM_BOT_TOKEN", "env-tok")
+    tg.setattr(WA, "task_session", _sess(SimpleNamespace(tok="db-tok")))
+    assert await SN.send_telegram_alert("ops", "x") is True
+    assert _Client.tokens == ["db-tok"]
 
 
 # ── celery task_failure notifier ──────────────────────────────────────────

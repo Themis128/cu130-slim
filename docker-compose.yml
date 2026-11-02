@@ -94,6 +94,11 @@ x-worker-env: &worker-env
   - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
   - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
   - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
+  - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}  # env fallback for send_telegram_alert when Postgres is down
+  - TG_CH_CRITICAL=${TG_CH_CRITICAL:--1004389402878}
+  - TG_CH_OPS=${TG_CH_OPS:--1004429103353}
+  - TG_CH_INTEL=${TG_CH_INTEL:--1004362141941}
+  - TG_CH_DIGEST=${TG_CH_DIGEST:--1004363123500}
   - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
   - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
   - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -701,13 +706,22 @@ services:
     restart: unless-stopped
 
   portainer:
-    image: portainer/portainer-ce:2.39.6
+    image: portainer/portainer-ce:2.39.6-healthcheck
+    build:
+      context: .
+      dockerfile: Dockerfile.portainer-healthcheck
     container_name: portainer
     networks:
       - backend
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     mem_limit: 256m
     memswap_limit: 512m
     cpus: '1'
@@ -959,6 +973,11 @@ services:
       - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
       - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
       - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}  # env fallback for send_telegram_alert when Postgres is down
+      - TG_CH_CRITICAL=${TG_CH_CRITICAL:--1004389402878}
+      - TG_CH_OPS=${TG_CH_OPS:--1004429103353}
+      - TG_CH_INTEL=${TG_CH_INTEL:--1004362141941}
+      - TG_CH_DIGEST=${TG_CH_DIGEST:--1004363123500}
       - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
       - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
       - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -1572,6 +1591,12 @@ services:
       - backend
     volumes:
       - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     mem_limit: 6g
     cpus: '4'
 
@@ -1619,6 +1644,7 @@ services:
 
   # ── Dedicated engagement-ingestion browser (no sweeps → no steals) ──
   engagement-browser:
+    image: cu130-slim-browser-novnc:latest
     build:
       context: ./browser-novnc
       dockerfile: Dockerfile
@@ -2215,6 +2241,12 @@ services:
     command: -config.file=/etc/promtail/config.yml -config.expand-env=true
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qE ':2378[[:space:]]+00000000000000000000000000000000:0000[[:space:]]+0A' /proc/net/tcp6"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       docker-socket-proxy:
         condition: service_started
@@ -2235,6 +2267,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2375/_ping | grep -q OK"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # ── Gate watchers — cdp/li-vetting watches, persistent service ───────
   stack-watchers:
@@ -2291,6 +2329,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[a]utoheal' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Mautic — self-hosted funnel/marketing-automation manager (campaigns,
   # landing pages, drip sequences, lead scoring, forms). Dedicated MariaDB.
@@ -2364,6 +2408,12 @@ services:
       - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
       - MAUTIC_DB_DATABASE=mautic
       - DOCKER_MAUTIC_ROLE=mautic_cron
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[e]ntrypoint_mautic_cron.sh' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     mem_limit: 384m
     restart: unless-stopped
 
@@ -2381,8 +2431,12 @@ volumes:
   tunnel_url: null
   browser_cookies: null
   browser_profile: null
-  engagement_cookies: null
-  engagement_profile: null
+  engagement_cookies:
+    external: true
+    name: engagement_cookies
+  engagement_profile:
+    external: true
+    name: engagement_profile
   minio_data: null
   instagram_sessions: null
   warp_data: null
