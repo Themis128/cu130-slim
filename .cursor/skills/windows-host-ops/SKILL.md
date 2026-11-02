@@ -148,6 +148,36 @@ Get-ScheduledTask -TaskPath '\DevOptimizer\' | % { $_.Actions[0].Execute + ' ' +
   (PS 5.1 BOM-less-UTF8 em-dash parser trap — see above).
 - Log/state: `%LOCALAPPDATA%\DockerWslIntegrationWatchdog\`.
 
+### Failure classification (2026-11-02, retiered)
+
+The probe is classified before acting so a transient vsock blip never triggers
+a session-killing `wsl --terminate`:
+
+- `Healthy` — exec runs, payload contains `Docker Desktop`.
+- `Vsock` — output has `UtilAcceptVsock|accept4 failed|WSAETIMEDOUT|
+  Wsl/Service|Wsl/ExecError`, or the bounded call times out, or `wsl.exe`
+  fails to **spawn** (Start-Process throws during an interop wedge — was a
+  silent-death gap, now returns TimedOut → vsock class).
+- `Broken` — exec runs but docker.sock/proxy is dead → the original
+  terminate-repair path, unchanged.
+
+`Vsock` handling: vsock lives in the WSL utility VM — terminate cannot fix it.
+The watchdog probes the engine via `docker.exe` (host npipe, vsock-independent);
+runs `docker desktop restart` only if the engine is unreachable; increments
+`vsock-flaps.txt`; writes state `VsockDegraded`; escalates `[P1]` to #critical
+at flap 6 (~30 min) then every ~3h; defers the durable reset to the 04:45 task.
+Recovery writes `Healthy` + "OK again (was VsockDegraded)". `-Mode TestVsock`
+injects a synthetic vsock probe to exercise the branch end-to-end.
+
+### WSL Vsock Health Reset task (daily 04:45)
+
+`C:\Users\tbaltzakis\scripts\Watch-VsockHealth.ps1` — probe-first scheduled
+reset: 5× `wsl --exec docker info`; resets (`wsl --shutdown` → prewarm →
+4-min verify loop) only on vsock-class degradation (>=1 UtilAcceptVsock-class
+or >=3 down). Healthy/DockerDown verdicts exit quietly — never a blind reboot.
+Telegram to #ops before and after the reset. `-Mode Check|Install|Uninstall|
+TestAlert`, `-WhatIf` for dry runs. Log: `%LOCALAPPDATA%\VsockHealthWatchdog\`.
+
 ## Docker Desktop backend death (2026-10-18)
 
 Signature: `docker version` shows client but **no server version**, every

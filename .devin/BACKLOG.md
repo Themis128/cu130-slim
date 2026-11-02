@@ -240,3 +240,6 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 **External gates**: `:9222` auto-fires on logon (CloudlessDebugChrome task). Viber = paid commercial channel (€115/mo) — decision, not a build.
 
 **Content-quality research applied**: slop-keyword scan, voice constraints, prior-output exclusion, platform-fit (content_guides has limits, unenforced).
+
+- Watchdog retiered 2026-11-02 eve: probe classified Healthy/Vsock/Broken; vsock flaps no longer wsl --terminate (VM-layer, terminate cant fix); docker.exe engine probe via npipe; docker desktop restart only if engine down; vsock-flaps.txt; [P1] to #critical at flap 6 (~30m) then ~3h; VsockDegraded state + recovery alert; -Mode TestVsock synthetic-probe test; wsl.exe spawn-failure now counted as flap (silent-death fix). Live-verified: real flap 19:10 logged/counted, zero terminate.
+- Deferred options if vsock flaps persist: Docker Desktop tcp://localhost:2375 + DOCKER_HOST in distro (bypasses proxy/vsock entirely; unauth localhost daemon caveat); .wslconfig networkingMode=mirrored (needs full WSL restart).
