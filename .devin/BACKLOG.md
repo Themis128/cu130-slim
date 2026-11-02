@@ -1,5 +1,29 @@
 # BACKLOG (living)
 
+## 2026-11-02 session 3 — media quality backfill (real pipeline) + Sofia scores
+
+**Done:**
+- All media assets carry `meta_data.quality`; assets with captions have real
+  Sofia scores (0-100). Early passes wrote heuristic scores while
+  LanguageTool/DMR were down — `scripts/backfill_media_quality.py` gained a
+  `--force` flag to re-run the real pipeline over already-scored assets
+  (idempotent, commits per asset, safe to re-run after stack bounces).
+- Local protected-words misconfig fixed: `.env` + host `/app/.env` shim had a
+  REPLACEMENT list (dropped `Redis`, lowercase `cloudless`) violating the
+  config.py contract "extend via env, don't shrink the defaults" — restored to
+  the full default list + local extras (OAuth, QLoRA, DBaaS, ONNX). This was
+  the cause of `test_protected_spans_cover_configured_words` failing locally.
+- Test env on host fixed: venv had pytest missing (plain `pip` resolved to
+  system pip — use `.venv/bin/python -m pip`); unit tests for touched modules
+  green: 96 passed / 6 integration-skipped.
+
+**Leftovers:**
+- [ ] Final `--force` backfill pass interrupted by Docker Desktop WSL bounces
+  (deploy-tree cutover churn); retry wrapper `/tmp/backfill_retry.sh` re-runs
+  until a full pass completes — verify final asset counts once stable.
+- [ ] Real pipeline pass replaces remaining heuristic Sofia/SEO scores — check
+  `meta_data.quality.spellcheck_applied=true` across assets when done.
+
 ## 2026-11-02 session 2 — synigoros alerting went live + leftovers
 
 - **#1261 merged**: session/stop fix + .devin parity + creds scrub + SYNIGOROS_*
