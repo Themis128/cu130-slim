@@ -77,17 +77,21 @@ class _timed:
 
 def _cfg() -> tuple[str, str, str, str]:
     s = get_settings()
-    base = (getattr(s, "DMR_BASE_URL", "") or "http://localhost:12435/engines/v1/chat/completions").strip()
-    embed = (getattr(s, "DMR_EMBED_URL", "") or "http://localhost:12435/engines/v1/embeddings").strip()
-    model = (getattr(s, "DMR_MODEL", "") or "ai/llama3.2").strip()
-    embed_model = (getattr(s, "DMR_EMBED_MODEL", "") or "docker.io/ai/qwen3-embedding:latest").strip()
+    raw = (getattr(s, "DMR_BASE_URL", "") or "http://localhost:12435/engines/v1").strip().rstrip("/")
+    # DMR_BASE_URL may be a bare host root or a full /chat/completions path —
+    # normalize to the API root so both endpoints derive correctly.
+    root = raw.removesuffix("/chat/completions")
+    base = f"{root}/chat/completions" if raw.endswith("/chat/completions") else f"{root}/v1/chat/completions"
+    embed = (getattr(s, "DMR_EMBED_URL", "") or f"{root}/v1/embeddings").strip()
+    model = (getattr(s, "DMR_MODEL", "") or getattr(s, "DMR_TINY_MODEL", "") or "smollm2").strip()
+    embed_model = (getattr(s, "DMR_EMBED_MODEL", "") or getattr(s, "DMR_EMBEDDING_MODEL", "") or "nomic-embed-text").strip()
     return base, embed, model, embed_model
 
 
 async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> str:
     base, _, model, _ = _cfg()
     if quality:
-        qm = (getattr(get_settings(), "DMR_QUALITY_MODEL", "") or "docker.io/ai/qwen3:8b-q4_K_M").strip()
+        qm = (getattr(get_settings(), "DMR_MID_MODEL", "") or getattr(get_settings(), "DMR_QUALITY_MODEL", "")).strip()
         if qm:
             model = qm
     # DMR is flaky under load — an empty body or transient failure is common
