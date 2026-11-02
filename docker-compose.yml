@@ -13,7 +13,12 @@ x-public-dns: &public-dns
 x-worker-env: &worker-env
   - TZ=Europe/Athens
   - APP_TIMEZONE=Europe/Athens
-  - AUTONOMY_LEVEL=${AUTONOMY_LEVEL:-0}  # engagement-gate auto-approve dial (0=manual, 2=safe, 3=full)
+  - AUTONOMY_LEVEL=${AUTONOMY_LEVEL:-0}
+  - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434/v1/chat/completions}
+  - DMR_EMBED_URL=${DMR_EMBED_URL:-http://ollama:11434/v1/embeddings}
+  - DMR_MODEL=${DMR_MODEL:-smollm2}
+  - DMR_QUALITY_MODEL=${DMR_QUALITY_MODEL:-smollm2}
+  - DMR_EMBED_MODEL=${DMR_EMBED_MODEL:-nomic-embed-text}  # engagement-gate auto-approve dial (0=manual, 2=safe, 3=full)
   - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
   - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
   - MESSENGER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
@@ -23,17 +28,17 @@ x-worker-env: &worker-env
   - N8N_USER=${N8N_USER}
   - N8N_PASSWORD=${N8N_PASSWORD}
   - COMFYUI_URL=http://stack-ops:8199
-  - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
-  - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
+  - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
+  - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}
   - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
-  - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF}
-  - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
+  - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-nomic-embed-text}
+  - DMR_TINY_MODEL=${DMR_TINY_MODEL:-smollm2}
   - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-  - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+  - DMR_MID_MODEL=${DMR_MID_MODEL:-smollm2}
   - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
   - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
   - DMR_COLD_TIMEOUT=${DMR_COLD_TIMEOUT:-240}
-  - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
+  - DMR_VLLM_URL=${DMR_VLLM_URL:-http://ollama:11434/v1}
   - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
@@ -320,9 +325,9 @@ services:
       - N8N_INSTANCE_AI_SANDBOX_PROVIDER=n8n-sandbox
       - N8N_INSTANCE_AI_SANDBOX_URL=http://stack-ops:8081
       - N8N_INSTANCE_AI_MODEL=${N8N_INSTANCE_AI_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - N8N_INSTANCE_AI_MODEL_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
+      - N8N_INSTANCE_AI_MODEL_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://ollama:11434/v1}
       - N8N_INSTANCE_AI_MODEL_API_KEY=${N8N_INSTANCE_AI_MODEL_API_KEY:-dmr-local}
-      - OPENAI_BASE_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
+      - OPENAI_BASE_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://ollama:11434/v1}
       - N8N_SANDBOX_SERVICE_URL=http://stack-ops:8081
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
       - TWITTER_API_URL=https://api.twitter.com/2/tweets
@@ -872,17 +877,17 @@ services:
       - N8N_USER=${N8N_USER}
       - N8N_PASSWORD=${N8N_PASSWORD}
       - COMFYUI_URL=http://stack-ops:8199
-      - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
-      - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
+      - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
+      - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}
       - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
-      - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF}
-      - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
+      - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-nomic-embed-text}
+      - DMR_TINY_MODEL=${DMR_TINY_MODEL:-smollm2}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+      - DMR_MID_MODEL=${DMR_MID_MODEL:-smollm2}
       - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
       - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
       - DMR_COLD_TIMEOUT=${DMR_COLD_TIMEOUT:-240}
-      - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
+      - DMR_VLLM_URL=${DMR_VLLM_URL:-http://ollama:11434/v1}
       - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
       - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
       - CHROMA_URL=http://chroma:8000
@@ -1898,7 +1903,7 @@ services:
       - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
       - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+      - DMR_MID_MODEL=${DMR_MID_MODEL:-smollm2}
       - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
       - MESSENGER_AI_MODEL=${MESSENGER_AI_MODEL:-@cf/meta/llama-3.1-8b-instruct}
       - TZ=Europe/Athens
