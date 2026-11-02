@@ -169,6 +169,15 @@ at flap 6 (~30 min) then every ~3h; defers the durable reset to the 04:45 task.
 Recovery writes `Healthy` + "OK again (was VsockDegraded)". `-Mode TestVsock`
 injects a synthetic vsock probe to exercise the branch end-to-end.
 
+Live-incident hardening (19:08-19:26 flap cycle):
+- `docker desktop restart` exits nonzero right after dispatching
+  ("Starting Docker Desktop" + exit!=0, engine still comes back) — judge by
+  dispatch text, not exit code.
+- Engine restarts are throttled to one per 15 min (`ddrestart.out` timestamp);
+  every vsock flap must not re-issue a heavyweight restart.
+- Verified live end-to-end: flap -> engine-down detected -> restart dispatched
+  -> DD `starting` 19:25 -> `running` 19:26 -> recovery alert, zero terminates.
+
 ### WSL Vsock Health Reset task (daily 04:45)
 
 `C:\Users\tbaltzakis\scripts\Watch-VsockHealth.ps1` — probe-first scheduled
