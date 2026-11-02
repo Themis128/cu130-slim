@@ -25,15 +25,34 @@ function post(host, port, path, body, headers) {
   });
 }
 
+function botToken() {
+  if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
+  try {
+    const env = fs.readFileSync(path.join(DIR, '..', '..', '.env'), 'utf8');
+    const m = env.match(/^TELEGRAM_BOT_TOKEN=(.+)$/m);
+    return m && m[1].trim().replace(/^["']|["']$/g, '');
+  } catch { return null; }
+}
+
 async function notify(text) {
+  // Direct Bot API — channel-scoped, no social-api account auth needed.
+  // (The old path via /api/v1/telegram/{accountId}/send 403s for non-owner
+  // users — observed "Not authorized to manage this account".)
+  const tok = botToken();
+  if (tok) {
+    const r = await post('api.telegram.org', 443, `/bot${tok}/sendMessage`,
+      JSON.stringify({chat_id: CFG.chatId, text}));
+    if (r.code === 200) return true;
+    log(`bot-api send failed: ${r.code}`);
+  }
   const login = await post('localhost', 8083, '/api/v1/auth/login',
     `username=${encodeURIComponent(CFG.adminEmail)}&password=${encodeURIComponent(CFG.adminPassword)}`,
     {'Content-Type':'application/x-www-form-urlencoded'});
-  const tok = JSON.parse(login.body||'{}').access_token;
-  if (!tok) { log('auth failed'); return false; }
+  const tok2 = JSON.parse(login.body||'{}').access_token;
+  if (!tok2) { log('auth failed'); return false; }
   const r = await post('localhost', 8083, `/api/v1/telegram/${CFG.accountId}/send`,
     JSON.stringify({chat_id: CFG.chatId, text}),
-    {Authorization: `Bearer ${tok}`});
+    {Authorization: `Bearer ${tok2}`});
   return r.code === 200;
 }
 
