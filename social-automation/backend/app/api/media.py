@@ -784,16 +784,23 @@ async def generate_image(body: MediaGenerateImageRequest, team_id: TeamId, curre
             logger.warning("[media/generate] semantic-QA retry failed: %s", type(exc).__name__)
 
     # ── Image-text QA: transcribe visible text from the pixels and reject
-    # garbled renderings (diffusion models cannot spell). Garbled → one
-    # regeneration with the hard no-text prompt; still garbled → keep the
-    # image but flag it in meta_data so the UI can surface the warning.
+    # garbled renderings (diffusion models cannot spell). Garbled OR
+    # unverified (vision/LanguageTool down — the check could not run) → one
+    # regeneration with the hard no-text prompt; still garbled/unverified →
+    # keep the image but flag it in meta_data so the UI can surface the
+    # warning.
     from app.services.image_text_guard import check_image_text
 
     text_qa: dict = {"checked": False}
     if not is_infographic:  # overlay path renders text via PIL — correct by construction
         text_qa = await check_image_text(base64.b64decode(image_b64))
-        if text_qa.get("garbled"):
-            logger.warning("[media/generate] garbled in-image text %s — regenerating once without text", text_qa.get("tokens"))
+        if text_qa.get("garbled") or not text_qa.get("checked"):
+            logger.warning(
+                "[media/generate] in-image text QA failed (garbled=%s checked=%s tokens=%s) — regenerating once without text",
+                text_qa.get("garbled"),
+                text_qa.get("checked"),
+                text_qa.get("tokens"),
+            )
             from app.services.infographic_renderer import sanitize_prompt_for_background
 
             retry_prompt = sanitize_prompt_for_background(prompt)
