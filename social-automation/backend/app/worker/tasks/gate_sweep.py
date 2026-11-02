@@ -6,6 +6,7 @@ Runs hourly: checks pending gates, fires `cdp_gate_runner --once` if any and
 the CDP endpoint answers. A gate that needs true human action (a captcha the
 bridge can't solve) stays pending — nothing silently fails.
 """
+
 import httpx
 
 from app.worker.celery_app import celery_app
@@ -23,9 +24,10 @@ def _cdp_live() -> bool:
 def _pending() -> list[str]:
     try:
         import subprocess
+
         r = subprocess.run(
-            ["python", "/app/.devin/skills/gate-cdp-runner/scripts/cdp_gate_runner.py",
-             "--list"], capture_output=True, text=True, timeout=15, cwd="/app")
+            ["python", "/app/.devin/skills/gate-cdp-runner/scripts/cdp_gate_runner.py", "--list"], capture_output=True, text=True, timeout=15, cwd="/app"
+        )
         return [ln.strip() for ln in r.stdout.splitlines() if "pending" in ln.lower()]
     except Exception:
         return []
@@ -39,7 +41,8 @@ def run_gate_sweep() -> dict:
     if not pend:
         return {"fired": 0}
     import subprocess
+
     r = subprocess.run(
-        ["python", "/app/.devin/skills/gate-cdp-runner/scripts/cdp_gate_runner.py",
-         "--once"], capture_output=True, text=True, timeout=600, cwd="/app")
+        ["python", "/app/.devin/skills/gate-cdp-runner/scripts/cdp_gate_runner.py", "--once"], capture_output=True, text=True, timeout=600, cwd="/app"
+    )
     return {"fired": len(pend), "out": (r.stdout + r.stderr)[-400:]}

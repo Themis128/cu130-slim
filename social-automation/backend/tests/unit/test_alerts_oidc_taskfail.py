@@ -212,6 +212,4 @@ def test_no_hardcoded_authentik_secret_in_source():
     import re
 
     src = inspect.getsource(AU)
-    assert not re.search(
-        r'AUTHENTIK_CLIENT_SECRET\s*=\s*"[0-9a-fA-F]{16,}"', src
-    ), "AUTHENTIK_CLIENT_SECRET is hardcoded in auth.py — move it to settings/.env"
+    assert not re.search(r'AUTHENTIK_CLIENT_SECRET\s*=\s*"[0-9a-fA-F]{16,}"', src), "AUTHENTIK_CLIENT_SECRET is hardcoded in auth.py — move it to settings/.env"

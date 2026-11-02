@@ -1,6 +1,7 @@
 """AI-function call audit — every DMR-backed function call lands a row:
 fn, input hash, model, latency, outcome. Powers the auditable-outcomes
 mandate and builds a fine-tune corpus over time."""
+
 import hashlib
 import uuid
 from datetime import UTC, datetime
@@ -25,5 +26,4 @@ class AIFunctionCall(Base):
     outcome: Mapped[str] = mapped_column(String(32), default="ok")  # ok | error | degraded
     latency_ms: Mapped[float] = mapped_column(Float, default=0.0)
     detail: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), index=True)
