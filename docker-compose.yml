@@ -878,6 +878,11 @@ services:
       - N8N_PASSWORD=${N8N_PASSWORD}
       - COMFYUI_URL=http://stack-ops:8199
       - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434/v1/chat/completions}
+      - DMR_EMBED_URL=${DMR_EMBED_URL:-http://ollama:11434/v1/embeddings}
+      - DMR_MODEL=${DMR_MODEL:-smollm2}
+      - DMR_QUALITY_MODEL=${DMR_QUALITY_MODEL:-smollm2}
+      - DMR_EMBED_MODEL=${DMR_EMBED_MODEL:-nomic-embed-text}
       - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}
       - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
       - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-nomic-embed-text}
@@ -1901,7 +1906,7 @@ services:
       - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD:-}
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
       - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
-      - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
       - DMR_MID_MODEL=${DMR_MID_MODEL:-smollm2}
       - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
@@ -2109,7 +2114,7 @@ services:
       # API and runs the semantic check against the DMR vision model (qwen3-vl).
       - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
       - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
-      - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435/engines/v1}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434}
       - DMR_MODEL=${DMR_MODEL:-qwen3-vl}
       - TZ=Europe/Athens
     # host.docker.internal must resolve for DMR_BASE_URL — other services
