@@ -20,7 +20,6 @@ import argparse
 import asyncio
 import logging
 import sys
-from typing import Optional
 from uuid import UUID
 
 # Add the backend to the path
@@ -40,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 async def backfill_media_quality(
     db: AsyncSession,
-    team_id: Optional[UUID] = None,
+    team_id: UUID | None = None,
     limit: int = 100,
     dry_run: bool = False,
     skip_nlp: bool = False,
@@ -86,28 +85,28 @@ async def backfill_media_quality(
 
     scope = "all assets (--force)" if force else "assets without quality metadata"
     logger.info(f"Found {len(assets)} media assets to process — {scope} (from {len(all_assets)} total)")
-    
+
     for asset in assets:
         stats["processed"] += 1
         try:
             logger.info(f"Processing asset {asset.id}: {asset.filename}")
-            
+
             # Build text fields from asset
             caption = asset.ai_caption or asset.filename or ""
             alt_text = asset.alt_text or ""
             tags = asset.tags or []
-            
+
             # Skip if no text content to analyze
             if not caption:
                 logger.info(f"  Skipping asset {asset.id}: no text content")
                 stats["skipped"] += 1
                 continue
-            
+
             if dry_run:
                 logger.info(f"  [DRY RUN] Would apply quality pipeline to asset {asset.id}")
                 stats["updated"] += 1
                 continue
-            
+
             # Determine platform from tags or default to linkedin
             platform = "linkedin"
             if tags:
@@ -115,7 +114,7 @@ async def backfill_media_quality(
                     if tag in ("instagram", "twitter", "x", "facebook", "threads", "tiktok", "bluesky"):
                         platform = tag
                         break
-            
+
             # Apply quality pipeline
             quality_result = await apply_media_quality(
                 caption=caption,
@@ -129,27 +128,27 @@ async def backfill_media_quality(
                 run_spellcheck=True,
                 run_seo=True,
             )
-            
+
             # Persist quality metadata
             if asset.meta_data is None:
                 asset.meta_data = {}
-            
+
             asset.meta_data["quality"] = quality_result.to_dict()
             asset.meta_data["quality_applied"] = (
-                quality_result.spellcheck_applied 
-                or bool(quality_result.nlp_report) 
+                quality_result.spellcheck_applied
+                or bool(quality_result.nlp_report)
                 or bool(quality_result.seo_score)
             )
-            
+
             # Update corrected text fields on the asset
             if quality_result.alt_text and quality_result.alt_text != asset.alt_text:
                 asset.alt_text = quality_result.alt_text
             if quality_result.tags and list(quality_result.tags) != list(asset.tags or []):
                 asset.tags = list(quality_result.tags)
-            
+
             flag_modified(asset, "meta_data")
             await db.commit()
-            
+
             logger.info(
                 f"  Updated asset {asset.id}: "
                 f"spellcheck={quality_result.spellcheck_applied}, "
@@ -158,11 +157,11 @@ async def backfill_media_quality(
                 f"gibberish={len(quality_result.gibberish_tokens)} tokens"
             )
             stats["updated"] += 1
-            
+
         except Exception as exc:
             logger.error(f"  Error processing asset {asset.id}: {exc}")
             stats["errors"] += 1
-    
+
     return stats
 
 
@@ -196,7 +195,7 @@ async def main():
             skip_nlp=args.skip_nlp,
             force=args.force,
         )
-        
+
         logger.info("Backfill complete!")
         logger.info(f"  Processed: {stats['processed']}")
         logger.info(f"  Updated: {stats['updated']}")
