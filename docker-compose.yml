@@ -50,6 +50,8 @@ x-worker-env: &worker-env
   # healer, Skool watcher, publish fallbacks) died with ConnectError
   # '[Errno -2] Name or service not known' until these were proxied.
   - BROWSER_BRIDGE_URL=http://stack-ops:9223
+  - SYNIGOROS_MAIL=${SYNIGOROS_MAIL:-}
+  - SYNIGOROS_KPA=${SYNIGOROS_KPA:-}
   - TIKTOK_BROWSER_SIDECAR_URL=http://stack-ops:9224
   - LINKEDIN_BROWSER_SIDECAR_URL=http://stack-ops:9225
   - LINKEDIN_MCP_SERVER_URL=http://stack-ops:9227/mcp
