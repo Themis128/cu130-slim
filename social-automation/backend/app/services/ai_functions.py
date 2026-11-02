@@ -196,8 +196,6 @@ async def ai_extract(field: str, text: str, quality: bool = False) -> str:
         _audit("ai_extract", "error", (_t.monotonic() - t0) * 1000, text)
         return "NONE"
 
-import re as _re
-
 _RE_PII = _re.compile(
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
     r"|\+?\d[\d\s().-]{7,}\d")
