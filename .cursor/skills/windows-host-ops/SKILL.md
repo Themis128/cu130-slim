@@ -15,12 +15,13 @@ The stack runs in WSL `Ubuntu-26.04` on a Windows 11 host (PowerShell 5.1 build
 
 ## Scheduled maintenance tasks
 
-Ten tasks — `\DevOptimizer\` (elevated) + task-root (user-owned). All run
+Eleven tasks — `\DevOptimizer\` (elevated) + task-root (user-owned). All run
 **headless** via `C:\Windows\System32\conhost.exe --headless <cmd>`:
 
 | Task | Cadence | Action |
 |---|---|---|
 | `socialauto-metrics-watchdog` (root) | every 5 min | `wsl.exe -d Ubuntu-26.04 -e python3 .../metrics-proxy-watchdog.py` |
+| `Docker WSL Integration Watchdog` (root) | every 5 min | `conhost --headless powershell ... C:\Users\tbaltzakis\scripts\Watch-DockerWslIntegration.ps1 -Mode Check` |
 | `Docker-WSL-Sync` | 30 min + logon | `powershell ... sync-docker-wsl.ps1` |
 | `WSL-Memory-Watchdog` | 30 min | `powershell ... check-wsl-memory-pressure.ps1` |
 | `WSL-PreWarm` | logon | `wsl.exe -d Ubuntu-26.04 --exec true` |
@@ -122,6 +123,27 @@ Get-ScheduledTask -TaskPath '\DevOptimizer\' | % { $_.Actions[0].Execute + ' ' +
 ```
 
 `0x41301` = still running; `0x800704E0` = wsl.exe couldn't reach the VM (vsock).
+
+## Docker WSL Integration Watchdog + Telegram alerts (2026-11-02)
+
+`C:\Users\tbaltzakis\scripts\Watch-DockerWslIntegration.ps1` probes
+`wsl -d Ubuntu-26.04 --exec docker info` every 5 min. On failure it sends a
+"repair starting" Telegram alert to the #ops channel (`TG_CH_OPS`,
+`-1004429103353`), terminates + relaunches the distro, then sends
+"repair complete" — or a FAILED alert if the distro stays unhealthy.
+
+- `Send-Telegram` is **pure PowerShell** (`Invoke-RestMethod` -> Bot API) —
+  deliberately no WSL/Docker dependency, since the failure it watches for can
+  take WSL interop down with it. Token lookup: `TELEGRAM_BOT_TOKEN` env ->
+  `C:\Users\tbaltzakis\cu130-slim\.env` -> `\\wsl.localhost\Ubuntu-26.04\...\.env`.
+- Alert is best-effort with 3 retries; repair is NEVER blocked by alert
+  delivery (a Telegram outage must not leave the stack broken).
+- Retry policy: `Failed` state re-attempts repair after a 15-min cooldown;
+  `Repairing` older than 10 min means the last run died mid-flight -> retry.
+- `-Mode TestAlert` sends a one-shot verification message; `-Mode Install`
+  re-registers the task (conhost --headless). Keep the script **pure ASCII**
+  (PS 5.1 BOM-less-UTF8 em-dash parser trap — see above).
+- Log/state: `%LOCALAPPDATA%\DockerWslIntegrationWatchdog\`.
 
 ## Docker Desktop backend death (2026-10-18)
 
