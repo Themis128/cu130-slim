@@ -25,6 +25,56 @@ function post(host, port, path, body, headers) {
   });
 }
 
+// ── Gmail early-check: the Ombudsman emails on every status change ────
+// Near-instant lane — the page poll below is only the backstop.
+function gmailAccessToken() {
+  return new Promise((resolve) => {
+    try {
+      const dir = path.join(process.env.APPDATA || '', 'devin', 'secrets');
+      const tok = JSON.parse(fs.readFileSync(path.join(dir, 'gmail-token.json'), 'utf8'));
+      const keys = JSON.parse(fs.readFileSync(path.join(dir, 'gcp-oauth.keys.json'), 'utf8'));
+      const c = keys.installed || keys.web || {};
+      const body = `client_id=${encodeURIComponent(c.client_id)}&client_secret=${encodeURIComponent(c.client_secret)}&refresh_token=${encodeURIComponent(tok.refresh_token)}&grant_type=refresh_token`;
+      const req = https.request({ hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) } },
+        (res) => { let d = ''; res.on('data', x => d += x); res.on('end', () => { try { resolve(JSON.parse(d).access_token || null); } catch { resolve(null); } }); });
+      req.on('error', () => resolve(null));
+      req.end(body);
+    } catch { resolve(null); }
+  });
+}
+
+function gmailGet(at, p) {
+  return new Promise((resolve) => {
+    const req = https.request({ hostname: 'gmail.googleapis.com', path: p,
+      headers: { Authorization: 'Bearer ' + at } },
+      (res) => { let d = ''; res.on('data', x => d += x); res.on('end', () => { try { resolve(JSON.parse(d)); } catch { resolve({}); } }); });
+    req.on('error', () => resolve({}));
+    req.end();
+  });
+}
+
+// Returns { mailId, newSubjects[] } — newest synigoros.gr message id plus
+// subjects of messages not yet seen (empty when nothing new).
+async function checkGmail(prevMailId) {
+  const at = await gmailAccessToken();
+  if (!at) return null;
+  const list = await gmailGet(at, '/gmail/v1/users/me/messages?q=' + encodeURIComponent('from:synigoros.gr') + '&maxResults=5');
+  const msgs = list.messages || [];
+  if (!msgs.length) return { mailId: prevMailId, newSubjects: [] };
+  const mailId = msgs[0].id;
+  const newSubjects = [];
+  if (prevMailId) {
+    for (const m of msgs) {
+      if (m.id === prevMailId) break;
+      const d = await gmailGet(at, `/gmail/v1/users/me/messages/${m.id}?format=metadata&metadataHeaders=Subject`);
+      const subj = ((d.payload || {}).headers || []).find(h => h.name === 'Subject');
+      newSubjects.push((subj && subj.value) || '(no subject)');
+    }
+  }
+  return { mailId, newSubjects };
+}
+
 function botToken() {
   if (process.env.TELEGRAM_BOT_TOKEN) return process.env.TELEGRAM_BOT_TOKEN;
   try {
@@ -57,6 +107,19 @@ async function notify(text) {
 }
 
 (async () => {
+  // Cheap Gmail check first — the Ombudsman emails on every status change,
+  // so this relays changes minutes after they happen, without the browser.
+  let prev = null;
+  try { prev = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
+  try {
+    const g = await checkGmail(prev && prev.mailId);
+    if (g && g.newSubjects.length) {
+      await notify(`📨 Νέο email από Συνήγορο του Πολίτη!\n${g.newSubjects.map(s => '• ' + s).join('\n')}\n\nΗ κατάσταση της αναφοράς πιθανόν άλλαξε — έλεγξε το Gmail.`);
+      log(`NEW MAIL: ${g.newSubjects.join(' | ')}`);
+    }
+    if (g) prev = { ...(prev || {}), mailId: g.mailId };
+  } catch (e) { log('gmail check skip: ' + e.message); }
+
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
   try {
     const page = await browser.newPage();
@@ -75,9 +138,6 @@ async function notify(text) {
     const status = m ? m[1].trim() : 'UNKNOWN';
     const updates = (text.match(/Ενημέρωση|Απάντηση|Σχόλιο|Έγγραφο/g) || []).length;
 
-    let prev = null;
-    try { prev = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
-
     if (!prev) {
       await notify(`📋 Synigoros monitor armed.\nΚατάσταση: ${status}\nΠρωτόκολλο: ${CFG.kpa}`);
       log(`armed, status: ${status}`);
@@ -87,7 +147,7 @@ async function notify(text) {
     } else {
       log(`no change: ${status}`);
     }
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ status, updates, checked: new Date().toISOString() }, null, 2));
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ status, updates, mailId: prev && prev.mailId, checked: new Date().toISOString() }, null, 2));
   } catch (e) {
     log('ERROR: ' + e.message);
     await notify(`⚠️ Synigoros monitor error: ${e.message}`);
