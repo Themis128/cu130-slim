@@ -1550,6 +1550,20 @@ services:
     cpus: '1'
     restart: unless-stopped
 
+  # Local LLM serving — solid DMR alternative. `OLLAMA_URL=http://ollama:11434`
+  # is already in .env; OpenAI-compatible at /v1. Persistent model serving —
+  # no lazy-load engine-swap flakiness (the DMR failure mode).
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - ollama_models:/root/.ollama
+    mem_limit: 6g
+    cpus: '4'
+
   # ── Browser + noVNC container (visual browser for social logins) ─────────
   # Provides a headed Chromium browser accessible via web browser (noVNC)
   # and an HTTP bridge API for the SocialAuto backend to start sessions,
@@ -2343,6 +2357,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  ollama_models:
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
