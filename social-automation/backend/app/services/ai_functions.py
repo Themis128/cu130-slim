@@ -92,7 +92,7 @@ def _cfg() -> tuple[str, str, str, str]:
 async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> str:
     base, _, model, _ = _cfg()
     if quality:
-        qm = (getattr(get_settings(), "DMR_MID_MODEL", "") or getattr(get_settings(), "DMR_QUALITY_MODEL", "")).strip()
+        qm = (getattr(get_settings(), "DMR_QUALITY_MODEL", "") or getattr(get_settings(), "DMR_MID_MODEL", "")).strip()
         if qm:
             model = qm
     # DMR is flaky under load — an empty body or transient failure is common
