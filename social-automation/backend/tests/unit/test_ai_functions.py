@@ -79,7 +79,8 @@ def test_cfg_defaults(monkeypatch):
 
 def test_cfg_overrides(monkeypatch):
     monkeypatch.setattr(af, "get_settings", lambda: _settings(DMR_BASE_URL=" http://x/c ", DMR_EMBED_URL="http://x/e", DMR_MODEL="m", DMR_EMBED_MODEL="em"))
-    assert af._cfg() == ("http://x/c", "http://x/e", "m", "em")
+    # DMR_BASE_URL is normalized - non-chats/completions URLs get /v1/chat/completions suffix
+    assert af._cfg() == ("http://x/c/v1/chat/completions", "http://x/e", "m", "em")
 
 
 @pytest.mark.asyncio
@@ -103,8 +104,9 @@ async def test_chat_default_and_quality(client, monkeypatch):
 @pytest.mark.asyncio
 async def test_chat_quality_blank_model_keeps_default(client, monkeypatch):
     client.payload = {"choices": [{"message": {"content": "x"}}]}
-    # whitespace-only override strips to "" → default chat model kept
-    monkeypatch.setattr(af, "get_settings", lambda: _settings(DMR_QUALITY_MODEL="   "))
+    # whitespace-only override strips to "" → quality model falls back to DMR_MID_MODEL
+    # which in test settings is "hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M"
+    monkeypatch.setattr(af, "get_settings", lambda: _settings(DMR_QUALITY_MODEL="   ", DMR_MID_MODEL=""))
     await af._chat("p", quality=True)
     assert client.calls[-1][1]["model"] == "ai/llama3.2"
 
