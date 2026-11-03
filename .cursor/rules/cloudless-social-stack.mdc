@@ -17,6 +17,7 @@ This repo runs Docker Compose (`cu130-slim`) with social-api, social-worker, n8n
 ## Social funnel (conversion → Polar on social.cloudless.gr)
 
 - **LinkedIn CTA** — corporate value angle (server/cloud cost savings, real engineering outcomes). Point high-intent readers to the free 30-minute audit: `https://cloudless.gr/contact`. Post as the Company Page.
+- **Consultation booking page** — `https://cloudless.gr/en/consultation` (canonical landing; `/consultation` 307s to it, locales en/el/fr/de). Live slot picker over `/api/calendar/*` (Cal.com → Google Calendar fallback, Athens time). Goes live with site PR #2364 merge+deploy; verify 200 before using it as a CTA target.
 - **X CTA** — developer value angle (raw code improvements, p95 latencies, implementation wins — real numbers only). Point to the Polar-backed plans/starter kits: `https://social.cloudless.gr/pricing` (`BILLING_PROVIDER=polar`). `@TBaltzakis` profile website link already routes there (t.co shortcode — resolves to /pricing).
 - Claims in posts must be real outcomes from this stack (e.g. 200s→10ms session polls) — never invented metrics.
 
