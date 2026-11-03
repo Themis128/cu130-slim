@@ -453,9 +453,10 @@ async def send_email(
             logger.info("send_email suppressed — all recipients match EMAIL_SUPPRESS_ADDR_PATTERNS")
             return
 
-    # mail-outbound worker lane: preferred-but-optional. Attachments force the
-    # classic path (the worker's /send contract carries no attachments).
-    if settings.CF_EMAIL_ENABLED and not attachments:
+    # mail-outbound worker lane: preferred-but-optional. Attachments AND
+    # extra_headers force the classic path — the worker's /send contract
+    # carries neither (campaign List-Unsubscribe / mailto headers ride SMTP).
+    if settings.CF_EMAIL_ENABLED and not attachments and not extra_headers:
         try:
             await send_email_mail_outbound(
                 subject=subject,

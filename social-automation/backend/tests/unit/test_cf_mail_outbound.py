@@ -110,7 +110,8 @@ async def test_disabled_never_calls_worker(monkeypatch, smtp_calls):
     assert len(smtp_calls) == 1
 
 
-async def test_attachments_skip_worker(monkeypatch, smtp_calls):
+@pytest.mark.parametrize("kwargs", [{"attachments": [{"filename": "x.pdf", "content": "Zg=="}]}, {"extra_headers": {"List-Unsubscribe": "<mailto:unsub@x>"}}], ids=["attachments", "extra_headers"])
+async def test_worker_bypass_kwargs(monkeypatch, smtp_calls, kwargs):
     calls = []
     monkeypatch.setattr(ed, "get_settings", lambda: _settings())
     monkeypatch.setattr(
@@ -121,7 +122,7 @@ async def test_attachments_skip_worker(monkeypatch, smtp_calls):
         subject="hi",
         text_body="body",
         to_addrs=["a@x.com"],
-        attachments=[{"filename": "x.pdf", "content": "Zg=="}],
+        **kwargs,
     )
 
     assert calls == []
