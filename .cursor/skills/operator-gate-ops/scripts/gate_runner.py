@@ -84,9 +84,17 @@ class Page:
         time.sleep(settle)
 
     def js(self, expr):
-        r = self._send("Runtime.evaluate", {
-            "expression": expr, "returnByValue": True, "awaitPromise": True})
-        return (r.get("result") or {}).get("result", {}).get("value")
+        try:
+            r = self._send("Runtime.evaluate", {
+                "expression": expr, "returnByValue": True, "awaitPromise": True})
+            return (r.get("result") or {}).get("result", {}).get("value")
+        except Exception:
+            # Chrome died (host watchers kill it) — relaunch + reattach once
+            _ensure_cdp()
+            self.__init__()
+            r = self._send("Runtime.evaluate", {
+                "expression": expr, "returnByValue": True, "awaitPromise": True})
+            return (r.get("result") or {}).get("result", {}).get("value")
 
     def poll(self, expr, timeout=60, interval=1):
         for _ in range(int(timeout / interval)):
