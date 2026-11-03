@@ -363,7 +363,6 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
     return -1
 
 
-
 async def _bluesky_follower_count(account: SocialAccount) -> int:
     """Fetch follower count from Bluesky ``app.bsky.actor.getProfile``.
 
@@ -383,6 +382,7 @@ async def _bluesky_follower_count(account: SocialAccount) -> int:
         return int(profile.get("followersCount") or 0)
     except Exception:
         return -1
+
 
 async def _follower_count(account: SocialAccount) -> int:
     """Dispatch to the correct platform follower count function."""
