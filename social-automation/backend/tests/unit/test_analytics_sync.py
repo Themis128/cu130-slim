@@ -1,6 +1,8 @@
+import pytest
 
 
 class TestBlueskySync:
+    @pytest.mark.asyncio
     async def test_follower_count_and_sync(self, db_session=None):
         import uuid
         from types import SimpleNamespace
@@ -24,6 +26,7 @@ class TestBlueskySync:
             r = await analytics_sync.sync_bluesky_account(None, acc)
             assert r.synced == 1 and not r.errors
 
+    @pytest.mark.asyncio
     async def test_failure_paths(self):
         import uuid
         from types import SimpleNamespace
