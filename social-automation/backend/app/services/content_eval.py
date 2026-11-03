@@ -4,6 +4,7 @@ Scores a draft on voice/dup/clarity/CTA 0-10 via the shared `call_inference`
 path; brand_agent rejects below threshold — a quantitative quality gate vs the
 heuristic-only slop-scan.
 """
+
 from __future__ import annotations
 
 import json
@@ -15,8 +16,8 @@ RUBRIC = (
     "(penalize AI-cliches like leverage/unlock/elevate/delve/synergy hard), "
     "specificity (ONE concrete number/name/outcome — generic = 2), "
     "readability (short sentences, real paragraphs), cta (one clear ask — "
-    "vague/none = 2). Reply with ONLY JSON: {\"total\":N,\"voice\":N,"
-    "\"specificity\":N,\"readability\":N,\"cta\":N,\"why\":\"one phrase\"}."
+    'vague/none = 2). Reply with ONLY JSON: {"total":N,"voice":N,'
+    '"specificity":N,"readability":N,"cta":N,"why":"one phrase"}.'
 )
 
 

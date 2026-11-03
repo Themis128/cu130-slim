@@ -13,6 +13,7 @@ celery_app = Celery(
         "app.worker.tasks.analytics",
         "app.worker.tasks.digest",
         "app.worker.tasks.media",
+        "app.worker.tasks.avatar_video",
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
@@ -20,6 +21,7 @@ celery_app = Celery(
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
         "app.worker.tasks.crm_engagement",
+        "app.worker.tasks.engagement",
         "app.worker.tasks.email_drip",
         "app.worker.tasks.lead_research",
         "app.worker.tasks.token_refresh",
@@ -67,6 +69,9 @@ celery_app = Celery(
         "app.worker.tasks.notebooks",
         "app.worker.tasks.human_gate",
         "app.worker.tasks.nurture",
+        "app.worker.tasks.funnel_sync",
+        "app.worker.tasks.funnel_score",
+        "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
     ],
@@ -153,6 +158,12 @@ celery_app.conf.update(
             "soft_time_limit": 1800,
             "time_limit": 2400,
         },
+        # Avatar story: FLUX img2img per scene + ffmpeg mux — cheaper than
+        # a Wan2.2 T2V render but still media-queue work (GPU lock + mux).
+        "app.worker.tasks.avatar_video.generate_avatar_story": {
+            "soft_time_limit": 1800,
+            "time_limit": 2400,
+        },
         # ── default queue: intermediate ─────────────────────────────────
         "app.worker.tasks.analytics.sync_all_analytics": {
             "soft_time_limit": 900,
@@ -218,6 +229,9 @@ celery_app.conf.update(
         "app.worker.tasks.media.auto_tag_asset_task": {"queue": "media"},
         "app.worker.tasks.media.generate_video_asset_task": {"queue": "media"},
         "app.worker.tasks.media_enhance.batch_enhance_task": {"queue": "media"},
+        # FLUX img2img + ffmpeg — belongs on the media worker, not the
+        # default queue with analytics/digest/agency sweeps.
+        "app.worker.tasks.avatar_video.generate_avatar_story": {"queue": "media"},
         "app.worker.tasks.nextcloud.export_media_to_nextcloud": {"queue": "media"},
         # DMR keep-warm/health fire every 90s and can hold a worker slot ~10min
         # via gpu:dmr_lock — on the 2-slot default worker they starve all
@@ -271,6 +285,10 @@ celery_app.conf.update(
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
+        "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
+        "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
+        "app.worker.tasks.auto_gates.engagement_autoapprove": {"queue": "default"},
+        "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
@@ -297,6 +315,26 @@ celery_app.conf.update(
         "account-status-reconcile": {
             "task": "app.worker.tasks.account_status_reconcile.reconcile_account_status",
             "schedule": crontab(minute=40, hour="*/6"),
+        },
+        # Engagement-gate auto-approve — AUTONOMY_LEVEL dial (2=safe, 3=full).
+        "engagement-autoapprove": {
+            "task": "app.worker.tasks.auto_gates.engagement_autoapprove",
+            "schedule": crontab(minute="*/10"),
+        },
+        # Gate-sweep — fires pending human-gates via the CDP bridge when
+        # the debug Chrome is live (consent/OAuth stops queuing for clicks).
+        "gate-sweep": {
+            "task": "app.worker.tasks.gate_sweep.run_gate_sweep",
+            "schedule": crontab(minute=15),
+        },
+        # Funnel sync — EspoCRM→Mautic contacts + MinIO funnel-zone export.
+        "funnel-score": {
+            "task": "app.worker.tasks.funnel_score.run_funnel_score",
+            "schedule": crontab(minute=15),
+        },
+        "funnel-sync": {
+            "task": "app.worker.tasks.funnel_sync.run_funnel_sync",
+            "schedule": crontab(minute=20),
         },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).
@@ -716,10 +754,11 @@ celery_app.conf.update(
             "options": {"queue": "messenger"},
         },
         # Refresh Instagram long-lived access tokens before they expire (60 days).
-        # Runs weekly to refresh tokens that will expire within 5 days.
+        # Runs daily to refresh tokens that will expire within 14 days (the
+        # old weekly/5-day pairing left a gap where tokens expired unrefreshed).
         "refresh-instagram-tokens": {
             "task": "app.worker.tasks.instagram_token_refresh.refresh_instagram_tokens",
-            "schedule": 604800.0,  # every 7 days
+            "schedule": crontab(hour=3, minute=20),  # daily
             "options": {"queue": "default"},
         },
         # Validate and refresh LinkedIn browser sessions weekly.

@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """synigoros_status.py — poll the Ombudsman tracking page for a complaint's status.
 
-    synigoros_status.py [--mail EMAIL] [--kpa KPA] [--bridge URL]
+    synigoros_status.py [--mail EMAIL] [--kpa KPA] [--bridge URL] [--notify]
 
 Fill the tracking form on the adhoc browser bridge, click Ταυτοποίηση,
 extract Κατάσταση + Αριθμός Πρωτοκόλλου. Exit 0 with the status line, 1 on
-identification failure / bridge error. Designed to run inside social-api
-(BRIDGE=http://browser-novnc-adhoc:9224) or anywhere the bridge is reachable.
+identification failure / bridge error / empty status. Designed to run
+inside social-api (BRIDGE=http://browser-novnc-adhoc:9224) or anywhere
+the bridge is reachable.
+
+Credentials come from SYNIGOROS_MAIL + SYNIGOROS_KPA (or the --mail/--kpa
+flags) — nothing identifying is committed.
+
+--notify posts to the Cloudless Telegram channel when the extracted status
+differs from the last recorded run (state in /tmp/synigoros_last.json).
 """
 import json
 import os
@@ -51,67 +58,77 @@ def main() -> int:
         raise SystemExit("need SYNIGOROS_MAIL + SYNIGOROS_KPA (env or --mail/--kpa)")
 
     # any platform arg just boots the browser — navigate handles the real URL.
-    # close first: another task may hold the shared session (409).
+    # unforced: a forced start kills a live publishing/login session.
+    start = call("/session/start", {"platform": "reddit", "interactive": False})
+    owns = not start.get("reused")  # a reused session belongs to another caller
     try:
-        call("/session/close", {})
-    except SystemExit:
-        pass
-    call("/session/start", {"platform": "reddit", "interactive": False, "force": True})
-    time.sleep(4)
-    call("/session/navigate", {"url": TRACK})
-    for _ in range(10):                      # wait for the tracking form
-        if ev("!!document.getElementById('webMail')") or \
-           ev("document.body.innerText.includes('Κατάσταση')"):
-            break
-        time.sleep(3)
-    else:
-        raise SystemExit("tracking page never rendered")
-    if ev("!!document.getElementById('webMail')"):   # fresh session → identify
-        ev("(()=>{const m=document.getElementById('webMail');m.value=%s;"
-           "m.dispatchEvent(new Event('input',{bubbles:true}));"
-           "const c=document.getElementById('webCode');c.value=%s;"
-           "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
-           % (json.dumps(MAIL), json.dumps(KPA)))
-        call("/session/click", {"selector": "button"})
-        time.sleep(14)
-        if ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
-            print("IDENTIFY FAILED — wrong mail/ΚΠΑ pair")
+        time.sleep(4)
+        call("/session/navigate", {"url": TRACK})
+        for _ in range(10):                      # wait for the tracking form
+            if ev("!!document.getElementById('webMail')") or \
+               ev("document.body.innerText.includes('Κατάσταση')"):
+                break
+            time.sleep(3)
+        else:
+            raise SystemExit("tracking page never rendered")
+        if ev("!!document.getElementById('webMail')"):   # fresh session → identify
+            ev("(()=>{const m=document.getElementById('webMail');m.value=%s;"
+               "m.dispatchEvent(new Event('input',{bubbles:true}));"
+               "const c=document.getElementById('webCode');c.value=%s;"
+               "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
+               % (json.dumps(MAIL), json.dumps(KPA)))
+            call("/session/click", {"selector": "button"})
+            # bounded poll: wait for the status view or the explicit
+            # failure text — a fixed sleep returns empty success on slow
+            # identification
+            failed = False
+            for _ in range(10):
+                time.sleep(3)
+                if ev("document.body.innerText.includes('Κατάσταση')"):
+                    break
+                if ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
+                    failed = True
+                    break
+            if failed:
+                print("IDENTIFY FAILED — wrong mail/ΚΠΑ pair")
+                return 1
+        out = ev("""(()=>{const t=document.body.innerText;
+          const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
+          return JSON.stringify({
+            status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) || grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
+            proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
+            kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
+          })})()""")
+        data = json.loads(out)
+        # a cached session may show a DIFFERENT complaint's status — the
+        # form never ran, so the displayed ΚΠΑ must match the requested one
+        if data.get("kpa") and data["kpa"] != KPA:
+            print(out)
+            print(f"WRONG-COMPLAINT — page shows ΚΠΑ {data['kpa']}, requested {KPA} "
+                  "(cached session; reset required)")
             return 1
-    out = ev("""(()=>{const t=document.body.innerText;
-      const grab=(re)=>{const m=t.match(re)
-return m?m[1].trim():''}
-      return JSON.stringify({
-        status: grab(/Κατάσταση\\s*\\n([^\\n]+)/) || grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*)/),
-        proto:  grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
-        kpa:    grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
-      })})()""")
-    data = json.loads(out)
-    # a cached session may show a DIFFERENT complaint's status — the
-    # form never ran, so the displayed ΚΠΑ must match the requested one
-    if data.get("kpa") and data["kpa"] != KPA:
+        # an empty status means the page left the form in an unexpected
+        # state (verification challenge, slow transition) — not a success
+        if not data.get("status"):
+            print(out)
+            print("INCOMPLETE — status empty (challenge or transition); retry later")
+            return 1
         print(out)
-        print(f"WRONG-COMPLAINT — page shows ΚΠΑ {data['kpa']}, requested {KPA} "
-              "(cached session; reset required)")
-        _release()
-        return 1
-    # empty status = challenge/transition state, not a successful poll
-    if not data.get("status"):
-        print(out)
-        print("INCOMPLETE — status empty (challenge or transition); retry later")
-        _release()
-        return 1
-    print(out)
-    if "--notify" in sys.argv:
-        _notify(out)
-    _release()
-    return 0
-
-def _release() -> None:
-    """Release the pinned bridge session — a held session 409s other platforms."""
-    try:
-        call("/session/close", {})
-    except Exception:
-        pass
+        if "--notify" in sys.argv:
+            _notify(out)
+        return 0
+    finally:
+        # release the pinned bridge session — a held session 409s every
+        # other platform for five minutes. /session/stop is the real
+        # endpoint (there is no /session/close); skip it when we reused
+        # someone else's session.
+        if owns:
+            try:
+                call("/session/stop", {}, tries=1)
+            # BaseException: call() raises SystemExit on non-retryable
+            # errors — a stop failure must never mask the poll result
+            except BaseException:
+                pass
 
 STATE = "/tmp/synigoros_last.json"
 CHAT  = "-1004436942504"                 # Cloudless — Automation HQ channel
@@ -148,8 +165,6 @@ def _notify(payload: str) -> None:
         print("telegram-notified")
     except Exception as e:
         print("notify-skip:", e)
-
-import os  # noqa: E402  (kept at end — script-style module)
 
 if __name__ == "__main__":
     sys.exit(main())

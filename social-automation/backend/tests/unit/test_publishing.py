@@ -230,7 +230,7 @@ async def test_publish_threads_carousel(account, post, monkeypatch):
 async def test_publish_to_platform_whatsapp_is_soft_skipped():
     """WhatsApp should not hard-fail the multi-platform publishing pipeline."""
     account = SimpleNamespace(platform="whatsapp", access_token_enc=b"unused")
-    post = SimpleNamespace()
+    post = SimpleNamespace(content_text="")
     result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
     assert result.success is False
     assert result.skipped is True
@@ -242,7 +242,7 @@ async def test_publish_to_platform_telegram_is_not_a_messaging_skip():
     """Telegram publishes to the managed channel — it must not hit the
     whatsapp/viber messaging-channel skip (whatever later guard fires)."""
     account = SimpleNamespace(platform="telegram", access_token_enc=b"unused")
-    post = SimpleNamespace()
+    post = SimpleNamespace(content_text="")
     result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
     assert result.success is False
     assert "messaging channel" not in (result.error or "").lower()
@@ -281,7 +281,7 @@ async def test_publish_to_platform_gibberish_is_skipped(monkeypatch):
     )
     monkeypatch.setattr(pub, "detect_gibberish", AsyncMock(return_value=["GGr", "clientsget"]))
     account = SimpleNamespace(platform="linkedin", access_token_enc=b"enc")
-    post = SimpleNamespace()
+    post = SimpleNamespace(content_text="")
     result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
     assert result.success is False
     assert result.skipped is True
@@ -303,7 +303,7 @@ async def test_publish_to_platform_gibberish_detector_failure_allows_flow(
     monkeypatch.setattr(pub, "_resolve_media_paths", AsyncMock(return_value=[]))
     monkeypatch.setattr(pub, "_resolve_media_storage_paths", AsyncMock(return_value=[]))
     account = SimpleNamespace(platform="linkedin", access_token_enc=b"enc")
-    post = SimpleNamespace(media_ids=[])
+    post = SimpleNamespace(content_text="", media_ids=[])
     result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
     # LinkedIn requires media → the flow should reach the media pre-flight
     # (not die on the detector) and skip for missing media instead.
@@ -2772,7 +2772,7 @@ async def test_publish_to_platform_leaves_external_links_untagged(monkeypatch):
 
     monkeypatch.setattr(pub, "_publish_linkedin", _fake)
     account = SimpleNamespace(platform="linkedin", access_token_enc=b"enc")
-    post = SimpleNamespace(link_url=None, meta_data={}, media_ids=[])
+    post = SimpleNamespace(content_text="", link_url=None, meta_data={}, media_ids=[])
     result = await pub.publish_to_platform(account, post, db=SimpleNamespace())
     assert result.success is True
     assert "linkedin.com/company/x?utm" not in captured["text"]

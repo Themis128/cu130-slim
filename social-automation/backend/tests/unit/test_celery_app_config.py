@@ -36,3 +36,18 @@ def test_default_queue_and_serializer():
     from app.worker.celery_app import celery_app
 
     assert celery_app.conf.task_default_queue is not None
+
+
+def test_avatar_story_routed_to_media_queue():
+    """generate_avatar_story runs FLUX img2img + ffmpeg — it must stay on
+    the media worker, not fall through to the default queue."""
+    from app.worker.celery_app import celery_app
+
+    task = "app.worker.tasks.avatar_video.generate_avatar_story"
+    routes = celery_app.conf.task_routes or {}
+    assert routes.get(task, {}).get("queue") == "media"
+    annotations = celery_app.conf.task_annotations or {}
+    limits = annotations.get(task, {})
+    assert limits.get("soft_time_limit") and limits.get("time_limit"), (
+        "avatar story needs explicit soft/hard limits — the global 1h default is sized for sweeps, not a GPU render"
+    )

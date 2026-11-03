@@ -21,11 +21,14 @@ store, runs `x-oauth-wire/wire.py`. You approve once in the browser —
 credentials never need pasting.
 
 ## WhatsApp verify — `wa_verify.py`
-Calls `request_code` (Graph API, SMS by default), then polls **two**
-sources for the 6-digit code: the Galaxy S22+ SMS inbox via ADB, **and**
-the mailbox via doveadm (SMS→email forward covers ADB-off). Submits
-`verify_code`. Last resort: `wa_verify.py <code>` — the rest is still
-scripted.
+Calls `request_code` (Graph API, SMS by default), then polls **three**
+sources for the 6-digit code: the Galaxy S22+ SMS inbox via ADB
+(`content://sms/inbox`), **Termux SSH** `termux-sms-list` over
+`192.168.1.77:8022` (`u0_a357`, key `~/.ssh/id_rsa_win` — works when
+network-ADB is dead; needs `READ_SMS` granted to Termux:API once
+on-device), **and** the mailbox via doveadm (SMS→email forward covers
+phone-off). Submits `verify_code`. Last resort: `wa_verify.py <code>` —
+the rest is still scripted.
 
 ## LinkedIn export — `li_export_watch.py`
 You click "Request data export" in LinkedIn's UI once (their portal, no
@@ -49,4 +52,9 @@ bridge.
 1. None for LinkedIn export if the bridge session is live —
    `li_export_request.py` clicks for you
 2. Same for X — `x_oauth_approve.py` approves for you
-3. The SMS code — ADB reads it (wa_verify.sh) or type it manually
+3. The SMS code — three lanes (ADB / Termux-SSH / mail-forward) read it;
+   `wa_verify.py <code>` as last resort. One-time on-device: grant
+   Termux:API `READ_SMS` (or plug USB / enable wireless debugging for ADB).
+4. FB 2FA enroll — `meta_2fa_drive.py` automates the chain end-to-end
+   (profile switch → password → Gmail code → otpauth secret → `.env`);
+   inputs: live ADB + the real FB password (`--pw` or `FB_PASSWORD` env).

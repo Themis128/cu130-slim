@@ -439,6 +439,7 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     fp = hashlib.sha1(f"{severity}|{text}".encode()).hexdigest()[:16]
     try:
         from app.worker._async import _redis
+
         r = _redis()
         if await r.exists(f"alert-dedup:{fp}"):
             return True  # already reported — silent ack
@@ -453,12 +454,18 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     from app.worker._async import task_session
 
     chat = TG_CHANNELS.get(severity, TG_CHANNELS["ops"])
+    token = ""
     try:
         async with task_session() as db:
             acc = (await db.execute(select(SocialAccount).where(SocialAccount.platform == "telegram"))).scalars().first()
-        token = _bot_token(acc) if acc else None
-        if not token:
-            return False
+        token = _bot_token(acc) if acc else ""
+    except Exception:
+        pass  # DB down — env fallback below keeps P1 alerts deliverable
+    if not token:
+        token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    if not token:
+        return False
+    try:
         client = TelegramAPIClient(token)
         await client.send_message(chat, text)
         if severity == "critical":

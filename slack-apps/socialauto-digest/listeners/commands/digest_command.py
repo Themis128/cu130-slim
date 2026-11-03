@@ -22,7 +22,7 @@ def _login_and_get_access_token(*, api_url: str, email: str, password: str) -> s
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 (internal service)
+    with urllib.request.urlopen(req, timeout=10) as resp:
         data = json.loads(resp.read().decode("utf-8"))
     token = (data or {}).get("access_token") or ""
     if not token:
@@ -42,7 +42,7 @@ def _trigger_digest(*, api_url: str, access_token: str) -> dict:
         headers={"Authorization": f"Bearer {access_token}"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=10) as resp:  # noqa: S310 (internal service)
+    with urllib.request.urlopen(req, timeout=10) as resp:
         return json.loads(resp.read().decode("utf-8"))
 
 

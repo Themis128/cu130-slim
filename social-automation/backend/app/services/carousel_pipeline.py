@@ -38,6 +38,7 @@ from app.services.plain_english import (  # noqa: E402
     PLAIN_ENGLISH_RULES,
     build_linkedin_caption,
     run_nlp_check_and_fix,
+    sofia_nlp_score,
 )
 from app.services.spellcheck import auto_correct, preprocess_for_render  # noqa: E402
 
@@ -743,6 +744,8 @@ async def build_ad_brand_kit(
     if image_prompt:
         try:
             bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE[0])
+            if bg_img is not None:
+                bg_img = await _qa_generated_background(bg_img, image_prompt, CF_TXT2IMG_FREE[0], "ad-kit")
         except Exception as exc:  # noqa: BLE001 — brand canvas alone is fine
             logger.warning("ad-kit background generation failed: %s", exc)
 
@@ -873,6 +876,55 @@ async def _cf_generate_background(
 
     # 3) No background — brand canvas only
     return None
+
+
+async def _qa_generated_background(
+    bg_img: Image.Image,
+    image_prompt: str,
+    txt2img_model: str,
+    label: str,
+) -> Image.Image | None:
+    """Pixel-QA a generated background for garbled/unverified text.
+
+    FLUX backgrounds can carry garbled lettering that peeks out around the
+    PIL overlay (2026-11-02 LinkedIn regression). Fail closed: garbled OR
+    unverified (vision/LanguageTool down) → one retry with the hard no-text
+    prompt → still bad → ``None`` so the caller drops to the brand canvas.
+    Never raises — a QA exception returns the image unmodified.
+    """
+    from app.services.image_text_guard import check_image_text
+
+    def _png(img: Image.Image) -> bytes:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    try:
+        qa = await check_image_text(_png(bg_img))
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[carousel] %s bg text-QA skipped: %s", label, type(exc).__name__)
+        return bg_img
+    if qa.get("checked") and not qa.get("garbled"):
+        return bg_img
+
+    logger.warning(
+        "[carousel] %s bg text-QA failed (garbled=%s checked=%s tokens=%s) — no-text retry",
+        label,
+        qa.get("garbled"),
+        qa.get("checked"),
+        qa.get("tokens"),
+    )
+    from app.services.infographic_renderer import sanitize_prompt_for_background
+
+    retry = await _cf_generate_background(sanitize_prompt_for_background(image_prompt), txt2img_model)
+    if retry is None:
+        return None
+    try:
+        retry_qa = await check_image_text(_png(retry))
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[carousel] %s retry text-QA skipped: %s", label, type(exc).__name__)
+        return retry
+    return retry if retry_qa.get("checked") and not retry_qa.get("garbled") else None
 
 
 async def generate_carousel_copy(
@@ -1111,6 +1163,8 @@ async def run_cloudless_carousel_pipeline(
             len(slides),
         )
         bg_img = await _cf_generate_background(image_prompt, txt2img_model)
+        if bg_img is not None:
+            bg_img = await _qa_generated_background(bg_img, image_prompt, txt2img_model, f"slide {i + 1}")
         if bg_img:
             logger.info(f"[n8n-pipeline] slide {i + 1} background ready")
         else:
@@ -1182,6 +1236,40 @@ async def run_cloudless_carousel_pipeline(
     await db.refresh(carousel_asset)
     media_ids = [carousel_asset.id]
 
+    # ── Persist quality metadata to the carousel asset ────────────────────
+    # Build a quality report for the asset (caption = AI title + slides text)
+    # Note: we use the already-spellchecked caption and run NLP on it
+    try:
+        from app.services.media_quality import apply_media_quality, persist_media_quality_metadata
+
+        # Combine slide text for quality check
+        slide_texts = []
+        for slide in slides:
+            if slide.get("title"):
+                slide_texts.append(slide["title"])
+            if slide.get("body"):
+                slide_texts.append(slide["body"])
+            if slide.get("highlight"):
+                slide_texts.append(slide["highlight"])
+        combined_text = " ".join(slide_texts) + " " + (caption or "")
+
+        quality_result = await apply_media_quality(
+            caption=combined_text,
+            alt_text=ai_title,
+            tags=carousel_asset.tags or [],
+            platform=account.platform,
+            db=db,
+            team_id=team.id,
+            provider_name="dmr",
+            run_nlp=True,
+            run_spellcheck=True,
+            run_seo=True,
+        )
+        await persist_media_quality_metadata(carousel_asset, quality_result, db)
+        logger.info(f"[n8n-pipeline] Quality metadata persisted to carousel asset {carousel_asset.id}")
+    except Exception as exc:
+        logger.warning(f"[n8n-pipeline] Quality metadata persistence failed (non-fatal): {exc}")
+
     full_caption = build_linkedin_caption(caption, hashtags)
 
     # ── Spellcheck the final caption ───────────────────────────────────
@@ -1209,6 +1297,16 @@ async def run_cloudless_carousel_pipeline(
             if _seo_attempt == 2:
                 logger.warning(f"[n8n-pipeline] SEO scoring failed after retry (non-fatal): {exc}")
 
+    # ── Sofia scoring on the final caption + hashtags ────────────────────
+    sofia_score: int | None = None
+    try:
+        full_caption_for_sofia = build_linkedin_caption(caption, hashtags)
+        full_caption_for_sofia = await auto_correct(full_caption_for_sofia)
+        sofia_score, sofia_issues = sofia_nlp_score(full_caption_for_sofia)
+        logger.info(f"[n8n-pipeline] Sofia score: {sofia_score}/100")
+    except Exception as exc:
+        logger.warning(f"[n8n-pipeline] Sofia scoring failed (non-fatal): {exc}")
+
     post = Post(
         team_id=team.id,
         user_id=user.id,
@@ -1224,6 +1322,7 @@ async def run_cloudless_carousel_pipeline(
                 "text_model": text_model,
                 "nlp": nlp_report.to_dict(),
                 "seo": seo_score,
+                "sofia_score": sofia_score,
                 "slides": slides,
                 "ai_title": ai_title,
                 "account": account.display_name,
@@ -1245,6 +1344,8 @@ async def run_cloudless_carousel_pipeline(
         "caption": caption,
         "hashtags": hashtags,
         "nlp_report": nlp_report.to_dict(),
+        "seo_score": seo_score,
+        "sofia_score": sofia_score,
         "target_account": {
             "id": str(account.id),
             "display_name": account.display_name,

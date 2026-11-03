@@ -85,6 +85,32 @@ Run these for any feature that touches backend, frontend, compose, or n8n:
 - Never add `depends_on` on a managed service (it force-starts them on `compose up`), and never probe a managed port for health checks (a probe is a wake) — use `GET 127.0.0.1:8787/status`.
 - Architecture, config schema, control API, and host-watchdog interplay: `docs/ops/stack-ops-idle-sleep.md`.
 
+## Deploy lock & auto-healers (all agents — Devin, Grok, Cursor, humans)
+
+Three healers run on OFFICE; each has ONE job so they never fight:
+
+| Healer | Owns | Never does |
+|---|---|---|
+| `scripts/compose-watchdog.sh` (Windows scheduled task, every 10 min — the only schedule; no WSL cron) | **Sole owner** of container and whole-stack restarts, `docker desktop restart` | restart while the deploy lock is fresh |
+| `autoheal` (compose service) | restarts *opted-in app* containers (label `autoheal=true`) whose healthcheck is unhealthy; alerts via `WEBHOOK_URL` = `SLACK_ALERTS_WEBHOOK_URL` | touch postgres/redis/infra, restart the stack |
+| `stack-watchers` (`heal_supervisor.py`) | respawns its own watcher subprocesses, omv tunnel daemon | compose/stack restarts; any action while the deploy lock is fresh; writes to the repo (mounted `:ro`) |
+
+**Deploy lock — set it for every deploy, rebuild, `compose up/down`, branch switch or migration:**
+
+```bash
+cd ~/cu130-slim
+echo "$(date -u +%FT%TZ) <agent-name> <what>" > .deploy.lock   # take
+trap 'rm -f ~/cu130-slim/.deploy.lock' EXIT                      # always release
+# ... deploy ...
+rm -f .deploy.lock                                                 # release
+```
+
+- A lock is *fresh* for `DEPLOY_LOCK_MAX_AGE` (default 3600 s); `touch .deploy.lock` to extend a long deploy. Stale locks are ignored and alerted.
+- If `.deploy.lock` exists and is fresh and you didn't create it, another agent is deploying: **wait, don't deploy on top of it**.
+- `.deploy.lock` is git-ignored.
+
+**Watchdog limits** (env-overridable): max 3 restarts per container per hour with 1/5/15-min backoff, then one Slack alert and hands off; `docker desktop restart` max 2/day; a crash loop whose logs show alembic / `Can't locate revision` / migration errors is **not** restarted — the watchdog runs `docker update --restart=no` and alerts once. After fixing, `rm ~/.local/state/compose-watchdog/migration-<container>` and `docker update --restart=unless-stopped <container>`. State: `~/.local/state/compose-watchdog/`; log: `logs/watchdog.log`.
+
 ## Container restart rules
 
 - `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.

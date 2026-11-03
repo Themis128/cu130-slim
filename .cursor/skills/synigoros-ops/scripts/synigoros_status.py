@@ -46,7 +46,8 @@ def main() -> int:
         raise SystemExit("need SYNIGOROS_MAIL + SYNIGOROS_KPA (env or --mail/--kpa)")
 
     # any platform arg just boots the browser — navigate handles the real URL
-    call("/session/start", {"platform": "reddit", "interactive": False})
+    start = call("/session/start", {"platform": "reddit", "interactive": False})
+    owns = not start.get("reused")  # a reused session belongs to another caller
     try:
         time.sleep(4)
         call("/session/navigate", {"url": TRACK})
@@ -103,9 +104,14 @@ def main() -> int:
         return 0
     finally:
         # release the pinned bridge session — a held session 409s every
-        # other platform for five minutes
-        try: call("/session/close", {})
-        except Exception: pass
+        # other platform for five minutes. /session/stop is the real
+        # endpoint (there is no /session/close); skip it when we reused
+        # someone else's session.
+        if owns:
+            try: call("/session/stop", {}, tries=1)
+            # BaseException: call() raises SystemExit on non-retryable
+            # errors — a stop failure must never mask the poll result
+            except BaseException: pass
 
 if __name__ == "__main__":
     sys.exit(main())
