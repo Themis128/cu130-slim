@@ -124,8 +124,11 @@ def main() -> None:
     p.add_argument("--out", help="Output path (default ./loa-<client>-<date>.<ext>)")
     args = p.parse_args()
 
+    # In-container the compose mount persists generated docs at
+    # /app/pipeline-assets (host ./pipeline-assets); fall back to cwd locally.
+    out_dir = Path("/app/pipeline-assets") if Path("/app/pipeline-assets").is_dir() else Path(".")
     slug = re.sub(r"[^a-z0-9]+", "-", args.client.lower()).strip("-") or "client"
-    base = Path(args.out) if args.out else Path(f"loa-{slug}-{args.date}")
+    base = Path(args.out) if args.out else out_dir / f"loa-{slug}-{args.date}"
 
     if args.format in ("md", "both"):
         md_path = base.with_suffix(".md")

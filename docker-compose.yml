@@ -1117,6 +1117,9 @@ services:
       - ./social-automation/backend/mlruns:/app/mlruns
       # Deploy seeds (content_prompt_templates etc.) — idempotent, applied on boot.
       - ./deploy/seeds:/app/deploy/seeds:ro
+      # Generated pipeline docs (letter_of_agreement.py / audit_worksheet.py
+      # output) — LOAs + worksheets must persist on the host, not in-container.
+      - ./pipeline-assets:/app/pipeline-assets
       - ./social-automation/uploads:/app/uploads
       - "/mnt/c/Users/tbaltzakis/OneDrive/Kakkava Sofia:/mnt/kakkava:ro"
       # Read-only access to notebook reports output for /api/v1/reports.

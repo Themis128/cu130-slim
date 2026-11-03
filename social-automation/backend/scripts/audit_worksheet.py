@@ -131,7 +131,10 @@ def main() -> None:
     p.add_argument("--format", choices=("pdf", "md", "both"), default="pdf")
     p.add_argument("--out", help="Output path (default ./audit-worksheet.<ext>)")
     args = p.parse_args()
-    base = Path(args.out) if args.out else Path("audit-worksheet")
+    # In-container the compose mount persists generated docs at
+    # /app/pipeline-assets (host ./pipeline-assets); fall back to cwd locally.
+    out_dir = Path("/app/pipeline-assets") if Path("/app/pipeline-assets").is_dir() else Path(".")
+    base = Path(args.out) if args.out else out_dir / "audit-worksheet"
     if args.format in ("md", "both"):
         md = base.with_suffix(".md")
         md.write_text(render_markdown(args.client, args.date), encoding="utf-8")
