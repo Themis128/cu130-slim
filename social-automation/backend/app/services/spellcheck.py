@@ -277,21 +277,26 @@ def _mixed_case_mangles(text: str) -> list[str]:
     return flagged
 
 
-async def detect_gibberish(text: str, language: str = "en-US") -> list[str]:
-    """Return suspicious non-dictionary / mangled tokens in ``text``.
+async def detect_gibberish_detailed(text: str, language: str = "en-US") -> tuple[list[str], bool]:
+    """Like :func:`detect_gibberish` but also reports whether the LanguageTool
+    dictionary pass actually ran.
 
-    Runs after ``auto_correct`` so anything still flagged here is corruption
-    LanguageTool could not fix. Never raises — LanguageTool unavailability
-    falls back to the local mixed-case signal only.
+    Returns ``(flagged_tokens, dictionary_checked)``. Callers gating
+    publish-bound artifacts (e.g. in-image text QA) must treat
+    ``dictionary_checked=False`` as *unverified*, not clean — a LanguageTool
+    outage or cold start degrades detection to the pattern-only signal,
+    which misses lowercase garble ("hinkesty", "inenesity") that ships
+    onto generated images (observed live 2026-11-02).
     """
     if not text or not text.strip():
-        return []
+        return [], True
 
     normalized = _normalize(text)
     protected = _protected_spans(normalized)
     masked = _mask(normalized, protected) if protected else normalized
 
     flagged = _mixed_case_mangles(masked)
+    dictionary_checked = False
 
     try:
         settings = get_settings()
@@ -303,6 +308,7 @@ async def detect_gibberish(text: str, language: str = "en-US") -> list[str]:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
         resp.raise_for_status()
+        dictionary_checked = True
         for m in resp.json().get("matches", []):
             if m.get("rule", {}).get("issueType") != "misspelling":
                 continue
@@ -316,4 +322,15 @@ async def detect_gibberish(text: str, language: str = "en-US") -> list[str]:
     seen: dict[str, None] = {}
     for tok in flagged:
         seen.setdefault(tok, None)
-    return list(seen)[:10]
+    return list(seen)[:10], dictionary_checked
+
+
+async def detect_gibberish(text: str, language: str = "en-US") -> list[str]:
+    """Return suspicious non-dictionary / mangled tokens in ``text``.
+
+    Runs after ``auto_correct`` so anything still flagged here is corruption
+    LanguageTool could not fix. Never raises — LanguageTool unavailability
+    falls back to the local mixed-case signal only.
+    """
+    tokens, _dictionary_checked = await detect_gibberish_detailed(text, language=language)
+    return tokens

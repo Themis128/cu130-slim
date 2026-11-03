@@ -17,6 +17,29 @@ def _env():
             d[k.strip()] = v.strip().strip('"')
     return d
 
+def _signed_state() -> str:
+    """Mint a properly-signed OAuth state via the backend's sign_oauth_state —
+    fabricated strings fail the app's signature check."""
+    import subprocess
+    inner = (
+        "import asyncio\n"
+        "from app.core.security import sign_oauth_state\n"
+        "from app.db.session import get_db\n"
+        "from sqlalchemy import text\n"
+        "async def go():\n"
+        "  async for db in get_db():\n"
+        "    r=await db.execute(text('SELECT id FROM teams LIMIT 1'))\n"
+        "    print(sign_oauth_state({'t':str(r.scalar())}))\n"
+        "asyncio.run(go())"
+    )
+    out = subprocess.run(
+        ["docker", "exec", "social-api", "python", "-c", inner],
+        capture_output=True, text=True, timeout=30, check=False)
+    for line in out.stdout.splitlines():
+        if line.strip() and not line.startswith(("TEAM","ERR")):
+            return line.strip()
+    raise RuntimeError(f"signed state failed: {out.stdout} {out.stderr}")
+
 def _auth_url():
     e = _env()
     cid = e.get("FACEBOOK_CLIENT_ID", "") or e.get("META_APP_ID", "")
@@ -25,7 +48,7 @@ def _auth_url():
     return (f"https://www.facebook.com/v21.0/dialog/oauth?client_id={cid}"
             f"&redirect_uri={urllib.parse.quote(red,safe='')}"
             f"&response_type=code&scope={urllib.parse.quote(scopes)}"
-            f"&state=fb-reauth-{int(time.time())}")
+            f"&state={urllib.parse.quote(_signed_state(),safe='')}")
 
 def _ws():
     try:

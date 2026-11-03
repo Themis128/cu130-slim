@@ -37,7 +37,7 @@ def code_of(secret):
         key = base64.b32decode(secret.upper())
         hs = hmac.new(key, struct.pack(">Q", counter), hashlib.sha1).digest()
         off = hs[-1] & 0x0F
-        return "%06d" % (int.from_bytes(hs[off:off + 4], "big") & 0x7FFFFFFF % 10 ** 6)
+        return "%06d" % ((int.from_bytes(hs[off:off + 4], "big") & 0x7FFFFFFF) % 10 ** 6)
 
 
 def main():

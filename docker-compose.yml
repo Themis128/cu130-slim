@@ -13,6 +13,12 @@ x-public-dns: &public-dns
 x-worker-env: &worker-env
   - TZ=Europe/Athens
   - APP_TIMEZONE=Europe/Athens
+  - AUTONOMY_LEVEL=${AUTONOMY_LEVEL:-0}
+  - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434/v1/chat/completions}
+  - DMR_EMBED_URL=${DMR_EMBED_URL:-http://ollama:11434/v1/embeddings}
+  - DMR_MODEL=${DMR_MODEL:-smollm2}
+  - DMR_QUALITY_MODEL=${DMR_QUALITY_MODEL:-smollm2}
+  - DMR_EMBED_MODEL=${DMR_EMBED_MODEL:-nomic-embed-text}  # engagement-gate auto-approve dial (0=manual, 2=safe, 3=full)
   - DATABASE_URL=postgresql+asyncpg://${SOCIAL_POSTGRES_USER}:${SOCIAL_POSTGRES_PASSWORD}@social-postgres:5432/${SOCIAL_POSTGRES_DB}
   - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
   - MESSENGER_REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/1
@@ -21,18 +27,18 @@ x-worker-env: &worker-env
   - N8N_API_KEY=${N8N_API_KEY}
   - N8N_USER=${N8N_USER}
   - N8N_PASSWORD=${N8N_PASSWORD}
-  - COMFYUI_URL=http://stack-ops:8199
-  - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
-  - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
+  - COMFYUI_URL=http://172.20.0.230:8000
+  - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
+  - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}
   - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
-  - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF}
-  - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
+  - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-nomic-embed-text}
+  - DMR_TINY_MODEL=${DMR_TINY_MODEL:-smollm2}
   - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-  - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+  - DMR_MID_MODEL=${DMR_MID_MODEL:-smollm2}
   - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
   - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
   - DMR_COLD_TIMEOUT=${DMR_COLD_TIMEOUT:-240}
-  - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
+  - DMR_VLLM_URL=${DMR_VLLM_URL:-http://ollama:11434/v1}
   - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
   - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
   - CHROMA_URL=http://chroma:8000
@@ -44,6 +50,8 @@ x-worker-env: &worker-env
   # healer, Skool watcher, publish fallbacks) died with ConnectError
   # '[Errno -2] Name or service not known' until these were proxied.
   - BROWSER_BRIDGE_URL=http://stack-ops:9223
+  - SYNIGOROS_MAIL=${SYNIGOROS_MAIL:-}
+  - SYNIGOROS_KPA=${SYNIGOROS_KPA:-}
   - TIKTOK_BROWSER_SIDECAR_URL=http://stack-ops:9224
   - LINKEDIN_BROWSER_SIDECAR_URL=http://stack-ops:9225
   - LINKEDIN_MCP_SERVER_URL=http://stack-ops:9227/mcp
@@ -88,6 +96,11 @@ x-worker-env: &worker-env
   - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
   - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
   - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
+  - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}  # env fallback for send_telegram_alert when Postgres is down
+  - TG_CH_CRITICAL=${TG_CH_CRITICAL:--1004389402878}
+  - TG_CH_OPS=${TG_CH_OPS:--1004429103353}
+  - TG_CH_INTEL=${TG_CH_INTEL:--1004362141941}
+  - TG_CH_DIGEST=${TG_CH_DIGEST:--1004363123500}
   - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
   - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
   - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -213,7 +226,7 @@ x-worker-depends: &worker-depends
   n8n:
     condition: service_healthy
   # comfyui intentionally absent: workers reach it through the stack-ops
-  # wake proxy (COMFYUI_URL=http://stack-ops:8199); a depends_on here would
+  # wake proxy (COMFYUI_URL=http://172.20.0.230:8000); a depends_on here would
   # force-start the GPU container on every worker recreate.
   chroma:
     condition: service_healthy
@@ -230,8 +243,9 @@ services:
     container_name: social-media-comfyui-gpu
     init: true  # reaps zombie PIDs — the 2026-10-06 FLUX job left the container unkillable
     networks:
-      - backend
-      - gpu
+      backend:
+        ipv4_address: 172.20.0.230
+      gpu:
     volumes:
       - ./.env:/app/.env:ro
       - ./comfyui/profiles:/opt/ComfyUI/profiles:ro
@@ -319,9 +333,9 @@ services:
       - N8N_INSTANCE_AI_SANDBOX_PROVIDER=n8n-sandbox
       - N8N_INSTANCE_AI_SANDBOX_URL=http://stack-ops:8081
       - N8N_INSTANCE_AI_MODEL=${N8N_INSTANCE_AI_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - N8N_INSTANCE_AI_MODEL_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
+      - N8N_INSTANCE_AI_MODEL_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://ollama:11434/v1}
       - N8N_INSTANCE_AI_MODEL_API_KEY=${N8N_INSTANCE_AI_MODEL_API_KEY:-dmr-local}
-      - OPENAI_BASE_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
+      - OPENAI_BASE_URL=${N8N_INSTANCE_AI_MODEL_URL:-http://ollama:11434/v1}
       - N8N_SANDBOX_SERVICE_URL=http://stack-ops:8081
       - TWITTER_BEARER_TOKEN=${TWITTER_BEARER_TOKEN}
       - TWITTER_API_URL=https://api.twitter.com/2/tweets
@@ -694,13 +708,22 @@ services:
     restart: unless-stopped
 
   portainer:
-    image: portainer/portainer-ce:2.39.6
+    image: portainer/portainer-ce:2.39.6-healthcheck
+    build:
+      context: .
+      dockerfile: Dockerfile.portainer-healthcheck
     container_name: portainer
     networks:
       - backend
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - portainer_data:/data
+    healthcheck:
+      test: ["CMD", "/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     mem_limit: 256m
     memswap_limit: 512m
     cpus: '1'
@@ -840,7 +863,7 @@ services:
     cpus: '2'
     restart: unless-stopped
   social-api:
-    image: ghcr.io/themis128/cu130-slim:social-api-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-api-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -870,18 +893,23 @@ services:
       - N8N_API_KEY=${N8N_API_KEY}
       - N8N_USER=${N8N_USER}
       - N8N_PASSWORD=${N8N_PASSWORD}
-      - COMFYUI_URL=http://stack-ops:8199
-      - DMR_URL=${DMR_URL:-http://host.docker.internal:12435/engines/llama.cpp/v1}
-      - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-ai/qwen3:8b-q4_K_M}
+      - COMFYUI_URL=http://172.20.0.230:8000
+      - DMR_URL=${DMR_URL:-http://ollama:11434/v1}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434/v1/chat/completions}
+      - DMR_EMBED_URL=${DMR_EMBED_URL:-http://ollama:11434/v1/embeddings}
+      - DMR_MODEL=${DMR_MODEL:-smollm2}
+      - DMR_QUALITY_MODEL=${DMR_QUALITY_MODEL:-smollm2}
+      - DMR_EMBED_MODEL=${DMR_EMBED_MODEL:-nomic-embed-text}
+      - DMR_TEXT_MODEL=${DMR_TEXT_MODEL:-smollm2}
       - DMR_VISION_MODEL=${DMR_VISION_MODEL:-ai/qwen3-vl}
-      - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF}
-      - DMR_TINY_MODEL=${DMR_TINY_MODEL:-ai/smollm3}
+      - DMR_EMBEDDING_MODEL=${DMR_EMBEDDING_MODEL:-nomic-embed-text}
+      - DMR_TINY_MODEL=${DMR_TINY_MODEL:-smollm2}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+      - DMR_MID_MODEL=${DMR_MID_MODEL:-smollm2}
       - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
       - DMR_MAX_CONCURRENCY=${DMR_MAX_CONCURRENCY:-1}
       - DMR_COLD_TIMEOUT=${DMR_COLD_TIMEOUT:-240}
-      - DMR_VLLM_URL=${DMR_VLLM_URL:-http://host.docker.internal:12435/engines/vllm/v1}
+      - DMR_VLLM_URL=${DMR_VLLM_URL:-http://ollama:11434/v1}
       - LOCAL_DIFFUSERS_URL=http://local-diffusers:7860
       - LOCAL_DIFFUSERS_MODEL=${LOCAL_DIFFUSERS_MODEL:-stable-diffusion-v1-5/stable-diffusion-v1-5}
       - CHROMA_URL=http://chroma:8000
@@ -915,6 +943,9 @@ services:
       - TIKTOK_CLIENT_KEY=${TIKTOK_CLIENT_KEY:-}
       - TIKTOK_CLIENT_SECRET=${TIKTOK_CLIENT_SECRET:-}
       - TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback}
+      - AUTHENTIK_ISSUER=${AUTHENTIK_ISSUER:-https://auth.cloudless.gr/application/o}
+      - AUTHENTIK_CLIENT_ID=${AUTHENTIK_CLIENT_ID:-social_client}
+      - AUTHENTIK_CLIENT_SECRET=${AUTHENTIK_CLIENT_SECRET:-}
       - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
       - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
       - SOCIAL_ADMIN_NAME=${SOCIAL_ADMIN_NAME}
@@ -944,6 +975,11 @@ services:
       - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
       - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
       - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}  # env fallback for send_telegram_alert when Postgres is down
+      - TG_CH_CRITICAL=${TG_CH_CRITICAL:--1004389402878}
+      - TG_CH_OPS=${TG_CH_OPS:--1004429103353}
+      - TG_CH_INTEL=${TG_CH_INTEL:--1004362141941}
+      - TG_CH_DIGEST=${TG_CH_DIGEST:--1004363123500}
       - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
       - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
       - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -1189,7 +1225,7 @@ services:
   # Total: 7 concurrent prefork processes across 3 containers.
   # celery-beat (below) schedules tasks into the routed queues.
   social-worker-publishing:
-    image: ghcr.io/themis128/cu130-slim:social-worker-publishing-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1231,7 +1267,7 @@ services:
     restart: unless-stopped
 
   social-worker-media:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1275,7 +1311,7 @@ services:
     restart: unless-stopped
 
   social-worker-default:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1316,7 +1352,7 @@ services:
     restart: unless-stopped
 
   social-worker-messenger:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1358,7 +1394,7 @@ services:
     cpus: '4'
     restart: unless-stopped
   celery-beat:
-    image: ghcr.io/themis128/cu130-slim:social-worker-latest
+    image: ghcr.io/themis128/cu130-slim:social-backend-latest
     pull_policy: always
     build:
       context: ./social-automation/backend
@@ -1546,6 +1582,26 @@ services:
     cpus: '1'
     restart: unless-stopped
 
+  # Local LLM serving — solid DMR alternative. `OLLAMA_URL=http://ollama:11434`
+  # is already in .env; OpenAI-compatible at /v1. Persistent model serving —
+  # no lazy-load engine-swap flakiness (the DMR failure mode).
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    restart: unless-stopped
+    networks:
+      - backend
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    mem_limit: 6g
+    cpus: '4'
+
   # ── Browser + noVNC container (visual browser for social logins) ─────────
   # Provides a headed Chromium browser accessible via web browser (noVNC)
   # and an HTTP bridge API for the SocialAuto backend to start sessions,
@@ -1590,6 +1646,7 @@ services:
 
   # ── Dedicated engagement-ingestion browser (no sweeps → no steals) ──
   engagement-browser:
+    image: cu130-slim-browser-novnc:latest
     build:
       context: ./browser-novnc
       dockerfile: Dockerfile
@@ -1878,9 +1935,9 @@ services:
       - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD:-}
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
       - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
-      - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434}
       - DMR_CHATBOT_MODEL=${DMR_CHATBOT_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
-      - DMR_MID_MODEL=${DMR_MID_MODEL:-hf.co/unsloth/Qwen3-4B-Instruct-2507-GGUF:Q4_K_M}
+      - DMR_MID_MODEL=${DMR_MID_MODEL:-smollm2}
       - DMR_MEDIA_MODEL=${DMR_MEDIA_MODEL:-cloudless/qwen3-4b-media:latest}
       - MESSENGER_AI_MODEL=${MESSENGER_AI_MODEL:-@cf/meta/llama-3.1-8b-instruct}
       - TZ=Europe/Athens
@@ -2086,7 +2143,7 @@ services:
       # API and runs the semantic check against the DMR vision model (qwen3-vl).
       - SOCIAL_ADMIN_EMAIL=${SOCIAL_ADMIN_EMAIL}
       - SOCIAL_ADMIN_PASSWORD=${SOCIAL_ADMIN_PASSWORD}
-      - DMR_BASE_URL=${DMR_BASE_URL:-http://host.docker.internal:12435/engines/v1}
+      - DMR_BASE_URL=${DMR_BASE_URL:-http://ollama:11434}
       - DMR_MODEL=${DMR_MODEL:-qwen3-vl}
       - TZ=Europe/Athens
     # host.docker.internal must resolve for DMR_BASE_URL — other services
@@ -2186,6 +2243,12 @@ services:
     command: -config.file=/etc/promtail/config.yml -config.expand-env=true
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qE ':2378[[:space:]]+00000000000000000000000000000000:0000[[:space:]]+0A' /proc/net/tcp6"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     depends_on:
       docker-socket-proxy:
         condition: service_started
@@ -2206,6 +2269,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:2375/_ping | grep -q OK"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # ── Gate watchers — cdp/li-vetting watches, persistent service ───────
   stack-watchers:
@@ -2233,6 +2302,17 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  # ── social-sidecar-base — shared base image for the python sidecars
+  # (messenger-sidecar, env-manager-backend, browser-novnc). build-only
+  # profile: CI builds+pushes it (build-and-push.yml), the sidecars' own
+  # Dockerfiles FROM the published image.
+  social-sidecar-base:
+    profiles: ["build-only"]
+    image: ghcr.io/themis128/cu130-slim:social-sidecar-base-latest
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.sidecar-base
+
   # ── autoheal — restarts opted-in APP containers whose HEALTHCHECK goes
   # unhealthy. Opt-in only (label autoheal=true): never postgres/redis/infra.
   # Never restarts the whole stack — scripts/compose-watchdog.sh owns that.
@@ -2251,6 +2331,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[a]utoheal' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # Mautic — self-hosted funnel/marketing-automation manager (campaigns,
   # landing pages, drip sequences, lead scoring, forms). Dedicated MariaDB.
@@ -2324,10 +2410,47 @@ services:
       - MAUTIC_DB_PASSWORD=${MAUTIC_DB_PASSWORD}
       - MAUTIC_DB_DATABASE=mautic
       - DOCKER_MAUTIC_ROLE=mautic_cron
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[e]ntrypoint_mautic_cron.sh' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     mem_limit: 384m
     restart: unless-stopped
 
+
+  # Self-heal for mass container loss (2026-11-02: ~40 containers deleted at
+  # once — restart policies / docker restart cannot recreate removed
+  # containers). Runs `docker compose up -d` every 10 min: recreates missing
+  # services, restarts dead, no-ops on healthy. If THIS service is deleted,
+  # the omv safedeploy-watchdog wsl-social-api remediation runs the same
+  # `compose up -d` via SSH.
+  compose-healer:
+    image: docker:27-cli
+    container_name: compose-healer
+    restart: unless-stopped
+    networks: []
+    environment:
+      - COMPOSE_PROJECT_DIR  # host compose dir — bind sources resolve identically inside the helper
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # relative binds in sibling services resolve against COMPOSE_PROJECT_DIR;
+      # mounting at the SAME absolute path keeps daemon-side sources valid
+      - ${COMPOSE_PROJECT_DIR:-.}:${COMPOSE_PROJECT_DIR:-/w}:ro
+    command: >
+      sh -c "while :; do
+        docker compose -f $${COMPOSE_PROJECT_DIR}/docker-compose.yml -p cu130-slim up -d --quiet-pull 2>&1
+        | grep -vE 'Running|Started|Skipped' || true;
+        sleep 600; done"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "docker info >/dev/null 2>&1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
 volumes:
+  ollama_models:
   portainer_data: null
   postgres_data: null
   social_postgres_data: null
@@ -2340,8 +2463,12 @@ volumes:
   tunnel_url: null
   browser_cookies: null
   browser_profile: null
-  engagement_cookies: null
-  engagement_profile: null
+  engagement_cookies:
+    external: true
+    name: engagement_cookies
+  engagement_profile:
+    external: true
+    name: engagement_profile
   minio_data: null
   instagram_sessions: null
   warp_data: null

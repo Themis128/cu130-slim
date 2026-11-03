@@ -1,5 +1,117 @@
 # BACKLOG (living)
 
+## 2026-11-02 session 3 — media quality backfill (real pipeline) + Sofia scores
+
+**Done:**
+- All media assets carry `meta_data.quality`; assets with captions have real
+  Sofia scores (0-100). Early passes wrote heuristic scores while
+  LanguageTool/DMR were down — `scripts/backfill_media_quality.py` gained a
+  `--force` flag to re-run the real pipeline over already-scored assets
+  (idempotent, commits per asset, safe to re-run after stack bounces).
+- Local protected-words misconfig fixed: `.env` + host `/app/.env` shim had a
+  REPLACEMENT list (dropped `Redis`, lowercase `cloudless`) violating the
+  config.py contract "extend via env, don't shrink the defaults" — restored to
+  the full default list + local extras (OAuth, QLoRA, DBaaS, ONNX). This was
+  the cause of `test_protected_spans_cover_configured_words` failing locally.
+- Test env on host fixed: venv had pytest missing (plain `pip` resolved to
+  system pip — use `.venv/bin/python -m pip`); unit tests for touched modules
+  green: 96 passed / 6 integration-skipped.
+
+**Leftovers:**
+- [ ] Final `--force` backfill pass interrupted by Docker Desktop WSL bounces
+  (deploy-tree cutover churn); retry wrapper `/tmp/backfill_retry.sh` re-runs
+  until a full pass completes — verify final asset counts once stable.
+- [ ] Real pipeline pass replaces remaining heuristic Sofia/SEO scores — check
+  `meta_data.quality.spellcheck_applied=true` across assets when done.
+
+## 2026-11-02 session 2 — synigoros alerting went live + leftovers
+
+- **#1261 merged**: session/stop fix + .devin parity + creds scrub + SYNIGOROS_*
+  x-worker-env passthrough + monitor.js notify fix (was 403 via social-api
+  endpoint — now direct Bot API, verified msg in automation-hq) + gmail lane.
+- **#1266 merged**: monitor EBUSY log-lock — run-monitor.bat `>>` + node's
+  appendFileSync double-handled monitor.log; every scheduled run crashed for
+  days (Last Result 1). Bat redirect dropped, log() is non-fatal.
+- **Deployed live**: `SynigorosMonitor` task now every **15min** (was 4h) and
+  works; Gmail early-check relays Ombudsman status emails in ~minutes;
+  SYNIGOROS_MAIL/KPA set in WSL-clone + Windows .env; workers+beat recreated
+  (env verified present, 4/4 celery nodes).
+- **WSL clone note**: `~/cu130-slim` runs divergent branch
+  `chore/autonomy-level-passthrough` (35 ahead/32 behind, other agent's
+  in-flight work) — applied only the 3 needed file edits to its working
+  tree, branch untouched. When that branch syncs with master it'll
+  reconcile (same content for our files).
+- **Reviewer follow-ups** (from #1261 review): BaseException catch in both
+  skill scripts + worker stop-warning logging landed in fix/synigoros-leftovers;
+  own-reddit-reuse stop NOT implemented — /session/status exposes no
+  `interactive` flag so our leftovers can't be told from a real interactive
+  login; WAITING_TIMEOUT bounds it anyway.
+
+**Leftovers:**
+- [x] All session items landed or mitigated.
+
+## 2026-11-02 session — Devin Review #1083 tails (synigoros-ops)
+
+- Devin Review on merged PR #1083 flagged 6 items; 4 were already fixed on
+  master (ba2f2b45 + 0a7db738 + 0548f6c6), but the "session release" fix
+  called `/session/close` — an endpoint that does not exist on
+  browser-bridge.py (real: `/session/stop`), so the 404 was silently
+  swallowed and the waiting session still pinned the adhoc bridge ~5 min.
+- Fix branch `fix/synigoros-ops-review-1083`: `/session/stop` everywhere,
+  skipped when `/session/start` returned `reused` (another caller's session);
+  `.devin` mirror script brought to parity (was stale: force:true start,
+  fixed 14s sleep, no bounded poll, close×3); residual personal email
+  scrubbed from both SKILL.md copies; +3 unit tests (stop on success,
+  stop on error, no-stop on reused).
+
+**Leftovers:**
+- [ ] Restart the 4 social-worker-* containers + beat after merge
+  (worker task code changed — container rules).
+- [ ] Gmail MCP connector in Devin Desktop fails to connect client-side
+  (endpoint https://gmailmcp.googleapis.com/mcp/v1 is up — likely expired
+  OAuth); repo gmail-ops OAuth path works as fallback.
+
+## 2026-11-01 session — full PR + branch consolidation, image-text spelling guard
+
+**Landed (all via squash PRs to protected master):**
+- #1208 databricks-adopts, #1211 dmr-gateway, #1214 ai-functions, #1215 avatar-video
+  register, #1217 avatar-story route, #1228 screen-drive-ops (add/add conflict on
+  credential-reset-ops SKILL.md resolved — #1226 content kept + TOTP docs), #1243
+  **image-text guard** (see below), #1244 ops-tools (nc_dav_probe + n8n_exec DB-key),
+  #1245 fb-reauth signed oauth state, #1246 cdp_gate_runner v2 + meta_2fa ADB
+  discovery, #1247 mautic-clean port (ai_function_call MODEL — was missing while
+  ai_functions.py imported it; gate_sweep beat + engagement_autoapprove;
+  datalake_insights.funnel_answer; pr-sweep.yml 30-min PR rebase+arm cron;
+  shared sidecar-base image + split social-backend-api/social-backend Dockerfile
+  targets; compose renamed to match, legacy image names kept as GHCR aliases).
+- #1248 (healer) fixed test_media_ai expectation for the new guard output.
+
+**Image-text guard (#1243) — the "garbled caption on media" fix:** FLUX/Wan cannot
+spell; a monetization brief "…with a caption highlighting…" painted a garbled
+banner into the pixels (LinkedIn activity 7521477348517363712, asset 582ca53c).
+`app/services/image_text_guard.py`: strips caption/banner/text clauses from
+generation prompts (wired into expand_visual_prompt → covers image+video+monetization),
+routes explicit quoted-text requests to the PIL infographic overlay, and QA-checks
+generated pixels (qwen3-vl transcribe → detect_gibberish) with one no-text retry →
+brand-banner fallback in monetization; `meta_data.text_qa` on the endpoint path.
+19 unit tests.
+
+**Branch consolidation:** 20 remote branches deleted (content landed or superseded):
+heal/2026102x-*, heal/20261031-*, feat/autoheal, feat/autoheal-all, feat/heal-supervisor-v2,
+fix/stack-watchers-health, feat/chrome-bind-ops, feat/credential-reset-ops(+v2),
+ops/gate-capture, feat/databricks-friendly, feat/meta-ads-ops-3, fix/master-ci-engagement-tests,
+local/master-20261028-071718; local wt-1208/wt-1211 worktrees + stale local branches removed.
+Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date compare
++ 3-way merge for files both sides touched.
+
+**Leftovers:**
+- [ ] Delete `ops/mautic-clean` + `ops/mautic-funnel` remotes once #1247 lands (port carried their unique content; mautic-funnel ⊂ mautic-clean lineage).
+- [ ] Restart social-api + 4 workers + beat after #1247 (container rules: model/celery/compose changes).
+- [ ] First `docker compose pull && up -d` after #1247 pulls the renamed `social-backend-api-latest`/`social-backend-latest` images — verify /health + celery inspect ping (4 nodes) before traffic.
+- [x] **Secret hygiene** (DONE 2026-11-01): #1251 moved `AUTHENTIK_CLIENT_SECRET` to settings/.env + compose passthrough, and the secret was **rotated live** via the authentik worker shell on omv (k3s: `kubectl exec -n authentik authentik-worker-… -- ak shell`) — old 40-char value is dead server-side, new 48-char value verified against the token endpoint (`invalid_grant` probe) and loaded in social-api. The old value remains in git history but is invalid; `.env` holds the current one (gitignored).
+- [ ] Stash `grokbot-20261101` (compose autoheal labels) intentionally kept — labeled superseded by #1237; drop when convenient.
+- [ ] The 2026-10-28 garbled asset (582ca53c) predates the fix; its LinkedIn post is live — delete+recreate is a content decision (same bucket as the cloudless.com→.gr posts).
+
 ## Done 2026-10-27 (PR sweep — umbrella merge)
 - Skool→IntraVox pipeline: Sofia Kakkava community content now has an IntraVox hub (page `kakkava-visibility-era`, nav under Visibility Era & Social). TODO: scheduled `trend_scan`→IntraVox `en/news` digest. **Blocked**: shared browser bridge returns 409 'busy with facebook session' — needs retry-with-backoff in `skool_sync` or a dedicated sidecar; also needs one manual Skool login on browser-novnc to seed the session.
 - Celery send_task anomaly (2026-10-27): `app.worker.tasks.email_campaigns.send_campaign` enqueued via `celery_app.send_task` from social-api returns a task id but never reaches workers (PENDING forever; `inspect reserved/scheduled` empty) — while other tasks on the same `default` queue flow fine. Bypass: run `send_campaign()` service directly in social-api container. Repro: send_task id `79229b44` stayed PENDING. Needs delivery-tag/routing instrumentation.
@@ -152,3 +264,9 @@
 **External gates**: `:9222` auto-fires on logon (CloudlessDebugChrome task). Viber = paid commercial channel (€115/mo) — decision, not a build.
 
 **Content-quality research applied**: slop-keyword scan, voice constraints, prior-output exclusion, platform-fit (content_guides has limits, unenforced).
+
+- Watchdog retiered 2026-11-02 eve: probe classified Healthy/Vsock/Broken; vsock flaps no longer wsl --terminate (VM-layer, terminate cant fix); docker.exe engine probe via npipe; docker desktop restart only if engine down; vsock-flaps.txt; [P1] to #critical at flap 6 (~30m) then ~3h; VsockDegraded state + recovery alert; -Mode TestVsock synthetic-probe test; wsl.exe spawn-failure now counted as flap (silent-death fix). Live-verified: real flap 19:10 logged/counted, zero terminate.
+- Deferred options if vsock flaps persist: Docker Desktop tcp://localhost:2375 + DOCKER_HOST in distro (bypasses proxy/vsock entirely; unauth localhost daemon caveat); .wslconfig networkingMode=mirrored (needs full WSL restart).
+
+- Watchdog hardening landed live (not in repo, host script): restart judged by "Starting Docker Desktop" output not exit code; engine restart throttled 15min; wsl.exe spawn-failure -> vsock flap. Verified: real 19:08-19:26 incident cycle recovered via docker desktop restart + Telegram alert.
+- Windows checkout (feat/credential-reset-ops, 50+ behind master): untracked alembic copies b8c9d0e1f2a3 + f9a1b2c3d4e5 WILL COLLIDE on owner rebase (git refuses untracked overwrite) - fix: delete them before rebase, they are byte-identical to master. Compose/monitor/config.py dirt = owner work.

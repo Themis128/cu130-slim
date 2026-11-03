@@ -143,10 +143,16 @@ KEYMAP.update({".": "KEYCODE_PERIOD", "@": "KEYCODE_AT", "-": "KEYCODE_MINUS",
                "#": "KEYCODE_POUND", "+": "KEYCODE_PLUS", "=": "KEYCODE_EQUALS"})
 
 
-def type_text(dev, text):
-    """Field must already be focused. input text -> verify -> paste."""
+def type_text(dev, text, masked=False):
+    """Field must already be focused. input text -> verify -> paste.
+
+    masked=True for password/secret fields: the uiautomator dump only shows
+    bullets, so find() can never verify — type exactly once and never retry
+    (retries concatenate the secret 2-3 times)."""
     adb(dev, "shell", "input", "text",
         text.replace(" ", "%s").replace("@", "\\@"))
+    if masked:
+        return "input-text sent (masked — unverifiable)"
     time.sleep(1)
     if find(dev, text.split("@")[0][:12]):
         return "input-text ok"

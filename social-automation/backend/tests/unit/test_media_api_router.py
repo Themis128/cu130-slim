@@ -513,6 +513,13 @@ def _gen_patches(monkeypatch, *, comfy_png=None, cf_result=None, qa=None, expand
 
     monkeypatch.setattr("app.services.media_ai.expand_visual_prompt", AsyncMock(side_effect=lambda p, **k: expand or p))
     monkeypatch.setattr("app.services.media_ai.verify_media_semantics", AsyncMock(return_value=qa or {"match": True}))
+    # Pixel text QA is an external boundary (DMR vision + LanguageTool) —
+    # default to verified-clean; individual tests override when exercising
+    # the garbled/unverified retry path.
+    monkeypatch.setattr(
+        "app.services.image_text_guard.check_image_text",
+        AsyncMock(return_value={"checked": True, "garbled": False}),
+    )
 
     mod_igfx = ModuleType("app.services.infographic_renderer")
     mod_igfx.is_infographic_request = lambda p: False
@@ -771,7 +778,8 @@ async def test_avatar_story_defaults_no_music(monkeypatch):
     """No music_url / no tags → task gets None and the default tag set."""
     sent = {}
     monkeypatch.setattr(
-        media.celery_app, "send_task",
+        media.celery_app,
+        "send_task",
         lambda name, queue=None, kwargs=None: sent.update(kwargs=kwargs) or SimpleNamespace(id="t2"),
     )
     team = _team()

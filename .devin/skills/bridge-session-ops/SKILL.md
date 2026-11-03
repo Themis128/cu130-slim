@@ -30,6 +30,12 @@ bridge_sessions.py eval <js>   # raw /session/evaluate
 - **X** — `X_WEB_AUTH_TOKEN` + `X_WEB_CT0` in `.env` are the real session
   cookies (`ct0` is JS-settable; `auth_token` needs the bridge's cookie
   endpoint or CDP — the script tries both). Once seeded, X surfaces work.
+- **LinkedIn** — `seed-linkedin` injects `LINKEDIN_LI_AT` (+ optional
+  `LINKEDIN_JSESSIONID`) via the bridge cookie endpoint — the same
+  HttpOnly-injection path as X's auth_token. Get `li_at` once from a
+  logged-in browser (DevTools → Application → Cookies → linkedin.com)
+  or by a manual login on the sidecar; after that the session persists.
+  The 401 "Not logged in to LinkedIn" on scrapes = a dead li_at, seed it.
 - **Other platforms** — session_healer relogs via stored
   `*_EMAIL`/`*_PASSWORD` creds on expiry; if `status` shows LOGIN_WALL
   and no creds exist, that's a user-input gap (add to secret store).

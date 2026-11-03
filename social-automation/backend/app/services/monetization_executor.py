@@ -243,6 +243,42 @@ async def _generate_media(db: AsyncSession, team: Team, user_id, action: Monetiz
         except Exception as exc:  # noqa: BLE001
             logger.info("cf image gen failed: %s", str(exc)[:120])
 
+    # ── Image-text QA: diffusion models cannot spell — a garbled caption
+    # banner in the pixels is a broken asset (2026-10-28 LinkedIn example).
+    # Fail closed: garbled OR unverified (vision/LanguageTool down — the
+    # 2026-11-02 "hinkesty/inenesity" ship-through) triggers one no-text
+    # retry, then drops to the PIL brand banner whose text is always
+    # correctly spelled. Only a verified-clean image is kept.
+    if png is not None:
+        from app.services.image_text_guard import check_image_text
+
+        text_qa = await check_image_text(png)
+        if text_qa.get("garbled") or not text_qa.get("checked"):
+            logger.warning(
+                "in-image text QA failed (garbled=%s checked=%s tokens=%s) — one no-text retry",
+                text_qa.get("garbled"),
+                text_qa.get("checked"),
+                text_qa.get("tokens"),
+            )
+            retry_png: bytes | None = None
+            try:
+                from app.services.comfyui_image import generate_image as comfyui_generate_image
+                from app.services.gpu_arbiter import media_gpu_lock
+                from app.services.infographic_renderer import sanitize_prompt_for_background
+
+                async with media_gpu_lock():
+                    retry_png, _meta = await comfyui_generate_image(prompt=sanitize_prompt_for_background(prompt), steps=6)
+            except Exception as exc:  # noqa: BLE001
+                logger.info("no-text retry gen failed: %s", str(exc)[:120])
+            if retry_png is not None:
+                retry_qa = await check_image_text(retry_png)
+                if retry_qa.get("checked") and not retry_qa.get("garbled"):
+                    png, text_qa = retry_png, retry_qa
+                else:
+                    png = None  # garbled/unverified twice → brand banner below
+            else:
+                png = None
+
     if png is None:
         try:  # deterministic brand banner — never leaves a post media-less
             from app.services.brand_assets import generate_og_image

@@ -341,6 +341,7 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/media/assets/{asset_id}` — GET, PATCH, DELETE
 - `/api/v1/media/assets/{asset_id}/similar` — GET
 - `/api/v1/media/assets/{asset_id}/tag` — POST
+- `/api/v1/media/avatar-story` — POST
 - `/api/v1/media/collections` — GET, POST
 - `/api/v1/media/collections/{collection_id}` — GET, PATCH, DELETE
 - `/api/v1/media/collections/{collection_id}/assets` — POST
