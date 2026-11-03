@@ -184,8 +184,14 @@ def _ensure_funnel_cta(content: str, platform: str, campaign: str = "social-post
     m = re.search(r"https?://(?:www\.)?(?:social\.)?cloudless\.gr[^\s)\]]*", content)
     if m:
         return content.replace(m.group(0), _stamp_utm(m.group(0), platform, campaign))
-    url = _stamp_utm(_CTA_URL_BY_PLATFORM.get(platform, _CTA_DEFAULT_URL), platform, campaign)
-    return f"{content.rstrip()}\n\nBook your free 30-minute cloud audit: {url}"
+    raw = _CTA_URL_BY_PLATFORM.get(platform, _CTA_DEFAULT_URL)
+    url = _stamp_utm(raw, platform, campaign)
+    line = (
+        "See the plans + starter kits"
+        if "social.cloudless.gr" in raw
+        else "Book your free 30-minute cloud audit"
+    )
+    return f"{content.rstrip()}\n\n{line}: {url}"
 
 
 async def _generate_copy(
