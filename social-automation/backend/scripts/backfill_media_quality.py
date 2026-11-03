@@ -80,7 +80,7 @@ async def backfill_media_quality(
         if asset.meta_data is None:
             assets.append(asset)
         elif isinstance(asset.meta_data, dict):
-            if force or 'quality' not in asset.meta_data:
+            if force or "quality" not in asset.meta_data:
                 assets.append(asset)
 
     scope = "all assets (--force)" if force else "assets without quality metadata"
@@ -134,11 +134,7 @@ async def backfill_media_quality(
                 asset.meta_data = {}
 
             asset.meta_data["quality"] = quality_result.to_dict()
-            asset.meta_data["quality_applied"] = (
-                quality_result.spellcheck_applied
-                or bool(quality_result.nlp_report)
-                or bool(quality_result.seo_score)
-            )
+            asset.meta_data["quality_applied"] = quality_result.spellcheck_applied or bool(quality_result.nlp_report) or bool(quality_result.seo_score)
 
             # Update corrected text fields on the asset
             if quality_result.alt_text and quality_result.alt_text != asset.alt_text:
