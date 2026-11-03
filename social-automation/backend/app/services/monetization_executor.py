@@ -279,6 +279,23 @@ async def _generate_media(db: AsyncSession, team: Team, user_id, action: Monetiz
             else:
                 png = None
 
+    # ── Headline overlay: a verified-clean AI background is text-free by
+    # design — composite the post's headline via PIL so the shipped media
+    # carries correctly-spelled text (same render_infographic path as
+    # /api/v1/media/generate's infographic branch). Failure keeps the
+    # clean background — better text-free than garbled.
+    if png is not None:
+        try:
+            from app.services.infographic_renderer import (
+                generate_infographic_content,
+                render_infographic,
+            )
+
+            infographic_content = await generate_infographic_content(action.instruction)
+            png = render_infographic(infographic_content, png)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("infographic overlay failed — keeping clean background: %s", str(exc)[:120])
+
     if png is None:
         try:  # deterministic brand banner — never leaves a post media-less
             from app.services.brand_assets import generate_og_image
