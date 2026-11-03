@@ -26,7 +26,11 @@ import argparse
 import asyncio
 import os
 import subprocess
+import sys
 import urllib.parse
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 PUBLIC_FORMS = ("newsletter", "free-audit", "audit-request")
 
