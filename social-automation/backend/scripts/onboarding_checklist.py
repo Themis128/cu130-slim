@@ -23,7 +23,7 @@ PHASES: tuple[tuple[str, tuple[str, ...]], ...] = (
         "Phase 1: Secure the Deal (Day 1)",
         (
             "Send Letter of Agreement (scripts/letter_of_agreement.py) — signed copy back",
-            "Collect 50% deposit (€400 + VAT) — kickoff date locked on payment",
+            "Collect 50% deposit (€{half} + VAT) — kickoff date locked on payment",
             "Create the client asset folder + share the workspace invite links",
             "Confirm by text: copy, logo, brand assets due from client today",
         ),
@@ -42,23 +42,24 @@ PHASES: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "Mobile layout + form simulation checks (0ms tracking delay target)",
             "Write the handoff runbook + code blueprint docs",
-            "Collect final 50% (€400 + VAT)",
+            "Collect final 50% (€{half} + VAT)",
             "Transfer root access + 100% code ownership on cleared invoice",
         ),
     ),
 )
 
 
-def render_markdown(client: str, date: str) -> str:
+def render_markdown(client: str, date: str, price: int) -> str:
+    half = price // 2
     lines = [
         "# 14-DAY CLIENT ONBOARDING & FULFILLMENT CHECKLIST",
         "",
         f"**Client:** {client or '________________'}   **Kickoff:** {date}   **Go-live target:** Day 14",
-        "**Scope:** Web Design + Hosting + Automation — €800 excl. VAT (50/50)",
+        f"**Scope:** Web Design + Hosting + Automation — €{price} excl. VAT (50/50)",
         "",
     ]
     for title, tasks in PHASES:
-        lines += [f"## {title}", ""] + [f"- [ ] {t}" for t in tasks] + [""]
+        lines += [f"## {title}", ""] + [f"- [ ] {t.format(half=half)}" for t in tasks] + [""]
     lines += [
         "---",
         "On cleared final invoice: hand over root access + full code ownership.",
@@ -67,7 +68,8 @@ def render_markdown(client: str, date: str) -> str:
     return "\n".join(lines)
 
 
-def render_pdf(client: str, date: str, out: Path) -> None:
+def render_pdf(client: str, date: str, out: Path, price: int) -> None:
+    half = price // 2
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
     from reportlab.lib.utils import simpleSplit
@@ -89,7 +91,7 @@ def render_pdf(client: str, date: str, out: Path) -> None:
     c.drawCentredString(width / 2, y, "14-DAY CLIENT ONBOARDING & FULFILLMENT CHECKLIST")
     y -= 9 * mm
     para(f"Client: {client or '________________'}      Kickoff: {date}      Go-live: Day 14")
-    para("Scope: Web Design + Hosting + Automation — EUR 800 excl. VAT (50% / 50%)", size=9)
+    para(f"Scope: Web Design + Hosting + Automation — EUR {price} excl. VAT (50% / 50%)", size=9)
     y -= 2 * mm
     for title, tasks in PHASES:
         c.setFont("Helvetica-Bold", 11)
@@ -97,7 +99,7 @@ def render_pdf(client: str, date: str, out: Path) -> None:
         y -= 6 * mm
         c.setFont("Helvetica", 9.5)
         for t in tasks:
-            for line in simpleSplit(f"[ ]  {t}", "Helvetica", 9.5, right - left - 4 * mm):
+            for line in simpleSplit(f"[ ]  {t.format(half=half)}", "Helvetica", 9.5, right - left - 4 * mm):
                 c.drawString(left + 2 * mm, y, line)
                 y -= 4.6 * mm
         y -= 2 * mm
@@ -111,6 +113,8 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--client", default="", help="Pre-fill the company name")
     p.add_argument("--date", default="______________")
+    p.add_argument("--price", type=int, default=800,
+                   help="Engagement total excl. VAT (default 800 single-fix; manifest bundle is 3600/mo)")
     p.add_argument("--format", choices=("pdf", "md", "both"), default="pdf")
     p.add_argument("--out", help="Output path (default ./<client>-onboarding.<ext>)")
     args = p.parse_args()
@@ -118,11 +122,11 @@ def main() -> None:
     base = Path(args.out) if args.out else out_dir / f"{(args.client or 'client').lower().replace(' ', '-')}-onboarding"
     if args.format in ("md", "both"):
         md = base.with_suffix(".md")
-        md.write_text(render_markdown(args.client, args.date), encoding="utf-8")
+        md.write_text(render_markdown(args.client, args.date, args.price), encoding="utf-8")
         print(f"wrote {md}")
     if args.format in ("pdf", "both"):
         pdf = base.with_suffix(".pdf")
-        render_pdf(args.client, args.date, pdf)
+        render_pdf(args.client, args.date, pdf, args.price)
         print(f"wrote {pdf}")
 
 
