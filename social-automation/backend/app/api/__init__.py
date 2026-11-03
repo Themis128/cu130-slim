@@ -12,6 +12,7 @@ from app.api import (
     bluesky,
     brand,
     cf_db,
+    cf_gates,
     coach,
     content,
     digital_cards,
@@ -71,6 +72,8 @@ router.include_router(media_enhance.router, prefix="/media/enhance", tags=["medi
 router.include_router(meta_growth.router, prefix="/meta-growth", tags=["meta-growth"])
 
 router.include_router(workflows.router, prefix="/workflows", tags=["workflows"])
+
+router.include_router(cf_gates.router, prefix="/cf-gates", tags=["cf-gates"])
 
 router.include_router(research.router, prefix="/research", tags=["research"])
 router.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
