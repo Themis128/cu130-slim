@@ -118,7 +118,7 @@ async function notify(text) {
       log(`NEW MAIL: ${g.newSubjects.join(' | ')}`);
       prev = { ...(prev || {}), lastNews: new Date().toISOString() };
     }
-    if (g) prev = { ...(prev || {}), mailId: g.mailId, lastNews: new Date().toISOString() };
+    if (g) prev = { ...(prev || {}), mailId: g.mailId };
   } catch (e) { log('gmail check skip: ' + e.message); }
 
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
