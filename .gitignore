@@ -161,3 +161,6 @@ promtail-data/
 # deploy lock (see AGENTS.md "Deploy lock & auto-healers")
 .deploy.lock
 pipeline-assets/
+
+# dbt per-user telemetry artifact (auto-generated next to profiles.yml)
+social-automation/backend/dbt/.user.yml

@@ -12,6 +12,7 @@ vi.mock('@/hooks/useQueries', () => ({
 describe('OnboardingChecklist', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.clearAllMocks()
   })
 
   it('counts brand as complete when hasBrand is true', () => {
