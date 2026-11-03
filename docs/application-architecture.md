@@ -2063,3 +2063,15 @@ All components verified live:
   inside `brand_agent` at generation (rejects before queue).
 - `content_quality_gate` — 3-gram near-dup vs recent posts + in-batch, fed
   by a 30-post prior-output exclusion set in `brand_agent`.
+
+## Cloudflare paid-workers edge layer (2026-11-03)
+
+Five workers live at `<name>.baltzakis-themis.workers.dev` (cloudless.gr repo, `workers/<name>/`, deployed via `wrangler deploy --config wrangler.jsonc` — the experimental `wrangler.config.ts` stub resolves to the ROOT config otherwise, and `wrangler secret put` needs `--name` for the same reason):
+
+- **mail-outbound** — `send_email` binding, unrestricted. `/send` (Bearer `MAIL_OUTBOUND_TOKEN`, category allowlist), `/verify`, `/health`. Replaces SMTP for transactional funnel mail; omv-ha/SMTP stays fallback (`mailoutbound` provider in `email_digest.send_email` is opt-in per call site). Gate: outbound `to` must be a verified Email Routing destination until the account gets unrestricted sending.
+- **lead-scheduler** — three sqlite Durable Objects: `LeadFollowup` (24h/3d/7d quiet-lane alarms → POSTs DISPATCH_URL=mail-outbound/send with DISPATCH_TOKEN), `BookingSlot` (atomic holds), `WebhookDedup` (7d TTL). `new_sqlite_classes` migrations — KV DOs rejected on this account.
+- **funnel-events** — `POST /event` → Pipelines new model: stream `cloudless_funnel_events` → pipeline `cloudless_funnel_events_pipe` (`INSERT INTO ... SELECT *`) → sink `cloudless_funnel_events_r2` → `cloudless-datalake/funnel-events/` (JSON+gzip). Worker binding uses the stream **ID**, not name.
+- **tools-pdf** — pdf-lib LOA + audit-worksheet generation → R2 `cloudless-pipeline-assets/pipeline-assets/` (deliberately no Container — free-first).
+- **agent-sandbox** — `worker_loaders` spike; hard allowlist (`lead-score`, `template-fill`), binding-less sandbox. BACKLOG gate before production modules.
+
+Consumer wiring (env-gated, fire-and-forget via `_cf_shadow_call`): `nurture_sequence` enrolls quiet-lane leads in `lead-scheduler` and emits `quiet.sent`/`nurture.sent`; `leads/public` emits `lead.created`; `quiet_lead_followup.py unenroll` posts DO unsubscribe. Env lives in `.env` + compose `x-worker-env` + api anchor: `MAIL_OUTBOUND_/LEAD_SCHEDULER_/FUNNEL_EVENTS_{URL,TOKEN}`, `TOOLS_TOKEN`, `AGENT_SANDBOX_TOKEN`. Doctor: `backend/scripts/cf_workers_doctor.py` (exit 0 = whole surface green).
