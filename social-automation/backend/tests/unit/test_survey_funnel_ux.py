@@ -52,7 +52,7 @@ class TestSurveySubmitAuditCTA:
         resp = await api.survey_submit("t-audit", req, db)
         body = resp.body.decode()
         assert "Book the free 30-min audit" in body
-        assert "cloudless.gr/contact" in body
+        assert "cloudless.gr/en/consultation" in body
 
     @pytest.mark.asyncio
     async def test_audit_no_shows_readout_copy(self, monkeypatch):

@@ -139,6 +139,26 @@ final 50% invoice, transfer 100% ownership on cleared invoice.
   software bills", never "optimized end-to-end infrastructure". Same rule
   the content-quality gate (content-quality-ops) enforces.
 
+## Machine-readable canon
+
+`Cloudless_Agent_Manifest.toml` (this dir) — the single source of truth:
+pricing engine, positioning, landing-page schema, booking-form fields, lead
+magnet, autoresponder, DM openers/follow-up/safety-valve, LOA template, and
+the production checklist. Validate generated copy against it.
+
+## DM lanes (manifest OUTBOUND_MESSAGING + FOLLOW_UP_AUTOMATION)
+
+Verbatim DM copy lives in `app/services/nurture_sequence.py`:
+`DM_OPENERS` (cold/warm), `BOOKING_DM_STEPS` (24h → 3d → 4d after a lead
+asks for the booking link then goes quiet), `DM_SAFETY_VALVE` (graceful
+close on explicit NO). Use verbatim in LinkedIn DM / Messenger / WhatsApp
+lanes — never paraphrase; the email twin is `QUIET_STEPS`.
+
+## Onboarding checklist (manifest PRODUCTION_CHECKLIST)
+
+`scripts/onboarding_checklist.py --client "X" --format both` → fillable
+PDF/MD of the Day 1-14 ops contract (LOA + deposit → build → QC + handoff).
+
 ## Source frameworks (Sofia Kakkava Coaching — day1 sessions)
 
 The day2 assets instantiate these coaching frameworks — validate any

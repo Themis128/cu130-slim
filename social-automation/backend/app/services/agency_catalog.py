@@ -79,7 +79,7 @@ BUNDLE_NAME = "Full bundle (all services)"
 BUNDLE_PRICE_EUR = 3600  # per month — a fraction of one hire
 
 DELIVERY_DAYS = 14
-AUDIT_CTA_URL = "https://cloudless.gr/contact"
+AUDIT_CTA_URL = "https://cloudless.gr/en/consultation"
 
 # ---------------------------------------------------------------------------
 # Service-fit keyword model — en + el, weighted, explainable.

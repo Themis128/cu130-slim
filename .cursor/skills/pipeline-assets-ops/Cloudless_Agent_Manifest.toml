@@ -1,0 +1,229 @@
+# =========================================================================
+# CLOUDLESS MACHINE-READABLE OPERATIONAL BLUEPRINT & RECONCILIATION MANIFEST
+# Target Environment: Autonomous Agent Deployment (Devin, Cursor, AutoGPT)
+# Last Updated: 2026-11-03
+# =========================================================================
+
+# -------------------------------------------------------------------------
+# CONTEXT & GLOBAL BOUNDARIES
+# -------------------------------------------------------------------------
+[SYSTEM_CONTEXT]
+Company_Name = "Cloudless"
+Primary_URL = "https://cloudless.gr"
+Sub_URL_Audit = "https://cloudless.gr/audit"
+Founder_Name = "Themis"
+Base_Language = "Simple English (en-GR)"
+Fulfillment_Cycle_Days = 14
+Max_Monthly_Capacity = 3
+
+[PRICING_ENGINE]
+Currency = "EUR"
+Single_Fix_Price = 800
+Split_Deposit_Percentage = 50
+Full_Stack_Bundle_Monthly = 3600
+Tax_Rule = "Amounts exclude VAT"
+
+# -------------------------------------------------------------------------
+# CORE POSITIONING MATRIX
+# -------------------------------------------------------------------------
+[POSITIONING]
+Ideal_Customer_Profile = "Startups and small business teams (SMBs) suffering from slow workflows and high software overhead."
+Target_Pain_Point_A = "Slow day-to-day operations and manual data management tasks."
+Target_Pain_Point_B = "High or confusing software subscription costs."
+Core_Value_Proposition = "We help startups and small businesses fix slow daily tasks and high software bills by designing easy websites, cloud hosting, and automatic marketing systems in 14 days flat."
+Unique_Selling_Proposition = "100% digital code ownership with zero ongoing long-term agency retainers or maintenance lock-ins."
+
+# =========================================================================
+# OPERATIONAL ARTIFACT 1: CONVERSION LANDING PAGE UI/UX SCHEMA
+# =========================================================================
+[LANDING_PAGE_UI_UX]
+Element_Hero_Header = "We help startups and small businesses fix slow daily tasks and high software bills."
+Element_Hero_Subheader = "At Cloudless, we design easy websites, hosting, and automatic marketing systems in just 14 days flat. You own everything we make, and investments start at only €800."
+Element_Primary_CTA = "Book Your Free 30-Minute Tech Checkup"
+
+[PROBLEM_GRID_COMPONENT]
+Component_Title = "Why traditional systems drag you down"
+Column_A_Title = "Slow Daily Tasks"
+Column_A_Body = "Your team loses hours every week on manual data entries, broken tools, and clunky day-to-day operations."
+Column_B_Title = "Skyrocketing Software Bills"
+Column_B_Body = "Hidden monthly subscription fees and overlapping software licenses quietly eat into your hard-earned profits."
+Column_C_Title = "Agency Retainer Traps"
+Column_C_Body = "Getting trapped in open-ended monthly agency retainers or constantly chasing unreliable freelancers who do not reply."
+
+[PHILOSOPHY_COMPONENT]
+Component_Title = "The Cloudless Architecture Blueprint"
+Pillar_1_Metric = "14-Day Delivery"
+Pillar_1_Desc = "Your custom high-converting website and background automations are fully built, tested, and pushed live by week two."
+Pillar_2_Metric = "100% Ownership"
+Pillar_2_Desc = "You own every single line of code and backend configuration we make. No forced ongoing tech lock-ins."
+Pillar_3_Metric = "Transparent Rates"
+Pillar_3_Desc = "Single platform setups start at a flat rate of only €800. Complete fractional tech execution at €3,600 a month."
+
+[FOOTER_CTA_WIDGET]
+Widget_Text = "No sales pitch, just a simple action plan. Let's find your quick wins today."
+Widget_Target_Action = "Embed Responsive Calendar Booking Dashboard Layout"
+
+# =========================================================================
+# OPERATIONAL ARTIFACT 2: CALENDAR FILTER INTERFACE ROUTING
+# =========================================================================
+[CALENDAR_INTEGRATION_ROUTING]
+Hook_Target_URL = "https://cloudless.gr/audit"
+Field_01_Type = "Multi-line Text Box"
+Field_01_Required = true
+Field_01_Label = "What project or task do you need to get done right now?"
+
+Field_02_Type = "Radio Buttons / Text Input"
+Field_02_Required = true
+Field_02_Label = "What is making that hard or taking up too much of your time? (High bills, slow tools, or lack of time?)"
+
+Field_03_Type = "Single-line Text Box"
+Field_03_Required = true
+Field_03_Label = "When do you absolutely need this setup running smoothly?"
+
+# =========================================================================
+# OPERATIONAL ARTIFACT 3: LEAD MAGNET & EMISSION SEQUENCES
+# =========================================================================
+[LEAD_MAGNET_CONTENT]
+Title = "THE 3-STEP CLOUD CLEANUP PLAYBOOK"
+Subtitle = "How Startups and Small Businesses Can Stop Overpaying for Software and Fix Slow Daily Tasks Today"
+
+Step_01_Heading = "Step 1: Track and Destroy Idle Subscriptions"
+Step_01_Body = "List every software tool your team pays for monthly. Identify duplicate tools (like paying for Slack premium AND Microsoft Teams, or unnecessary cloud storage boxes). Cancel any tool that hasn't been opened in the last 30 days. Shifting to flat, integrated environments can instantly save small teams 30% on software bills."
+
+Step_02_Heading = "Step 2: Automate the Boring, Manual Work"
+Step_02_Body = "If your team manually copies data from an inquiry email into an Excel sheet or text document, you are leaking hours of valuable time. Use simple, direct automation scripts to automatically capture incoming website leads, place them on your dashboard, and shoot out a welcome email on autopilot."
+
+Step_03_Heading = "Step 3: Own Your Code and Control Your Hosting"
+Step_03_Body = "Never get locked into long-term agency contracts or proprietary website platforms that charge high monthly maintenance fees. Build your web properties using clean open-source frameworks, host them on secure, low-cost cloud architecture, and maintain 100% digital ownership."
+
+CTA_Text = "Want us to find your software leaks for you? Book a free 30-minute tech checkup at cloudless.gr"
+
+[AUTORESPONDER_ENGINE]
+Trigger = "Immediate submission capture on newsletter signup form"
+
+Email_01_Delay = "0 minutes"
+Email_01_Subject = "Your 3-Step Cloud Cleanup Playbook is inside!"
+Email_01_Body = """Hi [First Name],
+
+Thanks for subscribing to Cloudless! 
+
+Here is the direct link to read your playbook: [Link to Playbook PDF]
+
+Inside, you'll find 3 simple ways to stop overpaying for software and speed up slow daily tasks today. 
+
+If you don't want to dig through your software setups alone, we can do it for you for free. We are giving away a few free 30-minute tech checkups this week to build small businesses a custom action plan. No sales pitch, just simple solutions.
+
+You can claim a free 30-minute checkup slot here: cloudless.gr
+
+Best,
+Themis
+Founder, Cloudless"""
+
+Email_02_Delay = "2 days"
+Email_02_Subject = "Is hidden software eating your profits?"
+Email_02_Body = """Hi [First Name],
+
+Most startups and small businesses we work with are spending money on tech tools they don't even use. 
+
+Worse, their teams lose hours every week copying data manually because their software tools do not talk to each other.
+
+At Cloudless, we fix that. We design easy websites, hosting, and automatic systems in just 14 days flat. You own everything we make, and there are no ongoing retainers.
+
+Let's plug your business cost leaks together this week. Book your free 30-minute tech checkup right here: cloudless.gr
+
+Best,
+Themis"""
+
+Email_03_Delay = "4 days"
+Email_03_Subject = "Fix your tech headaches in 2 weeks flat"
+Email_03_Body = """Hi [First Name],
+
+Tech projects shouldn't take months, and they shouldn't cost a fortune in agency retainer fees.
+
+We believe in keeping things simple. We launch clean websites and automated lead tracking systems in just 14 days flat. Our single fixes start at only €800, and you are never locked into a contract.
+
+If you are ready to speed up your daily tasks and cut down software bills, let's chat.
+
+Grab a free 30-minute slot this week before they fill up: cloudless.gr
+
+Best,
+Themis"""
+
+# =========================================================================
+# OPERATIONAL ARTIFACT 4: MESSAGING LOGIC & CHAT SYSTEM SEQUENCES
+# =========================================================================
+[OUTBOUND_MESSAGING]
+Cold_DM_Opener = "Hey [Name]! I came across [Company Name] and noticed you guys are growing. If slow tools or high software bills are a headache for your team, we can help. We are doing free 30-minute tech checkups this week to find quick fixes for small businesses. No sales pitch, just a simple action plan. Are you free for a quick chat?"
+Warm_DM_Opener = "Hi [Name], I am Themis from Cloudless! Thanks for reading our weekly newsletter. Since you follow our tech updates, I wanted to reach out directly. If slow tools or high software bills are a headache for your team right now, we can help. We are giving free 30-minute tech checkups this week to find quick fixes. No sales pitch, just a simple plan. Are you free to chat?"
+
+[FOLLOW_UP_AUTOMATION]
+Sequence_01_Trigger = "No reply 24 hours after booking link requested"
+Sequence_01_Text = "Hey [Name]! Just checking in to see if you managed to grab a spot for your free tech checkup. Slots for this week are filling up fast, but you can see what is left right here: cloudless.gr. Let me know if another time works better!"
+
+Sequence_02_Trigger = "No reply 3 days after Sequence_01"
+Sequence_02_Text = "Hey [Name]! I was looking over your site again and found a couple of quick software cost leaks we can plug during our chat. If reducing clunky tasks or high bills is still a priority for your team, pick a time here: cloudless.gr. No pitch, just a clear plan."
+
+Sequence_03_Trigger = "No reply 4 days after Sequence_02"
+Sequence_03_Text = "Hey [Name], I assume this isn't a top priority for [Company Name] right now, which is completely fine! I'll stop checking in so I don't crowd your inbox. If you ever want to fix your software bills or speed up tools down the road, you can always reach me at cloudless.gr. Wish you guys the best!"
+
+[SAFETY_VALVE_REJECTION]
+Trigger = "Lead actively declines the offer sequence"
+Text = "No problem at all! If your tech tools or software bills ever become a headache down the road, you can always find us at cloudless.gr. Have a great week with [Company Name]!"
+
+# =========================================================================
+# OPERATIONAL ARTIFACT 5: SALES TRANSACTION WRITING ENGINE
+# =========================================================================
+[TRANSACTIONAL_DOCUMENTS]
+Document_Type = "Letter of Agreement"
+
+LOA_Template = """LETTER OF AGREEMENT
+
+Date: [Date]
+Provider: Themistoklis Baltzakis (Cloudless — cloudless.gr)
+Client: [Client Name] / [Company Name]
+
+1. The Goal & Scope
+We are building a clean, lightning-fast setup to eliminate slow daily tasks and cut down your software bills. Your fixed scope includes:
+* Web Design: A modern, high-converting business website tailored to your brand.
+* Hosting: Fully configured, fast, and secure cloud hosting with zero maintenance stress.
+* Automation: Automatic marketing and inquiry tracking tools to handle your incoming leads hands-free.
+
+2. The 14-Day Delivery Timeline
+* Kickoff (Day 1): We align on design styles, text copy, and asset links.
+* Handoff (Day 14): Your website and automations go live. We provide full handoff documentation. You own 100% of the code and setup.
+
+3. Total Investment & Payment Terms
+The total investment for this project is ONLY €800 (amounts exclude VAT). 
+* Deposit: €400 due upfront to lock in your kickoff date.
+* Completion: €400 due on Day 14 once the project goes live.
+
+Client Signature: ___________________________  Date: _______________"""
+
+# =========================================================================
+# OPERATIONAL ARTIFACT 6: FULFILLMENT & PRODUCTION SCHEDULER
+# =========================================================================
+[PRODUCTION_CHECKLIST]
+Phase_1_Title = "Phase 1: Secure the Deal (Day 1)"
+Phase_1_Tasks = [
+  "Issue Agreement via transaction template",
+  "Collect 50% upfront payment milestone fee (€400 + VAT)",
+  "Provision a secure, partitioned client data root asset directory",
+  "Transmit workspace submission invite links to client"
+]
+
+Phase_2_Title = "Phase 2: Build & Configure (Days 2 to 10)"
+Phase_2_Tasks = [
+  "Execute layout assembly prioritizing lightning-fast rendering metrics",
+  "Deploy optimized open-source semantic styling structures",
+  "Provision cloud architecture nodes and wire secure access certificates",
+  "Engineer the background script automation routines to hook forms to dashboards"
+]
+
+Phase_3_Title = "Phase 3: Quality Control & Handoff (Days 11 to 14)"
+Phase_3_Tasks = [
+  "Conduct automated mobile configuration layout validation tests",
+  "Run form logic simulation loops ensuring 0ms tracking delays",
+  "Generate complete system handoff runbooks and code blueprints",
+  "Collect 50% final milestone balance fee (€400 + VAT)",
+  "Deliver root access privileges and hand over absolute code ownership"
+]

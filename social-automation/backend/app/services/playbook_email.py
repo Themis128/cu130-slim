@@ -81,7 +81,7 @@ def build_playbook_email(url: str, name: str | None = None) -> tuple[str, str, s
     first = _first_name(name)
     greeting = f"Hi {first}," if first else "Hi,"
     download_url = _utm(url, "download")
-    audit_url = _utm("https://cloudless.gr/contact", "audit-cta")
+    audit_url = _utm("https://cloudless.gr/en/consultation", "audit-cta")
     subject = f"Your copy of {PLAYBOOK_TITLE}"
     text = (
         f"{greeting}\n\n"

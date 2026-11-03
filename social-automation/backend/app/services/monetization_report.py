@@ -392,7 +392,7 @@ VERIFIED PROGRAM FACTS (2026):
 - IG Subscriptions/Gifts: invite-gated, ~10k follower band.
 - LinkedIn/Threads/messaging: no creator payouts — funnel surfaces that feed
   Polar plans (https://social.cloudless.gr/pricing) and the free audit
-  (https://cloudless.gr/contact). LinkedIn company page is the fastest-growing.
+  (https://cloudless.gr/en/consultation). LinkedIn company page is the fastest-growing.
 - Telegram channel feeds the DM lead funnel (t.me bot /start audit flow).
 
 RULES:
