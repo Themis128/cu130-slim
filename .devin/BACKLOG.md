@@ -270,3 +270,9 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 
 - Watchdog hardening landed live (not in repo, host script): restart judged by "Starting Docker Desktop" output not exit code; engine restart throttled 15min; wsl.exe spawn-failure -> vsock flap. Verified: real 19:08-19:26 incident cycle recovered via docker desktop restart + Telegram alert.
 - Windows checkout (feat/credential-reset-ops, 50+ behind master): untracked alembic copies b8c9d0e1f2a3 + f9a1b2c3d4e5 WILL COLLIDE on owner rebase (git refuses untracked overwrite) - fix: delete them before rebase, they are byte-identical to master. Compose/monitor/config.py dirt = owner work.
+
+## 2026-11-03 — IG garbled-media post pending deletion
+
+- IG post `18189629230413062` (media `76299e69`, "hosting hosting" AI-garbled text) still live; local posts row `76299e69` left `published` to reflect reality.
+- Delete blocked: Graph has no organic-media delete; instagrapi password login broken (`publickeys` endpoint); stored sessionid expired (redirect loop); bridge IG at login wall; sidecar db.json empty.
+- **Next path staged**: debug Chrome is RUNNING on Windows (`chrome-debug-profile`, CDP :9222) sitting on the IG login page; login+delete script written to `C:\Users\tbaltzakis\cdp_login.py`. WSL vsock interop died mid-run (UtilAcceptVsock accept4 110) — retry when `powershell.exe` responds again, or user logs into IG in that Chrome window → extract sessionid → `DELETE /media` on `instagram-private-api` sidecar → force-delete local row.
