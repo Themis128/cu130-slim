@@ -364,3 +364,16 @@ Left:
 - [x] Site PR #2364 merged (coverage fix + 8 Sentry findings fixed incl. server-side consent gate); /en/consultation live (200)
 - [x] Book-audit CTAs flipped to /en/consultation — PR #1312 (auto-merge armed)
 - [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
+
+## Review fixups after #1310 (2026-11-03)
+
+Done:
+- [x] Stray test_cf_mail_outbound.py never reached master (dropped before #1310 merged); the CF worker lane it tested lives on feat/cf-mail-lane (#1308)
+- [x] PR #1300 (feat/funnel-cta-utm) closed as superseded — identical CTA code landed via #1310, and its branch predates #1296 (would have reverted /en/consultation CTAs + dropped trend_context)
+- [x] onboarding_checklist.py: --price flag (manifest €800 single-fix default; €3,600/mo bundle engagements now render correctly)
+- [x] audio_bed.py whoosh: ramp capped at 1.1x (was 2x -> s16 tail clipping)
+- [x] monetization_executor.py: re moved to module top (was function-level)
+
+Left:
+- [ ] feat/cf-mail-lane (#1308): test_cf_mail_outbound.py there also lacks @pytest.mark.asyncio (asyncio_mode=strict) — marks pushed to the branch; verify CI goes green
+- [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)

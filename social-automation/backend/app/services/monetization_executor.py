@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -177,8 +178,6 @@ def _stamp_utm(url: str, platform: str, campaign: str = "social-post") -> str:
 def _ensure_funnel_cta(content: str, platform: str, campaign: str = "social-post") -> str:
     """Every post must land followers on a UTM-tagged capture surface —
     the CRM-loop rule (audit showed 55 posts → 6 CTAs → 1 tagged)."""
-    import re
-
     if "utm_source=" in content:
         return content
     m = re.search(r"https?://(?:www\.)?(?:social\.)?cloudless\.gr[^\s)\]]*", content)

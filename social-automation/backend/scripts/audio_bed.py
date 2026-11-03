@@ -70,7 +70,7 @@ def filtergraph(preset: str, seconds: float, volume: float) -> str:
         return (
             f"anoisesrc=color=brown:duration={seconds:.2f}:amplitude=0.8,"
             f"bandpass=f=600:w=300,"
-            f"volume='min(1,t/{seconds:.2f})*2':eval=frame,"
+            f"volume='min(1,t/{seconds:.2f})*1.1':eval=frame,"
             f"volume={volume},{fade},aformat=channel_layouts=stereo:sample_rates=44100[aout]"
         )
 
