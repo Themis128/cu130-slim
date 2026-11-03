@@ -1,0 +1,118 @@
+"""Coverage: quiet-lead lane — enrollment age, due steps, sweep routing."""
+
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+
+from app.services import nurture_sequence as M
+
+
+def _lead(meta=None, email="a@x.co", name="Ana Maria", created_days=30):
+    lead = MagicMock()
+    lead.meta_data = meta or {}
+    lead.email = email
+    lead.name = name
+    lead.created_at = datetime.now(UTC) - timedelta(days=created_days)
+    return lead
+
+
+def _db(leads):
+    db = MagicMock()
+    res = MagicMock()
+    res.scalars.return_value.all.return_value = leads
+    db.execute = AsyncMock(return_value=res)
+    db.commit = AsyncMock()
+    return db
+
+
+def _enrolled(days_ago, **extra):
+    return {
+        "quiet_lead": True,
+        "quiet_lead_at": (datetime.now(UTC) - timedelta(days=days_ago)).isoformat(),
+        **extra,
+    }
+
+
+def test_quiet_age_measured_from_enrollment_not_created():
+    # A 30-day-old lead enrolled 2h ago must be ~0 days into the sequence.
+    lead = _lead(_enrolled(days_ago=0.1))
+    assert M._quiet_age_days(lead) < 0.5
+    assert M._lead_age_days(lead) > 29
+
+
+def test_due_quiet_step_day1():
+    lead = _lead(_enrolled(days_ago=1.2))
+    step = M._due_quiet_step(lead)
+    assert step["step"] == 1 and step["key"] == "nudge"
+
+
+def test_quiet_steps_are_sequential():
+    # 8 days in but only touch 1 sent → touch 2 (day 3) is next, not 3.
+    lead = _lead(_enrolled(days_ago=8, quiet_step=1))
+    step = M._due_quiet_step(lead)
+    assert step["step"] == 2 and step["key"] == "pain"
+    lead.meta_data["quiet_step"] = 2
+    step = M._due_quiet_step(lead)
+    assert step["step"] == 3 and step["key"] == "clean_break"
+    lead.meta_data["quiet_step"] = 3
+    assert M._due_quiet_step(lead) is None
+
+
+def test_quiet_opt_out_and_bad_timestamp():
+    assert M._due_quiet_step(_lead(_enrolled(5, unsubscribed=True))) is None
+    assert M._due_quiet_step(_lead(_enrolled(5, nurture_opted_out=True))) is None
+    assert M._due_quiet_step(_lead({"quiet_lead": True, "quiet_lead_at": "junk"})) is None
+    assert M._due_quiet_step(_lead({"quiet_lead": True})) is None
+
+
+@pytest.mark.asyncio
+async def test_sweep_routes_quiet_lane_and_stamps(monkeypatch):
+    lead = _lead(_enrolled(days_ago=2), name="Nikos Papas")
+    send = AsyncMock()
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", send)
+    out = await M.nurture_sweep(_db([lead]), MagicMock())
+    assert out == {"scanned": 1, "sent": 1, "skipped": 0}
+    assert lead.meta_data["quiet_step"] == 1
+    assert "nurture_step" not in lead.meta_data
+    body = send.call_args.kwargs["text_body"]
+    assert "Nikos" in body
+
+
+@pytest.mark.asyncio
+async def test_sweep_quiet_company_defaults_to_your_team(monkeypatch):
+    lead = _lead(_enrolled(days_ago=4, quiet_step=1))
+    send = AsyncMock()
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", send)
+    out = await M.nurture_sweep(_db([lead]), MagicMock())
+    assert out["sent"] == 1
+    assert "your team" in send.call_args.kwargs["text_body"]
+
+
+@pytest.mark.asyncio
+async def test_sweep_quiet_uses_company_placeholder(monkeypatch):
+    lead = _lead(_enrolled(days_ago=4, quiet_step=1, company="Acme SA"))
+    send = AsyncMock()
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", send)
+    out = await M.nurture_sweep(_db([lead]), MagicMock())
+    assert out["sent"] == 1
+    assert "Acme SA" in send.call_args.kwargs["text_body"]
+
+
+@pytest.mark.asyncio
+async def test_sweep_quiet_lane_supersedes_nurture_forms(monkeypatch):
+    # A newsletter-form lead that is also quiet-enrolled takes the quiet lane.
+    lead = _lead(_enrolled(days_ago=10, form="newsletter"))
+    send = AsyncMock()
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", send)
+    await M.nurture_sweep(_db([lead]), MagicMock())
+    assert lead.meta_data["quiet_step"] == 1
+    assert "nurture_step" not in lead.meta_data

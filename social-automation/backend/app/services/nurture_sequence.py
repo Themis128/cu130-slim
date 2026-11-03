@@ -11,6 +11,15 @@ through a fixed 3-touch sequence stamped in lead.meta_data:
 
 Deterministic, idempotent (meta_data stamps), team-scoped, unsubscribe
 aware — a lead with meta_data.unsubscribed or nurture_opted_out never mails.
+
+Quiet-lead lane (Pipeline Optimization Toolkit, Founders 3-11-2026): leads
+that showed interest but never booked the free tech checkup get a faster
+3-touch follow-up — gentle nudge → pain reminder → clean break — stamped
+under ``meta_data.quiet_step`` with age measured from
+``meta_data.quiet_lead_at`` (enrollment time, NOT created_at — an old lead
+enrolled today starts at touch 1, not touch 3). Enroll via
+``scripts/quiet_lead_followup.py``. A quiet-enrolled lead takes this lane
+instead of the nurture ladder.
 """
 
 from __future__ import annotations
@@ -71,6 +80,54 @@ STEPS: tuple[dict[str, Any], ...] = (
     },
 )
 
+# Quiet-lead 3-touch follow-up — for leads that expressed interest but never
+# booked the free tech checkup. Copy adopted from the Pipeline Optimization
+# Toolkit quiet-lead sequence (24h → 3d → 7d).
+QUIET_STEPS: tuple[dict[str, Any], ...] = (
+    {
+        "day": 1,
+        "key": "nudge",
+        "subject": "Still up for your free tech checkup, {name}?",
+        "body": (
+            "Hi {name},\n\n"
+            "just checking in — did you manage to grab a spot for your free\n"
+            "tech checkup? Slots for this week are filling up fast, but you\n"
+            "can see what is left right here: https://cloudless.gr/contact\n\n"
+            "Let me know if another time works better!\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    },
+    {
+        "day": 3,
+        "key": "pain",
+        "subject": "Found a couple of cost leaks on your site, {name}",
+        "body": (
+            "Hi {name},\n\n"
+            "I was looking over your site again and found a couple of quick\n"
+            "software cost leaks we can plug during our chat. If reducing\n"
+            "clunky tasks or high bills is still a priority for {company},\n"
+            "pick a time here: https://cloudless.gr/contact\n\n"
+            "No pitch, just a clear plan.\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    },
+    {
+        "day": 7,
+        "key": "clean_break",
+        "subject": "Closing the loop, {name}",
+        "body": (
+            "Hi {name},\n\n"
+            "I assume this isn't a top priority for {company} right now, which\n"
+            "is completely fine! I'll stop checking in so I don't crowd your\n"
+            "inbox. If you ever want to fix your software bills or speed up\n"
+            "tools down the road, you can always reach me at\n"
+            "https://cloudless.gr\n\n"
+            "Wish you the best!\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    },
+)
+
 
 def _now() -> datetime:
     return datetime.now(UTC)
@@ -103,6 +160,39 @@ def _due_step(lead: Lead) -> dict[str, Any] | None:
     return None
 
 
+def _quiet_age_days(lead: Lead) -> float:
+    """Age since quiet-lane enrollment (meta_data.quiet_lead_at), not created_at."""
+    meta = lead.meta_data or {}
+    raw = meta.get("quiet_lead_at")
+    if not raw:
+        return 0.0
+    try:
+        started = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except ValueError:
+        return 0.0
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=UTC)
+    return (_now() - started).total_seconds() / 86400
+
+
+def _due_quiet_step(lead: Lead) -> dict[str, Any] | None:
+    meta = lead.meta_data or {}
+    if meta.get("unsubscribed") or meta.get("nurture_opted_out"):
+        return None
+    age = _quiet_age_days(lead)
+    try:
+        done = int(meta.get("quiet_step", 0) or 0)
+    except (TypeError, ValueError):
+        done = 0
+    for idx, step in enumerate(QUIET_STEPS, start=1):
+        if idx <= done:
+            continue
+        if age >= step["day"]:
+            return {**step, "step": idx}
+        return None  # not yet due — steps are sequential
+    return None
+
+
 async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
     """Advance all public-captured leads one step. Returns stats."""
     from app.services.email_digest import send_email
@@ -112,24 +202,27 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
 
     for lead in leads:
         meta = lead.meta_data or {}
-        if meta.get("form") not in NURTURE_FORMS:
+        quiet = bool(meta.get("quiet_lead"))
+        if not quiet and meta.get("form") not in NURTURE_FORMS:
             continue
         stats["scanned"] += 1
-        step = _due_step(lead)
+        step = _due_quiet_step(lead) if quiet else _due_step(lead)
         if not step:
             stats["skipped"] += 1
             continue
         name = (lead.name or "there").split()[0]
+        company = meta.get("company") or "your team"
         try:
             await send_email(
-                subject=step["subject"],
-                text_body=step["body"].format(name=name),
+                subject=step["subject"].format(name=name, company=company),
+                text_body=step["body"].format(name=name, company=company),
                 to_addrs=[lead.email],
             )
+            stamp = "quiet_step" if quiet else "nurture_step"
             lead.meta_data = {
                 **meta,
-                "nurture_step": step["step"],
-                "nurture_step_at": _now().isoformat(),
+                stamp: step["step"],
+                f"{stamp}_at": _now().isoformat(),
             }
             stats["sent"] += 1
         except Exception:  # noqa: BLE001 — one bad email mustn't stall the sweep

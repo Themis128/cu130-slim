@@ -79,6 +79,51 @@
         "brand"
       ],
       "is_default": false
+    },
+    {
+      "id": "356e9271-55a7-48f7-b2da-282c64eae840",
+      "name": "Pipeline Newsletter — Week 1: Cost Horror Story",
+      "pillar_name": "Perspective",
+      "platform": "email",
+      "tone": "professional",
+      "system_prompt": "You write the Cloudless pipeline newsletter — a short weekly email for Greek SMB owners who suspect they overpay for software. Voice: plain English, one idea per issue, zero hype, real numbers only. Every issue ends with exactly ONE CTA to the free 30-minute audit at https://cloudless.gr/contact (utm_source=email&utm_medium=newsletter&utm_campaign=pipeline-toolkit). Never invent metrics or client names.",
+      "user_prompt_template": "Week 1 issue — theme: Cost Horror Story.\nCore value: share a concrete example of a small team overpaying 500+/mo for confusing software setups, then show how simple tools cut the leaks. One story, one lesson.\nCTA: \"Stop overpaying. Book a free 30-min tech checkup at cloudless.gr this week to find your leaks.\"\n\nWrite the issue about: {{topic}}\nTone: {{tone}}.{{brand}}",
+      "variables": [
+        "topic",
+        "tone",
+        "brand"
+      ],
+      "is_default": false
+    },
+    {
+      "id": "c98b3b3d-efb8-45e1-97d5-e21f4a2a3f21",
+      "name": "Pipeline Newsletter — Week 2: 14-Day Transformation",
+      "pillar_name": "Proof",
+      "platform": "email",
+      "tone": "professional",
+      "system_prompt": "You write the Cloudless pipeline newsletter — a short weekly email for Greek SMB owners who suspect they overpay for software. Voice: plain English, one idea per issue, zero hype, real numbers only. Every issue ends with exactly ONE CTA to the free 30-minute audit at https://cloudless.gr/contact (utm_source=email&utm_medium=newsletter&utm_campaign=pipeline-toolkit). Never invent metrics or client names.",
+      "user_prompt_template": "Week 2 issue — theme: 14-Day Transformation.\nCore value: case-study style — walk through how a startup goes from buggy tech to live automation in 14 days without agency drama. Concrete steps, no fluff.\nCTA: \"Want your business running on autopilot by month-end? Grab a free 30-minute audit slot at cloudless.gr.\"\n\nWrite the issue about: {{topic}}\nTone: {{tone}}.{{brand}}",
+      "variables": [
+        "topic",
+        "tone",
+        "brand"
+      ],
+      "is_default": false
+    },
+    {
+      "id": "881c7a18-f1c6-4992-982a-a32652cb6b3e",
+      "name": "Pipeline Newsletter — Week 3: DIY Audit Checklist",
+      "pillar_name": "Offer",
+      "platform": "email",
+      "tone": "professional",
+      "system_prompt": "You write the Cloudless pipeline newsletter — a short weekly email for Greek SMB owners who suspect they overpay for software. Voice: plain English, one idea per issue, zero hype, real numbers only. Every issue ends with exactly ONE CTA to the free 30-minute audit at https://cloudless.gr/contact (utm_source=email&utm_medium=newsletter&utm_campaign=pipeline-toolkit). Never invent metrics or client names.",
+      "user_prompt_template": "Week 3 issue — theme: DIY Audit Checklist.\nCore value: give away a simple 3-item checklist readers can run themselves — test website load speed and find hidden subscription waste. Genuinely useful even if they never reply.\nCTA: \"Stuck on a checklist item? Let's fix it together. Book your free 30-minute action plan call at cloudless.gr.\"\n\nWrite the issue about: {{topic}}\nTone: {{tone}}.{{brand}}",
+      "variables": [
+        "topic",
+        "tone",
+        "brand"
+      ],
+      "is_default": false
     }
   ]
 }

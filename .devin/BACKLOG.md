@@ -1,5 +1,24 @@
 # BACKLOG (living)
 
+## 2026-11-03 — Pipeline Optimization Toolkit adopted (Founders 3-11-2026)
+
+- **Asset 1 — LOA**: `scripts/letter_of_agreement.py` renders the 1-page
+  €800/14-day Web+Hosting+Automation agreement (reportlab PDF + markdown).
+- **Asset 2 — quiet-lead follow-up**: `QUIET_STEPS` lane in
+  `nurture_sequence.py` (24h nudge → 3d pain → 7d clean break; age from
+  `meta_data.quiet_lead_at`, supersedes the nurture ladder). Enroll/status/
+  unenroll via `scripts/quiet_lead_followup.py`; daily `nurture-sweep` beat
+  delivers touches.
+- **Asset 3 — newsletter framework**: 3 seeded content_prompt_templates
+  (Cost Horror Story / 14-Day Transformation / DIY Audit Checklist) — apply
+  via `seed_content_templates.py` on next social-api boot.
+- Skill: `.devin/skills/pipeline-assets-ops` (+ .cursor mirror).
+- Website: cloudless.gr PR adds the €800 starter-package card on /services.
+- **Leftovers**: enrollment is manual per-lead — no auto-enroll trigger yet
+  (candidate: contact-form leads that open but don't book in 24h). The PDF's
+  sibling docs (Conversation Playbook v2, Sales Playbook, Audit Notes
+  worksheet) are not yet adopted — same Founders/3-11-2026 folder.
+
 ## 2026-11-02 session 3 — media quality backfill (real pipeline) + Sofia scores
 
 **Done:**
