@@ -22,7 +22,7 @@ def top_relevant_signal(geos: tuple[str, ...] = ("GR", "US")) -> str | None:
     now = time.monotonic()
     cached_at, cached = _cache
     if cached is not None and now - cached_at < _TTL:
-        return cached
+        return cached or None
     try:
         import sys
 
