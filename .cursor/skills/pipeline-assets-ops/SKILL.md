@@ -159,3 +159,25 @@ generated offer/LOA/pitch against them:
   €800 fixed scope, not hourly agency pricing.
 - **Positioning statement:** "For [buyer] who needs [result], [offer]
   provides [specific solution]. Why choose it? [one factual difference.]"
+
+## Funnel liveness gates (pipeline_gap_doctor.py)
+
+Three env/config gates decide whether the funnel actually mails and
+captures — one script checks all three:
+
+```bash
+# inside social-api (app env + deps), or:
+docker run --rm --network cu130-db --env-file .env \
+  -v "$(pwd)/social-automation/backend:/app" -w /app \
+  ghcr.io/themis128/cu130-slim:social-backend-api-latest \
+  python scripts/pipeline_gap_doctor.py
+```
+
+- `team` — discovers which team owns public-form leads and prints the
+  exact `CLOUDLESS_WEB_ANALYTICS_TEAM_ID=…` .env line + restart command
+  (sweep no-ops until set — current live state).
+- `audit` — probes the `/api/v1/leads/public` endpoint the site's
+  /api/audit forwards to; empty POST must 4xx (live) not 5xx/timeout.
+- `db-env` — DATABASE_URL vs `social-postgres` container creds; reports
+  MATCH/MISMATCH per field only (never prints secrets). Catches the
+  rotated-password drift that broke the seed run.
