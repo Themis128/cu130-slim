@@ -25,10 +25,13 @@ from pathlib import Path
 
 PROVIDER = "Themistoklis Baltzakis (Cloudless — cloudless.gr)"
 SCOPE = (
-    "Web Design (high-converting business website), Hosting (secure, "
-    "zero-maintenance setup), and Automation (automatic marketing and "
-    "inquiry tracking tools). Done in 14 days flat. Client owns 100% of "
-    "the code always."
+    "Web Design: a modern, high-converting business website tailored to "
+    "your brand. Hosting: fully configured, fast, and secure cloud hosting "
+    "with zero maintenance stress. Automation: automatic marketing and "
+    "inquiry tracking tools to handle your incoming leads hands-free. "
+    "Kickoff Day 1 (align on design, copy, assets); handoff Day 14 — site "
+    "and automations live, full documentation. Client owns 100% of the "
+    "code and setup."
 )
 
 
