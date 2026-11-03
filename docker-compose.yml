@@ -2419,6 +2419,36 @@ services:
     mem_limit: 384m
     restart: unless-stopped
 
+
+  # Self-heal for mass container loss (2026-11-02: ~40 containers deleted at
+  # once — restart policies / docker restart cannot recreate removed
+  # containers). Runs `docker compose up -d` every 10 min: recreates missing
+  # services, restarts dead, no-ops on healthy. If THIS service is deleted,
+  # the omv safedeploy-watchdog wsl-social-api remediation runs the same
+  # `compose up -d` via SSH.
+  compose-healer:
+    image: docker:27-cli
+    container_name: compose-healer
+    restart: unless-stopped
+    networks: []
+    environment:
+      - COMPOSE_PROJECT_DIR  # host compose dir — bind sources resolve identically inside the helper
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # relative binds in sibling services resolve against COMPOSE_PROJECT_DIR;
+      # mounting at the SAME absolute path keeps daemon-side sources valid
+      - ${COMPOSE_PROJECT_DIR:-.}:${COMPOSE_PROJECT_DIR:-/w}:ro
+    command: >
+      sh -c "while :; do
+        docker compose -f $${COMPOSE_PROJECT_DIR}/docker-compose.yml -p cu130-slim up -d --quiet-pull 2>&1
+        | grep -vE 'Running|Started|Skipped' || true;
+        sleep 600; done"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "docker info >/dev/null 2>&1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
 volumes:
   ollama_models:
   portainer_data: null

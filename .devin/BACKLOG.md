@@ -1,5 +1,29 @@
 # BACKLOG (living)
 
+## 2026-11-02 session 3 — media quality backfill (real pipeline) + Sofia scores
+
+**Done:**
+- All media assets carry `meta_data.quality`; assets with captions have real
+  Sofia scores (0-100). Early passes wrote heuristic scores while
+  LanguageTool/DMR were down — `scripts/backfill_media_quality.py` gained a
+  `--force` flag to re-run the real pipeline over already-scored assets
+  (idempotent, commits per asset, safe to re-run after stack bounces).
+- Local protected-words misconfig fixed: `.env` + host `/app/.env` shim had a
+  REPLACEMENT list (dropped `Redis`, lowercase `cloudless`) violating the
+  config.py contract "extend via env, don't shrink the defaults" — restored to
+  the full default list + local extras (OAuth, QLoRA, DBaaS, ONNX). This was
+  the cause of `test_protected_spans_cover_configured_words` failing locally.
+- Test env on host fixed: venv had pytest missing (plain `pip` resolved to
+  system pip — use `.venv/bin/python -m pip`); unit tests for touched modules
+  green: 96 passed / 6 integration-skipped.
+
+**Leftovers:**
+- [ ] Final `--force` backfill pass interrupted by Docker Desktop WSL bounces
+  (deploy-tree cutover churn); retry wrapper `/tmp/backfill_retry.sh` re-runs
+  until a full pass completes — verify final asset counts once stable.
+- [ ] Real pipeline pass replaces remaining heuristic Sofia/SEO scores — check
+  `meta_data.quality.spellcheck_applied=true` across assets when done.
+
 ## 2026-11-02 session 2 — synigoros alerting went live + leftovers
 
 - **#1261 merged**: session/stop fix + .devin parity + creds scrub + SYNIGOROS_*
@@ -240,3 +264,9 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 **External gates**: `:9222` auto-fires on logon (CloudlessDebugChrome task). Viber = paid commercial channel (€115/mo) — decision, not a build.
 
 **Content-quality research applied**: slop-keyword scan, voice constraints, prior-output exclusion, platform-fit (content_guides has limits, unenforced).
+
+- Watchdog retiered 2026-11-02 eve: probe classified Healthy/Vsock/Broken; vsock flaps no longer wsl --terminate (VM-layer, terminate cant fix); docker.exe engine probe via npipe; docker desktop restart only if engine down; vsock-flaps.txt; [P1] to #critical at flap 6 (~30m) then ~3h; VsockDegraded state + recovery alert; -Mode TestVsock synthetic-probe test; wsl.exe spawn-failure now counted as flap (silent-death fix). Live-verified: real flap 19:10 logged/counted, zero terminate.
+- Deferred options if vsock flaps persist: Docker Desktop tcp://localhost:2375 + DOCKER_HOST in distro (bypasses proxy/vsock entirely; unauth localhost daemon caveat); .wslconfig networkingMode=mirrored (needs full WSL restart).
+
+- Watchdog hardening landed live (not in repo, host script): restart judged by "Starting Docker Desktop" output not exit code; engine restart throttled 15min; wsl.exe spawn-failure -> vsock flap. Verified: real 19:08-19:26 incident cycle recovered via docker desktop restart + Telegram alert.
+- Windows checkout (feat/credential-reset-ops, 50+ behind master): untracked alembic copies b8c9d0e1f2a3 + f9a1b2c3d4e5 WILL COLLIDE on owner rebase (git refuses untracked overwrite) - fix: delete them before rebase, they are byte-identical to master. Compose/monitor/config.py dirt = owner work.

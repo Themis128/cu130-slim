@@ -744,6 +744,8 @@ async def build_ad_brand_kit(
     if image_prompt:
         try:
             bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE[0])
+            if bg_img is not None:
+                bg_img = await _qa_generated_background(bg_img, image_prompt, CF_TXT2IMG_FREE[0], "ad-kit")
         except Exception as exc:  # noqa: BLE001 — brand canvas alone is fine
             logger.warning("ad-kit background generation failed: %s", exc)
 
@@ -874,6 +876,55 @@ async def _cf_generate_background(
 
     # 3) No background — brand canvas only
     return None
+
+
+async def _qa_generated_background(
+    bg_img: Image.Image,
+    image_prompt: str,
+    txt2img_model: str,
+    label: str,
+) -> Image.Image | None:
+    """Pixel-QA a generated background for garbled/unverified text.
+
+    FLUX backgrounds can carry garbled lettering that peeks out around the
+    PIL overlay (2026-11-02 LinkedIn regression). Fail closed: garbled OR
+    unverified (vision/LanguageTool down) → one retry with the hard no-text
+    prompt → still bad → ``None`` so the caller drops to the brand canvas.
+    Never raises — a QA exception returns the image unmodified.
+    """
+    from app.services.image_text_guard import check_image_text
+
+    def _png(img: Image.Image) -> bytes:
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    try:
+        qa = await check_image_text(_png(bg_img))
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[carousel] %s bg text-QA skipped: %s", label, type(exc).__name__)
+        return bg_img
+    if qa.get("checked") and not qa.get("garbled"):
+        return bg_img
+
+    logger.warning(
+        "[carousel] %s bg text-QA failed (garbled=%s checked=%s tokens=%s) — no-text retry",
+        label,
+        qa.get("garbled"),
+        qa.get("checked"),
+        qa.get("tokens"),
+    )
+    from app.services.infographic_renderer import sanitize_prompt_for_background
+
+    retry = await _cf_generate_background(sanitize_prompt_for_background(image_prompt), txt2img_model)
+    if retry is None:
+        return None
+    try:
+        retry_qa = await check_image_text(_png(retry))
+    except Exception as exc:  # noqa: BLE001
+        logger.info("[carousel] %s retry text-QA skipped: %s", label, type(exc).__name__)
+        return retry
+    return retry if retry_qa.get("checked") and not retry_qa.get("garbled") else None
 
 
 async def generate_carousel_copy(
@@ -1112,6 +1163,8 @@ async def run_cloudless_carousel_pipeline(
             len(slides),
         )
         bg_img = await _cf_generate_background(image_prompt, txt2img_model)
+        if bg_img is not None:
+            bg_img = await _qa_generated_background(bg_img, image_prompt, txt2img_model, f"slide {i + 1}")
         if bg_img:
             logger.info(f"[n8n-pipeline] slide {i + 1} background ready")
         else:
