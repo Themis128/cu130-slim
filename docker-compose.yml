@@ -2245,7 +2245,10 @@ services:
 
 
   promtail:
-    image: grafana/promtail:3.0.0
+    image: local/promtail-healthcheck:3.0.0
+    build:
+      context: ./monitoring/promtail
+      dockerfile: Dockerfile
     container_name: promtail
     restart: unless-stopped
     environment:
