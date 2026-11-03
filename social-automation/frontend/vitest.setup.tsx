@@ -1,6 +1,51 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
 
+// Global localStorage mock for all tests. The Map-backed implementation lives
+// on Storage.prototype itself so that vi.spyOn(Storage.prototype, 'setItem')
+// (used e.g. in useNotifications.test.tsx) wraps the real implementation and
+// captures calls made through globalThis.localStorage.
+// jsdom-only: guarded so node-environment test files (no DOM) skip it.
+if (typeof Storage !== 'undefined') {
+  const lsStore = new Map<string, string>()
+
+  const defineProto = (name: string, fn: (...args: never[]) => unknown) => {
+    Object.defineProperty(Storage.prototype, name, {
+      value: fn,
+      writable: true,
+      configurable: true,
+    })
+  }
+
+  defineProto('getItem', function (key: string) {
+    return lsStore.has(key) ? lsStore.get(key)! : null
+  })
+  defineProto('setItem', function (key: string, value: string) {
+    lsStore.set(String(key), String(value))
+  })
+  defineProto('removeItem', function (key: string) {
+    lsStore.delete(key)
+  })
+  defineProto('clear', function () {
+    lsStore.clear()
+  })
+  defineProto('key', function (index: number) {
+    return Array.from(lsStore.keys())[index] ?? null
+  })
+
+  const localStorageMock = Object.create(Storage.prototype) as Storage
+  Object.defineProperty(localStorageMock, 'length', {
+    get: () => lsStore.size,
+    configurable: true,
+  })
+
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: localStorageMock,
+    writable: true,
+    configurable: true,
+  })
+}
+
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
   usePathname: () => '/',
