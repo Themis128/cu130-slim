@@ -303,7 +303,8 @@ async def test_generate_copy_real_chain(monkeypatch):
         AsyncMock(return_value=quality),
     )
     content, tags, seo = await X._generate_copy(_Db(), SimpleNamespace(id=uuid.uuid4()), MonetizationAction("linkedin", "post", "12:00", "image"), "brand")
-    assert content == "polished copy" and tags == ["#y"] and seo == 95
+    assert content.startswith("polished copy") and tags == ["#y"] and seo == 95
+    assert "utm_source=linkedin" in content  # funnel CTA is injected + UTM-stamped
 
 
 class _ACtx:
