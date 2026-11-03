@@ -185,11 +185,7 @@ def _ensure_funnel_cta(content: str, platform: str, campaign: str = "social-post
         return content.replace(m.group(0), _stamp_utm(m.group(0), platform, campaign))
     raw = _CTA_URL_BY_PLATFORM.get(platform, _CTA_DEFAULT_URL)
     url = _stamp_utm(raw, platform, campaign)
-    line = (
-        "See the plans + starter kits"
-        if "social.cloudless.gr" in raw
-        else "Book your free 30-minute cloud audit"
-    )
+    line = "See the plans + starter kits" if "social.cloudless.gr" in raw else "Book your free 30-minute cloud audit"
     return f"{content.rstrip()}\n\n{line}: {url}"
 
 
@@ -270,11 +266,7 @@ async def _generate_media(db: AsyncSession, team: Team, user_id, action: Monetiz
     from app.services.trend_context import top_relevant_signal
 
     signal = top_relevant_signal()
-    media_instruction = (
-        f"{action.instruction} — visual theme may draw on the live trend signal: {signal}"
-        if signal
-        else action.instruction
-    )
+    media_instruction = f"{action.instruction} — visual theme may draw on the live trend signal: {signal}" if signal else action.instruction
     prompt = await expand_visual_prompt(media_instruction, media_type="image")
 
     png: bytes | None = None

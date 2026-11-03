@@ -303,12 +303,7 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
             # Ladder finished → roll into the quiet-lead lane automatically:
             # the lead consumed the whole sequence without booking, so the
             # toolkit's 24h/3d/7d follow-up takes over from here.
-            if (
-                not quiet
-                and not meta.get("unsubscribed")
-                and not meta.get("nurture_opted_out")
-                and _int(meta.get("nurture_step")) >= len(STEPS)
-            ):
+            if not quiet and not meta.get("unsubscribed") and not meta.get("nurture_opted_out") and _int(meta.get("nurture_step")) >= len(STEPS):
                 lead.meta_data = {
                     **meta,
                     "quiet_lead": True,
@@ -336,5 +331,6 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
             stats["skipped"] += 1
     await db.commit()
     return stats
+
 
 # ci: retrigger

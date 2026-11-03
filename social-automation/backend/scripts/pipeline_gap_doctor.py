@@ -52,10 +52,7 @@ async def check_team() -> dict:
         async with async_session_maker() as s:
             rows = (
                 await s.execute(
-                    text(
-                        "SELECT team_id::text AS tid, count(*) AS n FROM leads "
-                        "WHERE meta_data->>'form' = ANY(:forms) GROUP BY team_id ORDER BY n DESC"
-                    ),
+                    text("SELECT team_id::text AS tid, count(*) AS n FROM leads WHERE meta_data->>'form' = ANY(:forms) GROUP BY team_id ORDER BY n DESC"),
                     {"forms": list(PUBLIC_FORMS)},
                 )
             ).all()
@@ -102,7 +99,9 @@ def check_db_env() -> dict:
     try:
         out = subprocess.run(
             ["docker", "inspect", "social-postgres", "--format", "{{range .Config.Env}}{{.}}\n{{end}}"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         if out.returncode != 0:
             return {"status": "skipped", "detail": "social-postgres not inspectable (container down or no docker access)"}
