@@ -903,10 +903,7 @@ def _plausible_follower_count(prev: int | None, new: int) -> bool:
         return True
     if new > max(prev * 5, 100):
         return False
-    # >50% drop is a metric mix-up at any scale — small accounts were
-    # unguarded (the prev>=100 check). Floor of 10 keeps a genuine
-    # early-growth 0→single-digit churn readable.
-    if prev >= 10 and new < prev * 0.5:
+    if prev >= 100 and new < prev * 0.5:
         return False
     return True
 
