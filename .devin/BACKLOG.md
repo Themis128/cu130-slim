@@ -276,3 +276,10 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 - IG post `18189629230413062` (media `76299e69`, "hosting hosting" AI-garbled text) still live; local posts row `76299e69` left `published` to reflect reality.
 - Delete blocked: Graph has no organic-media delete; instagrapi password login broken (`publickeys` endpoint); stored sessionid expired (redirect loop); bridge IG at login wall; sidecar db.json empty.
 - **RESOLVED 2026-11-03**: post was already deleted on-platform (verified via fresh bridge IG session — instagrapi `media_delete` → MediaNotFound, user_media list shows the Oct-28 gap). Local row `76299e69` force-deleted. Bonus: bridge now holds a LIVE cloudless.gr IG session (WhatsApp-2FA login driven via /session/evaluate; code read from phone over ADB).
+
+## 2026-11-03 — mail triage leftovers
+
+- **Bluesky @tbaltzakis.bsky.social**: account `active` but `last sync: never` (ops health 2026-11-03) — follower-sync cadence appears to skip bluesky; verify the sync task covers it or mark as known gap.
+- **LinkedIn @baltzakis.themis personal**: 1 sync error — expected member_postAnalytics scope gap (documented); no action.
+- **"Book a free audit" chat lead (2026-11-02 15:37, IP 9.246.61.72)**: NOT captured into EspoCRM — visitor left no contact details (Talk visitor chat only). Needs a reply inside the chat channel while it's live; CRM loop can't capture anonymous chats — consider adding an email field prompt to the widget.
+- **Watchdog flap continued into 06:39-06:41Z** — WSL vsock still degrading; `wsl --shutdown` recommended at next maintenance window.
