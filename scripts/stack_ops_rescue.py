@@ -44,7 +44,7 @@ def log(msg: str) -> None:
 
 
 def docker(args: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
-    return subprocess.run(args, capture_output=True, text=True, timeout=timeout, cwd=REPO)
+    return subprocess.run(args, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, cwd=REPO)
 
 
 def stack_ops_state() -> str:
@@ -65,7 +65,7 @@ def squatter_for_port(port: int) -> str:
                 + "$w = Get-CimInstance Win32_Process -Filter \"ProcessId=$($c.OwningProcess)\"; "
                 + "Write-Output ($c.OwningProcess.ToString() + ' ' + $p.ProcessName + ' | ' + $w.CommandLine) }",
             ],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         out = ps.stdout.strip()
         return out or "squatter process not identified"

@@ -44,7 +44,7 @@ def log(msg: str) -> None:
 
 
 def gh(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
-    return subprocess.run([GH, *args], capture_output=True, text=True, timeout=timeout)
+    return subprocess.run([GH, *args], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout)
 
 
 def gh_json(*args: str):
