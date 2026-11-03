@@ -155,6 +155,39 @@ async def _slot_taken(db: AsyncSession, team_id: uuid.UUID, account_id: uuid.UUI
     )
 
 
+_CTA_URL_BY_PLATFORM = {
+    "linkedin": "https://cloudless.gr/contact",
+    "facebook": "https://cloudless.gr/contact",
+    "instagram": "https://cloudless.gr/contact",
+    "threads": "https://cloudless.gr/contact",
+    "twitter": "https://social.cloudless.gr/pricing",
+    "x": "https://social.cloudless.gr/pricing",
+    "tiktok": "https://social.cloudless.gr/pricing",
+}
+_CTA_DEFAULT_URL = "https://cloudless.gr/contact"
+
+
+def _stamp_utm(url: str, platform: str, campaign: str = "social-post") -> str:
+    if "utm_source=" in url:
+        return url
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}utm_source={platform}&utm_medium=social&utm_campaign={campaign}"
+
+
+def _ensure_funnel_cta(content: str, platform: str, campaign: str = "social-post") -> str:
+    """Every post must land followers on a UTM-tagged capture surface —
+    the CRM-loop rule (audit showed 55 posts → 6 CTAs → 1 tagged)."""
+    import re
+
+    if "utm_source=" in content:
+        return content
+    m = re.search(r"https?://(?:www\.)?(?:social\.)?cloudless\.gr[^\s)\]]*", content)
+    if m:
+        return content.replace(m.group(0), _stamp_utm(m.group(0), platform, campaign))
+    url = _stamp_utm(_CTA_URL_BY_PLATFORM.get(platform, _CTA_DEFAULT_URL), platform, campaign)
+    return f"{content.rstrip()}\n\nBook your free 30-minute cloud audit: {url}"
+
+
 async def _generate_copy(
     db: AsyncSession,
     team: Team,
@@ -211,7 +244,11 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
         max_iterations=2,
         topic=action.instruction,
     )
-    return quality.content, quality.hashtags, getattr(quality, "seo_score", None)
+    return (
+        _ensure_funnel_cta(quality.content, action.platform),
+        quality.hashtags,
+        getattr(quality, "seo_score", None),
+    )
 
 
 async def _generate_media(db: AsyncSession, team: Team, user_id, action: MonetizationAction) -> uuid.UUID | None:
