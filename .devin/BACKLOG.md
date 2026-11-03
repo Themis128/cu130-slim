@@ -361,6 +361,6 @@ Done:
 - [x] stack-ops recovered (dashboard/app.py squatted :8080; killed, restarted)
 
 Left:
-- [ ] Site PR #2364 (cloudless.gr consultation page): Sentry fixes pushed (bc5aebaf), threads resolved, CI re-running -> merge -> verify /en/consultation 200
-- [ ] Flip nurture CTAs cloudless.gr/contact -> /en/consultation AFTER #2364 is live
+- [x] Site PR #2364 merged (coverage fix + 8 Sentry findings fixed incl. server-side consent gate); /en/consultation live (200)
+- [x] Book-audit CTAs flipped to /en/consultation — PR #1312 (auto-merge armed)
 - [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
