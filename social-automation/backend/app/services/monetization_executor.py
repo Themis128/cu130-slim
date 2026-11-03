@@ -156,15 +156,15 @@ async def _slot_taken(db: AsyncSession, team_id: uuid.UUID, account_id: uuid.UUI
 
 
 _CTA_URL_BY_PLATFORM = {
-    "linkedin": "https://cloudless.gr/contact",
-    "facebook": "https://cloudless.gr/contact",
-    "instagram": "https://cloudless.gr/contact",
-    "threads": "https://cloudless.gr/contact",
+    "linkedin": "https://cloudless.gr/en/consultation",
+    "facebook": "https://cloudless.gr/en/consultation",
+    "instagram": "https://cloudless.gr/en/consultation",
+    "threads": "https://cloudless.gr/en/consultation",
     "twitter": "https://social.cloudless.gr/pricing",
     "x": "https://social.cloudless.gr/pricing",
     "tiktok": "https://social.cloudless.gr/pricing",
 }
-_CTA_DEFAULT_URL = "https://cloudless.gr/contact"
+_CTA_DEFAULT_URL = "https://cloudless.gr/en/consultation"
 
 
 def _stamp_utm(url: str, platform: str, campaign: str = "social-post") -> str:

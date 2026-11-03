@@ -56,7 +56,7 @@ STEPS: tuple[dict[str, Any], ...] = (
             "automatic systems in just 14 days flat. You own everything we make,\n"
             "and there are no ongoing retainers.\n\n"
             "Let's plug your business cost leaks together this week. Book your\n"
-            "free 30-minute tech checkup right here: https://cloudless.gr/contact\n\n"
+            "free 30-minute tech checkup right here: https://cloudless.gr/en/consultation\n\n"
             "— Themis, Founder, Cloudless"
         ),
     },
@@ -72,7 +72,7 @@ STEPS: tuple[dict[str, Any], ...] = (
             "fixes start at only €800, and you are never locked into a contract.\n\n"
             "If you are ready to speed up your daily tasks and cut down software\n"
             "bills, let's chat. Grab a free 30-minute slot this week before they\n"
-            "fill up: https://cloudless.gr/contact\n\n"
+            "fill up: https://cloudless.gr/en/consultation\n\n"
             "— Themis, Founder, Cloudless"
         ),
     },
@@ -105,7 +105,7 @@ QUIET_STEPS: tuple[dict[str, Any], ...] = (
             "Hi {name},\n\n"
             "just checking in — did you manage to grab a spot for your free\n"
             "tech checkup? Slots for this week are filling up fast, but you\n"
-            "can see what is left right here: https://cloudless.gr/contact\n\n"
+            "can see what is left right here: https://cloudless.gr/en/consultation\n\n"
             "Let me know if another time works better!\n\n"
             "— Themistoklis, Cloudless"
         ),
@@ -119,7 +119,7 @@ QUIET_STEPS: tuple[dict[str, Any], ...] = (
             "I was looking over your site again and found a couple of quick\n"
             "software cost leaks we can plug during our chat. If reducing\n"
             "clunky tasks or high bills is still a priority for {company},\n"
-            "pick a time here: https://cloudless.gr/contact\n\n"
+            "pick a time here: https://cloudless.gr/en/consultation\n\n"
             "No pitch, just a clear plan.\n\n"
             "— Themistoklis, Cloudless"
         ),

@@ -80,7 +80,7 @@ OFFERS = [
         "image_prompt": (
             "minimalist dark tech illustration, a magnifying glass over a cloud infrastructure diagram, cyan and magenta accents, professional, no text"
         ),
-        "buttons": [[{"text": "Book the free audit", "url": "https://cloudless.gr/contact"}]],
+        "buttons": [[{"text": "Book the free audit", "url": "https://cloudless.gr/en/consultation"}]],
         "tag": "[Deal]",
     },
     {
