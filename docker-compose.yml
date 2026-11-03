@@ -88,6 +88,11 @@ x-worker-env: &worker-env
   - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
   - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
   - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
+  - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}  # env fallback for send_telegram_alert when Postgres is down
+  - TG_CH_CRITICAL=${TG_CH_CRITICAL:--1004389402878}
+  - TG_CH_OPS=${TG_CH_OPS:--1004429103353}
+  - TG_CH_INTEL=${TG_CH_INTEL:--1004362141941}
+  - TG_CH_DIGEST=${TG_CH_DIGEST:--1004363123500}
   - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
   - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
   - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -940,6 +945,11 @@ services:
       - SLACK_TELEGRAM_WEBHOOK_URL=${SLACK_TELEGRAM_WEBHOOK_URL:-}
       - SLACK_TELEGRAM_CHANNEL_ID=${SLACK_TELEGRAM_CHANNEL_ID:-}
       - TELEGRAM_NOTIFY_EMAIL=${TELEGRAM_NOTIFY_EMAIL:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}  # env fallback for send_telegram_alert when Postgres is down
+      - TG_CH_CRITICAL=${TG_CH_CRITICAL:--1004389402878}
+      - TG_CH_OPS=${TG_CH_OPS:--1004429103353}
+      - TG_CH_INTEL=${TG_CH_INTEL:--1004362141941}
+      - TG_CH_DIGEST=${TG_CH_DIGEST:--1004363123500}
       - SLACK_PADDLE_WEBHOOK_URL=${SLACK_PADDLE_WEBHOOK_URL:-}
       - SLACK_PADDLE_CHANNEL_ID=${SLACK_PADDLE_CHANNEL_ID:-}
       - SLACK_PADDLE_DIGEST_HOUR=${SLACK_PADDLE_DIGEST_HOUR:-10}
@@ -2150,9 +2160,18 @@ services:
 
 
   promtail:
-    image: grafana/promtail:3.0.0
+    image: local/promtail-healthcheck:3.0.0
+    build:
+      context: ./monitoring/promtail
+      dockerfile: Dockerfile
     container_name: promtail
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/bin/busybox", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9080/ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     environment:
       # Must resolve to the same Loki the worker's LOKI_URL reads —
       # ingestion and query sides share one deployment.
@@ -2184,6 +2203,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - backend
+    healthcheck:
+      test: ["CMD", "busybox", "nc", "-z", "-w", "2", "127.0.0.1", "2375"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   # ── Gate watchers — cdp/li-vetting watches, persistent service ───────
   stack-watchers:
