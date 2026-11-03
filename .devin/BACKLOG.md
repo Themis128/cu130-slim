@@ -348,3 +348,19 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 - **Watch master**: `COMFYUI_URL=http://172.20.0.230:8000` hardcoded in
   compose bypasses the stack-ops wake proxy — comfyui sleeps → workers can't
   wake it. Verify whether the pinned-IP change was intentional.
+
+## Founders / SocialAuto adoption (2026-11-03)
+
+Done:
+- [x] Cloudless_Agent_Manifest.toml committed (.devin + .cursor pipeline-assets-ops)
+- [x] Day-14 nurture copy fixed: €800-2,400 -> €800 single fix / €3,600-mo bundle
+- [x] DM canon adopted in nurture_sequence.py: DM_OPENERS, BOOKING_DM_STEPS (24h/3d/4d), DM_SAFETY_VALVE
+- [x] onboarding_checklist.py: 14-day fulfillment checklist generator (PDF/MD)
+- [x] media-converters skill (pdf_to_image, audio_bed, image_to_video) in backend/scripts
+- [x] BMB cert video published to personal LinkedIn: urn:li:ugcPost:7523480082607202304
+- [x] stack-ops recovered (dashboard/app.py squatted :8080; killed, restarted)
+
+Left:
+- [x] Site PR #2364 merged (coverage fix + 8 Sentry findings fixed incl. server-side consent gate); /en/consultation live (200)
+- [x] Book-audit CTAs flipped to /en/consultation — PR #1312 (auto-merge armed)
+- [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)

@@ -73,8 +73,8 @@ def test_email_contains_link_and_audit_cta():
     subject, text, html = pb.build_playbook_email(URL)
     assert "Cloud Migration Playbook" in subject
     assert URL in text and URL in html
-    assert "https://cloudless.gr/contact" in text
-    assert "https://cloudless.gr/contact" in html
+    assert "https://cloudless.gr/en/consultation" in text
+    assert "https://cloudless.gr/en/consultation" in html
 
 
 def test_email_escapes_url_in_html():
