@@ -1,14 +1,17 @@
 ---
 name: pipeline-assets-ops
 description: >
-  The Cloudless Pipeline Optimization Toolkit (Founders 3-11-2026,
+  The Cloudless pipeline toolkit (Founders 3-11-2026 day2 folder,
   OneDrive/Kakkava Sofia/Founders) adopted into the stack — the €800 /
-  14-day Letter of Agreement generator, the 3-part quiet-lead follow-up
-  sequence (24h nudge → 3d pain reminder → 7d clean break) wired into the
-  daily nurture sweep, and the 3-week pipeline newsletter framework seeded
-  as content_prompt_templates. Use when closing an SMB deal (LOA),
-  reviving a lead that went quiet, or drafting the weekly newsletter.
-  Tools: backend/scripts/letter_of_agreement.py, backend/scripts/quiet_lead_followup.py.
+  14-day Letter of Agreement generator, the quiet-lead follow-up sequence
+  (24h nudge → 3d pain → 7d clean break) wired into the daily nurture
+  sweep, newsletter framework seeds, the sales/conversation script canon
+  (pitches, openers, objection handlers), the 30-min audit worksheet
+  generator, the 14-day onboarding checklist, and the Implementation Kit
+  autoresponder (now the nurture ladder). Use when closing an SMB deal,
+  reviving a quiet lead, running an audit call, or onboarding a client.
+  Tools: backend/scripts/letter_of_agreement.py, quiet_lead_followup.py,
+  audit_worksheet.py.
 ---
 
 # Pipeline Assets Ops — LOA, quiet-lead follow-up, newsletter framework
@@ -70,3 +73,68 @@ Draft issues via the templates (Draft-with-AI on `/campaigns` or
 `/api/v1/email-campaigns`) — every issue keeps one idea + one CTA to the
 free audit. Rotate weekly; do not send all three to the same audience in
 the same week (email-campaigns-ops dedup gate still applies).
+
+## Asset 4 — Sales & Conversation Playbooks (script canon)
+
+`Cloudless_Sales_Playbook.pdf` and `Cloudless_Conversation_Playbook-v2.pdf`
+are the same canon (v2 is the simple-English edition). Use verbatim for
+DMs, calls, and outreach copy — do NOT paraphrase; the wording is tested.
+
+- **15s intro:** "We help startups and small businesses fix slow daily
+  tasks and high software bills. At Cloudless, we design easy websites,
+  hosting, and automatic marketing systems in just 14 days flat. You own
+  everything we make, and investments start at only €800."
+- **60s pitch:** Problem (slow tasks + hidden software bills) → Industry
+  flaw (agency retainers / ghosting freelancers) → Cloudless difference
+  (14 days, 100% ownership, no lock-in) → Close (€800 start or €3,600/mo
+  bundle; 3 new clients/month; book free checkup at cloudless.gr).
+- **Outbound openers:** Cold ("Hey [Name]! I came across [Company]… free
+  30-min tech checkups this week… Are you free for a quick chat?") and
+  Warm/newsletter-subscriber variant. Used by outreach lanes.
+- **3-step chat guide:** Ask (opener) → Recommend ("pick a time on my
+  site: cloudless.gr") → Agree ("I see your booking!"). Safety valve on
+  NO: "No problem at all! …you can always find us at cloudless.gr."
+- **Audit call script:** 3 questions in order — Goal → Pain (bills/tools/
+  time?) → Timeline — then mirror their words into the Single-Fix
+  recommendation, then: "the total is ONLY €800… 50% to start, 50% when
+  we finish in two weeks. Should I send you the payment link?" → **stop
+  talking, wait for them.**
+- **Objection handlers:** every pushback gets a question back, never a
+  defense — price→"what range did you have in mind?", can't afford→"the
+  total or the split?", discount→"what budget? we can remove tasks",
+  think→"what parts need more certainty?", timing→"what would need to
+  change?", partner→"what will they need to understand?", send-info→
+  "what would be most useful to see?"
+
+## Asset 5 — 30-Minute Audit Worksheet
+
+```bash
+python3 /app/scripts/audit_worksheet.py --out audit-worksheet.pdf
+python3 /app/scripts/audit_worksheet.py --client "Acme SA" --format both
+```
+
+Fillable 1-pager: 3 discovery questions, 6 red flags to check live, the
+free action-plan quick wins, and the close script. Print before every
+audit call; the completed sheet goes into EspoCRM as the lead's note.
+
+## Asset 6 — 14-Day Onboarding & Fulfillment Checklist
+
+Ops contract once a client says YES — Day 1: send LOA + 50% deposit
+invoice, open shared asset folder, confirm-by-text. Days 2–10: build
+(simple-text web layout + secure hosting + inquiry→dashboard
+automation). Days 11–14: mobile/forms/metrics QC, handoff docs + code,
+final 50% invoice, transfer 100% ownership on cleared invoice.
+
+## Asset 7 — Implementation Kit notes
+
+- **Lead magnet:** the 3-Step Cloud Cleanup Playbook (idle subscriptions
+  → automate manual work → own code/hosting) = the playbook already
+  shipped at `/playbooks/cloud-migration-playbook.pdf`.
+- **Autoresponder:** kit's 3-email sequence is now the nurture ladder —
+  Email 1 = `send_playbook_email` (day 0), Email 2 = STEPS day 2 (leak
+  lesson), Email 3 = STEPS day 4 (14-day clock); day-14 fixed-scope
+  closer retained as the last touch. Then leads roll into the quiet lane
+  automatically.
+- **Copy rule:** plain English only — "fix slow daily tasks and high
+  software bills", never "optimized end-to-end infrastructure". Same rule
+  the content-quality gate (content-quality-ops) enforces.

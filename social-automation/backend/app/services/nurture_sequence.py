@@ -37,31 +37,37 @@ NURTURE_FORMS = ("newsletter", "free-audit")
 
 STEPS: tuple[dict[str, Any], ...] = (
     {
-        "day": 3,
-        "key": "value",
-        "subject": "One thing worth doing with the playbook this week",
+        "day": 2,
+        "key": "leak_lesson",
+        "subject": "Is hidden software eating your profits?",
         "body": (
             "Hi {name},\n\n"
-            "quick one — most people read the playbook and file it. The single\n"
-            "highest-impact move is usually the first: pick ONE item from the\n"
-            "checklist and ship it this week.\n\n"
-            "If you want a second pair of eyes on which item to start with,\n"
-            "reply to this email — it's free and takes 10 minutes.\n\n"
-            "— Themistoklis, Cloudless"
+            "most startups and small businesses we work with are spending money\n"
+            "on tech tools they don't even use. Worse, their teams lose hours\n"
+            "every week copying data manually because their software tools do\n"
+            "not talk to each other.\n\n"
+            "At Cloudless, we fix that. We design easy websites, hosting, and\n"
+            "automatic systems in just 14 days flat. You own everything we make,\n"
+            "and there are no ongoing retainers.\n\n"
+            "Let's plug your business cost leaks together this week. Book your\n"
+            "free 30-minute tech checkup right here: https://cloudless.gr/contact\n\n"
+            "— Themis, Founder, Cloudless"
         ),
     },
     {
-        "day": 7,
-        "key": "audit_cta",
-        "subject": "Want a free technical audit of your site?",
+        "day": 4,
+        "key": "fourteen_day_clock",
+        "subject": "Fix your tech headaches in 2 weeks flat",
         "body": (
             "Hi {name},\n\n"
-            "we run a free audit that scores your site on performance,\n"
-            "security headers, and infra hygiene — real measurements, not a\n"
-            "checklist. Takes under a minute and the findings are yours to\n"
-            "keep either way.\n\n"
-            "Grab yours: https://cloudless.gr/contact\n\n"
-            "— Themistoklis, Cloudless"
+            "tech projects shouldn't take months, and they shouldn't cost a\n"
+            "fortune in agency retainer fees. We launch clean websites and\n"
+            "automated lead tracking systems in just 14 days flat. Our single\n"
+            "fixes start at only €800, and you are never locked into a contract.\n\n"
+            "If you are ready to speed up your daily tasks and cut down software\n"
+            "bills, let's chat. Grab a free 30-minute slot this week before they\n"
+            "fill up: https://cloudless.gr/contact\n\n"
+            "— Themis, Founder, Cloudless"
         ),
     },
     {
@@ -133,6 +139,13 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+def _int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _lead_age_days(lead: Lead) -> float:
     created = lead.created_at
     if created is None:
@@ -147,10 +160,7 @@ def _due_step(lead: Lead) -> dict[str, Any] | None:
     if meta.get("unsubscribed") or meta.get("nurture_opted_out"):
         return None
     age = _lead_age_days(lead)
-    try:
-        done = int(meta.get("nurture_step", 0) or 0)
-    except (TypeError, ValueError):
-        done = 0
+    done = _int(meta.get("nurture_step"))
     for idx, step in enumerate(STEPS, start=1):
         if idx <= done:
             continue
@@ -180,10 +190,7 @@ def _due_quiet_step(lead: Lead) -> dict[str, Any] | None:
     if meta.get("unsubscribed") or meta.get("nurture_opted_out"):
         return None
     age = _quiet_age_days(lead)
-    try:
-        done = int(meta.get("quiet_step", 0) or 0)
-    except (TypeError, ValueError):
-        done = 0
+    done = _int(meta.get("quiet_step"))
     for idx, step in enumerate(QUIET_STEPS, start=1):
         if idx <= done:
             continue
@@ -197,7 +204,7 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
     """Advance all public-captured leads one step. Returns stats."""
     from app.services.email_digest import send_email
 
-    stats = {"scanned": 0, "sent": 0, "skipped": 0}
+    stats = {"scanned": 0, "sent": 0, "skipped": 0, "rolled": 0}
     leads = (await db.execute(select(Lead).where(Lead.team_id == team_id, Lead.email.isnot(None)))).scalars().all()
 
     for lead in leads:
@@ -208,6 +215,21 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
         stats["scanned"] += 1
         step = _due_quiet_step(lead) if quiet else _due_step(lead)
         if not step:
+            # Ladder finished → roll into the quiet-lead lane automatically:
+            # the lead consumed the whole sequence without booking, so the
+            # toolkit's 24h/3d/7d follow-up takes over from here.
+            if (
+                not quiet
+                and not meta.get("unsubscribed")
+                and not meta.get("nurture_opted_out")
+                and _int(meta.get("nurture_step")) >= len(STEPS)
+            ):
+                lead.meta_data = {
+                    **meta,
+                    "quiet_lead": True,
+                    "quiet_lead_at": _now().isoformat(),
+                }
+                stats["rolled"] += 1
             stats["skipped"] += 1
             continue
         name = (lead.name or "there").split()[0]

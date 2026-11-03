@@ -74,7 +74,7 @@ async def test_sweep_routes_quiet_lane_and_stamps(monkeypatch):
 
     monkeypatch.setattr(ed, "send_email", send)
     out = await M.nurture_sweep(_db([lead]), MagicMock())
-    assert out == {"scanned": 1, "sent": 1, "skipped": 0}
+    assert out == {"scanned": 1, "sent": 1, "skipped": 0, "rolled": 0}
     assert lead.meta_data["quiet_step"] == 1
     assert "nurture_step" not in lead.meta_data
     body = send.call_args.kwargs["text_body"]
@@ -103,6 +103,35 @@ async def test_sweep_quiet_uses_company_placeholder(monkeypatch):
     out = await M.nurture_sweep(_db([lead]), MagicMock())
     assert out["sent"] == 1
     assert "Acme SA" in send.call_args.kwargs["text_body"]
+
+
+@pytest.mark.asyncio
+async def test_sweep_rolls_finished_ladder_into_quiet_lane(monkeypatch):
+    # A lead that consumed all nurture steps without booking auto-enrolls
+    # into the quiet lane (touch 1 due 24h after rollover).
+    lead = _lead({"form": "newsletter", "nurture_step": len(M.STEPS)})
+    send = AsyncMock()
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", send)
+    out = await M.nurture_sweep(_db([lead]), MagicMock())
+    assert out["rolled"] == 1
+    assert lead.meta_data["quiet_lead"] is True
+    assert "quiet_lead_at" in lead.meta_data
+    send.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sweep_no_rollover_when_opted_out_or_mid_ladder(monkeypatch):
+    opted = _lead({"form": "newsletter", "nurture_step": 99, "unsubscribed": True})
+    mid = _lead({"form": "newsletter", "nurture_step": 1})
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", AsyncMock())
+    out = await M.nurture_sweep(_db([opted, mid]), MagicMock())
+    assert out["rolled"] == 0
+    assert "quiet_lead" not in (opted.meta_data or {})
+    assert "quiet_lead" not in (mid.meta_data or {})
 
 
 @pytest.mark.asyncio

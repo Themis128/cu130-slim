@@ -14,10 +14,13 @@
   via `seed_content_templates.py` on next social-api boot.
 - Skill: `.devin/skills/pipeline-assets-ops` (+ .cursor mirror).
 - Website: cloudless.gr PR adds the €800 starter-package card on /services.
-- **Leftovers**: enrollment is manual per-lead — no auto-enroll trigger yet
-  (candidate: contact-form leads that open but don't book in 24h). The PDF's
-  sibling docs (Conversation Playbook v2, Sales Playbook, Audit Notes
-  worksheet) are not yet adopted — same Founders/3-11-2026 folder.
+- **Leftovers — resolved same session**: nurture-ladder completion now
+  auto-rolls leads into the quiet lane (no manual enrollment needed);
+  sibling docs adopted — Sales/Conversation playbook scripts + objection
+  handlers in the skill canon, `scripts/audit_worksheet.py` worksheet
+  generator, 14-day onboarding checklist documented, ImplKit autoresponder
+  copy replaced the nurture ladder (day 2 leak lesson / day 4 14-day clock
+  / day 14 closer).
 
 ## 2026-11-02 session 3 — media quality backfill (real pipeline) + Sofia scores
 
