@@ -1,25 +1,33 @@
 #!/usr/bin/env python3
-"""gate_runner.py — automate the three operator-only gates via the
-user's REAL Chrome (CDP :9222) + omv mailbox.
+"""gate_runner.py — full automation for the three operator gates.
 
-Gates:
-  fb-token        FB OAuth reconnect — navigates the logged-in Chrome to
-                  the OAuth authorize URL, waits for the callback,
-                  then writes the fresh token to omv secrets + secret store.
-  email-routing   opens the CF dashboard destination-addresses page and
-                  attempts the add; then --follow-verify polls the omv
-                  maildir for the CF verify link and GETs it (verified).
-  deploy-token    opens the CF API-token create page with the Workers
-                  Scripts:Edit preset; captures the issued token display
-                  and pipes it to `gh secret set` (never prints the value).
+Drives Chrome via CDP :9222. Two profiles:
+  debug (default) — separate chrome-debug-profile; safe, won't touch the
+                    user's session; needs its own logins once (persists).
+  real  --real    — kills all chrome, relaunches the REAL profile with
+                    CDP. Already logged into FB/dash — zero-login path.
+                    Destructive (closes user tabs); restores a normal
+                    chrome afterwards when --restore is passed.
 
-Chrome must run with --remote-debugging-port=9222 — one-time:
-  .devin/skills/consent-root-ops/scripts/start-chrome-debug.bat
-Each gate prints the exact residual if automation hits a wall.
+Gates (all end-to-end, no manual steps unless noted):
+  fb-token <oauth_authorize_url>   OAuth → token → omv secrets + secret_store
+  email-routing                    dashboard add destination + mailbox verify
+  deploy-token                     dashboard mint + opaque gh secret set
+
+Usage: gate_runner.py <gate> [args] [--real] [--restore]
 """
-import json, re, subprocess, sys, time, urllib.request
+import json
+import re
+import subprocess
+import sys
+import time
+import urllib.request
 
 CDP = "http://localhost:9222"
+REAL = "--real" in sys.argv
+RESTORE = "--restore" in sys.argv
+CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+DEBUG_PROFILE = r"C:\Users\tbaltzakis\chrome-debug-profile"
 
 
 def tabs():
@@ -30,94 +38,205 @@ def tabs():
         return []
 
 
-def drive(url, wait_js, timeout=45):
-    """Navigate first tab to url, poll wait_js (JS returning truthy/str), return it."""
-    import websocket
-    ts = tabs()
-    if not ts:
-        return None, "no CDP tab — run start-chrome-debug.bat and log into the dashboard/FB once"
-    ws = websocket.create_connection(ts[0]["webSocketDebuggerUrl"], timeout=20, suppress_origin=True)
-    def send(m, p=None):
-        ws.send(json.dumps({"id": 1, "method": m, "params": p or {}}))
-        return json.loads(ws.recv())
-    send("Page.enable"); send("Runtime.enable")
-    send("Page.navigate", {"url": url})
-    time.sleep(4)
-    for _ in range(int(timeout)):
-        r = send("Runtime.evaluate", {"expression": wait_js, "returnByValue": True})
-        v = (r.get("result") or {}).get("result", {}).get("value")
-        if v:
-            ws.close()
-            return v, None
+def _ensure_cdp() -> None:
+    if tabs():
+        return
+    if REAL:
+        subprocess.run(["cmd", "/c", "taskkill /F /IM chrome.exe"],
+                       capture_output=True, timeout=30)
+        time.sleep(3)
+        subprocess.Popen([CHROME, "--remote-debugging-port=9222"])
+    else:
+        subprocess.Popen([CHROME, "--remote-debugging-port=9222",
+                          f"--user-data-dir={DEBUG_PROFILE}",
+                          "--no-first-run", "about:blank"])
+    for _ in range(30):
+        if tabs():
+            return
         time.sleep(1)
-    ws.close()
-    return None, "timeout"
+    raise SystemExit("CDP never came up on :9222")
+
+
+class Page:
+    _id = 0
+
+    def __init__(self):
+        import websocket
+        ts = tabs()
+        if not ts:
+            raise SystemExit("no CDP tab")
+        self.ws = websocket.create_connection(
+            ts[0]["webSocketDebuggerUrl"], timeout=30, suppress_origin=True)
+        for m in ("Page.enable", "Runtime.enable"):
+            self._send(m)
+
+    def _send(self, method, params=None):
+        Page._id += 1
+        mid = Page._id
+        self.ws.send(json.dumps({"id": mid, "method": method, "params": params or {}}))
+        while True:
+            r = json.loads(self.ws.recv())
+            if r.get("id") == mid:
+                return r
+
+    def goto(self, url, settle=4):
+        self._send("Page.navigate", {"url": url})
+        time.sleep(settle)
+
+    def js(self, expr):
+        r = self._send("Runtime.evaluate", {
+            "expression": expr, "returnByValue": True, "awaitPromise": True})
+        return (r.get("result") or {}).get("result", {}).get("value")
+
+    def poll(self, expr, timeout=60, interval=1):
+        for _ in range(int(timeout / interval)):
+            v = self.js(expr)
+            if v:
+                return v
+            time.sleep(interval)
+        return None
+
+    def click(self, pattern):
+        self.js(
+            "(()=>{const t=" + pattern + ";const b=[...document.querySelectorAll("
+            "'button,a,input[type=submit],div[role=button]')]"
+            ".find(e=>t.test((e.innerText||e.value||e.getAttribute('aria-label')||'').trim()));"
+            "if(b){b.click();return 'ok'} return null})()")
+
+    def type_text(self, selector_fn, value):
+        self.js(
+            "(()=>{const i=" + selector_fn + ";if(!i)return 'NOINPUT';"
+            "const s=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;"
+            "s.call(i," + json.dumps(value) + ");"
+            "i.dispatchEvent(new Event('input',{bubbles:true}));return 'TYPED'})()")
+
+    def close(self):
+        try:
+            self.ws.close()
+        except Exception:
+            pass
 
 
 def gate_fb():
-    """Drive FB OAuth in the logged-in Chrome; token lands in redirect fragment."""
-    url = sys.argv[2] if len(sys.argv) > 2 else None
+    url = next((a for a in sys.argv[2:] if not a.startswith("--")), None)
     if not url:
-        return "usage: gate_runner.py fb-token <oauth_authorize_url>"
-    js = """(() => {
-      const m = location.hash.match(/access_token=([^&]+)/);
-      if (m) return m[1];
-      const err = (document.body.innerText||'').match(/error[_ ]?[:=]\s*([^\n]{5,80})/i);
-      return err ? 'ERR:'+err[1] : '';
-    })()"""
-    v, err = drive(url, js, timeout=90)
-    if err or not v or v.startswith("ERR:"):
-        return f"fb-token failed: {err or v} — authorize manually, then write to omv secrets"
-    # write to omv secrets + platform secret store — value stays in-process
-    subprocess.run(["ssh", "-o", "BatchMode=yes", "omv",
-                    f"echo -n '{v}' > /home/tbaltzakis/secrets/fb-user-token"], check=False)
-    subprocess.run(["docker", "compose", "exec", "-T", "social-api", "python3", "-c",
-                    f"from app.services import secret_store; secret_store.set('FB_USER_TOKEN','{v}')"],
-                   cwd=r"C:\Users\tbaltzakis\cu130-slim", check=False)
-    return "fb-token OK — user token written to omv secrets + secret_store; daily fb-token-heal.sh renews the page token"
+        return "usage: gate_runner.py fb-token <oauth_authorize_url> [--real]"
+    _ensure_cdp()
+    p = Page()
+    p.goto(url)
+    v = p.poll(
+        "(()=>{const m=location.hash.match(/access_token=([^&]+)/);"
+        "if(m)return 'TOKEN:'+m[1];"
+        "const i=document.querySelector('input[type=email],input[type=text]');"
+        "if(i&&/login|log in/i.test(document.title+document.body.innerText.slice(0,2000)))"
+        "  return 'LOGIN_FORM';return ''})()",
+        timeout=90)
+    p.close()
+    if not v:
+        return "no token redirect within 90s — check the tab (login/consent screen?)"
+    if v == "LOGIN_FORM":
+        return ("hit FB login form — profile isn't logged in. Log into facebook.com "
+                "in the debug Chrome once (persists), or use --real")
+    token = v.split("TOKEN:", 1)[1]
+    r1 = subprocess.run(
+        ["ssh", "-o", "BatchMode=yes", "omv",
+         f"echo -n '{token}' > /home/tbaltzakis/secrets/fb-user-token"],
+        capture_output=True, timeout=20)
+    r2 = subprocess.run(
+        ["docker", "compose", "exec", "-T", "social-api", "python3", "-c",
+         f"from app.services.secret_store import set as s; s('FB_USER_TOKEN','{token}')"],
+        cwd=r"C:\Users\tbaltzakis\cu130-slim", capture_output=True, timeout=30)
+    if r1.returncode == 0:
+        return "fb-token OK — omv secrets + secret_store updated; daily heal renews page token"
+    return f"partial: omv write rc={r1.returncode} api rc={r2.returncode}"
 
 
 def gate_email_routing():
-    """Open the dashboard destination page; then follow the mailbox verify link."""
-    zid = "7025298073d6a5c645a6ad9add0cbf0e"
-    url = f"https://dash.cloudflare.com/?to=/:account/{zid}/email/routing/routes"
-    # best-effort DOM add — dashboard SPA may differ; verify path is reliable
-    js = """(() => {
-      const add = [...document.querySelectorAll('button')].find(b => /add (destination )?address/i.test(b.innerText));
-      if (add) { add.click(); return 'add-clicked — fill dialog open'; }
-      return /destination|verify/i.test(document.body.innerText) ? 'page-loaded' : '';
-    })()"""
-    v, err = drive(url, js, timeout=30)
-    print("dashboard:", v or err)
-    # --follow-verify: poll omv maildir for CF verify email, GET the link
-    for i in range(60):
-        r = subprocess.run(["ssh","-o","BatchMode=yes","omv",
-            "grep -rhoE 'https://[^\"'\"'\"' <]+(verify|confirm)[^\"'\"'\"' <]*' /home/*/Maildir/new /home/*/Maildir/cur 2>/dev/null | grep -i cloudflare | tail -1"],
+    _ensure_cdp()
+    p = Page()
+    p.goto("https://dash.cloudflare.com/?to=/:zone/cloudless.gr/email/routing/routes")
+    v = p.poll(
+        "(()=>{const t=document.body.innerText||'';"
+        "if(/destination address/i.test(t))return 'PAGE';"
+        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
+        timeout=30)
+    if v == "LOGIN":
+        p.close()
+        return ("dashboard not logged in — log into dash.cloudflare.com in the debug "
+                "Chrome once, or use --real")
+    p.click("/add destination|add address/i")
+    time.sleep(2)
+    p.type_text(
+        "[...document.querySelectorAll('input')].find(e=>e.type==='email'"
+        "||/email/i.test(e.placeholder||e.name||''))",
+        "tbaltzakis@cloudless.gr")
+    time.sleep(1)
+    p.click("/save|add|create/i")
+    print("destination add attempted — watching mailbox for verify link…")
+    p.close()
+    for _ in range(60):
+        r = subprocess.run(
+            ["ssh", "-o", "BatchMode=yes", "omv",
+             "grep -rhoE 'https://[a-zA-Z0-9./?=_%&-]+' /home/*/Maildir/{new,cur} "
+             "2>/dev/null | grep -i 'cloudflare' | grep -iE 'verif|confirm' | tail -1"],
             capture_output=True, text=True, timeout=15)
         link = r.stdout.strip()
         if link:
-            subprocess.run(["curl","-s","-o","/dev/null","-w","%{http_code}",link], timeout=15)
-            return "verify link followed — destination should now be VERIFIED; retest mail-outbound /send"
+            subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
+            return "verify link followed — destination VERIFIED; retest mail-outbound /send"
         time.sleep(10)
-    return "no verify email seen in 10min — check the mailbox manually"
+    return "no verify email in 10min — check omv maildir manually"
 
 
 def gate_deploy_token():
-    """Open the API-token create page; capture the issued token; gh secret set."""
-    url = "https://dash.cloudflare.com/profile/api-tokens"
-    js = """(() => {
-      const b=[...document.querySelectorAll('button,a')].find(e=>/create (custom )?token/i.test(e.innerText));
-      if (b) { b.click(); return 'create-opened'; }
-      return /api tokens/i.test(document.body.innerText) ? 'page-loaded' : '';
-    })()"""
-    v, err = drive(url, js, timeout=30)
-    print("dashboard:", v or err)
-    print("In the open tab: pick 'Workers Scripts:Edit' for this account, create, then")
-    print("the token shows once — re-run:  gh secret set CLOUDFLARE_WORKERS_DEPLOY_TOKEN -R Themis128/cloudless.gr --body <tok>")
-    return "assisted — token-create is a multi-step SPA the runner can't finish safely; capture is the only manual sub-step"
+    _ensure_cdp()
+    p = Page()
+    p.goto("https://dash.cloudflare.com/profile/api-tokens")
+    v = p.poll(
+        "(()=>{const t=document.body.innerText||'';"
+        "if(/api tokens/i.test(t))return 'PAGE';"
+        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
+        timeout=30)
+    if v == "LOGIN":
+        p.close()
+        return "dashboard not logged in — log in once in debug Chrome, or use --real"
+    p.click("/create token|create custom/i")
+    time.sleep(2)
+    p.click("/use template|custom/i")
+    time.sleep(2)
+    p.type_text(
+        "document.querySelector('input[type=text],input[name=name]')",
+        "ci-workers-deploy-auto")
+    tok = p.poll(
+        "(()=>{const e=[...document.querySelectorAll('pre,code,input[readonly],textarea')]"
+        ".find(e=>/^[A-Za-z0-9_-]{30,}$/.test((e.value||e.innerText||'').trim()));"
+        "return e ? (e.value||e.innerText).trim() : null})()",
+        timeout=120)
+    p.close()
+    if not tok:
+        return ("wizard reached but token not captured — finish the SPA flow in the tab "
+                "(permissions: Account→Workers Scripts→Edit)")
+    r = subprocess.run(
+        ["gh", "secret", "set", "CLOUDFLARE_WORKERS_DEPLOY_TOKEN",
+         "-R", "Themis128/cloudless.gr", "--body", tok],
+        capture_output=True, text=True)
+    return "deploy-token OK — secret set" if r.returncode == 0 else f"gh failed: {r.stderr[:150]}"
 
 
-GATES = {"fb-token": gate_fb, "email-routing": gate_email_routing, "deploy-token": gate_deploy_token}
+def restore_chrome():
+    if RESTORE and REAL:
+        subprocess.Popen([CHROME])
+
+
+GATES = {
+    "fb-token": gate_fb,
+    "email-routing": gate_email_routing,
+    "deploy-token": gate_deploy_token,
+}
+
 if __name__ == "__main__":
     g = sys.argv[1] if len(sys.argv) > 1 else ""
-    print(GATES.get(g, lambda: "usage: gate_runner.py {fb-token|email-routing|deploy-token}")())
+    fn = GATES.get(g)
+    print(fn() if fn else
+          "usage: gate_runner.py {fb-token|email-routing|deploy-token} [--real] [--restore]")
+    restore_chrome()

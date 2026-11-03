@@ -1,28 +1,37 @@
 ---
 name: operator-gate-ops
-description: Automate the three residual operator-only gates via the user's real logged-in Chrome (CDP :9222) + omv mailbox — FB OAuth reconnect, Email Routing destination verify, and CLOUDFLARE_WORKERS_DEPLOY_TOKEN mint. Companion to consent-root-ops and cf-worker-bringup-ops. Use for "automate the manual steps", FB OAuth, Email Routing destination, deploy-token mint.
+description: Full automation for the three operator gates via Chrome CDP :9222 — FB OAuth token capture+write, Email Routing destination add + mailbox verify-link follow, and CLOUDFLARE_WORKERS_DEPLOY_TOKEN mint + opaque gh secret set. Use for "automate the manual steps", FB OAuth, Email Routing, deploy token.
 ---
 
 # operator-gate-ops
 
-Drives the user's real Chrome over CDP `:9222` (same mechanism as
-`consent-root-ops` — `scripts/start-chrome-debug.bat`, one-time +
-one login to Facebook/dashboard). `scripts/gate_runner.py <gate>`:
+`scripts/gate_runner.py <gate>` — end-to-end automation of the three
+gates that used to need a human, via Chrome CDP `:9222`.
 
-| Gate | Command | What it automates | True residual |
-|---|---|---|---|
-| FB OAuth | `gate_runner.py fb-token <authorize_url>` | navigates logged-in Chrome → captures `access_token` from redirect → writes omv `~/secrets/fb-user-token` + SocialAuto `secret_store` — daily `fb-token-heal.sh` + #1309 worker take over | none (needs FB logged-in in debug Chrome) |
-| Email Routing | `gate_runner.py email-routing` | opens destination-addresses dash, best-effort DOM add, then polls omv maildir for the CF verify link + GETs it → verified | dashboard DOM may need a manual "add" click if the SPA changed |
-| Deploy token | `gate_runner.py deploy-token` | opens the API-tokens page + pre-clicks Create; emits the `gh secret set` line | token is shown once — paste into the emitted `gh secret set` (2nd click can't be automated without exposing it) |
+## Profiles
+
+- **debug (default)** — `chrome-debug-profile`; safe, own logins (persist).
+  One-time: open facebook.com + dash.cloudflare.com in it and log in.
+- **--real** — kills all chrome and relaunches the REAL profile with CDP.
+  Already logged in everywhere — zero-login path. Destructive (closes
+  user tabs); `--restore` relaunches a normal chrome after.
+
+## Gates
+
+| Gate | Command | Fully automated path |
+|---|---|---|
+| FB token | `gate_runner.py fb-token <oauth_authorize_url>` | Chrome auto-launches → OAuth authorize → token captured from redirect → written to omv `~/secrets/fb-user-token` + SocialAuto `secret_store`. Daily `fb-token-heal.sh` + `facebook_token_check` take over. |
+| Email Routing | `gate_runner.py email-routing` | Dashboard DOM: add destination `tbaltzakis@cloudless.gr` → polls omv maildir for the CF verify link → GETs it → verified. Retest `/send`. |
+| Deploy token | `gate_runner.py deploy-token` | Dashboard wizard: create `ci-workers-deploy-auto` → captures the shown-once token from DOM → `gh secret set` opaquely (never printed). If the SPA wizard stalls mid-flow it reports the exact point. |
 
 ## After each gate
 
-- FB: `docker compose exec -T social-api python3 -c "from app.services.secret_store import get; print(bool(get('FB_USER_TOKEN')))"`; page token self-renews next 8:30 cron.
-- Email Routing: retest `mail-outbound /send` (`{"ok":true}` = live; still fails on arbitrary recipients → Resend stays primary).
-- Deploy token: `gh workflow run cloudflare-deploy.yml` goes green.
+- FB: Accounts are healthy; `facebook_token_check` (6h beat) alerts if a
+  token drifts again.
+- Email: `POST /send` returns `{"ok":true}` when live.
+- Deploy: next `cloudflare-deploy.yml` run goes green.
 
 ## Related
 
-- `consent-root-ops` — the CDP mechanism + Chrome-debug launcher
+- `consent-root-ops` — the CDP mechanism + debug-profile launcher
 - `cf-worker-bringup-ops` — the API-side probes these gates unlock
-- `mail-code-fetch` — mailbox code/link polling (used by the verify follower)
