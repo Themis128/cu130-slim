@@ -268,3 +268,5 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
             stats["skipped"] += 1
     await db.commit()
     return stats
+
+# ci: retrigger

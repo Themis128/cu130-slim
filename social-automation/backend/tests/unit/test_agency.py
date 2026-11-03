@@ -504,7 +504,7 @@ def test_influence_stage_progression():
 def test_nurture_steps_sequential():
     from app.services.nurture_sequence import STEPS
 
-    assert [s["day"] for s in STEPS] == [3, 7, 14]
+    assert [s["day"] for s in STEPS] == [2, 4, 14]
     assert all(s["subject"] and "{name}" in s["body"] for s in STEPS)
 
 
@@ -519,9 +519,9 @@ def test_nurture_due_step_logic():
         lead.created_at = _dt.datetime.now(_dt.UTC) - _dt.timedelta(days=days_old)
         return lead
 
-    assert _due_step(mk(1)) is None  # too early for day-3
-    assert _due_step(mk(4))["key"] == "value"  # step 1 due
-    assert _due_step(mk(9, {"form": "newsletter", "nurture_step": 1}))["key"] == "audit_cta"
+    assert _due_step(mk(1)) is None  # too early for day-2
+    assert _due_step(mk(4))["key"] == "leak_lesson"  # step 1 due
+    assert _due_step(mk(9, {"form": "newsletter", "nurture_step": 1}))["key"] == "fourteen_day_clock"
     assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 2}))["key"] == "offer"
     assert _due_step(mk(20, {"form": "newsletter", "nurture_step": 3})) is None  # done
     assert _due_step(mk(20, {"form": "newsletter", "unsubscribed": True})) is None
