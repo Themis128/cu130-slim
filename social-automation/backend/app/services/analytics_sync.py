@@ -2954,7 +2954,6 @@ async def sync_telegram_channel_metrics(
     return result
 
 
-
 async def sync_bluesky_account(db: AsyncSession, account: SocialAccount) -> SyncResult:
     """Bluesky analytics sync.
 
@@ -2978,6 +2977,7 @@ async def sync_bluesky_account(db: AsyncSession, account: SocialAccount) -> Sync
         result.skipped += 1
         result.errors.append(f"bluesky sync: {str(exc)[:150]}")
     return result
+
 
 async def sync_team_analytics(
     db: AsyncSession,
