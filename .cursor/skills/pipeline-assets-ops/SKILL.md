@@ -138,3 +138,24 @@ final 50% invoice, transfer 100% ownership on cleared invoice.
 - **Copy rule:** plain English only — "fix slow daily tasks and high
   software bills", never "optimized end-to-end infrastructure". Same rule
   the content-quality gate (content-quality-ops) enforces.
+
+## Source frameworks (Sofia Kakkava Coaching — day1 sessions)
+
+The day2 assets instantiate these coaching frameworks — validate any
+generated offer/LOA/pitch against them:
+
+- **30-second sales pitch template:** "For [buyer] who needs [result], I
+  recommend [offer]. It includes [key scope], delivered [timing]. The
+  price is [amount and terms]. To proceed, [exact next step]."
+  Self-check: can the buyer recognise their need? is the scope specific?
+  is the price clear? can they act immediately? (The manifest's audit-call
+  close script IS this template filled in.)
+- **Complete-offer spec** (QA checklist for LOA + /audit + pricing copy):
+  3-5 specific outcomes · delivery format & timing (method) · what the
+  buyer must supply → commitment · one important exclusion · one factual
+  reason to choose us. Our instance: outcomes = fast site + secure hosting
+  + hands-free leads; timing = 14 days; commitment = copy/logos on Day 1;
+  exclusion = ongoing retainer (none — ownership is yours); reason = flat
+  €800 fixed scope, not hourly agency pricing.
+- **Positioning statement:** "For [buyer] who needs [result], [offer]
+  provides [specific solution]. Why choose it? [one factual difference.]"
