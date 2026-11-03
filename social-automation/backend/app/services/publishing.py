@@ -1657,6 +1657,15 @@ async def _publish_linkedin_via_sidecar(
     Supports text, image (single or multi), and link posts.
     Falls back to the official LinkedIn API if the sidecar fails.
     """
+    # Video/PDF are not supported by the sidecar — it would silently drop
+    # them and post text-only (broken media). Decline so the caller falls
+    # through to the API path, which has dedicated video/document uploads.
+    if any(p.lower().endswith((".mp4", ".mov", ".webm", ".avi", ".mkv", ".pdf")) for p in media_paths):
+        return PublishResult(
+            success=False,
+            error="LinkedIn sidecar supports text/image/link posts only — routing video/PDF to the API",
+        )
+
     meta = account.meta_data or {}
     storage = meta.get("browser_storage_state")
     if not storage:

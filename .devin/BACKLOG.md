@@ -364,3 +364,10 @@ Left:
 - [x] Site PR #2364 merged (coverage fix + 8 Sentry findings fixed incl. server-side consent gate); /en/consultation live (200)
 - [x] Book-audit CTAs flipped to /en/consultation — PR #1312 (auto-merge armed)
 - [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
+
+## Ops automation (2026-11-03, PR pending)
+
+- [x] publishing.py: LinkedIn sidecar declines video/PDF media (was silently posting text-only — cert incident root cause) + tests
+- [x] scripts/stack_ops_rescue.py: stack-ops Exited -> restart -> port-squatter ID + Slack alert
+- [x] scripts/pr_babysit.py: open-PR loop — resolve Sentry auto-fixed threads, update BEHIND branches, arm auto-merge on green
+- [ ] schtasks registration for both scripts on OFFICE host
