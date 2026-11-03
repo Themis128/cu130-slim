@@ -11,6 +11,8 @@ import pytest
 
 from app.services import email_digest as ed
 
+pytestmark = pytest.mark.asyncio
+
 
 def _settings(**over):
     base = dict(
@@ -110,7 +112,14 @@ async def test_disabled_never_calls_worker(monkeypatch, smtp_calls):
     assert len(smtp_calls) == 1
 
 
-@pytest.mark.parametrize("kwargs", [{"attachments": [{"filename": "x.pdf", "content": "Zg=="}]}, {"extra_headers": {"List-Unsubscribe": "<mailto:unsub@x>"}}], ids=["attachments", "extra_headers"])
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"attachments": [{"filename": "x.pdf", "content": "Zg=="}]},
+        {"extra_headers": {"List-Unsubscribe": "<mailto:unsub@x>"}},
+    ],
+    ids=["attachments", "extra_headers"],
+)
 async def test_worker_bypass_kwargs(monkeypatch, smtp_calls, kwargs):
     calls = []
     monkeypatch.setattr(ed, "get_settings", lambda: _settings())
