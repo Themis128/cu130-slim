@@ -283,3 +283,12 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 - **LinkedIn @baltzakis.themis personal**: 1 sync error — expected member_postAnalytics scope gap (documented); no action.
 - **"Book a free audit" chat lead (2026-11-02 15:37, IP 9.246.61.72)**: NOT captured into EspoCRM — visitor left no contact details (Talk visitor chat only). Needs a reply inside the chat channel while it's live; CRM loop can't capture anonymous chats — consider adding an email field prompt to the widget.
 - **Watchdog flap continued into 06:39-06:41Z** — WSL vsock still degrading; `wsl --shutdown` recommended at next maintenance window.
+
+## 2026-11-03 — megaplan findings
+
+- **UTM/CRM-loop gap (real)**: last 14d — 55 published posts, only 6 carry a cloudless CTA and only 1 has `utm_source=`. The post generator doesn't append CTAs consistently and doesn't UTM-tag them. Fix = CTA injection + UTM stamping in the copy pipeline (PLATFORM_GUIDES CTA + campaign slug per post).
+- **Chat lead capture**: shipped cloudless.gr PR #2361 — visitor emails → EspoCRM lead_source=chat.
+- **Follower-guard**: small-account >50% drop check shipped (PR #1295); live audit showed FB personal (~66) vs page (~2) are two legit accounts, no poisoned rows.
+- **Watchdog dedup exists** (per-incident) — the overnight flood was real flapping, fixed via docker-socket-watch + WSL recycle.
+- **Trend-grounding**: shipped PR #1296 — niche-filtered Google Trends signal cited in copy+media prompts.
+- **Test EspoCRM lead** `6ae9e83353e2` ('verify devin-verify') — delete when convenient (PUT cleanup 404'd).
