@@ -87,7 +87,34 @@ def _write_env(token: str) -> None:
     DOTENV.write_text("\n".join(out) + "\n")
 
 
+def _ensure_chrome_debug() -> None:
+    """Launch Chrome with --remote-debugging-port=9222 if the CDP endpoint is dead."""
+    try:
+        urllib.request.urlopen("http://localhost:9222/json", timeout=2)
+        return
+    except OSError:
+        pass
+    import subprocess
+    chrome = os.environ.get("CHROME_BIN", r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+    bat = Path.home() / "AppData" / "Roaming" / "devin" / "skills" / "consent-root-ops" / "scripts" / "start-chrome-debug.bat"
+    try:
+        if bat.exists():
+            subprocess.Popen(["cmd", "/c", str(bat)])
+        else:
+            subprocess.Popen([chrome, "--remote-debugging-port=9222"])
+        for _ in range(10):
+            time.sleep(1)
+            try:
+                urllib.request.urlopen("http://localhost:9222/json", timeout=2)
+                return
+            except OSError:
+                continue
+    except OSError:
+        return
+
+
 def _cdp_click_flow() -> str | None:
+
     """Best-effort: drive live Chrome via CDP to create the token. Returns the token or None."""
     try:
         import websocket  # type: ignore
@@ -169,7 +196,7 @@ def main() -> int:
     print(f"[ok ] CLOUDFLARE_API_TOKEN written to {DOTENV}")
 
     print("\n--- chaining gate tools ---")
-    for script in ("cf_email_destination.py", "cf_logpush_setup.py"):
+    for script in ("cf_email_destination.py", "cf_maildir_scan.py", "cf_logpush_setup.py"):
         p = HERE / script
         if p.exists():
             print(f"\n$ python {script}")

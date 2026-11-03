@@ -82,16 +82,15 @@ def main() -> int:
     say("token-verify", True, "valid")
 
     key_id, secret = _env("R2_ACCESS_KEY_ID"), _env("R2_SECRET_ACCESS_KEY")
-    if not (key_id and secret):
-        say("r2-creds", False, "R2_ACCESS_KEY_ID/SECRET not in env",
-            "dash -> R2 -> Manage R2 API Tokens -> create S3 token, add both to .env, re-run")
-        return _report(rows, args.json)
-    say("r2-creds", True, "present")
-
-    dest = (
-        f"r2://cloudless-datalake/worker-logs/{{DATE}}?account-id={account}"
-        f"&access-key-id={key_id}&secret-access-key={secret}"
-    )
+    if key_id and secret:
+        say("r2-creds", True, "S3 keys present")
+        dest = (
+            f"r2://cloudless-datalake/worker-logs/{{DATE}}?account-id={account}"
+            f"&access-key-id={key_id}&secret-access-key={secret}"
+        )
+    else:
+        say("r2-creds", True, "no S3 keys - trying managed R2 conf (account-id only)")
+        dest = f"r2://cloudless-datalake/worker-logs/{{DATE}}?account-id={account}"
     jobs = _api("GET", f"/accounts/{account}/logpush/jobs", token)
     existing = [j for j in (jobs.get("result") or []) if j.get("dataset") == "workers_trace_events" and j.get("enabled")]
     if existing:
