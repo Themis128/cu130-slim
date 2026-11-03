@@ -177,7 +177,7 @@ def gate_email_routing():
     for _ in range(60):
         r = subprocess.run(
             ["ssh", "-o", "BatchMode=yes", "omv",
-             "grep -rhoE 'https://[a-zA-Z0-9./?=_%&-]+' /home/*/Maildir/{new,cur} "
+             "grep -rhoE 'https://[a-zA-Z0-9./?=_%&-]+' /var/mail/vhosts/cloudless.gr/*/new /var/mail/vhosts/cloudless.gr/*/cur "
              "2>/dev/null | grep -i 'cloudflare' | grep -iE 'verif|confirm' | tail -1"],
             capture_output=True, text=True, timeout=15)
         link = r.stdout.strip()
