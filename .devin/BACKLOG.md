@@ -371,3 +371,8 @@ Left:
 - [x] scripts/stack_ops_rescue.py: stack-ops Exited -> restart -> port-squatter ID + Slack alert
 - [x] scripts/pr_babysit.py: open-PR loop — resolve Sentry auto-fixed threads, update BEHIND branches, arm auto-merge on green
 - [ ] schtasks registration for both scripts on OFFICE host
+
+## Ops automation round 2 (2026-11-03)
+
+- [x] scripts/social_post.py: file -> media convert -> upload -> post -> publish -> poll, in-container one-liner
+- [x] pr_babysit.py: Slack digest of new unresolved review findings (deduped state in logs/pr-findings-state.json)
