@@ -328,3 +328,23 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 - **Watchdog dedup exists** (per-incident) — the overnight flood was real flapping, fixed via docker-socket-watch + WSL recycle.
 - **Trend-grounding**: shipped PR #1296 — niche-filtered Google Trends signal cited in copy+media prompts.
 - **Test EspoCRM lead** `6ae9e83353e2` ('verify devin-verify') — delete when convenient (PUT cleanup 404'd).
+
+## 2026-11-03 — feat/screen-drive-ops stale-merge cleanup
+
+- Branch was mid-merge of master into the already-merged, upstream-deleted
+  `feat/screen-drive-ops`. Resolved 3 conflicts (compose=ours+theirs verified,
+  monitor.js=ours for `lastNews` semantics, ai_functions.py=whitespace) and
+  committed locally as `296e65b0` — **local only, never push this branch**.
+- Reverted to index: duplicate of open PR #1302 (`_cf_shadow_call` in
+  leads.py/nurture_sequence.py + tests — remote branch is 7x more complete)
+  and an accidental eslint downgrade in package.json/lock.
+- Rescued the only real local work → PR #1303 (vitest localStorage mock).
+- **Leftover (master-side hygiene PR candidate)**: these are committed on
+  master but misplaced — `.devin/chrome-launch-ops/` (byte-identical dup of
+  `.devin/skills/chrome-launch-ops/`), `.devin/skills/wsl-docker-doctor/scripts/
+  SKILL.md` (belongs at skill root; content differs from top SKILL.md — merge
+  unique bits before deleting), `.devin/triggers/restart-chrome.flag`
+  (machine state committed to repo).
+- **Watch master**: `COMFYUI_URL=http://172.20.0.230:8000` hardcoded in
+  compose bypasses the stack-ops wake proxy — comfyui sleeps → workers can't
+  wake it. Verify whether the pinned-IP change was intentional.
