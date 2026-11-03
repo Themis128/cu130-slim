@@ -170,7 +170,13 @@ async def _generate_copy(
     guide = PLATFORM_GUIDES.get(action.platform, PLATFORM_GUIDES["linkedin"])
     brand_section = f"\n\nBRAND CONTEXT:\n{brand_ctx}\n" if brand_ctx else ""
 
+    # Trend-driven media rule: cite a live niche-filtered signal when one
+    # exists — never fabricated, never forced (empty when the feed has no
+    # qualified signal or is unreachable).
+    from app.services.trend_context import trend_line
+
     prompt = f"""Write a {action.platform} post based on this instruction: "{action.instruction}"
+{trend_line()}
 {brand_section}
 Platform guidelines: {guide}
 Tone: professional
@@ -219,8 +225,15 @@ async def _generate_media(db: AsyncSession, team: Team, user_id, action: Monetiz
     brand banner (PIL, always succeeds). Returns a MediaAsset id or None."""
     from app.services.media_ai import expand_visual_prompt
     from app.services.media_storage import persist_generated_image
+    from app.services.trend_context import top_relevant_signal
 
-    prompt = await expand_visual_prompt(action.instruction, media_type="image")
+    signal = top_relevant_signal()
+    media_instruction = (
+        f"{action.instruction} — visual theme may draw on the live trend signal: {signal}"
+        if signal
+        else action.instruction
+    )
+    prompt = await expand_visual_prompt(media_instruction, media_type="image")
 
     png: bytes | None = None
     try:  # local GPU first
