@@ -386,6 +386,49 @@ async def send_email_cloudflare_verified(
         ) from smtp_exc
 
 
+async def send_email_mail_outbound(
+    *,
+    subject: str,
+    text_body: str,
+    html_body: str,
+    to_addrs: list[str],
+    category: str,
+    reply_to: str | None = None,
+    from_name: str | None = None,
+) -> None:
+    """POST to the mail-outbound CF worker (send_email binding).
+
+    One call per recipient — the worker accepts a single `to`. Raises on any
+    transport/HTTP/validation failure; the caller falls back to the normal
+    provider so this lane is strictly additive.
+    """
+    settings = get_settings()
+    url = (settings.MAIL_OUTBOUND_URL or "").strip()
+    token = (settings.MAIL_OUTBOUND_TOKEN or "").strip()
+    from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
+    if not url or not token:
+        raise RuntimeError("mail-outbound needs MAIL_OUTBOUND_URL + MAIL_OUTBOUND_TOKEN")
+
+    sender = f"{from_name or 'SocialAuto'} <{from_addr}>"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        for to in to_addrs:
+            resp = await client.post(
+                url,
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "to": to,
+                    "subject": subject,
+                    "text": text_body,
+                    "html": html_body,
+                    "from": sender,
+                    "category": category,
+                    **({"replyTo": reply_to} if reply_to else {}),
+                },
+            )
+            if resp.status_code >= 300:
+                raise RuntimeError(f"mail-outbound HTTP {resp.status_code}: {resp.text[:200]}")
+
+
 async def send_email(
     *,
     subject: str,
@@ -396,6 +439,7 @@ async def send_email(
     extra_headers: dict[str, str] | None = None,
     reply_to: str | None = None,
     from_name: str | None = None,
+    category: str = "ops-alert",
 ) -> None:
     settings = get_settings()
     html = html_body or f"<pre>{_html_escape(text_body)}</pre>"
@@ -408,6 +452,23 @@ async def send_email(
         if not to_addrs:
             logger.info("send_email suppressed — all recipients match EMAIL_SUPPRESS_ADDR_PATTERNS")
             return
+
+    # mail-outbound worker lane: preferred-but-optional. Attachments force the
+    # classic path (the worker's /send contract carries no attachments).
+    if settings.CF_EMAIL_ENABLED and not attachments:
+        try:
+            await send_email_mail_outbound(
+                subject=subject,
+                text_body=text_body,
+                html_body=html,
+                to_addrs=to_addrs or _recipients(settings),
+                category=category,
+                reply_to=reply_to,
+                from_name=from_name,
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mail-outbound lane failed (%s) — falling back to %s", exc, provider)
 
     if provider in {"cloudflare", "cf"}:
         # The REST API carries no attachments — SMTP submit (its built-in
