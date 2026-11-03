@@ -156,14 +156,27 @@ def _dash_sso_login(p):
     live Google session, so this is click-through, no credentials needed."""
     p.click("/google/i")
     time.sleep(6)
+    # pick the Google account — JS click first, trusted Input click as fallback
     p.js(
         "(()=>{const e=[...document.querySelectorAll('div[role=link],li,div')]"
         ".find(e=>/@/.test(e.innerText||'')&&e.innerText.length<120);"
         "if(e){e.click();return 'picked'} return null})()")
-    time.sleep(8)
-    return p.js(
+    time.sleep(5)
+    if "accountchooser" in (p.js("location.href") or ""):
+        box = p.js(
+            "(()=>{const e=[...document.querySelectorAll('[data-identifier],[role=listitem],li,div')]"
+            ".find(e=>/@/.test(e.innerText||'')&&e.innerText.length<120);"
+            "if(!e)return null;const r=e.getBoundingClientRect();"
+            "return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()")
+        if box:
+            c = json.loads(box)
+            for et in ("mousePressed", "mouseReleased"):
+                p._send("Input.dispatchMouseEvent", {"type": et, "x": c["x"], "y": c["y"],
+                        "button": "left", "clickCount": 1})
+    return "IN" if p.poll(
         "(()=>{const t=document.body.innerText||'';"
-        "return /api tokens|destination|account home|cloudless/i.test(t) ? 'IN' : 'OUT'})()")
+        "return /api tokens|destination|account home|cloudless/i.test(t) ? 'IN' : null})()",
+        timeout=45) else "OUT"
 
 
 def _dash_ready(p, want):
