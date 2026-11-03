@@ -27,6 +27,7 @@ celery_app = Celery(
         "app.worker.tasks.token_refresh",
         "app.worker.tasks.recurring",
         "app.worker.tasks.instagram_session_check",
+        "app.worker.tasks.facebook_token_check",
         "app.worker.tasks.account_status_reconcile",
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.personal_messenger",
@@ -256,6 +257,7 @@ celery_app.conf.update(
         "app.worker.tasks.publishing.cleanup_publish_queue": {"queue": "default"},
         "app.worker.tasks.publishing.requeue_capacity_stuck_x_targets": {"queue": "default"},
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
+        "app.worker.tasks.facebook_token_check.check_facebook_tokens": {"queue": "default"},
         "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
@@ -596,6 +598,11 @@ celery_app.conf.update(
             "schedule": crontab(minute="15,45"),
         },
         # Daily Ombudsman complaint-status poll → Telegram on change
+        # FB/Threads Graph token health — alert on expiry/7-day horizon (P2)
+        "facebook-token-check": {
+            "task": "app.worker.tasks.facebook_token_check.check_facebook_tokens",
+            "schedule": crontab(minute=5, hour="*/6"),
+        },
         "synigoros-status": {
             "task": "app.worker.tasks.synigoros_status.poll_synigoros",
             "schedule": crontab(hour=7, minute=30),
