@@ -17,6 +17,7 @@ from app.db.session import get_db
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.models.user import User
 from app.services.leads import coerce_company_size, coerce_interest, create_lead
+from app.services.nurture_sequence import _cf_shadow_call
 from app.services.playbook_email import deliver_playbook, playbook_url
 
 router = APIRouter()
@@ -217,6 +218,10 @@ async def create_lead_public(
     )
 
     delivery = await deliver_playbook(db, lead, email, already_sent=already_sent, settings=settings)
+    await _cf_shadow_call(
+        "FUNNEL_EVENTS_URL", "FUNNEL_EVENTS_TOKEN", "/event",
+        {"type": "lead.created", "payload": {"lead_id": str(lead.id), "form": meta.get("form")}},
+    )
 
     return {"ok": True, "playbook_delivery": delivery, "playbook_url": url or None}
 
