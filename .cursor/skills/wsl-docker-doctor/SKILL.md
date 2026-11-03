@@ -31,3 +31,30 @@ Key facts: the Windows watchdog at
 same classes on a 5-min schedule with Telegram alerts — prefer letting
 it run; use this tool for diagnosis and the L4 step it deliberately
 won't take.
+
+
+## IDE-stability layer (2026-11-03 — Devin/Zcode sessions)
+
+Failure classes fixed: `UtilAcceptVsock accept4 failed 110` (vsock decay →
+dead interop + dead docker socket), VM idle-shutdown killing IDE sessions,
+vmmemWSL pinning starving the host.
+
+- **`.wslconfig`**: `vmIdleTimeout=-1` added (never idle) +
+  `autoMemoryReclaim=dropCache` retained (10-07 test: beats `gradual` under
+  host pressure — do NOT flip back). memory=16GB / swap=16GB / procs=8.
+  **Do not enable `networkingMode=mirrored`** — tested 2026-09-26, broke
+  Docker Desktop host port-forwarding (backup-20260926-mirrored).
+- **`docker-socket-watch` Scheduled Task (Windows, every 2 min)**:
+  `wsl -d Ubuntu-26.04 -e docker info || wsl -t docker-desktop` — surgical
+  recycle restores the socket in ~45s WITHOUT killing the Ubuntu/IDE
+  distro. Log: `%USERPROFILE%\docker-socket-watch.log`.
+- **`wsl-recycle-watch` Scheduled Task (every 5 min)**: fires
+  `wsl --shutdown` when `%USERPROFILE%\wsl-shutdown.flag` exists — the
+  full-recycle path when surgical isn't enough (`manual-gates-ops` tool
+  `wsl_recycle.py` drops the flag + tries schtasks directly).
+- Surgical vs full: `wsl -t docker-desktop` first (IDE survives); full
+  shutdown only via the flag watcher — never from inside WSL mid-session.
+- WSL 3.0.4.0 = latest (wsl --update no-op) — vsock flakiness is the
+  residual known-flaky layer; config + self-heal is the mitigation.
+- Docker settings-store: IntegratedWslDistros must include Ubuntu-26.04
+  (verified); AutoStart + WslEngineEnabled on.
