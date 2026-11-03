@@ -151,19 +151,39 @@ def gate_fb():
     return f"partial: omv write rc={r1.returncode} api rc={r2.returncode}"
 
 
+def _dash_sso_login(p):
+    """Google-SSO login on the CF sign-in page — the debug profile keeps a
+    live Google session, so this is click-through, no credentials needed."""
+    p.click("/google/i")
+    time.sleep(6)
+    p.js(
+        "(()=>{const e=[...document.querySelectorAll('div[role=link],li,div')]"
+        ".find(e=>/@/.test(e.innerText||'')&&e.innerText.length<120);"
+        "if(e){e.click();return 'picked'} return null})()")
+    time.sleep(8)
+    return p.js(
+        "(()=>{const t=document.body.innerText||'';"
+        "return /api tokens|destination|account home|cloudless/i.test(t) ? 'IN' : 'OUT'})()")
+
+
+def _dash_ready(p, want):
+    v = p.poll(
+        "(()=>{const t=document.body.innerText||'';"
+        "if(/" + want + "/i.test(t))return 'PAGE';"
+        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
+        timeout=30)
+    if v != "LOGIN":
+        return True
+    return _dash_sso_login(p) == "IN"
+
+
 def gate_email_routing():
     _ensure_cdp()
     p = Page()
     p.goto("https://dash.cloudflare.com/?to=/:zone/cloudless.gr/email/routing/routes")
-    v = p.poll(
-        "(()=>{const t=document.body.innerText||'';"
-        "if(/destination address/i.test(t))return 'PAGE';"
-        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
-        timeout=30)
-    if v == "LOGIN":
+    if not _dash_ready(p, "destination address"):
         p.close()
-        return ("dashboard not logged in — log into dash.cloudflare.com in the debug "
-                "Chrome once, or use --real")
+        return "dash login failed even after Google SSO — use --real"
     p.click("/add destination|add address/i")
     time.sleep(2)
     p.type_text(
@@ -192,14 +212,9 @@ def gate_deploy_token():
     _ensure_cdp()
     p = Page()
     p.goto("https://dash.cloudflare.com/profile/api-tokens")
-    v = p.poll(
-        "(()=>{const t=document.body.innerText||'';"
-        "if(/api tokens/i.test(t))return 'PAGE';"
-        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
-        timeout=30)
-    if v == "LOGIN":
+    if not _dash_ready(p, "api tokens"):
         p.close()
-        return "dashboard not logged in — log in once in debug Chrome, or use --real"
+        return "dash login failed even after Google SSO — use --real"
     p.click("/create token|create custom/i")
     time.sleep(2)
     p.click("/use template|custom/i")
