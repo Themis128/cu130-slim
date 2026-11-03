@@ -116,6 +116,7 @@ async function notify(text) {
     if (g && g.newSubjects.length) {
       await notify(`📨 Νέο email από Συνήγορο του Πολίτη!\n${g.newSubjects.map(s => '• ' + s).join('\n')}\n\nΗ κατάσταση της αναφοράς πιθανόν άλλαξε — έλεγξε το Gmail.`);
       log(`NEW MAIL: ${g.newSubjects.join(' | ')}`);
+      prev = { ...(prev || {}), lastNews: new Date().toISOString() };
     }
     if (g) prev = { ...(prev || {}), mailId: g.mailId, lastNews: new Date().toISOString() };
   } catch (e) { log('gmail check skip: ' + e.message); }
