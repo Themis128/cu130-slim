@@ -24,14 +24,19 @@ instead of the nurture ladder.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.models.lead import Lead
+
+logger = logging.getLogger(__name__)
 
 NURTURE_FORMS = ("newsletter", "free-audit")
 
@@ -209,6 +214,21 @@ DM_SAFETY_VALVE: str = (
 )
 
 
+
+async def _cf_shadow_call(url_env: str, token_env: str, path: str, payload: dict) -> None:
+    """Fire-and-forget CF worker call — never raises, skipped when env unset."""
+    s = get_settings()
+    base = (getattr(s, url_env, "") or "").strip()
+    token = (getattr(s, token_env, "") or "").strip()
+    if not base or not token:
+        return
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            await c.post(base.rstrip("/") + path, json=payload, headers={"Authorization": f"Bearer {token}"})
+    except Exception as exc:  # pragma: no cover - network dependent
+        logger.warning("cf shadow call %s failed: %s", path, exc)
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -295,6 +315,10 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
             lead.meta_data = meta
             quiet = True
             stats["rolled"] += 1
+            await _cf_shadow_call(
+                "LEAD_SCHEDULER_URL", "LEAD_SCHEDULER_TOKEN",
+                f"/do/followup/{lead.id}/enroll", {"email": lead.email, "name": lead.name},
+            )
         if not quiet and meta.get("form") not in NURTURE_FORMS:
             continue
         stats["scanned"] += 1
@@ -310,6 +334,10 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
                     "quiet_lead_at": _now().isoformat(),
                 }
                 stats["rolled"] += 1
+                await _cf_shadow_call(
+                    "LEAD_SCHEDULER_URL", "LEAD_SCHEDULER_TOKEN",
+                    f"/do/followup/{lead.id}/enroll", {"email": lead.email, "name": lead.name},
+                )
             stats["skipped"] += 1
             continue
         name = (lead.name or "there").split()[0]
