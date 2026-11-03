@@ -1,5 +1,41 @@
 # BACKLOG (living)
 
+## 2026-11-03 — Pipeline Optimization Toolkit adopted (Founders 3-11-2026)
+
+- **Asset 1 — LOA**: `scripts/letter_of_agreement.py` renders the 1-page
+  €800/14-day Web+Hosting+Automation agreement (reportlab PDF + markdown).
+- **Asset 2 — quiet-lead follow-up**: `QUIET_STEPS` lane in
+  `nurture_sequence.py` (24h nudge → 3d pain → 7d clean break; age from
+  `meta_data.quiet_lead_at`, supersedes the nurture ladder). Enroll/status/
+  unenroll via `scripts/quiet_lead_followup.py`; daily `nurture-sweep` beat
+  delivers touches.
+- **Asset 3 — newsletter framework**: 3 seeded content_prompt_templates
+  (Cost Horror Story / 14-Day Transformation / DIY Audit Checklist) — apply
+  via `seed_content_templates.py` on next social-api boot.
+- Skill: `.devin/skills/pipeline-assets-ops` (+ .cursor mirror).
+- Website: cloudless.gr PR adds the €800 starter-package card on /services.
+- **Leftovers — resolved same session**: nurture-ladder completion now
+  auto-rolls leads into the quiet lane (no manual enrollment needed);
+  sibling docs adopted — Sales/Conversation playbook scripts + objection
+  handlers in the skill canon, `scripts/audit_worksheet.py` worksheet
+  generator, 14-day onboarding checklist documented, ImplKit autoresponder
+  copy replaced the nurture ladder (day 2 leak lesson / day 4 14-day clock
+  / day 14 closer).
+- **Agent Manifest + day1 frameworks adopted**: `/audit` landing page +
+  3-field booking form on cloudless.gr (PR #2362, POST /api/audit →
+  leads/public `form=audit-request`); LOA template bumped to manifest v2;
+  Sofia coaching canon (30-sec pitch, complete-offer spec, positioning
+  statement) in the skill as the offer-QA rubric.
+- **Quiet-lane auto-cohort**: `QUIET_AUTO_FORMS=("audit-request",)` —
+  /audit leads skip the ladder and enter the quiet lane stamped at lead
+  creation, so the 24h nudge fires one day after they ask for the checkup.
+- **Funnel liveness gates closed**: `scripts/pipeline_gap_doctor.py`
+  (team-id discovery / audit-endpoint probe / db-env drift check —
+  secrets never printed). Set `CLOUDLESS_WEB_ANALYTICS_TEAM_ID` to the
+  public-leads team (was empty in .env; now in all worker/beat/api
+  containers); DATABASE_URL password realigned to social-postgres;
+  `social.cloudless.gr` verified live as the /api/audit upstream default.
+
 ## 2026-11-02 session 3 — media quality backfill (real pipeline) + Sofia scores
 
 **Done:**

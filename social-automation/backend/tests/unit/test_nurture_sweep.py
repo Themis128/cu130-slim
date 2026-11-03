@@ -33,7 +33,7 @@ async def test_sweep_sends(monkeypatch):
     monkeypatch.setattr(ed, "send_email", send)
     monkeypatch.setattr(M, "_due_step", lambda lead: {"step": 2, "subject": "s", "body": "hi {name}"})
     out = await M.nurture_sweep(_db([lead]), MagicMock())
-    assert out == {"scanned": 1, "sent": 1, "skipped": 0}
+    assert out == {"scanned": 1, "sent": 1, "skipped": 0, "rolled": 0}
     assert lead.meta_data["nurture_step"] == 2
     send.assert_awaited_once()
     assert send.call_args.kwargs["text_body"] == "hi Ana"
@@ -47,7 +47,7 @@ async def test_sweep_skips_wrong_form_and_no_step(monkeypatch):
     nostep = _lead({"form": "free-audit"})
     monkeypatch.setattr(M, "_due_step", lambda lead: None)
     out = await M.nurture_sweep(_db([wrong, nostep]), MagicMock())
-    assert out == {"scanned": 1, "sent": 0, "skipped": 1}
+    assert out == {"scanned": 1, "sent": 0, "skipped": 1, "rolled": 0}
 
 
 @pytest.mark.asyncio
@@ -68,4 +68,4 @@ async def test_sweep_no_email_leads(monkeypatch):
     from app.services import nurture_sequence as M
 
     out = await M.nurture_sweep(_db([]), MagicMock())
-    assert out == {"scanned": 0, "sent": 0, "skipped": 0}
+    assert out == {"scanned": 0, "sent": 0, "skipped": 0, "rolled": 0}

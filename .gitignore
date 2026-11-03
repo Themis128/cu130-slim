@@ -160,3 +160,4 @@ promtail-data/
 
 # deploy lock (see AGENTS.md "Deploy lock & auto-healers")
 .deploy.lock
+pipeline-assets/
