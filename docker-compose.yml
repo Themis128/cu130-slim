@@ -288,7 +288,7 @@ services:
     memswap_limit: 12g
     cpus: '6'
   n8n:
-    image: n8nio/n8n:2.43.4
+    image: n8nio/n8n:2.47.0
     container_name: n8n
     networks:
       - backend
@@ -437,7 +437,7 @@ services:
   # Image version MUST match n8nio/n8n. The stock /etc/task-runners.json in
   # this image already allowlists crypto+moment builtins for our Code nodes.
   n8n-task-runner:
-    image: n8nio/runners:2.43.4
+    image: n8nio/runners:2.47.0
     pull_policy: if_not_present
     container_name: n8n-task-runner
     init: true
@@ -545,7 +545,7 @@ services:
     cpus: '2'
     restart: unless-stopped
   metabase:
-    image: metabase/metabase:v0.63.14.1
+    image: metabase/metabase:v0.65.3
     container_name: metabase
     networks:
       - backend
@@ -730,7 +730,7 @@ services:
     restart: unless-stopped
 
   flower:
-    image: mher/flower:2.1.0
+    image: mher/flower:2.2.0
     container_name: flower
     networks:
       - backend
