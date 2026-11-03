@@ -149,10 +149,15 @@ def _cdp_click_flow() -> str | None:
     for sel in ("//a[contains(.,'Create Token')]", "//button[contains(.,'Create Token')]"):
         js(f"(()=>{{const x=document.evaluate(\"{sel}\",document,null,9,null);if(x.singleNodeValue){{x.singleNodeValue.click();return 1}}return 0}})()")
     time.sleep(4)
-    js("(()=>{const els=[...document.querySelectorAll('*')];const t=els.find(e=>e.children.length===0&&/Get started/i.test(e.textContent||''));if(t){t.click();return 1}return 0})()")
+    js("(()=>{const t=[...document.querySelectorAll('*')].find(e=>e.children.length===0"
+       "&&/Get started/i.test(e.textContent||''));if(t){t.click();return 1}return 0})()")
     time.sleep(4)
     # name it
-    js("(()=>{const i=[...document.querySelectorAll('input')].find(e=>/token name/i.test(e.parentElement?.textContent||''));if(i){i.focus();const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');d.set.call(i,'socialauto-ops '+new Date().toISOString().slice(0,10));i.dispatchEvent(new Event('input',{bubbles:true}));return 1}return 0})()")
+    js("(()=>{const i=[...document.querySelectorAll('input')].find(e=>"
+       "/token name/i.test(e.parentElement?.textContent||''));if(i){i.focus();"
+       "const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');"
+       "d.set.call(i,'socialauto-ops '+new Date().toISOString().slice(0,10));"
+       "i.dispatchEvent(new Event('input',{bubbles:true}));return 1}return 0})()")
     print("[cdp] navigated to token creator — finish the scope rows in the open window,")
     print("[cdp] click 'Continue to summary' then 'Create Token', then paste the token when it appears.")
     return None  # token text appears on the confirm screen — paste path takes over
