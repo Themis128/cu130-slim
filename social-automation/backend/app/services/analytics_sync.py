@@ -2954,6 +2954,31 @@ async def sync_telegram_channel_metrics(
     return result
 
 
+
+async def sync_bluesky_account(db: AsyncSession, account: SocialAccount) -> SyncResult:
+    """Bluesky analytics sync.
+
+    Verifies the account session via ``app.bsky.actor.getProfile`` — the
+    follower snapshot and account-sync freshness marker land through the
+    shared persist paths in ``sync_team_analytics``. Post-level Bluesky
+    metrics (feed analytics) have no per-post analytics surface in the AT
+    protocol, so account reachability is the meaningful signal here.
+    """
+    result = SyncResult()
+    try:
+        from app.services.bluesky_api import BlueskyClient
+
+        token = decrypt_token(account.access_token_enc)
+        pds = (account.meta_data or {}).get("pds_url") or "https://bsky.social"
+        client = BlueskyClient(account.username or "", token, pds_url=pds)
+        await client.create_session()
+        await client.get_profile()
+        result.synced += 1
+    except Exception as exc:  # noqa: BLE001
+        result.skipped += 1
+        result.errors.append(f"bluesky sync: {str(exc)[:150]}")
+    return result
+
 async def sync_team_analytics(
     db: AsyncSession,
     team_id: uuid.UUID,
@@ -2986,6 +3011,8 @@ async def sync_team_analytics(
                 r = await sync_threads_account(db, account, days=days)
             elif platform == "tiktok":
                 r = await sync_tiktok_account(db, account, days=days)
+            elif platform == "bluesky":
+                r = await sync_bluesky_account(db, account)
             elif platform == "telegram":
                 r = await sync_telegram_channel_metrics(db, account)
             else:

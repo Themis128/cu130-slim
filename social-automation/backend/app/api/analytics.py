@@ -363,6 +363,27 @@ async def _tiktok_follower_count(account: SocialAccount) -> int:
     return -1
 
 
+
+async def _bluesky_follower_count(account: SocialAccount) -> int:
+    """Fetch follower count from Bluesky ``app.bsky.actor.getProfile``.
+
+    Profile responses carry ``followersCount``; a session is created with
+    the account's app password (stored as access_token_enc).
+    """
+    if account.platform != "bluesky":
+        return 0
+    try:
+        from app.services.bluesky_api import BlueskyClient
+
+        token = decrypt_token(account.access_token_enc)
+        pds = (account.meta_data or {}).get("pds_url") or "https://bsky.social"
+        client = BlueskyClient(account.username or "", token, pds_url=pds)
+        await client.create_session()
+        profile = await client.get_profile()
+        return int(profile.get("followersCount") or 0)
+    except Exception:
+        return -1
+
 async def _follower_count(account: SocialAccount) -> int:
     """Dispatch to the correct platform follower count function."""
     dispatch = {
@@ -372,6 +393,7 @@ async def _follower_count(account: SocialAccount) -> int:
         "instagram": _instagram_follower_count,
         "threads": _threads_follower_count,
         "tiktok": _tiktok_follower_count,
+        "bluesky": _bluesky_follower_count,
     }
     fn = dispatch.get(account.platform)
     if fn is None:
