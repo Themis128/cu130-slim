@@ -35,6 +35,12 @@ from app.models.lead import Lead
 
 NURTURE_FORMS = ("newsletter", "free-audit")
 
+# Forms whose leads skip the ladder and enter the quiet lane directly —
+# they already asked for the checkup (audit page / outreach intake), so
+# the "didn't book" follow-up applies from lead creation, not after the
+# playbook sequence.
+QUIET_AUTO_FORMS = ("audit-request",)
+
 STEPS: tuple[dict[str, Any], ...] = (
     {
         "day": 2,
@@ -210,6 +216,17 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
     for lead in leads:
         meta = lead.meta_data or {}
         quiet = bool(meta.get("quiet_lead"))
+        if not quiet and meta.get("form") in QUIET_AUTO_FORMS:
+            if meta.get("unsubscribed") or meta.get("quiet_opted_out"):
+                continue
+            meta = {
+                **meta,
+                "quiet_lead": True,
+                "quiet_lead_at": (lead.created_at or _now()).isoformat(),
+            }
+            lead.meta_data = meta
+            quiet = True
+            stats["rolled"] += 1
         if not quiet and meta.get("form") not in NURTURE_FORMS:
             continue
         stats["scanned"] += 1

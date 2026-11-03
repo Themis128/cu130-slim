@@ -135,6 +135,31 @@ async def test_sweep_no_rollover_when_opted_out_or_mid_ladder(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_sweep_audit_request_leads_auto_enter_quiet_lane(monkeypatch):
+    # form=audit-request (the /audit booking page) → quiet lane from
+    # creation; at age 2d touch 1 (day-1 nudge) sends immediately.
+    lead = _lead({"form": "audit-request"}, created_days=2)
+    send = AsyncMock()
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", send)
+    out = await M.nurture_sweep(_db([lead]), MagicMock())
+    assert out["rolled"] == 1 and out["sent"] == 1
+    assert lead.meta_data["quiet_step"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sweep_audit_request_opted_out_not_enrolled(monkeypatch):
+    lead = _lead({"form": "audit-request", "quiet_opted_out": True}, created_days=2)
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", AsyncMock())
+    out = await M.nurture_sweep(_db([lead]), MagicMock())
+    assert out["rolled"] == 0
+    assert "quiet_lead" not in (lead.meta_data or {})
+
+
+@pytest.mark.asyncio
 async def test_sweep_quiet_lane_supersedes_nurture_forms(monkeypatch):
     # A newsletter-form lead that is also quiet-enrolled takes the quiet lane.
     lead = _lead(_enrolled(days_ago=10, form="newsletter"))
