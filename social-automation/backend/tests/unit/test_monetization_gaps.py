@@ -776,3 +776,49 @@ async def test_run_all_teams_empty_and_full(monkeypatch):
     assert out2[0]["team_name"] == "Cloudless"
     assert out2[0]["scheduled"] == [{"status": "scheduled"}]
     assert out2[0]["actions"] == ["i"]
+
+
+def test_stamp_utm_already_stamped():
+    from app.services.monetization_executor import _stamp_utm
+
+    url = "https://cloudless.gr/contact?utm_source=x"
+    assert _stamp_utm(url, "linkedin") == url
+
+
+def test_stamp_utm_query_sep_variants():
+    from app.services.monetization_executor import _stamp_utm
+
+    with_q = _stamp_utm("https://cloudless.gr/contact?a=1", "linkedin")
+    assert "a=1&utm_source=linkedin" in with_q
+    no_q = _stamp_utm("https://cloudless.gr/contact", "linkedin")
+    assert "?utm_source=linkedin" in no_q
+
+
+def test_ensure_funnel_cta_already_tagged():
+    from app.services.monetization_executor import _ensure_funnel_cta
+
+    c = "check it https://cloudless.gr?utm_source=old"
+    assert _ensure_funnel_cta(c, "x") == c
+
+
+def test_ensure_funnel_cta_stamps_existing_url():
+    from app.services.monetization_executor import _ensure_funnel_cta
+
+    out = _ensure_funnel_cta("audit here https://cloudless.gr/contact now", "linkedin")
+    assert "utm_source=linkedin" in out
+
+
+def test_ensure_funnel_cta_appends_audit_line():
+    from app.services.monetization_executor import _ensure_funnel_cta
+
+    out = _ensure_funnel_cta("plain copy no link", "linkedin")
+    assert "Book your free 30-minute cloud audit" in out
+    assert "utm_source=linkedin" in out
+
+
+def test_ensure_funnel_cta_appends_plans_line():
+    from app.services.monetization_executor import _ensure_funnel_cta
+
+    out = _ensure_funnel_cta("plain copy no link", "twitter")
+    assert "See the plans + starter kits" in out
+    assert "utm_source=twitter" in out
