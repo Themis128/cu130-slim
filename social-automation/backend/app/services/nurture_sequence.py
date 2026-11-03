@@ -7,7 +7,7 @@ through a fixed 3-touch sequence stamped in lead.meta_data:
     day 0   — playbook delivery (existing, in deliver_playbook)
     day 3   — value email: what the playbook actually buys them
     day 7   — free audit CTA (or agency CTA if they already audited)
-    day 14  — fixed-scope offer (the €800–2,400 14-day engagement)
+    day 14  — fixed-scope offer (€800 single fix / €3,600-mo full-stack bundle)
 
 Deterministic, idempotent (meta_data stamps), team-scoped, unsubscribe
 aware — a lead with meta_data.unsubscribed or nurture_opted_out never mails.
@@ -83,8 +83,9 @@ STEPS: tuple[dict[str, Any], ...] = (
         "body": (
             "Hi {name},\n\n"
             "if the audit or the playbook surfaced work you'd rather hand off,\n"
-            "our engagements are fixed-scope: €800–2,400 per service,\n"
-            "delivered inside 14 days, handoff documented.\n\n"
+            "our engagements are fixed-scope: a single fix starts at €800,\n"
+            "delivered inside 14 days, handoff documented. Bigger builds\n"
+            "bundle at €3,600 a month.\n\n"
             "No pitch — just reply and I'll send over the audit + a scoped\n"
             "proposal if you want one.\n\n"
             "— Themistoklis, Cloudless"
@@ -138,6 +139,73 @@ QUIET_STEPS: tuple[dict[str, Any], ...] = (
             "— Themistoklis, Cloudless"
         ),
     },
+)
+
+# ---------------------------------------------------------------------------
+# DM script canon (Pipeline Optimization Toolkit / Agent Manifest, verbatim).
+# Copy constants for the messaging lanes — LinkedIn DMs, Messenger, WhatsApp.
+# The email implementation of the same cadence is QUIET_STEPS above; these are
+# the DM-worded versions agents use verbatim (do not paraphrase).
+# ---------------------------------------------------------------------------
+DM_OPENERS: dict[str, str] = {
+    "cold": (
+        "Hey {name}! I came across {company} and noticed you guys are growing. "
+        "If slow tools or high software bills are a headache for your team, we "
+        "can help. We are doing free 30-minute tech checkups this week to find "
+        "quick fixes for small businesses. No sales pitch, just a simple action "
+        "plan. Are you free for a quick chat?"
+    ),
+    "warm": (
+        "Hi {name}, I am Themis from Cloudless! Thanks for reading our weekly "
+        "newsletter. Since you follow our tech updates, I wanted to reach out "
+        "directly. If slow tools or high software bills are a headache for your "
+        "team right now, we can help. We are giving free 30-minute tech checkups "
+        "this week to find quick fixes. No sales pitch, just a simple plan. "
+        "Are you free to chat?"
+    ),
+}
+
+# Booking-link-requested follow-up: lead asked for the booking link in DM,
+# then went quiet. Cadence 24h → 3d → 4d (from manifest FOLLOW_UP_AUTOMATION).
+BOOKING_DM_STEPS: tuple[dict[str, Any], ...] = (
+    {
+        "after_hours": 24,
+        "key": "nudge",
+        "text": (
+            "Hey {name}! Just checking in to see if you managed to grab a spot "
+            "for your free tech checkup. Slots for this week are filling up "
+            "fast, but you can see what is left right here: cloudless.gr. "
+            "Let me know if another time works better!"
+        ),
+    },
+    {
+        "after_hours": 96,
+        "key": "value",
+        "text": (
+            "Hey {name}! I was looking over your site again and found a couple "
+            "of quick software cost leaks we can plug during our chat. If "
+            "reducing clunky tasks or high bills is still a priority for your "
+            "team, pick a time here: cloudless.gr. No pitch, just a clear plan."
+        ),
+    },
+    {
+        "after_hours": 192,
+        "key": "clean_break",
+        "text": (
+            "Hey {name}, I assume this isn't a top priority for {company} "
+            "right now, which is completely fine! I'll stop checking in so I "
+            "don't crowd your inbox. If you ever want to fix your software "
+            "bills or speed up tools down the road, you can always reach me "
+            "at cloudless.gr. Wish you guys the best!"
+        ),
+    },
+)
+
+# Safety-valve: lead actively declines — one graceful close, then stop.
+DM_SAFETY_VALVE: str = (
+    "No problem at all! If your tech tools or software bills ever become a "
+    "headache down the road, you can always find us at cloudless.gr. Have a "
+    "great week with {company}!"
 )
 
 
