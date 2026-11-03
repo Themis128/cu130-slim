@@ -328,3 +328,39 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 - **Watchdog dedup exists** (per-incident) — the overnight flood was real flapping, fixed via docker-socket-watch + WSL recycle.
 - **Trend-grounding**: shipped PR #1296 — niche-filtered Google Trends signal cited in copy+media prompts.
 - **Test EspoCRM lead** `6ae9e83353e2` ('verify devin-verify') — delete when convenient (PUT cleanup 404'd).
+
+## 2026-11-03 — feat/screen-drive-ops stale-merge cleanup
+
+- Branch was mid-merge of master into the already-merged, upstream-deleted
+  `feat/screen-drive-ops`. Resolved 3 conflicts (compose=ours+theirs verified,
+  monitor.js=ours for `lastNews` semantics, ai_functions.py=whitespace) and
+  committed locally as `296e65b0` — **local only, never push this branch**.
+- Reverted to index: duplicate of open PR #1302 (`_cf_shadow_call` in
+  leads.py/nurture_sequence.py + tests — remote branch is 7x more complete)
+  and an accidental eslint downgrade in package.json/lock.
+- Rescued the only real local work → PR #1303 (vitest localStorage mock).
+- **Leftover (master-side hygiene PR candidate)**: these are committed on
+  master but misplaced — `.devin/chrome-launch-ops/` (byte-identical dup of
+  `.devin/skills/chrome-launch-ops/`), `.devin/skills/wsl-docker-doctor/scripts/
+  SKILL.md` (belongs at skill root; content differs from top SKILL.md — merge
+  unique bits before deleting), `.devin/triggers/restart-chrome.flag`
+  (machine state committed to repo).
+- **Watch master**: `COMFYUI_URL=http://172.20.0.230:8000` hardcoded in
+  compose bypasses the stack-ops wake proxy — comfyui sleeps → workers can't
+  wake it. Verify whether the pinned-IP change was intentional.
+
+## Founders / SocialAuto adoption (2026-11-03)
+
+Done:
+- [x] Cloudless_Agent_Manifest.toml committed (.devin + .cursor pipeline-assets-ops)
+- [x] Day-14 nurture copy fixed: €800-2,400 -> €800 single fix / €3,600-mo bundle
+- [x] DM canon adopted in nurture_sequence.py: DM_OPENERS, BOOKING_DM_STEPS (24h/3d/4d), DM_SAFETY_VALVE
+- [x] onboarding_checklist.py: 14-day fulfillment checklist generator (PDF/MD)
+- [x] media-converters skill (pdf_to_image, audio_bed, image_to_video) in backend/scripts
+- [x] BMB cert video published to personal LinkedIn: urn:li:ugcPost:7523480082607202304
+- [x] stack-ops recovered (dashboard/app.py squatted :8080; killed, restarted)
+
+Left:
+- [x] Site PR #2364 merged (coverage fix + 8 Sentry findings fixed incl. server-side consent gate); /en/consultation live (200)
+- [x] Book-audit CTAs flipped to /en/consultation — PR #1312 (auto-merge armed)
+- [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)

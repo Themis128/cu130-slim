@@ -127,16 +127,14 @@ async function notify(text) {
     await page.goto('https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas', { waitUntil: 'domcontentloaded', timeout: 45000 });
     await page.waitForSelector('#webMail', { timeout: 20000 });
     await page.waitForTimeout(5000);
-    await page.locator('#webMail').click();
-    await page.keyboard.type(CFG.email);
-    await page.locator('#webCode').click();
-    await page.keyboard.type(CFG.kpa);
-    await page.getByText('Ταυτοποίηση', { exact: true }).click();
+    await page.locator('#webMail').fill(CFG.email);
+    await page.locator('#webCode').fill(CFG.kpa);
+    await page.getByText('Ταυτοποίηση', { exact: true }).click({ force: true });
     await page.waitForFunction(() => document.body.innerText.includes('Κατάσταση'), { timeout: 20000 });
 
     const text = await page.evaluate(() => document.body.innerText);
-    const m = text.match(/Κατάσταση\s*\n\s*([^\n]+)/);
-    const status = m ? m[1].trim() : 'UNKNOWN';
+    const m = [...text.matchAll(/Κατάσταση\s*\n\s*([^\n]+)/g)];
+    const status = m.length ? m[m.length - 1][1].trim() : 'UNKNOWN';
     const updates = (text.match(/Ενημέρωση|Απάντηση|Σχόλιο|Έγγραφο/g) || []).length;
 
     if (!prev) {
