@@ -96,7 +96,24 @@ def resolve_thread(thread_id: str) -> bool:
     return "true" in r.stdout.lower()
 
 
+STATE = os.path.join(REPO, "logs", "pr-findings-state.json")
+
+
+def load_reported() -> set:
+    try:
+        return set(json.load(open(STATE, encoding="utf-8")))
+    except Exception:
+        return set()
+
+
+def save_reported(ids: set) -> None:
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    json.dump(sorted(ids), open(STATE, "w", encoding="utf-8"))
+
+
 def babysit_repo(repo: str) -> None:
+    reported = load_reported()
+    new_findings: list[str] = []
     prs = gh_json(
         "pr", "list", "-R", repo, "--state", "open", "--limit", "30",
         "--json", "number,mergeable,mergeStateStatus,headRefName,author",
@@ -113,7 +130,13 @@ def babysit_repo(repo: str) -> None:
             if body.strip().startswith("*Resolved in") or body.strip().startswith("Resolved in"):
                 if resolve_thread(t["id"]):
                     actions.append(f"resolved auto-fixed thread {t['id']}")
-            # Real findings stay open for an agent — never auto-resolve them.
+            else:
+                # Real findings stay open for an agent — never auto-resolve;
+                # report each new one once via Slack.
+                if t["id"] not in reported:
+                    first = body.split("\n")[0][:140]
+                    new_findings.append(f"{repo}#{num}: {first}")
+                    reported.add(t["id"])
 
         # 2. Branch behind? update it
         if state == "BEHIND":
@@ -129,6 +152,14 @@ def babysit_repo(repo: str) -> None:
 
         if actions:
             log(f"[{repo}#{num}] " + "; ".join(actions))
+
+    save_reported(reported)
+    if new_findings:
+        slack_alert(
+            ":mag: PR babysitter — new unresolved review findings:\n"
+            + "\n".join(f"  • {f}" for f in new_findings[:8])
+        )
+        log(f"[{repo}] reported {len(new_findings)} new findings to slack")
 
 
 def main() -> int:
