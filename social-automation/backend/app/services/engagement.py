@@ -223,4 +223,4 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
     )
     db.add(row)
     await db.commit()
-    return {"queued": plan.action, "score": plan.score, "needs_approval": plan.action in ("comment", "repost")}
+    return {"queued": action_name, "score": plan.score, "needs_approval": gated}

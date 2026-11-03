@@ -20,5 +20,17 @@ description: >
 `tg_alert.py --test` — send a test to all 4
 `tg_alert.py ops "msg"` — one-shot
 
-Env overrides: `TG_CH_CRITICAL/OPS/INTEL/DIGEST`.
-Router: `app/services/slack_notifications.py::send_telegram_alert`.
+Env overrides: `TG_CH_CRITICAL/OPS/INTEL/DIGEST` (in repo `.env`, `-100`-prefixed).
+Token order: `$TELEGRAM_BOT_TOKEN` env -> `TELEGRAM_BOT_TOKEN` in repo `.env`.
+The live stack keeps the token encrypted in Postgres `social_accounts`
+(`platform='telegram'`) — re-extract via `docker exec social-api` + Fernet
+(`ENCRYPTION_KEY`) if `.env` ever goes stale.
+Router: `app/services/slack_notifications.py::send_telegram_alert` — DB
+token first, `TELEGRAM_BOT_TOKEN` env fallback when Postgres is unreachable
+(passthrough wired in docker-compose worker-env + social-api), so P1
+"api/db down" alerts still deliver during an outage.
+
+Consumers: `gate-cdp-runner`, `meta_review_watch` (`.cursor` mirror),
+`synigoros_status`, and the Windows `Docker WSL Integration Watchdog`
+(`C:\Users\tbaltzakis\scripts\Watch-DockerWslIntegration.ps1` — sends via
+pure PowerShell to #ops, reads the token from `C:\Users\tbaltzakis\cu130-slim\.env`).

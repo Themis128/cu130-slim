@@ -1,0 +1,10 @@
+name: social_funnel
+version: "1.0"
+profile: social_funnel
+model-paths: ["models"]
+clean-targets: ["target"]
+
+models:
+  social_funnel:
+    funnel:
+      +materialized: table

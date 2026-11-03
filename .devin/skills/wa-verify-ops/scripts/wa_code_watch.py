@@ -9,7 +9,10 @@ import subprocess
 import sys
 import time
 
-API = ["docker", "compose", "exec", "-T", "social-api",
+# plain `docker exec` by container name: `docker compose exec` needs the
+# compose file + the host's project name, which the stack-watchers
+# container does not have (cwd=/ → "no configuration file provided").
+API = ["docker", "exec", "-i", "social-api",
        "python", "scripts/whatsapp_tool.py"]
 
 

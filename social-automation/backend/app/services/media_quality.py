@@ -43,7 +43,7 @@ class MediaQualityResult:
 
     All text fields are the *corrected* versions ready to persist/return.
     The ``report`` dict contains diagnostics: spellcheck status, NLP issues,
-    SEO score, and iteration metadata.
+    SEO score, Sofia score, and iteration metadata.
     """
 
     prompt: str = ""
@@ -57,6 +57,8 @@ class MediaQualityResult:
     gibberish_tokens: list[str] = field(default_factory=list)
     improved: bool = False
     iterations: int = 0
+    sofia_score: int | None = None
+    sofia_issues: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -71,6 +73,8 @@ class MediaQualityResult:
             "gibberish_tokens": self.gibberish_tokens,
             "improved": self.improved,
             "iterations": self.iterations,
+            "sofia_score": self.sofia_score,
+            "sofia_issues": self.sofia_issues,
         }
 
 
@@ -221,6 +225,22 @@ async def apply_media_quality(
             result.seo_score = seo_result.get("score", {})
         except Exception as exc:
             logger.warning("Media SEO scoring failed (non-fatal): %s", exc)
+
+    # ── Step 5: Sofia scoring on final caption + hashtags ──────────────
+    if result.caption:
+        try:
+            from app.services.plain_english import sofia_nlp_score
+
+            sofia_text = result.caption
+            if result.tags:
+                tag_str = " ".join(f"#{h.lstrip('#')}" for h in result.tags)
+                sofia_text = f"{sofia_text}\n\n{tag_str}"
+            sofia_score, sofia_issues = sofia_nlp_score(sofia_text)
+            result.sofia_score = sofia_score
+            result.sofia_issues = [i.reason for i in sofia_issues]
+            logger.debug("Media Sofia score: %d/100", sofia_score)
+        except Exception as exc:
+            logger.warning("Media Sofia scoring failed (non-fatal): %s", exc)
 
     return result
 

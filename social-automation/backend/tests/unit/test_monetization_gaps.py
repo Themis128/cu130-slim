@@ -322,6 +322,10 @@ async def test_generate_media_comfyui_path(monkeypatch):
         "app.services.comfyui_image.generate_image",
         AsyncMock(return_value=(b"png-bytes", {})),
     )
+    monkeypatch.setattr(
+        "app.services.image_text_guard.check_image_text",
+        AsyncMock(return_value={"checked": True, "garbled": False}),
+    )
     asset = SimpleNamespace(id=uuid.uuid4())
     persist = AsyncMock(return_value=asset)
     monkeypatch.setattr("app.services.media_storage.persist_generated_image", persist)
@@ -340,6 +344,10 @@ async def test_generate_media_cf_fallback(monkeypatch):
     monkeypatch.setattr(
         "app.services.inference._call_workers_ai_image",
         AsyncMock(return_value={"image_base64": base64.b64encode(b"cf-png").decode()}),
+    )
+    monkeypatch.setattr(
+        "app.services.image_text_guard.check_image_text",
+        AsyncMock(return_value={"checked": True, "garbled": False}),
     )
     asset = SimpleNamespace(id=uuid.uuid4())
     monkeypatch.setattr("app.services.media_storage.persist_generated_image", AsyncMock(return_value=asset))

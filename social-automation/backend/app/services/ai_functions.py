@@ -98,6 +98,7 @@ async def _chat(prompt: str, max_tokens: int = 200, quality: bool = False) -> st
     # while the engine hot-swaps models. Retry once so agents see the serving
     # model, not the swap window.
     import asyncio as _aio
+
     timeout = _TIMEOUT * 3 if quality else _TIMEOUT
     last_err: Exception | None = None
     for attempt in range(2):
@@ -195,9 +196,11 @@ async def ai_extract(field: str, text: str, quality: bool = False) -> str:
         _audit("ai_extract", "error", (_t.monotonic() - t0) * 1000, text)
         return "NONE"
 
+
 _RE_PII = _re.compile(
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"
-    r"|\+?\d[\d\s().-]{7,}\d")
+    r"|\+?\d[\d\s().-]{7,}\d"
+)
 
 
 def _pii_floor(text: str) -> str:
