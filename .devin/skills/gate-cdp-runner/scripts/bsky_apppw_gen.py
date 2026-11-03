@@ -8,7 +8,10 @@ wires `bsky <password>` automatically within its cycle.
 
 Usage: python3 bsky_apppw_gen.py
 """
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 from pathlib import Path
 
 CDP = "http://127.0.0.1:9222"
@@ -25,11 +28,14 @@ def _ev(ws_url, expr):
     while True:
         m = json.loads(ws.recv())
         if m.get("id") == 1:
-            ws.close(); return m.get("result", {}).get("result", {}).get("value")
+            ws.close()
+            return m.get("result", {}).get("result", {}).get("value")
 
 def main():
-    page = _page(); w = page["webSocketDebuggerUrl"]
-    _ev(w, 'location.href="https://bsky.app/settings/app-passwords"'); time.sleep(6)
+    page = _page()
+    w = page["webSocketDebuggerUrl"]
+    _ev(w, 'location.href="https://bsky.app/settings/app-passwords"')
+    time.sleep(6)
     logged = _ev(w, '!!document.querySelector("[aria-label*=profile i], [data-testid=profileTab]")')
     if not logged:
         sys.exit("bsky.app session not logged in — open it once on the debug Chrome")

@@ -8,7 +8,9 @@ restriction needs (wait-it-out vs identity-verify vs appeal).
 
 Usage: python3 li_restriction_check.py
 """
-import json, sys, urllib.request
+import json
+import sys
+import urllib.request
 
 CDP = "http://127.0.0.1:9222"
 
@@ -24,14 +26,17 @@ def _ws_eval(ws_url, expr):
     ws.send(json.dumps({"id":1,"method":"Runtime.evaluate","params":{"expression":expr,"returnByValue":True}}))
     while True:
         m=json.loads(ws.recv())
-        if m.get("id")==1: ws.close(); return m.get("result",{}).get("result",{}).get("value")
+        if m.get("id")==1:
+            ws.close()
+        return m.get("result",{}).get("result",{}).get("value")
 
 def main():
     tabs=_tabs()
     page=next((t for t in tabs if t.get("type")=="page"),None) or tabs[0]
     _ws_eval(page["webSocketDebuggerUrl"],
              'location.href="https://www.linkedin.com/feed/"')
-    import time; time.sleep(5)
+    import time
+    time.sleep(5)
     body=_ws_eval(page["webSocketDebuggerUrl"],
         'document.body.innerText.slice(0,1500)')
     url=_ws_eval(page["webSocketDebuggerUrl"],'location.href')

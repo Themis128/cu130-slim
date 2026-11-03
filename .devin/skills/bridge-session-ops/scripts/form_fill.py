@@ -7,9 +7,14 @@ Pin → navigate → wait for fields → fill a field-map → submit.
 field_map_json maps selector->value:
   {"#email": "me@x.com", "[name='company']": "Cloudless"}
 submit_selector defaults to "button[type=submit],input[type=submit]".
-Handles 409 shared-session contention with backoff; pins keepawake.
+Handles 409 shared-session contention with backoff
+pins keepawake.
 """
-import json, sys, time, urllib.request, urllib.error
+import json
+import sys
+import time
+import urllib.request
+import urllib.error
 
 B = "http://browser-novnc:9223"
 
@@ -53,7 +58,8 @@ def fill(fields: dict) -> dict:
 
 def main() -> int:
     if len(sys.argv) < 3:
-        print(__doc__); return 1
+        print(__doc__)
+        return 1
     url, fields = sys.argv[1], json.loads(sys.argv[2])
     submit = sys.argv[3] if len(sys.argv) > 3 else "button[type=submit],input[type=submit]"
     pin()

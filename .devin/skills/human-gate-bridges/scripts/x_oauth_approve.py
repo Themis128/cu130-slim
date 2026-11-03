@@ -5,7 +5,10 @@ prints the authorization URL.
 
     x_oauth_approve.py <authorization_url>
 """
-import json, sys, time, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 
 BRIDGE = "http://browser-novnc:9223"
 
@@ -44,16 +47,17 @@ def ev(expr: str, tries: int = 8) -> dict:
 def main() -> int:
     pin()
     if len(sys.argv) < 2:
-        print(__doc__); return 1
+        print(__doc__)
+        return 1
     url = sys.argv[1]
     ev(f"location.href={json.dumps(url)}")
     time.sleep(6)
     out = ev("""
     (()=>{
       const b=[...document.querySelectorAll('button,input[type=submit],a[role=button]')]
-        .find(e=>/authorize|allow|approve|continue/i.test(e.innerText||e.value||''));
+        .find(e=>/authorize|allow|approve|continue/i.test(e.innerText||e.value||''))
       if(b){b.click();return 'approved:'+(b.innerText||b.value).slice(0,40)}
-      return 'no authorize button — login wall or UI changed';
+      return 'no authorize button — login wall or UI changed'
     })()
     """)
     res = out.get("result") or out.get("url") or out

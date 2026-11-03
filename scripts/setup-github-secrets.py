@@ -15,7 +15,7 @@ import sys
 
 REPO = "Themis128/cu130-slim"  # Adjust if different
 
-print(f"=== GitHub Secrets Setup for cu130-slim ===\n")
+print("=== GitHub Secrets Setup for cu130-slim ===\n")
 print(f"This script will add the following secrets to {REPO}:")
 print("  1. CODECOV_TOKEN\n")
 print("Note: GHCR push uses the built-in GITHUB_TOKEN — "

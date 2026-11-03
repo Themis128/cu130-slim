@@ -11,7 +11,6 @@ already-queued recipients, and attaches new ones to the survey campaign.
 """
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 import sys

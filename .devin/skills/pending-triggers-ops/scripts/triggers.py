@@ -3,7 +3,6 @@
 Checks each external gate + prints the exact click/action to fire it."""
 import urllib.request
 import subprocess
-import json
 
 def cdp():
     try:

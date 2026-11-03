@@ -6,15 +6,16 @@ Why: n8n has no CLI/UI headless path for API-key creation, and key rotation
 (N8N_ENCRYPTION_KEY changed, deployment_key regenerated) silently orphans
 stored credentials — workflows then fail with decrypt errors on next run.
 
-Secrets are read inside the n8n container env; nothing is printed.
+Secrets are read inside the n8n container env
+nothing is printed.
 
 Usage (from repo root):
   python -X utf8 .devin/skills/n8n-cloudless/scripts/n8n-cred-ops.py <cmd>
 
 Commands:
-  key-mint <label>        Mint a public API key (JWT) into user_api_keys;
+  key-mint <label>        Mint a public API key (JWT) into user_api_keys
                         prints the JWT (write to .env N8N_API_KEY).
-  cred-check              Decrypt-verify every credentials_entity row;
+  cred-check              Decrypt-verify every credentials_entity row
                         reports name → OK/FAIL (+ field lengths, no values).
   cred-encrypt <name> <json-file>
                         Re-encrypt a credential row's data with the current
@@ -24,7 +25,11 @@ Commands:
 Env: runs against the compose stack (containers `n8n`, `social-postgres`,
 db `n8n`, user `social_user`). Requires N8N_ENCRYPTION_KEY from .env.
 """
-import json, os, re, subprocess, sys, uuid
+import json
+import os
+import subprocess
+import sys
+import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 N8N_DB = ["docker", "exec", "social-postgres", "psql", "-U", "social_user", "-d", "n8n", "-t", "-A", "-c"]
@@ -48,27 +53,34 @@ def psql_stdin(sql):
     return r.stdout.strip()
 
 NODE_DEC = r'''
-const crypto=require('crypto');
-const blob=Buffer.from(process.env.BLOB,'base64');
-const salt=blob.subarray(8,16),ct=blob.subarray(16);
-const evp=(p,s,l)=>{let d=Buffer.alloc(0),prev='';while(d.length<l){prev=crypto.createHash('md5').update(Buffer.concat([Buffer.from(prev),Buffer.from(p),s])).digest();d=Buffer.concat([d,prev]);}return d.subarray(0,l)};
-const ki=evp(process.env.N8N_ENCRYPTION_KEY,salt,48);
+const crypto=require('crypto')
+const blob=Buffer.from(process.env.BLOB,'base64')
+const salt=blob.subarray(8,16),ct=blob.subarray(16)
+const evp=(p,s,l)=>{let d=Buffer.alloc(0),prev=''
+while(d.length<l){prev=crypto.createHash('md5').update(Buffer.concat([Buffer.from(prev),Buffer.from(p),s])).digest()
+d=Buffer.concat([d,prev])
+}return d.subarray(0,l)}
+const ki=evp(process.env.N8N_ENCRYPTION_KEY,salt,48)
 try{
-  const d=crypto.createDecipheriv('aes-256-cbc',ki.subarray(0,32),ki.subarray(32,48));
-  const j=JSON.parse(Buffer.concat([d.update(ct),d.final()]).toString('utf8'));
-  console.log('OK',JSON.stringify(Object.fromEntries(Object.entries(j).map(([k,v])=>[k,String(v??'').length]))));
-}catch(e){console.log('FAIL',e.message.slice(0,60));}
+  const d=crypto.createDecipheriv('aes-256-cbc',ki.subarray(0,32),ki.subarray(32,48))
+  const j=JSON.parse(Buffer.concat([d.update(ct),d.final()]).toString('utf8'))
+  console.log('OK',JSON.stringify(Object.fromEntries(Object.entries(j).map(([k,v])=>[k,String(v??'').length]))))
+}catch(e){console.log('FAIL',e.message.slice(0,60))
+}
 '''
 
 NODE_ENC = r'''
-const crypto=require('crypto');
-const obj=JSON.parse(require('fs').readFileSync('/tmp/cred-in.json','utf8'));
-const salt=crypto.randomBytes(8);
-const evp=(p,s,l)=>{let d=Buffer.alloc(0),prev='';while(d.length<l){prev=crypto.createHash('md5').update(Buffer.concat([Buffer.from(prev),Buffer.from(p),s])).digest();d=Buffer.concat([d,prev]);}return d.subarray(0,l)};
-const ki=evp(process.env.N8N_ENCRYPTION_KEY,salt,48);
-const c=crypto.createCipheriv('aes-256-cbc',ki.subarray(0,32),ki.subarray(32,48));
-const ct=Buffer.concat([c.update(JSON.stringify(obj),'utf8'),c.final()]);
-console.log(Buffer.concat([Buffer.from('Salted__'),salt,ct]).toString('base64'));
+const crypto=require('crypto')
+const obj=JSON.parse(require('fs').readFileSync('/tmp/cred-in.json','utf8'))
+const salt=crypto.randomBytes(8)
+const evp=(p,s,l)=>{let d=Buffer.alloc(0),prev=''
+while(d.length<l){prev=crypto.createHash('md5').update(Buffer.concat([Buffer.from(prev),Buffer.from(p),s])).digest()
+d=Buffer.concat([d,prev])
+}return d.subarray(0,l)}
+const ki=evp(process.env.N8N_ENCRYPTION_KEY,salt,48)
+const c=crypto.createCipheriv('aes-256-cbc',ki.subarray(0,32),ki.subarray(32,48))
+const ct=Buffer.concat([c.update(JSON.stringify(obj),'utf8'),c.final()])
+console.log(Buffer.concat([Buffer.from('Salted__'),salt,ct]).toString('base64'))
 '''
 
 def node(script, env=None):
@@ -89,13 +101,17 @@ def cmd_key_mint(label):
     not a hash)."""
     uid = psql("SELECT id FROM \"user\" LIMIT 1;").splitlines()[0]
     script = r'''
-const crypto=require('crypto');const enc=process.env.N8N_ENCRYPTION_KEY;
-let b='';for(let i=0;i<enc.length;i+=2)b+=enc[i];
-const sec=crypto.createHash('sha256').update(b).digest('hex');
-const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url');
-const pl={sub:process.env.UID,iss:'n8n',aud:'public-api',jti:crypto.randomUUID(),iat:Math.floor(Date.now()/1000)};
-const h=b64({alg:'HS256',typ:'JWT'})+'.'+b64(pl);
-console.log(h+'.'+crypto.createHmac('sha256',sec).update(h).digest('base64url'));
+const crypto=require('crypto')
+const enc=process.env.N8N_ENCRYPTION_KEY
+let b=''
+for(let i=0
+i<enc.length
+i+=2)b+=enc[i]
+const sec=crypto.createHash('sha256').update(b).digest('hex')
+const b64=o=>Buffer.from(JSON.stringify(o)).toString('base64url')
+const pl={sub:process.env.UID,iss:'n8n',aud:'public-api',jti:crypto.randomUUID(),iat:Math.floor(Date.now()/1000)}
+const h=b64({alg:'HS256',typ:'JWT'})+'.'+b64(pl)
+console.log(h+'.'+crypto.createHmac('sha256',sec).update(h).digest('base64url'))
 '''
     jwt = node(script, {"UID": uid})
     assert jwt.count(".") == 2, f"mint failed: {jwt[:80]}"

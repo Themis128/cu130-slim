@@ -49,7 +49,8 @@ def bootstrap_key():
         except FileNotFoundError:
             continue
     if not pub:
-        print("no local pubkey found"); return 1
+        print("no local pubkey found")
+        return 1
     cmd = (f"mkdir -p ~/.ssh && echo '{pub}' >> ~/.ssh/authorized_keys "
            f"&& chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys && echo key-added")
     rc, out = sh(["ssh", "-o", "ConnectTimeout=12", OMV_MAIN,

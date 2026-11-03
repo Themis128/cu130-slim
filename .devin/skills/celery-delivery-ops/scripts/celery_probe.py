@@ -12,10 +12,7 @@ Runs on host (uses docker exec for worker/redis access). Exit 1 on failure.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
 import re
-import shlex
 import subprocess
 import sys
 import time

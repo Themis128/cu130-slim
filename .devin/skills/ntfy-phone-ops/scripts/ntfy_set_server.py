@@ -46,7 +46,7 @@ def check_adb() -> None:
         return
     out = subprocess.run(["adb", "devices"], capture_output=True,
                          text=True, timeout=30).stdout
-    serials = [l.split()[0] for l in out.splitlines()[1:]
+    serials = [l.split()[0] for l in out.splitlines()[1:]  # noqa: E741
                if len(l.split()) >= 2 and l.split()[1] == "device"]
     if not serials:
         raise SystemExit("no adb device — check wireless ADB / phone-access")

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """omv_ha_migrate.py — offload light services omv-main → omv-ha via Tailscale.
 
-Prefers `tailscale ssh` (no keys needed if enabled on the node); falls back to
+Prefers `tailscale ssh` (no keys needed if enabled on the node)
+falls back to
 keyed ssh tbaltzakis@100.95.117.84."""
 import json
 import subprocess
@@ -53,7 +54,8 @@ def migrate():
         rc, out = main_ssh(
             f"docker inspect -f '{{{{index .Config.Labels \"com.docker.compose.project.working_dir\"}}}}' {svc}")
         if rc != 0 or not out:
-            print(f"{svc}: no compose dir"); continue
+            print(f"{svc}: no compose dir")
+            continue
         d = out.splitlines()[-1]
         print(f"{svc}: exporting {d}")
         main_ssh(f"sudo tar czf /tmp/{svc}.tgz -C {d} .")

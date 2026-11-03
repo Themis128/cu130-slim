@@ -2,7 +2,8 @@
 """Generate a development .env file with random, safe defaults.
 
 Real platform credentials (Cloudflare, LinkedIn OAuth, N8N_API_KEY,
-GITHUB_PERSONAL_ACCESS_TOKEN, SMTP password) cannot be generated; the script
+GITHUB_PERSONAL_ACCESS_TOKEN, SMTP password) cannot be generated
+the script
 leaves those empty and prints a checklist.
 
 Usage:

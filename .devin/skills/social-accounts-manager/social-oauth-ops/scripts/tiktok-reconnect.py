@@ -10,8 +10,6 @@ Prereqs: social-api up, SOCIAL_ADMIN_* in .env, tiktok_web_cookies stored
 on the account (QR login — see tiktok-console-ops skill), Playwright image.
 """
 
-import json
-import os
 import shutil
 import subprocess
 import sys

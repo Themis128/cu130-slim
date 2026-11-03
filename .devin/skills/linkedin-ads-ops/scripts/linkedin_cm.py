@@ -73,10 +73,12 @@ def cmd_text():
 def cmd_click(text):
     return evaljs(
         """(()=>{const q=%s;
-const els=[...document.querySelectorAll('button,a,[role=button],[role=menuitem],[role=option],li')];
-const el=els.find(e=>e.innerText&&e.innerText.trim().toLowerCase().includes(q.toLowerCase()));
+const els=[...document.querySelectorAll('button,a,[role=button],[role=menuitem],[role=option],li')]
+const el=els.find(e=>e.innerText&&e.innerText.trim().toLowerCase().includes(q.toLowerCase()))
 if(!el)return 'NOT_FOUND';
-el.scrollIntoView({block:'center'});el.click();return 'clicked: '+el.innerText.trim().slice(0,80)})()"""
+el.scrollIntoView({block:'center'})
+el.click()
+return 'clicked: '+el.innerText.trim().slice(0,80)})()"""
         % json.dumps(text)
     )
 
@@ -84,14 +86,17 @@ el.scrollIntoView({block:'center'});el.click();return 'clicked: '+el.innerText.t
 def cmd_fill(label, value):
     return evaljs(
         """(()=>{const q=%s,v=%s;
-const ins=[...document.querySelectorAll('input[type=text],input:not([type]),textarea,[contenteditable=true]')];
-const el=ins.find(i=>{const lbl=(i.getAttribute('aria-label')||i.placeholder||i.name||'').toLowerCase();
-const wrap=i.closest('div,fieldset,section');const t=wrap?wrap.innerText.slice(0,200).toLowerCase():'';
-return lbl.includes(q)||t.includes(q)});
+const ins=[...document.querySelectorAll('input[type=text],input:not([type]),textarea,[contenteditable=true]')]
+const el=ins.find(i=>{const lbl=(i.getAttribute('aria-label')||i.placeholder||i.name||'').toLowerCase()
+const wrap=i.closest('div,fieldset,section')
+const t=wrap?wrap.innerText.slice(0,200).toLowerCase():''
+return lbl.includes(q)||t.includes(q)})
 if(!el)return 'NOT_FOUND';
-const s=Object.getOwnPropertyDescriptor(el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value');
+const s=Object.getOwnPropertyDescriptor(el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value')
 if(el.isContentEditable){el.focus();el.innerText=v;el.dispatchEvent(new Event('input',{bubbles:true}));return 'filled(contenteditable)';}
-s.set.call(el,v);el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));
+s.set.call(el,v)
+el.dispatchEvent(new Event('input',{bubbles:true}))
+el.dispatchEvent(new Event('change',{bubbles:true}))
 return 'filled: '+(el.getAttribute('aria-label')||el.placeholder||el.name)})()"""
         % (json.dumps(label.lower()), json.dumps(value))
     )
@@ -107,11 +112,15 @@ def cmd_upload(path):
     # base64 keeps the JSON body small enough for urllib (shell arg limit bypassed)
     script = """(async()=>{const inp=document.querySelector('input[type=file]');
 if(!inp)return 'NO_FILE_INPUT';
-const b64=%s;const bin=atob(b64);const arr=new Uint8Array(bin.length);
+const b64=%s
+const bin=atob(b64)
+const arr=new Uint8Array(bin.length)
 for(let i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);
-const f=new File([arr],%s,{type:%s});
-const dt=new DataTransfer();dt.items.add(f);inp.files=dt.files;
-inp.dispatchEvent(new Event('change',{bubbles:true}));
+const f=new File([arr],%s,{type:%s})
+const dt=new DataTransfer()
+dt.items.add(f)
+inp.files=dt.files
+inp.dispatchEvent(new Event('change',{bubbles:true}))
 return 'uploaded '+f.name+' ('+f.size+' bytes)'})()""" % (
         json.dumps(b64), json.dumps(name), json.dumps(mime))
     return evaljs(script)

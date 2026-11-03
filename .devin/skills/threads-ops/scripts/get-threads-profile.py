@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _common import api, threads_account  # noqa: E402
-from skill_http import api_login, repo_root, request  # noqa: E402
+from skill_http import api_login, repo_root  # noqa: E402
 
 base = api()
 token = api_login(base)

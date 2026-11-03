@@ -31,13 +31,16 @@ Safety:
   is a URL or #hashtag (documented analyzer false-positive).
 - Idempotent + honest ledger: each key in <plan>.created.json stores
   {"id", "fp", "verified"}. A saved ID is skipped only when the plan
-  fingerprint matches AND the post verified cleanly; unverified entries
+  fingerprint matches AND the post verified cleanly
+  unverified entries
   are re-checked on the next run, and a changed plan fails loudly.
 - Adoption, not duplication: identical text already scheduled to the
   same platform is adopted only when its time/accounts/media match the
-  plan; a mismatch is a conflict failure, never a silent alias.
+  plan
+  a mismatch is a conflict failure, never a silent alias.
 - Verbatim check: if stored content_text differs from the draft, the
-  created post is deleted immediately; if the delete cannot be
+  created post is deleted immediately
+  if the delete cannot be
   confirmed, the entry is marked pending_cleanup and reconciled next run.
 - Instagram posts require media_ids — the platform rejects text-only.
 - Last-tier guard: Twitter/X and TikTok are "opportunistic only" per

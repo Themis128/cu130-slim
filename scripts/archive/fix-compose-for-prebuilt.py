@@ -3,7 +3,6 @@
 Usage: fix-compose-for-prebuilt.py"""
 
 import shutil
-import sys
 import time
 
 import yaml

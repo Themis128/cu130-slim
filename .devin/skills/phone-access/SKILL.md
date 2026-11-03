@@ -27,3 +27,12 @@ and file ops.
   `exec-out screencap -p > file.png` for screenshots instead.
 - Field-entry caveat learned the hard way: `input text` APPENDS at the
   cursor — use the field's own ✕ (clear) button first, never backspaces.
+
+## screen.py — resilient screen driver (2026-10-31)
+
+Fixes the three failure classes from the WebView drives:
+- `find`/`tap`/`wait` re-dump per call — no stale coords
+- `type` ladder: `input text` → termux `clipboard-set` + `KEYCODE_PASTE` → char-by-char `input keyevent` (WebView-proof)
+- every adb call retries vsock drops
+
+CLI: `screen.py texts|find "x"|tap "x"|type "x"|wait "x"|tapxy x y|dump`

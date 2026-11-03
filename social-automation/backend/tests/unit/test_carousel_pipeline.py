@@ -481,6 +481,10 @@ async def test_pipeline_seo_retry_and_bg_ready(monkeypatch, _pipe_mocks):
     buf = io.BytesIO()
     Image.new("RGB", (512, 512), (9, 9, 9)).save(buf, format="PNG")
     monkeypatch.setattr(cp, "_cf_generate_background", AsyncMock(return_value=Image.open(io.BytesIO(buf.getvalue()))))
+    monkeypatch.setattr(
+        "app.services.image_text_guard.check_image_text",
+        AsyncMock(return_value={"checked": True, "garbled": False}),
+    )
     import app.services.seo as seo_svc
 
     monkeypatch.setattr(seo_svc, "analyze_seo", AsyncMock(side_effect=RuntimeError("seo down")))

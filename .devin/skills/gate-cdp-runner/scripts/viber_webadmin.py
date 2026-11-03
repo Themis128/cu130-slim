@@ -7,7 +7,10 @@ human-gate-capture wires `viber <token>` in its cycle.
 
 Usage: python3 viber_webadmin.py
 """
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 from pathlib import Path
 
 CDP = "http://127.0.0.1:9222"
@@ -24,21 +27,24 @@ def _ev(ws_url, expr):
     while True:
         m = json.loads(ws.recv())
         if m.get("id") == 1:
-            ws.close(); return m.get("result", {}).get("result", {}).get("value")
+            ws.close()
+            return m.get("result", {}).get("result", {}).get("value")
 
 def main():
-    page = _page(); w = page["webSocketDebuggerUrl"]
-    _ev(w, 'location.href="https://webadmin.viber.com/"'); time.sleep(6)
+    page = _page()
+    w = page["webSocketDebuggerUrl"]
+    _ev(w, 'location.href="https://webadmin.viber.com/"')
+    time.sleep(6)
     url = _ev(w, "location.href") or ""
     if "login" in url or "auth" in url:
         sys.exit("webadmin.viber.com wants a login — sign in once on the debug Chrome")
     # token candidates: input values, code elements, td/div holding a 40+ char hex-ish string
     tok = _ev(w, '''(() => {
       const cand = [...document.querySelectorAll("input[value],code,.token,.app-key")]
-        .map(e=>e.value||e.textContent).find(t=>t&&/^[0-9a-f]{30,}$/i.test(t.trim()));
+        .map(e=>e.value||e.textContent).find(t=>t&&/^[0-9a-f]{30,}$/i.test(t.trim()))
       if (cand) return cand.trim();
-      const el=[...document.querySelectorAll("*")].find(e=>e.children.length===0&&/^[0-9a-f]{30,}$/i.test((e.textContent||"").trim()));
-      return el ? el.textContent.trim() : null;
+      const el=[...document.querySelectorAll("*")].find(e=>e.children.length===0&&/^[0-9a-f]{30,}$/i.test((e.textContent||"").trim()))
+      return el ? el.textContent.trim() : null
     })()''')
     if not tok:
         sys.exit("no token candidate on the page — bot console may need one navigation click")

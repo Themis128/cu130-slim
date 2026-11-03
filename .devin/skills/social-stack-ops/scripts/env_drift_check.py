@@ -3,7 +3,7 @@
 
 Lesson (2026-10-25): vars injected into a container's env that aren't declared
 in docker-compose.yml are silently LOST on `compose up` recreate — the digest's
-NEXTCLOUD_* IntraVox auth broke this way. `docker restart` preserves old env;
+NEXTCLOUD_* IntraVox auth broke this way. `docker restart` preserves old env
 only recreate injects .env — so drift hides until the next recreate.
 
 For every running compose container, compares `docker inspect` env keys
@@ -14,7 +14,11 @@ silent-break pattern).
 
 Usage: python -X utf8 .devin/skills/social-stack-ops/scripts/env_drift_check.py
 """
-import json, os, re, subprocess, sys
+import json
+import os
+import re
+import subprocess
+import sys
 
 def _root():
     d = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +40,7 @@ def running_containers():
             names.append(json.loads(line)["Name"])
         except Exception:
             pass
-    return names or [l.split()[-1] for l in
+    return names or [l.split()[-1] for l in  # noqa: E741
                      subprocess.run(["docker", "compose", "ps", "--services"],
                                     capture_output=True, text=True, cwd=ROOT).stdout.splitlines()]
 

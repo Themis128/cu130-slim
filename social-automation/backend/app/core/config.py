@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     DMR_URL: str = "http://host.docker.internal:12435/engines/llama.cpp/v1"
     # Base URL (no /engines/... suffix) for sidecars and worker tasks.
     DMR_BASE_URL: str = "http://host.docker.internal:12435"
+    # ai_functions transport aliases (ollama-compatible OpenAI endpoints).
+    DMR_EMBED_URL: str = ""
+    DMR_MODEL: str = ""
+    DMR_QUALITY_MODEL: str = ""
+    DMR_EMBED_MODEL: str = ""
     DMR_TEXT_MODEL: str = "ai/qwen3:8b-q4_K_M"  # long-form + schema/JSON (thinking model, ~5.2GB)
     DMR_VISION_MODEL: str = "ai/qwen3-vl"
     DMR_EMBEDDING_MODEL: str = "hf.co/Qwen/Qwen3-Embedding-0.6B-GGUF"
@@ -200,6 +205,12 @@ class Settings(BaseSettings):
     TWITTER_CLIENT_ID: str = ""
     TWITTER_CLIENT_SECRET: str = ""
     TWITTER_REDIRECT_URI: str = "http://localhost:8083/api/v1/auth/oauth/twitter/callback"
+
+    # ── Authentik OIDC (SSO into SocialAuto itself) ──
+    # Secret lives in .env (gitignored) / compose passthrough — never in source.
+    AUTHENTIK_ISSUER: str = "https://auth.cloudless.gr/application/o"
+    AUTHENTIK_CLIENT_ID: str = "social_client"
+    AUTHENTIK_CLIENT_SECRET: str = ""  # empty = OIDC SSO disabled (warned at import)
     # Credentials for the browser-fallback login flow (x.com web UI). The
     # username must be the account handle — entering an email routes into
     # X's signup funnel ("Email signups are only allowed on the apps").
@@ -547,6 +558,11 @@ class Settings(BaseSettings):
     # `socialauto` API user (X-Api-Key).
     ESPOCRM_BASE_URL: str = ""  # e.g. http://192.168.1.200:30700
     ESPOCRM_API_KEY: str = ""
+    MAUTIC_BASE_URL: str = ""  # e.g. http://mautic:80
+    MAUTIC_USERNAME: str = ""  # admin user email (basic auth)
+    MAUTIC_PASSWORD: str = ""
+    MAUTIC_PUBLIC_HOST: str = ""  # canonical host for Host header
+    FUNNEL_INGEST_TOKEN: str = ""  # shared token for /funnel/conversion posts
 
     # Website analytics ingestion from cloudless.gr.
     # Each tenant manages its own sink credentials; these defaults apply only to the

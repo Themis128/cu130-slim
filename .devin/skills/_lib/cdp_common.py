@@ -40,8 +40,8 @@ def ensure_cdp(launch=True):
     except Exception:
         pass
     if not launch:
-        sys.exit(f"CDP :9222 unreachable — launch debug Chrome")
-    r = subprocess.run([sys.executable, "-X", "utf8",
+        sys.exit("CDP :9222 unreachable — launch debug Chrome")
+    r = subprocess.run([sys.executable, "-X", "utf8",  # noqa: F841
                         os.path.normpath(ENSURE)],
                        capture_output=True, text=True, timeout=60)
     for _ in range(12):
@@ -98,13 +98,13 @@ class CdpClient:
 
     def click_label(self, label, sleep=6):
         r = self.ev(f"""(()=>{{
-            const pat={json.dumps(label.lower())};
-            const els=[...document.querySelectorAll('a,button,div[role=button],span,div')];
-            const b=els.find(e=>{{const t=(e.innerText||'').trim().toLowerCase();
-                return t===pat||t.startsWith(pat)}});
+            const pat={json.dumps(label.lower())}
+            const els=[...document.querySelectorAll('a,button,div[role=button],span,div')]
+            const b=els.find(e=>{{const t=(e.innerText||'').trim().toLowerCase()
+                return t===pat||t.startsWith(pat)}})
             if(!b)return null;
-            b.scrollIntoView({{block:'center'}});
-            const r=b.getBoundingClientRect();
+            b.scrollIntoView({{block:'center'}})
+            const r=b.getBoundingClientRect()
             return [r.left+r.width/2,r.top+r.height/2]}})()""")
         if not r:
             return False

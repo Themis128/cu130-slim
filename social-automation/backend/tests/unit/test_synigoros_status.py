@@ -106,6 +106,54 @@ def test_poll_identify_fails(monkeypatch):
         M._poll()
 
 
+def _status_ev(expr, kpa):
+    if "webMail" in expr:
+        return False
+    if "innerText.includes('Κατάσταση')" in expr:
+        return True
+    if "Δεν έγινε" in expr:
+        return False
+    return json.dumps({"status": "Αναμονή", "proto": "11", "kpa": kpa})
+
+
+def test_poll_stops_owned_session(monkeypatch):
+    from app.worker.tasks import synigoros_status as M
+
+    posts = []
+    monkeypatch.setattr(M, "_bridge", lambda p, d, **k: posts.append(p) or {"ok": 1})
+    monkeypatch.setattr(M, "_ev", lambda e: _status_ev(e, M.KPA))
+    monkeypatch.setattr(M.time, "sleep", lambda s: None)
+    M._poll()
+    assert posts.count("/session/stop") == 1
+
+
+def test_poll_keeps_reused_session(monkeypatch):
+    from app.worker.tasks import synigoros_status as M
+
+    posts = []
+
+    def _bridge(path, data, **k):
+        posts.append(path)
+        return {"reused": True} if path == "/session/start" else {"ok": 1}
+
+    monkeypatch.setattr(M, "_bridge", _bridge)
+    monkeypatch.setattr(M, "_ev", lambda e: _status_ev(e, M.KPA))
+    monkeypatch.setattr(M.time, "sleep", lambda s: None)
+    M._poll()
+    assert "/session/stop" not in posts
+
+
+def test_poll_stops_session_on_error(monkeypatch):
+    from app.worker.tasks import synigoros_status as M
+
+    posts = []
+    monkeypatch.setattr(M, "_bridge", lambda p, d, **k: posts.append(p) or {"ok": 1})
+    monkeypatch.setattr(M, "_poll_inner", MagicMock(side_effect=RuntimeError("boom")))
+    with pytest.raises(RuntimeError, match="boom"):
+        M._poll()
+    assert "/session/stop" in posts
+
+
 def _db(last=None, acc=None):
     db = MagicMock()
     res1 = MagicMock()
@@ -141,6 +189,7 @@ async def test_run_changed_notifies(monkeypatch):
     last = MagicMock(meta_data={"status": "Αναμονή"}, team_id="t")
     acc = MagicMock(team_id="t", meta_data={"bot_token_enc": "enc"}, access_token_enc=b"e")
     monkeypatch.setattr(M, "MAIL", "m")
+
     monkeypatch.setattr(M, "KPA", "k")
     monkeypatch.setattr(M, "_poll", lambda: {"status": "Ολοκληρώθηκε", "proto": "11"})
     monkeypatch.setattr(M, "task_session", lambda: _db(last, acc))

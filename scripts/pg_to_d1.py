@@ -154,7 +154,7 @@ def convert_table(sql: str, enum_map: dict, table_pks: dict | None = None) -> st
     for enum_name, values in enum_map.items():
         pattern = rf"\b{enum_name}\b"
         if re.search(pattern, sql, re.IGNORECASE):
-            values_str = ", ".join(f"'{v}'" for v in values)
+            values_str = ", ".join(f"'{v}'" for v in values)  # noqa: F841
             # Replace the type with TEXT
             sql = re.sub(pattern, "TEXT", sql, flags=re.IGNORECASE)
 

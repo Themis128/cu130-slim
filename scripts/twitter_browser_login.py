@@ -73,14 +73,14 @@ def click_continue() -> bool:
         """(() => {
             const labels = ['Continue', 'Next', 'Log in', 'Sign in',
                             'Συνέχεια', 'Σύνδεση', 'Επόμενο'];
-            const els = [...document.querySelectorAll('button,[role=button],input[type=submit]')];
+            const els = [...document.querySelectorAll('button,[role=button],input[type=submit]')]
             const c = els.find(e => {
-                const t = (e.innerText || e.value || '').trim();
-                return labels.includes(t) && e.offsetParent !== null;
-            });
+                const t = (e.innerText || e.value || '').trim()
+                return labels.includes(t) && e.offsetParent !== null
+            })
             if (!c) return {found: false};
-            const b = c.getBoundingClientRect();
-            return {found: true, x: b.x + b.width / 2, y: b.y + b.height / 2};
+            const b = c.getBoundingClientRect()
+            return {found: true, x: b.x + b.width / 2, y: b.y + b.height / 2}
         })()"""
     )
     if not isinstance(res, dict) or not res.get("found"):

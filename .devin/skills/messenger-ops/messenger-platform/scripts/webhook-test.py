@@ -38,7 +38,7 @@ def post(payload):
 
 
 def test_message(text="Hello from test"):
-    print(f"=== Webhook POST (text message) ===")
+    print("=== Webhook POST (text message) ===")
     code, body = post({"object": "page", "entry": [{"id": PAGE_ID, "messaging": [{
         "sender": {"id": "test_psid_123"}, "recipient": {"id": PAGE_ID},
         "message": {"mid": "m_test", "text": text}}], "time": 1700000000000}]})
@@ -70,9 +70,12 @@ p.add_argument("--empty", action="store_true")
 a = p.parse_args()
 
 if not any([a.verify, a.message, a.postback, a.empty]):
-    test_verify(); print()
-    test_empty(); print()
-    test_message("Hello from test"); print()
+    test_verify()
+    print()
+    test_empty()
+    print()
+    test_message("Hello from test")
+    print()
     test_postback("GET_STARTED")
 else:
     if a.verify:

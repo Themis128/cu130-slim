@@ -4,7 +4,6 @@ Services / CM-API review email, fire a Telegram alert when it lands.
     vetting_watch.py         # poll loop, 10-min interval
     vetting_watch.py --once  # single check
 """
-import re
 import subprocess
 import sys
 import time

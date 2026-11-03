@@ -12,7 +12,6 @@ tool(name, **args) -> result. Usage:
 
 import json
 import subprocess
-import sys
 import threading
 import time
 

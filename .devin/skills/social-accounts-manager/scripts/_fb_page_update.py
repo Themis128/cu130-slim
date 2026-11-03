@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """Shared FB Page field update via Graph API (runs inside social-api container)."""
 
-import json
 import sys
-from pathlib import Path
 
 from _common import FB_PAGE_ACCOUNT_ID, api_py
 

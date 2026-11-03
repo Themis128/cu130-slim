@@ -5,7 +5,8 @@ Auth modes (auto-detected):
 - CLOUDFLARE_GLOBAL_KEY + CLOUDFLARE_EMAIL — full user+account token management.
 - CLOUDFLARE_ACCESS_TOKEN (or CF_TOKEN_FILE=<json with "value">) — scoped
   bearer token. Account-scope operations (list/create/edit ACCOUNT tokens)
-  work when the token holds "Account API Tokens Write"; user-scope ops
+  work when the token holds "Account API Tokens Write"
+  user-scope ops
   (/user/tokens) still need the Global Key.
 
 Usage:

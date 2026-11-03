@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 """approval_status — list pending approval cards in Nextcloud Approvals/."""
 import base64
-import json
 import os
-import re
 import sys
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -30,7 +28,8 @@ def main():
         raw = urllib.request.urlopen(r, timeout=30).read()
     except urllib.error.HTTPError as e:
         if e.code == 404:
-            print("no Approvals/ folder — nothing pending"); return 0
+            print("no Approvals/ folder — nothing pending")
+            return 0
         raise
     ns = {"d": "DAV:"}
     files = [el.text for el in ET.fromstring(raw).findall(".//d:href", ns)

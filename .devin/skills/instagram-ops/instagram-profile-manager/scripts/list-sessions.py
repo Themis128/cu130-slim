@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """List saved Instagram sessions in the sidecar's db.json."""
 
-import json
 import subprocess
 import sys
 from pathlib import Path

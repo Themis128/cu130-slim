@@ -3,7 +3,8 @@
 
 Produces a clean release zip + SHA-256 checksum you can submit to:
   * https://www.timestamp.gr  (Hellenic Copyright Organization — free,
-    official Greek state service; certificate = proof of existence date)
+    official Greek state service
+    certificate = proof of existence date)
   * OpenTimestamps (optional, if `ots` is installed — anchors the hash
     into the Bitcoin blockchain, also free)
 
@@ -13,7 +14,8 @@ Usage:
 
 The zip is written next to the repo as <name>-<label|git-sha>.zip
 and is NOT committed. Nothing in it should contain secrets — this script
-refuses to include .env files; verify anyway before uploading anywhere."""
+refuses to include .env files
+verify anyway before uploading anywhere."""
 
 import hashlib
 import shutil

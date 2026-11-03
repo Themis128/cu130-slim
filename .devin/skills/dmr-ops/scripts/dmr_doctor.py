@@ -9,7 +9,8 @@ The failure class this fixes: /models returns 200 + lists models, but
 
 Cold-load policy (per docker-model-runner skill): a chat call on a
 non-resident model triggers a full load — 60–290s documented. Resident
-models get a 25s probe budget; non-resident get 300s. Probes that would
+models get a 25s probe budget
+non-resident get 300s. Probes that would
 trigger a load are skipped entirely while a GPU arbiter lock
 (``gpu:media_lock`` / ``gpu:dmr_lock``) is held — uncoordinated loads
 during a media job can wedge the runner.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Meta restriction-remediation driver — the full chain via the USER'S REAL
-CHROME (CDP :9222; consent-root-ops start-chrome-debug.bat must have run).
+CHROME (CDP :9222
+consent-root-ops start-chrome-debug.bat must have run).
 
 Commands:
   status                 dump current tab (title|url|text)
@@ -16,7 +17,8 @@ Commands:
 Chain (verified 2026-10-29):
   login -> /id/hub 'Get started' -> 'Protect your account' ->
   accountscenter 2FA -> pick profile -> authenticator app QR -> enter TOTP
-  -> done; then business verification -> NEW ad account -> WhatsApp.
+  -> done
+  then business verification -> NEW ad account -> WhatsApp.
 
 Known gates:
   - New-device hold: 'you can't make this change at the moment' — approve
@@ -76,9 +78,9 @@ def real_click(ws, i, x, y):
 def click_text(ws, i, pattern):
     js = f"""(()=>{{const els=[...document.querySelectorAll(
       'div[role=button],button,a,label,input[type=submit]')];
-      const el=els.find(e=>/{pattern}/i.test(e.innerText||e.value||''));
+      const el=els.find(e=>/{pattern}/i.test(e.innerText||e.value||''))
       if(!el)return 'none';
-      const r=el.getBoundingClientRect();
+      const r=el.getBoundingClientRect()
       return JSON.stringify([r.left+r.width/2,r.top+r.height/2])}})()"""
     v = ev(ws, i, js)
     if not v or v == "none":
@@ -111,13 +113,17 @@ def login(ws, i, email):
         pw = getpass.getpass("FB password: ")
     nav(ws, i, "https://www.facebook.com/", 6)
     js = f"""(()=>{{
-      const em=document.querySelector('input[name=email],input[type=text]');
-      const pw=document.querySelector('input[name=pass],input[type=password]');
+      const em=document.querySelector('input[name=email],input[type=text]')
+      const pw=document.querySelector('input[name=pass],input[type=password]')
       if(!em||!pw)return 'no-fields';
-      em.focus();em.value={json.dumps(email)};em.dispatchEvent(new Event('input',{{bubbles:true}}));
-      pw.focus();pw.value={json.dumps(pw)};pw.dispatchEvent(new Event('input',{{bubbles:true}}));
+      em.focus()
+em.value={json.dumps(email)}
+em.dispatchEvent(new Event('input',{{bubbles:true}}))
+      pw.focus()
+pw.value={json.dumps(pw)}
+pw.dispatchEvent(new Event('input',{{bubbles:true}}))
       const b=[...document.querySelectorAll('button,input[type=submit]')]
-        .find(e=>/log ?in/i.test(e.innerText||e.value||e.name||''));
+        .find(e=>/log ?in/i.test(e.innerText||e.value||e.name||''))
       if(b){{b.click();return 'submitted'}}return 'no-btn';}})()"""
     print("login:", ev(ws, i, js))
     time.sleep(8)
@@ -129,9 +135,9 @@ def twofa(ws, i):
     # click the Facebook profile row (real click — iframe-walled page)
     js = """(()=>{const el=[...document.querySelectorAll('*')]
       .find(e=>e.children.length>=1&&(e.innerText||'').includes('Themistoklis Baltzakis')
-        &&(e.innerText||'').includes('Facebook')&&(e.innerText||'').length<80);
+        &&(e.innerText||'').includes('Facebook')&&(e.innerText||'').length<80)
       if(!el)return 'none';
-      const r=el.getBoundingClientRect();
+      const r=el.getBoundingClientRect()
       return JSON.stringify([r.left+r.width/2,r.top+r.height/2])})()"""
     v = ev(ws, i, js)
     if v and v != "none":
@@ -144,12 +150,13 @@ def twofa(ws, i):
 
 def confirm(ws, i, code):
     js = f"""(()=>{{
-      const f=[...document.querySelectorAll('input[type=text],input[type=tel],input')];
+      const f=[...document.querySelectorAll('input[type=text],input[type=tel],input')]
       if(!f.length)return 'no-field';
-      f[0].focus();f[0].value='{code}';
-      f[0].dispatchEvent(new Event('input',{{bubbles:true}}));
+      f[0].focus()
+f[0].value='{code}'
+      f[0].dispatchEvent(new Event('input',{{bubbles:true}}))
       const b=[...document.querySelectorAll('div[role=button],button')]
-        .find(e=>/continue|next|confirm|verify|submit/i.test(e.innerText||''));
+        .find(e=>/continue|next|confirm|verify|submit/i.test(e.innerText||''))
       if(b){{b.click();return 'submitted'}}return 'typed-no-btn';}})()"""
     print("confirm:", ev(ws, i, js))
     time.sleep(7)
@@ -160,7 +167,8 @@ def totp():
     import pyotp
     secret = os.environ.get("FB_TOTP_SECRET")
     if not secret:
-        print("set FB_TOTP_SECRET"); return
+        print("set FB_TOTP_SECRET")
+        return
     print(pyotp.TOTP(secret).now())
 
 
@@ -178,14 +186,16 @@ def step(ws, i):
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     if cmd == "totp":
-        totp(); return
+        totp()
+        return
     ws, i = conn()
     if cmd == "status":
         print(status(ws, i))
     elif cmd == "shot":
         print("saved:", shot(ws, i))
     elif cmd == "nav":
-        nav(ws, i, sys.argv[2]); print(status(ws, i)[:1400])
+        nav(ws, i, sys.argv[2])
+        print(status(ws, i)[:1400])
     elif cmd == "step":
         step(ws, i)
     elif cmd == "login":

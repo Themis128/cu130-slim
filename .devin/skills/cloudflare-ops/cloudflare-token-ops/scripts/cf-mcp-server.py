@@ -6,14 +6,16 @@ MCP tools over stdio. Pure stdlib, JSON-RPC line protocol (same pattern as
 n8n-mcp-server.py).
 
 Auth model (resolved from env or repo-root .env):
-  CLOUDFLARE_GLOBAL_KEY + CLOUDFLARE_EMAIL  — Global API Key; the ONLY credential
+  CLOUDFLARE_GLOBAL_KEY + CLOUDFLARE_EMAIL  — Global API Key
+  the ONLY credential
       that can create/edit API tokens (Cloudflare forbids token-managed tokens).
-  CLOUDFLARE_ACCESS_TOKEN                   — account token 'cloudless-access';
+  CLOUDFLARE_ACCESS_TOKEN                   — account token 'cloudless-access'
       can list/manage Access apps and service tokens, cannot manage API tokens.
   CLOUDFLARE_ACCOUNT_ID                     — defaults to fb7dc7b6… (cloudless.gr)
 
 Secret hygiene: created token values / service-token secrets are written to
-~/.cache/cf-ops/cf-token-*.json (0600); tool results return the file path only.
+~/.cache/cf-ops/cf-token-*.json (0600)
+tool results return the file path only.
 
 Tools:
   cf_verify                - which credential mode is active + token status

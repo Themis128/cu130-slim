@@ -14,7 +14,6 @@ import argparse
 import json
 import re
 import subprocess
-import sys
 import time
 import urllib.request
 
@@ -82,7 +81,8 @@ def main():
                        "+document.body.innerText.slice(0,400)") or ""
         if "two_factor" not in st and "Waiting for approval" not in st:
             print("APPROVED / past checkpoint:")
-            print(st[:600]); return
+            print(st[:600])
+            return
         print(".", end="", flush=True)
         time.sleep(10)
 
@@ -90,7 +90,8 @@ def main():
     if not a.sms:
         return
     if click(ws, i, "try another way") == "none":
-        print("no fallback link"); return
+        print("no fallback link")
+        return
     time.sleep(5)
     click(ws, i, "whatsapp|text message|sms")
     time.sleep(2)
@@ -103,12 +104,14 @@ def main():
             print("SMS code:", c)
             r = ev(ws, i, f"""(()=>{{const f=document.querySelector(
               'input[type=text],input[type=tel]');if(!f)return 'none';
-              f.focus();f.value='{c}';
-              f.dispatchEvent(new Event('input',{{bubbles:true}}));
+              f.focus()
+f.value='{c}'
+              f.dispatchEvent(new Event('input',{{bubbles:true}}))
               const b=[...document.querySelectorAll('button,div[role=button]')]
-              .find(e=>/continue|next|confirm|log/i.test(e.innerText||''));
+              .find(e=>/continue|next|confirm|log/i.test(e.innerText||''))
               if(b)b.click();return 'submitted'}})()""")
-            print("submit:", r); return
+            print("submit:", r)
+            return
         time.sleep(10)
     print("no SMS code seen")
 

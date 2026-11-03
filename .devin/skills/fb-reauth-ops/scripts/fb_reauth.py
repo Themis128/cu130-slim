@@ -3,7 +3,6 @@
 drive it on the bound debug Chrome (:9222), complete the consent → fresh
 token → the dead-token heal flag clears."""
 import json
-import os
 import time
 import urllib.parse
 import urllib.request
@@ -22,18 +21,20 @@ def _signed_state() -> str:
     """Mint a properly-signed OAuth state via the backend's sign_oauth_state —
     fabricated strings fail the app's signature check."""
     import subprocess
+    inner = (
+        "import asyncio\n"
+        "from app.core.security import sign_oauth_state\n"
+        "from app.db.session import get_db\n"
+        "from sqlalchemy import text\n"
+        "async def go():\n"
+        "  async for db in get_db():\n"
+        "    r=await db.execute(text('SELECT id FROM teams LIMIT 1'))\n"
+        "    print(sign_oauth_state({'t':str(r.scalar())}))\n"
+        "asyncio.run(go())"
+    )
     out = subprocess.run(
-        ["docker","exec","social-api","python","-c",
-         "import asyncio\n"
-         "from app.core.security import sign_oauth_state\n"
-         "from app.db.session import get_db\n"
-         "from sqlalchemy import text\n"
-         "async def go():\n"
-         "  async for db in get_db():\n"
-         "    r=await db.execute(text('SELECT id FROM teams LIMIT 1'))\n"
-         "    print(sign_oauth_state({'t':str(r.scalar())}))\n"
-         "asyncio.run(go())"],
-        capture_output=True, text=True, timeout=30)
+        ["docker", "exec", "social-api", "python", "-c", inner],
+        capture_output=True, text=True, timeout=30, check=False)
     for line in out.stdout.splitlines():
         if line.strip() and not line.startswith(("TEAM","ERR")):
             return line.strip()
@@ -62,7 +63,8 @@ def _eval(ws_url, js):
     import websocket
     ws = websocket.create_connection(ws_url, suppress_origin=True, timeout=15)
     ws.send(json.dumps({"id":1,"method":"Runtime.evaluate","params":{"expression":js,"returnByValue":True}}))
-    r = json.loads(ws.recv()); ws.close()
+    r = json.loads(ws.recv())
+    ws.close()
     return str(r.get("result",{}).get("result",{}).get("value",""))
 
 def main() -> int:

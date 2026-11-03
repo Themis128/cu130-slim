@@ -19,7 +19,7 @@ def read_code(sender_pat: str = r"viber|whatsapp|facebook|meta|AUTHMSG|partners"
                 [adb, "shell", "content", "query", "--uri", "content://sms/inbox",
                  "--projection", "address,date,body", "--sort", "date DESC"],
                 capture_output=True, text=True, timeout=10)
-            rows = [l for l in r.stdout.splitlines()
+            rows = [l for l in r.stdout.splitlines()  # noqa: E741
                     if re.search(sender_pat, l, re.I)][:max_rows]
             for row in rows:
                 m = CODE_RE.search(row)

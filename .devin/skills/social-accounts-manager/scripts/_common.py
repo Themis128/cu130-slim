@@ -2,7 +2,6 @@
 """Shared helpers for social-accounts-manager scripts."""
 
 import json
-import os
 import subprocess
 import sys
 import urllib.error
@@ -11,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "_lib"))
-from skill_http import env, repo_root, social_api  # noqa: E402
+from skill_http import env, repo_root  # noqa: E402
 
 IG_API = "http://localhost:8011"
 LI_SIDECAR = "http://localhost:9225"
@@ -43,7 +42,7 @@ def api_py(code: str) -> str:
     r = subprocess.run(
         ["docker", "compose", "exec", "-T", "social-api", "python3", "-c", code],
         cwd=repo_root(), capture_output=True, text=True)
-    out = "\n".join(l for l in r.stdout.splitlines()
+    out = "\n".join(l for l in r.stdout.splitlines()  # noqa: E741
                     if "INFO sqlalchemy" not in l)
     return out
 

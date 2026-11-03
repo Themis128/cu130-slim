@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Regression test for the platform-attributed busy-hold on the browser bridge.
 
-Callers tag page interactions with an ``X-Platform: <name>`` header; a tagged
+Callers tag page interactions with an ``X-Platform: <name>`` header
+a tagged
 interaction sets a 180s hold (``busy_owner``) on the bridge. While held,
-foreign-tagged AND untagged calls get 409 "Browser busy"; /session/start for
-a foreign platform gets 409; a same-platform start reuses the session.
+foreign-tagged AND untagged calls get 409 "Browser busy"
+/session/start for
+a foreign platform gets 409
+a same-platform start reuses the session.
 ``{"force": true}`` would override the hold — this script NEVER sends force.
 
 If a session is already active/done for platform P, P (or the live busy-owner

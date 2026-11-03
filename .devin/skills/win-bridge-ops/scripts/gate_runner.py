@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """gate_runner.py — run the gate sequence from WSL via the Windows agent."""
-import json, os, subprocess, sys, time, urllib.request
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.request
 
 TOKEN = os.environ.get("WIN_AGENT_TOKEN", "")
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(

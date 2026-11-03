@@ -12,6 +12,7 @@ import pytest
 
 import app.services.media_ai as MA
 from app.services import media_ai
+from app.services.image_text_guard import apply_no_text_guard
 
 
 @pytest.mark.asyncio
@@ -447,7 +448,9 @@ class TestExpandVisualPrompt:
         _cf_settings(monkeypatch)
         await self._dmr(monkeypatch, '  "a detailed scene"  ')
         out = await MA.expand_visual_prompt("a cat")
-        assert out == "a detailed scene"
+        # #1243: output always passes through the image-text guard.
+        assert out == apply_no_text_guard("a detailed scene")
+        assert out.startswith("a detailed scene")
 
     @pytest.mark.asyncio
     async def test_video_system_prompt(self, monkeypatch):
@@ -464,7 +467,7 @@ class TestExpandVisualPrompt:
         _cf_settings(monkeypatch)
         for bad in ["", "x" * 1300, "same prompt", "has <markup>"]:
             await self._dmr(monkeypatch, bad)
-            assert await MA.expand_visual_prompt("same prompt") == "same prompt"
+            assert await MA.expand_visual_prompt("same prompt") == apply_no_text_guard("same prompt")
 
     @pytest.mark.asyncio
     async def test_exception_returns_prompt(self, monkeypatch):
@@ -472,7 +475,7 @@ class TestExpandVisualPrompt:
         import app.services.dmr as dmr
 
         monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(side_effect=OSError("down")))
-        assert await MA.expand_visual_prompt("keep me") == "keep me"
+        assert await MA.expand_visual_prompt("keep me") == apply_no_text_guard("keep me")
 
 
 class TestVerifyMediaSemantics:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify patchright deployment across browser-novnc, sidecars, and
-backend consumers. Exit 1 if any hard check fails; warnings are non-fatal.
+backend consumers. Exit 1 if any hard check fails
+warnings are non-fatal.
 Usage: verify.py"""
 
 import glob

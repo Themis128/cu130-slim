@@ -5,7 +5,8 @@ Covers three layers:
   a) OAuth accounts in social-postgres (social_accounts) — token status,
      expiry, and whether a refresh token is stored. Expired accounts with a
      refresh token are auto-healed by the hourly `refresh_expiring_tokens`
-     task; expired accounts WITHOUT one need manual reconnection.
+     task
+     expired accounts WITHOUT one need manual reconnection.
   b) The browser-novnc bridge (http://localhost:9223) — /health and the
      current /session/status.
   c) Per-platform browser sidecars — GET /health each.

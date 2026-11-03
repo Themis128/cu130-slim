@@ -5,12 +5,14 @@ handles the SMS-code read via ADB after the code lands.
     wa_code_watch.py        # retry loop until code sent or 90 min
     wa_code_watch.py --once # single attempt
 """
-import json
 import subprocess
 import sys
 import time
 
-API = ["docker", "compose", "exec", "-T", "social-api",
+# plain `docker exec` by container name: `docker compose exec` needs the
+# compose file + the host's project name, which the stack-watchers
+# container does not have (cwd=/ → "no configuration file provided").
+API = ["docker", "exec", "-i", "social-api",
        "python", "scripts/whatsapp_tool.py"]
 
 

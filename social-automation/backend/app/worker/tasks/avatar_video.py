@@ -103,9 +103,21 @@ async def _run(**kw) -> dict:
 
         music = None
         if kw["music_url"]:
-            async with httpx.AsyncClient(timeout=60) as c:
-                r = await c.get(kw["music_url"])
-                music = r.content if r.status_code == 200 else None
+            # SSRF guard — the route validates too, but a task can be
+            # enqueued directly (beat, script, replay). Re-validate here
+            # and never follow redirects: a public URL must not bounce
+            # the fetch inward.
+            try:
+                from app.services.url_safety import validate_public_http_url
+
+                safe_music_url = validate_public_http_url(kw["music_url"], allow_http=False)
+            except Exception:
+                safe_music_url = None
+                logger.warning("avatar-story music_url failed SSRF validation — skipping music")
+            if safe_music_url:
+                async with httpx.AsyncClient(timeout=60, follow_redirects=False) as c:
+                    r = await c.get(safe_music_url)
+                    music = r.content if r.status_code == 200 else None
 
         video, meta = await generate_avatar_video(
             avatar_png=avatar_png, source_photo=source_photo, scenes=scenes, music_bytes=music, width=kw["width"], height=kw["height"]

@@ -12,7 +12,6 @@ Flow (fully automated — we control the DNS):
 """
 import json
 import os
-import subprocess
 import sys
 import time
 import urllib.request
@@ -27,7 +26,7 @@ def _tok() -> str:
     for p in ("/home/tbaltzakis/cu130-slim/.env",
               "/mnt/c/Users/tbaltzakis/cu130-slim/.env"):
         if os.path.exists(p):
-            for l in open(p):
+            for l in open(p):  # noqa: E741
                 if l.startswith("CLOUDFLARE_API_TOKEN="):
                     return l.split("=", 1)[1].strip().strip('"')
     sys.exit("no CF token")
@@ -43,7 +42,7 @@ def _cf(method, path, body=None):
 
 
 def _zone_id() -> str:
-    return _cf("GET", f"?name=cloudless.gr")["result"][0]["id"]
+    return _cf("GET", "?name=cloudless.gr")["result"][0]["id"]
 
 
 def _xrpc(method, payload, tok):

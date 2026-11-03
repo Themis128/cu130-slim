@@ -128,16 +128,17 @@ def main():
         probe = """async (page) => {
             try {
                 const resp = await page.goto('https://www.linkedin.com/feed/', {
-                    waitUntil: 'domcontentloaded', timeout: 60000 });
-                await page.waitForTimeout(4000);
+                    waitUntil: 'domcontentloaded', timeout: 60000 })
+                await page.waitForTimeout(4000)
                 return JSON.stringify({
                     status: resp && resp.status(),
                     url: page.url(),
                     onLoginWall: !!await page.$('form[action*="login"]'),
                     hasNav: !!await page.$('nav.global-nav, #global-nav'),
                     title: await page.title(),
-                });
-            } catch (e) { return 'NAV-ERR: ' + e.message.slice(0, 200); }
+                })
+            } catch (e) { return 'NAV-ERR: ' + e.message.slice(0, 200)
+            }
         }"""
         state = client.call("browser_run_code_unsafe", {"code": probe}, timeout=120)
         print("auth state:", state[-500:])

@@ -13,7 +13,8 @@ API path (needs a valid key from Settings → n8n API):
 
 Online notes (n8n docs / community):
 - Auth header must be X-N8N-API-KEY (not Bearer) against /api/v1/...
-- Keys are created in the UI; there is no N8N_API_KEY env that auto-provisions them.
+- Keys are created in the UI
+there is no N8N_API_KEY env that auto-provisions them.
 - Owner recreate / encryption-key change invalidates old keys → 401 unauthorized.
 - n8n 2.0+ uses publish/unpublish instead of active/inactive.
 """

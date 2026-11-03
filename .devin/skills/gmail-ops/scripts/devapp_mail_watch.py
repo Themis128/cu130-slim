@@ -3,7 +3,8 @@
 
 Targets the LinkedIn CM-API Standard Tier review (Microsoft Vetting
 Services, LinkedIn developer notifications, Qualtrics confirmations).
-Dedups via a state file; sends new hits to the Automation HQ Telegram
+Dedups via a state file
+sends new hits to the Automation HQ Telegram
 channel by exec'ing the send inside social-api (bot token stays in the
 container's encrypted store).
 

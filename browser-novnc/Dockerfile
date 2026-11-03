@@ -1,4 +1,5 @@
-FROM python:3.11-slim
+ARG SIDECAR_BASE=ghcr.io/themis128/cu130-slim:social-sidecar-base-latest
+FROM ${SIDECAR_BASE}
 
 # ── System deps: Xvfb (virtual display), x11vnc, Fluxbox, noVNC, websockify,
 #    PulseAudio + GStreamer (audio forwarding via WebSocket) ──
@@ -27,7 +28,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Patchright is a patched Playwright drop-in that removes the CDP
 # Runtime.enable leak and automation flags that Meta/TikTok/Instagram use
 # to silently abort mutations or revoke sessions.
-RUN pip install --no-cache-dir patchright playwright httpx fastapi uvicorn && \
+USER root
+RUN pip install --no-cache-dir patchright playwright && \
     patchright install chromium && \
     patchright install-deps chromium
 

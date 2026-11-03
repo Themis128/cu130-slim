@@ -110,13 +110,15 @@ def watch() -> None:
 
 def main() -> int:
     if "--watch" in sys.argv:
-        watch(); return 0
+        watch()
+        return 0
     if "--act" in sys.argv:
         n = sys.argv[sys.argv.index("--act") + 1]
         a = ACTS.get(n)
         print(f"{n}: {'done' if a['check']() else 'pending — ' + a['hint']}")
         return 0
-    status(); return 0
+    status()
+    return 0
 
 
 if __name__ == "__main__":

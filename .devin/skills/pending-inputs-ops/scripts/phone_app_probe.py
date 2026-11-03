@@ -6,8 +6,6 @@ client signatures.
 
     phone_app_probe.py      # check every reachable surface
 """
-import json
-import subprocess
 import sys
 import urllib.request
 

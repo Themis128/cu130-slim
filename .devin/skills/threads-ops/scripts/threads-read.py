@@ -5,7 +5,8 @@ The official Threads API publishes but cannot browse profiles, search
 users, or read arbitrary posts. This wraps the unofficial CLI for those
 reads. Auth: THREADS_SESSION_ID + THREADS_CSRF_TOKEN in repo .env —
 export them from a browser logged into threads.net (browser-novnc
-profile). Runs the CLI via npx; first run downloads the package.
+profile). Runs the CLI via npx
+first run downloads the package.
 
 Usage:
   threads-read.py whoami
@@ -15,7 +16,8 @@ Usage:
   threads-read.py replies <url|shortcode>
   threads-read.py search <query>
   threads-read.py likes
-Any extra args pass through; --json supported where the CLI offers it.
+Any extra args pass through
+--json supported where the CLI offers it.
 """
 
 import os

@@ -3,7 +3,8 @@
 
 Stages (idempotent, safe to re-run):
   A. Claim the browser-novnc bridge for linkedin (polite retries only —
-     this is a non-urgent scheduled task; never force-preempts).
+     this is a non-urgent scheduled task
+     never force-preempts).
   B. Developer console: enable the "Advertising Reporting API" product on
      the SocialAuto app (self-serve, dev tier covers <=5 ad accounts).
   C. Flip .env: uncomment LINKEDIN_EXTRA_SCOPES=r_ads_reporting, recreate
@@ -12,7 +13,8 @@ Stages (idempotent, safe to re-run):
      stored token gains r_ads_reporting.
   E. Verify account scopes + write the done-flag.
 
-Run via cron tomorrow (Sep 25): only fires that day; writes
+Run via cron tomorrow (Sep 25): only fires that day
+writes
 /tmp/linkedin_ads_enable.done on success so later runs no-op.
 """
 import json
@@ -158,12 +160,12 @@ def enable_product():
     # Find the Advertising Reporting API row's request/enable control.
     btn = eval_js(
         """(()=>{
-          const rows=[...document.querySelectorAll('*')].filter(e=>e.offsetParent&&e.children.length<6&&/advertising reporting/i.test(e.innerText||''));
+          const rows=[...document.querySelectorAll('*')].filter(e=>e.offsetParent&&e.children.length<6&&/advertising reporting/i.test(e.innerText||''))
           for(const row of rows){
-            const b=[...row.querySelectorAll('button,a')].find(e=>e.offsetParent&&!e.disabled&&/request|add|enable|view access/i.test(e.innerText||''));
+            const b=[...row.querySelectorAll('button,a')].find(e=>e.offsetParent&&!e.disabled&&/request|add|enable|view access/i.test(e.innerText||''))
             if(b){const r=b.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),t:b.innerText.trim().slice(0,40)};}
           }
-          return null;
+          return null
         })()"""
     )
     log(f"product control: {btn}")
@@ -180,9 +182,10 @@ def enable_product():
     # Confirm any modal that appears.
     modal_btn = eval_js(
         """(()=>{
-          const b=[...document.querySelectorAll('button')].find(e=>e.offsetParent&&!e.disabled&&/request access|confirm|submit|agree/i.test(e.innerText||''));
+          const b=[...document.querySelectorAll('button')].find(e=>e.offsetParent&&!e.disabled&&/request access|confirm|submit|agree/i.test(e.innerText||''))
           if(!b) return null;
-          const r=b.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),t:b.innerText.trim()};
+          const r=b.getBoundingClientRect()
+return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),t:b.innerText.trim()}
         })()"""
     )
     if isinstance(modal_btn, dict) and modal_btn.get("x"):
@@ -279,9 +282,10 @@ def oauth_reconnect(env):
             return True
         btn = eval_js(
             """(()=>{
-              const b=[...document.querySelectorAll('button')].find(e=>e.offsetParent&&!e.disabled&&/allow|authorize|accept|συνέχεια/i.test(e.innerText||e.value||''));
+              const b=[...document.querySelectorAll('button')].find(e=>e.offsetParent&&!e.disabled&&/allow|authorize|accept|συνέχεια/i.test(e.innerText||e.value||''))
               if(!b) return null;
-              const r=b.getBoundingClientRect();return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),t:(b.innerText||b.value||'').trim()};
+              const r=b.getBoundingClientRect()
+return {x:Math.round(r.x+r.width/2),y:Math.round(r.y+r.height/2),t:(b.innerText||b.value||'').trim()}
             })()"""
         )
         if isinstance(btn, dict) and btn.get("x"):

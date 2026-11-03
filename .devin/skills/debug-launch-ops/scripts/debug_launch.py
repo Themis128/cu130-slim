@@ -59,14 +59,19 @@ def run() -> None:
 
 def main() -> int:
     if "--register" in sys.argv:
-        register(); return 0
+        register()
+        return 0
     if "--run" in sys.argv:
-        run(); return 0
+        run()
+        return 0
     if "--write-bat" in sys.argv:
-        print(write_bat() or "bat written"); return 0
+        print(write_bat() or "bat written")
+        return 0
     if "--status" in sys.argv:
-        print(":9222", status()); return 0
-    print("usage: --register | --run | --status | --write-bat"); return 1
+        print(":9222", status())
+        return 0
+    print("usage: --register | --run | --status | --write-bat")
+    return 1
 
 
 if __name__ == "__main__":

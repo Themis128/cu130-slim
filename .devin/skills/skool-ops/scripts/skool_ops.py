@@ -8,7 +8,8 @@ Commands:
 
 Run inside social-api (docker compose exec -T social-api python <this>),
 or on host — it talks to the bridge over the compose network name only when
-inside; on host use BRIDGE_URL=http://127.0.0.1:9223 if the port is published.
+inside
+on host use BRIDGE_URL=http://127.0.0.1:9223 if the port is published.
 """
 from __future__ import annotations
 

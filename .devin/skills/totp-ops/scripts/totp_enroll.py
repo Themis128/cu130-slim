@@ -5,7 +5,6 @@ adhoc browser (:9232) and capture the otpauth secret into .env.
 Nav -> Authentication app -> password confirm -> read the secret shown.
 """
 import json
-import os
 import re
 import sys
 import time
@@ -29,7 +28,7 @@ def _ev(js):
 
 
 def _env():
-    return dict(l.split("=", 1) for l in open(".env").read().splitlines()
+    return dict(l.split("=", 1) for l in open(".env").read().splitlines()  # noqa: E741
                 if "=" in l and not l.startswith("#"))
 
 

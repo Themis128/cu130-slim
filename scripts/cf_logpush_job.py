@@ -6,7 +6,8 @@ As of 2026-09 Logpush is self-service on all plans with 25 GB/month included
 for internal (R2) destinations, but the account flag must be enabled on the
 account — if the API answers ``logpush is not enabled for this account``
 (1004), open the dashboard Logpush page once
-(https://dash.cloudflare.com/?to=/:account/logs) or retry later; the rollout
+(https://dash.cloudflare.com/?to=/:account/logs) or retry later
+the rollout
 is staged. All tokens needed live in the repo-root ``.env``:
 
     CLOUDFLARE_API_TOKEN   needs Zone -> Logs -> Edit on cloudless.gr

@@ -5,7 +5,8 @@ Runs daily via cron. Two jobs:
 
 1. DRIFT: PATCH any worker whose observability.enabled drifted back on
    (CI deploys can re-enable it — wrangler defaults it on in some flows).
-   Prod-critical workers stay at 5% sampling; everything else forced off.
+   Prod-critical workers stay at 5% sampling
+   everything else forced off.
 2. DEADLINE: from Nov 20, daily Telegram ping — "cancel the Observability
    subscription in dashboard" until ACK file exists (touch
    .devin/skills/cf-billing-ops/OBS_ACK after cancelling).
@@ -30,7 +31,7 @@ def _tok() -> str:
     for p in ("/home/tbaltzakis/cu130-slim/.env",
               "/mnt/c/Users/tbaltzakis/cu130-slim/.env"):
         if os.path.exists(p):
-            for l in open(p):
+            for l in open(p):  # noqa: E741
                 if l.startswith("CLOUDFLARE_API_TOKEN="):
                     v = l.split("=", 1)[1].strip().strip('"')
                     if v:

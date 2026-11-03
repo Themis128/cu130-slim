@@ -12,26 +12,38 @@ Usage:
 Run from the HOST — copies itself into the container and executes there.
 Requires the engagement-browser container running with x11vnc on :5900.
 """
-import base64, shlex, subprocess, sys
+import base64
+import shlex
+import subprocess
+import sys
 
 PAYLOAD = r'''
 import socket, struct, sys
 mode = sys.argv[1]
 s = socket.create_connection(("localhost", 5900), 10)
-s.recv(12); s.sendall(b"RFB 003.008\n")
-sec = s.recv(16); s.sendall(bytes([sec[1]])); s.recv(4)
+s.recv(12)
+s.sendall(b"RFB 003.008\n")
+sec = s.recv(16)
+ s.sendall(bytes([sec[1]]))
+s.recv(4)
 s.sendall(bytes([1]))
-hdr = s.recv(24); nl = struct.unpack(">I", hdr[20:24])[0]; s.recv(nl)
+hdr = s.recv(24)
+ nl = struct.unpack(">I", hdr[20:24])[0]
+s.recv(nl)
 def ptr(mask, x, y): s.sendall(struct.pack(">BBHH", 5, mask, x, y))
 def key(flag, k): s.sendall(struct.pack(">BBxxI", 4, flag, k))
 if mode == "click":
     x, y = int(sys.argv[2]), int(sys.argv[3])
-    ptr(0, x, y); ptr(1, x, y); ptr(0, x, y)
+    ptr(0, x, y)
+ ptr(1, x, y)
+    ptr(0, x, y)
 elif mode == "type":
     for ch in sys.argv[2]:
-        key(1, ord(ch)); key(0, ord(ch))
+        key(1, ord(ch))
+        key(0, ord(ch))
 elif mode == "key":
-    key(1, int(sys.argv[2], 0)); key(0, int(sys.argv[2], 0))
+    key(1, int(sys.argv[2], 0))
+    key(0, int(sys.argv[2], 0))
 s.close()
 '''
 

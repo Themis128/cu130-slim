@@ -10,7 +10,11 @@ Usage:
   nb_lint.py <dir-or-file>          lint all *.ipynb
   nb_lint.py --fix <file>           auto-fix the classic {'\\n'.join(...)} bug
 """
-import ast, glob, json, re, sys
+import ast
+import glob
+import json
+import re
+import sys
 
 def cell_errors(src: str, fname: str):
     try:
