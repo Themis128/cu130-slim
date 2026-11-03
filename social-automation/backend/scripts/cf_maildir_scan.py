@@ -42,11 +42,16 @@ def _ssh(user_host: str, remote_cmd: str, timeout: int = 15) -> str | None:
 def _scan_once(hosts: list[str], target: str) -> str | None:
     local = target.split("@")[0]
     maildir = MAILDIR.format(user=local)
-    cmd = (
-        f"for f in $(ls -t {maildir}new/* {maildir}cur/* 2>/dev/null | head -40); "
-        "do grep -il cloudflare \"$f\" >/dev/null 2>&1 && "
-        "grep -oE 'https://[^\"'\\'' <>]+(confirm|verify)[^\"'\\'' <>]+' \"$f\" | head -1 && break; done"
+    # Maildir is vmail-owned: the shell glob must expand as root too, so the
+    # whole loop runs inside `sudo -n sh -c`. The remote command is base64'd
+    # to survive the local-shell + ssh + remote-sh quoting layers.
+    import base64
+    inner = (
+        f'for f in $(ls -t {maildir}new/* {maildir}cur/* 2>/dev/null | head -40); '
+        'do grep -il cloudflare "$f" >/dev/null 2>&1 && '
+        'grep -oE "https://[^\\" <>]+(confirm|verify)[^\\" <>]+" "$f" | head -1 && break; done'
     )
+    cmd = f"echo {base64.b64encode(inner.encode()).decode()} | base64 -d | sudo -n sh"
     for h in hosts:
         out = _ssh(f"tbaltzakis@{h}", cmd)
         if out:
