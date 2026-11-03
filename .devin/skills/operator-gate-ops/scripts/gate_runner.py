@@ -216,11 +216,16 @@ def gate_email_routing():
     print("destination add attempted — watching mailbox for verify link…")
     p.close()
     for _ in range(60):
-        r = subprocess.run(
-            ["ssh", "-o", "BatchMode=yes", "omv",
-             "grep -rhoE 'https://[a-zA-Z0-9./?=_%&-]+' /home/*/Maildir/{new,cur} "
-             "2>/dev/null | grep -i 'cloudflare' | grep -iE 'verif|confirm' | tail -1"],
-            capture_output=True, text=True, timeout=15)
+        try:
+            r = subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "omv",
+                 "for d in /home/*/Maildir/new /home/*/Maildir/cur; do "
+                 "ls -t \"$d\" 2>/dev/null | head -20 | while read f; do "
+                 "grep -oE 'https://[a-zA-Z0-9./?=_%&-]+' \"$d/$f\"; done; done "
+                 "2>/dev/null | grep -i cloudflare | grep -iE 'verif|confirm' | tail -1"],
+                capture_output=True, text=True, timeout=25)
+        except subprocess.TimeoutExpired:
+            continue
         link = r.stdout.strip()
         if link:
             subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
