@@ -22,3 +22,10 @@ writes `AUTHENTIK_ADMIN_TOKEN=<tok>` to the project `.env` (token never printed)
 update_app_meta.py → apply `omv-infrastructure/omv/authentik/blueprint.yaml` via
 admin API → print remaining manual gates (CF Access tailnet policy, tailnet ACLs,
 `tailscale serve` for /if/admin). Each step idempotent + skips when done.
+
+
+## Host-side app wiring — scripts/wire-*.sh
+- `wire-nextcloud.sh [host]` — occ `user_oidc` on the AIO host (secrets from `~/.config/secrets/oidc-nextcloud`)
+- `wire-portal.sh [env]` — appends `AUTH_OIDC_*` to the app env (idempotent)
+- `wire-access.sh` — CF Access for `/if/admin` (needs Zero Trust-scoped token)
+- `wire-monitoring.sh` — prometheus scrape + ntfy alert recipe
