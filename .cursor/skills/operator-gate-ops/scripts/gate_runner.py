@@ -84,9 +84,17 @@ class Page:
         time.sleep(settle)
 
     def js(self, expr):
-        r = self._send("Runtime.evaluate", {
-            "expression": expr, "returnByValue": True, "awaitPromise": True})
-        return (r.get("result") or {}).get("result", {}).get("value")
+        try:
+            r = self._send("Runtime.evaluate", {
+                "expression": expr, "returnByValue": True, "awaitPromise": True})
+            return (r.get("result") or {}).get("result", {}).get("value")
+        except Exception:
+            # Chrome died (host watchers kill it) — relaunch + reattach once
+            _ensure_cdp()
+            self.__init__()
+            r = self._send("Runtime.evaluate", {
+                "expression": expr, "returnByValue": True, "awaitPromise": True})
+            return (r.get("result") or {}).get("result", {}).get("value")
 
     def poll(self, expr, timeout=60, interval=1):
         for _ in range(int(timeout / interval)):
@@ -151,19 +159,52 @@ def gate_fb():
     return f"partial: omv write rc={r1.returncode} api rc={r2.returncode}"
 
 
+def _dash_sso_login(p):
+    """Google-SSO login on the CF sign-in page — the debug profile keeps a
+    live Google session, so this is click-through, no credentials needed."""
+    p.click("/google/i")
+    time.sleep(6)
+    # pick the Google account — JS click first, trusted Input click as fallback
+    p.js(
+        "(()=>{const e=[...document.querySelectorAll('div[role=link],li,div')]"
+        ".find(e=>/@/.test(e.innerText||'')&&e.innerText.length<120);"
+        "if(e){e.click();return 'picked'} return null})()")
+    time.sleep(5)
+    if "accountchooser" in (p.js("location.href") or ""):
+        box = p.js(
+            "(()=>{const e=[...document.querySelectorAll('[data-identifier],[role=listitem],li,div')]"
+            ".find(e=>/@/.test(e.innerText||'')&&e.innerText.length<120);"
+            "if(!e)return null;const r=e.getBoundingClientRect();"
+            "return JSON.stringify({x:r.x+r.width/2,y:r.y+r.height/2})})()")
+        if box:
+            c = json.loads(box)
+            for et in ("mousePressed", "mouseReleased"):
+                p._send("Input.dispatchMouseEvent", {"type": et, "x": c["x"], "y": c["y"],
+                        "button": "left", "clickCount": 1})
+    return "IN" if p.poll(
+        "(()=>{const t=document.body.innerText||'';"
+        "return /api tokens|destination|account home|cloudless/i.test(t) ? 'IN' : null})()",
+        timeout=45) else "OUT"
+
+
+def _dash_ready(p, want):
+    v = p.poll(
+        "(()=>{const t=document.body.innerText||'';"
+        "if(/" + want + "/i.test(t))return 'PAGE';"
+        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
+        timeout=30)
+    if v != "LOGIN":
+        return True
+    return _dash_sso_login(p) == "IN"
+
+
 def gate_email_routing():
     _ensure_cdp()
     p = Page()
     p.goto("https://dash.cloudflare.com/?to=/:zone/cloudless.gr/email/routing/routes")
-    v = p.poll(
-        "(()=>{const t=document.body.innerText||'';"
-        "if(/destination address/i.test(t))return 'PAGE';"
-        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
-        timeout=30)
-    if v == "LOGIN":
+    if not _dash_ready(p, "destination address"):
         p.close()
-        return ("dashboard not logged in — log into dash.cloudflare.com in the debug "
-                "Chrome once, or use --real")
+        return "dash login failed even after Google SSO — use --real"
     p.click("/add destination|add address/i")
     time.sleep(2)
     p.type_text(
@@ -172,34 +213,49 @@ def gate_email_routing():
         "tbaltzakis@cloudless.gr")
     time.sleep(1)
     p.click("/save|add|create/i")
-    print("destination add attempted — watching mailbox for verify link…")
+    print("destination add attempted — watching dashboard row for Verified…")
     p.close()
-    for _ in range(60):
-        r = subprocess.run(
-            ["ssh", "-o", "BatchMode=yes", "omv",
-             "grep -rhoE 'https://[a-zA-Z0-9./?=_%&-]+' /home/*/Maildir/{new,cur} "
-             "2>/dev/null | grep -i 'cloudflare' | grep -iE 'verif|confirm' | tail -1"],
-            capture_output=True, text=True, timeout=15)
-        link = r.stdout.strip()
-        if link:
-            subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
-            return "verify link followed — destination VERIFIED; retest mail-outbound /send"
-        time.sleep(10)
-    return "no verify email in 10min — check omv maildir manually"
+    # Source of truth = the dashboard row status. Maildir polling is best-effort
+    # only: inbound mail routes to mail-ingest → webmail.cloudless.gr/ingest,
+    # not an omv Maildir, so the verify link may never touch /home/*/Maildir.
+    for _ in range(40):
+        try:
+            p2 = Page()
+            p2.goto("https://dash.cloudflare.com/?to=/:zone/cloudless.gr/email/routing/routes")
+            time.sleep(4)
+            p2.click("/destination addresses/i")
+            time.sleep(3)
+            t = p2.poll("document.body.innerText", timeout=15) or ""
+            p2.close()
+            i = t.find("tbaltzakis@cloudless.gr")
+            if i >= 0 and "verified" in t[i:i + 140].lower():
+                return "destination VERIFIED — retest mail-outbound /send"
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(
+                ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "omv",
+                 "for d in /home/*/Maildir/new /home/*/Maildir/cur; do "
+                 "ls -t \"$d\" 2>/dev/null | head -20 | while read f; do "
+                 "grep -oE 'https://[a-zA-Z0-9./?=_%&-]+' \"$d/$f\"; done; done "
+                 "2>/dev/null | grep -i cloudflare | grep -iE 'verif|confirm' | tail -1"],
+                capture_output=True, text=True, timeout=25)
+            link = r.stdout.strip()
+            if link:
+                subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
+        except subprocess.TimeoutExpired:
+            pass
+        time.sleep(15)
+    return "still Pending after 10min — verify link never surfaced"
 
 
 def gate_deploy_token():
     _ensure_cdp()
     p = Page()
     p.goto("https://dash.cloudflare.com/profile/api-tokens")
-    v = p.poll(
-        "(()=>{const t=document.body.innerText||'';"
-        "if(/api tokens/i.test(t))return 'PAGE';"
-        "if(/log in|sign in/i.test(t))return 'LOGIN';return ''})()",
-        timeout=30)
-    if v == "LOGIN":
+    if not _dash_ready(p, "api tokens"):
         p.close()
-        return "dashboard not logged in — log in once in debug Chrome, or use --real"
+        return "dash login failed even after Google SSO — use --real"
     p.click("/create token|create custom/i")
     time.sleep(2)
     p.click("/use template|custom/i")
