@@ -23,6 +23,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import re
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -156,15 +157,15 @@ async def _slot_taken(db: AsyncSession, team_id: uuid.UUID, account_id: uuid.UUI
 
 
 _CTA_URL_BY_PLATFORM = {
-    "linkedin": "https://cloudless.gr/contact",
-    "facebook": "https://cloudless.gr/contact",
-    "instagram": "https://cloudless.gr/contact",
-    "threads": "https://cloudless.gr/contact",
+    "linkedin": "https://cloudless.gr/en/consultation",
+    "facebook": "https://cloudless.gr/en/consultation",
+    "instagram": "https://cloudless.gr/en/consultation",
+    "threads": "https://cloudless.gr/en/consultation",
     "twitter": "https://social.cloudless.gr/pricing",
     "x": "https://social.cloudless.gr/pricing",
     "tiktok": "https://social.cloudless.gr/pricing",
 }
-_CTA_DEFAULT_URL = "https://cloudless.gr/contact"
+_CTA_DEFAULT_URL = "https://cloudless.gr/en/consultation"
 
 
 def _stamp_utm(url: str, platform: str, campaign: str = "social-post") -> str:
@@ -177,8 +178,6 @@ def _stamp_utm(url: str, platform: str, campaign: str = "social-post") -> str:
 def _ensure_funnel_cta(content: str, platform: str, campaign: str = "social-post") -> str:
     """Every post must land followers on a UTM-tagged capture surface —
     the CRM-loop rule (audit showed 55 posts → 6 CTAs → 1 tagged)."""
-    import re
-
     if "utm_source=" in content:
         return content
     m = re.search(r"https?://(?:www\.)?(?:social\.)?cloudless\.gr[^\s)\]]*", content)
@@ -186,11 +185,7 @@ def _ensure_funnel_cta(content: str, platform: str, campaign: str = "social-post
         return content.replace(m.group(0), _stamp_utm(m.group(0), platform, campaign))
     raw = _CTA_URL_BY_PLATFORM.get(platform, _CTA_DEFAULT_URL)
     url = _stamp_utm(raw, platform, campaign)
-    line = (
-        "See the plans + starter kits"
-        if "social.cloudless.gr" in raw
-        else "Book your free 30-minute cloud audit"
-    )
+    line = "See the plans + starter kits" if "social.cloudless.gr" in raw else "Book your free 30-minute cloud audit"
     return f"{content.rstrip()}\n\n{line}: {url}"
 
 
@@ -209,7 +204,13 @@ async def _generate_copy(
     guide = PLATFORM_GUIDES.get(action.platform, PLATFORM_GUIDES["linkedin"])
     brand_section = f"\n\nBRAND CONTEXT:\n{brand_ctx}\n" if brand_ctx else ""
 
+    # Trend-driven media rule: cite a live niche-filtered signal when one
+    # exists — never fabricated, never forced (empty when the feed has no
+    # qualified signal or is unreachable).
+    from app.services.trend_context import trend_line
+
     prompt = f"""Write a {action.platform} post based on this instruction: "{action.instruction}"
+{trend_line()}
 {brand_section}
 Platform guidelines: {guide}
 Tone: professional
@@ -262,8 +263,11 @@ async def _generate_media(db: AsyncSession, team: Team, user_id, action: Monetiz
     brand banner (PIL, always succeeds). Returns a MediaAsset id or None."""
     from app.services.media_ai import expand_visual_prompt
     from app.services.media_storage import persist_generated_image
+    from app.services.trend_context import top_relevant_signal
 
-    prompt = await expand_visual_prompt(action.instruction, media_type="image")
+    signal = top_relevant_signal()
+    media_instruction = f"{action.instruction} — visual theme may draw on the live trend signal: {signal}" if signal else action.instruction
+    prompt = await expand_visual_prompt(media_instruction, media_type="image")
 
     png: bytes | None = None
     try:  # local GPU first

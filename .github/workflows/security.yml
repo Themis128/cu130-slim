@@ -43,7 +43,7 @@ concurrency:
 
 env:
   # Trivy configuration
-  TRIVY_VERSION: '0.58.1'
+  TRIVY_VERSION: '0.76.1'
   # Prefer GHCR — public.ecr.aws frequently rate-limits (TOOMANYREQUESTS) on GHA.
   TRIVY_DB_REPOSITORY: 'ghcr.io/aquasecurity/trivy-db:2,public.ecr.aws/aquasecurity/trivy-db:2'
   TRIVY_JAVA_DB_REPOSITORY: 'ghcr.io/aquasecurity/trivy-java-db:1,public.ecr.aws/aquasecurity/trivy-java-db:1'
@@ -102,7 +102,6 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Free up disk space
-        if: matrix.service == 'comfyui'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
             /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
@@ -164,9 +163,23 @@ jobs:
           echo "Scanning image: $REF"
           docker images
 
+      - name: Install Trivy ${{ env.TRIVY_VERSION }}
+        run: |
+          set -e
+          if curl -fsSL --retry 3 --connect-timeout 20 "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o /tmp/trivy.tgz; then
+            sudo tar -xzf /tmp/trivy.tgz -C /usr/local/bin trivy
+          else
+            echo "::warning::release tarball failed - extracting binary from ghcr image"
+            docker create --name trivy-src "aquasec/trivy:${TRIVY_VERSION}" >/dev/null
+            docker cp trivy-src:/usr/local/bin/trivy /tmp/trivy-bin
+            docker rm trivy-src >/dev/null
+            sudo install -m 0755 /tmp/trivy-bin /usr/local/bin/trivy
+          fi
+          trivy version
       - name: Scan ${{ matrix.service }} with Trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
+          skip-setup-trivy: true
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
           format: 'sarif'
@@ -177,11 +190,13 @@ jobs:
           timeout: '15m'
           exit-code: '0'
           scanners: 'vuln'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fail on CRITICAL/HIGH for core services
         if: matrix.service != 'comfyui'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
+          skip-setup-trivy: true
           scan-type: 'image'
           image-ref: ${{ steps.image.outputs.ref }}
           format: 'table'
@@ -190,6 +205,7 @@ jobs:
           ignore-policy: '.github/trivy-ignore.rego'
           exit-code: '1'
           scanners: 'vuln'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload ${{ matrix.service }} Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4

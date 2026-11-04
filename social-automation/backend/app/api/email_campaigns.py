@@ -692,7 +692,7 @@ async def survey_submit(
         pass
     audit_yes = answers.get("audit_interest") == "Yes"
     next_step = (
-        '<a href="https://cloudless.gr/contact" '
+        '<a href="https://cloudless.gr/en/consultation" '
         f'style="{_BTN_STYLE};text-decoration:none;display:block;margin:18px auto 0;width:fit-content;">'
         "Book the free 30-min audit</a>"
         if audit_yes
