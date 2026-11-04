@@ -44,11 +44,7 @@ def filtergraph(preset: str, seconds: float, volume: float) -> str:
                 f"afade=t=out:st={max(0.1, d - 1.2):.2f}:d=1.1[n{i}]"
             )
         mix = "".join(f"[n{i}]" for i in range(len(notes)))
-        return (
-            ";".join(parts)
-            + f";{mix}amix=inputs={len(notes)}:normalize=0,"
-            f"volume={volume},{fade},aformat=channel_layouts=stereo:sample_rates=44100[aout]"
-        )
+        return ";".join(parts) + f";{mix}amix=inputs={len(notes)}:normalize=0,volume={volume},{fade},aformat=channel_layouts=stereo:sample_rates=44100[aout]"
 
     if preset == "pad":
         # Warm Cmaj7 pad: detuned saws through a lowpass, slow swells.
@@ -89,8 +85,17 @@ def filtergraph(preset: str, seconds: float, volume: float) -> str:
 def render(preset: str, seconds: float, out: Path, volume: float = 0.7) -> Path:
     graph = filtergraph(preset, seconds, volume)
     cmd = [
-        "ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=duration={seconds:.2f}",
-        "-filter_complex", graph, "-map", "[aout]", str(out),
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        f"anullsrc=duration={seconds:.2f}",
+        "-filter_complex",
+        graph,
+        "-map",
+        "[aout]",
+        str(out),
     ]
     subprocess.run(cmd, check=True, capture_output=True)
     print(f"{out}  ({preset}, {seconds:.1f}s)")

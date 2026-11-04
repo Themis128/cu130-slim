@@ -111,10 +111,7 @@ async def status(_args: argparse.Namespace) -> None:
         meta = lead.meta_data or {}
         due = _due_quiet_step(lead)
         nxt = f"next: touch {due['step']} ({due['key']}) due now" if due else "sequence complete / not yet due"
-        print(
-            f"{lead.email:<40} step={meta.get('quiet_step', 0)}/{len(QUIET_STEPS)} "
-            f"age={_quiet_age_days(lead):.1f}d  {nxt}"
-        )
+        print(f"{lead.email:<40} step={meta.get('quiet_step', 0)}/{len(QUIET_STEPS)} age={_quiet_age_days(lead):.1f}d  {nxt}")
 
 
 def main() -> None:

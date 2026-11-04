@@ -48,9 +48,4 @@ def top_relevant_signal(geos: tuple[str, ...] = ("GR", "US")) -> str | None:
 def trend_line() -> str:
     """Prompt fragment naming the live signal, or empty string."""
     s = top_relevant_signal()
-    return (
-        f"\n\nA live trend signal readers are searching now: \"{s}\". "
-        "Reference it only if it fits the instruction naturally — never force it."
-        if s
-        else ""
-    )
+    return f'\n\nA live trend signal readers are searching now: "{s}". Reference it only if it fits the instruction naturally — never force it.' if s else ""

@@ -62,9 +62,9 @@ def build_video(
         else:
             a_src = Path(td) / "silence.wav"
             subprocess.run(
-                ["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=duration={seconds:.2f}",
-                 "-ac", "2", "-ar", "44100", str(a_src)],
-                check=True, capture_output=True,
+                ["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=duration={seconds:.2f}", "-ac", "2", "-ar", "44100", str(a_src)],
+                check=True,
+                capture_output=True,
             )
 
         # zoompan: d=frames expands one still into the full clip; z eases in.
@@ -77,16 +77,42 @@ def build_video(
             f":d={frames}:s={width}x{height}:fps={fps},format=yuv420p[v]"
         )
         cmd = [
-            "ffmpeg", "-y",
-            "-loop", "1", "-framerate", str(fps), "-i", str(image),
-            "-i", str(a_src),
-            "-filter_complex", v_filter,
-            "-map", "[v]", "-map", "1:a",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-r", str(fps),
-            "-c:a", "aac", "-b:a", "96k",
-            "-t", f"{seconds:.2f}", "-shortest",
-            "-movflags", "+faststart", str(out),
+            "ffmpeg",
+            "-y",
+            "-loop",
+            "1",
+            "-framerate",
+            str(fps),
+            "-i",
+            str(image),
+            "-i",
+            str(a_src),
+            "-filter_complex",
+            v_filter,
+            "-map",
+            "[v]",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "medium",
+            "-crf",
+            "20",
+            "-pix_fmt",
+            "yuv420p",
+            "-r",
+            str(fps),
+            "-c:a",
+            "aac",
+            "-b:a",
+            "96k",
+            "-t",
+            f"{seconds:.2f}",
+            "-shortest",
+            "-movflags",
+            "+faststart",
+            str(out),
         ]
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
@@ -99,8 +125,7 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("image", type=Path)
     ap.add_argument("--out", type=Path, required=True)
-    ap.add_argument("--audio", default="chime",
-                    help="'chime'|'pad'|'whoosh'|'tick' (synth bed), a file path, or 'none'")
+    ap.add_argument("--audio", default="chime", help="'chime'|'pad'|'whoosh'|'tick' (synth bed), a file path, or 'none'")
     ap.add_argument("--seconds", type=float, default=6.0)
     ap.add_argument("--aspect", choices=tuple(ASPECTS), default="16:9")
     ap.add_argument("--fps", type=int, default=25)

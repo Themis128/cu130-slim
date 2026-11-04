@@ -15,9 +15,9 @@ import argparse
 from pathlib import Path
 
 QUESTIONS = (
-    ('Question 1 (The Goal):', '"What do you need to get done with your tech setup or marketing right now?"'),
-    ('Question 2 (The Pain):', '"What\'s making that difficult? Is it high software bills, slow tools, or lack of time?"'),
-    ('Question 3 (The Timeline):', '"When do you absolutely need this setup and running smoothly?"'),
+    ("Question 1 (The Goal):", '"What do you need to get done with your tech setup or marketing right now?"'),
+    ("Question 2 (The Pain):", '"What\'s making that difficult? Is it high software bills, slow tools, or lack of time?"'),
+    ("Question 3 (The Timeline):", '"When do you absolutely need this setup and running smoothly?"'),
 )
 RED_FLAGS = (
     "Overpaying for servers/hosting",
@@ -31,7 +31,7 @@ CLOSE = (
     '"You said you need to fix (Pain) and get your (Goal) running. I recommend '
     "our Single Fix. We design an easy website, secure hosting, and automatic "
     "marketing in 14 days flat. You own everything we make. The total is ONLY "
-    "€800 (50% upfront / 50% done). Should I send you the payment link?\" "
+    '€800 (50% upfront / 50% done). Should I send you the payment link?" '
     "(Then PAUSE and listen)"
 )
 
@@ -48,26 +48,30 @@ def render_markdown(client: str, date: str) -> str:
     ]
     for label, q in QUESTIONS:
         lines += [f"**{label}** {q}", "", "Answer: ", ""]
-    lines += [
-        "## 2. TECHNICAL RED FLAGS & COST LEAKS (check during call)",
-        "",
-    ] + [f"- [ ] {f}" for f in RED_FLAGS] + [
-        "",
-        "## 3. THE ACTION PLAN (quick wins to give away for free)",
-        "",
-        "Top 2 or 3 quick fixes they can do right now to save money or time:",
-        "",
-        "1. ",
-        "2. ",
-        "3. ",
-        "",
-        "## 4. THE RECOMMENDATION & CLOSE",
-        "",
-        "Tailored scope: SINGLE FIX (€800)  /  FULL-STACK BUNDLE (€3,600/mo)",
-        "",
-        f"How to close the loop: {CLOSE}",
-        "",
-    ]
+    lines += (
+        [
+            "## 2. TECHNICAL RED FLAGS & COST LEAKS (check during call)",
+            "",
+        ]
+        + [f"- [ ] {f}" for f in RED_FLAGS]
+        + [
+            "",
+            "## 3. THE ACTION PLAN (quick wins to give away for free)",
+            "",
+            "Top 2 or 3 quick fixes they can do right now to save money or time:",
+            "",
+            "1. ",
+            "2. ",
+            "3. ",
+            "",
+            "## 4. THE RECOMMENDATION & CLOSE",
+            "",
+            "Tailored scope: SINGLE FIX (€800)  /  FULL-STACK BUNDLE (€3,600/mo)",
+            "",
+            f"How to close the loop: {CLOSE}",
+            "",
+        ]
+    )
     return "\n".join(lines)
 
 
