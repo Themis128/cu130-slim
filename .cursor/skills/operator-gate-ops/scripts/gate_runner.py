@@ -60,11 +60,13 @@ def _ensure_cdp() -> None:
 class Page:
     _id = 0
 
-    def __init__(self):
+    def __init__(self, url_match=None):
         import websocket
         ts = tabs()
         if not ts:
             raise SystemExit("no CDP tab")
+        if url_match:
+            ts = [t for t in ts if url_match in t.get("url", "")] or ts
         self.ws = websocket.create_connection(
             ts[0]["webSocketDebuggerUrl"], timeout=30, suppress_origin=True)
         for m in ("Page.enable", "Runtime.enable"):
