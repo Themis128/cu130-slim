@@ -41,3 +41,14 @@ action: `python %USERPROFILE%\win_agent.py` → hidden.
 After the agent is running, the *only* manual parts left are the Meta
 login state inside the debug Chrome and whatever the platforms refuse to
 expose — everything orchestrated.
+
+## WSL reachability — firewall + bind
+
+win_agent.py already binds `0.0.0.0:8765` — "agent DOWN" from WSL is
+almost always **Windows Firewall blocking the inbound port**, not the
+agent not running. Fix once (Windows, admin):
+`scripts/win-agent-setup.bat` — adds the `netsh advfirewall` inbound
+rule for :8765 + starts the agent. WSL then reaches it at
+`http://<default-gateway-ip>:8765` (default 172.22.144.1).
+`cdp_relay.py` proxies CDP :9222 through the agent's /exec lane —
+`status` / `launch` / `open <url>` / `tabs`.
