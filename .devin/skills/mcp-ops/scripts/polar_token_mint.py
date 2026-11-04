@@ -75,8 +75,8 @@ def ensure_signed_in(p) -> bool:
 
 
 def create_token(p, name: str) -> str | None:
-    for path in ("settings/developers", "settings/developer-tokens", "developers"):
-        p.goto(f"https://polar.sh/dashboard/{path}")
+    for path in ("settings/access-tokens",):
+        p.goto(f"https://polar.sh/dashboard/cloudless/{path}")
         time.sleep(4)
         t = body_text(p).lower()
         if "access token" in t or "api" in t:
@@ -95,6 +95,12 @@ def create_token(p, name: str) -> str | None:
         inp.dispatchEvent(new Event('input', {bubbles:true}));
         return true;
     })()""" % json.dumps(name), timeout=5)
+    time.sleep(1)
+    eval_js(p, """(() => {
+        const cbs = [...document.querySelectorAll('input[type=checkbox]')];
+        cbs.forEach(c => { if (!c.checked) c.click(); });
+        return cbs.length;
+    })()""", timeout=5)
     time.sleep(1)
     click_text(p, "Create token") or click_text(p, "Create") or click_text(p, "Generate")
     time.sleep(4)
@@ -124,7 +130,34 @@ def main() -> int:
     args = ap.parse_args()
 
     gr._ensure_cdp()
-    p = gr.Page()
+
+    import asyncio
+    from playwright.async_api import async_playwright
+
+    class _P:
+        """Drive a dedicated new tab — gr.Page() binds the first CDP target,
+        which on this box is a Lenovo overlay, not the polar tab."""
+        def __init__(self, pg):
+            self.pg = pg
+        def goto(self, url):
+            asyncio.get_event_loop().run_until_complete(
+                self.pg.goto(url, wait_until="domcontentloaded", timeout=25000))
+        def poll(self, expr, timeout=15):
+            try:
+                return asyncio.get_event_loop().run_until_complete(self.pg.evaluate(expr))
+            except Exception:
+                return None
+
+    async def _open():
+        pw = await async_playwright().start()
+        b = await pw.chromium.connect_over_cdp("http://localhost:9222")
+        tab = await b.contexts[0].new_page()
+        return pw, tab
+
+    _loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(_loop)
+    _pw, _tab = _loop.run_until_complete(_open())
+    p = _P(_tab)
     if not ensure_signed_in(p):
         print("[polar] sign-in wall persists — open https://polar.sh/dashboard in the debug Chrome")
         print("        (remote-debugging :9222), sign in once, then re-run this script.")

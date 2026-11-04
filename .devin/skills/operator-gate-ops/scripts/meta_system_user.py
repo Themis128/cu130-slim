@@ -43,7 +43,8 @@ def call(method, path, params):
 
 
 def main():
-    tok = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--admin-token=")), "")
+    tok = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--admin-token=")),
+               __import__("os").environ.get("FB_ADMIN_TOKEN", ""))
     bid = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--business-id=")), "")
     name = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--name=")), "socialauto-daemon")
     role = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--role=")), "EMPLOYEE")

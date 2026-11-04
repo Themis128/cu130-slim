@@ -166,7 +166,11 @@
       "command": "C:\\Program Files\\Git\\bin\\bash.exe",
       "args": [
         "C:/Users/tbaltzakis/cu130-slim/.devin/skills/polar-ops/scripts/polar-mcp.sh"
-      ]
+      ],
+      "env": {
+        "HTTPS_PROXY": "socks5h://127.0.0.1:1080",
+        "ALL_PROXY": "socks5h://127.0.0.1:1080"
+      }
     },
     "deepwiki": {
       "url": "https://mcp.deepwiki.com/mcp"
