@@ -201,6 +201,7 @@ jobs:
           severity: 'HIGH'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Scan ${{ matrix.service.name }} for critical vulnerabilities
         if: matrix.service.name != 'comfyui'
@@ -214,6 +215,7 @@ jobs:
           severity: 'CRITICAL'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Scan comfyui for critical vulnerabilities (non-blocking)
         if: matrix.service.name == 'comfyui'
@@ -227,3 +229,4 @@ jobs:
           severity: 'CRITICAL'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
