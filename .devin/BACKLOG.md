@@ -1,5 +1,46 @@
 # BACKLOG (living)
 
+## 2026-11-04 (pm) — Polar billing live + n8n crash loop + FB token surface
+
+- **Billing**: `BILLING_PROVIDER` was `paddle` with ALL paddle creds empty →
+  every `/api/v1/billing/*` 503'd. Flipped to `polar` + `POLAR_ENVIRONMENT=production`
+  (token is a prod OAT, org Cloudless — sandbox-api 401s it). Product IDs
+  filled: Pro `3621874d` $10 / Business `3290ef7c` $50 / Enterprise `570fbf52`
+  $150. Rotated webhook secret via API on existing endpoint
+  (social.cloudless.gr/.../polar-webhook). api+workers+beat recreated;
+  `polar_configured=True`, 4/4 celery nodes pong.
+- **Polar tokens**: stale `devin-mcp*` dashboard access tokens revoked via
+  `polar_token_cleanup.py` (CDP :9222). Keep-list = `devin-mcp3` +
+  `socialauto-production`. Token mgmt has NO API surface — dashboard/CDP only.
+- **n8n**: 379-restart crash loop — `Deployment key 'signing.hmac' cannot be
+  read with this instance encryption key` (all 8 deployment_key rows minted
+  2026-10-28 under a rotated N8N_ENCRYPTION_KEY; unrecoverable). Fix: dumped
+  table → `logs/n8n-key-recovery/`, deleted rows, restart re-minted under
+  current key → healthy. 25 workflows + 6 creds intact.
+- **FB token surface**: admin USER token verified live (never expires, full
+  scopes incl. business_management); DB `social_accounts` row was stale
+  `status=revoked` → flipped `active`. PR #1331 merged (stealth app-secret
+  capture, fb_session_seed, meta_system_user).
+- **MCP**: Slack OAuth `redirect_uri did not match` — mcp-remote on Windows
+  defaults callback host to 127.0.0.1; pinned `--host localhost` in
+  `.devin/mcp_config.json` (both slack entries).
+- **Git hygiene**: root cause of repeated `:master` push rejections =
+  `branch.<name>.merge=refs/heads/master` upstream config; re-pointed +
+  pruned 19 merged-PR branches, removed 4 stale worktrees.
+- **Leftovers**:
+  - [ ] `cloudless-gate:fb-system-user` vault empty + `FACEBOOK_SYSTEM_USER_TOKEN`
+    absent — `meta_system_user.py` ready, needs one run `--admin-token` (user
+    token in DB/decryptable).
+  - [ ] fb-sidecar session EMPTY (0 cookies all realms) — run
+    `fb_session_seed.py` once with real Chrome :9222.
+  - [ ] `pr1300-fix` — 5 commits funnel CTA/UTM injection, never PRed — PR or drop.
+  - [ ] `polar_token_cleanup.py` still untracked (in-flight, radix-popper
+    confirm handler improved) — commit when settled.
+  - [ ] `local/master-20261104-*` backup branches; detached %TEMP% worktrees
+    for open PRs left intact.
+  - [ ] PR #1332 (cf_gate_watch + polar_token_mint) — auto-merge armed.
+  - [ ] 4 git stashes on master/work branches un-triaged.
+
 ## 2026-11-04 — FB token healed end-to-end (omv monitor spam stopped)
 
 - **Trigger**: `FB heal: token invalid/expired` Telegram spam every 30 min —
