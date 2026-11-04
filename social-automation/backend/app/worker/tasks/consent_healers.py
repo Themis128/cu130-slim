@@ -62,7 +62,7 @@ async def _linkedin_snapshot() -> str:
             r = await c.get(
                 "https://api.linkedin.com/rest/memberSnapshotData",
                 params={"q": "criteria", "domain": "CONNECTIONS", "count": 50},
-                headers={"Authorization": f"Bearer {tok}", "Linkedin-Version": "202312"},
+                headers={"Authorization": f"Bearer {tok}", "Linkedin-Version": "202610"},
             )
         if r.status_code != 200:
             return f"no-grant ({r.status_code})"

@@ -91,7 +91,7 @@ async def lead_form_responses(db, account_urn: str) -> list[dict]:
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(
             f"{API}/leadFormResponses?q=owner&owner=(sponsoredAccount:{account_urn})&count=50&leadType=(leadType:SPONSORED)",
-            headers={"Authorization": f"Bearer {tok}", "Linkedin-Version": "202404", **HEADERS_EXTRA},
+            headers={"Authorization": f"Bearer {tok}", "Linkedin-Version": "202610", **HEADERS_EXTRA},
         )
         if r.status_code != 200:
             return []

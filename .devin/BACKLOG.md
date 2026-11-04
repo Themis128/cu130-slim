@@ -1,5 +1,40 @@
 # BACKLOG (living)
 
+## 2026-11-04 (late pm) — LinkedIn Community Management Standard Tier activated
+
+- **Trigger**: LinkedIn email — app `264925843` upgraded Dev → **Standard Tier**.
+- **Root cause found (was misdiagnosed)**: the `426 NONEXISTENT_VERSION`
+  was NOT primarily a token-scope problem — the pinned `Linkedin-Version`
+  headers were dead. Dead pins fixed → `202610`: `linkedin_ads.py` (202404,
+  leadFormResponses silently returned `[]`), `consent_healers.py` (202312),
+  `linkedin_cm_tool.py` + `linkedin_tool.py` (202510). Production client was
+  already on `202608` (active). LinkedIn retired `202510` early — do not
+  trust the ~12-month version SLA.
+- **Token healed without consent**: stored org token predated the product
+  approval; `refresh_token` grant minted a fresh access+refresh pair with
+  all CM scopes — written back to `social_accounts` rows `9c4451bb` (org)
+  + `18d5cd59` (person), `token_expires_at` → 2027-01-03. Verified live:
+  `/rest/posts` 200, `/rest/organizations/108614163` 200,
+  `/rest/organizationAcls` 200, `organizations` scope-probe in the tool now
+  uses the account URN (was hardcoded to app id → bogus 403).
+- **Leftovers**:
+  - [ ] 4 `social-worker-*` containers DOWN — `docker-desktop-bind-mounts`
+    hashed `.env` mount (54175c…) missing on the VM side
+    (`docker-desktop-user-distro` proxy degraded; doctor `fix`: L1 no-op,
+    L2 `wsl.exe` interop dead). Needs `wsl --shutdown` or Docker Desktop
+    restart from the Windows side. social-api + celery-beat ARE up — the
+    code fix is live in them; workers still run the pre-restart modules.
+  - [ ] `rw_organization_admin` still not granted — needs a fresh consent
+    screen (refresh grant can't add scopes). Only matters for programmatic
+    page-profile updates.
+  - [ ] LinkedIn sidecar :9225 session dead (redirect_loop circuit until
+    ~22:37Z); bridge :9223 profile hit a password "Welcome back" wall —
+    both need a manual login to restore browser lanes.
+  - [ ] `social.cloudless.gr` ingress 530 — OAuth callback + public API
+    unreachable from outside; internal :8083 works.
+  - [ ] browser-novnc + social-frontend containers left running (woken for
+    the flow); let stack-ops sleep them naturally.
+
 ## 2026-11-04 (pm) — Polar billing live + n8n crash loop + FB token surface
 
 - **Billing**: `BILLING_PROVIDER` was `paddle` with ALL paddle creds empty →
