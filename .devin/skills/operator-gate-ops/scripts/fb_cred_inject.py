@@ -24,8 +24,9 @@ APP_URL = "https://developers.facebook.com/apps/1936126137016578/settings/basic/
 
 def ask(field, title):
     r = subprocess.run(
-        ["mshta", f"javascript:var x=prompt('{title}','');window.moveTo(-2000,-2000);"
-         f"if(x){{var f=new ActiveXObject('Scripting.FileSystemObject').GetStandardStream(1);f.Write(x);}}window.close();"],
+        ["powershell", "-NoProfile", "-Command",
+         f"Add-Type -AssemblyName Microsoft.VisualBasic;"
+         f"[Microsoft.VisualBasic.Interaction]::InputBox('{title}','Cloudless gate','')"],
         capture_output=True, text=True, timeout=300)
     return r.stdout.strip()
 
