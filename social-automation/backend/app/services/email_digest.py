@@ -48,7 +48,7 @@ CF_SMTP_PORT = 465
 
 
 def _email_api_token(settings) -> str:
-    return (settings.CLOUDFLARE_EMAIL_API_TOKEN or "").strip() or (settings.CLOUDFLARE_API_TOKEN or "").strip()
+    return (getattr(settings, "CLOUDFLARE_EMAIL_API_TOKEN", "") or "").strip() or (getattr(settings, "CLOUDFLARE_API_TOKEN", "") or "").strip()
 
 
 def _html_escape(text: str) -> str:
@@ -326,7 +326,7 @@ async def send_email_cloudflare_verified(
 ) -> None:
     """Free Cloudflare Email Sending to verified Email Routing destinations only."""
     settings = get_settings()
-    account_id = (settings.CLOUDFLARE_ACCOUNT_ID or "").strip()
+    account_id = (getattr(settings, "CLOUDFLARE_ACCOUNT_ID", "") or "").strip()
     token = _email_api_token(settings)
     from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
     recipients = to_addrs or _recipients(settings)
@@ -403,8 +403,8 @@ async def send_email_mail_outbound(
     provider so this lane is strictly additive.
     """
     settings = get_settings()
-    url = (settings.MAIL_OUTBOUND_URL or "").strip()
-    token = (settings.MAIL_OUTBOUND_TOKEN or "").strip()
+    url = (getattr(settings, "MAIL_OUTBOUND_URL", "") or "").strip()
+    token = (getattr(settings, "MAIL_OUTBOUND_TOKEN", "") or "").strip()
     from_addr = (settings.SMTP_FROM or "noreply@cloudless.gr").strip()
     if not url or not token:
         raise RuntimeError("mail-outbound needs MAIL_OUTBOUND_URL + MAIL_OUTBOUND_TOKEN")
@@ -456,7 +456,7 @@ async def send_email(
     # mail-outbound worker lane: preferred-but-optional. Attachments AND
     # extra_headers force the classic path — the worker's /send contract
     # carries neither (campaign List-Unsubscribe / mailto headers ride SMTP).
-    if settings.CF_EMAIL_ENABLED and not attachments and not extra_headers:
+    if getattr(settings, "CF_EMAIL_ENABLED", False) and not attachments and not extra_headers:
         try:
             await send_email_mail_outbound(
                 subject=subject,
