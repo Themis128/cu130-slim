@@ -22,6 +22,21 @@
   stash@{2} empty; stash@{3} docker-compose `restart: no` mitigation on
   sidecars + linkedin-sidecar Dockerfile — session debris, likely droppable.
 
+## 2026-11-04 (night) — Scope optimization + token pair dead
+
+- PR #1339: org profile write via rw_organization_admin (PATCH /rest/
+  organizations/{id}, text-only) + /page-profile GET/PUT LinkedIn dispatch.
+  Verified live on org 108614163 (no-op PATCH).
+- Token pair (consent 20:33Z) went dead ~90min later — access 401 +
+  refresh invalid_grant. Likely LinkedIn-side revocation after rapid
+  successive grants; token_refresh task writes back correctly. Recovery =
+  ONE consent click: /tmp/li_consent_url.txt or http://localhost:8917 —
+  requests the FULL scope union incl. *_feed/r_member_*/r_organization_
+  followers (EXTRA_SCOPES updated in .env; api recreate needed to bake).
+- Container code drift: compose cp for accounts.py hit mount decay —
+  synced next safe-recreate pass.
+
+
 ## 2026-11-04 (late pm) — LinkedIn Community Management Standard Tier activated
 
 - **Trigger**: LinkedIn email — app `264925843` upgraded Dev → **Standard Tier**.
