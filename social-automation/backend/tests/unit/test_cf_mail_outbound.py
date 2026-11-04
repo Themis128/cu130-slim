@@ -71,9 +71,7 @@ def smtp_calls(monkeypatch):
 async def test_enabled_posts_to_worker(monkeypatch, smtp_calls):
     calls = []
     monkeypatch.setattr(ed, "get_settings", lambda: _settings())
-    monkeypatch.setattr(
-        ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(200), calls=calls)
-    )
+    monkeypatch.setattr(ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(200), calls=calls))
 
     await ed.send_email(subject="hi", text_body="body", to_addrs=["a@x.com"])
 
@@ -89,9 +87,7 @@ async def test_enabled_posts_to_worker(monkeypatch, smtp_calls):
 
 async def test_worker_failure_falls_back(monkeypatch, smtp_calls):
     monkeypatch.setattr(ed, "get_settings", lambda: _settings())
-    monkeypatch.setattr(
-        ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(502), calls=[])
-    )
+    monkeypatch.setattr(ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(502), calls=[]))
 
     await ed.send_email(subject="hi", text_body="body", to_addrs=["a@x.com"])
 
@@ -102,9 +98,7 @@ async def test_worker_failure_falls_back(monkeypatch, smtp_calls):
 async def test_disabled_never_calls_worker(monkeypatch, smtp_calls):
     calls = []
     monkeypatch.setattr(ed, "get_settings", lambda: _settings(CF_EMAIL_ENABLED=False))
-    monkeypatch.setattr(
-        ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(200), calls=calls)
-    )
+    monkeypatch.setattr(ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(200), calls=calls))
 
     await ed.send_email(subject="hi", text_body="body", to_addrs=["a@x.com"])
 
@@ -123,9 +117,7 @@ async def test_disabled_never_calls_worker(monkeypatch, smtp_calls):
 async def test_worker_bypass_kwargs(monkeypatch, smtp_calls, kwargs):
     calls = []
     monkeypatch.setattr(ed, "get_settings", lambda: _settings())
-    monkeypatch.setattr(
-        ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(200), calls=calls)
-    )
+    monkeypatch.setattr(ed.httpx, "AsyncClient", lambda timeout=0: _Client(resp=_Resp(200), calls=calls))
 
     await ed.send_email(
         subject="hi",

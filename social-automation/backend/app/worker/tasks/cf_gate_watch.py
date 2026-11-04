@@ -35,7 +35,9 @@ def _run(script: str, *args: str, timeout: int = 120) -> tuple[bool, str]:
         return False, f"missing {script}"
     r = subprocess.run(
         [sys.executable, str(p), *args],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
     )
     return r.returncode == 0, (r.stdout + r.stderr)[-800:]
 
@@ -44,14 +46,12 @@ def _token_active(token: str) -> bool:
     if not token:
         return False
     import urllib.request
-    req = urllib.request.Request(
-        "https://api.cloudflare.com/client/v4/user/tokens/verify",
-        headers={"Authorization": f"Bearer {token}"})
+
+    req = urllib.request.Request("https://api.cloudflare.com/client/v4/user/tokens/verify", headers={"Authorization": f"Bearer {token}"})
     try:
         import json
 
-        return json.load(urllib.request.urlopen(req, timeout=15))[
-            "result"]["status"] == "active"
+        return json.load(urllib.request.urlopen(req, timeout=15))["result"]["status"] == "active"
     except Exception:
         return False
 

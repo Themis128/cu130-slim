@@ -40,11 +40,7 @@ def check_facebook_tokens() -> dict:
 async def _check() -> dict:
     stats = {"scanned": 0, "healthy": 0, "expiring": 0, "expired": 0}
     async with task_session() as db:
-        rows = (
-            await db.execute(
-                select(SocialAccount).where(SocialAccount.platform.in_(["facebook", "threads"]))
-            )
-        ).scalars().all()
+        rows = (await db.execute(select(SocialAccount).where(SocialAccount.platform.in_(["facebook", "threads"])))).scalars().all()
 
         for acct in rows:
             stats["scanned"] += 1
@@ -59,7 +55,7 @@ async def _check() -> dict:
                         f"{GRAPH}/debug_token",
                         params={"input_token": decrypt_token(raw), "access_token": decrypt_token(app_tok)},
                     )
-                d = (r.json().get("data") or {})
+                d = r.json().get("data") or {}
             except Exception as exc:  # noqa: BLE001
                 logger.warning("FB debug_token failed %s: %s", acct.id, exc)
                 continue
@@ -70,8 +66,7 @@ async def _check() -> dict:
                 meta["fb_token_invalid"] = True
                 await send_telegram_alert(
                     "ops",
-                    f"FB token invalid/expired for {acct.platform} @{acct.username} — "
-                    "reconnect via Accounts UI OAuth (manual).",
+                    f"FB token invalid/expired for {acct.platform} @{acct.username} — reconnect via Accounts UI OAuth (manual).",
                 )
             else:
                 meta["fb_token_invalid"] = False
@@ -81,8 +76,7 @@ async def _check() -> dict:
                     stats["expiring"] += 1
                     await send_telegram_alert(
                         "ops",
-                        f"FB token for {acct.platform} @{acct.username} expires in {days}d — "
-                        "reconnect via Accounts UI OAuth soon.",
+                        f"FB token for {acct.platform} @{acct.username} expires in {days}d — reconnect via Accounts UI OAuth soon.",
                     )
                 else:
                     stats["healthy"] += 1
