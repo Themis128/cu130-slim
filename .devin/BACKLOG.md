@@ -1,5 +1,51 @@
 # BACKLOG (living)
 
+## 2026-11-04 (late pm) — LinkedIn Community Management Standard Tier activated
+
+- **Trigger**: LinkedIn email — app `264925843` upgraded Dev → **Standard Tier**.
+- **Root cause found (was misdiagnosed)**: the `426 NONEXISTENT_VERSION`
+  was NOT primarily a token-scope problem — the pinned `Linkedin-Version`
+  headers were dead. Dead pins fixed → `202610`: `linkedin_ads.py` (202404,
+  leadFormResponses silently returned `[]`), `consent_healers.py` (202312),
+  `linkedin_cm_tool.py` + `linkedin_tool.py` (202510). Production client was
+  already on `202608` (active). LinkedIn retired `202510` early — do not
+  trust the ~12-month version SLA.
+- **Token healed without consent**: stored org token predated the product
+  approval; `refresh_token` grant minted a fresh access+refresh pair with
+  all CM scopes — written back to `social_accounts` rows `9c4451bb` (org)
+  + `18d5cd59` (person), `token_expires_at` → 2027-01-03. Verified live:
+  `/rest/posts` 200, `/rest/organizations/108614163` 200,
+  `/rest/organizationAcls` 200, `organizations` scope-probe in the tool now
+  uses the account URN (was hardcoded to app id → bogus 403).
+- **Leftovers**:
+  - [x] 4 `social-worker-*` containers — recovered via `docker compose up -d`
+    once the docker-desktop bind-mount proxy settled (the hashed `.env` mount
+    resolved on retry — was transient VM-side decay, not persistent). All 4
+    Up healthy, 4/4 celery nodes pong. `docker desktop restart` CLI failed
+    (`com.docker.backend` missing) — the in-place workaround was `docker start`
+    on `Created` containers + letting the mount service re-prepare.
+  - [ ] `rw_organization_admin` still not granted — needs a fresh consent
+    screen (refresh grant can't add scopes). Signed authorize URL generated
+    (scopes incl. rw_organization_admin via LINKEDIN_EXTRA_SCOPES); one click
+    in any logged-in LinkedIn browser completes it since the callback on
+    social.cloudless.gr is live again.
+  - [x] `social.cloudless.gr` ingress 530 — `social-cloudflared` +
+    `social-frontend` containers were `Created`-but-never-started;
+    `docker start` brought both Up healthy → `/api/v1/health` 200.
+  - [ ] LinkedIn sidecar :9225 session dead (`/session/clear-rate-limit`
+    cleared the 429 circuit but /feed/ now returns SESSION_ERROR — cookies
+    are stale). Bridge :9223 profile hit a "Welcome back" password wall.
+    No LINKEDIN_EMAIL/PASSWORD in secret store or .env — credential login
+    is a manual gate (noVNC or `/login` once creds are stored).
+    Stored `LINKEDIN_COOKIE` li_at is ALSO stale — injected into the
+    bridge profile it got rejected (429 → ERR_TOO_MANY_REDIRECTS, same
+    redirect_loop signature as the sidecar). Cleaned + session stopped.
+    No valid LinkedIn session exists on any automated browser lane.
+  - [ ] PR #1336 (version re-pins) — auto-merge armed; validate+secret-scan
+    passed, full CI matrix (build-and-push/Trivy) still pending at write.
+  - [ ] browser-novnc left running (woken for the OAuth attempt); stack-ops
+    sleeps it naturally.
+
 ## 2026-11-04 (pm) — Polar billing live + n8n crash loop + FB token surface
 
 - **Billing**: `BILLING_PROVIDER` was `paddle` with ALL paddle creds empty →

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # ruff: noqa: E402
 """LinkedIn Community Management ops — org page posts/comments/reactions
-via the versioned REST API (app 264925843, Development Tier).
+via the versioned REST API (app 264925843, Standard Tier).
 
     python scripts/linkedin_cm_tool.py posts <account_id>
     python scripts/linkedin_cm_tool.py comments <account_id> <post_urn>
@@ -16,7 +16,7 @@ import httpx
 from sqlalchemy import select
 
 API = "https://api.linkedin.com/rest"
-VER = "202510"
+VER = "202610"
 ORG_ACCOUNT = "9c4451bb-e820-489f-8676-76ddbc788ffe"
 
 
@@ -110,8 +110,9 @@ def cmd_scopes(account_id: str) -> None:
     async def _run():
         acc = await _account(account_id)
         tok = _token(acc)
+        org = _urn(acc).rsplit(":", 1)[-1]
         async with httpx.AsyncClient(timeout=20) as c:
-            for probe in ["userinfo", "organizations/264925843", "posts?q=author&author=x"]:
+            for probe in ["userinfo", f"organizations/{org}", "posts?q=author&author=x"]:
                 r = await c.get(f"{API if 'posts' in probe or 'organizations' in probe else 'https://api.linkedin.com/v2'}/{probe}", headers=_headers(tok))
                 print(probe, r.status_code)
 

@@ -2458,11 +2458,10 @@ services:
       # relative binds in sibling services resolve against COMPOSE_PROJECT_DIR;
       # mounting at the SAME absolute path keeps daemon-side sources valid
       - ${COMPOSE_PROJECT_DIR:-.}:${COMPOSE_PROJECT_DIR:-/w}:ro
-    command: >
-      sh -c "while :; do
-        docker compose -f $${COMPOSE_PROJECT_DIR}/docker-compose.yml -p cu130-slim up -d --quiet-pull 2>&1
-        | grep -vE 'Running|Started|Skipped' || true;
-        sleep 600; done"
+    command:
+      - sh
+      - -c
+      - "while :; do docker compose -f \"$${COMPOSE_PROJECT_DIR:-/w}/docker-compose.yml\" -p cu130-slim up -d --quiet-pull 2>&1 | grep -vE 'Running|Started|Skipped' || true; sleep 600; done"
     healthcheck:
       test: ["CMD", "sh", "-c", "docker info >/dev/null 2>&1"]
       interval: 60s

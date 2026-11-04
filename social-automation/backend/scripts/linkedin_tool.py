@@ -42,7 +42,7 @@ import httpx  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
 API_BASE = "https://api.linkedin.com"
-API_VERSION = "202510"
+API_VERSION = "202610"
 
 
 async def _get_account(account_id: str):
