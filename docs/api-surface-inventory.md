@@ -217,6 +217,12 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/cf-db/sync-tables` — GET
 - `/api/v1/cf-db/tables` — GET
 
+## `cf-gates`
+
+- `/api/v1/cf-gates/status` — GET
+- `/api/v1/cf-gates/token/accept` — POST
+- `/api/v1/cf-gates/{step}` — POST
+
 ## `coach`
 
 - `/api/v1/coach/chat` — POST

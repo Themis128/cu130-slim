@@ -93,6 +93,12 @@ async def unenroll(args: argparse.Namespace) -> None:
         meta["quiet_lead"] = False
         lead.meta_data = meta
         await db.commit()
+        from app.services.nurture_sequence import _cf_shadow_call  # noqa: E402
+
+        await _cf_shadow_call(
+            "LEAD_SCHEDULER_URL", "LEAD_SCHEDULER_TOKEN",
+            f"/do/followup/{lead.id}/unsubscribe", {"email": lead.email},
+        )
     print(f"unenrolled: {args.email}")
 
 
