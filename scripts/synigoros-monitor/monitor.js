@@ -137,14 +137,26 @@ async function notify(text) {
     const status = m.length ? m[m.length - 1][1].trim() : 'UNKNOWN';
     const updates = (text.match(/Ενημέρωση|Απάντηση|Σχόλιο|Έγγραφο/g) || []).length;
 
+    // Two-read confirmation: Κατάσταση exists in multiple page blocks
+    // (stepper vs detail) that race on render — raw reads flip-flop.
+    // Alert only when the same new value repeats in consecutive polls.
+    const confirmed = prev ? prev.status : status;
     if (!prev) {
       await notify(`📋 Synigoros monitor armed.\nΚατάσταση: ${status}\nΠρωτόκολλο: ${CFG.kpa}`);
       log(`armed, status: ${status}`);
-    } else if (prev.status !== status) {
-      prev.lastNews = new Date().toISOString();
-      await notify(`🔔 ΑΛΛΑΓΗ αναφοράς Συνηγόρου!\nΠριν: ${prev.status}\nΤώρα: ${status}\n\nΈλεγξε: https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas\nΚΠΑ: ${CFG.kpa}`);
-      log(`CHANGE: ${prev.status} -> ${status}`);
+    } else if (status !== confirmed) {
+      if (prev.candidate === status) {
+        prev.lastNews = new Date().toISOString();
+        await notify(`🔔 ΑΛΛΑΓΗ αναφοράς Συνηγόρου!\nΠριν: ${confirmed}\nΤώρα: ${status}\n\nΈλεγξε: https://www.synigoros.gr/el/anafora/parakolouthisi-anaforas\nΚΠΑ: ${CFG.kpa}`);
+        log(`CHANGE: ${confirmed} -> ${status}`);
+        prev.status = status;
+        prev.candidate = undefined;
+      } else {
+        prev.candidate = status;
+        log(`candidate: ${confirmed} -> ${status} (needs one more matching poll)`);
+      }
     } else {
+      if (prev.candidate) prev.candidate = undefined;
       log(`no change: ${status}`);
     }
     // 3-day no-news rule → send the prepared follow-up once.
@@ -158,7 +170,7 @@ async function notify(text) {
         log('follow-up sent (3d no news)');
       } catch (e) { log('followup failed: ' + e.message); }
     }
-    fs.writeFileSync(STATE_FILE, JSON.stringify({ status, updates, mailId: prev && prev.mailId,
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ status: prev ? prev.status : status, candidate: prev && prev.candidate, updates, mailId: prev && prev.mailId,
       lastNews: prev && prev.lastNews, followupSent: prev && prev.followupSent,
       checked: new Date().toISOString() }, null, 2));
   } catch (e) {
