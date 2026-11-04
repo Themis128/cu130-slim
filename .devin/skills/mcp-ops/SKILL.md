@@ -44,6 +44,11 @@ python .devin/skills/mcp-ops/scripts/polar_token_setup.py --test     # handshake
 # to sign in once — then re-run and it creates + captures + validates the token.
 python .devin/skills/mcp-ops/scripts/polar_token_mint.py [--name devin-mcp]
 
+# Polar — revoke stale org access tokens (keeps --keep names, default
+# devin-mcp3 + socialauto-production). Dry-run first; the confirm dialog
+# requires typing the token name — handled via native setter.
+python .devin/skills/mcp-ops/scripts/polar_token_cleanup.py --dry-run
+python .devin/skills/mcp-ops/scripts/polar_token_cleanup.py
 ```
 
 ## Sleep-managed URL servers
