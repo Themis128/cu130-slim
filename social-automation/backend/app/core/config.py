@@ -598,6 +598,12 @@ class Settings(BaseSettings):
     # bounces them back to the admin inbox (550 5.1.1).
     EMAIL_SUPPRESS_ADDR_PATTERNS: str = "ci-test*@*,*e2e*@*,reset-*@*,*@*.invalid,*@example.com,*@example.org,*@example.net,*@socialauto.dev"
     CLOUDFLARE_EMAIL_API_TOKEN: str = ""  # unused unless EMAIL_PROVIDER=cloudflare (paid)
+    # mail-outbound CF worker (send_email binding) — preferred additive lane.
+    # When enabled + configured, send_email tries the worker FIRST and falls
+    # back to the normal provider on any error — identical behavior when off.
+    CF_EMAIL_ENABLED: bool = False
+    MAIL_OUTBOUND_URL: str = ""   # e.g. https://mail-outbound.<acct>.workers.dev/send
+    MAIL_OUTBOUND_TOKEN: str = "" # shared Bearer secret (wrangler secret)
     # Public funnel: email the Cloud Migration Playbook to /leads/public signups.
     # Default link is the copy on the public cloudless.gr site: social.cloudless.gr
     # (FRONTEND_URL) sits behind Cloudflare Access, so leads cannot open it there.
