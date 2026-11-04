@@ -436,7 +436,7 @@ async def send_telegram_alert(severity: str, text: str) -> bool:
     import hashlib
 
     DEDUP_WINDOW_S = 6 * 3600
-    fp = hashlib.sha1(f"{severity}|{text}".encode()).hexdigest()[:16]
+    fp = hashlib.sha256(f"{severity}|{text}".encode()).hexdigest()[:16]
     try:
         from app.worker._async import _redis
 
