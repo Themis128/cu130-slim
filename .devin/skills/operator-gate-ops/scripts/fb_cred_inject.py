@@ -69,11 +69,15 @@ def main():
 
     _ensure_cdp()
     p = Page()
-    fb_login(p, email, pw)
     t = p.poll("document.body.innerText", timeout=15) or ""
-    if "Create App" not in (p.goto("https://developers.facebook.com/apps/") or "") and "My Apps" not in t:
-        print("login may have failed or hit a checkpoint — check the Chrome window")
-        return 1
+    if "Create App" not in t and "My Apps" not in t:
+        fb_login(p, email, pw)
+        p.goto("https://developers.facebook.com/apps/")
+        time.sleep(6)
+        t = p.poll("document.body.innerText", timeout=15) or ""
+        if "Create App" not in t and "My Apps" not in t:
+            print("login may have failed or hit a checkpoint — check the Chrome window")
+            return 1
     print("FB login OK")
 
     print(A.stage())
