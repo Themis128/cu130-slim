@@ -28,12 +28,17 @@
   `branch.<name>.merge=refs/heads/master` upstream config; re-pointed +
   pruned 19 merged-PR branches, removed 4 stale worktrees.
 - **Leftovers**:
-  - [ ] `cloudless-gate:fb-system-user` vault empty + `FACEBOOK_SYSTEM_USER_TOKEN`
-    absent — `meta_system_user.py` ready, needs one run `--admin-token` (user
-    token in DB/decryptable).
-  - [ ] fb-sidecar session EMPTY (0 cookies all realms) — run
-    `fb_session_seed.py` once with real Chrome :9222.
-  - [ ] `pr1300-fix` — 5 commits funnel CTA/UTM injection, never PRed — PR or drop.
+  - [ ] `meta_system_user.py` ran 2026-11-04: business resolved (cloudless.gr
+    1558125105019725) but POST system_users → (#100) app lacks capability to
+    create SUs via API. Path: create `socialauto-daemon` SU once in Business
+    Manager UI (fb-sidecar :9226 session is LIVE), then the script's
+    access_tokens mint works. Also fixed: script now takes FB_ADMIN_TOKEN env.
+  - [x] fb-sidecar — session is healthy via live profile (`/session/validate`
+    logged_in:true); empty fb-session.json was never the session store. real
+    Chrome :9222 has no FB session (Lenovo WebView2 hijack) — fb_session_seed
+    is a dead lane.
+  - [x] `pr1300-fix` → PR #1333 (conflict vs master resolved — kept canonical
+    /en/consultation CTA; branch's CTA block was a superseded duplicate).
   - [ ] `polar_token_cleanup.py` still untracked (in-flight, radix-popper
     confirm handler improved) — commit when settled.
   - [ ] `local/master-20261104-*` backup branches; detached %TEMP% worktrees
