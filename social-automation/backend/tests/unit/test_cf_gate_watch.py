@@ -50,13 +50,13 @@ def test_token_active_true(monkeypatch):
         def __exit__(self, *a):
             return False
 
-    monkeypatch.setattr(task.urllib.request, "urlopen",
+    monkeypatch.setattr("urllib.request.urlopen",
                         lambda *a, **k: _Resp(json.dumps({"result": {"status": "active"}}).encode()))
     assert task._token_active("tok") is True
 
 
 def test_token_active_error(monkeypatch):
-    monkeypatch.setattr(task.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: (_ for _ in ()).throw(OSError()))
     assert task._token_active("tok") is False
 
 
