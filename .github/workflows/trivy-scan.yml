@@ -114,7 +114,6 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Free up disk space
-        if: matrix.service == 'comfyui'
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/pipx \
             /opt/hostedtoolcache /usr/share/swift /usr/local/lib/node_modules \
