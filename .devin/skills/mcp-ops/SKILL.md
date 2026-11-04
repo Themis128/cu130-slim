@@ -39,6 +39,11 @@ python .devin/skills/mcp-ops/scripts/mb_api_key_mint.py [--wait 600]
 python .devin/skills/mcp-ops/scripts/polar_token_setup.py            # state
 python .devin/skills/mcp-ops/scripts/polar_token_setup.py <token>    # validate+write
 python .devin/skills/mcp-ops/scripts/polar_token_setup.py --test     # handshake
+# Polar — CDP token mint (drives your logged-in Chrome at :9222).
+# Tries "Sign in with Google" first if walled; otherwise exits 2 telling you
+# to sign in once — then re-run and it creates + captures + validates the token.
+python .devin/skills/mcp-ops/scripts/polar_token_mint.py [--name devin-mcp]
+
 ```
 
 ## Sleep-managed URL servers
