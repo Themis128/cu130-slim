@@ -45,7 +45,7 @@ vmmemWSL pinning starving the host.
   **Do not enable `networkingMode=mirrored`** — tested 2026-09-26, broke
   Docker Desktop host port-forwarding (backup-20260926-mirrored).
 - **`docker-socket-watch` Scheduled Task (Windows, every 2 min)**:
-  `wsl -d Ubuntu-26.04 -e docker info || wsl -t docker-desktop` — surgical
+  `wsl -d Ubuntu-24.04 -e docker info || wsl -t docker-desktop` — surgical
   recycle restores the socket in ~45s WITHOUT killing the Ubuntu/IDE
   distro. Log: `%USERPROFILE%\docker-socket-watch.log`.
 - **`wsl-recycle-watch` Scheduled Task (every 5 min)**: fires
@@ -56,5 +56,5 @@ vmmemWSL pinning starving the host.
   shutdown only via the flag watcher — never from inside WSL mid-session.
 - WSL 3.0.4.0 = latest (wsl --update no-op) — vsock flakiness is the
   residual known-flaky layer; config + self-heal is the mitigation.
-- Docker settings-store: IntegratedWslDistros must include Ubuntu-26.04
+- Docker settings-store: IntegratedWslDistros must include Ubuntu-24.04
   (verified); AutoStart + WslEngineEnabled on.
