@@ -358,7 +358,7 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
             await _cf_shadow_call(
                 "FUNNEL_EVENTS_URL", "FUNNEL_EVENTS_TOKEN", "/event",
                 {"type": "quiet.sent" if quiet else "nurture.sent",
-                 "payload": {"lead_id": str(lead.id), "step": step["key"], "form": meta.get("form")}},
+                 "payload": {"lead_id": str(lead.id), "step": step.get("key"), "form": meta.get("form")}},
             )
         except Exception:  # noqa: BLE001 — one bad email mustn't stall the sweep
             stats["skipped"] += 1
