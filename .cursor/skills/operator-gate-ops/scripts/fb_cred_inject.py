@@ -24,8 +24,9 @@ APP_URL = "https://developers.facebook.com/apps/1936126137016578/settings/basic/
 
 def ask(field, title):
     r = subprocess.run(
-        ["mshta", f"javascript:var x=prompt('{title}','');window.moveTo(-2000,-2000);"
-         f"if(x){{var f=new ActiveXObject('Scripting.FileSystemObject').GetStandardStream(1);f.Write(x);}}window.close();"],
+        ["powershell", "-NoProfile", "-Command",
+         f"Add-Type -AssemblyName Microsoft.VisualBasic;"
+         f"[Microsoft.VisualBasic.Interaction]::InputBox('{title}','Cloudless gate','')"],
         capture_output=True, text=True, timeout=300)
     return r.stdout.strip()
 
@@ -42,9 +43,26 @@ def fb_login(p, email, pw):
 
 
 def main():
-    email = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--email=")),
-                 "") or ask("email", "Facebook email")
-    pw = ask("password", "Facebook password (typed into the dialog, never stored)")
+    # stored creds first — zero-touch on repeat runs
+    stored = None
+    try:
+        import fb_cred_store
+        stored = fb_cred_store.cred_get()
+    except Exception:
+        pass
+    if stored:
+        email, pw = stored
+        print("using stored Facebook credentials (Windows Credential Manager)")
+    else:
+        email = next((a.split("=", 1)[1] for a in sys.argv if a.startswith("--email=")),
+                     "") or ask("email", "Facebook email")
+        pw = ask("password", "Facebook password (typed into the dialog, never stored)")
+        if email and pw:
+            try:
+                fb_cred_store.cred_set(email, pw)
+                print("credentials saved to Windows Credential Manager — next run is zero-touch")
+            except Exception:
+                pass
     if not email or not pw:
         print("no credentials supplied"); return 1
 
