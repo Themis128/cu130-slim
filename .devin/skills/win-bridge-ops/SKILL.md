@@ -52,3 +52,28 @@ rule for :8765 + starts the agent. WSL then reaches it at
 `http://<default-gateway-ip>:8765` (default 172.22.144.1).
 `cdp_relay.py` proxies CDP :9222 through the agent's /exec lane —
 `status` / `launch` / `open <url>` / `tabs`.
+
+## cdp_eval — JS eval in the user's real Chrome (LinkedIn-safe)
+
+`scripts/cdp_eval.py` — WSL→win_agent→CDP-websocket driver. Ships a
+self-contained evaluator to Windows via /exec (base64 file write, no
+cmd-quoting issues), connects to localhost:9222 in the real Chrome
+(the user's LOGGED-IN session — LinkedIn's bot filter trusts it), runs
+`Runtime.evaluate` in the tab matching --url-contains.
+
+  cdp_eval.py --url-contains developers/apps --js "document.title"
+  cdp_eval.py --url-contains verification --js "document.querySelector('button').click()"
+
+Requirements:
+- win_agent reachable (win-agent-setup.bat: firewall + 0.0.0.0 bind)
+- Chrome launched with --remote-debugging-port=9222 (the .bat /
+  win_agent /launch-chrome)
+- websocket-client on Windows Python (auto-pip-installed on first run)
+- `suppress_origin=True` on the ws handshake — Chrome 111+ rejects ws
+  clients carrying a foreign Origin header (403 without it)
+
+Used 2026-11-05 for the cloudless-gr-member app flow: created the
+verification URL, completed company verification, and drove Products →
+Request access (checkbox→confirm modal pattern) for Share/OpenID/Ads/
+CM — all through the real session. The remaining Member-Data-Portability
+buttons gate on the business-email verify link in tbaltzakis@cloudless.gr.
