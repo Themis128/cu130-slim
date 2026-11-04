@@ -40,8 +40,7 @@ API = os.environ.get("SOCIAL_API_BASE", "http://localhost:8000")
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 
 
-def _req(method: str, path: str, token: str | None = None, data: dict | None = None,
-         raw: bytes | None = None, headers: dict | None = None) -> dict:
+def _req(method: str, path: str, token: str | None = None, data: dict | None = None, raw: bytes | None = None, headers: dict | None = None) -> dict:
     url = API + path
     hdrs = dict(headers or {})
     body = raw
@@ -59,10 +58,14 @@ def _req(method: str, path: str, token: str | None = None, data: dict | None = N
 
 
 def login() -> str:
-    r = _req("POST", "/api/v1/auth/login", data={
-        "email": os.environ["SOCIAL_ADMIN_EMAIL"],
-        "password": os.environ["SOCIAL_ADMIN_PASSWORD"],
-    })
+    r = _req(
+        "POST",
+        "/api/v1/auth/login",
+        data={
+            "email": os.environ["SOCIAL_ADMIN_EMAIL"],
+            "password": os.environ["SOCIAL_ADMIN_PASSWORD"],
+        },
+    )
     return r["access_token"]
 
 
@@ -71,14 +74,10 @@ def upload_media(token: str, path: str, alt: str = "") -> str:
     mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
     name = os.path.basename(path)
     parts = []
-    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; '
-                 f'filename="{name}"\r\nContent-Type: {mime}\r\n\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{name}"\r\nContent-Type: {mime}\r\n\r\n'.encode())
     parts.append(open(path, "rb").read())
-    parts.append(f"\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"alt_text\"\r\n\r\n{alt}\r\n"
-                 f"--{boundary}--\r\n".encode())
-    r = _req("POST", "/api/v1/media/upload", token=token,
-             raw=b"".join(parts),
-             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    parts.append(f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="alt_text"\r\n\r\n{alt}\r\n--{boundary}--\r\n'.encode())
+    r = _req("POST", "/api/v1/media/upload", token=token, raw=b"".join(parts), headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
     return r["id"]
 
 
@@ -87,8 +86,7 @@ def convert(src: str, want_sound: bool, tmpdir: str) -> str:
     ext = os.path.splitext(src)[1].lower()
     if ext == ".pdf":
         img = os.path.join(tmpdir, "page1.png")
-        subprocess.run([sys.executable, os.path.join(SCRIPTS, "pdf_to_image.py"), src, img],
-                       check=True)
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "pdf_to_image.py"), src, img], check=True)
     elif ext in (".png", ".jpg", ".jpeg", ".webp"):
         img = src
     elif ext in (".mp4", ".mov", ".webm", ".mkv"):
@@ -99,11 +97,9 @@ def convert(src: str, want_sound: bool, tmpdir: str) -> str:
     if want_sound or ext == ".pdf":
         # Video + audio beats a silent still for feed posts.
         wav = os.path.join(tmpdir, "bed.wav")
-        subprocess.run([sys.executable, os.path.join(SCRIPTS, "audio_bed.py"),
-                        wav, "--seconds", "6"], check=True)
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "audio_bed.py"), wav, "--seconds", "6"], check=True)
         mp4 = os.path.join(tmpdir, "post.mp4")
-        subprocess.run([sys.executable, os.path.join(SCRIPTS, "image_to_video.py"),
-                        img, mp4, "--audio", wav, "--seconds", "6"], check=True)
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "image_to_video.py"), img, mp4, "--audio", wav, "--seconds", "6"], check=True)
         return mp4
     return img
 
@@ -123,16 +119,21 @@ def main() -> int:
     token = login()
     with tempfile.TemporaryDirectory() as tmp:
         media_path = convert(args.file, args.sound, tmp)
-        print(f"media: {media_path} ({os.path.getsize(media_path)//1024} KB)")
+        print(f"media: {media_path} ({os.path.getsize(media_path) // 1024} KB)")
         media_id = upload_media(token, media_path, alt=args.alt)
         print(f"uploaded: {media_id}")
 
-    post = _req("POST", "/api/v1/content/posts", token=token, data={
-        "content_text": args.caption,
-        "media_ids": [media_id],
-        "target_account_ids": args.account,
-        "status": "draft",
-    })
+    post = _req(
+        "POST",
+        "/api/v1/content/posts",
+        token=token,
+        data={
+            "content_text": args.caption,
+            "media_ids": [media_id],
+            "target_account_ids": args.account,
+            "status": "draft",
+        },
+    )
     pid = post["id"]
     print(f"post: {pid}")
 
@@ -146,8 +147,7 @@ def main() -> int:
         time.sleep(10)
         p = _req("GET", f"/api/v1/content/posts/{pid}", token=token)
         status = p.get("status")
-        targets = [(t.get("platform"), t.get("status"), t.get("platform_url") or t.get("error_message"))
-                   for t in p.get("targets", [])]
+        targets = [(t.get("platform"), t.get("status"), t.get("platform_url") or t.get("error_message")) for t in p.get("targets", [])]
         print(f"  status={status} targets={targets}")
         if status in ("published", "failed"):
             return 0 if status == "published" else 1

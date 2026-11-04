@@ -113,8 +113,7 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--client", default="", help="Pre-fill the company name")
     p.add_argument("--date", default="______________")
-    p.add_argument("--price", type=int, default=800,
-                   help="Engagement total excl. VAT (default 800 single-fix; manifest bundle is 3600/mo)")
+    p.add_argument("--price", type=int, default=800, help="Engagement total excl. VAT (default 800 single-fix; manifest bundle is 3600/mo)")
     p.add_argument("--format", choices=("pdf", "md", "both"), default="pdf")
     p.add_argument("--out", help="Output path (default ./<client>-onboarding.<ext>)")
     args = p.parse_args()
