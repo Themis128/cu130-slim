@@ -586,3 +586,21 @@ Left:
 - [ ] omv watchdog remediation still refs C:/Users/tbaltzakis/cu130-slim/docker-compose.yml — repoint to wsl -d Ubuntu-24.04
 - [ ] Windows copies pending rename (Devin holds handles): cu130-slim, Themis128_cloudless.gr -> *.moved-to-wsl-20261104; watcher fix-devin-wsl-2404.ps1 covers on IDE exit
 - [ ] Devin storage.json regen from memory until Devin restart — watcher armed
+
+## 2026-11-05 — LinkedIn dev portal automation (CDP-eval lane)
+
+- New app `cloudless-gr-member` (ID 265077368, client 77fd3pui3m2jwm)
+  created + **company-verified** to cloudless.gr Page — driven entirely
+  via `cdp_eval.py` (WSL→win_agent→CDP on the user's real Chrome;
+  LinkedIn's bot filter trusts the real session).
+- Products added: Share on LinkedIn, Sign In with OpenID Connect.
+- Requests submitted: Community Management (access-request-form),
+  Advertising API.
+- **Pending**: Member Data Portability buttons stay disabled until the
+  business-email verify link lands in tbaltzakis@cloudless.gr — click
+  it, then re-run the products drive. Auth tab redirect URI
+  `https://social.cloudless.gr/api/v1/auth/oauth/linkedin/callback`
+  still to add; then swap client_id/secret + one consent for the
+  member-analytics surfaces.
+- Tool: `.devin/skills/win-bridge-ops/scripts/cdp_eval.py` —
+  suppress_origin ws fix, base64 Windows file-drop, URL-match tab eval.
