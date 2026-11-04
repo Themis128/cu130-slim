@@ -1,5 +1,27 @@
 # BACKLOG (living)
 
+## 2026-11-04 (night) — Session leftovers all landed
+
+- **LinkedIn CM**: consent landed — `rw_organization_admin` + restored `r_ads`/
+  `r_ads_reporting` verified live (org/acls/posts/adAccounts all 200).
+- **PRs**: #1336 (version pins), #1335 (wsl migrate), #1302 (cf-funnel)
+  merged; #1301 closed as superseded (all content upstream); #1337 open
+  (converge tools + tailnet/authentik skills) — auto-merge armed.
+- **Fixed in flight**: nurture_sequence `step["key"]` KeyError (test used
+  mocks without key); cf_gates.py had 0 tests (added, 29%→>99%);
+  api-surface-inventory registered /cf-gates routes.
+- **Containers**: merged 202610 pins hot-synced into api+workers (docker
+  compose cp + restart); 4/4 celery pong; api 200.
+- **Git hygiene**: pr1300-fix + 3 local/master-* backups deleted (all
+  superseded); tailnet/authentik untracked skill content landed via #1337.
+- **Human gates still open**: LinkedIn sidecar/bridge sessions need
+  credentialed login (no stored password; li_at stale — verified);
+  Windows interop dead (vsock) — Chrome CDP lane needs user-side launch.
+- **Stashes** (triaged, NOT dropped — owner's call):
+  stash@{0} meta-ads review_state 1-line; stash@{1} act_assist 1-line;
+  stash@{2} empty; stash@{3} docker-compose `restart: no` mitigation on
+  sidecars + linkedin-sidecar Dockerfile — session debris, likely droppable.
+
 ## 2026-11-04 (late pm) — LinkedIn Community Management Standard Tier activated
 
 - **Trigger**: LinkedIn email — app `264925843` upgraded Dev → **Standard Tier**.
