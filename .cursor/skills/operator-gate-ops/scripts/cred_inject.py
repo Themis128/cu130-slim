@@ -11,7 +11,7 @@ disk by hand, or clipboard.
   python cred_inject.py delete <vault_target>
 
 Examples
-  cred_inject.py set cf-api --env CLOUDFLARE_API_TOKEN   # one paste → vault + .env
+  cred_inject.py set cf-api --env CLOUDFLARE_API_TOKEN   # one paste -> vault + .env
   cred_inject.py set fb-app  --env FACEBOOK_CLIENT_SECRET
   cred_inject.py get fb-app                              # hands the stored value to tooling
 """
@@ -113,7 +113,7 @@ def main():
         if not v:
             sys.exit("no value supplied")
         cred_set(target, u or sys.argv[2], v)
-        print(f"stored → vault:{target}")
+        print(f"stored -> vault:{target}")
     elif cmd == "get":
         c = cred_get(target)
         if not c:
@@ -131,7 +131,7 @@ def main():
         _, v = cred_get(target) or (None, None)
         if v:
             rc = env_write(env_key, v)
-            print(f"{env_key} → .env via env-manager (rc={rc})")
+            print(f"{env_key} -> .env via env-manager (rc={rc})")
 
 
 if __name__ == "__main__":
