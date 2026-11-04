@@ -175,9 +175,25 @@ jobs:
           TAG="$(printf '%s\n' "$META_TAGS" | head -n1)"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      - name: Install Trivy
+        env:
+          TRIVY_VERSION: '0.58.1'
+        run: |
+          set -e
+          if curl -fsSL --retry 3 --connect-timeout 20 "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o /tmp/trivy.tgz; then
+            sudo tar -xzf /tmp/trivy.tgz -C /usr/local/bin trivy
+          else
+            echo "::warning::release tarball failed - extracting binary from ghcr image"
+            docker create --name trivy-src "aquasec/trivy:${TRIVY_VERSION}" >/dev/null
+            docker cp trivy-src:/usr/local/bin/trivy /tmp/trivy-bin
+            docker rm trivy-src >/dev/null
+            sudo install -m 0755 /tmp/trivy-bin /usr/local/bin/trivy
+          fi
+          trivy version
       - name: Report high vulnerabilities for ${{ matrix.service.name }}
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
+          skip-setup-trivy: true
           input: /tmp/image.tar
           format: 'table'
           exit-code: '0'
@@ -190,6 +206,7 @@ jobs:
         if: matrix.service.name != 'comfyui'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
+          skip-setup-trivy: true
           input: /tmp/image.tar
           format: 'table'
           exit-code: '1'
@@ -202,6 +219,7 @@ jobs:
         if: matrix.service.name == 'comfyui'
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
         with:
+          skip-setup-trivy: true
           input: /tmp/image.tar
           format: 'table'
           exit-code: '0'
