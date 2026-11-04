@@ -213,9 +213,25 @@ def gate_email_routing():
         "tbaltzakis@cloudless.gr")
     time.sleep(1)
     p.click("/save|add|create/i")
-    print("destination add attempted — watching mailbox for verify link…")
+    print("destination add attempted — watching dashboard row for Verified…")
     p.close()
-    for _ in range(60):
+    # Source of truth = the dashboard row status. Maildir polling is best-effort
+    # only: inbound mail routes to mail-ingest → webmail.cloudless.gr/ingest,
+    # not an omv Maildir, so the verify link may never touch /home/*/Maildir.
+    for _ in range(40):
+        try:
+            p2 = Page()
+            p2.goto("https://dash.cloudflare.com/?to=/:zone/cloudless.gr/email/routing/routes")
+            time.sleep(4)
+            p2.click("/destination addresses/i")
+            time.sleep(3)
+            t = p2.poll("document.body.innerText", timeout=15) or ""
+            p2.close()
+            i = t.find("tbaltzakis@cloudless.gr")
+            if i >= 0 and "verified" in t[i:i + 140].lower():
+                return "destination VERIFIED — retest mail-outbound /send"
+        except Exception:
+            pass
         try:
             r = subprocess.run(
                 ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "omv",
@@ -224,14 +240,13 @@ def gate_email_routing():
                  "grep -oE 'https://[a-zA-Z0-9./?=_%&-]+' \"$d/$f\"; done; done "
                  "2>/dev/null | grep -i cloudflare | grep -iE 'verif|confirm' | tail -1"],
                 capture_output=True, text=True, timeout=25)
+            link = r.stdout.strip()
+            if link:
+                subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
         except subprocess.TimeoutExpired:
-            continue
-        link = r.stdout.strip()
-        if link:
-            subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
-            return "verify link followed — destination VERIFIED; retest mail-outbound /send"
-        time.sleep(10)
-    return "no verify email in 10min — check omv maildir manually"
+            pass
+        time.sleep(15)
+    return "still Pending after 10min — verify link never surfaced"
 
 
 def gate_deploy_token():

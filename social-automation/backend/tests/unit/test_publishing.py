@@ -2103,6 +2103,19 @@ async def test_linkedin_sidecar_post_error(account, post, monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("ext", ["mp4", "mov", "webm", "pdf"])
+async def test_linkedin_sidecar_declines_video_and_pdf(account, post, ext):
+    """Video/PDF media must not be silently dropped into a text-only post —
+    the sidecar declines so the API upload path handles it."""
+    account.platform = "linkedin"
+    account.account_type = "user"
+    account.meta_data = {"browser_storage_state": {"c": 1}}
+    result = await pub._publish_linkedin_via_sidecar(account, "text", post, [f"/m/clip.{ext}"])
+    assert result.success is False
+    assert "API" in (result.error or "")
+
+
+@pytest.mark.asyncio
 async def test_publish_linkedin_merges_multiple_pdfs(account, post, tmp_path, monkeypatch):
     p1 = tmp_path / "a.pdf"
     p1.write_bytes(b"%PDF-aaa")
