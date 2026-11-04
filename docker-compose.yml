@@ -2461,7 +2461,7 @@ services:
     command:
       - sh
       - -c
-      - "while :; do docker compose -f \"$${COMPOSE_PROJECT_DIR:-/w}/docker-compose.yml\" -p cu130-slim up -d --quiet-pull 2>&1 | grep -vE 'Running|Started|Skipped' || true; sleep 600; done"
+      - "while :; do sh \"$${COMPOSE_PROJECT_DIR:-/w}/scripts/compose-converge.sh\"; sleep 600; done"
     healthcheck:
       test: ["CMD", "sh", "-c", "docker info >/dev/null 2>&1"]
       interval: 60s
