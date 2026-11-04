@@ -23,11 +23,9 @@
         "host",
         "--shm-size=2g",
         "-v",
-        "/home/tbaltzakis/cu130-slim:/workspace",
+        "C:/Users/tbaltzakis/cu130-slim:/workspace",
         "-v",
-        "/home/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
-        "-v",
-        "/home/tbaltzakis/cu130-slim/.playwright-data/ms-browsers:/ms-playwright",
+        "C:/Users/tbaltzakis/cu130-slim/.playwright-data:/home/pwuser/.playwright-data",
         "-w",
         "/workspace",
         "--cpus",
@@ -53,9 +51,9 @@
       ]
     },
     "dmr": {
-      "command": "python3",
+      "command": "python",
       "args": [
-        "/home/tbaltzakis/cu130-slim/.devin/skills/docker-model-runner/scripts/dmr-mcp-server.py"
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/docker-model-runner/scripts/dmr-mcp-server.py"
       ]
     },
     "socialauto": {
@@ -74,9 +72,9 @@
       "cwd": "/home/tbaltzakis/cu130-slim"
     },
     "tiktok-console": {
-      "command": "python3",
+      "command": "python",
       "args": [
-        "/home/tbaltzakis/cu130-slim/.cursor/skills/tiktok-console-ops/scripts/tiktok-console-mcp-server.py"
+        "C:/Users/tbaltzakis/cu130-slim/.cursor/skills/tiktok-console-ops/scripts/tiktok-console-mcp-server.py"
       ],
       "cwd": "/home/tbaltzakis/cu130-slim",
       "env": {
@@ -84,16 +82,16 @@
       }
     },
     "n8n": {
-      "command": "python3",
+      "command": "python",
       "args": [
-        "/home/tbaltzakis/cu130-slim/.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py"
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/n8n-cloudless/scripts/n8n-mcp-server.py"
       ],
       "cwd": "/home/tbaltzakis/cu130-slim"
     },
     "platform": {
-      "command": "python3",
+      "command": "python",
       "args": [
-        "/home/tbaltzakis/cu130-slim/.devin/skills/social-stack-ops/scripts/platform-mcp-server.py"
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/social-stack-ops/scripts/platform-mcp-server.py"
       ],
       "cwd": "/home/tbaltzakis/cu130-slim",
       "env": {
@@ -110,32 +108,34 @@
       "url": "http://127.0.0.1:9231/mcp"
     },
     "cloudflare-docs": {
-      "command": "/home/tbaltzakis/.local/bin/node",
+      "command": "node",
       "args": [
-        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
         "https://docs.mcp.cloudflare.com/mcp"
       ]
     },
     "cloudflare": {
-      "command": "python3",
+      "command": "python",
       "args": [
-        "/home/tbaltzakis/cu130-slim/.devin/skills/cloudflare-ops/cloudflare-token-ops/scripts/cf-mcp-server.py"
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/cloudflare-ops/cloudflare-token-ops/scripts/cf-mcp-server.py"
       ],
       "cwd": "/home/tbaltzakis/cu130-slim"
     },
     "cloudflare-api": {
-      "command": "/home/tbaltzakis/.local/bin/node",
+      "command": "node",
       "args": [
-        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
         "https://mcp.cloudflare.com/mcp"
       ]
     },
     "slack": {
-      "command": "/home/tbaltzakis/.local/bin/node",
+      "command": "node",
       "args": [
-        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
         "https://mcp.slack.com/mcp",
         "3118",
+        "--host",
+        "localhost",
         "--callback-path",
         "/callback",
         "--static-oauth-client-info",
@@ -143,11 +143,13 @@
       ]
     },
     "slack-cloudless": {
-      "command": "/home/tbaltzakis/.local/bin/node",
+      "command": "node",
       "args": [
-        "/home/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
+        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
         "https://mcp.slack.com/mcp?workspace=wwwcloudlessgr",
         "3118",
+        "--host",
+        "localhost",
         "--callback-path",
         "/callback",
         "--static-oauth-client-info",
@@ -155,23 +157,22 @@
       ]
     },
     "metabase": {
-      "command": "/home/tbaltzakis/cu130-slim/.devin/skills/metabase-ops/scripts/metabase-mcp.sh"
+      "command": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "args": [
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/metabase-ops/scripts/metabase-mcp.sh"
+      ]
     },
     "polar": {
-      "command": "/home/tbaltzakis/cu130-slim/.devin/skills/polar-ops/scripts/polar-mcp.sh"
+      "command": "C:\\Program Files\\Git\\bin\\bash.exe",
+      "args": [
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/polar-ops/scripts/polar-mcp.sh"
+      ]
     },
     "deepwiki": {
       "url": "https://mcp.deepwiki.com/mcp"
     },
-    "telegram": {
-      "command": "/home/tbaltzakis/tools/telegram-mcp/.venv/bin/python",
-      "args": [
-        "/home/tbaltzakis/tools/telegram-mcp/main.py"
-      ],
-      "cwd": "/home/tbaltzakis/tools/telegram-mcp"
-    },
     "google-photos": {
-      "command": "npx",
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
       "args": [
         "-y",
         "@thenavidm/google-photos-mcp-cli",
