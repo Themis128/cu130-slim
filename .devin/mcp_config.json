@@ -153,19 +153,15 @@
       ]
     },
     "metabase": {
-      "command": "wsl",
+      "command": "C:\\Program Files\\Git\\bin\\bash.exe",
       "args": [
-        "-e",
-        "bash",
-        "/mnt/c/Users/tbaltzakis/cu130-slim/.devin/skills/metabase-ops/scripts/metabase-mcp.sh"
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/metabase-ops/scripts/metabase-mcp.sh"
       ]
     },
     "polar": {
-      "command": "wsl",
+      "command": "C:\\Program Files\\Git\\bin\\bash.exe",
       "args": [
-        "-e",
-        "bash",
-        "/mnt/c/Users/tbaltzakis/cu130-slim/.devin/skills/polar-ops/scripts/polar-mcp.sh"
+        "C:/Users/tbaltzakis/cu130-slim/.devin/skills/polar-ops/scripts/polar-mcp.sh"
       ]
     },
     "deepwiki": {
