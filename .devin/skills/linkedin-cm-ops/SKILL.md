@@ -51,11 +51,37 @@ Two separate failure classes were conflated as "token predates approval":
    `r_organization_admin`, `w_member_social`, `r_ads`,
    `r_ads_reporting`). Written back to both social_accounts rows
    (`9c4451bb` org + `18d5cd59` person), expiry 2027-01-03.
-   Note: `rw_organization_admin` (LINKEDIN_EXTRA_SCOPES) is still NOT
-   granted — it needs a fresh consent screen, not a refresh.
+
+3. **`rw_organization_admin` — GRANTED via consent 2026-11-04 20:30Z.**
+   First consent *dropped* `r_ads`/`r_ads_reporting` (grants REPLACE the
+   scope set, never union!) — a second consent requesting the union
+   restored them. EXTRA_SCOPES in .env now carries the full list
+   (incl. `*_social_feed`, `r_member_*Analytics`,
+   `r_organization_followers`, `r_1st_connections_size`) — social-api
+   needs a recreate to bake it.
+   **Lesson:** every consent must request the complete scope union.
+4. **Token pair death.** The 20:33Z consent pair went dead ~90 min
+   later — access 401 + refresh `invalid_grant`. Probable cause:
+   LinkedIn revoking after rapid successive grants (2 consents +
+   refresh-grant probes in minutes). `token_refresh` task writes back
+   correctly — wasn't the culprit. Recovery = one consent click
+   (`/tmp/li_consent_url.txt` or a hand-built signed authorize URL via
+   `sign_oauth_state` — the api's baked env omits the new EXTRA_SCOPES
+   until recreate).
 
 Verified live 2026-11-04: `/rest/posts` 200 (org feed),
-`/rest/organizations/108614163` 200, `/rest/organizationAcls` 200.
+`/rest/organizations/108614163` 200, `/rest/organizationAcls` 200,
+`/rest/adAccounts` 200, `organizationalEntityFollowerStatistics` 200,
+`update_organization_profile` no-op PATCH 200.
+
+## Org profile write (rw_organization_admin)
+
+`linkedin_api.update_organization_profile(org_id, description|website|
+tagline)` — Rest.li PATCH `$set` on `/rest/organizations/{id}`, text
+fields only (visuals never touched — product default). Exposed via
+`PUT /api/v1/accounts/{account_id}/page-profile` — the endpoint now
+dispatches on platform (was Facebook-only); GET returns the org object.
+PR #1339.
 
 If a re-auth is ever needed: `GET /api/v1/auth/oauth/linkedin/authorize
 ?team_id=10024d25-…` (admin JWT) → consent in any logged-in browser →
