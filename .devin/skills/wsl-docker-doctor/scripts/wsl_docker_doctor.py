@@ -28,7 +28,7 @@ import sys
 import time
 from pathlib import Path
 
-DISTRO = os.environ.get("WSL_DISTRO", "Ubuntu-26.04")
+DISTRO = os.environ.get("WSL_DISTRO", "Ubuntu-24.04")
 ENV_FILE = Path(__file__).resolve().parents[4] / ".env"
 TG = Path(__file__).resolve().parents[1] / "telegram-alert-ops/scripts/tg_alert.py"
 

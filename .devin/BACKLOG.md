@@ -536,3 +536,16 @@ Done:
 Left:
 - [ ] Restart social-api + workers + celery-beat after #1302/#1308/#1309 merge
 - [ ] FACEBOOK_CLIENT_ID/SECRET still empty in .env — Accounts-UI OAuth reconnect path needs them (manual token mint via Explorer is the working fallback)
+
+## 2026-11-04 — WSL distro migration (Ubuntu-26.04 -> Ubuntu-24.04)
+- [x] Projects restored to /home/tbaltzakis/{cu130-slim,cloudless.gr}; containers rebound via compose up -d (38 up/35 healthy, api 200)
+- [x] Devin/Cursor/Code IDE state repointed (state.vscdb, storage.json, workspace.json); WT default profile = Ubuntu-24.04
+- [x] Toolchain: gh 2.45 + auth (Themis128), git identity, jq/unzip/htop, sysctl 99-devin-docker.conf, journald 200M cap
+- [x] .devin/mcp_config.json migrated to WSL paths (python3/bash/npx)
+- [x] Scheduled tasks: conhost --headless wraps + UNC repoints (wsl-recycle-watch, docker-socket-watch, GmailTelegramWatch, cf-session-keepalive, cu130-pr-babysit, cu130-stack-ops-rescue, SynigorosMonitor, 3x Chrome launchers, DevinWSLShutdown)
+- [ ] env-manager-backend still Created: port 8081 owned by galaxys222-dashboard-1 (0.0.0.0 bind) — needs remap decision (override or move dashboard)
+- [ ] ChromeDebug task edit denied (stored-credential task) — needs owner password or elevate
+- [ ] ~/.ssh empty in new distro — omv SSH keys lost w/ old vhdx; restore from NAS wsl-layer backup or regen+install
+- [ ] omv watchdog remediation still refs C:/Users/tbaltzakis/cu130-slim/docker-compose.yml — repoint to wsl -d Ubuntu-24.04
+- [ ] Windows copies pending rename (Devin holds handles): cu130-slim, Themis128_cloudless.gr -> *.moved-to-wsl-20261104; watcher fix-devin-wsl-2404.ps1 covers on IDE exit
+- [ ] Devin storage.json regen from memory until Devin restart — watcher armed
