@@ -402,3 +402,14 @@ Left:
 - [ ] FB OAuth reconnect still open — `gate_runner.py fb-token <authorize-url>` needs an authorize URL + FB login in debug Chrome
 - [ ] After #1302/#1308/#1309 merge: `docker compose restart social-api social-worker-* celery-beat`
 - [ ] Debug Chrome on this host dies repeatedly (no periodic taskkill found — watchers are flag-gated via .devin/triggers/*.flag); runner's reconnect handles it but adds latency
+
+## Gates closed 2026-11-04 (cont.)
+
+Done:
+- [x] FB user token re-minted via Graph API Explorer CDP drive (app=Cloudless, User Token) — wrote omv ~/secrets/fb-user-token (235B) + social_accounts row 9355ed63 → status=active; fb-token-heal.sh rc=0; 30-min fb-heal cron re-enabled
+- [x] CLOUDFLARE_WORKERS_DEPLOY_TOKEN validated live: cloudflare-deploy.yml dispatch run 41746504516 → success (cfut_ user token works despite probe showing no scopes)
+- [x] gate_runner Email Routing poll now watches the dashboard row status (source of truth), maildir grep demoted to best-effort — pushed to feat/ops-automation (PR #1314)
+
+Left:
+- [ ] Restart social-api + workers + celery-beat after #1302/#1308/#1309 merge
+- [ ] FACEBOOK_CLIENT_ID/SECRET still empty in .env — Accounts-UI OAuth reconnect path needs them (manual token mint via Explorer is the working fallback)
