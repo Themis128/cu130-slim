@@ -168,7 +168,7 @@
       "url": "https://mcp.deepwiki.com/mcp"
     },
     "google-photos": {
-      "command": "npx",
+      "command": "C:\\Program Files\\nodejs\\npx.cmd",
       "args": [
         "-y",
         "@thenavidm/google-photos-mcp-cli",
