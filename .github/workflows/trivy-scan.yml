@@ -66,6 +66,7 @@ jobs:
           severity: 'CRITICAL,HIGH,MEDIUM,LOW'
           trivyignores: '.trivyignore'
           exit-code: '0'  # Don't fail on fs scan, just report
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Trivy filesystem results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -172,6 +173,7 @@ jobs:
           exit-code: '0'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Fail on CRITICAL and HIGH for core services
         if: matrix.service != 'comfyui'
@@ -186,6 +188,7 @@ jobs:
           exit-code: '1'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Report CRITICAL/HIGH for comfyui (non-blocking)
         if: matrix.service == 'comfyui'
@@ -200,6 +203,7 @@ jobs:
           exit-code: '0'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload Trivy image results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
@@ -283,6 +287,7 @@ jobs:
           output: 'sbom-cyclonedx.json'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate SBOM in SPDX format
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -293,6 +298,7 @@ jobs:
           output: 'sbom-spdx.json'
           scanners: 'vuln'
           timeout: '900s'
+          github-pat: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload SBOM as artifact
         uses: actions/upload-artifact@v7
