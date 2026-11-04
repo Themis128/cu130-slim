@@ -388,3 +388,17 @@ Done:
 Left:
 - [ ] feat/cf-mail-lane (#1308): test_cf_mail_outbound.py there also lacks @pytest.mark.asyncio (asyncio_mode=strict) — marks pushed to the branch; verify CI goes green
 - [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
+
+## Operator gates status (2026-11-04)
+
+Done:
+- [x] Email Routing destination `tbaltzakis@cloudless.gr` — added + **Verified** via CDP dashboard path (earlier DOM adds silently failed; direct dialog submit worked)
+- [x] mail-outbound worker transport verified: `POST $MAIL_OUTBOUND_URL` → `{"ok":true}` (worker answers POST /, NOT /send — comment in email_digest.py says "/send contract", harmless but stale)
+- [x] `CLOUDFLARE_WORKERS_DEPLOY_TOKEN` set on both repos (cfut_ user token; probe showed no Workers Scripts scope — first real cloudflare-deploy.yml run validates it)
+- [x] PR #1317 merged: gate-runner hardening (SSO self-heal, trusted-click, CDP reconnect, SSH-safe poll)
+
+Left:
+- [ ] Email Routing verify emails do NOT land in /home/*/Maildir on omv — routing sends tbaltzakis@ to mail-ingest worker → https://webmail.cloudless.gr/ingest (behind CF Access; origin host unknown). gate_runner's omv-maildir poll is unreliable for this; the verify this time landed via dashboard state after CF auto/processed delivery — recheck where ingest actually stores mail if this gate is needed again
+- [ ] FB OAuth reconnect still open — `gate_runner.py fb-token <authorize-url>` needs an authorize URL + FB login in debug Chrome
+- [ ] After #1302/#1308/#1309 merge: `docker compose restart social-api social-worker-* celery-beat`
+- [ ] Debug Chrome on this host dies repeatedly (no periodic taskkill found — watchers are flag-gated via .devin/triggers/*.flag); runner's reconnect handles it but adds latency
