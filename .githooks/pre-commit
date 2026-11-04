@@ -42,7 +42,7 @@ files=$(echo "$staged" | sed 's|^social-automation/backend/||' | tr '\n' ' ')
 if ! docker compose exec -T social-api python -m ruff --version >/dev/null 2>&1 \
     || ! docker compose exec -T social-api python -m mypy --version >/dev/null 2>&1; then
     echo "[pre-commit] installing ruff+mypy into social-api (lost on recreate)" >&2
-    if ! docker compose exec -T social-api pip install -q 'ruff==0.4.3' 'mypy==1.10.0'; then
+    if ! docker compose exec -T -u root social-api pip install -q 'ruff==0.4.3' 'mypy==1.10.0'; then
         echo "[pre-commit] tool install failed — skipping backend gate" >&2
         exit 0
     fi

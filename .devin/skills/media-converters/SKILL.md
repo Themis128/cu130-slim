@@ -78,3 +78,14 @@ audio track is present — keep `--audio` on unless the post is meant silent.
 
 For multi-slide branded slideshows use `branded-video-pipeline` instead —
 this skill is for single-asset conversion.
+
+## Full post pipeline
+
+`social_post.py` (backend/scripts, runs inside social-api) does the whole
+chain in one command — convert -> upload -> create post -> publish -> poll:
+
+    docker compose exec -T social-api python3 /app/scripts/social_post.py         --file /app/pipeline-assets/cert.pdf         --caption "..." --account <uuid> --sound --publish
+
+PDF -> PNG, still + --sound -> 6s MP4 with synth audio, then upload,
+create, publish-now, and poll until published/failed. Never posts
+without media.
