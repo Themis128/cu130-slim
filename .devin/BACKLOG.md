@@ -18,22 +18,29 @@
   `/rest/organizationAcls` 200, `organizations` scope-probe in the tool now
   uses the account URN (was hardcoded to app id → bogus 403).
 - **Leftovers**:
-  - [ ] 4 `social-worker-*` containers DOWN — `docker-desktop-bind-mounts`
-    hashed `.env` mount (54175c…) missing on the VM side
-    (`docker-desktop-user-distro` proxy degraded; doctor `fix`: L1 no-op,
-    L2 `wsl.exe` interop dead). Needs `wsl --shutdown` or Docker Desktop
-    restart from the Windows side. social-api + celery-beat ARE up — the
-    code fix is live in them; workers still run the pre-restart modules.
+  - [x] 4 `social-worker-*` containers — recovered via `docker compose up -d`
+    once the docker-desktop bind-mount proxy settled (the hashed `.env` mount
+    resolved on retry — was transient VM-side decay, not persistent). All 4
+    Up healthy, 4/4 celery nodes pong. `docker desktop restart` CLI failed
+    (`com.docker.backend` missing) — the in-place workaround was `docker start`
+    on `Created` containers + letting the mount service re-prepare.
   - [ ] `rw_organization_admin` still not granted — needs a fresh consent
-    screen (refresh grant can't add scopes). Only matters for programmatic
-    page-profile updates.
-  - [ ] LinkedIn sidecar :9225 session dead (redirect_loop circuit until
-    ~22:37Z); bridge :9223 profile hit a password "Welcome back" wall —
-    both need a manual login to restore browser lanes.
-  - [ ] `social.cloudless.gr` ingress 530 — OAuth callback + public API
-    unreachable from outside; internal :8083 works.
-  - [ ] browser-novnc + social-frontend containers left running (woken for
-    the flow); let stack-ops sleep them naturally.
+    screen (refresh grant can't add scopes). Signed authorize URL generated
+    (scopes incl. rw_organization_admin via LINKEDIN_EXTRA_SCOPES); one click
+    in any logged-in LinkedIn browser completes it since the callback on
+    social.cloudless.gr is live again.
+  - [x] `social.cloudless.gr` ingress 530 — `social-cloudflared` +
+    `social-frontend` containers were `Created`-but-never-started;
+    `docker start` brought both Up healthy → `/api/v1/health` 200.
+  - [ ] LinkedIn sidecar :9225 session dead (`/session/clear-rate-limit`
+    cleared the 429 circuit but /feed/ now returns SESSION_ERROR — cookies
+    are stale). Bridge :9223 profile hit a "Welcome back" password wall.
+    No LINKEDIN_EMAIL/PASSWORD in secret store or .env — credential login
+    is a manual gate (noVNC or `/login` once creds are stored).
+  - [ ] PR #1336 (version re-pins) — auto-merge armed; validate+secret-scan
+    passed, full CI matrix (build-and-push/Trivy) still pending at write.
+  - [ ] browser-novnc left running (woken for the OAuth attempt); stack-ops
+    sleeps it naturally.
 
 ## 2026-11-04 (pm) — Polar billing live + n8n crash loop + FB token surface
 
