@@ -37,6 +37,10 @@
     are stale). Bridge :9223 profile hit a "Welcome back" password wall.
     No LINKEDIN_EMAIL/PASSWORD in secret store or .env — credential login
     is a manual gate (noVNC or `/login` once creds are stored).
+    Stored `LINKEDIN_COOKIE` li_at is ALSO stale — injected into the
+    bridge profile it got rejected (429 → ERR_TOO_MANY_REDIRECTS, same
+    redirect_loop signature as the sidecar). Cleaned + session stopped.
+    No valid LinkedIn session exists on any automated browser lane.
   - [ ] PR #1336 (version re-pins) — auto-merge armed; validate+secret-scan
     passed, full CI matrix (build-and-push/Trivy) still pending at write.
   - [ ] browser-novnc left running (woken for the OAuth attempt); stack-ops
