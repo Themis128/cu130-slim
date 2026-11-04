@@ -32,12 +32,13 @@ def ask(field, title):
 
 
 def fb_login(p, email, pw):
+    import json as _j
     p.goto("https://www.facebook.com/login/")
     time.sleep(6)
-    p.js("(()=>{const e=document.querySelector('#email'); if(e){e.value=arguments[0];"
+    p.js("(()=>{const e=document.querySelector('#email'); if(e){e.value=" + _j.dumps(email) + ";"
          "e.dispatchEvent(new Event('input',{bubbles:true}));}"
-         "const w=document.querySelector('#pass'); if(w){w.value=arguments[1];"
-         "w.dispatchEvent(new Event('input',{bubbles:true}));}})()", email, pw)
+         "const w=document.querySelector('#pass'); if(w){w.value=" + _j.dumps(pw) + ";"
+         "w.dispatchEvent(new Event('input',{bubbles:true}));}})()")
     p.js("(()=>{const b=document.querySelector('#loginbutton'); if(b)b.click();})()")
     time.sleep(8)
 
@@ -82,7 +83,7 @@ def main():
     while time.time() < deadline:
         if R._dialog_open(p):
             p.js("(()=>{const i=document.querySelector('input[type=password]');"
-                 "if(i){i.value=arguments[0];i.dispatchEvent(new Event('input',{bubbles:true}));"
+                 "if(i){i.value=" + __import__('json').dumps(pw) + ";i.dispatchEvent(new Event('input',{bubbles:true}));"
                  "setTimeout(()=>{const b=[...document.querySelectorAll('button,[role=button]')]"
                  ".filter(x=>/confirm|continue|ok|submit/i.test(x.innerText||''));"
                  "if(b.length)b[0].click();},600);}})()", pw)
