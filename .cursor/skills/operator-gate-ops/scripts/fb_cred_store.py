@@ -18,13 +18,13 @@ import sys
 TARGET = "cloudless-gate:facebook.com"
 
 
-class CREDENTIAL(wt.Structure):
+class CREDENTIAL(ctypes.Structure):
     _fields_ = [
         ("Flags", wt.DWORD), ("Type", wt.DWORD), ("TargetName", wt.LPWSTR),
         ("Comment", wt.LPWSTR), ("LastWritten", wt.FILETIME),
         ("CredentialBlobSize", wt.DWORD), ("CredentialBlob", wt.LPBYTE),
         ("Persist", wt.DWORD), ("AttributeCount", wt.DWORD),
-        ("Attributes", wt.c_void_p), ("TargetAlias", wt.LPWSTR),
+        ("Attributes", ctypes.c_void_p), ("TargetAlias", wt.LPWSTR),
         ("UserName", wt.LPWSTR)]
 
 
