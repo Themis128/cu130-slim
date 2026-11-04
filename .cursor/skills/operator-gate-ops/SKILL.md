@@ -29,6 +29,9 @@ gates that used to need a human, via Chrome CDP `:9222`.
 | Tool | Purpose |
 |---|---|
 | `scripts/fb_secret_reveal.py` | Meta App Secret capture — Meta's "Show" needs a password re-entry (the one human step). Script opens the dialog in the debug Chrome, waits for the operator to type the password, then captures the revealed secret opaquely → `PUT /api/env/FACEBOOK_CLIENT_SECRET` via env-manager → verifies `/oauth/facebook/authorize` emits a URL. `FACEBOOK_CLIENT_ID` (= App ID `1936126137016578`, `Cloudless` app) is already in `.env`. |
+| `scripts/fb_gate_one_shot.py` | Whole FB gate in one command — waits for the operator's facebook.com login (auto-detects), stages Show, toasts, captures the secret. Run + forget. |
+| `scripts/fb_secret_ask.py` | Stages the Show dialog + Windows toast/beep when already logged in — tells the operator the exact moment to type. |
+| `scripts/fb_cred_inject.py` | One-paste mode — local password box captures the FB password in-memory only, auto-types it into the FB login form AND the Meta re-auth dialog, discards it, captures the secret. Minimum possible human surface. |
 | `scripts/post_merge_restart.py` | Post-merge stack restart — watches given PRs (default: the worker-wiring set `1302 1308 1309 1301`) via `gh pr view`, and when each merges runs `docker compose restart social-api social-worker-* celery-beat` + health/ping check. Run in background: `python scripts/post_merge_restart.py`. |
 
 ## After each gate
