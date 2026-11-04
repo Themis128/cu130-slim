@@ -166,6 +166,11 @@ jobs:
             type=docker,dest=/tmp/image.tar,compression=zstd,compression-level=3,force-compression=true
             ${{ (github.event_name == 'push' && (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))) && 'type=image,push=true,compression=zstd,compression-level=3' || '' }}
 
+      - name: Free disk space before vulnerability scan
+        run: |
+          docker system prune -af --volumes || true
+          df -h / /tmp
+
       - name: Resolve primary image tag
         id: image
         if: github.event_name == 'push'
