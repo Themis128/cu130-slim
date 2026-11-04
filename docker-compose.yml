@@ -569,6 +569,7 @@ services:
       - MB_EMAIL=${MB_EMAIL}
       - MB_PASSWORD=${MB_PASSWORD}
       - MB_ANON_TRACKING_ENABLED=false
+      - JAVA_TOOL_OPTIONS=${METABASE_JAVA_OPTS:--Xms256m -Xmx1g}
       - MB_CHECK_FOR_UPDATES=false
       - MB_LOAD_SAMPLE_CONTENT=false
       - MB_METABOT_ENABLED=false
