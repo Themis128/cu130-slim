@@ -8,7 +8,7 @@ import pytest
 from fastapi import HTTPException
 
 import app.api.accounts as A
-from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
+from app.services.linkedin_api import LinkedInAPIClient
 
 
 @pytest.mark.asyncio
