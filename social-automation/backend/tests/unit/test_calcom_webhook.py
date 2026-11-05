@@ -4,7 +4,6 @@ import hashlib
 import hmac
 
 import pytest
-from unittest.mock import AsyncMock
 
 import app.api.calcom_webhook as W
 
@@ -46,6 +45,6 @@ async def test_booking_posts_conversion(monkeypatch):
         async def json(self):
             return {"triggerEvent": "BOOKING_CREATED", "payload": {"attendees": [{"email": "t@x.com"}]}}
 
-    out = await W.calcom_booking(Req())
+    await W.calcom_booking(Req())
     assert calls and calls[0]["email_sha256"]
     assert calls[0]["conversion_rule"] == "audit_booked"
