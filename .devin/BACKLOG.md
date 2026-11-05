@@ -63,8 +63,13 @@ Status of every open issue from the LinkedIn review + verification email:
   sampling is 5%). Fallback Gmail `themis.baltzakis@gmail.com` checked via
   google-workspace MCP — not there either.
 - ⬜ `gmail-ops` OAuth refresh token stale → needs `gmail.py login` re-consent.
-- ⬜ NEXT for #10: either retry the verify send later, or set the app's
-  business email to a working mailbox (settings Edit) and verify there.
+- ✅ Swap driven on `/developers/settings`: business email now
+  `themis.baltzakis@gmail.com`, verification email sent (was Pending→
+  tbaltzakis@cloudless.gr, which the edge kept eating).
+- ⬜ Check `themis.baltzakis@gmail.com` for the verify link — the MCP's
+  Gmail account is `baltzakis.themis@gmail.com` (different mailbox if not
+  aliased). After verify: business email can be switched back to
+  `tbaltzakis@cloudless.gr`, then Request access on Member DP (3rd Party).
 
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
