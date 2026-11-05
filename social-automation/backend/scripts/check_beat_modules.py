@@ -44,7 +44,7 @@ def _collect() -> tuple[set[str], set[str]]:
             name = getattr(fn, "attr", getattr(fn, "id", ""))
             if name == "Celery":
                 for kw in node.keywords:
-                    if kw.arg == "include" and isinstance(kw.value, (ast.List, ast.Tuple)):
+                    if kw.arg == "include" and isinstance(kw.value, ast.List | ast.Tuple):
                         for elt in kw.value.elts:
                             s = _str(elt)
                             if s:

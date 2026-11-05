@@ -382,7 +382,12 @@ async def _post_proposal_alert(proposal: AgencyProposal, audit: AgencyAudit | No
         who = proposal.recipient_name or proposal.recipient_email or "lead"
         url = audit.url if audit else "n/a"
         needs_pricing = bool((proposal.meta_data or {}).get("needs_pricing"))
-        price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}" if proposal.price_low_eur and proposal.price_high_eur else ("custom scope — needs your price" if needs_pricing else "n/a")
+        if proposal.price_low_eur and proposal.price_high_eur:
+            price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}"
+        elif needs_pricing:
+            price = "custom scope — needs your price"
+        else:
+            price = "n/a"
         text = f":memo: *Proposal drafted* — {who} ({url}), {price}, {len(proposal.services)} services"
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
