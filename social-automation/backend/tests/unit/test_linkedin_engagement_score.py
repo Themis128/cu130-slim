@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import app.worker.tasks.linkedin_engagement_score as S
+from app.worker.tasks import linkedin_engagement_score as S
 
 class _AsyncCM:
     """Minimal async context manager — SimpleNamespace can't be one."""
