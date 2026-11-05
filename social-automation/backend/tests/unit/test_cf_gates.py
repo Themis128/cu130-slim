@@ -88,12 +88,14 @@ def _resp(payload):
     class R:
         def read(self):
             return json.dumps(payload).encode()
+
     return R()
 
 
 @pytest.mark.asyncio
 async def test_accept_token_verify_fails(monkeypatch):
     import urllib.request
+
     monkeypatch.setattr(urllib.request, "urlopen", MagicMock(side_effect=OSError("x")))
     with pytest.raises(HTTPException) as e:
         await mod.accept_token({"token": "t" * 40}, _user())
@@ -103,6 +105,7 @@ async def test_accept_token_verify_fails(monkeypatch):
 @pytest.mark.asyncio
 async def test_accept_token_rejected(monkeypatch):
     import urllib.request
+
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _resp({"success": False}))
     with pytest.raises(HTTPException) as e:
         await mod.accept_token({"token": "t" * 40}, _user())
@@ -112,6 +115,7 @@ async def test_accept_token_rejected(monkeypatch):
 @pytest.mark.asyncio
 async def test_accept_token_ok(monkeypatch, tmp_path):
     import urllib.request
+
     monkeypatch.setattr(urllib.request, "urlopen", lambda *a, **k: _resp({"success": True}))
     monkeypatch.setattr(mod, "SCRIPTS", tmp_path)
     env = tmp_path / ".env"

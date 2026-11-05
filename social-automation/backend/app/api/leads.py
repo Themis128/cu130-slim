@@ -219,7 +219,9 @@ async def create_lead_public(
 
     delivery = await deliver_playbook(db, lead, email, already_sent=already_sent, settings=settings)
     await _cf_shadow_call(
-        "FUNNEL_EVENTS_URL", "FUNNEL_EVENTS_TOKEN", "/event",
+        "FUNNEL_EVENTS_URL",
+        "FUNNEL_EVENTS_TOKEN",
+        "/event",
         {"type": "lead.created", "payload": {"lead_id": str(lead.id), "form": meta.get("form")}},
     )
 

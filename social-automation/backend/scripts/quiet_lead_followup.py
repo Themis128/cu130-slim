@@ -96,8 +96,10 @@ async def unenroll(args: argparse.Namespace) -> None:
         from app.services.nurture_sequence import _cf_shadow_call  # noqa: E402
 
         await _cf_shadow_call(
-            "LEAD_SCHEDULER_URL", "LEAD_SCHEDULER_TOKEN",
-            f"/do/followup/{lead.id}/unsubscribe", {"email": lead.email},
+            "LEAD_SCHEDULER_URL",
+            "LEAD_SCHEDULER_TOKEN",
+            f"/do/followup/{lead.id}/unsubscribe",
+            {"email": lead.email},
         )
     print(f"unenrolled: {args.email}")
 

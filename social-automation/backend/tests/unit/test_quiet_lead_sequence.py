@@ -197,7 +197,8 @@ async def test_shadow_call_posts_when_env_set(monkeypatch):
     monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: client)
     await M._cf_shadow_call("CF_U", "CF_T", "/do/x", {"a": 1})
     post.assert_awaited_once_with(
-        "https://w.example.com/do/x", json={"a": 1},
+        "https://w.example.com/do/x",
+        json={"a": 1},
         headers={"Authorization": "Bearer tok"},
     )
 
