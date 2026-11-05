@@ -410,3 +410,9 @@ Manual: dash.cloudflare.com → **Calls → Create app** → copy the
 then verify with a call between two NAT-restricted clients.
 Alternative: ask the ISP for a public IPv4 and run eturnal on 443.
 Do NOT run TURN on omv behind CGNAT — it just relocates the unreachable point.
+
+**Interim live fallback (2026-11-05)**: free public relay
+`relay1.expressturn.com:3478` with static creds `efrei`/`home` added via
+direct `oc_appconfig.spreed.turn_servers` JSON edit (occ can't set
+username/password fields). Shared public relay — bandwidth-capped, no
+SLA; replace with Cloudflare Calls `turns:`/443 once the Calls app exists.
