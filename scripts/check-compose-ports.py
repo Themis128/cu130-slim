@@ -15,7 +15,8 @@ for service_name, service in config.get("services", {}).items():
     for port in service.get("ports", []):
         published = port.get("published")
         if published is not None:
-            published_by_port[str(published)].append(service_name)
+            host_ip = port.get("host_ip") or "0.0.0.0"
+            published_by_port[host_ip + ":" + str(published)].append(service_name)
 
 duplicates = {
     port: services
