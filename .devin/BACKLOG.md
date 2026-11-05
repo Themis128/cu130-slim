@@ -84,6 +84,15 @@ Status of every open issue from the LinkedIn review + verification email:
 - ⬜ NEXT after review: OAuth token re-auth on `265077464` to mint
   `r_dma_portability_3rd_party`; heal dead token on `265077368` separately.
 
+## Dev-app audit 2026-11-05 (all 4 apps vs portal)
+
+| App | Redirect URLs | Products/status | Issues |
+|---|---|---|---|
+| `265077464` cloudless-gr-dma | ✅ canonical callback added today | DP (3rd Party) request submitted + Qualtrics form done → review pending (≤21d) | scopes pending until grant |
+| `265077368` cloudless-gr-member | ✅ canonical callback | Share/OIDC/EventsMgmt provisioned; Lead Sync review in progress; DP blocked by only-product rule (correct) | dead OAuth token (consent click) |
+| `264925843` Cloudless Analytics | ✅ canonical callback | CM API Standard + Share/OIDC/Events | none |
+| `227354605` Cloudless API App | ⚠ has postiz + localhost + `social.cloudless.gr/` root — **canonical `/api/v1/auth/oauth/linkedin/callback` NOT registered** | Advertising Standard ✓; Lead Sync **Access denied** | add canonical redirect; Lead Sync denied — re-request with different justification if needed |
+
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
 - Review of today's LinkedIn PRs (#1344–#1358) found two files landed
