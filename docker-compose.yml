@@ -2491,13 +2491,17 @@ services:
       - "127.0.0.1:8090:8080"
       - "100.86.188.43:8090:8080"
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 768m
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/status || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 5
+      start_period: 60s
 
 volumes:
   ollama_models:
