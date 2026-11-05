@@ -240,6 +240,78 @@ async def sync_deploy_events() -> dict:
     return {"announced": posted}
 
 
+# ── Talk: check-run failures on the newest commit ─────────────────────
+
+
+async def sync_check_status() -> dict:
+    """Alert the ops room when the newest master commit has failed checks."""
+    from app.services.nextcloud_talk import post_to_talk, talk_enabled
+
+    if not talk_enabled():
+        return {"skipped": "talk disabled"}
+    alerted: list[str] = []
+    async with httpx.AsyncClient(timeout=20.0, headers={"User-Agent": "socialauto-check-watch/1.0"}) as gh:
+        for label, url in _GH_COMMITS:
+            try:
+                commits = (await gh.get(url)).json()
+            except Exception:  # noqa: BLE001
+                continue
+            if not isinstance(commits, list) or not commits:
+                continue
+            sha = commits[0]["sha"]
+            repo = url.split("/repos/")[1].split("/")[0] + "/" + url.split("/repos/")[1].split("/")[1]
+            key = f"check:{sha}"
+            if await _cursor(key):
+                continue
+            try:
+                r = await gh.get(f"https://api.github.com/repos/{repo}/commits/{sha}/check-runs?per_page=50")
+                runs = r.json().get("check_runs", [])
+            except Exception:
+                continue
+            pending = [c["name"] for c in runs if c.get("status") != "completed"]
+            if pending:
+                continue  # still running — re-check next pass (no cursor write)
+            failed = [c["name"] for c in runs if c.get("conclusion") == "failure"]
+            await _set_cursor(key, "seen")
+            if failed:
+                text = f"❌ {label} {sha[:7]} — checks failed: {', '.join(failed[:5])}"
+                await post_to_talk(text, purpose="digest")
+                alerted.append(f"{label}:{sha[:7]}")
+    return {"check_alerts": alerted}
+
+
+# ── Talk: failed publish alerts ────────────────────────────────────────
+
+
+async def sync_failed_publishes(db: AsyncSession) -> dict:
+    """Posts that newly entered FAILED → Talk alerts room (cursor on failed_at)."""
+    from app.services.nextcloud_talk import post_to_talk, talk_enabled
+
+    if not talk_enabled():
+        return {"skipped": "talk disabled"}
+    last = await _cursor("failed_at")
+    q = select(Post).where(Post.status == PostStatus.FAILED, Post.failed_at.isnot(None)).order_by(Post.failed_at)
+    rows = (await db.execute(q)).scalars().all()
+    if not rows:
+        return {"alerts": 0}
+    newest = max(p.failed_at.isoformat() for p in rows)
+    fresh = [p for p in rows if last is None or p.failed_at.isoformat() > last]
+    await _set_cursor("failed_at", newest)
+    if last is None:  # first run — seed, don't spam history
+        return {"alerts": 0, "seeded": len(rows)}
+    sent = 0
+    for p in fresh[:10]:
+        platform = ", ".join(sorted({t.social_account.platform for t in p.targets if t.social_account})) or "—"
+        title = (p.content_text or "")[:80].replace("\n", " ")
+        err = next((t.error_message for t in p.targets if t.error_message), "")[:120]
+        if await post_to_talk(
+            f"⚠️ Publish failed — [{platform}] {title}\n{err}",
+            purpose="alerts",
+        ):
+            sent += 1
+    return {"alerts": sent}
+
+
 # ── Calendar: scheduled posts ──────────────────────────────────────────
 
 
@@ -378,6 +450,8 @@ async def sync_extras(db: AsyncSession) -> dict:
     result = {
         "crm": await sync_crm_pipeline(db),
         "deploys": await sync_deploy_events(),
+        "checks": await sync_check_status(),
+        "failed": await sync_failed_publishes(db),
         "calendar": await sync_calendar_posts(db),
         "forms": await sync_forms_intake(),
     }
