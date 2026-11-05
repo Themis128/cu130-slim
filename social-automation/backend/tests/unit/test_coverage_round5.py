@@ -81,7 +81,6 @@ async def test_list_all_paginates_and_stops(monkeypatch):
     import app.services.espocrm_client as E
 
     monkeypatch.setattr("app.services.espocrm_client.get_settings", lambda: MagicMock(ESPOCRM_BASE_URL="https://e", ESPOCRM_API_KEY="k"))
-    import json as _j
 
     calls = []
 
