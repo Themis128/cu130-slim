@@ -49,6 +49,7 @@ celery_app = Celery(
         "app.worker.tasks.auto_gates",
         "app.worker.tasks.consent_healers",
         "app.worker.tasks.linkedin_engagement_score",
+        "app.worker.tasks.linkedin_lead_boost",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
