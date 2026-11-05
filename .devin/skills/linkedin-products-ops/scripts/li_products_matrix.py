@@ -15,7 +15,10 @@ Client IDs are NOT secrets — they appear in authorize URLs. Probing is a
 single unauthenticated GET per scope against linkedin.com.
 """
 from __future__ import annotations
-import argparse, json, os, sys, urllib.parse, urllib.request
+import argparse
+import json
+import urllib.parse
+import urllib.request
 
 AUTHZ = "https://www.linkedin.com/oauth/v2/authorization"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -72,10 +75,20 @@ PRODUCTS = {
         "scopes": ["rw_dmp_segments"],
     },
     "Member Data Portability (Member)": {
-        "availability": "in-portal request + business-email verify",
+        "availability": "in-portal request — ToS agree = instant grant",
         "scopes": ["r_dma_portability_self_serve"],
-        "notes": "member's own-data snapshot; the 'dedicated Company page' "
-                 "gate applies to portability-bound apps at creation.",
+        "notes": "member's own-data snapshot; REQUIRES a new app created with "
+                 "the dedicated 'Member Data Portability (Member) Default "
+                 "Company' page — no retrofit. Token via OAuth Token "
+                 "Generator. EU/EEA/CH members only.",
+    },
+    "Member Data Portability (3rd Party)": {
+        "availability": "access-request form + LinkedIn review",
+        "scopes": ["r_dma_portability_3rd_party"],
+        "notes": "consenting members' data; request button enabled only after "
+                 "company-page verification; form needs legal name, registered "
+                 "address, website, privacy policy + BUSINESS-email verify "
+                 "(personal email fails).",
     },
     "Pages Data Portability": {
         "availability": "access form",
@@ -99,10 +112,9 @@ def probe(client_id: str, redirect_uri: str, scopes: list[str]) -> str:
     try:
         resp = urllib.request.build_opener(NoRedirect).open(
             urllib.request.Request(url, headers=UA), timeout=30)
-        status, loc = resp.status, resp.headers.get("Location", "")
+        loc = resp.headers.get("Location", "")
         body = resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
-        status = e.code
         loc = e.headers.get("Location", "") if e.headers else ""
         body = e.read().decode("utf-8", "replace") if e.fp else ""
     except Exception as e:

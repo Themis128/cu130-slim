@@ -18,7 +18,10 @@ Usage:
 Redirect URI defaults to the app's own callback (any registered URI works).
 Exit code 0 always; JSON result on stdout.
 """
-import argparse, json, sys, urllib.parse, urllib.request
+import argparse
+import json
+import urllib.parse
+import urllib.request
 
 AUTHZ = "https://www.linkedin.com/oauth/v2/authorization"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -54,9 +57,9 @@ def probe_one(client_id: str, redirect_uri: str, scopes: list[str]) -> dict:
     if "error=" in urllib.parse.unquote(loc).lower():
         return {"scopes": scopes, "result": "rejected", "detail": loc[:200], "status": status}
     # consent page or login wall -> grantable
-    kind = "consent" if "oauth/v2/authorization" in str(resp.geturl() if 'resp' in dir() else url) else "ok"
+    final = resp.geturl() if "resp" in dir() else ""
     return {"scopes": scopes, "result": "grantable", "status": status,
-            "location": loc[:200], "final": (resp.geturl() if 'resp' in dir() else "")[:200]}
+            "location": loc[:200], "final": final[:200]}
 
 
 def main():
@@ -69,7 +72,8 @@ def main():
     a = ap.parse_args()
     scopes = list(a.scopes)
     if a.file:
-        scopes += [l.strip() for l in open(a.file) if l.strip() and not l.startswith("#")]
+        scopes += [line.strip() for line in open(a.file)
+                   if line.strip() and not line.startswith("#")]
     if not scopes:
         ap.error("no scopes given")
 

@@ -8,7 +8,10 @@ Uses linkedin-browser-sidecar :9225 /debug/navigate + /debug/eval +
 the session is dead — a human must log into the sidecar (noVNC) once; rerun
 this script afterwards.
 """
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 
 SC = "http://localhost:9225"
 
@@ -19,6 +22,9 @@ def post(path, body):
     return json.loads(r.read())
 
 def main():
+    if len(sys.argv) < 2:
+        print(__doc__)
+        sys.exit(2)
     url = open(sys.argv[1]).read().strip()
     try:
         post("/debug/navigate", {"url": url})
@@ -34,7 +40,8 @@ def main():
     res = r.get("result", {})
     print("page:", res.get("url", "")[:160])
     if "uas/login" in (res.get("url") or ""):
-        print("login wall — human login needed"); return
+        print("login wall — human login needed")
+        return
     allow = post("/debug/eval", {"script":
         "(()=>{const b=[...document.querySelectorAll('button')].find("
         "b=>/allow|authorize|agree/i.test(b.innerText||''));"

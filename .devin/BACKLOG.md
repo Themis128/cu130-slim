@@ -1,5 +1,68 @@
 # BACKLOG (living)
 
+## 2026-11-05 — Member app 265077368 company-verified
+
+- LinkedIn email: `cloudless-gr-member` (265077368) approved as associated
+  with the cloudless.gr Page (org 108614163). Page verification was already
+  done earlier today — this is the *company* verification.
+- **Unblocks** (docs-verified 2026-11-05, learn.microsoft.com/linkedin/dma):
+  **Member Data Portability (3rd Party)** — "Request access" is enabled only
+  after company-page verification. Products tab → access-request form
+  (legal name, registered address, website, privacy policy + business-email
+  verify — personal email fails) → LinkedIn review. Scope:
+  `r_dma_portability_3rd_party` via standard auth-code flow.
+- **NOT the (Member) variant**: Member DP (Member) grants
+  `r_dma_portability_self_serve` but requires a NEW app created with the
+  dedicated "Member Data Portability (Member) Default Company" page — no
+  retrofit onto 265077368. It's a light ToS-agree instant grant + OAuth
+  Token Generator token; EU/EEA/CH only (Greece OK). Cheapest path to the
+  owner's own-data snapshot if that's the goal.
+- [ ] Fix products-matrix mapping: business-email verify belongs to
+  (3rd Party), not (Member) — matrix conflates them.
+- [ ] Decide: drive the (3rd Party) form on 265077368, or create the
+  dedicated-page app for (Member) self-serve.
+
+## 2026-11-05 — Consolidated issue backlog (LinkedIn ops sprint)
+
+Status of every open issue from the LinkedIn review + verification email:
+
+| # | Issue | Status |
+|---|-------|--------|
+| 1 | `li_consent_trim.py` truncated stub (SyntaxError) | ✅ fixed PR #1364 |
+| 2 | `qualtrics_fill.py` truncated mid-expression | ✅ fixed PR #1364 |
+| 3 | `record_integration.sh` flag-ignoring arg parse | ✅ fixed PR #1364 |
+| 4 | `linkedin_scope_audit.py` broken `E` literal + invalid URN | ✅ fixed PR #1364 |
+| 5 | `survey_fill.js` `module.exports` in eval ctx | ✅ fixed PR #1364 |
+| 6 | argv guards `li_portal_edit`/`li_consent_drive` | ✅ fixed PR #1364 |
+| 7 | Member DP product map conflation | ✅ fixed (docs-verified) |
+| 8 | Lenovo Vantage WebView2 owns :9222 — CDP lane blocked | ✅ resolved — our lane moved to **:9229** (docs: any port works; Vantage rebinds 9222 on respawn via `DebuggingPortEnabled` reg flag / webview default — not worth fighting). chrome-debug-profile live on :9229 |
+| 9 | CDP scripts hardcode :9222 — need port parameter | ✅ fixed — `$CDP_URL` env (default :9229) in `li_portal_edit.py`, `qualtrics_fill.py`, `--cdp` in `cdp_shot.py`, `start-chrome-debug.bat` takes port arg |
+| 10 | Member DP request: pick (3rd Party) form vs new (Member) app | ⬜ open — **blocked on LinkedIn login in chrome-debug-profile** (opened on :9229, shows login wall — one manual login seeds it). Then: create NEW app bound to "Member Data Portability (Member) Default Company" page for `r_dma_portability_self_serve` (instant ToS grant), or drive the (3rd Party) form on 265077368 |
+| 11 | `li_portal_edit.py get-secret` prints secret to stdout | ✅ fixed — writes to `$LI_SECRET_OUT` file when set, stdout otherwise |
+| 12 | LinkedIn token dead — one consent click (once lane up) | ⬜ open (blocked by #10 login) |
+| 13 | LinkedIn sidecar :9225 session dead — no stored creds | ⬜ open (manual — noVNC login once) |
+
+## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
+
+- Review of today's LinkedIn PRs (#1344–#1358) found two files landed
+  **truncated mid-write**: `li_consent_trim.py` (9-line stub, unterminated
+  docstring → SyntaxError; `li_consent_drive.py` + portal-ops SKILL.md both
+  depend on it) and `qualtrics_fill.py` (101→25 lines, ends mid-expression;
+  all documented subcommands dead).
+- **Fixed on `fix/linkedin-ops-script-repairs`**: full `li_consent_trim.py`
+  implementation (strip scopes in place, `--show`, `--from-error` parses the
+  callback's error_description); complete CDP `qualtrics_fill.py`
+  (`--map`/`--answers`/`--country`/`--submit` per docstring); real flag parsing
+  in `record_integration.sh`; `linkedin_scope_audit.py` — fixed broken
+  `E = "{ORG.replace...}"` literal (was never an f-string — EVERY `{E}` probe
+  URL was malformed) + `{post}` URN now resolved live from /rest/posts
+  (comments endpoint needs share/ugcPost/activity URNs); `survey_fill.js` —
+  dropped `module.exports` (throws in browser eval) + argv guards on
+  `li_portal_edit.py`/`li_consent_drive.py`; dead-code cleanups. All touched
+  files ruff-clean.
+- [ ] `li_portal_edit.py get-secret` prints client secret to stdout — by
+  design, but lands in shell history/logs; consider stderr flag or file out.
+
 ## 2026-11-05 — LinkedIn products/scopes: correct process codified
 
 - **Share on LinkedIn (Default Tier) + Sign In OIDC (Standard Tier) provisioned** on member app

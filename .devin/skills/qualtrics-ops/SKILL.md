@@ -20,7 +20,8 @@ description: Map and fill LinkedIn Qualtrics access-request forms (linkedincusto
 ## Script
 `scripts/qualtrics_fill.py <tid-file|url>` — opens/finds the tab, dumps the
 question map (`--map`), or fills from a JSON answer file (`--answers a.json`
-where keys are QIDs). Then `--submit` clicks Next.
+where keys are QIDs). Then `--submit` clicks Next. CDP via `$CDP_URL`
+(default http://localhost:9229 — 9222 is Vantage WebView2 on this host).
 
 ## Answer conventions used for Cloudless
 Legal name "Cloudless"; alt=No; website https://cloudless.gr; addr

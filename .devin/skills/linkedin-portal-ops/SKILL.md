@@ -6,9 +6,14 @@ description: Automate the LinkedIn Developer Portal (developers.linkedin.com/dev
 # LinkedIn Developer Portal automation (CDP)
 
 ## Prereq
-User's Edge on Windows with `--remote-debugging-port=9222` and a logged-in
-LinkedIn session that administers the apps. All driving is Runtime.evaluate
-against a fresh tab via `li_portal_edit.py`.
+Debug Chrome on Windows with remote debugging and a logged-in LinkedIn
+session that administers the apps. All driving is Runtime.evaluate against
+a fresh tab via `li_portal_edit.py`.
+
+**Port: 9229, not 9222** — the Lenovo Vantage WebView2 on this host claims
+127.0.0.1:9222 at boot (respawns on kill; `DebuggingPortEnabled` reg flag +
+webview default per MS docs). Our lane uses `start-chrome-debug.bat` →
+:9229; every script takes `$CDP_URL` (default http://localhost:9229).
 
 ## What the portal really looks like (verified 2026-11-05)
 

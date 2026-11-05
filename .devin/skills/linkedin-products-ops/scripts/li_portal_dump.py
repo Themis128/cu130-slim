@@ -16,7 +16,11 @@ Usage:
   li_portal_dump.py --cdp http://localhost:9222 265077368 --json
 """
 from __future__ import annotations
-import argparse, json, sys, time, urllib.request
+import argparse
+import json
+import sys
+import time
+import urllib.request
 
 
 def cdp_ws():
