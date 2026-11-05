@@ -667,7 +667,10 @@ async def publish_to_platform(
     campaign = (getattr(post, "meta_data", None) or {}).get("source") or "organic-social"
     content_key = str(getattr(post, "id", None) or "post")
     text = tag_owned_links(text, platform=account.platform, campaign=campaign, content=content_key)
-    raw_link = getattr(post, "link_url", None)
+    raw_link = getattr(post, "link_url", None) or {
+        "facebook": "https://cloudless.gr/contact",
+        "instagram": "https://social.cloudless.gr/pricing",
+    }.get(account.platform)
     if raw_link:
         tagged_link = tracked_url(
             raw_link,
