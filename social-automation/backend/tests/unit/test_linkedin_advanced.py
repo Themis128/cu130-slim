@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import app.services.linkedin_ad_library as AL
-import app.services.linkedin_advanced as ADV
-import app.services.linkedin_events as EV
-import app.worker.tasks.linkedin_lead_boost as LB
+from app.services import linkedin_ad_library as AL
+from app.services import linkedin_advanced as ADV
+from app.services import linkedin_events as EV
+from app.worker.tasks import linkedin_lead_boost as LB
 
 class _AsyncCM:
     """Minimal async context manager — SimpleNamespace can't be one."""
