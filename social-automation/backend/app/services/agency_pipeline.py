@@ -564,6 +564,38 @@ async def _autosend_pass(db: AsyncSession, team_id: uuid.UUID) -> dict[str, Any]
     return stats
 
 
+async def _agency_payment_url(proposal: AgencyProposal, amount_eur: float) -> str | None:
+    """Mint a Stripe checkout link for the proposal via cloudless.gr.
+
+    Advisory — a failure returns None and the proposal sends without a link.
+    """
+    cfg = get_settings()
+    url = cfg.AGENCY_CHECKOUT_URL
+    if not url or amount_eur < 1:
+        return None
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                url,
+                json={
+                    "amount_eur": amount_eur,
+                    "description": f"Cloudless engagement — {proposal.recipient_name or 'client'}",
+                    "client_email": proposal.recipient_email or "",
+                    "client_name": proposal.recipient_name or "",
+                    "proposal_id": str(proposal.id),
+                },
+                headers={"X-SocialAuto-Webhook-Secret": cfg.CLOUDLESS_LEADS_WEBHOOK_SECRET},
+            )
+        if resp.status_code == 200:
+            return resp.json().get("url")
+        logger.warning("agency checkout mint → %s: %s", resp.status_code, resp.text[:200])
+    except Exception:  # noqa: BLE001
+        logger.exception("agency checkout mint failed")
+    return None
+
+
 async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver: str = "admin") -> dict[str, Any]:
     """Human-approved send — the only path that emails a lead a proposal."""
     if proposal.status not in (AgencyProposalStatus.draft, AgencyProposalStatus.approved):
@@ -572,9 +604,18 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
         return {"ok": False, "error": "no recipient email on proposal"}
     from app.services.email_digest import send_email
 
+    body = proposal.body_md
+    pay_url = await _agency_payment_url(proposal, float(proposal.price_low_eur or 0))
+    if pay_url:
+        body = (
+            f"{body}\n\n---\n\nWhen you're ready to start, the secure payment\n"
+            f"link for the fixed price is here:\n{pay_url}\n\n"
+            "Payment kicks off the 14-day clock — the kickoff mail lands\n"
+            "automatically."
+        )
     await send_email(
         subject=proposal.subject,
-        text_body=proposal.body_md,
+        text_body=body,
         to_addrs=[proposal.recipient_email],
         reply_to="tbaltzakis@cloudless.gr",
         from_name="Themistoklis — Cloudless",
@@ -584,6 +625,8 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
     proposal.approved_at = proposal.approved_at or datetime.now(UTC)
     md = dict(proposal.meta_data or {})
     md["approved_by"] = approver
+    if pay_url:
+        md["payment_url"] = pay_url
     proposal.meta_data = md
     await db.commit()
     if proposal.espo_lead_id:
@@ -727,47 +770,80 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
         delivered = (await db.execute(select(AgencyProject).where(AgencyProject.status == AgencyProjectStatus.delivered))).scalars().all()
         for project in delivered:
             md = dict(project.meta_data or {})
-            if md.get("testimonial_asked") or not project.client_email:
+            if not project.client_email:
                 continue
-            due_at_raw = md.get("testimonial_due_at")
-            if not due_at_raw:
-                md["testimonial_due_at"] = (now + timedelta(days=2)).isoformat()
-                project.meta_data = md
-                continue
-            try:
-                due_at = datetime.fromisoformat(due_at_raw)
-            except ValueError:
-                due_at = now
-            if due_at.tzinfo is None:
-                due_at = due_at.replace(tzinfo=UTC)
-            if now < due_at:
-                continue
-            from app.services.email_digest import send_email
+            # Testimonial ask — once per project, ~2 days post-handoff.
+            if not md.get("testimonial_asked"):
+                due_at_raw = md.get("testimonial_due_at")
+                if not due_at_raw:
+                    md["testimonial_due_at"] = (now + timedelta(days=2)).isoformat()
+                    project.meta_data = md
+                    continue
+                try:
+                    due_at = datetime.fromisoformat(due_at_raw)
+                except ValueError:
+                    due_at = now
+                if due_at.tzinfo is None:
+                    due_at = due_at.replace(tzinfo=UTC)
+                if now < due_at:
+                    continue
+                from app.services.email_digest import send_email
 
-            client = (md.get("client_name") or "").strip() or "there"
-            await send_email(
-                subject=f"How did the {DELIVERY_DAYS} days go? — {project.name}",
-                text_body=(
-                    f"Hi {client},\n\n"
-                    f"your {DELIVERY_DAYS}-day delivery wrapped up — you should have the\n"
-                    "full handoff package in hand.\n\n"
-                    "One small ask: if the work landed, would you write 2–3\n"
-                    "sentences about it? A short testimonial is the best proof\n"
-                    "I can show the next client — just reply to this mail.\n\n"
-                    "And if anything in the handoff is unclear, tell me — that\n"
-                    "part is on me to fix.\n\n"
-                    "— Themistoklis, Cloudless"
-                ),
-                to_addrs=[project.client_email],
-                reply_to="tbaltzakis@cloudless.gr",
-                from_name="Themistoklis — Cloudless",
-            )
-            md["testimonial_asked"] = now.isoformat()
-            project.meta_data = md
-            stats["testimonial_asks"] = stats.get("testimonial_asks", 0) + 1
+                client = (md.get("client_name") or "").strip() or "there"
+                await send_email(
+                    subject=f"How did the {DELIVERY_DAYS} days go? — {project.name}",
+                    text_body=(
+                        f"Hi {client},\n\n"
+                        f"your {DELIVERY_DAYS}-day delivery wrapped up — you should have the\n"
+                        "full handoff package in hand.\n\n"
+                        "One small ask: if the work landed, would you write 2–3\n"
+                        "sentences about it? A short testimonial is the best proof\n"
+                        "I can show the next client — just reply to this mail.\n\n"
+                        "And if anything in the handoff is unclear, tell me — that\n"
+                        "part is on me to fix.\n\n"
+                        "— Themistoklis, Cloudless"
+                    ),
+                    to_addrs=[project.client_email],
+                    reply_to="tbaltzakis@cloudless.gr",
+                    from_name="Themistoklis — Cloudless",
+                )
+                md["testimonial_asked"] = now.isoformat()
+                project.meta_data = md
+                stats["testimonial_asks"] = stats.get("testimonial_asks", 0) + 1
+
+            # ── Delight ladder — the relationship continues after delivery.
+            # +30d check-in, +60d referral ask, +90d upsell nudge — each
+            # meta-stamped so it sends exactly once per project. Anchored on
+            # the testimonial_asked stamp (= delivery date).
+            for step_key, step_day, step_subj, step_body in _DELIGHT_STEPS:
+                stamp = f"delight_{step_key}"
+                if md.get(stamp):
+                    continue
+                try:
+                    asked_at = datetime.fromisoformat(str(md.get("testimonial_asked", "")))
+                except ValueError:
+                    continue
+                if asked_at.tzinfo is None:
+                    asked_at = asked_at.replace(tzinfo=UTC)
+                if now < asked_at + timedelta(days=step_day):
+                    continue
+                from app.services.email_digest import send_email
+
+                client = (md.get("client_name") or "").strip() or "there"
+                await send_email(
+                    subject=step_subj.format(name=project.name, client=client),
+                    text_body=step_body.format(name=project.name, client=client, days=DELIVERY_DAYS),
+                    to_addrs=[project.client_email],
+                    reply_to="tbaltzakis@cloudless.gr",
+                    from_name="Themistoklis — Cloudless",
+                )
+                md[stamp] = now.isoformat()
+                project.meta_data = md
+                stats[stamp] = stats.get(stamp, 0) + 1
         await db.commit()
 
-    if drafts or stats["delivered"] or stats["overdue"] or stats.get("intake_escalations"):
+    delight_sent = sum(v for k, v in stats.items() if k.startswith("delight_"))
+    if drafts or stats["delivered"] or stats["overdue"] or stats.get("intake_escalations") or delight_sent:
         try:
             from app.services.slack_notifications import post_alert_to_slack
 
@@ -779,6 +855,8 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 lines.append(f":warning: {stats['overdue']} project(s) past due — needs a human")
             if stats.get("intake_escalations"):
                 lines.append(f":rotating_light: {stats['intake_escalations']} project(s) day 4+ with no client intake — access milestone slipping")
+            if delight_sent:
+                lines.append(f":sparkling_heart: {delight_sent} post-delivery check-in(s) sent (30/60/90-day ladder)")
             await post_alert_to_slack("\n".join(lines))
         except Exception:  # noqa: BLE001
             logger.exception("pm sweep slack report failed")
@@ -867,6 +945,53 @@ async def engineer_sweep(*, session_factory=None) -> dict[str, Any]:
 WON_STAGES: tuple[str, ...] = ("Closed Won", "closedwon")
 CONSULT_STAGE = "appointmentscheduled"
 KICKOFF_MARKER = "Project kickoff:"
+
+# Post-delivery delight ladder — (key, days-after-delivery, subject, body).
+# Plain voice, one point each; stamped delight_<key> in project meta.
+_DELIGHT_STEPS = (
+    (
+        "checkin_30",
+        30,
+        "How is {name} holding up?",
+        (
+            "Hi {client},\n\n"
+            "it's been about a month since the {days}-day delivery wrapped.\n\n"
+            "Quick check-in: is everything still running as expected? If\n"
+            "anything's drifted or a question came up, reply — a fix or a\n"
+            "pointer is part of the package, not an extra.\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    ),
+    (
+        "referral_60",
+        60,
+        "One small favour — {name}",
+        (
+            "Hi {client},\n\n"
+            "glad the delivery is still earning its keep.\n\n"
+            "One small favour: if you know another owner who'd benefit from\n"
+            "the same fixed-scope work, an intro mail is the biggest help\n"
+            "you can give me. Two lines is plenty — I take it from there.\n\n"
+            "Either way, thank you for the trust.\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    ),
+    (
+        "upsell_90",
+        90,
+        "Keep it maintained? — {name}",
+        (
+            "Hi {client},\n\n"
+            "quarterly check on {name}. The system is yours and stays yours —\n"
+            "this is just the option, not a pitch you have to answer.\n\n"
+            "If you'd rather not carry updates, monitoring and small\n"
+            "improvements yourself, I run a light monthly maintenance plan —\n"
+            "fixed price, cancel anytime, you keep everything either way.\n\n"
+            "Reply and I'll send the one-pager.\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    ),
+)
 POST_CONSULT_MARKER = "Post-consult follow-up:"
 
 

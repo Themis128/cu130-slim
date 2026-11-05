@@ -194,6 +194,135 @@ async def _mark_project_intake(sender: str, cand: dict[str, Any]) -> bool:
         return False
 
 
+_SUPPORT_KEYWORDS = (
+    "problem",
+    "issue",
+    "error",
+    "broken",
+    "down",
+    "urgent",
+    "bug",
+    "not working",
+    "doesn't work",
+    "stuck",
+    "help",
+)
+
+
+async def _project_support_case(sender: str, cand: dict[str, Any]) -> bool:
+    """Project-client mail with a problem keyword → EspoCRM Case + marker.
+
+    Covers the support lane: a client of an active/delivered project writes
+    in with trouble → the mail becomes a CRM Case for a human instead of
+    sitting in the mailbox. Returns True when a Case was created.
+    """
+    subject = (cand.get("subject") or "").lower()
+    if not any(k in subject for k in _SUPPORT_KEYWORDS):
+        return False
+    try:
+        from sqlalchemy import select
+
+        from app.models.agency import AgencyProject, AgencyProjectStatus
+        from app.worker._async import get_session_factory
+
+        async with get_session_factory()() as db:
+            project = (
+                (
+                    await db.execute(
+                        select(AgencyProject)
+                        .where(
+                            AgencyProject.status.in_([AgencyProjectStatus.active, AgencyProjectStatus.delivered]),
+                            AgencyProject.client_email == sender,
+                        )
+                        .limit(1)
+                    )
+                )
+                .scalars()
+                .first()
+            )
+            if not project:
+                return False
+            md = dict(project.meta_data or {})
+            case = await espo.espo_post(
+                "/Case",
+                {
+                    "name": f"[{project.name}] {cand['subject'][:120]}",
+                    "status": "New",
+                    "priority": "High",
+                    "type": "Support Request",
+                    "description": (
+                        f"Inbound support mail from {sender}\n"
+                        f"Subject: {cand['subject']}\n"
+                        f"Message-ID: {cand.get('message_id') or cand.get('uid')}\n"
+                        f"Project: {project.name}"
+                    ),
+                },
+            )
+            md.setdefault("support_cases", []).append(
+                {"case_id": case.get("id"), "at": datetime.now(UTC).isoformat(), "subject": cand["subject"][:120]}
+            )
+            project.meta_data = md
+            await db.commit()
+            return True
+    except Exception:  # noqa: BLE001
+        logger.exception("crm engagement: support case failed for %s", sender)
+        return False
+
+
+async def _mark_project_testimonial(sender: str, cand: dict[str, Any]) -> bool:
+    """Delivered-project client reply after the testimonial ask →
+    ``meta.testimonial_received`` + proof-card draft for human publish.
+
+    The quote itself stays in the mailbox — the stamp + Slack surface tells
+    a human a publishable testimonial landed (review autonomy).
+    """
+    try:
+        from sqlalchemy import select
+
+        from app.models.agency import AgencyProject, AgencyProjectStatus
+        from app.worker._async import get_session_factory
+
+        async with get_session_factory()() as db:
+            projects = (
+                (
+                    await db.execute(
+                        select(AgencyProject)
+                        .where(
+                            AgencyProject.status == AgencyProjectStatus.delivered,
+                            AgencyProject.client_email == sender,
+                        )
+                        .limit(3)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            hit = False
+            for project in projects:
+                md = dict(project.meta_data or {})
+                if not md.get("testimonial_asked") or md.get("testimonial_received"):
+                    continue
+                md["testimonial_received"] = {
+                    "at": datetime.now(UTC).isoformat(),
+                    "subject": cand["subject"][:120],
+                    "message_id": cand["message_id"] or cand["uid"],
+                }
+                md["proof_card"] = {
+                    "client": md.get("client_name") or sender,
+                    "project": project.name,
+                    "source": "email_reply",
+                    "message_id": cand["message_id"] or cand["uid"],
+                }
+                project.meta_data = md
+                hit = True
+            if hit:
+                await db.commit()
+            return hit
+    except Exception:  # noqa: BLE001
+        logger.exception("crm engagement: testimonial stamp failed for %s", sender)
+        return False
+
+
 async def _crm_emails() -> dict[str, dict[str, Any]]:
     """email → live CRM record (Lead wins; Contacts also tracked)."""
     profiles: dict[str, dict[str, Any]] = {}
@@ -272,6 +401,12 @@ async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
         if not dry_run and await _mark_project_intake(sender, cand):
             stats["intake_received"] = stats.get("intake_received", 0) + 1
             stats["proposal_reply_details"].append({"email": sender, "subject": f"[intake] {cand['subject'][:76]}"})
+        if not dry_run and await _mark_project_testimonial(sender, cand):
+            stats["testimonials"] = stats.get("testimonials", 0) + 1
+            stats["proposal_reply_details"].append({"email": sender, "subject": f"[testimonial → review] {cand['subject'][:66]}"})
+        if not dry_run and await _project_support_case(sender, cand):
+            stats["support_cases"] = stats.get("support_cases", 0) + 1
+            stats["proposal_reply_details"].append({"email": sender, "subject": f"[support case] {cand['subject'][:70]}"})
         rec = profiles.get(sender)
         if not rec:
             continue
