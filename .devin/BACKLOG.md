@@ -5,12 +5,22 @@
 - LinkedIn email: `cloudless-gr-member` (265077368) approved as associated
   with the cloudless.gr Page (org 108614163). Page verification was already
   done earlier today — this is the *company* verification.
-- **Unblocks**: product "Request access" modals on the app's Products tab
-  (only clickable when company-verified). Next action: request **Member
-  Data Portability (Member)** via
-  `li_portal_edit.py products 265077368 request "Member Data Portability"`
-  — modal still needs the business-email verify step (Edge :9222 +
-  logged-in LinkedIn required).
+- **Unblocks** (docs-verified 2026-11-05, learn.microsoft.com/linkedin/dma):
+  **Member Data Portability (3rd Party)** — "Request access" is enabled only
+  after company-page verification. Products tab → access-request form
+  (legal name, registered address, website, privacy policy + business-email
+  verify — personal email fails) → LinkedIn review. Scope:
+  `r_dma_portability_3rd_party` via standard auth-code flow.
+- **NOT the (Member) variant**: Member DP (Member) grants
+  `r_dma_portability_self_serve` but requires a NEW app created with the
+  dedicated "Member Data Portability (Member) Default Company" page — no
+  retrofit onto 265077368. It's a light ToS-agree instant grant + OAuth
+  Token Generator token; EU/EEA/CH only (Greece OK). Cheapest path to the
+  owner's own-data snapshot if that's the goal.
+- [ ] Fix products-matrix mapping: business-email verify belongs to
+  (3rd Party), not (Member) — matrix conflates them.
+- [ ] Decide: drive the (3rd Party) form on 265077368, or create the
+  dedicated-page app for (Member) self-serve.
 
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 

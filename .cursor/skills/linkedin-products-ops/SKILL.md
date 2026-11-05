@@ -43,7 +43,8 @@ member-analytics gap is already solved THERE — a consent on
 | Conversions API | application | rw_conversions, r_ads |
 | Events Management API | self-serve on request | r_events, rw_events |
 | Matched Audiences API | application | rw_dmp_segments |
-| Member Data Portability (Member) | in-portal modal + business-email verify | r_dma_portability_self_serve |
+| Member Data Portability (Member) | in-portal request — ToS agree = instant grant; needs NEW app on the dedicated "Member Data Portability (Member) Default Company" page | r_dma_portability_self_serve |
+| Member Data Portability (3rd Party) | access-request form + LinkedIn review; needs verified company page + business-email verify | r_dma_portability_3rd_party |
 | Pages Data Portability | access form | r_dma_admin_pages_content, r_dma_admin_pages_list |
 | Audience Insights / Media Planning | restricted, qualification survey | app-assigned |
 | Talent / Sales Navigator / Compliance | partner programs / closed | — |

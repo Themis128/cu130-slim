@@ -75,10 +75,20 @@ PRODUCTS = {
         "scopes": ["rw_dmp_segments"],
     },
     "Member Data Portability (Member)": {
-        "availability": "in-portal request + business-email verify",
+        "availability": "in-portal request — ToS agree = instant grant",
         "scopes": ["r_dma_portability_self_serve"],
-        "notes": "member's own-data snapshot; the 'dedicated Company page' "
-                 "gate applies to portability-bound apps at creation.",
+        "notes": "member's own-data snapshot; REQUIRES a new app created with "
+                 "the dedicated 'Member Data Portability (Member) Default "
+                 "Company' page — no retrofit. Token via OAuth Token "
+                 "Generator. EU/EEA/CH members only.",
+    },
+    "Member Data Portability (3rd Party)": {
+        "availability": "access-request form + LinkedIn review",
+        "scopes": ["r_dma_portability_3rd_party"],
+        "notes": "consenting members' data; request button enabled only after "
+                 "company-page verification; form needs legal name, registered "
+                 "address, website, privacy policy + BUSINESS-email verify "
+                 "(personal email fails).",
     },
     "Pages Data Portability": {
         "availability": "access form",
