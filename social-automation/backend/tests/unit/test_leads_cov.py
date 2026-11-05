@@ -18,7 +18,7 @@ def _audit_body(**kw):
 
 
 def _survey_body(**kw):
-    d = {"email": "a@b.com", "website": "", "phone": "", "consent": True,
+    d = {"email": "a@b.com", "website": "", "phone": "", "name": "T", "consent": True,
          "answers": {}, "company_size": None, "interest": None, "site": None,
          "form": None, "page_path": None, "locale": None, "platform": None}
     d.update(kw)
@@ -40,7 +40,7 @@ async def test_audit_validation_branches(monkeypatch):
         with pytest.raises(HTTPException) as e:
             await L.create_audit_public(body, SimpleNamespace())
         assert e.value.status_code == code
-    monkeypatch.setattr(m, "get_settings", lambda: SimpleNamespace(CLOUDLESS_WEB_ANALYTICS_TEAM_ID=""))
+    monkeypatch.setattr(L, "get_settings", lambda: SimpleNamespace(CLOUDLESS_WEB_ANALYTICS_TEAM_ID=""))
     with pytest.raises(HTTPException) as e:
         await L.create_audit_public(_audit_body(), SimpleNamespace())
     assert e.value.status_code == 503
