@@ -29,9 +29,7 @@ async def test_update_organization_profile_builds_patch():
 
     c = _C()
     with patch("app.services.linkedin_api.httpx.AsyncClient", return_value=c):
-        out = await client.update_organization_profile(
-            "108614163", description="d", website="w", tagline="t"
-        )
+        out = await client.update_organization_profile("108614163", description="d", website="w", tagline="t")
     assert out is True
     assert c.body["patch"]["$set"] == {
         "localizedDescription": "d",
@@ -108,11 +106,11 @@ async def test_update_profile_linkedin_value_error_400(monkeypatch):
         await A.update_facebook_page_profile(uuid.uuid4(), updates=upd, current_user=SimpleNamespace(id="u"), db=db)
     assert e.value.status_code == 400
 
+
 @pytest.mark.asyncio
 async def test_route_linkedin_branch_success(monkeypatch):
     """accounts.py 1099-1112: linkedin platform → org profile write → success."""
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: "linkedin")))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: "linkedin")))
     acc = SimpleNamespace(account_id="108614163")
     client = SimpleNamespace(update_organization_profile=AsyncMock(return_value=True))
     monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=acc))
@@ -120,15 +118,13 @@ async def test_route_linkedin_branch_success(monkeypatch):
     upd = SimpleNamespace(description="d", website="w", tagline="t")
     out = await A.update_facebook_page_profile(uuid.uuid4(), upd, SimpleNamespace(id="u"), db)
     assert out == {"success": True}
-    client.update_organization_profile.assert_awaited_once_with(
-        "108614163", description="d", website="w", tagline="t")
+    client.update_organization_profile.assert_awaited_once_with("108614163", description="d", website="w", tagline="t")
 
 
 @pytest.mark.asyncio
 async def test_route_linkedin_branch_errors(monkeypatch):
     """ValueError→400, generic→502 on the org write."""
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: "linkedin")))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: "linkedin")))
     acc = SimpleNamespace(account_id="1")
     monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=acc))
     upd = SimpleNamespace(description=None, website=None, tagline=None)
