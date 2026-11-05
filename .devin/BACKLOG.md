@@ -48,6 +48,24 @@ Status of every open issue from the LinkedIn review + verification email:
   — modal still needs the business-email verify step (Edge :9222 +
   logged-in LinkedIn required).
 
+## Mail-stack triage 2026-11-05 (business-email verification hunt)
+
+- ✅ `heartbeat.svbin` root-owned inside vmail dir → chowned to `vmail:vmail`
+- ✅ `fetch-code.py` — `mailbox '*'` broke on `.dovecot.sieve` maildir entry
+  (doveadm exit 75); patched to query INBOX/Junk/Sent/Trash/Heartbeat
+  explicitly. Residual: the dovecot folder-listing quirk is cosmetic and
+  stays until `.dovecot.sieve` moves out of the maildir root (config change).
+- ✅ `SPAM_REJECT_AT` on `mail-ingest` Worker: raised 9→25 to test, restored 9.
+- ✅ End-to-end ingest verified (POST → `ingest.php` → `dovecot-lda` → 204,
+  mail delivered). External inbound works (DMARC/LinkedIn mails landed today).
+- ❌ LinkedIn **business-email verification mail never arrives** — 3 sends,
+  not in any folder; dies at/before the Worker (likely edge spam-reject; log
+  sampling is 5%). Fallback Gmail `themis.baltzakis@gmail.com` checked via
+  google-workspace MCP — not there either.
+- ⬜ `gmail-ops` OAuth refresh token stale → needs `gmail.py login` re-consent.
+- ⬜ NEXT for #10: either retry the verify send later, or set the app's
+  business email to a working mailbox (settings Edit) and verify there.
+
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
 - Review of today's LinkedIn PRs (#1344–#1358) found two files landed
