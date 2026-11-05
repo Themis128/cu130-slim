@@ -5,6 +5,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+class _AsyncCM:
+    """Minimal async context manager — SimpleNamespace can't be one."""
+
+    def __init__(self, value):
+        self._value = value
+
+    async def __aenter__(self):
+        return self._value
+
+    async def __aexit__(self, *a):
+        return False
+
+
 import app.services.linkedin_ad_library as AL
 import app.services.linkedin_advanced as ADV
 import app.services.linkedin_events as EV
@@ -14,8 +27,7 @@ import app.worker.tasks.linkedin_lead_boost as LB
 @pytest.mark.asyncio
 async def test_events_no_account(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
-    sess = SimpleNamespace(__aenter__=AsyncMock(return_value=db), __aexit__=AsyncMock(return_value=False))
-    monkeypatch.setattr(EV, "task_session", lambda: sess)
+    monkeypatch.setattr(EV, "task_session", lambda: _AsyncCM(db))
     out = await EV.create_org_event("x", 0, 1)
     assert out["skip"] == "no-linkedin-org-account"
 
@@ -23,8 +35,7 @@ async def test_events_no_account(monkeypatch):
 @pytest.mark.asyncio
 async def test_ad_library_no_token(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
-    sess = SimpleNamespace(__aenter__=AsyncMock(return_value=db), __aexit__=AsyncMock(return_value=False))
-    monkeypatch.setattr(AL, "task_session", lambda: sess)
+    monkeypatch.setattr(AL, "task_session", lambda: _AsyncCM(db))
     out = await AL.search_ads(keyword="x")
     assert out["skip"] == "no-linkedin-token"
 
