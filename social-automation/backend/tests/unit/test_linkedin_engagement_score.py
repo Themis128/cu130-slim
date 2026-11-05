@@ -5,6 +5,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+
+import app.worker.tasks.linkedin_engagement_score as S
+
 class _AsyncCM:
     """Minimal async context manager — SimpleNamespace can't be one."""
 
@@ -17,8 +20,6 @@ class _AsyncCM:
     async def __aexit__(self, *a):
         return False
 
-
-import app.worker.tasks.linkedin_engagement_score as S
 
 
 def test_score_weighting():
