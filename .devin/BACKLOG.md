@@ -778,3 +778,27 @@ Left:
   authoritative is unverified — check the live page.
 - [ ] monitor.log + state.json grow unboundedly in the live dir
   (957 lines/4 days) — consider rotation if it becomes a problem.
+## 2026-11-05 — LinkedIn forms sweep + mail root-cause (final)
+
+### Mail
+- ROOT CAUSE of "Mailbox ingest not configured" bounces: a partial
+  PATCH on worker settings REPLACED the whole bindings array — wiped
+  MAIL_INGEST_URL/FALLBACK_FORWARD/SPAM_* → all inbound bounced ~14:40-16:10.
+  Restored all bindings, verified live (PIPELINE-TEST-3 -> 204 -> Maildir).
+- `worker_set_binding.py` (mail-code-fetch/scripts) = the only safe way to
+  change a worker env binding — GETs full array, patches one, PUTs back.
+
+### LinkedIn developer apps — final product state
+- **265077464 cloudless-gr-dma** (sole-product DP-3rd-Party app, created
+  today): company verified, business-email verified, Member DP (3rd Party)
+  Qualtrics access form SV_08398ogFnu89WZg SUBMITTED — review pending ≤21d.
+- **265077368 cloudless-gr-member**: Matched Audiences, Conversions,
+  Community Mgmt, Advertising, Ad Library — all forms filled+submitted;
+  Lead Sync already in review; DP products correctly gated (sole-product).
+- **264925843 Cloudless Analytics**: same 5 forms filled+submitted via
+  per-app Q_DL links.
+- **227354605 Cloudless API App**: canonical OAuth redirect added; Lead
+  Sync + Conversions still "Access denied" — needs fresh business
+  justification, not reversible programmatically.
+- `qualtrics-ops/scripts/li_batch_fill.py` = promoted batch filler with
+  correct error selector + full label map + verify loop.

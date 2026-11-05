@@ -29,3 +29,22 @@ Koropi/Attiki/19400/Greece; Platform use case; new functionality; Bridge
 service; not-only-own-marketing; customers Europe/1-50/75%+ B2B/Small-Medium;
 privacy-policy link https://cloudless.gr/privacy; compliance owner Yes;
 partners Facebook/Instagram/Tiktok.
+
+## Verified 2026-11-05 (8 LinkedIn product forms filled end-to-end)
+
+- **Use `li_batch_fill.py`** for access forms — multi-round fill→Next→rescan
+  until "Thank you". Single-pass always leaves required fields: conditional
+  questions only flag errors AFTER a failed submit, so budget ≥2 rounds.
+- **Error detection**: `.ValidationError` alone matches NOTHING on this theme —
+  query `.ValidationError,[class*=error-message],.QuestionError`.
+- **Radio semantics**: Yes=[0], No=[1]; "%B2B 75%+" is the LAST option [3].
+- **Q_DL binds the app**: open the form via the app's OWN products-page link
+  (`&Q_DL=EMD_<app>_<sv>_<tok>`). A bare `SV_*?Q_CHL=gl` submits an orphan.
+- **display-wrapper-/display- prefixed question nodes are responsive
+  duplicates** — filter them or every field gets double-processed.
+- Fills that always worked: text/textarea via native value setter + input/
+  change/blur; radios via `closest('label').click()`; Country via the custom
+  dropdown then option click (Greece).
+- Survey-specific asks: Community-Mgmt wants client-id verbatim, screen
+  recording link, test-login details — the script answers with the documented
+  social.cloudless.gr demo values (never invent data).
