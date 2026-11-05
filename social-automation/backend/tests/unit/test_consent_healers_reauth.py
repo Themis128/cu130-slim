@@ -173,11 +173,11 @@ async def test_bridge_reauth_error(monkeypatch, no_sleep, oauth):
 
 
 def test_heal_consents_runs_all(monkeypatch):
-    for name in ("_twitter", "_linkedin_snapshot", "_whatsapp", "_bridge_health", "_dmr_health"):
+    for name in ("_twitter", "_linkedin_snapshot", "_whatsapp", "_bridge_health", "_dmr_health", "_linkedin_token_health"):
         monkeypatch.setattr(M, name, AsyncMock(return_value=name))
     monkeypatch.setattr(M, "run_async", lambda coro: asyncio.run(coro))
     out = M.heal_consents.run()
-    assert out == {"twitter": "_twitter", "linkedin": "_linkedin_snapshot", "whatsapp": "_whatsapp", "bridge": "_bridge_health", "dmr": "_dmr_health"}
+    assert out == {"twitter": "_twitter", "linkedin": "_linkedin_snapshot", "whatsapp": "_whatsapp", "bridge": "_bridge_health", "dmr": "_dmr_health", "linkedin_token": "_linkedin_token_health"}
 
 
 def test_media_backfill_task(monkeypatch):
