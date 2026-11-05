@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-
 import app.worker.tasks.linkedin_engagement_score as S
 
 class _AsyncCM:
