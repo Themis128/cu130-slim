@@ -829,3 +829,20 @@ Left:
   token + .bak files inside a BACKLOG commit — history rewritten clean.
 - Leftover WIP (other agent, preserved): `.cursor/skills/k3s-authentik-ops/`
   SKILL.md mod + scripts — file is write-locked, can't stage/clean.
+
+## 2026-11-05 — Live Events dedicated app done
+
+- **`cloudless-gr-live`** (app `265081467`, Client ID `778ys0q6bnh5ly`)
+  created via portal (same flow as `265077464`): typeahead + real-mouse
+  commit, 256px logo (min 100px gate), ToS.
+- Company verified via generated verification URL approved in-session
+  as cloudless.gr Page admin; business-email verify `tbaltzakis@cloudless.gr`
+  (inbound pipeline delivered the 6-digit code instantly).
+- Live Events request submitted → Qualtrics `SV_0PAUJOVR2DFcgES`
+  (39 q) filled via JFE API + clickNextButton → Thank you → closed.
+- Lesson: sole-product gate applies to Live Events + Community Mgmt
+  too, not just DP — tooltip text on disabled Request access buttons.
+  Email verification does NOT persist between modal opens — must run
+  email→code→confirm→ToS→Request in ONE modal session.
+- PRs #1343/#1339 auto-merge armed, all checks green at last check;
+  #1365 + #1367 merged.
