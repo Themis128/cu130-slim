@@ -1,5 +1,17 @@
 # BACKLOG (living)
 
+## 2026-11-05 — Member app 265077368 company-verified
+
+- LinkedIn email: `cloudless-gr-member` (265077368) approved as associated
+  with the cloudless.gr Page (org 108614163). Page verification was already
+  done earlier today — this is the *company* verification.
+- **Unblocks**: product "Request access" modals on the app's Products tab
+  (only clickable when company-verified). Next action: request **Member
+  Data Portability (Member)** via
+  `li_portal_edit.py products 265077368 request "Member Data Portability"`
+  — modal still needs the business-email verify step (Edge :9222 +
+  logged-in LinkedIn required).
+
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
 - Review of today's LinkedIn PRs (#1344–#1358) found two files landed
