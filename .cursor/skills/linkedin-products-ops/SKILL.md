@@ -21,10 +21,15 @@ OAuth request that hasn't been probe-verified on that client_id first.
 |---|---|---|---|
 | `227354605` "Cloudless API App" (PRIMARY — org/CM/ads) | `77tf4oysp8u3fz` | Sign In OIDC, Share, **Community Management Standard Tier** (11-04), Advertising | openid, profile, email, w_member_social, w_organization_social, r_organization_admin, **rw_organization_admin**, r_organization_social, **r_1st_connections_size**, r_ads, **rw_ads**, r_ads_reporting, r_basicprofile, r_events, rw_events |
 | `265077368` "cloudless-gr-member" (member surfaces) | `77fd3pui3m2jwm` | Sign In OIDC (Standard Tier, 11-05), **Share on LinkedIn (Default Tier, 11-05)** | openid, profile, email, w_member_social |
+| `264925843` "Cloudless Analytics App" (CM-dedicated) | `77j8kzfi1a6jn8` | **Community Management Standard Tier** (11-04), **Events Management Standard Tier** (11-05), Share, Sign In OIDC | **FULL union grantable** — every probed scope incl. *_social_feed, r_member_profileAnalytics, r_member_postAnalytics, r_organization_followers, r_ads(+_reporting), r_events, rw_events, r_dma_portability_self_serve |
 
-Rejected on BOTH (as of 2026-11-05): `*_social_feed` (3 scopes),
-`r_member_profileAnalytics`, `r_member_postAnalytics`,
-`r_organization_followers`, `r_dma_portability_self_serve`.
+Rejected on `227354605` + `265077368` but **grantable on `264925843`**:
+`*_social_feed` (3 scopes), `r_member_profileAnalytics`,
+`r_member_postAnalytics`, `r_organization_followers`,
+`r_dma_portability_self_serve` — probed 2026-11-05. The CM-dedicated
+app's grant carries the current-version CM permission set, so the
+member-analytics gap is already solved THERE — a consent on
+`77j8kzfi1a6jn8` unlocks member surfaces without any ticket.
 
 ## Product -> scope map (learn.microsoft.com/linkedin, verified 2026-11)
 
@@ -115,7 +120,7 @@ single unauthenticated GET — client_id is not secret.
 
 | Goal | Where | Path |
 |---|---|---|
-| r_member_postAnalytics/profileAnalytics, *_social_feed, r_organization_followers | 227354605 | Developer Support Portal ticket — CM permission-set refresh (they're CM permissions on current versions) |
+| r_member_postAnalytics/profileAnalytics, *_social_feed, r_organization_followers | 264925843 | ALREADY GRANTABLE — switch OAuth client to `77j8kzfi1a6jn8` (secret from portal Auth tab) + consent |
 | r_dma_portability_self_serve (own-data snapshot → connections harvest) | 265077368 | in-portal "Member DP (Member)" modal after business-email verify |
 | r_marketing_leadgen_automation (lead forms) | 227354605 | Lead Sync API application (access form) |
 | Sign In OIDC + Share on LinkedIn | 265077368 | DONE 2026-11-05 (Standard + Default Tier) |
