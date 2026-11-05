@@ -22,6 +22,26 @@
 - [ ] Decide: drive the (3rd Party) form on 265077368, or create the
   dedicated-page app for (Member) self-serve.
 
+## 2026-11-05 — Consolidated issue backlog (LinkedIn ops sprint)
+
+Status of every open issue from the LinkedIn review + verification email:
+
+| # | Issue | Status |
+|---|-------|--------|
+| 1 | `li_consent_trim.py` truncated stub (SyntaxError) | ✅ fixed PR #1364 |
+| 2 | `qualtrics_fill.py` truncated mid-expression | ✅ fixed PR #1364 |
+| 3 | `record_integration.sh` flag-ignoring arg parse | ✅ fixed PR #1364 |
+| 4 | `linkedin_scope_audit.py` broken `E` literal + invalid URN | ✅ fixed PR #1364 |
+| 5 | `survey_fill.js` `module.exports` in eval ctx | ✅ fixed PR #1364 |
+| 6 | argv guards `li_portal_edit`/`li_consent_drive` | ✅ fixed PR #1364 |
+| 7 | Member DP product map conflation | ✅ fixed (docs-verified) |
+| 8 | Lenovo Vantage WebView2 owns :9222 — CDP lane blocked | ✅ resolved — our lane moved to **:9229** (docs: any port works; Vantage rebinds 9222 on respawn via `DebuggingPortEnabled` reg flag / webview default — not worth fighting). chrome-debug-profile live on :9229 |
+| 9 | CDP scripts hardcode :9222 — need port parameter | ✅ fixed — `$CDP_URL` env (default :9229) in `li_portal_edit.py`, `qualtrics_fill.py`, `--cdp` in `cdp_shot.py`, `start-chrome-debug.bat` takes port arg |
+| 10 | Member DP request: pick (3rd Party) form vs new (Member) app | ⬜ open — **blocked on LinkedIn login in chrome-debug-profile** (opened on :9229, shows login wall — one manual login seeds it). Then: create NEW app bound to "Member Data Portability (Member) Default Company" page for `r_dma_portability_self_serve` (instant ToS grant), or drive the (3rd Party) form on 265077368 |
+| 11 | `li_portal_edit.py get-secret` prints secret to stdout | ✅ fixed — writes to `$LI_SECRET_OUT` file when set, stdout otherwise |
+| 12 | LinkedIn token dead — one consent click (once lane up) | ⬜ open (blocked by #10 login) |
+| 13 | LinkedIn sidecar :9225 session dead — no stored creds | ⬜ open (manual — noVNC login once) |
+
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
 - Review of today's LinkedIn PRs (#1344–#1358) found two files landed

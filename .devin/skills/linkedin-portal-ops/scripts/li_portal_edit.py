@@ -5,15 +5,18 @@ Usage:
   li_portal_edit.py auth <APP_ID> add-redirect <URL>
   li_portal_edit.py auth <APP_ID> get-secret
   li_portal_edit.py products <APP_ID> request "<product text>"
-Needs Edge/Chrome on --remote-debugging-port=9222 with LinkedIn logged in.
+Needs a debug Chrome/Edge on the CDP port with LinkedIn logged in.
+Port: $CDP_URL (default http://localhost:9229 — 9222 is hijacked by the
+Lenovo Vantage WebView2 on this host).
 """
 import json
+import os
 import sys
 import time
 import urllib.request
 import websocket
 
-CDP = "http://localhost:9222"
+CDP = os.environ.get("CDP_URL", "http://localhost:9229")
 
 def ws_conn(url):
     return websocket.create_connection(url, timeout=30, suppress_origin=True)
@@ -83,7 +86,13 @@ def get_secret(app_id):
     ev(ws, """(() => {const b=[...document.querySelectorAll('button')].find(b=>/^show$/i.test((b.innerText||'').trim())); if(b)b.click(); return 'ok'})()""")
     time.sleep(2)
     r = ev(ws, "document.getElementById('primaryClientSecret')?.value || 'n/a'")
-    print(r)
+    out = os.environ.get("LI_SECRET_OUT")
+    if out:
+        with open(out, "w", encoding="utf-8") as f:
+            f.write(r + "\n")
+        print(f"secret written to {out}")
+    else:
+        print(r)
     b.send(json.dumps({"id":9,"method":"Target.closeTarget","params":{"targetId":tid}}))
 
 def request_product(app_id, text):

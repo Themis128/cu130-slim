@@ -12,13 +12,14 @@ Form structure (verified on Lead Sync / Matched Audiences JFE forms):
   question section. Country is a custom dropdown (click, then [role=option]).
 """
 import json
+import os
 import sys
 import time
 import urllib.request
 
 import websocket
 
-CDP = "http://localhost:9222"
+CDP = os.environ.get("CDP_URL", "http://localhost:9229")
 
 
 def _ws(url):
