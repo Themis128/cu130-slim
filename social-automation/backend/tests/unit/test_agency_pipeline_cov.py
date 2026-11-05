@@ -75,6 +75,6 @@ async def test_factory_and_default_team():
     f = AP._factory()
     assert callable(f)
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
-        scalar=lambda: "t1")))
+        scalar=lambda: "t1", first=lambda: "t1")))
     tid = await AP._default_team_id(db)
     assert tid is not None or tid is None  # covers both returns
