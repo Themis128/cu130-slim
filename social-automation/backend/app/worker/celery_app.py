@@ -50,6 +50,7 @@ celery_app = Celery(
         "app.worker.tasks.consent_healers",
         "app.worker.tasks.linkedin_engagement_score",
         "app.worker.tasks.linkedin_lead_boost",
+        "app.worker.tasks.token_expiry",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -409,6 +410,13 @@ celery_app.conf.update(
         "sync-nextcloud-surfaces": {
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_surfaces",
             "schedule": crontab(minute=25, hour="*/3"),  # every 3h at :25
+        },
+        # Extended Nextcloud lanes — CRM leads → Tables, repo deploys →
+        # Talk/Announce, check-status + failed-publish Talk alerts,
+        # scheduled posts → Calendar, Forms submissions → EspoCRM leads.
+        "sync-nextcloud-extras": {
+            "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_extras",
+            "schedule": crontab(minute="*/30"),
         },
         # Nightly company-brain journal — real publish/follower outcomes →
         # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.
