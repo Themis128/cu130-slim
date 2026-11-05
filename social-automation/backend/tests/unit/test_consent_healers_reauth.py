@@ -177,7 +177,14 @@ def test_heal_consents_runs_all(monkeypatch):
         monkeypatch.setattr(M, name, AsyncMock(return_value=name))
     monkeypatch.setattr(M, "run_async", lambda coro: asyncio.run(coro))
     out = M.heal_consents.run()
-    assert out == {"twitter": "_twitter", "linkedin": "_linkedin_snapshot", "whatsapp": "_whatsapp", "bridge": "_bridge_health", "dmr": "_dmr_health", "linkedin_token": "_linkedin_token_health"}
+    assert out == {
+        "twitter": "_twitter",
+        "linkedin": "_linkedin_snapshot",
+        "linkedin_token": "_linkedin_token_health",
+        "whatsapp": "_whatsapp",
+        "bridge": "_bridge_health",
+        "dmr": "_dmr_health",
+    }
 
 
 def test_media_backfill_task(monkeypatch):
