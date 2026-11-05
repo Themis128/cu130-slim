@@ -32,7 +32,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
-from app.services.linkedin_api import LinkedInAPIError
+from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
