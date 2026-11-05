@@ -506,7 +506,14 @@ async def _autosend_pass(db: AsyncSession, team_id: uuid.UUID) -> dict[str, Any]
     cap = int(getattr(get_settings(), "AGENCY_AUTOSEND_DAILY_CAP", 5) or 5)
     today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
     drafts = (
-        (await db.execute(select(AgencyProposal).where(AgencyProposal.status == AgencyProposalStatus.draft).order_by(AgencyProposal.created_at.asc()).limit(50)))
+        (
+            await db.execute(
+                select(AgencyProposal)
+                .where(AgencyProposal.status == AgencyProposalStatus.draft)
+                .order_by(AgencyProposal.created_at.asc())
+                .limit(50)
+            )
+        )
         .scalars()
         .all()
     )
