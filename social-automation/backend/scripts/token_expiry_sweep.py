@@ -20,7 +20,6 @@ Lead times (from each provider's refresh model):
 import argparse
 import asyncio
 import json
-import sys
 from datetime import UTC, datetime, timedelta
 
 LEAD: dict[str, timedelta] = {

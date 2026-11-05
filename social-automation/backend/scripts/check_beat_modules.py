@@ -81,7 +81,7 @@ def main() -> int:
             errors.append(f"beat task {path}: module {'.'.join(mod_parts)} has no file")
             continue
         tree = ast.parse(mod_file.read_text(), filename=str(mod_file))
-        defs = {n.name for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        defs = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
         if func not in defs:
             errors.append(f"beat task {path}: {mod_file.name} has no def {func}")
     for mod in sorted(includes):
