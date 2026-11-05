@@ -18,7 +18,7 @@ async def test_oidc_authorize_returns_url(monkeypatch):
 
 
 async def test_oidc_callback_new_user(monkeypatch):
-    tok_resp = SimpleNamespace(json=lambda: {"access_token": "at"})
+    tok_resp = SimpleNamespace(status_code=200, json=lambda: {"access_token": "at"})
     ui_resp = SimpleNamespace(json=lambda: {"email": "New@X.com"})
     inst = SimpleNamespace(post=AsyncMock(return_value=tok_resp), get=AsyncMock(return_value=ui_resp))
     cls = MagicMock()
@@ -34,7 +34,7 @@ async def test_oidc_callback_new_user(monkeypatch):
 
 
 async def test_oidc_callback_no_email_400(monkeypatch):
-    tok_resp = SimpleNamespace(json=lambda: {"access_token": "at"})
+    tok_resp = SimpleNamespace(status_code=200, json=lambda: {"access_token": "at"})
     ui_resp = SimpleNamespace(json=lambda: {"email": ""})
     inst = SimpleNamespace(post=AsyncMock(return_value=tok_resp), get=AsyncMock(return_value=ui_resp))
     cls = MagicMock()

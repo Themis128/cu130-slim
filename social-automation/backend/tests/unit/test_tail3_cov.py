@@ -27,7 +27,7 @@ async def test_get_linkedin_org_account_404(monkeypatch):
     res = SimpleNamespace(scalar_one_or_none=lambda: None)
     db = SimpleNamespace(execute=AsyncMock(return_value=res))
     with pytest.raises(HTTPException) as e:
-        await A._get_linkedin_org_account(db, SimpleNamespace(id=uuid.uuid4()), "t1")
+        await A._get_linkedin_org_account(uuid.uuid4(), SimpleNamespace(id=uuid.uuid4()), db)
     assert e.value.status_code == 404
 
 
@@ -39,11 +39,24 @@ async def test_get_linkedin_client_no_token():
 
 
 async def test_test_account_expired_token(monkeypatch):
-    acc = SimpleNamespace(status="active", platform="linkedin")
-    monkeypatch.setattr(A, "_get_account_or_404", AsyncMock(return_value=acc))
-    exc = type("E", (Exception,), {"status_code": 401})()
-    monkeypatch.setattr(A, "_platform_client", AsyncMock(side_effect=exc))
-    monkeypatch.setattr(A, "log_action", AsyncMock())
-    db = SimpleNamespace(commit=AsyncMock())
-    out = await A.test_account("a1", "t1", SimpleNamespace(), db)
+    from app.services.linkedin_api import LinkedInAPIError
+
+    acc = SimpleNamespace(
+        id=uuid.uuid4(), status="active", platform="linkedin",
+        access_token_enc=b"x", account_id="org1", meta_data={},
+    )
+    res = SimpleNamespace(scalar_one_or_none=lambda: acc)
+    db = SimpleNamespace(execute=AsyncMock(return_value=res), commit=AsyncMock())
+    monkeypatch.setattr(A, "decrypt_token", lambda t: "tok")
+
+    class _Client:
+        def __init__(self, access_token=None, **kw):
+            pass
+
+        async def validate_token(self):
+            raise LinkedInAPIError(401, "unauthorized", "https://api.linkedin.com/x")
+
+    import app.services.linkedin_api as LA
+    monkeypatch.setattr(LA, "LinkedInAPIClient", _Client)
+    out = await A.test_account(acc.id, SimpleNamespace(id=uuid.uuid4()), db)
     assert out["status"] == "expired" and acc.status == "expired"

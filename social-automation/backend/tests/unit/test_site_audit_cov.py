@@ -39,6 +39,8 @@ async def test_run_audit_redirect_and_plan(monkeypatch):
             self.is_redirect = is_redirect
             self.headers = {"location": loc} if loc else {}
             self.text = html
+            self.content = html.encode()
+            self.url = "https://x.gr"
             self.status_code = 301 if is_redirect else 200
 
     class C:
