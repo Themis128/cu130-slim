@@ -38,7 +38,11 @@ async def test_gate_branches(monkeypatch):
         add=lambda o: None,
         commit=AsyncMock(),
     )
-    monkeypatch.setattr(BA, "find_empty_calendar_slots", AsyncMock(return_value=[__import__("datetime").datetime(2026,1,1), __import__("datetime").datetime(2026,1,2)]))
+    monkeypatch.setattr(
+        BA, "find_empty_calendar_slots",
+        AsyncMock(return_value=[
+            __import__("datetime").datetime(2026, 1, 1),
+            __import__("datetime").datetime(2026, 1, 2)]))
     monkeypatch.setattr(BA, "generate_on_brand_content", fake_gen)
     import app.services.content_eval as ev
     monkeypatch.setattr(ev, "eval_post_async", AsyncMock(return_value=9))
