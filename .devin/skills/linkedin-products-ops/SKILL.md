@@ -20,7 +20,7 @@ OAuth request that hasn't been probe-verified on that client_id first.
 | App | client_id | Products granted | Grantable scopes |
 |---|---|---|---|
 | `227354605` "Cloudless API App" (PRIMARY — org/CM/ads) | `77tf4oysp8u3fz` | Sign In OIDC, Share, **Community Management Standard Tier** (11-04), Advertising | openid, profile, email, w_member_social, w_organization_social, r_organization_admin, **rw_organization_admin**, r_organization_social, **r_1st_connections_size**, r_ads, **rw_ads**, r_ads_reporting, r_basicprofile, r_events, rw_events |
-| `265077368` "cloudless-gr-member" (member surfaces) | `77fd3pui3m2jwm` | Sign In OIDC, **Share on LinkedIn (Default Tier, granted 11-05)** | openid, profile, email, w_member_social |
+| `265077368` "cloudless-gr-member" (member surfaces) | `77fd3pui3m2jwm` | Sign In OIDC (Standard Tier, 11-05), **Share on LinkedIn (Default Tier, 11-05)** | openid, profile, email, w_member_social |
 
 Rejected on BOTH (as of 2026-11-05): `*_social_feed` (3 scopes),
 `r_member_profileAnalytics`, `r_member_postAnalytics`,
@@ -118,5 +118,5 @@ single unauthenticated GET — client_id is not secret.
 | r_member_postAnalytics/profileAnalytics, *_social_feed, r_organization_followers | 227354605 | Developer Support Portal ticket — CM permission-set refresh (they're CM permissions on current versions) |
 | r_dma_portability_self_serve (own-data snapshot → connections harvest) | 265077368 | in-portal "Member DP (Member)" modal after business-email verify |
 | r_marketing_leadgen_automation (lead forms) | 227354605 | Lead Sync API application (access form) |
-| Share on LinkedIn | 265077368 | DONE 2026-11-05 (Default Tier) |
+| Sign In OIDC + Share on LinkedIn | 265077368 | DONE 2026-11-05 (Standard + Default Tier) |
 | CM Standard-tier survey (227354605) | — | submitted; survey needs ~2min narrated screen recording + registered address — see linkedin-access-forms |
