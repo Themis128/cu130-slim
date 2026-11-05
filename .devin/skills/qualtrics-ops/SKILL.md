@@ -48,3 +48,18 @@ partners Facebook/Instagram/Tiktok.
 - Survey-specific asks: Community-Mgmt wants client-id verbatim, screen
   recording link, test-login details — the script answers with the documented
   social.cloudless.gr demo values (never invent data).
+
+## JFE API submission (verified 2026-11-05 — THE unlock)
+
+- DOM writes + real Input.dispatchMouseEvent both fail to commit on
+  linkedincustomerops JFE forms. The working path is the Question API:
+    `const q = Qualtrics.SurveyEngine.QuestionData.getInstance('QID25')`
+    `q.getQuestionInfo()` → real Choices map {id:{Text,RecodeValue}}
+    `q.setChoiceValue(choiceId, true)`  // radios + checkboxes, use STRING id
+    `q.setTextValue(text)`              // text entries (fallback: container
+                                       // input + native setter + input/blur)
+    `q.getChoiceValue(id)` → verify the model actually holds it (stale
+    "Response required" banners persist visually even after the model is set)
+- **Submit = `q.clickNextButton()`** — NOT the "Go to next issue" banner
+  button, and `#NextButton` may not exist in the DOM on this theme.
+- Reopen each form via the app's own products-page Q_DL link.

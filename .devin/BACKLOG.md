@@ -802,3 +802,11 @@ Left:
   justification, not reversible programmatically.
 - `qualtrics-ops/scripts/li_batch_fill.py` = promoted batch filler with
   correct error selector + full label map + verify loop.
+
+## 2026-11-05 late — Qualtrics automation state
+- clickNextButton() JFE API submit confirmed: Member DP (3rd Party),
+  Advertising x3, Matched Audiences x1, Lead Sync x1 = SUBMITTED.
+- Remaining to redo on fresh browser: Matched Audiences x3, Conversions x2,
+  Lead Sync x1 (264925843), Community Mgmt, Ad Library, Live Events —
+  reopen via per-app products-page links, then setChoiceValue/setTextValue
+  + clickNextButton. Debug Chrome was killed to heal the wedged CDP lane.
