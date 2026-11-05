@@ -107,3 +107,34 @@ async def test_update_profile_linkedin_value_error_400(monkeypatch):
     with pytest.raises(HTTPException) as e:
         await A.update_facebook_page_profile(uuid.uuid4(), updates=upd, current_user=SimpleNamespace(id="u"), db=db)
     assert e.value.status_code == 400
+
+@pytest.mark.asyncio
+async def test_route_linkedin_branch_success(monkeypatch):
+    """accounts.py 1099-1112: linkedin platform → org profile write → success."""
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: "linkedin")))
+    acc = SimpleNamespace(account_id="108614163")
+    client = SimpleNamespace(update_organization_profile=AsyncMock(return_value=True))
+    monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=acc))
+    monkeypatch.setattr(A, "_get_linkedin_client", Mock(return_value=client))
+    upd = SimpleNamespace(description="d", website="w", tagline="t")
+    out = await A.update_facebook_page_profile(uuid.uuid4(), upd, SimpleNamespace(id="u"), db)
+    assert out == {"success": True}
+    client.update_organization_profile.assert_awaited_once_with(
+        "108614163", description="d", website="w", tagline="t")
+
+
+@pytest.mark.asyncio
+async def test_route_linkedin_branch_errors(monkeypatch):
+    """ValueError→400, generic→502 on the org write."""
+    db = SimpleNamespace(
+        execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: "linkedin")))
+    acc = SimpleNamespace(account_id="1")
+    monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=acc))
+    upd = SimpleNamespace(description=None, website=None, tagline=None)
+    for exc, code in ((ValueError("bad"), 400), (RuntimeError("boom"), 502)):
+        client = SimpleNamespace(update_organization_profile=AsyncMock(side_effect=exc))
+        monkeypatch.setattr(A, "_get_linkedin_client", Mock(return_value=client))
+        with pytest.raises(HTTPException) as e:
+            await A.update_facebook_page_profile(uuid.uuid4(), upd, SimpleNamespace(id="u"), db)
+        assert e.value.status_code == code
