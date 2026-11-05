@@ -21,7 +21,7 @@ def _res(first=None, rows=None):
 async def test_responses_dashboard_404():
     db = SimpleNamespace(execute=AsyncMock(return_value=_res(first=None)))
     with pytest.raises(HTTPException) as e:
-        await EC.responses_dashboard("c1", "t1", SimpleNamespace(), db)
+        await EC.responses_dashboard("c1", "t1", db, SimpleNamespace())
     assert e.value.status_code == 404
 
 
@@ -36,7 +36,7 @@ async def test_responses_dashboard_full(monkeypatch):
     r2 = SimpleNamespace(answers={"q1": "a", "q2": "ans2"})
     rows = [(r1, "e@x.com"), (r2, None)]
     db = SimpleNamespace(execute=AsyncMock(side_effect=[_res(first=camp), _res(rows=rows)]))
-    out = await EC.responses_dashboard("c1", "t1", SimpleNamespace(), db)
+    out = await EC.responses_dashboard("c1", "t1", db, SimpleNamespace())
     html = out.body.decode() if hasattr(out, "body") else str(out)
     assert "Pick" in html and "ans1" in html and "audit" in html.lower()
 
@@ -44,5 +44,5 @@ async def test_responses_dashboard_full(monkeypatch):
 async def test_nudge_campaign_404():
     db = SimpleNamespace(execute=AsyncMock(return_value=_res(first=None)))
     with pytest.raises(HTTPException) as e:
-        await EC.nudge_campaign("c1", "t1", SimpleNamespace(), db)
+        await EC.nudge_campaign("c1", "t1", db, SimpleNamespace())
     assert e.value.status_code == 404
