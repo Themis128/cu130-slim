@@ -48,6 +48,8 @@ celery_app = Celery(
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.auto_gates",
         "app.worker.tasks.consent_healers",
+        "app.worker.tasks.linkedin_engagement_score",
+        "app.worker.tasks.linkedin_lead_boost",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -274,6 +276,9 @@ celery_app.conf.update(
         "app.worker.tasks.auto_gates.post_autoapprove": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
+        "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
+        "app.worker.tasks.linkedin_lead_boost.route_linkedin_leads": {"queue": "default"},
+        "app.worker.tasks.linkedin_lead_boost.boost_linkedin_winners": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
@@ -674,6 +679,18 @@ celery_app.conf.update(
         "consent-healers": {
             "task": "app.worker.tasks.consent_healers.heal_consents",
             "schedule": 3600.0,  # hourly — finish the chain when consent lands
+        },
+        "linkedin-engagement-score": {
+            "task": "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts",
+            "schedule": 3600.0,  # hourly — CM Standard per-post stats → boost flags + commenter candidates
+        },
+        "linkedin-lead-routing": {
+            "task": "app.worker.tasks.linkedin_lead_boost.route_linkedin_leads",
+            "schedule": 1800.0,  # 30m — Lead Sync responses → audit funnel (LINKEDIN_ADVANCED)
+        },
+        "linkedin-boost-winner": {
+            "task": "app.worker.tasks.linkedin_lead_boost.boost_linkedin_winners",
+            "schedule": 3600.0,  # hourly — >2σ posts → promo-credit boost queue
         },
         "media-backfill": {
             "task": "app.worker.tasks.consent_healers.media_backfill",

@@ -208,6 +208,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/brand/visual` — GET, PUT
 - `/api/v1/brand/voice` — GET, PUT
 
+## `calcom`
+
+- `/api/v1/webhooks/calcom` — POST
+
 ## `cf-db`
 
 - `/api/v1/cf-db/health` — GET
