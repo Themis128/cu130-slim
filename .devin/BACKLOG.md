@@ -1,5 +1,42 @@
 # BACKLOG (living)
 
+## 2026-11-05 — LinkedIn products/scopes: correct process codified
+
+- **Share on LinkedIn (Default Tier) provisioned** on member app
+  `265077368` "cloudless-gr-member" (client_id `77fd3pui3m2jwm`, redirect
+  already = social.cloudless.gr callback). Email received today.
+- **NEW skill `linkedin-products-ops`** (+ `.cursor` mirror): canonical
+  product→scope→tier map (Microsoft Learn verified), app topology, rules
+  (REPLACE-not-union consent, 60d tokens, refresh=partner-only, 21-day
+  survey window, Standard-tier needs AUDIO-narrated video, dedicated-page
+  gate for portability). Tools: `li_scope_probe.py` (live
+  unauthorized_scope_error probe — no secret needed), `li_products_matrix.py`
+  (doc x live matrix), `li_portal_dump.py` (CDP portal scrape).
+- **Live probe matrix** (both apps): main `227354605` grantable = self-serve
+  + all org scopes + r_ads/rw_ads/r_ads_reporting + r_1st_connections_size +
+  rw_organization_admin + r_events/rw_events. Rejected on BOTH:
+  *_social_feed, r_member_profileAnalytics, r_member_postAnalytics,
+  r_organization_followers, r_dma_portability_self_serve.
+- **`.env` EXTRA_SCOPES trimmed** to the grantable union
+  (rw_organization_admin r_ads rw_ads r_ads_reporting r_1st_connections_size)
+  — previous value had 7 ungrantable scopes → every consent would
+  unauthorized_scope_error. social-api recreated, healthy.
+- **member-analytics are CM permissions** (not a separate product) — correct
+  path = Developer Support Portal ticket on 227354605 asking to provision
+  missing CM permissions; the "create new app" instinct is wrong.
+- **LinkedIn token still dead** (401 + invalid_grant) → one consent click
+  needed; now safe since scope union is grantable.
+- **Team fix**: admin@example.com added as owner on team 10024d25 (real
+  accounts team) — /auth/switch-team gives full access.
+- **linkedin-review@cloudless.gr password reset** (LinkedInReview2026!) —
+  reviewer login for demo recordings.
+- [ ] CM Standard-tier survey: needs ~2min screen recording WITH US-English
+  audio commentary (per LinkedIn requirements) + registered address.
+  Recording blocked until token healed via consent click.
+- [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
+  blocked — file + dir root-owned; needs `sudo chown -R` on .devin/skills.
+- [ ] Member DP (Member) in-portal modal on 265077368 after biz-email verify.
+
 ## 2026-11-04 (night) — Session leftovers all landed
 
 - **LinkedIn CM**: consent landed — `rw_organization_admin` + restored `r_ads`/
