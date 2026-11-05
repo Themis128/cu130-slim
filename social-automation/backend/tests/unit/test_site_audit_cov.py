@@ -56,8 +56,7 @@ async def test_run_audit_redirect_and_plan(monkeypatch):
             return Resp(is_redirect=self.calls == 1, loc="https://y.gr") if self.calls == 1 else Resp()
 
     monkeypatch.setattr(SA.httpx, "AsyncClient", lambda **kw: C())
-    import app.services.url_safety as us
-    monkeypatch.setattr(us, "validate_public_http_url", lambda u: u)
+    monkeypatch.setattr(SA, "validate_public_http_url", lambda u: u)
     out = await SA.run_site_audit("https://x.gr")
     assert out["url"] and out["score"] is not None and "findings" in out
 
@@ -76,7 +75,6 @@ async def test_run_audit_unreachable(monkeypatch):
             raise httpx.ConnectError("dead")
 
     monkeypatch.setattr(SA.httpx, "AsyncClient", lambda **kw: C())
-    import app.services.url_safety as us
-    monkeypatch.setattr(us, "validate_public_http_url", lambda u: u)
+    monkeypatch.setattr(SA, "validate_public_http_url", lambda u: u)
     with pytest.raises(RuntimeError, match="unreachable"):
         await SA.run_site_audit("https://dead.gr")
