@@ -141,7 +141,14 @@ async def test_token_expiry_post_and_task(monkeypatch):
                     "reauth": [{"platform": "li", "account": "b", "expires": "2026-01-01T00:00"}]})
     assert len(posted) == 1 and "Token expiry sweep" in posted[0] and "EXPIRED" in posted[0]
 
-    # task wrapper — run_async drives the coroutines on a fresh loop
+
+def test_token_expiry_task_wrapper_runs_sweep(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    async def _slack(text):
+        pass
+
+    monkeypatch.setattr(SN, "post_alert_to_slack", _slack)
     now = datetime.now(UTC)
     db = _DB(_Res(rows=[_acct("facebook", {"expires_at": (now + timedelta(days=2)).isoformat()})]))
     monkeypatch.setattr(TE, "task_session", lambda: _CM(db))
@@ -442,16 +449,46 @@ async def test_autosend_pass_sends_clean_holds_dirty(monkeypatch):
     send.assert_awaited_once()
 
 
+def _sent_today(n):
+    now = datetime.now(UTC)
+    return [
+        SimpleNamespace(status=AgencyProposalStatus.sent, sent_at=now,
+                        meta_data={"approved_by": "autosend"})
+        for _ in range(n)
+    ]
+
+
 @pytest.mark.asyncio
-async def test_autosend_pass_send_error_and_cap(monkeypatch):
-    monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_AUTOSEND_DAILY_CAP=0))
+async def test_autosend_pass_send_error_counts(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
     send = AsyncMock(return_value={"ok": False, "error": "smtp"})
+    monkeypatch.setattr(P, "send_proposal", send)
+    ok1, ok2 = _draft(), _draft()
+    audit = SimpleNamespace(status=AgencyAuditStatus.completed)
+    db = _DB(
+        _Res(rows=[ok1, ok2]),      # drafts
+        _Res(rows=_sent_today(4)),  # 4 autosent today → budget = 1
+        _Res(scalar=audit),         # ok1.audit
+        _Res(scalar=audit),         # ok2.audit
+    )
+    stats = await P._autosend_pass(db, uuid.uuid4())
+    assert stats["evaluated"] == 2 and stats["errors"] == 2 and stats["sent"] == 0
+    assert send.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_autosend_pass_daily_cap_holds(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    send = AsyncMock(return_value={"ok": True})
     monkeypatch.setattr(P, "send_proposal", send)
     ok = _draft()
     audit = SimpleNamespace(status=AgencyAuditStatus.completed)
-    db = _DB(_Res(rows=[ok]), _Res(rows=[]), _Res(scalar=audit))
+    db = _DB(
+        _Res(rows=[ok]),
+        _Res(rows=_sent_today(5)),  # cap reached → held before send
+        _Res(scalar=audit),
+    )
     stats = await P._autosend_pass(db, uuid.uuid4())
-    # daily-cap 0 → held before send
     assert stats["held"] == 1 and stats["held_reasons"].get("daily-cap") == 1
     send.assert_not_awaited()
 

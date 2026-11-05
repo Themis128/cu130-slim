@@ -73,7 +73,7 @@ async def test_post_sends_when_nonempty(monkeypatch):
 
 
 def test_task_wrapper_runs(monkeypatch):
-    async def _fake_run(coro):
+    def _fake_run(coro):
         return {"warn": [], "reauth": []}
 
     monkeypatch.setattr(TE, "run_async", _fake_run)
