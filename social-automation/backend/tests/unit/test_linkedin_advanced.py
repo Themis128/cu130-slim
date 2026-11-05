@@ -10,6 +10,7 @@ from app.services import linkedin_advanced as ADV
 from app.services import linkedin_events as EV
 from app.worker.tasks import linkedin_lead_boost as LB
 
+
 class _AsyncCM:
     """Minimal async context manager — SimpleNamespace can't be one."""
 
