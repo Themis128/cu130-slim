@@ -440,6 +440,79 @@ WORKFORCE = [
         pending_sql="SELECT count(*) FROM agency_proposals WHERE status='sent' AND NOT COALESCE(meta_data ? 'engineering_plan', false)",
     ),
     Worker(
+        "agency-followup",
+        "app.worker.tasks.agency.run_agency_proposal_followup_sweep",
+        "default",
+        DAY,
+        goal="Chase every sent proposal through the day-3/7/14 follow-up ladder",
+        guardrails=(
+            "fixed templates only — same plain voice as the proposal mail",
+            "a reply or a closed-out stamp stops the ladder — never over-mail",
+            "sends are real client mail — idempotent via meta_data steps",
+        ),
+        autonomy="auto",
+        fallback="proposal stays at its step; next daily sweep retries",
+        demand_driven=True,
+        evidence=[
+            (
+                "last follow-up sent",
+                "SELECT max(updated_at) FROM agency_proposals WHERE meta_data ? 'followup_history'",
+            )
+        ],
+        pending_sql=(
+            "SELECT count(*) FROM agency_proposals WHERE status='sent'"
+            " AND NOT COALESCE(meta_data ? 'followed_out', false)"
+            " AND NOT COALESCE(meta_data ? 'replied', false)"
+        ),
+        escalations=[
+            (
+                "unanswered proposals",
+                "SELECT count(*) FROM agency_proposals WHERE status='sent'"
+                " AND COALESCE(meta_data ? 'followed_out', false)"
+                " AND NOT COALESCE(meta_data ? 'replied', false)",
+                "full ladder ran with no reply — a human decides whether to call or close",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-closer",
+        "app.worker.tasks.agency.run_agency_won_sweep",
+        "default",
+        3600,  # hourly
+        goal="Turn every Closed-Won EspoCRM opportunity into a kicked-off 14-day project",
+        guardrails=(
+            "low-value Stripe checkouts never become projects (AGENCY_STRIPE_PROJECT_MIN_EUR)",
+            "one project per opportunity — espo_opportunity_id + CRM note marker dedupe",
+            "kickoff mail only — scope and milestones come from the fixed plan",
+        ),
+        autonomy="auto",
+        fallback="opportunity stays un-projected; next hourly sweep retries",
+        demand_driven=True,
+        evidence=[("last project kickoff", "SELECT max(kickoff_at) FROM agency_projects")],
+        escalations=[
+            (
+                "won deals without projects",
+                "SELECT count(*) FROM agency_projects WHERE status='active' AND kickoff_at < now() - interval '1 day' AND last_client_update_at IS NULL",
+                "project kicked off but no client update landed — check the PM sweep",
+            ),
+        ],
+    ),
+    Worker(
+        "agency-post-consult",
+        "app.worker.tasks.agency.run_agency_post_consult_sweep",
+        "default",
+        3 * 3600,  # every 3h
+        goal="Send the thank-you/next-steps mail after every passed consultation",
+        guardrails=(
+            "one follow-up per opportunity — CRM note marker dedupe",
+            "never mails when no contact email — notes the skip instead",
+        ),
+        autonomy="auto",
+        fallback="opportunity stays unfollowed; next 3h sweep retries",
+        demand_driven=True,
+        evidence=[],
+    ),
+    Worker(
         "analytics-digest",
         "app.worker.tasks.notebooks.run_weekly_analytics",
         "default",

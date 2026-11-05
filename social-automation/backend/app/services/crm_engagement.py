@@ -99,6 +99,53 @@ def _fetch_candidates(lookback_days: int) -> tuple[list[dict[str, Any]], list[st
     return out, errors
 
 
+async def _mark_proposal_replied(sender: str, cand: dict[str, Any]) -> bool:
+    """Stamp ``meta.replied`` on a sent agency proposal from this sender.
+
+    The proposal follow-up ladder keys off that flag — a reply pauses the
+    chase sequence. Returns True when a proposal was stamped.
+    """
+    try:
+        from sqlalchemy import select
+
+        from app.models.agency import AgencyProposal, AgencyProposalStatus
+        from app.worker._async import get_session_factory
+
+        async with get_session_factory()() as db:
+            proposals = (
+                (
+                    await db.execute(
+                        select(AgencyProposal)
+                        .where(
+                            AgencyProposal.status == AgencyProposalStatus.sent,
+                            AgencyProposal.recipient_email == sender,
+                        )
+                        .limit(5)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            hit = False
+            for proposal in proposals:
+                md = dict(proposal.meta_data or {})
+                if md.get("replied"):
+                    continue
+                md["replied"] = {
+                    "at": datetime.now(UTC).isoformat(),
+                    "subject": cand["subject"][:120],
+                    "message_id": cand["message_id"] or cand["uid"],
+                }
+                proposal.meta_data = md
+                hit = True
+            if hit:
+                await db.commit()
+            return hit
+    except Exception:  # noqa: BLE001
+        logger.exception("crm engagement: proposal reply stamp failed for %s", sender)
+        return False
+
+
 async def _crm_emails() -> dict[str, dict[str, Any]]:
     """email → live CRM record (Lead wins; Contacts also tracked)."""
     profiles: dict[str, dict[str, Any]] = {}
@@ -160,6 +207,7 @@ async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
         "errors": len(errors),
         "dry_run": dry_run,
         "details": [],
+        "proposal_reply_details": [],
     }
     own_domain = settings.SMTP_FROM.rsplit("@", 1)[-1].strip().lower()
     replies_list_id = await espo.target_list_id(REPLIES_TARGET_LIST)
@@ -170,6 +218,9 @@ async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
         sender = cand["from"]
         if not sender or sender.endswith(f"@{own_domain}"):
             continue  # our own sends/drips — not inbound engagement
+        if not dry_run and await _mark_proposal_replied(sender, cand):
+            stats["proposal_replies"] = stats.get("proposal_replies", 0) + 1
+            stats["proposal_reply_details"].append({"email": sender, "subject": cand["subject"][:80]})
         rec = profiles.get(sender)
         if not rec:
             continue
@@ -200,7 +251,7 @@ async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
 
 
 async def _slack_report(stats: dict[str, Any]) -> None:
-    if not stats["details"] and not stats["errors"]:
+    if not stats["details"] and not stats["errors"] and not stats.get("proposal_reply_details"):
         return  # silence is correct — no replies, no noise
     try:
         from app.services.slack_notifications import post_digest_text_to_slack
@@ -209,10 +260,13 @@ async def _slack_report(stats: dict[str, Any]) -> None:
     lines = [
         "*CRM engagement sweep* — "
         f"{stats['matched']} reply-matches, {stats['noted']} noted, "
-        f"{stats['status_bumped']} leads → In Process, {stats['errors']} errors" + (" (dry run)" if stats["dry_run"] else "")
+        f"{stats['status_bumped']} leads → In Process, "
+        f"{stats.get('proposal_replies', 0)} proposal replies, {stats['errors']} errors" + (" (dry run)" if stats["dry_run"] else "")
     ]
     for d in stats["details"][:5]:
         lines.append(f"• {d['email']}: {d['subject']}")
+    for d in stats.get("proposal_reply_details", [])[:5]:
+        lines.append(f":incoming_envelope: proposal reply — {d['email']}: {d['subject']}")
     try:
         await post_digest_text_to_slack("\n".join(lines))
     except Exception:  # noqa: BLE001

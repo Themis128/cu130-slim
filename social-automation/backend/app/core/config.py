@@ -643,6 +643,9 @@ class Settings(BaseSettings):
     AGENCY_ENABLED: bool = True
     AGENCY_AUDIT_MAX_PER_RUN: int = 5
     AGENCY_PROPOSAL_AUTOSEND: bool = False
+    # Stripe checkouts below this amount never kick off a 14-day project —
+    # a €9 checklist sale is not a consulting engagement.
+    AGENCY_STRIPE_PROJECT_MIN_EUR: int = 500
 
     # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
     # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the

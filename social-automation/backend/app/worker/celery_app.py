@@ -213,6 +213,18 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 180,
         },
+        "app.worker.tasks.agency.run_agency_proposal_followup_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_won_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_post_consult_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
@@ -289,6 +301,9 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_proposal_followup_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_won_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_post_consult_sweep": {"queue": "default"},
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
@@ -479,6 +494,25 @@ celery_app.conf.update(
         "agency-engineer-sweep": {
             "task": "app.worker.tasks.agency.run_agency_engineer_sweep",
             "schedule": crontab(hour=9, minute=40),
+        },
+        # Sales follow-up: sent proposals get the day-3/7/14 chase ladder;
+        # replies (crm-engagement matcher) pause it automatically.
+        "agency-proposal-followup-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_proposal_followup_sweep",
+            "schedule": crontab(hour=10, minute=15),
+        },
+        # Closer: EspoCRM Opportunity → Closed Won starts the 14-day
+        # project (kickoff mail + PM loop picks it up). Hourly so a
+        # Stripe/manual close never sits unacknowledged overnight.
+        "agency-won-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_won_sweep",
+            "schedule": crontab(minute=35),
+        },
+        # Front Desk follow-on: consultation day passed → thank-you +
+        # next-steps mail. Every 3h catches next-day sends promptly.
+        "agency-post-consult-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_post_consult_sweep",
+            "schedule": crontab(minute=40, hour="*/3"),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
