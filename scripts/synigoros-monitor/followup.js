@@ -98,7 +98,7 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
   try {
     await smtpSend(host, port, user, pass, from, TO, subject, body);
     console.log('followup sent to', TO);
-    await tg('📮 Follow-up εστάλη στον Συνήγορο (email ' + TO + ', αρ. πρωτ. 81750)');
+    await tg('📮 Follow-up εστάλη στον Συνήγορο (email ' + TO + ', αρ. πρωτ. 408302/81750/2026)');
   } catch (e) {
     console.log('followup send failed:', e.message);
     await tg('⚠️ ΑΠΟΤΥΧΙΑ αποστολής follow-up Συνηγόρου: ' + e.message + ' — στείλε χειροκίνητα (scripts/synigoros-monitor/followup.txt)');
