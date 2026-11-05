@@ -381,7 +381,8 @@ async def _post_proposal_alert(proposal: AgencyProposal, audit: AgencyAudit | No
 
         who = proposal.recipient_name or proposal.recipient_email or "lead"
         url = audit.url if audit else "n/a"
-        price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}" if proposal.price_low_eur and proposal.price_high_eur else "n/a"
+        needs_pricing = bool((proposal.meta_data or {}).get("needs_pricing"))
+        price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}" if proposal.price_low_eur and proposal.price_high_eur else ("custom scope — needs your price" if needs_pricing else "n/a")
         text = f":memo: *Proposal drafted* — {who} ({url}), {price}, {len(proposal.services)} services"
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
@@ -421,6 +422,7 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
             if not services:
                 services = [s for s, _sc, _h in classify_services(audit.action_plan or "")]
             if not services:
+                custom_scope = True
                 services = ["cloud"]
             md = dict(audit.meta_data or {})
             recipient_email: str | None = md.get("lead_email")
@@ -433,6 +435,13 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
 
             subject, body = render_proposal(audit=audit, recipient_name=recipient_name, services=services)
             low, high = price_range(services)
+            if custom_scope:
+                low = high = None
+                body += (
+                    "\n\n---\n\nCustom scope — the audit surfaced work outside the fixed\n"
+                    "catalog. Reply and I'll price it on the call; nothing\n"
+                    "is quoted until the scope is pinned."
+                )
             proposal = AgencyProposal(
                 team_id=audit.team_id,
                 audit_id=audit.id,
@@ -447,6 +456,8 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
                 body_md=body,
                 status=AgencyProposalStatus.draft,
             )
+            if custom_scope:
+                proposal.meta_data = {"custom_scope": True, "needs_pricing": True}
             db.add(proposal)
             await db.flush()
             stats["drafted"] += 1
