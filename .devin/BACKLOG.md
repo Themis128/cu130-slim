@@ -837,3 +837,63 @@ Left:
   Lead Sync x1 (264925843), Community Mgmt, Ad Library, Live Events —
   reopen via per-app products-page links, then setChoiceValue/setTextValue
   + clickNextButton. Debug Chrome was killed to heal the wedged CDP lane.
+## 2026-11-05 final — forms done, PRs merged/in-flight
+
+- **All LinkedIn request forms submitted/in-review**: Member DP (3rd
+  Party) on dedicated app 265077464; Matched Audiences, Conversions,
+  Lead Sync, Community Mgmt, Advertising, Ad Library across 265077368 +
+  264925843. Products pages confirm "Review in progress" per product.
+- The remaining "form link visible" states are LinkedIn's UI lag — the
+  requests are registered (orphan Q_DL-less submissions are what never
+  counted; per-app Q_DL links are the binding).
+- **PR #1365 merged** (all LinkedIn-ops session work on master).
+- **PR #1343**: heal_consents test fix — remote landed identical
+  `09ef38fd` (linkedin_token key); my duplicate dropped. CI re-running.
+- **PR #1339**: coverage gate miss — pushed `01860495` covering
+  `update_organization_profile` + helpers. CI re-running. Auto-merge
+  armed on both — they self-land when checks go green.
+- Secret-scan incident resolved: commit `3a9c5492` had swept a Grafana
+  token + .bak files inside a BACKLOG commit — history rewritten clean.
+- Leftover WIP (other agent, preserved): `.cursor/skills/k3s-authentik-ops/`
+  SKILL.md mod + scripts — file is write-locked, can't stage/clean.
+
+## 2026-11-05 — Live Events dedicated app done
+
+- **`cloudless-gr-live`** (app `265081467`, Client ID `778ys0q6bnh5ly`)
+  created via portal (same flow as `265077464`): typeahead + real-mouse
+  commit, 256px logo (min 100px gate), ToS.
+- Company verified via generated verification URL approved in-session
+  as cloudless.gr Page admin; business-email verify `tbaltzakis@cloudless.gr`
+  (inbound pipeline delivered the 6-digit code instantly).
+- Live Events request submitted → Qualtrics `SV_0PAUJOVR2DFcgES`
+  (39 q) filled via JFE API + clickNextButton → Thank you → closed.
+- Lesson: sole-product gate applies to Live Events + Community Mgmt
+  too, not just DP — tooltip text on disabled Request access buttons.
+  Email verification does NOT persist between modal opens — must run
+  email→code→confirm→ToS→Request in ONE modal session.
+- PRs #1343/#1339 auto-merge armed, all checks green at last check;
+  #1365 + #1367 merged.
+
+## 2026-11-05 — new-scopes data-driven implementation (plan-250656aa43f9dc52)
+
+- **P0 live**: `linkedin_engagement_score` hourly task — CM per-post
+  socialMetadata → weighted ER vs 30d median → >2σ winners flagged
+  `boost_candidate` + top commenters → engagement_candidates.
+  `linkedin_events.py` + `linkedin_ad_library.py` services (both
+  provisioned products).
+- **P1 behind `LINKEDIN_ADVANCED=1`**: `linkedin_advanced.py`
+  (lead sync/conversions/matched audiences) + `linkedin_lead_boost`
+  (lead routing 30m, promo-credit boost hourly).
+- Commits `3ef83e59`,`cea96fa1`→`35602ea5` on feat/linkedin-token-health.
+- TODO when grants land: flip LINKEDIN_ADVANCED, live-probe each scope
+  via cm_tool pattern, Metabase post→booking chain view, P2 Live Events
+  surface on 265081467 + Member DP journaling on 265077464.
+
+## 2026-11-05 — plan-250656aa43f9dc52 CLOSED
+
+- Full chain coded: eng-score → boost flags, events+adlib services,
+  lead-sync/conversions/matched-audiences (LINKEDIN_ADVANCED), lead+
+  boost tasks, Cal.com→audit_booked webhook (HMAC), Metabase chain SQL
+  at metabase-ops/scripts/linkedin_attribution_chain.sql.
+- Remaining (grant/runtime-gated only): flip LINKEDIN_ADVANCED, live
+  probes, Metabase view instantiation, P2 Live Events/Member DP surfaces.
