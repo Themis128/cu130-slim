@@ -56,7 +56,8 @@ async def test_chat_retry_then_raise(monkeypatch):
 
     import httpx
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: C())
-    monkeypatch.setattr(AF._aio, "sleep", AsyncMock())
+    import asyncio
+    monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     out = await AF._chat("p", max_tokens=5)
     assert out == "answer" and calls["n"] == 2
 
@@ -67,7 +68,8 @@ async def test_chat_retry_then_raise(monkeypatch):
 
 async def test_eval_post_async(monkeypatch):
     import app.services.content_eval as CE
-    monkeypatch.setattr(CE, "call_inference", AsyncMock(return_value={"response": 'pre {"total": 7} post'}))
+    import app.services.inference as INF
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"response": 'pre {"total": 7} post'}))
     assert await CE.eval_post_async("post text", None) == 7
-    monkeypatch.setattr(CE, "call_inference", AsyncMock(return_value={"response": "no json"}))
+    monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"response": "no json"}))
     assert await CE.eval_post_async("post text", None) == -1
