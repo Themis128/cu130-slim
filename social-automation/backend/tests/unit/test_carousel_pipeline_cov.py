@@ -31,7 +31,7 @@ async def test_build_ad_brand_kit(monkeypatch):
     out = await CP.build_ad_brand_kit(
         db, team_id="t1", user_id="u1", headline="H", subline="S", cta="C",
         stat=None, stat_label=None, image_prompt="a bg",
-        sizes={"one": (64, 64), "two": (64, 64)}, brand={})
+        sizes={"one": (64, 64), "two": (64, 64)})
     assert len(out) == 2 and len(kept) == 2
 
 
@@ -45,5 +45,5 @@ async def test_build_ad_brand_kit_no_bg(monkeypatch):
     out = await CP.build_ad_brand_kit(
         SimpleNamespace(), team_id="t1", user_id="u1", headline="H",
         subline="S", cta="C", stat=None, stat_label="L",
-        image_prompt=None, sizes={"one": (64, 64)}, brand={})
+        image_prompt=None, sizes={"one": (64, 64)})
     assert len(out) == 1
