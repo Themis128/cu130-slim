@@ -40,6 +40,7 @@
   Recording blocked until token healed via consent click.
 - [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
   blocked — file + dir root-owned; needs `sudo chown -R` on .devin/skills.
+- [x] Page verification done on 265077368 (11-05) → Member DP modal unblocked.
 - [ ] Member DP (Member) in-portal modal on 265077368 after biz-email verify.
 
 ## 2026-11-04 (night) — Session leftovers all landed
