@@ -5,7 +5,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-
 import app.services.linkedin_ad_library as AL
 import app.services.linkedin_advanced as ADV
 import app.services.linkedin_events as EV
