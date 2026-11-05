@@ -86,13 +86,10 @@ def get_secret(app_id):
     ev(ws, """(() => {const b=[...document.querySelectorAll('button')].find(b=>/^show$/i.test((b.innerText||'').trim())); if(b)b.click(); return 'ok'})()""")
     time.sleep(2)
     r = ev(ws, "document.getElementById('primaryClientSecret')?.value || 'n/a'")
-    out = os.environ.get("LI_SECRET_OUT")
-    if out:
-        with open(out, "w", encoding="utf-8") as f:
-            f.write(r + "\n")
-        print(f"secret written to {out}")
-    else:
-        print(r)
+    out = os.environ.get("LI_SECRET_OUT", "li_secret.out")
+    with open(out, "w", encoding="utf-8") as f:
+        f.write(r + "\n")
+    print(f"secret written to {out} ({len(r)} chars)")
     b.send(json.dumps({"id":9,"method":"Target.closeTarget","params":{"targetId":tid}}))
 
 def request_product(app_id, text):
