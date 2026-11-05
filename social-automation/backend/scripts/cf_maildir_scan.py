@@ -30,9 +30,10 @@ LINK_RE = re.compile(r"https://[^\s\"'<>]+(?:confirm|verify)[^\s\"'<>]+")
 def _ssh(user_host: str, remote_cmd: str, timeout: int = 15) -> str | None:
     try:
         r = subprocess.run(
-            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8",
-             "-o", "StrictHostKeyChecking=accept-new", user_host, remote_cmd],
-            capture_output=True, text=True, timeout=timeout,
+            ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "StrictHostKeyChecking=accept-new", user_host, remote_cmd],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         return r.stdout if r.returncode == 0 else None
     except (OSError, subprocess.TimeoutExpired):
@@ -46,8 +47,9 @@ def _scan_once(hosts: list[str], target: str) -> str | None:
     # whole loop runs inside `sudo -n sh -c`. The remote command is base64'd
     # to survive the local-shell + ssh + remote-sh quoting layers.
     import base64
+
     inner = (
-        f'for f in $(ls -t {maildir}new/* {maildir}cur/* 2>/dev/null | head -40); '
+        f"for f in $(ls -t {maildir}new/* {maildir}cur/* 2>/dev/null | head -40); "
         'do grep -il cloudflare "$f" >/dev/null 2>&1 && '
         'grep -oE "https://[^\\" <>]+(confirm|verify)[^\\" <>]+" "$f" | head -1 && break; done'
     )
@@ -82,6 +84,7 @@ def main() -> int:
         watch = Path(__file__).with_name("cf_mail_confirm_watch.py")
         if watch.exists():
             import runpy
+
             sys.argv = [str(watch), "--for", args.target]
             runpy.run_path(str(watch), run_name="__main__")
         return 1

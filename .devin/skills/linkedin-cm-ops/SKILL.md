@@ -106,14 +106,15 @@ Management" products active for posting scopes.
 Not v2-covered (rest-only, now unlocked by Standard Tier):
 multi-image/video/doc posts, org stats, follower counts.
 
-## DMA Member API product gate
+## Member-analytics scope gate — CORRECTED 2026-11-05
 
-`r_member_postAnalytics`, `r_member_profileAnalytics`,
-`r_1st_connections_size` (and possibly `*_social_feed`) are gated by
-the **DMA Member API** product — which requires choosing the dedicated
-Company page at APP CREATION. `264925843` was created without it →
-"this product cannot be requested" (LinkedIn error, confirmed
-2026-11-05). No retrofit — a NEW developer app must be created with
-`cloudless-gr` as the dedicated page → request DMA Member API → it gets
-its own client_id/secret + OAuth flow for member surfaces.
-`264925843` stays primary for org/CM/ads.
+Live probe (`linkedin-products-ops/li_scope_probe.py`): on app
+227354605 (CM Standard) `r_member_postAnalytics`,
+`r_member_profileAnalytics`, `*_social_feed`, `r_organization_followers`
+still hard-fail authorize with `unauthorized_scope_error`, while
+`r_1st_connections_size` now PASSES. Per Microsoft Learn these are all
+Community Management API permissions on current versions — the app's CM
+grant predates them. Correct fix: **Developer Support Portal ticket**
+asking to provision the missing CM permissions — NOT a new app.
+(`r_1st_connections_size` arriving via the Advertising grant explains
+why it already consents.) Full matrix: `linkedin-products-ops`.

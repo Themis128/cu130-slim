@@ -37,18 +37,20 @@ def _run(script: str, *args: str, timeout: int = 90) -> dict[str, Any]:
     try:
         r = subprocess.run(
             [sys.executable, str(p), *args],
-            capture_output=True, text=True, timeout=timeout,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
     except subprocess.TimeoutExpired:
         raise HTTPException(504, f"{script} timed out")
-    return {"script": script, "exit": r.returncode, "ok": r.returncode == 0,
-            "stdout": r.stdout[-4000:], "stderr": r.stderr[-1500:]}
+    return {"script": script, "exit": r.returncode, "ok": r.returncode == 0, "stdout": r.stdout[-4000:], "stderr": r.stderr[-1500:]}
 
 
 @router.get("/status")
 async def gate_status(_user: User = Depends(get_current_user)) -> dict[str, Any]:
     """Whole gate surface at a glance (doctor --json + token presence)."""
     import os
+
     out = _run(TOOLS["doctor"], "--json") if (SCRIPTS / TOOLS["doctor"]).exists() else {"ok": False}
     token_set = bool(os.environ.get("CLOUDFLARE_API_TOKEN"))
     return {"token_present": token_set, "doctor": out}
@@ -86,10 +88,7 @@ async def accept_token(body: dict, _user: User = Depends(get_current_user)) -> d
     env_file = Path("/app/.env")
     if env_file.exists():
         lines = env_file.read_text().splitlines()
-        lines = [
-            f"CLOUDFLARE_API_TOKEN={token}" if ln.startswith("CLOUDFLARE_API_TOKEN=") else ln
-            for ln in lines
-        ]
+        lines = [f"CLOUDFLARE_API_TOKEN={token}" if ln.startswith("CLOUDFLARE_API_TOKEN=") else ln for ln in lines]
         env_file.write_text("\n".join(lines) + "\n")
     os.environ["CLOUDFLARE_API_TOKEN"] = token
 

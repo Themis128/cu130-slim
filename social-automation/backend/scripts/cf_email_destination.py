@@ -67,7 +67,7 @@ def _zone_id(token: str) -> str | None:
         return zid
     res = _api("GET", "/zones?name=cloudless.gr", token)
     res = res if isinstance(res, dict) else {}
-    items = (res.get("result") or [])
+    items = res.get("result") or []
     return items[0]["id"] if items else None
 
 
@@ -84,7 +84,7 @@ def _poll_mailbox(host: str, user: str, pw: str, email: str, tries: int = 20, wa
             box.login(user, pw)
             box.select("INBOX")
             typ, ids = box.search(None, '(FROM "cloudflare" UNSEEN)')
-            for mid in (ids[0].split() if typ == "OK" else []):
+            for mid in ids[0].split() if typ == "OK" else []:
                 typ, data = box.fetch(mid, "(RFC822)")
                 body = data[0][1].decode("utf-8", "replace") if typ == "OK" else ""
                 m = re.search(r"https://[^\"'\s>]+verify[^\"'\s<]+", body)
@@ -110,8 +110,7 @@ def main() -> int:
         rows.append({"check": name, "status": "ok" if ok else "action", "detail": detail, "fix": fix})
 
     if not token:
-        say("cf-token", False, "no CLOUDFLARE_API_TOKEN/CF_API_TOKEN in env",
-            "add an API token with Email Routing edit to .env, re-run")
+        say("cf-token", False, "no CLOUDFLARE_API_TOKEN/CF_API_TOKEN in env", "add an API token with Email Routing edit to .env, re-run")
         return _report(rows, args.json)
     zone = _zone_id(token)
     if not zone:
@@ -130,20 +129,22 @@ def main() -> int:
     else:
         res = _api("POST", f"/zones/{zone}/email/routing/addresses", token, {"email": args.email})
         if not res.get("success"):
-            say("create-destination", False, str(res.get("errors"))[:200],
-                "check token Email Routing write scope")
+            say("create-destination", False, str(res.get("errors"))[:200], "check token Email Routing write scope")
             return _report(rows, args.json)
         say("create-destination", True, f"created {args.email} — confirmation mail sent")
 
     host, user, pw = _env("OMV_IMAP_HOST"), _env("OMV_IMAP_USER"), _env("OMV_IMAP_PASS")
     if not (host and user and pw):
-        say("mailbox", False, "OMV_IMAP_* env missing — can't auto-read confirmation",
-            "add OMV_IMAP_HOST/USER/PASS to .env (dovecot on omv-ha) or click the link in the mail manually")
+        say(
+            "mailbox",
+            False,
+            "OMV_IMAP_* env missing — can't auto-read confirmation",
+            "add OMV_IMAP_HOST/USER/PASS to .env (dovecot on omv-ha) or click the link in the mail manually",
+        )
         return _report(rows, args.json)
     link = _poll_mailbox(host, user, pw, args.email)
     if not link:
-        say("mailbox", False, "no confirmation mail found in 5min",
-            f"check the {args.email} mailbox manually for the CF verify link")
+        say("mailbox", False, "no confirmation mail found in 5min", f"check the {args.email} mailbox manually for the CF verify link")
         return _report(rows, args.json)
     try:
         urllib.request.urlopen(urllib.request.Request(link), timeout=20)
@@ -154,8 +155,7 @@ def main() -> int:
 
     dests = _destinations(token, zone)
     ok = any(d.get("email", "").lower() == args.email.lower() and d.get("verified") for d in dests)
-    say("verified", ok, "verified" if ok else "still unverified",
-        "" if ok else "destination may take a minute — re-run")
+    say("verified", ok, "verified" if ok else "still unverified", "" if ok else "destination may take a minute — re-run")
     return _report(rows, args.json)
 
 
