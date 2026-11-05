@@ -710,3 +710,20 @@ Left:
   member-analytics surfaces.
 - Tool: `.devin/skills/win-bridge-ops/scripts/cdp_eval.py` —
   suppress_origin ws fix, base64 Windows file-drop, URL-match tab eval.
+
+## 2026-11-05 — Synigoros monitor triage (Devin)
+
+- [x] Diagnosed ⚠️ timeout spam: `scripts/synigoros-monitor/monitor.js`
+  (Windows task `SynigorosMonitor`, 15-min headless Chrome) — 13 real
+  failures / ~380 polls (3.4%) each alerting instantly. Fixed in PR
+  #1366: `waitForFunction` arg-slot bug + consecutive-error streak
+  (alert on 2nd, once per outage, ✅ recovery notice, state.json now
+  written on error path).
+- [ ] Celery `poll_synigoros` (daily 07:30) has NO debounce and its
+  first-status-word extraction disagrees with monitor.js's last-match —
+  📋 "status changed" messages flip-flopped both directions. Align
+  extraction + add candidate confirm (same pattern as monitor.js) if
+  noise continues. Note: which Κατάσταση block (stepper vs detail) is
+  authoritative is unverified — check the live page.
+- [ ] monitor.log + state.json grow unboundedly in the live dir
+  (957 lines/4 days) — consider rotation if it becomes a problem.
