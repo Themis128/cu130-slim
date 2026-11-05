@@ -14,14 +14,16 @@ def test_run_audit_ok(monkeypatch):
     monkeypatch.setattr(FA.subprocess, "run", lambda *a, **k: SimpleNamespace(
         returncode=0, stdout="stage table\nok", stderr=""))
     monkeypatch.setattr(FA, "_run_audit", lambda: (0, "line1\nsqlalchemy noise\nline2"))
-    monkeypatch.setattr(FA, "run_async", lambda c: None)
+    import app.worker._async as _WA
+    monkeypatch.setattr(_WA, "run_async", lambda c: None)
     out = FA.run_funnel_audit()
     assert out["status"] == "ok" and out["rc"] == 0
 
 
 def test_run_audit_broken(monkeypatch):
     monkeypatch.setattr(FA, "_run_audit", lambda: (1, "broken stage output"))
-    monkeypatch.setattr(FA, "run_async", lambda c: None)
+    import app.worker._async as _WA
+    monkeypatch.setattr(_WA, "run_async", lambda c: None)
     out = FA.run_funnel_audit()
     assert out["status"] == "broken-stage" and out["rc"] == 1
 

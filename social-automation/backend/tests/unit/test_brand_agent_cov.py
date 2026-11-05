@@ -38,11 +38,7 @@ async def test_gate_branches(monkeypatch):
         add=lambda o: None,
         commit=AsyncMock(),
     )
-    monkeypatch.setattr(
-        BA, "find_empty_calendar_slots",
-        AsyncMock(return_value=[
-            __import__("datetime").datetime(2026, 1, 1),
-            __import__("datetime").datetime(2026, 1, 2)]))
+    monkeypatch.setattr(BA, "find_empty_calendar_slots", AsyncMock(return_value=[{"d": 1}, {"d": 2}]))
     monkeypatch.setattr(BA, "generate_on_brand_content", fake_gen)
     import app.services.content_eval as ev
     monkeypatch.setattr(ev, "eval_post_async", AsyncMock(return_value=9))
@@ -51,7 +47,7 @@ async def test_gate_branches(monkeypatch):
     assert out["skipped_count"] >= 1
 
 
-async def test_eval_pass_creates(monkeypatch):
+async def test_eval_exception_still_creates(monkeypatch):
     brand = SimpleNamespace(id="b1", values=["v1"], name="B")
     voice = SimpleNamespace(messaging_pillars=[{"pillar": "p1"}])
     recent = SimpleNamespace(all=lambda: [])
@@ -60,9 +56,13 @@ async def test_eval_pass_creates(monkeypatch):
         add=lambda o: None,
         commit=AsyncMock(),
     )
-    monkeypatch.setattr(BA, "find_empty_calendar_slots", AsyncMock(return_value=[__import__("datetime").datetime(2026,1,1)]))
+    monkeypatch.setattr(BA, "find_empty_calendar_slots", AsyncMock(return_value=[{"d": 1}]))
     monkeypatch.setattr(BA, "generate_on_brand_content", AsyncMock(return_value="clean short copy"))
+    monkeypatch.setattr(BA, "score_brand_compliance", AsyncMock(return_value={"score": 10}))
+    import app.services.content_sanitizer as cs
+    monkeypatch.setattr(cs, "voice_check", lambda *a, **k: (True, "ok"))
+    monkeypatch.setattr(cs, "content_quality_gate", lambda *a, **k: (True, "ok"))
     import app.services.content_eval as ev
-    monkeypatch.setattr(ev, "eval_post_async", AsyncMock(return_value=9))
+    monkeypatch.setattr(ev, "eval_post_async", AsyncMock(side_effect=Exception("down")))
     out = await BA.run_autopilot(db, "t", "u", days=1)
     assert out["created_count"] == 1
