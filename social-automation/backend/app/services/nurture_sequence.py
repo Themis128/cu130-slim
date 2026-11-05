@@ -214,7 +214,6 @@ DM_SAFETY_VALVE: str = (
 )
 
 
-
 async def _cf_shadow_call(url_env: str, token_env: str, path: str, payload: dict) -> None:
     """Fire-and-forget CF worker call — never raises, skipped when env unset."""
     s = get_settings()
@@ -316,8 +315,10 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
             quiet = True
             stats["rolled"] += 1
             await _cf_shadow_call(
-                "LEAD_SCHEDULER_URL", "LEAD_SCHEDULER_TOKEN",
-                f"/do/followup/{lead.id}/enroll", {"email": lead.email, "name": lead.name},
+                "LEAD_SCHEDULER_URL",
+                "LEAD_SCHEDULER_TOKEN",
+                f"/do/followup/{lead.id}/enroll",
+                {"email": lead.email, "name": lead.name},
             )
         if not quiet and meta.get("form") not in NURTURE_FORMS:
             continue
@@ -335,8 +336,10 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
                 }
                 stats["rolled"] += 1
                 await _cf_shadow_call(
-                    "LEAD_SCHEDULER_URL", "LEAD_SCHEDULER_TOKEN",
-                    f"/do/followup/{lead.id}/enroll", {"email": lead.email, "name": lead.name},
+                    "LEAD_SCHEDULER_URL",
+                    "LEAD_SCHEDULER_TOKEN",
+                    f"/do/followup/{lead.id}/enroll",
+                    {"email": lead.email, "name": lead.name},
                 )
             stats["skipped"] += 1
             continue
@@ -356,9 +359,10 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
             }
             stats["sent"] += 1
             await _cf_shadow_call(
-                "FUNNEL_EVENTS_URL", "FUNNEL_EVENTS_TOKEN", "/event",
-                {"type": "quiet.sent" if quiet else "nurture.sent",
-                 "payload": {"lead_id": str(lead.id), "step": step.get("key"), "form": meta.get("form")}},
+                "FUNNEL_EVENTS_URL",
+                "FUNNEL_EVENTS_TOKEN",
+                "/event",
+                {"type": "quiet.sent" if quiet else "nurture.sent", "payload": {"lead_id": str(lead.id), "step": step.get("key"), "form": meta.get("form")}},
             )
         except Exception:  # noqa: BLE001 — one bad email mustn't stall the sweep
             stats["skipped"] += 1
