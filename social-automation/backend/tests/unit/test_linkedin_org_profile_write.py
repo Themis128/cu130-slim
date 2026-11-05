@@ -60,3 +60,50 @@ def test_get_linkedin_client_missing_token_400():
     with pytest.raises(HTTPException) as e:
         A._get_linkedin_client(acc)
     assert e.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_page_profile_linkedin_branch(monkeypatch):
+    res = SimpleNamespace(scalar_one_or_none=lambda: "linkedin")
+    db = SimpleNamespace(execute=AsyncMock(return_value=res))
+    monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=SimpleNamespace(account_id="1")))
+    monkeypatch.setattr(A, "_get_linkedin_client", lambda a: SimpleNamespace(get_organization=AsyncMock(return_value={"id": "1"})))
+    out = await A.get_facebook_page_profile(uuid.uuid4(), current_user=SimpleNamespace(id="u"), db=db)
+    assert out["profile"] == {"id": "1"}
+
+
+@pytest.mark.asyncio
+async def test_page_profile_linkedin_502(monkeypatch):
+    res = SimpleNamespace(scalar_one_or_none=lambda: "linkedin")
+    db = SimpleNamespace(execute=AsyncMock(return_value=res))
+    monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=SimpleNamespace(account_id="1")))
+    client = SimpleNamespace(get_organization=AsyncMock(side_effect=Exception("boom")))
+    monkeypatch.setattr(A, "_get_linkedin_client", lambda a: client)
+    with pytest.raises(HTTPException) as e:
+        await A.get_facebook_page_profile(uuid.uuid4(), current_user=SimpleNamespace(id="u"), db=db)
+    assert e.value.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_update_profile_linkedin_branch(monkeypatch):
+    res = SimpleNamespace(scalar_one_or_none=lambda: "linkedin")
+    db = SimpleNamespace(execute=AsyncMock(return_value=res))
+    monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=SimpleNamespace(account_id="1")))
+    client = SimpleNamespace(update_organization_profile=AsyncMock(return_value=True))
+    monkeypatch.setattr(A, "_get_linkedin_client", lambda a: client)
+    upd = SimpleNamespace(description="d", website="w", tagline="t", about=None, phone=None)
+    out = await A.update_facebook_page_profile(uuid.uuid4(), updates=upd, current_user=SimpleNamespace(id="u"), db=db)
+    assert out == {"success": True}
+
+
+@pytest.mark.asyncio
+async def test_update_profile_linkedin_value_error_400(monkeypatch):
+    res = SimpleNamespace(scalar_one_or_none=lambda: "linkedin")
+    db = SimpleNamespace(execute=AsyncMock(return_value=res))
+    monkeypatch.setattr(A, "_get_linkedin_org_account", AsyncMock(return_value=SimpleNamespace(account_id="1")))
+    client = SimpleNamespace(update_organization_profile=AsyncMock(side_effect=ValueError("none")))
+    monkeypatch.setattr(A, "_get_linkedin_client", lambda a: client)
+    upd = SimpleNamespace(description=None, website=None, tagline=None, about=None, phone=None)
+    with pytest.raises(HTTPException) as e:
+        await A.update_facebook_page_profile(uuid.uuid4(), updates=upd, current_user=SimpleNamespace(id="u"), db=db)
+    assert e.value.status_code == 400
