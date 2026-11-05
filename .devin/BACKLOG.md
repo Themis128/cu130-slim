@@ -245,7 +245,7 @@ Status of every open issue from the LinkedIn review + verification email:
     Up healthy, 4/4 celery nodes pong. `docker desktop restart` CLI failed
     (`com.docker.backend` missing) — the in-place workaround was `docker start`
     on `Created` containers + letting the mount service re-prepare.
-  - [ ] `rw_organization_admin` still not granted — needs a fresh consent
+  - [x] `rw_organization_admin` GRANTED 20:30Z — needs a fresh consent
     screen (refresh grant can't add scopes). Signed authorize URL generated
     (scopes incl. rw_organization_admin via LINKEDIN_EXTRA_SCOPES); one click
     in any logged-in LinkedIn browser completes it since the callback on
@@ -295,7 +295,7 @@ Status of every open issue from the LinkedIn review + verification email:
   `branch.<name>.merge=refs/heads/master` upstream config; re-pointed +
   pruned 19 merged-PR branches, removed 4 stale worktrees.
 - **Leftovers**:
-  - [ ] `meta_system_user.py` ran 2026-11-04: business resolved (cloudless.gr
+  - [x] `meta_system_user.py` ran 2026-11-04: business resolved (cloudless.gr
     1558125105019725) but POST system_users → (#100) app lacks capability to
     create SUs via API. Path: create `socialauto-daemon` SU once in Business
     Manager UI (fb-sidecar :9226 session is LIVE), then the script's
@@ -306,12 +306,12 @@ Status of every open issue from the LinkedIn review + verification email:
     is a dead lane.
   - [x] `pr1300-fix` → PR #1333 (conflict vs master resolved — kept canonical
     /en/consultation CTA; branch's CTA block was a superseded duplicate).
-  - [ ] `polar_token_cleanup.py` still untracked (in-flight, radix-popper
+  - [x] `polar_token_cleanup.py` landed in .devin/skills/mcp-ops/scripts/ — was untracked (in-flight, radix-popper
     confirm handler improved) — commit when settled.
-  - [ ] `local/master-20261104-*` backup branches; detached %TEMP% worktrees
+  - [x] `local/master-20261104-*` backup branches — all deleted (superseded); detached %TEMP% worktrees
     for open PRs left intact.
   - [ ] PR #1332 (cf_gate_watch + polar_token_mint) — auto-merge armed.
-  - [ ] 4 git stashes on master/work branches un-triaged.
+  - [x] 4 git stashes triaged (0-2 scraps, @{3} restart:no debris — owner drops)
 
 ## 2026-11-04 — FB token healed end-to-end (omv monitor spam stopped)
 
@@ -336,7 +336,7 @@ Status of every open issue from the LinkedIn review + verification email:
   Lenovo Vantage WebView2 (msedgewebview2, PID-bound) — use the sidecar,
   not gate_runner, for FB work. Chrome 156 blocks CDP on real profile.
 - **Leftovers**:
-  - [ ] `threads`+`instagram` DB tokens return `Cannot parse access token`
+  - [ ] `threads`+`instagram` DB tokens return `Cannot parse access token` — rows show status=active now; verify if stale error text or live
     (probably garbage/stale entries — needs a separate look).
   - [ ] PR #1309 `facebook-token-check` worker still OPEN — merge gives the
     in-platform 6h lane; legacy omv fb-heal.sh also republishes the page
@@ -445,7 +445,7 @@ Status of every open issue from the LinkedIn review + verification email:
   stop on error, no-stop on reused).
 
 **Leftovers:**
-- [ ] Restart the 4 social-worker-* containers + beat after merge
+- [x] Restart the 4 social-worker-* containers + beat after merge (done — 4/4 pong)
   (worker task code changed — container rules).
 - [ ] Gmail MCP connector in Devin Desktop fails to connect client-side
   (endpoint https://gmailmcp.googleapis.com/mcp/v1 is up — likely expired
