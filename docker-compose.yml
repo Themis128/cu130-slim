@@ -2478,6 +2478,13 @@ services:
       - DB_CONNECTION_URI=${INFISICAL_DB_URI}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - SITE_URL=${INFISICAL_SITE_URL:-http://localhost:8090}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USERNAME=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_SECURE=${SMTP_USE_TLS}
+      - SMTP_FROM_ADDRESS=${SMTP_FROM}
+      - SMTP_FROM_NAME=Cloudless Infisical
     networks:
       - db
     ports:
