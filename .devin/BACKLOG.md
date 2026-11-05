@@ -846,3 +846,18 @@ Left:
   email→code→confirm→ToS→Request in ONE modal session.
 - PRs #1343/#1339 auto-merge armed, all checks green at last check;
   #1365 + #1367 merged.
+
+## 2026-11-05 — new-scopes data-driven implementation (plan-250656aa43f9dc52)
+
+- **P0 live**: `linkedin_engagement_score` hourly task — CM per-post
+  socialMetadata → weighted ER vs 30d median → >2σ winners flagged
+  `boost_candidate` + top commenters → engagement_candidates.
+  `linkedin_events.py` + `linkedin_ad_library.py` services (both
+  provisioned products).
+- **P1 behind `LINKEDIN_ADVANCED=1`**: `linkedin_advanced.py`
+  (lead sync/conversions/matched audiences) + `linkedin_lead_boost`
+  (lead routing 30m, promo-credit boost hourly).
+- Commits `3ef83e59`,`cea96fa1`→`35602ea5` on feat/linkedin-token-health.
+- TODO when grants land: flip LINKEDIN_ADVANCED, live-probe each scope
+  via cm_tool pattern, Metabase post→booking chain view, P2 Live Events
+  surface on 265081467 + Member DP journaling on 265077464.
