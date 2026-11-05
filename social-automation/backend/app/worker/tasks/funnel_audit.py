@@ -8,7 +8,6 @@ escalates to the alert lane instead of the digest lane.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import subprocess
 
