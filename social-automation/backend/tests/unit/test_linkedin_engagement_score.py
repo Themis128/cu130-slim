@@ -7,6 +7,7 @@ import pytest
 
 from app.worker.tasks import linkedin_engagement_score as S
 
+
 class _AsyncCM:
     """Minimal async context manager — SimpleNamespace can't be one."""
 
