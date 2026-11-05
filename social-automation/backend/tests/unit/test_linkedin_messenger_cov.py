@@ -31,9 +31,11 @@ async def test_no_contact_returns_none():
 
 async def test_email_capture_full_path(monkeypatch):
     import app.db.session as dbs
+    import app.models.lead as ml
     import app.services.espocrm_client as esp
     import app.services.leads as leads
 
+    monkeypatch.setattr(ml, "LeadSource", SimpleNamespace(dm="dm"))
     made = []
     monkeypatch.setattr(dbs, "async_session_maker", lambda: _AsyncCM(SimpleNamespace()))
     monkeypatch.setattr(leads, "create_lead", AsyncMock(side_effect=lambda *a, **k: made.append(k)))
@@ -46,7 +48,9 @@ async def test_email_capture_full_path(monkeypatch):
 
 
 async def test_phone_only_capture(monkeypatch):
+    import app.models.lead as ml
     import app.services.espocrm_client as esp
+    monkeypatch.setattr(ml, "LeadSource", SimpleNamespace(dm="dm"))
     monkeypatch.setattr(esp, "upsert_lead", AsyncMock())
     out = await LM._capture_contact(_acct(), "Bob", "call +30 697 123 4567")
     assert "Bob" in out and "number" in out
@@ -54,9 +58,11 @@ async def test_phone_only_capture(monkeypatch):
 
 async def test_espo_failure_nonfatal(monkeypatch):
     import app.db.session as dbs
+    import app.models.lead as ml
     import app.services.espocrm_client as esp
     import app.services.leads as leads
 
+    monkeypatch.setattr(ml, "LeadSource", SimpleNamespace(dm="dm"))
     monkeypatch.setattr(dbs, "async_session_maker", lambda: _AsyncCM(SimpleNamespace()))
     monkeypatch.setattr(leads, "create_lead", AsyncMock())
     monkeypatch.setattr(esp, "upsert_lead", AsyncMock(side_effect=Exception("down")))
