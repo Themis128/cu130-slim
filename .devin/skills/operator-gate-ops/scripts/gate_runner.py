@@ -38,23 +38,41 @@ def tabs():
         return []
 
 
+def _real_chrome_on(port):
+    """True when a REAL Chrome answers CDP on `port` — rejects EdgeWebView2
+    hosts like Lenovo Vantage that also expose :9222 (Browser 'Edg/…',
+    UA 'LenovoVantage/…'), which silently hijacks every gate."""
+    try:
+        with urllib.request.urlopen(f"http://localhost:{port}/json/version", timeout=5) as f:
+            v = json.loads(f.read())
+        ua = (v.get("userAgent") or "").lower()
+        return "lenovovantage" not in ua and v.get("Browser", "").startswith("Chrome/")
+    except Exception:
+        return False
+
+
 def _ensure_cdp() -> None:
-    if tabs():
+    if tabs() and _real_chrome_on(9222):
         return
+    if _real_chrome_on(9224):          # debug Chrome may already be up here
+        globals()["CDP"] = "http://localhost:9224"
+        return
+    port = "9224" if tabs() else "9222"   # :9222 taken by a webview → shift
     if REAL:
         subprocess.run(["cmd", "/c", "taskkill /F /IM chrome.exe"],
                        capture_output=True, timeout=30)
         time.sleep(3)
-        subprocess.Popen([CHROME, "--remote-debugging-port=9222"])
+        subprocess.Popen([CHROME, f"--remote-debugging-port={port}"])
     else:
-        subprocess.Popen([CHROME, "--remote-debugging-port=9222",
+        subprocess.Popen([CHROME, f"--remote-debugging-port={port}",
                           f"--user-data-dir={DEBUG_PROFILE}",
                           "--no-first-run", "about:blank"])
+    globals()["CDP"] = f"http://localhost:{port}"
     for _ in range(30):
-        if tabs():
+        if tabs() and _real_chrome_on(int(port)):
             return
         time.sleep(1)
-    raise SystemExit("CDP never came up on :9222")
+    raise SystemExit(f"CDP never came up on :{port}")
 
 
 class Page:
