@@ -1,7 +1,7 @@
 """Coverage: quiet-lead lane — enrollment age, due steps, sweep routing."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -170,3 +170,60 @@ async def test_sweep_quiet_lane_supersedes_nurture_forms(monkeypatch):
     await M.nurture_sweep(_db([lead]), MagicMock())
     assert lead.meta_data["quiet_step"] == 1
     assert "nurture_step" not in lead.meta_data
+
+
+@pytest.mark.asyncio
+async def test_shadow_call_skipped_when_env_unset(monkeypatch):
+    settings = MagicMock()
+    settings.LEAD_SCHEDULER_URL = ""
+    settings.LEAD_SCHEDULER_TOKEN = ""
+    monkeypatch.setattr(M, "get_settings", lambda: settings)
+    with patch("httpx.AsyncClient") as client:
+        await M._cf_shadow_call("LEAD_SCHEDULER_URL", "LEAD_SCHEDULER_TOKEN", "/x", {})
+    client.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_shadow_call_posts_when_env_set(monkeypatch):
+    settings = MagicMock()
+    settings.CF_U = "https://w.example.com"
+    settings.CF_T = "tok"
+    monkeypatch.setattr(M, "get_settings", lambda: settings)
+    post = AsyncMock()
+    client = AsyncMock()
+    client.post = post
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=None)
+    monkeypatch.setattr(M.httpx, "AsyncClient", lambda **kw: client)
+    await M._cf_shadow_call("CF_U", "CF_T", "/do/x", {"a": 1})
+    post.assert_awaited_once_with(
+        "https://w.example.com/do/x",
+        json={"a": 1},
+        headers={"Authorization": "Bearer tok"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_sweep_enroll_fires_scheduler_shadow(monkeypatch):
+    lead = _lead({"form": "audit-request"}, created_days=2)
+    shadow = AsyncMock()
+    monkeypatch.setattr(M, "_cf_shadow_call", shadow)
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", AsyncMock())
+    await M.nurture_sweep(_db([lead]), MagicMock())
+    paths = [c.args[2] for c in shadow.await_args_list]
+    assert any(p.endswith("/enroll") for p in paths)
+
+
+@pytest.mark.asyncio
+async def test_sweep_send_emits_funnel_event(monkeypatch):
+    lead = _lead(_enrolled(days_ago=2))
+    shadow = AsyncMock()
+    monkeypatch.setattr(M, "_cf_shadow_call", shadow)
+    import app.services.email_digest as ed
+
+    monkeypatch.setattr(ed, "send_email", AsyncMock())
+    await M.nurture_sweep(_db([lead]), MagicMock())
+    event_calls = [c for c in shadow.await_args_list if c.args[2] == "/event"]
+    assert event_calls and event_calls[0].args[3]["type"] == "quiet.sent"

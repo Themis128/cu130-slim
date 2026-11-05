@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Post-WSL-bounce GPU verification + ComfyUI rebind.
-# Run inside Ubuntu-26.04 after `wsl --shutdown` (wsl-gpu-rebind.ps1 calls this).
+# Run inside Ubuntu-24.04 after `wsl --shutdown` (wsl-gpu-rebind.ps1 calls this).
 #
 # Signature being repaired: `nvidia-smi` -> "GPU access blocked by the
 # operating system" and dmesg `dxgvmb_send_create_process failed -75`,

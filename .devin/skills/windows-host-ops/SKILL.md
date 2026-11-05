@@ -1,7 +1,7 @@
 ---
 name: windows-host-ops
 description: >-
-  Operate the Windows 11 host that runs WSL (Ubuntu-26.04) + Docker Desktop:
+  Operate the Windows 11 host that runs WSL (Ubuntu-24.04) + Docker Desktop:
   DevOptimizer scheduled tasks, hidden/headless console execution (conhost
   --headless), WSL↔Windows interop popups and vsock flakiness, memory limits,
   and the popup-watch diagnostic. Use for PowerShell/conhost flashes, scheduled
@@ -10,7 +10,7 @@ description: >-
 
 # Windows Host Ops
 
-The stack runs in WSL `Ubuntu-26.04` on a Windows 11 host (PowerShell 5.1 build
+The stack runs in WSL `Ubuntu-24.04` on a Windows 11 host (PowerShell 5.1 build
 26100.9587, conhost supports `--headless`). Docker Desktop runs on the WSL backend.
 
 ## Scheduled maintenance tasks
@@ -20,11 +20,11 @@ Eleven tasks — `\DevOptimizer\` (elevated) + task-root (user-owned). All run
 
 | Task | Cadence | Action |
 |---|---|---|
-| `socialauto-metrics-watchdog` (root) | every 5 min | `wsl.exe -d Ubuntu-26.04 -e python3 .../metrics-proxy-watchdog.py` |
+| `socialauto-metrics-watchdog` (root) | every 5 min | `wsl.exe -d Ubuntu-24.04 -e python3 .../metrics-proxy-watchdog.py` |
 | `Docker WSL Integration Watchdog` (root) | every 5 min | `conhost --headless powershell ... C:\Users\tbaltzakis\scripts\Watch-DockerWslIntegration.ps1 -Mode Check` |
 | `Docker-WSL-Sync` | 30 min + logon | `powershell ... sync-docker-wsl.ps1` |
 | `WSL-Memory-Watchdog` | 30 min | `powershell ... check-wsl-memory-pressure.ps1` |
-| `WSL-PreWarm` | logon | `wsl.exe -d Ubuntu-26.04 --exec true` |
+| `WSL-PreWarm` | logon | `wsl.exe -d Ubuntu-24.04 --exec true` |
 | `Safe-Cleanup-Daily`, `WSL-Ubuntu-Cleanup`, `SocialAuto-Maintenance`, `Devin-Daily-Maintenance` | daily 02:15–04:30 | powershell scripts |
 | `Admin-Cleanup-Weekly`, `Extended-Cleanup` | weekly | powershell scripts |
 
@@ -104,7 +104,7 @@ is no in-VM fix — the GPU-P channel is per-VM and only rebinds on VM start.
 
 Fix: bounce WSL from the Windows side. Registered task
 `\DevOptimizer\WSL-GPU-Rebind` runs `D:\DevOptimizer\scripts\wsl-gpu-rebind.ps1`
-(conhost --headless): `wsl --shutdown` → 15s → prewarm `Ubuntu-26.04` →
+(conhost --headless): `wsl --shutdown` → 15s → prewarm `Ubuntu-24.04` →
 runs `scripts/wsl-gpu-verify.sh` in-VM (waits for Docker, checks
 `nvidia-smi`, probes `torch.cuda` inside `social-media-comfyui-gpu`, and
 force-recreates the container if it still lacks the dxg mapping — a
@@ -127,7 +127,7 @@ Get-ScheduledTask -TaskPath '\DevOptimizer\' | % { $_.Actions[0].Execute + ' ' +
 ## Docker WSL Integration Watchdog + Telegram alerts (2026-11-02)
 
 `C:\Users\tbaltzakis\scripts\Watch-DockerWslIntegration.ps1` probes
-`wsl -d Ubuntu-26.04 --exec docker info` every 5 min. On failure it sends a
+`wsl -d Ubuntu-24.04 --exec docker info` every 5 min. On failure it sends a
 "repair starting" Telegram alert to the #ops channel (`TG_CH_OPS`,
 `-1004429103353`), terminates + relaunches the distro, then sends
 "repair complete" — or a FAILED alert if the distro stays unhealthy.
@@ -135,7 +135,7 @@ Get-ScheduledTask -TaskPath '\DevOptimizer\' | % { $_.Actions[0].Execute + ' ' +
 - `Send-Telegram` is **pure PowerShell** (`Invoke-RestMethod` -> Bot API) —
   deliberately no WSL/Docker dependency, since the failure it watches for can
   take WSL interop down with it. Token lookup: `TELEGRAM_BOT_TOKEN` env ->
-  `C:\Users\tbaltzakis\cu130-slim\.env` -> `\\wsl.localhost\Ubuntu-26.04\...\.env`.
+  `C:\Users\tbaltzakis\cu130-slim\.env` -> `\\wsl.localhost\Ubuntu-24.04\...\.env`.
 - Alert is best-effort with 3 retries; repair is NEVER blocked by alert
   delivery (a Telegram outage must not leave the stack broken).
 - Retry policy: `Failed` state re-attempts repair after a 15-min cooldown;

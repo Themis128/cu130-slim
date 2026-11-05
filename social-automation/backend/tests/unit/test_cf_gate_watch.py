@@ -22,7 +22,7 @@ def test_run_script_invokes(monkeypatch, tmp_path):
     (tmp_path / "s.py").write_text("pass")
     monkeypatch.setattr(task, "SCRIPTS", tmp_path)
     calls = []
-    monkeypatch.setattr(task.subprocess, "run", lambda *a, **k: (calls.append((a, k)) or _Proc()))
+    monkeypatch.setattr(task.subprocess, "run", lambda *a, **k: calls.append((a, k)) or _Proc())
     ok, _ = task._run("s.py", "--x")
     assert ok and calls[0][0][0][1].endswith("s.py")
 
@@ -50,8 +50,7 @@ def test_token_active_true(monkeypatch):
         def __exit__(self, *a):
             return False
 
-    monkeypatch.setattr("urllib.request.urlopen",
-                        lambda *a, **k: _Resp(json.dumps({"result": {"status": "active"}}).encode()))
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp(json.dumps({"result": {"status": "active"}}).encode()))
     assert task._token_active("tok") is True
 
 
@@ -84,8 +83,7 @@ def test_run_all_ok(monkeypatch):
 def test_run_partial_on_first_step(monkeypatch):
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
     monkeypatch.setattr(task, "_token_active", lambda t: True)
-    monkeypatch.setattr(task, "_run",
-                        lambda s, *a, **k: (False, "x") if s == "cf_email_destination.py" else (True, ""))
+    monkeypatch.setattr(task, "_run", lambda s, *a, **k: (False, "x") if s == "cf_email_destination.py" else (True, ""))
     monkeypatch.setattr(task, "_escalate", MagicMock())
     out = task.run()
     assert out["status"] == "partial" and out["failed"] == "destination"
@@ -94,8 +92,7 @@ def test_run_partial_on_first_step(monkeypatch):
 def test_run_logpush_failure_tolerated(monkeypatch):
     monkeypatch.setenv("CLOUDFLARE_API_TOKEN", "tok")
     monkeypatch.setattr(task, "_token_active", lambda t: True)
-    monkeypatch.setattr(task, "_run",
-                        lambda s, *a, **k: (False, "x") if s == "cf_logpush_setup.py" else (True, ""))
+    monkeypatch.setattr(task, "_run", lambda s, *a, **k: (False, "x") if s == "cf_logpush_setup.py" else (True, ""))
     monkeypatch.setattr(task, "_escalate", MagicMock())
     out = task.run()
     assert out["status"] == "partial" and "logpush" in out["results"]
@@ -111,6 +108,5 @@ def test_run_automint_recovers(monkeypatch):
 
 
 def test_escalate_swallows(monkeypatch):
-    monkeypatch.setattr("app.services.slack_notifications.send_telegram_alert",
-                        MagicMock(side_effect=RuntimeError("x")))
+    monkeypatch.setattr("app.services.slack_notifications.send_telegram_alert", MagicMock(side_effect=RuntimeError("x")))
     task._escalate("msg")  # must not raise
