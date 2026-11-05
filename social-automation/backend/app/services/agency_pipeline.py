@@ -423,6 +423,7 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
             has_proposal = (await db.execute(select(AgencyProposal.id).where(AgencyProposal.audit_id == audit.id).limit(1))).first()
             if has_proposal:
                 continue
+            custom_scope = False
             services = [s for s in (audit.recommended_services or []) if s in SERVICES]
             if not services:
                 services = [s for s, _sc, _h in classify_services(audit.action_plan or "")]

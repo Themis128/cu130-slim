@@ -22,7 +22,8 @@ class _AsyncCM:
 
 
 def _audit(**kw):
-    d = dict(url="https://x.gr", score=42, action_plan="- fix")
+    d = dict(url="https://x.gr", score=42, action_plan="- fix",
+             status=AP.AgencyAuditStatus.completed, findings=[], meta_data={})
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -66,7 +67,9 @@ def test_post_consult_email():
 
 
 def test_engineering_plan():
-    prop = SimpleNamespace(client_name="C", services_json='["site-audit"]', meta_data={}, services=[])
+    prop = SimpleNamespace(client_name="C", services_json='["site-audit"]', meta_data={},
+                       services=[], recipient_name=None, recipient_email="c@x.com",
+                       id="00000000-0000-0000-0000-000000000000")
     plan = AP.render_engineering_plan(prop, _audit())
     assert isinstance(plan, str) and len(plan) > 50
 
