@@ -14,10 +14,13 @@ subject = sys.argv[2] if len(sys.argv) > 2 else "tiktok"
 age = sys.argv[3] if len(sys.argv) > 3 else "30m"
 user = "tbaltzakis@cloudless.gr"
 
+# mailbox '*' sync fails on the .dovecot.sieve maildir entry — query the
+# real folders explicitly instead.
 cmd = [
     "ssh", "omv-ha",
-    f"sudo -n doveadm fetch -u {user} 'uid body' mailbox '*' "
-    f"FROM {shlex.quote(sender)} SUBJECT {shlex.quote(subject)} SENTSINCE {shlex.quote(age)} 2>/dev/null"
+    f"for b in INBOX Junk Sent Trash Heartbeat; do "
+    f"sudo -n doveadm fetch -u {user} 'uid body' mailbox $b "
+    f"FROM {shlex.quote(sender)} SUBJECT {shlex.quote(subject)} SENTSINCE {shlex.quote(age)} 2>/dev/null; done"
 ]
 out = subprocess.run(cmd, capture_output=True, text=True, timeout=60).stdout
 # split per-message on 'uid:' headers, newest uid last → scan in reverse

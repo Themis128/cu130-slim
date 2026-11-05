@@ -330,6 +330,34 @@ class LinkedInAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    async def update_organization_profile(
+        self,
+        org_id: str,
+        *,
+        description: str | None = None,
+        website: str | None = None,
+        tagline: str | None = None,
+    ) -> bool:
+        """Partial-update writable org-page fields. ``rw_organization_admin`` scope.
+
+        Text fields only — logo/cover are intentionally unsupported (profile
+        visuals must never change without an explicit request).
+        """
+        fields: dict[str, Any] = {}
+        if description is not None:
+            fields["localizedDescription"] = description
+        if website is not None:
+            fields["localizedWebsiteUrl"] = website
+        if tagline is not None:
+            fields["tagline"] = tagline
+        if not fields:
+            raise ValueError("no org profile fields to update")
+        url = f"{LINKEDIN_REST_BASE}/organizations/{org_id}"
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.patch(url, headers=self._headers(), json={"patch": {"$set": fields}})
+            self._raise_for_status(resp, url)
+            return True
+
     async def get_post_analytics(
         self,
         post_urn: str,

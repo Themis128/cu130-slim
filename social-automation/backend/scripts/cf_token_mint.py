@@ -32,9 +32,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DOTENV = Path(__file__).resolve().parents[3] / ".env"
 CF = "https://api.cloudflare.com/client/v4"
-DASH_TOKEN_PAGE = (
-    "https://dash.cloudflare.com/profile/api-tokens"
-)
+DASH_TOKEN_PAGE = "https://dash.cloudflare.com/profile/api-tokens"
 REQUIRED_PROBES = [
     ("logpush", "GET", "/accounts/fb7dc7b69b662480cd5961a4d1913c78/logpush/jobs"),
     ("email-routing", "GET", "/zones/7025298073d6a5c645a6ad9add0cbf0e/email/routing/rules"),
@@ -45,7 +43,8 @@ ENV_KEYS = ["CLOUDFLARE_API_TOKEN"]
 
 def _api(method: str, path: str, token: str) -> tuple[int, dict]:
     req = urllib.request.Request(
-        CF + path, method=method,
+        CF + path,
+        method=method,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
     )
     try:
@@ -95,6 +94,7 @@ def _ensure_chrome_debug() -> None:
     except OSError:
         pass
     import subprocess
+
     chrome = os.environ.get("CHROME_BIN", r"C:\Program Files\Google\Chrome\Application\chrome.exe")
     bat = Path.home() / "AppData" / "Roaming" / "devin" / "skills" / "consent-root-ops" / "scripts" / "start-chrome-debug.bat"
     try:
@@ -114,7 +114,6 @@ def _ensure_chrome_debug() -> None:
 
 
 def _cdp_click_flow() -> str | None:
-
     """Best-effort: drive live Chrome via CDP to create the token. Returns the token or None."""
     try:
         import websocket  # type: ignore
@@ -147,17 +146,21 @@ def _cdp_click_flow() -> str | None:
     time.sleep(5)
     # click "Create Token" -> scroll to Custom Token -> Get started
     for sel in ("//a[contains(.,'Create Token')]", "//button[contains(.,'Create Token')]"):
-        js(f"(()=>{{const x=document.evaluate(\"{sel}\",document,null,9,null);if(x.singleNodeValue){{x.singleNodeValue.click();return 1}}return 0}})()")
+        js(f'(()=>{{const x=document.evaluate("{sel}",document,null,9,null);if(x.singleNodeValue){{x.singleNodeValue.click();return 1}}return 0}})()')
     time.sleep(4)
-    js("(()=>{const t=[...document.querySelectorAll('*')].find(e=>e.children.length===0"
-       "&&/Get started/i.test(e.textContent||''));if(t){t.click();return 1}return 0})()")
+    js(
+        "(()=>{const t=[...document.querySelectorAll('*')].find(e=>e.children.length===0"
+        "&&/Get started/i.test(e.textContent||''));if(t){t.click();return 1}return 0})()"
+    )
     time.sleep(4)
     # name it
-    js("(()=>{const i=[...document.querySelectorAll('input')].find(e=>"
-       "/token name/i.test(e.parentElement?.textContent||''));if(i){i.focus();"
-       "const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');"
-       "d.set.call(i,'socialauto-ops '+new Date().toISOString().slice(0,10));"
-       "i.dispatchEvent(new Event('input',{bubbles:true}));return 1}return 0})()")
+    js(
+        "(()=>{const i=[...document.querySelectorAll('input')].find(e=>"
+        "/token name/i.test(e.parentElement?.textContent||''));if(i){i.focus();"
+        "const d=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value');"
+        "d.set.call(i,'socialauto-ops '+new Date().toISOString().slice(0,10));"
+        "i.dispatchEvent(new Event('input',{bubbles:true}));return 1}return 0})()"
+    )
     print("[cdp] navigated to token creator — finish the scope rows in the open window,")
     print("[cdp] click 'Continue to summary' then 'Create Token', then paste the token when it appears.")
     return None  # token text appears on the confirm screen — paste path takes over
@@ -170,6 +173,7 @@ def _watch_for_token() -> str:
     print("Scopes: Account= Logpush:Edit, Workers R2 Storage:Edit | Zone= Email Routing Rules:Edit")
     print("=" * 66)
     import getpass
+
     return getpass.getpass("token: ").strip()
 
 
@@ -182,6 +186,7 @@ def main() -> int:
         if not paste_only:
             # still open the dashboard for the manual path
             import webbrowser
+
             webbrowser.open(DASH_TOKEN_PAGE)
         token = _watch_for_token()
     if not token:

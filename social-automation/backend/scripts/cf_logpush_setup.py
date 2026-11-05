@@ -69,9 +69,12 @@ def main() -> int:
         rows.append({"check": name, "status": "ok" if ok else "action", "detail": detail, "fix": fix})
 
     if not token:
-        say("cf-token", False, "no CLOUDFLARE_API_TOKEN/CF_API_TOKEN in env",
-            "dash.cloudflare.com -> My Profile -> API Tokens -> create with "
-            "Workers Scripts Edit + Logpush Edit + R2 Edit, add to .env")
+        say(
+            "cf-token",
+            False,
+            "no CLOUDFLARE_API_TOKEN/CF_API_TOKEN in env",
+            "dash.cloudflare.com -> My Profile -> API Tokens -> create with Workers Scripts Edit + Logpush Edit + R2 Edit, add to .env",
+        )
         return _report(rows, args.json)
 
     # verify token + scopes the cheap way: hit a read endpoint
@@ -84,10 +87,7 @@ def main() -> int:
     key_id, secret = _env("R2_ACCESS_KEY_ID"), _env("R2_SECRET_ACCESS_KEY")
     if key_id and secret:
         say("r2-creds", True, "S3 keys present")
-        dest = (
-            f"r2://cloudless-datalake/worker-logs/{{DATE}}?account-id={account}"
-            f"&access-key-id={key_id}&secret-access-key={secret}"
-        )
+        dest = f"r2://cloudless-datalake/worker-logs/{{DATE}}?account-id={account}&access-key-id={key_id}&secret-access-key={secret}"
     else:
         say("r2-creds", True, "no S3 keys - trying managed R2 conf (account-id only)")
         dest = f"r2://cloudless-datalake/worker-logs/{{DATE}}?account-id={account}"
@@ -96,16 +96,20 @@ def main() -> int:
     if existing:
         say("logpush-job", True, f"job {existing[0].get('id')} already enabled")
         return _report(rows, args.json)
-    res = _api("POST", f"/accounts/{account}/logpush/jobs", token, {
-        "name": "workers-trace-events",
-        "dataset": "workers_trace_events",
-        "destination_conf": dest,
-        "enabled": True,
-        "output_options": {"field_names": [], "output_type": "ndjson", "timestamp_format": "rfc3339"},
-    })
+    res = _api(
+        "POST",
+        f"/accounts/{account}/logpush/jobs",
+        token,
+        {
+            "name": "workers-trace-events",
+            "dataset": "workers_trace_events",
+            "destination_conf": dest,
+            "enabled": True,
+            "output_options": {"field_names": [], "output_type": "ndjson", "timestamp_format": "rfc3339"},
+        },
+    )
     if not res.get("success"):
-        say("logpush-job", False, str(res.get("errors"))[:300],
-            "token lacks Logpush Edit — recreate with that scope")
+        say("logpush-job", False, str(res.get("errors"))[:300], "token lacks Logpush Edit — recreate with that scope")
         return _report(rows, args.json)
     say("logpush-job", True, f"job {res['result'].get('id')} -> r2://cloudless-datalake/worker-logs/")
     return _report(rows, args.json)
