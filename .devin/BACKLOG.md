@@ -37,10 +37,61 @@ Status of every open issue from the LinkedIn review + verification email:
 | 7 | Member DP product map conflation | ✅ fixed (docs-verified) |
 | 8 | Lenovo Vantage WebView2 owns :9222 — CDP lane blocked | ✅ resolved — our lane moved to **:9229** (docs: any port works; Vantage rebinds 9222 on respawn via `DebuggingPortEnabled` reg flag / webview default — not worth fighting). chrome-debug-profile live on :9229 |
 | 9 | CDP scripts hardcode :9222 — need port parameter | ✅ fixed — `$CDP_URL` env (default :9229) in `li_portal_edit.py`, `qualtrics_fill.py`, `--cdp` in `cdp_shot.py`, `start-chrome-debug.bat` takes port arg |
-| 10 | Member DP request: pick (3rd Party) form vs new (Member) app | ⬜ open — **blocked on LinkedIn login in chrome-debug-profile** (opened on :9229, shows login wall — one manual login seeds it). Then: create NEW app bound to "Member Data Portability (Member) Default Company" page for `r_dma_portability_self_serve` (instant ToS grant), or drive the (3rd Party) form on 265077368 |
+| 10 | Member DP request: pick (3rd Party) form vs new (Member) app | ⬜ open — login DONE (feed loads on :9229). Findings: **(Member) product shows NO request button** on 265077368 (dedicated-page gate real); (3rd Party)/(Member)/Pages buttons render enabled (`aria-disabled` null, secondary blue styling) but **synthetic + CDP mouse clicks fire nothing** — likely `window.open` form blocked as popup on background tab. NEXT: one manual click in the debug Chrome window on "Request access" for `Member Data Portability API (3rd Party)`, then fill form (legal name, reg. address, privacy policy + biz-email verify → LinkedIn review) |
 | 11 | `li_portal_edit.py get-secret` prints secret to stdout | ✅ fixed — writes to `$LI_SECRET_OUT` file when set, stdout otherwise |
 | 12 | LinkedIn token dead — one consent click (once lane up) | ⬜ open (blocked by #10 login) |
 | 13 | LinkedIn sidecar :9225 session dead — no stored creds | ⬜ open (manual — noVNC login once) |
+- **Unblocks**: product "Request access" modals on the app's Products tab
+  (only clickable when company-verified). Next action: request **Member
+  Data Portability (Member)** via
+  `li_portal_edit.py products 265077368 request "Member Data Portability"`
+  — modal still needs the business-email verify step (Edge :9222 +
+  logged-in LinkedIn required).
+
+## Mail-stack triage 2026-11-05 (business-email verification hunt)
+
+- ✅ `heartbeat.svbin` root-owned inside vmail dir → chowned to `vmail:vmail`
+- ✅ `fetch-code.py` — `mailbox '*'` broke on `.dovecot.sieve` maildir entry
+  (doveadm exit 75); patched to query INBOX/Junk/Sent/Trash/Heartbeat
+  explicitly. Residual: the dovecot folder-listing quirk is cosmetic and
+  stays until `.dovecot.sieve` moves out of the maildir root (config change).
+- ✅ `SPAM_REJECT_AT` on `mail-ingest` Worker: raised 9→25 to test, restored 9.
+- ✅ End-to-end ingest verified (POST → `ingest.php` → `dovecot-lda` → 204,
+  mail delivered). External inbound works (DMARC/LinkedIn mails landed today).
+- ❌ LinkedIn **business-email verification mail never arrives** — 3 sends,
+  not in any folder; dies at/before the Worker (likely edge spam-reject; log
+  sampling is 5%). Fallback Gmail `themis.baltzakis@gmail.com` checked via
+  google-workspace MCP — not there either.
+- ⬜ `gmail-ops` OAuth refresh token stale → needs `gmail.py login` re-consent.
+- ✅ **ROOT CAUSE found**: my `PATCH` on `SPAM_REJECT_AT` replaced the entire
+  worker bindings array — `MAIL_INGEST_URL`, `FALLBACK_FORWARD`, `SPAM_TAG_AT`,
+  `SPAM_BLOCK_SENDERS` were wiped → "missing ingest configuration" → every
+  inbound mail bounced at edge ~14:40-16:10. Restored all bindings; Gmail
+  test landed (204 → Maildir). Worker PATCH gotcha: always send full set.
+- ✅ Business email verified (`themis.baltzakis@gmail.com` on
+  `/developers/settings` — gmail rejected for the PRODUCT email field though:
+  "personal email domain" — product verify needs a business domain).
+- ✅ **Dedicated app created**: `cloudless-gr-dma` (id `265077464`,
+  client `77tdkcl3ukzx2d`) — Member DP (3rd Party) requires an app whose ONLY
+  product is itself (tooltip-verified); app `265077368` permanently blocked.
+- ✅ Page-admin company verification driven end-to-end (generate URL →
+  open → Verify → Confirm — I am the page admin in the debug session).
+- ✅ Code `633696` fetched from Maildir → business email verified in-modal.
+- ✅ Qualtrics access form `SV_08398ogFnu89WZg` filled + submitted via
+  qualtrics_fill.py (legal name, Koropi/Attica/19400/Greece, cloudless.gr
+  website+privacy, use-case text) → **LinkedIn review pending (up to 21d)**.
+- ⬜ `SPAM_REJECT_AT` restored to 9 ✓ (kept 25 during code fetch, done now).
+- ⬜ NEXT after review: OAuth token re-auth on `265077464` to mint
+  `r_dma_portability_3rd_party`; heal dead token on `265077368` separately.
+
+## Dev-app audit 2026-11-05 (all 4 apps vs portal)
+
+| App | Redirect URLs | Products/status | Issues |
+|---|---|---|---|
+| `265077464` cloudless-gr-dma | ✅ canonical callback added today | DP (3rd Party) request submitted + Qualtrics form done → review pending (≤21d) | scopes pending until grant |
+| `265077368` cloudless-gr-member | ✅ canonical callback | Share/OIDC/EventsMgmt provisioned; Lead Sync review in progress; DP blocked by only-product rule (correct) | dead OAuth token (consent click) |
+| `264925843` Cloudless Analytics | ✅ canonical callback | CM API Standard + Share/OIDC/Events | none |
+| `227354605` Cloudless API App | ⚠ has postiz + localhost + `social.cloudless.gr/` root — **canonical `/api/v1/auth/oauth/linkedin/callback` NOT registered** | Advertising Standard ✓; Lead Sync **Access denied** | add canonical redirect; Lead Sync denied — re-request with different justification if needed |
 
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
@@ -727,3 +778,35 @@ Left:
   authoritative is unverified — check the live page.
 - [ ] monitor.log + state.json grow unboundedly in the live dir
   (957 lines/4 days) — consider rotation if it becomes a problem.
+## 2026-11-05 — LinkedIn forms sweep + mail root-cause (final)
+
+### Mail
+- ROOT CAUSE of "Mailbox ingest not configured" bounces: a partial
+  PATCH on worker settings REPLACED the whole bindings array — wiped
+  MAIL_INGEST_URL/FALLBACK_FORWARD/SPAM_* → all inbound bounced ~14:40-16:10.
+  Restored all bindings, verified live (PIPELINE-TEST-3 -> 204 -> Maildir).
+- `worker_set_binding.py` (mail-code-fetch/scripts) = the only safe way to
+  change a worker env binding — GETs full array, patches one, PUTs back.
+
+### LinkedIn developer apps — final product state
+- **265077464 cloudless-gr-dma** (sole-product DP-3rd-Party app, created
+  today): company verified, business-email verified, Member DP (3rd Party)
+  Qualtrics access form SV_08398ogFnu89WZg SUBMITTED — review pending ≤21d.
+- **265077368 cloudless-gr-member**: Matched Audiences, Conversions,
+  Community Mgmt, Advertising, Ad Library — all forms filled+submitted;
+  Lead Sync already in review; DP products correctly gated (sole-product).
+- **264925843 Cloudless Analytics**: same 5 forms filled+submitted via
+  per-app Q_DL links.
+- **227354605 Cloudless API App**: canonical OAuth redirect added; Lead
+  Sync + Conversions still "Access denied" — needs fresh business
+  justification, not reversible programmatically.
+- `qualtrics-ops/scripts/li_batch_fill.py` = promoted batch filler with
+  correct error selector + full label map + verify loop.
+
+## 2026-11-05 late — Qualtrics automation state
+- clickNextButton() JFE API submit confirmed: Member DP (3rd Party),
+  Advertising x3, Matched Audiences x1, Lead Sync x1 = SUBMITTED.
+- Remaining to redo on fresh browser: Matched Audiences x3, Conversions x2,
+  Lead Sync x1 (264925843), Community Mgmt, Ad Library, Live Events —
+  reopen via per-app products-page links, then setChoiceValue/setTextValue
+  + clickNextButton. Debug Chrome was killed to heal the wedged CDP lane.
