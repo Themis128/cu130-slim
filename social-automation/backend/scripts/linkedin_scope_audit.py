@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import urllib.parse
 
 import httpx
 from sqlalchemy import select
@@ -34,7 +35,7 @@ ORG = "urn:li:organization:108614163"
 ORG_ID = "108614163"
 
 # scope → (label, endpoint). One probe each; 200 = the scope/product is live.
-E = "{ORG.replace(':', '%3A')}"
+E = ORG.replace(":", "%3A")
 
 PROBES: list[tuple[str, str, str]] = [
     ("openid+profile", "userinfo",
@@ -61,12 +62,28 @@ PROBES: list[tuple[str, str, str]] = [
     ("r_member_profileAnalytics", "member snapshot",
      "https://api.linkedin.com/rest/memberSnapshotData"
      "?personUrn=urn%3Ali%3Aperson%3ASIkIOg3i31"),
+    # {post} is resolved at runtime to a real org-post URN — the comments
+    # endpoint only accepts share/ugcPost/activity URNs, never organization.
     ("*_social_feed", "org feed comments",
-     f"https://api.linkedin.com/rest/socialActions/{E}"
-     "%3A7523840153971449856/comments?count=1"),
+     "https://api.linkedin.com/rest/socialActions/{post}/comments?count=1"),
     ("r_1st_connections_size", "connections",
      "https://api.linkedin.com/rest/connections?q=count"),
 ]
+
+
+async def _post_urn(c: httpx.AsyncClient, h: dict) -> str | None:
+    r = await c.get(
+        f"https://api.linkedin.com/rest/posts?q=author&author={E}&count=1",
+        headers=h)
+    try:
+        els = r.json().get("elements") or []
+        if els:
+            urn = els[0].get("id") or els[0].get("urn")
+            if urn:
+                return urllib.parse.quote(str(urn), safe="")
+    except Exception:
+        pass
+    return None
 
 
 async def audit(account_id: str) -> None:
@@ -83,7 +100,13 @@ async def audit(account_id: str) -> None:
          "X-Restli-Protocol-Version": "2.0.0"}
     print(f"account={account_id} updated={acc.updated_at}")
     async with httpx.AsyncClient(timeout=20) as c:
+        post_urn = await _post_urn(c, h)
         for scope, label, url in PROBES:
+            if "{post}" in url:
+                if not post_urn:
+                    print(f"  {'no-post':>10}  {scope:<28} {label}")
+                    continue
+                url = url.format(post=post_urn)
             r = await c.get(url, headers=h)
             verdict = {200: "granted", 403: "denied", 429: "rate-limited"}.get(
                 r.status_code, f"missing({r.status_code})")

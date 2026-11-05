@@ -15,7 +15,10 @@ Client IDs are NOT secrets — they appear in authorize URLs. Probing is a
 single unauthenticated GET per scope against linkedin.com.
 """
 from __future__ import annotations
-import argparse, json, os, sys, urllib.parse, urllib.request
+import argparse
+import json
+import urllib.parse
+import urllib.request
 
 AUTHZ = "https://www.linkedin.com/oauth/v2/authorization"
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
@@ -99,10 +102,9 @@ def probe(client_id: str, redirect_uri: str, scopes: list[str]) -> str:
     try:
         resp = urllib.request.build_opener(NoRedirect).open(
             urllib.request.Request(url, headers=UA), timeout=30)
-        status, loc = resp.status, resp.headers.get("Location", "")
+        loc = resp.headers.get("Location", "")
         body = resp.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
-        status = e.code
         loc = e.headers.get("Location", "") if e.headers else ""
         body = e.read().decode("utf-8", "replace") if e.fp else ""
     except Exception as e:

@@ -15,9 +15,17 @@
 set -euo pipefail
 
 AGENT="${AGENT:-http://172.22.144.1:8765}"
-FRAMES="${2:-30}"
-FPS="${4:-1}"
-OUT="${6:-/tmp/li-integration.mp4}"
+FRAMES=30
+FPS=1
+OUT="/tmp/li-integration.mp4"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --frames) FRAMES="$2"; shift 2 ;;
+    --fps)    FPS="$2"; shift 2 ;;
+    --out)    OUT="$2"; shift 2 ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
 DIR="/tmp/li-rec-$$"
 mkdir -p "$DIR"
 

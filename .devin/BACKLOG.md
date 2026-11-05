@@ -1,5 +1,26 @@
 # BACKLOG (living)
 
+## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
+
+- Review of today's LinkedIn PRs (#1344–#1358) found two files landed
+  **truncated mid-write**: `li_consent_trim.py` (9-line stub, unterminated
+  docstring → SyntaxError; `li_consent_drive.py` + portal-ops SKILL.md both
+  depend on it) and `qualtrics_fill.py` (101→25 lines, ends mid-expression;
+  all documented subcommands dead).
+- **Fixed on `fix/linkedin-ops-script-repairs`**: full `li_consent_trim.py`
+  implementation (strip scopes in place, `--show`, `--from-error` parses the
+  callback's error_description); complete CDP `qualtrics_fill.py`
+  (`--map`/`--answers`/`--country`/`--submit` per docstring); real flag parsing
+  in `record_integration.sh`; `linkedin_scope_audit.py` — fixed broken
+  `E = "{ORG.replace...}"` literal (was never an f-string — EVERY `{E}` probe
+  URL was malformed) + `{post}` URN now resolved live from /rest/posts
+  (comments endpoint needs share/ugcPost/activity URNs); `survey_fill.js` —
+  dropped `module.exports` (throws in browser eval) + argv guards on
+  `li_portal_edit.py`/`li_consent_drive.py`; dead-code cleanups. All touched
+  files ruff-clean.
+- [ ] `li_portal_edit.py get-secret` prints client secret to stdout — by
+  design, but lands in shell history/logs; consider stderr flag or file out.
+
 ## 2026-11-05 — LinkedIn products/scopes: correct process codified
 
 - **Share on LinkedIn (Default Tier) + Sign In OIDC (Standard Tier) provisioned** on member app

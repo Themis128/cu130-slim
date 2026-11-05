@@ -7,7 +7,10 @@ Usage:
   li_portal_edit.py products <APP_ID> request "<product text>"
 Needs Edge/Chrome on --remote-debugging-port=9222 with LinkedIn logged in.
 """
-import json, sys, time, urllib.request
+import json
+import sys
+import time
+import urllib.request
 import websocket
 
 CDP = "http://localhost:9222"
@@ -30,7 +33,8 @@ def ev(ws, expr):
         "params":{"expression":expr,"returnByValue":True,"awaitPromise":True}}))
     while True:
         m = json.loads(ws.recv())
-        if m.get("id")==1: return m["result"].get("result",{}).get("value")
+        if m.get("id")==1:
+            return m["result"].get("result",{}).get("value")
 
 JS_SET_VALUE = """
 (async (val) => {
@@ -60,11 +64,16 @@ def add_redirect(app_id, url):
       if(!a) return 'no-anchor'; let s=a; for(let k=0;k<6;k++)s=s.parentElement;
       const p=s.querySelector('.editable-block__edit-btn button'); if(!p)return 'no-pencil';
       p.click(); return 'ok';})()""")
-    if r != 'ok': print('edit-pencil:', r); return
+    if r != 'ok':
+        print('edit-pencil:', r)
+        return
     time.sleep(2)
-    print('add-url:', click_btn(ws, 'Add redirect URL')); time.sleep(1.5)
-    print('fill:', ev(ws, f"({JS_SET_VALUE})('{url}')")); time.sleep(1)
-    print('update:', click_btn(ws, 'Update')); time.sleep(4)
+    print('add-url:', click_btn(ws, 'Add redirect URL'))
+    time.sleep(1.5)
+    print('fill:', ev(ws, f"({JS_SET_VALUE})('{url}')"))
+    time.sleep(1)
+    print('update:', click_btn(ws, 'Update'))
+    time.sleep(4)
     txt = ev(ws, "document.body.innerText") or ''
     print('result:', 'REGISTERED' if url in txt else 'check page')
     b.send(json.dumps({"id":9,"method":"Target.closeTarget","params":{"targetId":tid}}))
@@ -85,13 +94,21 @@ def request_product(app_id, text):
       let s=row; for(let k=0;k<8;k++)s=s.parentElement;
       const b=[...s.querySelectorAll('button')].find(x=>/request access/i.test(x.innerText||''));
       if(!b) return 'no-button'; b.click(); return 'clicked';})()""" % json.dumps(text))
-    print('request:', r); time.sleep(3)
+    print('request:', r)
+    time.sleep(3)
     print((ev(ws, "document.body.innerText") or '')[:400])
     b.send(json.dumps({"id":9,"method":"Target.closeTarget","params":{"targetId":tid}}))
 
 if __name__ == "__main__":
     cmd = sys.argv[1:]
-    if cmd[0] == "auth" and cmd[2] == "add-redirect": add_redirect(cmd[1], cmd[3])
-    elif cmd[0] == "auth" and cmd[2] == "get-secret": get_secret(cmd[1])
-    elif cmd[0] == "products" and cmd[2] == "request": request_product(cmd[1], cmd[3])
-    else: print(__doc__)
+    if len(cmd) < 3:
+        print(__doc__)
+        sys.exit(2)
+    if cmd[0] == "auth" and cmd[2] == "add-redirect":
+        add_redirect(cmd[1], cmd[3])
+    elif cmd[0] == "auth" and cmd[2] == "get-secret":
+        get_secret(cmd[1])
+    elif cmd[0] == "products" and cmd[2] == "request":
+        request_product(cmd[1], cmd[3])
+    else:
+        print(__doc__)
