@@ -2468,6 +2468,30 @@ services:
       timeout: 10s
       retries: 3
 
+  infisical:
+    image: infisical/infisical:latest-postgres
+    container_name: infisical
+    restart: unless-stopped
+    environment:
+      - ENCRYPTION_KEY=${INFISICAL_ENCRYPTION_KEY}
+      - AUTH_SECRET=${INFISICAL_AUTH_SECRET}
+      - DB_CONNECTION_URI=${INFISICAL_DB_URI}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - SITE_URL=${INFISICAL_SITE_URL:-http://localhost:8090}
+    networks:
+      - db
+    ports:
+      - "127.0.0.1:8090:8080"
+      - "100.86.188.43:8090:8080"
+    depends_on:
+      - postgres
+      - redis
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/api/status || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
 volumes:
   ollama_models:
   portainer_data: null
