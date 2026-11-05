@@ -184,9 +184,10 @@ async def test_run_unchanged_no_telegram(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_changed_notifies(monkeypatch):
+    """A repeated candidate (2nd consecutive sighting) promotes + notifies."""
     from app.worker.tasks import synigoros_status as M
 
-    last = MagicMock(meta_data={"status": "Αναμονή"}, team_id="t")
+    last = MagicMock(meta_data={"status": "Αναμονή", "candidate": "Ολοκληρώθηκε"}, team_id="t")
     acc = MagicMock(team_id="t", meta_data={"bot_token_enc": "enc"}, access_token_enc=b"e")
     monkeypatch.setattr(M, "MAIL", "m")
 
@@ -199,7 +200,31 @@ async def test_run_changed_notifies(monkeypatch):
     monkeypatch.setattr(M, "TelegramAPIClient", MagicMock(return_value=tg))
     out = await M._run()
     assert out["telegram_notified"] is True
+    assert out["status"] == "Ολοκληρώθηκε"
     tg.send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_run_first_sighting_holds_candidate(monkeypatch):
+    """First differing read is held as candidate — no alert, status kept."""
+    from app.worker.tasks import synigoros_status as M
+
+    last = MagicMock(meta_data={"status": "Αναμονή"}, team_id="t")
+    acc = MagicMock(team_id="t", meta_data={}, access_token_enc=b"e")
+    monkeypatch.setattr(M, "MAIL", "m")
+    monkeypatch.setattr(M, "KPA", "k")
+    monkeypatch.setattr(M, "MAIL", "m")
+    monkeypatch.setattr(M, "KPA", "k")
+    monkeypatch.setattr(M, "_poll", lambda: {"status": "Προς Αποδοχή", "proto": "11"})
+    monkeypatch.setattr(M, "task_session", lambda: _db(last, acc))
+    send = AsyncMock()
+    monkeypatch.setattr(M.TelegramAPIClient, "send_message", send, raising=False)
+    out = await M._run()
+    assert not out.get("telegram_notified")
+    assert out["status"] == "Αναμονή"  # confirmed stays until 2nd read
+    assert out["candidate"] == "Προς Αποδοχή"
+    assert out["raw_status"] == "Προς Αποδοχή"
+    send.assert_not_awaited()
 
 
 @pytest.mark.asyncio
