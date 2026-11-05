@@ -30,6 +30,11 @@
   accounts team) — /auth/switch-team gives full access.
 - **linkedin-review@cloudless.gr password reset** (LinkedInReview2026!) —
   reviewer login for demo recordings.
+- **264925843 (Cloudless Analytics App, `77j8kzfi1a6jn8`) consents the
+  FULL union** — probed: member analytics, feeds, followers, dma
+  portability all grantable. Events Management Standard Tier granted
+  11-05. RECOMMEND: switch LINKEDIN_CLIENT_ID/SECRET to this client +
+  one consent click → heals token AND unlocks member surfaces.
 - [ ] CM Standard-tier survey: needs ~2min screen recording WITH US-English
   audio commentary (per LinkedIn requirements) + registered address.
   Recording blocked until token healed via consent click.
