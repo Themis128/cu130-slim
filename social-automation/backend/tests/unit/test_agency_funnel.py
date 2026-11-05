@@ -542,7 +542,7 @@ async def test_send_proposal_embeds_payment_link(monkeypatch):
         return {}
 
     monkeypatch.setattr(P.espo, "add_lead_note", _note)
-    prop = _proposal(status=AgencyProposalStatus.approved, body_md="Scope: audit + build.", espo_lead_id="l1")
+    prop = _proposal(status=AgencyProposalStatus.approved, body_md="Scope: audit + build.", espo_lead_id="l1", approved_at=None)
     db = _DB()
     r = await P.send_proposal(db, prop)
     assert r["ok"] is True

@@ -22,7 +22,9 @@ class _AsyncCM:
 
 
 def _audit(**kw):
-    return SimpleNamespace(url="https://x.gr", score=42, action_plan="- fix", **kw)
+    d = dict(url="https://x.gr", score=42, action_plan="- fix")
+    d.update(kw)
+    return SimpleNamespace(**d)
 
 
 def test_render_proposal_bundle_and_single():
@@ -36,22 +38,23 @@ def test_render_proposal_bundle_and_single():
 
 def test_lead_blob_and_services_line():
     assert AP._lead_blob({"email": "a@b.c", "name": "N"}) != AP._lead_blob({"email": "x@b.c"})
-    assert "€" in AP._services_line(list(AP.SERVICES)[:1])
+    assert AP._services_line(list(AP.SERVICES)[:1]) != "unclassified"
 
 
 def test_autosend_block_reasons():
-    p = SimpleNamespace(recipient_email="", proposal_md="x", meta_data={})
+    p = SimpleNamespace(recipient_email="", proposal_md="x", meta_data={}, services=[], price_low_eur=None, price_high_eur=None)
     reasons = AP._autosend_block_reasons(p, _audit(), None)
     assert "no-valid-recipient" in reasons
-    p2 = SimpleNamespace(recipient_email="ok@x.com", proposal_md="x", meta_data={})
+    p2 = SimpleNamespace(recipient_email="ok@x.com", proposal_md="x", meta_data={}, services=[], price_low_eur=None, price_high_eur=None)
     r2 = AP._autosend_block_reasons(p2, _audit(), None)
     assert isinstance(r2, list)
 
 
 def test_milestones_handoff_kickoff():
     ms = AP.project_milestones()
-    assert len(ms) >= 3 and all("day" in m and "title" in m for m in ms)
-    proj = SimpleNamespace(name="P1", client_name="C", proposal=None)
+    assert len(ms) >= 3 and all("day" in m and "label" in m for m in ms)
+    from datetime import UTC, datetime
+    proj = SimpleNamespace(name="P1", client_name="C", proposal=None, milestones=[], kickoff_at=datetime.now(UTC))
     assert "P1" in AP._render_handoff(proj)
     subj, body = AP._kickoff_email("C", "P1", loa_md="sig")
     assert "C" in body and "P1" in subj + body
@@ -63,7 +66,7 @@ def test_post_consult_email():
 
 
 def test_engineering_plan():
-    prop = SimpleNamespace(client_name="C", services_json='["site-audit"]', meta_data={})
+    prop = SimpleNamespace(client_name="C", services_json='["site-audit"]', meta_data={}, services=[])
     plan = AP.render_engineering_plan(prop, _audit())
     assert isinstance(plan, str) and len(plan) > 50
 

@@ -84,7 +84,7 @@ async def list_all(
         if where:
             for i, clause in enumerate(where):
                 for k, v in clause.items():
-                    params[f"where[{i}][{k}]"] = json.dumps(v) if isinstance(v, list | dict) else v
+                    params[f"where[{i}][{k}]"] = json.dumps(v) if isinstance(v, (list, dict)) else v
         data = await espo_get(f"/{entity}", params=params)
         page = data.get("list") or []
         items.extend(page)

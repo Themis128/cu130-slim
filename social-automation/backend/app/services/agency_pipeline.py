@@ -1215,7 +1215,7 @@ def _post_consult_email(client_name: str | None, opp_name: str) -> tuple[str, st
     subject = "Following up on our call"
     body = (
         f"Hi {client},\n\n"
-        "thanks for taking the time to talk — good conversation.\n\n"
+        f"thanks for taking the time to talk about {opp_name} — good conversation.\n\n"
         "Next step on my side: I'll run the deeper audit and put together the\n"
         "fixed-scope plan we discussed. You'll have it in your inbox shortly —\n"
         "one fixed price, 14-day delivery, you own everything.\n\n"
