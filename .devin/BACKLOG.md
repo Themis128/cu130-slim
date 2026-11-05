@@ -837,3 +837,4 @@ Left:
   Lead Sync x1 (264925843), Community Mgmt, Ad Library, Live Events —
   reopen via per-app products-page links, then setChoiceValue/setTextValue
   + clickNextButton. Debug Chrome was killed to heal the wedged CDP lane.
+<!-- ci-nudge 2026-11-05 -->
