@@ -63,13 +63,26 @@ Status of every open issue from the LinkedIn review + verification email:
   sampling is 5%). Fallback Gmail `themis.baltzakis@gmail.com` checked via
   google-workspace MCP — not there either.
 - ⬜ `gmail-ops` OAuth refresh token stale → needs `gmail.py login` re-consent.
-- ✅ Swap driven on `/developers/settings`: business email now
-  `themis.baltzakis@gmail.com`, verification email sent (was Pending→
-  tbaltzakis@cloudless.gr, which the edge kept eating).
-- ⬜ Check `themis.baltzakis@gmail.com` for the verify link — the MCP's
-  Gmail account is `baltzakis.themis@gmail.com` (different mailbox if not
-  aliased). After verify: business email can be switched back to
-  `tbaltzakis@cloudless.gr`, then Request access on Member DP (3rd Party).
+- ✅ **ROOT CAUSE found**: my `PATCH` on `SPAM_REJECT_AT` replaced the entire
+  worker bindings array — `MAIL_INGEST_URL`, `FALLBACK_FORWARD`, `SPAM_TAG_AT`,
+  `SPAM_BLOCK_SENDERS` were wiped → "missing ingest configuration" → every
+  inbound mail bounced at edge ~14:40-16:10. Restored all bindings; Gmail
+  test landed (204 → Maildir). Worker PATCH gotcha: always send full set.
+- ✅ Business email verified (`themis.baltzakis@gmail.com` on
+  `/developers/settings` — gmail rejected for the PRODUCT email field though:
+  "personal email domain" — product verify needs a business domain).
+- ✅ **Dedicated app created**: `cloudless-gr-dma` (id `265077464`,
+  client `77tdkcl3ukzx2d`) — Member DP (3rd Party) requires an app whose ONLY
+  product is itself (tooltip-verified); app `265077368` permanently blocked.
+- ✅ Page-admin company verification driven end-to-end (generate URL →
+  open → Verify → Confirm — I am the page admin in the debug session).
+- ✅ Code `633696` fetched from Maildir → business email verified in-modal.
+- ✅ Qualtrics access form `SV_08398ogFnu89WZg` filled + submitted via
+  qualtrics_fill.py (legal name, Koropi/Attica/19400/Greece, cloudless.gr
+  website+privacy, use-case text) → **LinkedIn review pending (up to 21d)**.
+- ⬜ `SPAM_REJECT_AT` restored to 9 ✓ (kept 25 during code fetch, done now).
+- ⬜ NEXT after review: OAuth token re-auth on `265077464` to mint
+  `r_dma_portability_3rd_party`; heal dead token on `265077368` separately.
 
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
