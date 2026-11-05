@@ -146,6 +146,54 @@ async def _mark_proposal_replied(sender: str, cand: dict[str, Any]) -> bool:
         return False
 
 
+async def _mark_project_intake(sender: str, cand: dict[str, Any]) -> bool:
+    """Stamp ``meta.intake_received`` on an active agency project whose
+    client replied — the kickoff mail asks for access/brand/scope items.
+
+    pm_sweep's intake nudge keys off that flag. Returns True when a project
+    was stamped.
+    """
+    try:
+        from sqlalchemy import select
+
+        from app.models.agency import AgencyProject, AgencyProjectStatus
+        from app.worker._async import get_session_factory
+
+        async with get_session_factory()() as db:
+            projects = (
+                (
+                    await db.execute(
+                        select(AgencyProject)
+                        .where(
+                            AgencyProject.status == AgencyProjectStatus.active,
+                            AgencyProject.client_email == sender,
+                        )
+                        .limit(5)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            hit = False
+            for project in projects:
+                md = dict(project.meta_data or {})
+                if md.get("intake_received"):
+                    continue
+                md["intake_received"] = {
+                    "at": datetime.now(UTC).isoformat(),
+                    "subject": cand["subject"][:120],
+                    "message_id": cand["message_id"] or cand["uid"],
+                }
+                project.meta_data = md
+                hit = True
+            if hit:
+                await db.commit()
+            return hit
+    except Exception:  # noqa: BLE001
+        logger.exception("crm engagement: project intake stamp failed for %s", sender)
+        return False
+
+
 async def _crm_emails() -> dict[str, dict[str, Any]]:
     """email → live CRM record (Lead wins; Contacts also tracked)."""
     profiles: dict[str, dict[str, Any]] = {}
@@ -221,6 +269,9 @@ async def run_crm_engagement_sweep(*, dry_run: bool = False) -> dict[str, Any]:
         if not dry_run and await _mark_proposal_replied(sender, cand):
             stats["proposal_replies"] = stats.get("proposal_replies", 0) + 1
             stats["proposal_reply_details"].append({"email": sender, "subject": cand["subject"][:80]})
+        if not dry_run and await _mark_project_intake(sender, cand):
+            stats["intake_received"] = stats.get("intake_received", 0) + 1
+            stats["proposal_reply_details"].append({"email": sender, "subject": f"[intake] {cand['subject'][:76]}"})
         rec = profiles.get(sender)
         if not rec:
             continue
@@ -261,7 +312,8 @@ async def _slack_report(stats: dict[str, Any]) -> None:
         "*CRM engagement sweep* — "
         f"{stats['matched']} reply-matches, {stats['noted']} noted, "
         f"{stats['status_bumped']} leads → In Process, "
-        f"{stats.get('proposal_replies', 0)} proposal replies, {stats['errors']} errors" + (" (dry run)" if stats["dry_run"] else "")
+        f"{stats.get('proposal_replies', 0)} proposal replies, "
+        f"{stats.get('intake_received', 0)} intake received, {stats['errors']} errors" + (" (dry run)" if stats["dry_run"] else "")
     ]
     for d in stats["details"][:5]:
         lines.append(f"• {d['email']}: {d['subject']}")

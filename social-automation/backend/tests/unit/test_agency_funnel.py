@@ -420,3 +420,56 @@ async def test_mark_proposal_replied_no_match(monkeypatch):
     )
     assert hit is False
     assert db.commits == 0
+
+
+# ── client intake loop ──────────────────────────────────────────────────────
+
+
+def test_kickoff_email_carries_intake_and_loa():
+    subj, body = P._kickoff_email("Acme", "Acme — Cloud migration", loa_md="# Letter of Agreement\nterms…")
+    assert "reply to this mail" in body
+    assert "Admin/hosting + DNS access" in body
+    assert "Letter of Agreement" in body
+    subj2, body2 = P._kickoff_email(None, "Job")
+    assert "Hi there" in body2 and "Letter of Agreement" not in body2
+
+
+@pytest.mark.asyncio
+async def test_pm_sweep_intake_nudge_and_escalation(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    sent = _mail_capture(monkeypatch)
+    kickoff = datetime.now(UTC) - timedelta(days=4)
+    proj = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13), milestones=P.project_milestones(), meta_data={"client_name": "Acme"})
+    db = _DB(_Res(rows=[proj]), _Res(rows=[]))
+    r = await P.pm_sweep(session_factory=_factory(db))
+    assert r["intake_nudges"] == 1 and r["intake_escalations"] == 1
+    assert proj.meta_data["intake_nudged"] and proj.meta_data["intake_escalated"]
+    assert sent and "access" in sent[0]["subject"].lower()
+
+
+@pytest.mark.asyncio
+async def test_pm_sweep_intake_received_suppresses(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    sent = _mail_capture(monkeypatch)
+    kickoff = datetime.now(UTC) - timedelta(days=4)
+    proj = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13), milestones=P.project_milestones(), meta_data={"intake_received": {"at": "x"}})
+    db = _DB(_Res(rows=[proj]), _Res(rows=[]))
+    r = await P.pm_sweep(session_factory=_factory(db))
+    assert not r.get("intake_nudges") and not r.get("intake_escalations")
+    assert not sent
+
+
+@pytest.mark.asyncio
+async def test_mark_project_intake_stamps_active_project(monkeypatch):
+    proj = _project(status=AgencyProjectStatus.active, client_email="buyer@acme.example")
+    db = _DB(_Res(rows=[proj]))
+
+    import app.worker._async as A
+
+    monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
+    hit = await E._mark_project_intake("buyer@acme.example", {"subject": "Re: Kickoff", "message_id": "m9", "uid": "9"})
+    assert hit is True
+    assert proj.meta_data["intake_received"]["message_id"] == "m9"
+
+    hit2 = await E._mark_project_intake("buyer@acme.example", {"subject": "again", "message_id": "m10", "uid": "10"})
+    assert hit2 is False  # already stamped

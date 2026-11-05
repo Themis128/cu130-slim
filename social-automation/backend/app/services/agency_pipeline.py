@@ -670,6 +670,45 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             if changed:
                 project.milestones = milestones
 
+            # Intake nudge — the kickoff mail asks for access/brand/scope
+            # items; a client reply stamps meta.intake_received via
+            # crm_engagement. Day 2: one gentle nudge. Day 4: Slack
+            # escalate — the day-1 access milestone is slipping.
+            md = dict(project.meta_data or {})
+            if (
+                day >= 2
+                and project.client_email
+                and not md.get("intake_received")
+                and not md.get("intake_nudged")
+            ):
+                from app.services.email_digest import send_email
+
+                client = (md.get("client_name") or "").strip() or "there"
+                await send_email(
+                    subject=f"Quick one — access for {project.name}",
+                    text_body=(
+                        f"Hi {client},\n\n"
+                        "small nudge on the kickoff mail — to keep the 14-day\n"
+                        "clock honest, I still need:\n\n"
+                        "1. Admin/hosting + DNS access (or a delegated invite)\n"
+                        "2. Brand assets (or 'use what's on the site')\n"
+                        "3. Analytics access if you have it\n"
+                        "4. One-line scope approval\n\n"
+                        "Even a partial reply unblocks the day-1 milestone.\n\n"
+                        "— Themistoklis, Cloudless"
+                    ),
+                    to_addrs=[project.client_email],
+                    reply_to="tbaltzakis@cloudless.gr",
+                    from_name="Themistoklis — Cloudless",
+                )
+                md["intake_nudged"] = now.isoformat()
+                project.meta_data = md
+                stats["intake_nudges"] = stats.get("intake_nudges", 0) + 1
+            if day >= 4 and not md.get("intake_received") and not md.get("intake_escalated"):
+                md["intake_escalated"] = now.isoformat()
+                project.meta_data = md
+                stats["intake_escalations"] = stats.get("intake_escalations", 0) + 1
+
             if day >= DELIVERY_DAYS and not project.handoff_md:
                 project.handoff_md = _render_handoff(project)
                 project.status = AgencyProjectStatus.delivered
@@ -728,7 +767,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             stats["testimonial_asks"] = stats.get("testimonial_asks", 0) + 1
         await db.commit()
 
-    if drafts or stats["delivered"] or stats["overdue"]:
+    if drafts or stats["delivered"] or stats["overdue"] or stats.get("intake_escalations"):
         try:
             from app.services.slack_notifications import post_alert_to_slack
 
@@ -738,6 +777,8 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 lines.append(f"{stats['delivered']} project(s) hit day 14 — handoff compiled")
             if stats["overdue"]:
                 lines.append(f":warning: {stats['overdue']} project(s) past due — needs a human")
+            if stats.get("intake_escalations"):
+                lines.append(f":rotating_light: {stats['intake_escalations']} project(s) day 4+ with no client intake — access milestone slipping")
             await post_alert_to_slack("\n".join(lines))
         except Exception:  # noqa: BLE001
             logger.exception("pm sweep slack report failed")
@@ -866,9 +907,10 @@ async def _opp_has_note(opp_id: str, marker: str) -> bool:
     return any(marker in (n.get("post") or "") for n in notes)
 
 
-def _kickoff_email(client_name: str | None, project_name: str) -> tuple[str, str]:
+def _kickoff_email(client_name: str | None, project_name: str, loa_md: str | None = None) -> tuple[str, str]:
     client = (client_name or "").strip() or "there"
     subject = f"Kickoff — {project_name} (day 1 of {DELIVERY_DAYS})"
+    loa_block = f"\n---\n\n{loa_md.strip()}\n" if loa_md else ""
     body = (
         f"Hi {client},\n\n"
         f"thanks for moving ahead — this is day 1 of your {DELIVERY_DAYS}-day delivery.\n\n"
@@ -877,9 +919,15 @@ def _kickoff_email(client_name: str | None, project_name: str) -> tuple[str, str
         "- Day 5 — architecture draft for your review\n"
         "- Day 10 — dashboards & tracking wired\n"
         f"- Day {DELIVERY_DAYS} — handoff package: your code, your docs, yours to keep\n\n"
+        "To hit the day-1 access milestone, reply to this mail with:\n"
+        "1. Admin/hosting + DNS access (or a delegated invite — whatever's easiest)\n"
+        "2. Brand assets — logo files, fonts, colors (or 'use what's on the site')\n"
+        "3. Analytics access — GA/Search Console invite if you have them\n"
+        "4. One-line approval of the scope we agreed\n\n"
         "You'll get a short update at each checkpoint — every milestone cites\n"
         "an artifact you can verify yourself.\n\n"
         "— Themistoklis, Cloudless"
+        f"{loa_block}"
     )
     return subject, body
 
@@ -998,7 +1046,7 @@ async def won_sweep(*, session_factory=None) -> dict[str, Any]:
             if email:
                 from app.services.email_digest import send_email
 
-                subject, body = _kickoff_email(client_name, project.name)
+                subject, body = _kickoff_email(client_name, project.name, (project.meta_data or {}).get("loa_md"))
                 await send_email(
                     subject=subject,
                     text_body=body,
