@@ -2,7 +2,7 @@
 
 ## 2026-11-05 — LinkedIn products/scopes: correct process codified
 
-- **Share on LinkedIn (Default Tier) provisioned** on member app
+- **Share on LinkedIn (Default Tier) + Sign In OIDC (Standard Tier) provisioned** on member app
   `265077368` "cloudless-gr-member" (client_id `77fd3pui3m2jwm`, redirect
   already = social.cloudless.gr callback). Email received today.
 - **NEW skill `linkedin-products-ops`** (+ `.cursor` mirror): canonical
