@@ -2075,3 +2075,22 @@ Five workers live at `<name>.baltzakis-themis.workers.dev` (cloudless.gr repo, `
 - **agent-sandbox** — `worker_loaders` spike; hard allowlist (`lead-score`, `template-fill`), binding-less sandbox. BACKLOG gate before production modules.
 
 Consumer wiring (env-gated, fire-and-forget via `_cf_shadow_call`): `nurture_sequence` enrolls quiet-lane leads in `lead-scheduler` and emits `quiet.sent`/`nurture.sent`; `leads/public` emits `lead.created`; `quiet_lead_followup.py unenroll` posts DO unsubscribe. Env lives in `.env` + compose `x-worker-env` + api anchor: `MAIL_OUTBOUND_/LEAD_SCHEDULER_/FUNNEL_EVENTS_{URL,TOKEN}`, `TOOLS_TOKEN`, `AGENT_SANDBOX_TOKEN`. Doctor: `backend/scripts/cf_workers_doctor.py` (exit 0 = whole surface green).
+
+
+## LinkedIn integration topology (verified live 2026-11-05)
+
+Three developer applications, one Page (`cloudless.gr`, urn:li:organization:108614163):
+
+| Portal app | Client ID | Products / grants | Role |
+|---|---|---|---|
+| `264925843` "Cloudless Analytics App" | `77j8kzfi1a6jn8` | CM Standard Tier + Events Standard + Share + OIDC — consents the FULL union (member analytics, `*_social_feed`, `r_organization_followers`, `r_1st_connections_size`, `r_events`, `rw_organization_admin`) | **PRIMARY OAuth client** (`.env` `LINKEDIN_CLIENT_ID`) |
+| `265077368` "cloudless-gr-member" | `77fd3pui3m2jwm` | Sign In OIDC Standard + Share Default + company-verified + business-email verified; Member/Pages Data Portability requests submitted | member-side lane |
+| `227354605` "Cloudless API App" | `77tf4oysp8u3fz` | Advertising API + Share + org scopes (legacy primary) | ads lane |
+
+OAuth model: LinkedIn grants REPLACE the scope set on every consent (never union) — the authorize URL must carry the full intended union. Tokens are 60-day member tokens; programmatic refresh is partner-only, so re-auth = re-run the authorize URL. Scope rejections come in two classes: authorize-load (probe-able) and consent-submit (only visible after clicking Allow — `li_consent_trim.py` strips them iteratively). Current live token on account `8f406a9d-…` carries all 16 grantable scopes (verified via /v2/userinfo + organizationAcls 200).
+
+Sidecar: `linkedin-browser-sidecar` :9225 (`/debug/navigate|eval|click|type`, `POST /session` storage-state, `POST /login` with `LINKEDIN_EMAIL/PASSWORD` env — currently unset). `has_session` reflects a stored profile, not live validity — a dead session presents as ERR_TOO_MANY_REDIRECTS on any linkedin.com nav. `li_at` is fingerprint-bound: cookie injection from Edge does not rehydrate the sidecar.
+
+Mail lanes: `MAIL_OUTBOUND_URL` + `MAIL_OUTBOUND_TOKEN` (Cloudflare worker) is the working sender — POST `{to,subject,text,from,category}` with Bearer auth; valid categories are `audit-confirm|nurture|quiet-lead|loa-delivery|playbook|ops-alert`; plain-Python UAs are WAF-blocked (use a browser UA). `SMTP_*` in `.env` is stale (535) — system email through that provider fails.
+
+Ops skills: `linkedin-products-ops` (scope probe/matrix/portal dump + consent trim), `linkedin-portal-ops` (CDP portal edits: redirect URLs, secrets, product modals, consent drive), `qualtrics-ops` (LinkedIn access-form map/fill/submit — Lead Sync + CM Standard submitted 2026-11-05), `pr-heal-ops` (clean-rebuild for DIRTY PRs via API), `ops-tools` (`gh_api_push` — API-based push when WSL git auth fails).
