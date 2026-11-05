@@ -23,12 +23,18 @@ class _AsyncCM:
     async def __aexit__(self, *a):
         return False
 
+import app.services.linkedin_ad_library as AL
+import app.services.linkedin_advanced as ADV
+import app.services.linkedin_events as EV
+import app.worker.tasks.linkedin_lead_boost as LB
 
 
 @pytest.mark.asyncio
 async def test_events_no_account(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
     monkeypatch.setattr(EV, "task_session", lambda: _AsyncCM(db))
+    sess = SimpleNamespace(__aenter__=AsyncMock(return_value=db), __aexit__=AsyncMock(return_value=False))
+    monkeypatch.setattr(EV, "task_session", lambda: sess)
     out = await EV.create_org_event("x", 0, 1)
     assert out["skip"] == "no-linkedin-org-account"
 
@@ -37,6 +43,8 @@ async def test_events_no_account(monkeypatch):
 async def test_ad_library_no_token(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
     monkeypatch.setattr(AL, "task_session", lambda: _AsyncCM(db))
+    sess = SimpleNamespace(__aenter__=AsyncMock(return_value=db), __aexit__=AsyncMock(return_value=False))
+    monkeypatch.setattr(AL, "task_session", lambda: sess)
     out = await AL.search_ads(keyword="x")
     assert out["skip"] == "no-linkedin-token"
 
