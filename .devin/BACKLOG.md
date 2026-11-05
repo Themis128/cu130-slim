@@ -41,6 +41,12 @@ Status of every open issue from the LinkedIn review + verification email:
 | 11 | `li_portal_edit.py get-secret` prints secret to stdout | ✅ fixed — writes to `$LI_SECRET_OUT` file when set, stdout otherwise |
 | 12 | LinkedIn token dead — one consent click (once lane up) | ⬜ open (blocked by #10 login) |
 | 13 | LinkedIn sidecar :9225 session dead — no stored creds | ⬜ open (manual — noVNC login once) |
+- **Unblocks**: product "Request access" modals on the app's Products tab
+  (only clickable when company-verified). Next action: request **Member
+  Data Portability (Member)** via
+  `li_portal_edit.py products 265077368 request "Member Data Portability"`
+  — modal still needs the business-email verify step (Edge :9222 +
+  logged-in LinkedIn required).
 
 ## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
 
