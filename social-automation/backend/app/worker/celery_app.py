@@ -74,6 +74,7 @@ celery_app = Celery(
         "app.worker.tasks.nurture",
         "app.worker.tasks.funnel_sync",
         "app.worker.tasks.funnel_score",
+        "app.worker.tasks.funnel_audit",
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
@@ -213,6 +214,18 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 180,
         },
+        "app.worker.tasks.agency.run_agency_proposal_followup_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_won_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_post_consult_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
@@ -277,8 +290,6 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
-        "app.worker.tasks.linkedin_lead_boost.route_linkedin_leads": {"queue": "default"},
-        "app.worker.tasks.linkedin_lead_boost.boost_linkedin_winners": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
@@ -289,11 +300,15 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_proposal_followup_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_won_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_post_consult_sweep": {"queue": "default"},
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
         "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
+        "app.worker.tasks.funnel_audit.run_funnel_audit": {"queue": "default"},
         "app.worker.tasks.auto_gates.engagement_autoapprove": {"queue": "default"},
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
@@ -342,6 +357,12 @@ celery_app.conf.update(
         "funnel-sync": {
             "task": "app.worker.tasks.funnel_sync.run_funnel_sync",
             "schedule": crontab(minute=20),
+        },
+        # Weekly funnel stage audit (Tolstova & Silakova) — weakest-link
+        # report to Slack; exit-1 on a broken stage escalates to alerts.
+        "funnel-audit": {
+            "task": "app.worker.tasks.funnel_audit.run_funnel_audit",
+            "schedule": crontab(day_of_week="wed", hour=8, minute=0),
         },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).
@@ -479,6 +500,25 @@ celery_app.conf.update(
         "agency-engineer-sweep": {
             "task": "app.worker.tasks.agency.run_agency_engineer_sweep",
             "schedule": crontab(hour=9, minute=40),
+        },
+        # Sales follow-up: sent proposals get the day-3/7/14 chase ladder;
+        # replies (crm-engagement matcher) pause it automatically.
+        "agency-proposal-followup-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_proposal_followup_sweep",
+            "schedule": crontab(hour=10, minute=15),
+        },
+        # Closer: EspoCRM Opportunity → Closed Won starts the 14-day
+        # project (kickoff mail + PM loop picks it up). Hourly so a
+        # Stripe/manual close never sits unacknowledged overnight.
+        "agency-won-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_won_sweep",
+            "schedule": crontab(minute=35),
+        },
+        # Front Desk follow-on: consultation day passed → thank-you +
+        # next-steps mail. Every 3h catches next-day sends promptly.
+        "agency-post-consult-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_post_consult_sweep",
+            "schedule": crontab(minute=40, hour="*/3"),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",

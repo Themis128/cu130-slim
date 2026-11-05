@@ -176,7 +176,7 @@ async def _capture_contact(account, convo_name: str, text: str) -> str | None:
                 await create_lead(
                     db,
                     team_id=account.team_id,
-                    source=LeadSource.dm,
+                    source=LeadSource.linkedin_dm,
                     name=convo_name,
                     email=email,
                     notes=f"LinkedIn DM capture — {convo_name}" + (f" · {phone}" if phone else ""),
