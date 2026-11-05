@@ -334,6 +334,7 @@ async def _primary_calendar(client: httpx.AsyncClient, user: str) -> str | None:
 
 
 def _ics_for_post(post: Post, platform: str) -> str:
+    assert post.scheduled_at is not None
     start = post.scheduled_at.strftime("%Y%m%dT%H%M%SZ")
     uid = f"post-{post.id}@socialauto"
     title = (post.content_text or "")[:60].replace("\n", " ")
