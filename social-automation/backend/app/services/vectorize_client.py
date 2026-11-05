@@ -68,7 +68,7 @@ class VectorizeClient:
             headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
             try:
                 resp = await method(url, headers=headers, **kwargs)
-                if resp.status_code != 401:
+                if resp.status_code not in (401, 403):
                     return resp
                 last_resp = resp
                 logger.warning("Vectorize token failed (401), trying next token...")
