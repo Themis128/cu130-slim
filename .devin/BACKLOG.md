@@ -1,5 +1,32 @@
 # BACKLOG (living)
 
+## 2026-11-05 — LinkedIn dev apps parked until ~Nov 7 (fresh-app provisioning)
+
+New apps created today (cloudless-gr-dma 265077464, cloudless-gr-live
+265081467) — LinkedIn needs ~24-48h to provision the product catalog;
+inert buttons + empty modals observed on fresh apps are expected, NOT a
+bot gate. Re-probe `li_product_state.py` on both apps after ~48h.
+
+- [ ] cloudless-gr-dma (265077464): Member DP (3rd Party) = "Review in
+  progress" (step 1/2 Access Form Review). LinkedIn decides in 10-14
+  business days; watch tbaltzakis@cloudless.gr for decision / docs-request
+  mail. Biz-email verify PIN was already consumed at submission.
+- [ ] cloudless-gr-live (265081467): Live Events still shows FORM state —
+  fill via `li_devapp_ops.py fill-form <Q_DL>` once catalog provisions;
+  app-bound Q_DL link persists (grab fresh from products page when filling).
+- [ ] Member DP (Member) `r_dma_portability_self_serve`: needs dedicated
+  app bound to "Member Data Portability (Member) Default Company" page —
+  retry once apps provision; cloudless-gr-live is bound to cloudless.gr so
+  the Member product may not be requestable there.
+- [ ] Verify-PIN modal inert under all automation (CDP/keyboard/OS-click/
+  patchright) — retest after 48h; likely fresh-app artifact not anti-bot.
+- [ ] cloudless-gr-member (265077368): Member DP variants locked by
+  sole-product rule (app has other products) — by design, leave.
+- [ ] Gmail OAuth: GMAIL_REFRESH_TOKEN 401s on exchange — needs one
+  `gmail.py login` re-consent click (human gate).
+- Note: another agent session was landing linkedin-devapp-ops/qualtrics-ops
+  skill work concurrently — coordinate before re-driving portal clicks.
+
 ## 2026-11-05 — Member app 265077368 company-verified
 
 - LinkedIn email: `cloudless-gr-member` (265077368) approved as associated
