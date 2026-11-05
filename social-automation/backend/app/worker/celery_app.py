@@ -50,6 +50,7 @@ celery_app = Celery(
         "app.worker.tasks.consent_healers",
         "app.worker.tasks.linkedin_engagement_score",
         "app.worker.tasks.linkedin_lead_boost",
+        "app.worker.tasks.token_expiry",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -513,6 +514,13 @@ celery_app.conf.update(
         "agency-post-consult-sweep": {
             "task": "app.worker.tasks.agency.run_agency_post_consult_sweep",
             "schedule": crontab(minute=40, hour="*/3"),
+        },
+        # Token expiry — refresh-ahead sweep; warns inside per-provider
+        # lead times and escalates reauth_required (non-refreshable lanes)
+        # to Slack instead of silently dying on next publish. Hourly.
+        "token-expiry-sweep": {
+            "task": "app.worker.tasks.token_expiry.run_token_expiry_sweep",
+            "schedule": crontab(minute=50),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
