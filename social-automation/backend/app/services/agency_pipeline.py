@@ -452,7 +452,115 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
             stats["drafted"] += 1
             await _post_proposal_alert(proposal, audit)
         await db.commit()
+
+        if get_settings().AGENCY_PROPOSAL_AUTOSEND:
+            team_id = await _default_team_id(db)
+            if team_id:
+                stats["autosend"] = await _autosend_pass(db, team_id)
     logger.info("agency proposal sweep: %s", stats)
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Guarded autosend — earned-autonomy graduation for the proposal lane.
+# A proposal self-sends only when every deterministic check passes; anything
+# uncertain stays at the Slack approve gate. Daily cap bounds blast radius.
+# ---------------------------------------------------------------------------
+
+
+def _autosend_block_reasons(
+    proposal: AgencyProposal,
+    audit: AgencyAudit | None,
+    lead: Lead | None,
+) -> list[str]:
+    """Deterministic quality gate — any reason keeps the human approve lane."""
+    from app.services.leads import _is_synthetic_email, is_valid_email
+
+    reasons: list[str] = []
+    email = (proposal.recipient_email or "").strip()
+    if not email or not is_valid_email(email):
+        reasons.append("no-valid-recipient")
+    elif _is_synthetic_email(email):
+        reasons.append("synthetic-recipient")
+    if audit is None or audit.status != AgencyAuditStatus.completed:
+        reasons.append("audit-not-completed")
+    if not proposal.services or any(s not in SERVICES for s in proposal.services):
+        reasons.append("services-outside-catalog")
+    if not proposal.price_low_eur or not proposal.price_high_eur:
+        reasons.append("price-missing")
+    elif proposal.price_high_eur > BUNDLE_PRICE_EUR:
+        reasons.append("price-above-bundle")
+    md = proposal.meta_data or {}
+    if md.get("replied") or md.get("unsubscribed"):
+        reasons.append("lead-engaged-or-opted-out")
+    if lead is not None:
+        lmd = lead.meta_data or {}
+        if lmd.get("unsubscribed") or lmd.get("nurture_opted_out"):
+            reasons.append("lead-opted-out")
+    return reasons
+
+
+async def _autosend_pass(db: AsyncSession, team_id: uuid.UUID) -> dict[str, Any]:
+    """Evaluate every draft proposal against the gate; send the clean ones."""
+    stats: dict[str, Any] = {"evaluated": 0, "sent": 0, "held": 0, "errors": 0, "held_reasons": {}}
+    cap = int(getattr(get_settings(), "AGENCY_AUTOSEND_DAILY_CAP", 5) or 5)
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    drafts = (
+        (await db.execute(select(AgencyProposal).where(AgencyProposal.status == AgencyProposalStatus.draft).order_by(AgencyProposal.created_at.asc()).limit(50)))
+        .scalars()
+        .all()
+    )
+    already_sent_today = sum(
+        1
+        for p in (
+            await db.execute(
+                select(AgencyProposal).where(
+                    AgencyProposal.status == AgencyProposalStatus.sent,
+                    AgencyProposal.sent_at >= today,
+                )
+            )
+        )
+        .scalars()
+        .all()
+        if (p.meta_data or {}).get("approved_by") == "autosend"
+    )
+    budget = max(0, cap - already_sent_today)
+    for proposal in drafts:
+        stats["evaluated"] += 1
+        audit = (await db.execute(select(AgencyAudit).where(AgencyAudit.id == proposal.audit_id).limit(1))).scalar_one_or_none()
+        lead = (await db.execute(select(Lead).where(Lead.id == proposal.lead_id).limit(1))).scalar_one_or_none() if proposal.lead_id else None
+        reasons = _autosend_block_reasons(proposal, audit, lead)
+        for r in reasons:
+            stats["held_reasons"][r] = stats["held_reasons"].get(r, 0) + 1
+        if reasons:
+            stats["held"] += 1
+            continue
+        if budget <= 0:
+            stats["held_reasons"]["daily-cap"] = stats["held_reasons"].get("daily-cap", 0) + 1
+            stats["held"] += 1
+            continue
+        try:
+            res = await send_proposal(db, proposal, approver="autosend")
+        except Exception as exc:  # noqa: BLE001 — one bad send mustn't stall the pass
+            stats["errors"] += 1
+            logger.warning("autosend failed for proposal %s: %s", proposal.id, exc)
+            continue
+        if res.get("ok"):
+            stats["sent"] += 1
+            budget -= 1
+        else:
+            stats["errors"] += 1
+            logger.warning("autosend rejected for proposal %s: %s", proposal.id, res.get("error"))
+    if stats["sent"]:
+        try:
+            from app.services.slack_notifications import post_alert_to_slack
+
+            await post_alert_to_slack(
+                f":outbox_tray: *Agency autosend* — {stats['sent']} proposal(s) emailed this pass "
+                f"({stats['held']} held at gate, {stats['errors']} errors). Reject lane stays live."
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("autosend slack report failed")
     return stats
 
 
@@ -812,12 +920,20 @@ async def won_sweep(*, session_factory=None) -> dict[str, Any]:
         team_id = await _default_team_id(db)
         if not team_id:
             return {"status": "skipped", "reason": "no_team"}
-        opps = await espo.list_all(
-            "Opportunity",
-            select=["id", "name", "stage", "amount", "amountCurrency", "closeDate", "createdAt", "accountId", "accountName", "leadSource", "description"],
-            where=[{"type": "in", "attribute": "stage", "value": list(WON_STAGES)}],
-            max_items=50,
-        )
+        opps: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        # stage spellings differ by writer (site uses HubSpot-style keys,
+        # the UI uses EspoCRM enum labels) — one equals query each.
+        for stage in WON_STAGES:
+            for opp in await espo.list_all(
+                "Opportunity",
+                select=["id", "name", "stage", "amount", "amountCurrency", "closeDate", "createdAt", "accountId", "accountName", "leadSource", "description"],
+                where=[{"type": "equals", "attribute": "stage", "value": stage}],
+                max_items=50,
+            ):
+                if opp.get("id") and opp["id"] not in seen:
+                    seen.add(opp["id"])
+                    opps.append(opp)
         for opp in opps:
             oid = opp.get("id") or ""
             if not oid:
@@ -860,6 +976,24 @@ async def won_sweep(*, session_factory=None) -> dict[str, Any]:
             )
             db.add(project)
             await db.flush()
+
+            # Auto-draft the Letter of Agreement (Pipeline Toolkit asset) —
+            # markdown lands on the project record; sending stays a human call
+            # after scope is confirmed on the kickoff call.
+            try:
+                from scripts.letter_of_agreement import render_markdown
+
+                project.meta_data = {
+                    **(project.meta_data or {}),
+                    "loa_md": render_markdown(
+                        client=client_name or str(opp.get("accountName") or "Client"),
+                        date=now.strftime("%Y-%m-%d"),
+                        amount=float(opp.get("amount") or 800),
+                        provider="Cloudless",
+                    ),
+                }
+            except Exception:  # noqa: BLE001 — LOA draft is advisory, never blocks the kickoff
+                logger.debug("LOA render failed for project %s", project.id)
 
             if email:
                 from app.services.email_digest import send_email
