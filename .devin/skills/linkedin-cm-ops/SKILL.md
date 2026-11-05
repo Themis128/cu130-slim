@@ -105,3 +105,15 @@ Management" products active for posting scopes.
 - list → GET /v2/ugcPosts?q=authors&authors=List(<enc urn>) (literal parens!)
 Not v2-covered (rest-only, now unlocked by Standard Tier):
 multi-image/video/doc posts, org stats, follower counts.
+
+## DMA Member API product gate
+
+`r_member_postAnalytics`, `r_member_profileAnalytics`,
+`r_1st_connections_size` (and possibly `*_social_feed`) are gated by
+the **DMA Member API** product — which requires choosing the dedicated
+Company page at APP CREATION. `264925843` was created without it →
+"this product cannot be requested" (LinkedIn error, confirmed
+2026-11-05). No retrofit — a NEW developer app must be created with
+`cloudless-gr` as the dedicated page → request DMA Member API → it gets
+its own client_id/secret + OAuth flow for member surfaces.
+`264925843` stays primary for org/CM/ads.
