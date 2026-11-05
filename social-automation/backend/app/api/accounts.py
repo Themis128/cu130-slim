@@ -1027,6 +1027,7 @@ async def _get_linkedin_org_account(
 def _get_linkedin_client(account: SocialAccount) -> "LinkedInAPIClient":
     from app.core.security import decrypt_token
     from app.services.linkedin_api import LinkedInAPIClient
+
     if not account.access_token_enc:
         raise HTTPException(status_code=400, detail="LinkedIn account has no access token")
     return LinkedInAPIClient(access_token=decrypt_token(bytes(account.access_token_enc)))
@@ -1049,9 +1050,7 @@ async def get_facebook_page_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current Facebook Page profile metadata (about, description, website, etc.)."""
-    result = await db.execute(
-        select(SocialAccount.platform).where(SocialAccount.id == account_id)
-    )
+    result = await db.execute(select(SocialAccount.platform).where(SocialAccount.id == account_id))
     if result.scalar_one_or_none() == "linkedin":
         account = await _get_linkedin_org_account(account_id, current_user, db)
         client = _get_linkedin_client(account)
@@ -1092,9 +1091,7 @@ async def update_facebook_page_profile(
     (``description`` → localizedDescription, ``website`` → localizedWebsiteUrl,
     ``tagline``) via ``rw_organization_admin`` — visuals are never touched.
     """
-    result = await db.execute(
-        select(SocialAccount.platform).where(SocialAccount.id == account_id)
-    )
+    result = await db.execute(select(SocialAccount.platform).where(SocialAccount.id == account_id))
     if result.scalar_one_or_none() == "linkedin":
         account = await _get_linkedin_org_account(account_id, current_user, db)
         client = _get_linkedin_client(account)
