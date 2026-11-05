@@ -82,7 +82,13 @@ def _factory(db):
 
 
 def _settings(**kw):
-    base = dict(AGENCY_ENABLED=True, AGENCY_AUDIT_MAX_PER_RUN=5, AGENCY_STRIPE_PROJECT_MIN_EUR=500)
+    base = dict(
+        AGENCY_ENABLED=True,
+        AGENCY_AUDIT_MAX_PER_RUN=5,
+        AGENCY_STRIPE_PROJECT_MIN_EUR=500,
+        AGENCY_CHECKOUT_URL="",
+        CLOUDLESS_LEADS_WEBHOOK_SECRET="",
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -422,54 +428,185 @@ async def test_mark_proposal_replied_no_match(monkeypatch):
     assert db.commits == 0
 
 
-# ── client intake loop ──────────────────────────────────────────────────────
-
-
-def test_kickoff_email_carries_intake_and_loa():
-    subj, body = P._kickoff_email("Acme", "Acme — Cloud migration", loa_md="# Letter of Agreement\nterms…")
-    assert "reply to this mail" in body
-    assert "Admin/hosting + DNS access" in body
-    assert "Letter of Agreement" in body
-    subj2, body2 = P._kickoff_email(None, "Job")
-    assert "Hi there" in body2 and "Letter of Agreement" not in body2
+# ── post-delivery delight ladder ─────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_pm_sweep_intake_nudge_and_escalation(monkeypatch):
+async def test_pm_sweep_delight_30d_checkin(monkeypatch):
     monkeypatch.setattr(P, "get_settings", lambda: _settings())
     sent = _mail_capture(monkeypatch)
-    kickoff = datetime.now(UTC) - timedelta(days=4)
-    proj = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13), milestones=P.project_milestones(), meta_data={"client_name": "Acme"})
-    db = _DB(_Res(rows=[proj]), _Res(rows=[]))
+    proj = _project(
+        status=AgencyProjectStatus.delivered,
+        client_email="buyer@acme.example",
+        meta_data={
+            "client_name": "Acme",
+            "testimonial_asked": (datetime.now(UTC) - timedelta(days=31)).isoformat(),
+        },
+    )
+    db = _DB(_Res(rows=[]), _Res(rows=[proj]))
     r = await P.pm_sweep(session_factory=_factory(db))
-    assert r["intake_nudges"] == 1 and r["intake_escalations"] == 1
-    assert proj.meta_data["intake_nudged"] and proj.meta_data["intake_escalated"]
-    assert sent and "access" in sent[0]["subject"].lower()
+    assert r.get("delight_checkin_30") == 1
+    assert proj.meta_data["delight_checkin_30"]
+    assert "holding up" in sent[0]["subject"]
 
 
 @pytest.mark.asyncio
-async def test_pm_sweep_intake_received_suppresses(monkeypatch):
+async def test_pm_sweep_delight_once_and_60d_referral(monkeypatch):
     monkeypatch.setattr(P, "get_settings", lambda: _settings())
     sent = _mail_capture(monkeypatch)
-    kickoff = datetime.now(UTC) - timedelta(days=4)
-    proj = _project(kickoff_at=kickoff, due_at=kickoff + timedelta(days=13), milestones=P.project_milestones(), meta_data={"intake_received": {"at": "x"}})
-    db = _DB(_Res(rows=[proj]), _Res(rows=[]))
+    proj = _project(
+        status=AgencyProjectStatus.delivered,
+        client_email="buyer@acme.example",
+        meta_data={
+            "client_name": "Acme",
+            "testimonial_asked": (datetime.now(UTC) - timedelta(days=61)).isoformat(),
+            "delight_checkin_30": "2026-11-01",
+        },
+    )
+    db = _DB(_Res(rows=[]), _Res(rows=[proj]))
     r = await P.pm_sweep(session_factory=_factory(db))
-    assert not r.get("intake_nudges") and not r.get("intake_escalations")
+    assert not r.get("delight_checkin_30")
+    assert r.get("delight_referral_60") == 1
+    assert "favour" in sent[0]["subject"]
+
+
+@pytest.mark.asyncio
+async def test_pm_sweep_delight_skips_before_due(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    sent = _mail_capture(monkeypatch)
+    proj = _project(
+        status=AgencyProjectStatus.delivered,
+        client_email="buyer@acme.example",
+        meta_data={
+            "client_name": "Acme",
+            "testimonial_asked": (datetime.now(UTC) - timedelta(days=5)).isoformat(),
+        },
+    )
+    db = _DB(_Res(rows=[]), _Res(rows=[proj]))
+    r = await P.pm_sweep(session_factory=_factory(db))
+    assert not any(k.startswith("delight_") for k in r)
     assert not sent
 
 
-@pytest.mark.asyncio
-async def test_mark_project_intake_stamps_active_project(monkeypatch):
-    proj = _project(status=AgencyProjectStatus.active, client_email="buyer@acme.example")
-    db = _DB(_Res(rows=[proj]))
+# ── proposal payment link ────────────────────────────────────────────────────
 
+
+@pytest.mark.asyncio
+async def test_agency_payment_url_unconfigured(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_CHECKOUT_URL=""))
+    prop = _proposal()
+    assert await P._agency_payment_url(prop, 800) is None
+
+
+@pytest.mark.asyncio
+async def test_agency_payment_url_mints(monkeypatch):
+    monkeypatch.setattr(
+        P, "get_settings", lambda: _settings(AGENCY_CHECKOUT_URL="https://c/agency", CLOUDLESS_LEADS_WEBHOOK_SECRET="s")
+    )
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"url": "https://checkout.stripe.com/pay/abc", "id": "cs_1"}
+
+    class _Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None, headers=None):
+            return _Resp()
+
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda timeout=None: _Client())
+    prop = _proposal()
+    url = await P._agency_payment_url(prop, 800)
+    assert url == "https://checkout.stripe.com/pay/abc"
+
+
+@pytest.mark.asyncio
+async def test_send_proposal_embeds_payment_link(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    sent = _mail_capture(monkeypatch)
+
+    async def _pay(proposal, amount):
+        return "https://checkout.stripe.com/pay/xyz"
+
+    monkeypatch.setattr(P, "_agency_payment_url", _pay)
+
+    async def _note(*a, **k):
+        return {}
+
+    monkeypatch.setattr(P.espo, "add_lead_note", _note)
+    prop = _proposal(status=AgencyProposalStatus.approved, body_md="Scope: audit + build.", espo_lead_id="l1")
+    db = _DB()
+    r = await P.send_proposal(db, prop)
+    assert r["ok"] is True
+    assert "checkout.stripe.com/pay/xyz" in sent[0]["text_body"]
+    assert prop.meta_data["payment_url"] == "https://checkout.stripe.com/pay/xyz"
+
+
+# ── support case + testimonial stamp ─────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_support_case_on_problem_keyword(monkeypatch):
     import app.worker._async as A
 
-    monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
-    hit = await E._mark_project_intake("buyer@acme.example", {"subject": "Re: Kickoff", "message_id": "m9", "uid": "9"})
-    assert hit is True
-    assert proj.meta_data["intake_received"]["message_id"] == "m9"
+    posted = []
 
-    hit2 = await E._mark_project_intake("buyer@acme.example", {"subject": "again", "message_id": "m10", "uid": "10"})
-    assert hit2 is False  # already stamped
+    async def _post(path, payload):
+        posted.append((path, payload["name"]))
+        return {"id": "case1"}
+
+    monkeypatch.setattr(E.espo, "espo_post", _post)
+    proj = _project(status=AgencyProjectStatus.active, client_email="c@x.co")
+    db = _DB(_Res(rows=[proj]))
+    monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
+    hit = await E._project_support_case("c@x.co", {"subject": "URGENT: site is broken", "message_id": "m", "uid": "1"})
+    assert hit is True
+    assert posted[0][0] == "/Case"
+    assert proj.meta_data["support_cases"][0]["case_id"] == "case1"
+
+
+@pytest.mark.asyncio
+async def test_support_case_no_keyword_or_project(monkeypatch):
+    import app.worker._async as A
+
+    db = _DB(_Res(rows=[]))
+    monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
+    assert await E._project_support_case("c@x.co", {"subject": "thanks for the work", "uid": "1"}) is False
+    assert await E._project_support_case("c@x.co", {"subject": "URGENT issue", "uid": "1"}) is False
+
+
+@pytest.mark.asyncio
+async def test_mark_project_testimonial(monkeypatch):
+    import app.worker._async as A
+
+    proj = _project(
+        status=AgencyProjectStatus.delivered,
+        client_email="c@x.co",
+        meta_data={"testimonial_asked": "2026-11-01", "client_name": "Acme"},
+    )
+    db = _DB(_Res(rows=[proj]))
+    monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
+    hit = await E._mark_project_testimonial("c@x.co", {"subject": "Re: testimonial", "message_id": "m9", "uid": "9"})
+    assert hit is True
+    assert proj.meta_data["testimonial_received"]["message_id"] == "m9"
+    assert proj.meta_data["proof_card"]["client"] == "Acme"
+    assert db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_mark_project_testimonial_no_ask_no_stamp(monkeypatch):
+    import app.worker._async as A
+
+    proj = _project(status=AgencyProjectStatus.delivered, client_email="c@x.co", meta_data={})
+    db = _DB(_Res(rows=[proj]))
+    monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
+    hit = await E._mark_project_testimonial("c@x.co", {"subject": "hi", "message_id": "m", "uid": "1"})
+    assert hit is False
