@@ -86,9 +86,8 @@ async def test_list_all_paginates_and_stops(monkeypatch):
     calls = []
 
     async def fake_get(path, params=None):
-        search = _j.loads(params["searchParams"])
-        calls.append(search["offset"])
-        page = [{"id": i} for i in range(search["offset"], min(search["offset"] + E._PAGE, 250))]
+        calls.append(params["offset"])
+        page = [{"id": i} for i in range(params["offset"], min(params["offset"] + E._PAGE, 250))]
         return {"list": page}
 
     monkeypatch.setattr(E, "espo_get", fake_get)

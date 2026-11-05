@@ -402,7 +402,14 @@ def test_task_failure_swallowed(monkeypatch, task_name, sweep_name):
 
 
 def _settings(**kw):
-    base = dict(AGENCY_ENABLED=True, AGENCY_AUDIT_MAX_PER_RUN=5)
+    base = dict(
+        AGENCY_ENABLED=True,
+        AGENCY_AUDIT_MAX_PER_RUN=5,
+        AGENCY_PROPOSAL_AUTOSEND=False,
+        AGENCY_STRIPE_PROJECT_MIN_EUR=500,
+        AGENCY_CHECKOUT_URL="",
+        CLOUDLESS_LEADS_WEBHOOK_SECRET="",
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -526,6 +533,11 @@ async def test_engineer_sweep_empty_and_plans(monkeypatch):
 @pytest.mark.asyncio
 async def test_pm_sweep_empty_update_deliver_overdue(monkeypatch):
     monkeypatch.setattr(P, "get_settings", lambda: _settings())
+
+    async def _fake_send_email(**kw):
+        return None
+
+    monkeypatch.setattr("app.services.email_digest.send_email", _fake_send_email)
     r = await P.pm_sweep(session_factory=_factory(_DB(_Res())))
     assert r["status"] == "ok" and not any(r[k] for k in ("updates", "delivered", "overdue"))
 
