@@ -1,22 +1,30 @@
 ---
 name: qualtrics-ops
-description: Fill Qualtrics surveys via the adhoc browser bridge — label→field
-  matching (Qualtrics hides input ids), radio-click by choice index, Next-page
-  navigation. Use for access-request forms like the LinkedIn CM-API upgrade.
-  Tool: scripts/qualtrics_fill.py.
+description: Map and fill LinkedIn Qualtrics access-request forms (linkedincustomerops.qualtrics.com/jfe/form/SV_*) via CDP on the user's Edge — section.question→QID discovery, text/textarea/radio/checkbox fill, custom Country dropdown, Next/Submit. No LinkedIn login needed.
 ---
 
-# qualtrics-ops — label-driven form fill
+# Qualtrics ops (LinkedIn access-request forms)
 
-- Qualtrics fields are anonymous (`input` without id/name) — match by **label text**, never id.
-- Radios: `mc-choice-input-QIDx-y` → click the y-th choice (1-indexed value in answers.json).
-- Pages: loop fill → `Next` button → repeat until Submit; `--dry` stops before first Next.
+## Structure (verified on Lead Sync SV_cJ7GzOa8NFg7z8i + Matched Audiences SV_8CUnOsYiyMj0Qd0)
 
-```bash
-qualtrics_fill.py --url <form> --answers answers.json          # fill all pages
-qualtrics_fill.py --url <form> --answers a.json --dry          # inspect only
-```
+- Single-page JFE: questions are `section.question` with id `question-QID<n>`;
+  radios are `mc-choice-input-QID<n>-<k>`; text inputs have no id — target by
+  question section. Conditionally-required fields (alt legal name, other-app
+  client id) are safe to leave blank when the triggering radio = No.
+- Country field is a custom dropdown — click inside the section, then click
+  the `[role=option]` matching the country.
+- Ember/React inputs need native setter + input + change + blur events.
+- Greek text in scripts: use `\uXXXX` escapes — Windows cp1252 consoles die on
+  literal Greek.
 
-`answers.json`: `{"<label substring>": "<text>"}` or `{"<label>": "<choice idx>"}`.
-The LinkedIn CM-API answers are drafted in the session — paste them into an
-answers.json and the script fills the form; review + Submit stays manual.
+## Script
+`scripts/qualtrics_fill.py <tid-file|url>` — opens/finds the tab, dumps the
+question map (`--map`), or fills from a JSON answer file (`--answers a.json`
+where keys are QIDs). Then `--submit` clicks Next.
+
+## Answer conventions used for Cloudless
+Legal name "Cloudless"; alt=No; website https://cloudless.gr; addr
+Koropi/Attiki/19400/Greece; Platform use case; new functionality; Bridge
+service; not-only-own-marketing; customers Europe/1-50/75%+ B2B/Small-Medium;
+privacy-policy link https://cloudless.gr/privacy; compliance owner Yes;
+partners Facebook/Instagram/Tiktok.
