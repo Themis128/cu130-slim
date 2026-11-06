@@ -18,10 +18,21 @@ def _audit_body(**kw):
 
 
 def _survey_body(**kw):
-    d = {"email": "a@b.com", "website": "", "phone": "", "consent": True,
-         "answers": {}, "company_size": None, "interest": None, "site": None,
-         "form": None, "page_path": None, "locale": None, "platform": None,
-         "name": None}
+    d = {
+        "email": "a@b.com",
+        "website": "",
+        "phone": "",
+        "consent": True,
+        "answers": {},
+        "company_size": None,
+        "interest": None,
+        "site": None,
+        "form": None,
+        "page_path": None,
+        "locale": None,
+        "platform": None,
+        "name": None,
+    }
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -82,13 +93,22 @@ async def test_survey_honeypot_and_validation(monkeypatch):
 
 async def test_survey_full_meta_and_espo_fail(monkeypatch):
     import app.services.espocrm_client as esp
+
     monkeypatch.setattr(esp, "upsert_lead", AsyncMock(side_effect=Exception("down")))
     monkeypatch.setattr(L, "get_settings", lambda: _settings())
     monkeypatch.setattr(L, "playbook_url", lambda s: "https://pb")
     monkeypatch.setattr(L, "create_lead", AsyncMock())
     db = SimpleNamespace(commit=AsyncMock())
-    body = _survey_body(phone="+30697123456", answers={"q": "a"}, company_size="1-10",
-                        interest="audit", site="example", form="f1", page_path="/x",
-                        locale="en", platform="linkedin")
+    body = _survey_body(
+        phone="+30697123456",
+        answers={"q": "a"},
+        company_size="1-10",
+        interest="audit",
+        site="example",
+        form="f1",
+        page_path="/x",
+        locale="en",
+        platform="linkedin",
+    )
     out = await L.create_survey_public(body, SimpleNamespace(), db)
     assert out["survey_delivery"] == "email"

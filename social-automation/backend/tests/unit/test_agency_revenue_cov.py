@@ -88,8 +88,7 @@ def _factory(db):
 
 
 def _settings(**kw):
-    base = dict(AGENCY_ENABLED=True, AGENCY_AUTOSEND_DAILY_CAP=5,
-                AGENCY_CHECKOUT_URL="", CLOUDLESS_LEADS_WEBHOOK_SECRET="s3cret")
+    base = dict(AGENCY_ENABLED=True, AGENCY_AUTOSEND_DAILY_CAP=5, AGENCY_CHECKOUT_URL="", CLOUDLESS_LEADS_WEBHOOK_SECRET="s3cret")
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -105,14 +104,14 @@ def _acct(platform, meta, username="u"):
 async def test_token_expiry_sweep_buckets(monkeypatch):
     now = datetime.now(UTC)
     rows = [
-        _acct("facebook", {"expires_at": (now + timedelta(days=3)).isoformat()}),          # warn
-        _acct("linkedin", {"token_expires_at": (now - timedelta(hours=1)).isoformat()}),   # reauth
-        _acct("x", {"expires_at": now.replace(tzinfo=None).isoformat()}),                  # naive → reauth (x non-refreshable, exp<=now? borderline)
-        _acct("tiktok", {}),                                                               # no expiry → skip
-        _acct("meta", {"expires_at": "not-a-date"}),                                      # bad iso → skip
-        _acct("unknownplat", {"expires_at": (now - timedelta(days=1)).isoformat()}),      # no lead → skip
-        _acct("instagram", {"expires_at": (now + timedelta(days=30)).isoformat()}),       # beyond lead → skip
-        _acct("threads", {"expires_at": (now + timedelta(hours=2)).isoformat()}),         # warn
+        _acct("facebook", {"expires_at": (now + timedelta(days=3)).isoformat()}),  # warn
+        _acct("linkedin", {"token_expires_at": (now - timedelta(hours=1)).isoformat()}),  # reauth
+        _acct("x", {"expires_at": now.replace(tzinfo=None).isoformat()}),  # naive → reauth (x non-refreshable, exp<=now? borderline)
+        _acct("tiktok", {}),  # no expiry → skip
+        _acct("meta", {"expires_at": "not-a-date"}),  # bad iso → skip
+        _acct("unknownplat", {"expires_at": (now - timedelta(days=1)).isoformat()}),  # no lead → skip
+        _acct("instagram", {"expires_at": (now + timedelta(days=30)).isoformat()}),  # beyond lead → skip
+        _acct("threads", {"expires_at": (now + timedelta(hours=2)).isoformat()}),  # warn
     ]
     db = _DB(_Res(rows=rows))
     monkeypatch.setattr(TE, "task_session", lambda: _CM(db))
@@ -137,8 +136,12 @@ async def test_token_expiry_post_and_task(monkeypatch):
     monkeypatch.setattr(SN, "post_alert_to_slack", _post)
     await TE._post({"warn": [], "reauth": []})
     assert posted == []
-    await TE._post({"warn": [{"platform": "fb", "account": "a", "expires": "2026-01-01T00:00"}],
-                    "reauth": [{"platform": "li", "account": "b", "expires": "2026-01-01T00:00"}]})
+    await TE._post(
+        {
+            "warn": [{"platform": "fb", "account": "a", "expires": "2026-01-01T00:00"}],
+            "reauth": [{"platform": "li", "account": "b", "expires": "2026-01-01T00:00"}],
+        }
+    )
     assert len(posted) == 1 and "Token expiry sweep" in posted[0] and "EXPIRED" in posted[0]
 
 
@@ -161,8 +164,7 @@ def test_token_expiry_task_wrapper_runs_sweep(monkeypatch):
 
 
 def _task_settings(monkeypatch, enabled):
-    monkeypatch.setattr("app.core.config.get_settings",
-                        lambda: SimpleNamespace(AGENCY_ENABLED=enabled))
+    monkeypatch.setattr("app.core.config.get_settings", lambda: SimpleNamespace(AGENCY_ENABLED=enabled))
 
 
 def test_agency_followup_task_paths(monkeypatch):
@@ -221,10 +223,19 @@ def test_agency_post_consult_task_paths(monkeypatch):
 
 def _proposal(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), audit_id=None, lead_id=None,
-        espo_lead_id=None, recipient_email="c@acme.example", recipient_name="Acme",
-        services=["cloud"], price_low_eur=100, price_high_eur=200,
-        subject="Audit + plan", body_md="b", meta_data={},
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        audit_id=None,
+        lead_id=None,
+        espo_lead_id=None,
+        recipient_email="c@acme.example",
+        recipient_name="Acme",
+        services=["cloud"],
+        price_low_eur=100,
+        price_high_eur=200,
+        subject="Audit + plan",
+        body_md="b",
+        meta_data={},
         status=AgencyProposalStatus.sent,
         sent_at=datetime.now(UTC) - timedelta(days=4),
         created_at=datetime.now(UTC),
@@ -257,6 +268,7 @@ async def test_followup_edge_branches(monkeypatch):
 
     monkeypatch.setattr("app.services.email_digest.send_email", _send)
     import app.services.espocrm_client as espo
+
     notes = []
 
     async def _note(oid, text):
@@ -293,9 +305,16 @@ async def test_followup_edge_branches(monkeypatch):
 
 
 def _project(**kw):
-    d = dict(id=uuid.uuid4(), team_id=uuid.uuid4(), name="Acme job",
-             client_email="c@acme.example", status=AgencyProjectStatus.active,
-             meta_data={}, milestones=[], created_at=datetime.now(UTC))
+    d = dict(
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="Acme job",
+        client_email="c@acme.example",
+        status=AgencyProjectStatus.active,
+        meta_data={},
+        milestones=[],
+        created_at=datetime.now(UTC),
+    )
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -316,8 +335,7 @@ async def test_crm_mark_proposal_and_intake(monkeypatch):
     proj = _project()
     # each matcher opens its own session — queue per call via side_effect factory
     calls = iter([_DB(_Res(rows=[prop])), _DB(_Res(rows=[proj]))])
-    monkeypatch.setattr("app.worker._async.get_session_factory",
-                        lambda: (lambda: _CM(next(calls))))
+    monkeypatch.setattr("app.worker._async.get_session_factory", lambda: lambda: _CM(next(calls)))
     assert await E._mark_proposal_replied("c@acme.example", _cand()) is True
     assert prop.meta_data["replied"]["subject"] == "quick question"
     assert await E._mark_project_intake("c@acme.example", _cand(subject="here are the files")) is True
@@ -346,8 +364,7 @@ async def test_crm_support_case_paths(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_crm_testimonial_stamp(monkeypatch):
-    proj = _project(status=AgencyProjectStatus.delivered,
-                    meta_data={"testimonial_asked": True, "client_name": "Acme"})
+    proj = _project(status=AgencyProjectStatus.delivered, meta_data={"testimonial_asked": True, "client_name": "Acme"})
     _patch_session_factory(monkeypatch, _DB(_Res(rows=[proj])))
     assert await E._mark_project_testimonial("c@acme.example", _cand(subject="great work team")) is True
     assert proj.meta_data["testimonial_received"]["subject"] == "great work team"
@@ -359,14 +376,11 @@ async def test_crm_engagement_sweep_arms(monkeypatch):
     import app.services.espocrm_client as espo
     import app.services.slack_notifications as SN
 
-    monkeypatch.setattr(E, "get_settings", lambda: SimpleNamespace(
-        CRM_ENGAGEMENT_ENABLED=True, CRM_ENGAGEMENT_LOOKBACK_DAYS=7,
-        SMTP_FROM="bot@cloudless.gr"))
+    monkeypatch.setattr(E, "get_settings", lambda: SimpleNamespace(CRM_ENGAGEMENT_ENABLED=True, CRM_ENGAGEMENT_LOOKBACK_DAYS=7, SMTP_FROM="bot@cloudless.gr"))
     monkeypatch.setattr(E, "_fetch_candidates", lambda days: ([_cand()], []))
     monkeypatch.setattr(E, "_crm_emails", AsyncMock(return_value={}))
     monkeypatch.setattr(espo, "target_list_id", AsyncMock(return_value="list-1"))
-    for name in ("_mark_proposal_replied", "_mark_project_intake",
-                 "_mark_project_testimonial", "_project_support_case"):
+    for name in ("_mark_proposal_replied", "_mark_project_intake", "_mark_project_testimonial", "_project_support_case"):
         monkeypatch.setattr(E, name, AsyncMock(return_value=True))
     slack = []
 
@@ -391,18 +405,22 @@ async def test_crm_slack_report_details(monkeypatch):
         posted.append(text)
 
     monkeypatch.setattr(SN, "post_digest_text_to_slack", _slack)
-    await E._slack_report({
-        "matched": 1, "noted": 1, "status_bumped": 0, "errors": 0, "dry_run": False,
-        "details": [{"email": "a@b.c", "subject": "hi"}],
-        "proposal_reply_details": [{"email": "x@y.z", "subject": "re: audit"}],
-    })
+    await E._slack_report(
+        {
+            "matched": 1,
+            "noted": 1,
+            "status_bumped": 0,
+            "errors": 0,
+            "dry_run": False,
+            "details": [{"email": "a@b.c", "subject": "hi"}],
+            "proposal_reply_details": [{"email": "x@y.z", "subject": "re: audit"}],
+        }
+    )
     assert posted and "a@b.c" in posted[0] and "x@y.z" in posted[0]
 
     # silent path — nothing to report
     posted.clear()
-    await E._slack_report({"matched": 0, "noted": 0, "status_bumped": 0,
-                           "errors": 0, "dry_run": False, "details": [],
-                           "proposal_reply_details": []})
+    await E._slack_report({"matched": 0, "noted": 0, "status_bumped": 0, "errors": 0, "dry_run": False, "details": [], "proposal_reply_details": []})
     assert posted == []
 
 
@@ -411,11 +429,21 @@ async def test_crm_slack_report_details(monkeypatch):
 
 def _draft(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), audit_id=uuid.uuid4(), lead_id=None,
-        espo_lead_id=None, recipient_email="buyer@acme-industries.com",
-        recipient_name="Acme", services=["cloud"], price_low_eur=1200,
-        price_high_eur=2000, subject="s", body_md="b", meta_data={},
-        status=AgencyProposalStatus.draft, sent_at=None,
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        audit_id=uuid.uuid4(),
+        lead_id=None,
+        espo_lead_id=None,
+        recipient_email="buyer@acme-industries.com",
+        recipient_name="Acme",
+        services=["cloud"],
+        price_low_eur=1200,
+        price_high_eur=2000,
+        subject="s",
+        body_md="b",
+        meta_data={},
+        status=AgencyProposalStatus.draft,
+        sent_at=None,
         created_at=datetime.now(UTC),
     )
     d.update(kw)
@@ -438,10 +466,10 @@ async def test_autosend_pass_sends_clean_holds_dirty(monkeypatch):
     held = _draft(recipient_email="not-an-email")
     audit = SimpleNamespace(status=AgencyAuditStatus.completed)
     db = _DB(
-        _Res(rows=[ok, held]),          # drafts
-        _Res(rows=[]),                  # already-sent-today
-        _Res(scalar=audit),             # ok.audit
-        _Res(scalar=audit),             # held.audit
+        _Res(rows=[ok, held]),  # drafts
+        _Res(rows=[]),  # already-sent-today
+        _Res(scalar=audit),  # ok.audit
+        _Res(scalar=audit),  # held.audit
     )
     stats = await P._autosend_pass(db, uuid.uuid4())
     assert stats["evaluated"] == 2 and stats["sent"] == 1 and stats["held"] == 1
@@ -451,11 +479,7 @@ async def test_autosend_pass_sends_clean_holds_dirty(monkeypatch):
 
 def _sent_today(n):
     now = datetime.now(UTC)
-    return [
-        SimpleNamespace(status=AgencyProposalStatus.sent, sent_at=now,
-                        meta_data={"approved_by": "autosend"})
-        for _ in range(n)
-    ]
+    return [SimpleNamespace(status=AgencyProposalStatus.sent, sent_at=now, meta_data={"approved_by": "autosend"}) for _ in range(n)]
 
 
 @pytest.mark.asyncio
@@ -466,10 +490,10 @@ async def test_autosend_pass_send_error_counts(monkeypatch):
     ok1, ok2 = _draft(), _draft()
     audit = SimpleNamespace(status=AgencyAuditStatus.completed)
     db = _DB(
-        _Res(rows=[ok1, ok2]),      # drafts
+        _Res(rows=[ok1, ok2]),  # drafts
         _Res(rows=_sent_today(4)),  # 4 autosent today → budget = 1
-        _Res(scalar=audit),         # ok1.audit
-        _Res(scalar=audit),         # ok2.audit
+        _Res(scalar=audit),  # ok1.audit
+        _Res(scalar=audit),  # ok2.audit
     )
     stats = await P._autosend_pass(db, uuid.uuid4())
     assert stats["evaluated"] == 2 and stats["errors"] == 2 and stats["sent"] == 0
@@ -499,7 +523,13 @@ async def test_agency_payment_url_paths(monkeypatch):
 
     monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_CHECKOUT_URL=""))
     assert await P._agency_payment_url(prop, 100) is None
-    monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_CHECKOUT_URL="https://x", ))
+    monkeypatch.setattr(
+        P,
+        "get_settings",
+        lambda: _settings(
+            AGENCY_CHECKOUT_URL="https://x",
+        ),
+    )
     assert await P._agency_payment_url(prop, 0) is None
 
     class _Resp:
@@ -546,21 +576,14 @@ def test_services_line_bundle_and_partial():
 def test_autosend_block_reasons_matrix():
     audit_ok = SimpleNamespace(status=AgencyAuditStatus.completed)
     assert "no-valid-recipient" in P._autosend_block_reasons(_draft(recipient_email="bad"), audit_ok, None)
-    assert "synthetic-recipient" in P._autosend_block_reasons(
-        _draft(recipient_email="x@messenger.local"), audit_ok, None)
+    assert "synthetic-recipient" in P._autosend_block_reasons(_draft(recipient_email="x@messenger.local"), audit_ok, None)
     assert "audit-not-completed" in P._autosend_block_reasons(_draft(), None, None)
-    assert "audit-not-completed" in P._autosend_block_reasons(
-        _draft(), SimpleNamespace(status=AgencyAuditStatus.pending), None)
-    assert "services-outside-catalog" in P._autosend_block_reasons(
-        _draft(services=["not-in-catalog"]), audit_ok, None)
-    assert "price-missing" in P._autosend_block_reasons(
-        _draft(price_low_eur=None, price_high_eur=None), audit_ok, None)
-    assert "price-above-bundle" in P._autosend_block_reasons(
-        _draft(price_low_eur=1, price_high_eur=10**9), audit_ok, None)
-    assert "lead-engaged-or-opted-out" in P._autosend_block_reasons(
-        _draft(meta_data={"replied": {"at": "x"}}), audit_ok, None)
-    assert "lead-engaged-or-opted-out" in P._autosend_block_reasons(
-        _draft(meta_data={"unsubscribed": True}), audit_ok, None)
+    assert "audit-not-completed" in P._autosend_block_reasons(_draft(), SimpleNamespace(status=AgencyAuditStatus.pending), None)
+    assert "services-outside-catalog" in P._autosend_block_reasons(_draft(services=["not-in-catalog"]), audit_ok, None)
+    assert "price-missing" in P._autosend_block_reasons(_draft(price_low_eur=None, price_high_eur=None), audit_ok, None)
+    assert "price-above-bundle" in P._autosend_block_reasons(_draft(price_low_eur=1, price_high_eur=10**9), audit_ok, None)
+    assert "lead-engaged-or-opted-out" in P._autosend_block_reasons(_draft(meta_data={"replied": {"at": "x"}}), audit_ok, None)
+    assert "lead-engaged-or-opted-out" in P._autosend_block_reasons(_draft(meta_data={"unsubscribed": True}), audit_ok, None)
     lead_opt = SimpleNamespace(meta_data={"unsubscribed": True})
     assert "lead-opted-out" in P._autosend_block_reasons(_draft(), audit_ok, lead_opt)
     lead_nurture = SimpleNamespace(meta_data={"nurture_opted_out": True})
@@ -638,8 +661,7 @@ async def test_autosend_pass_send_exception_and_slack_fail(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_proposal_sweep_custom_scope_lead_and_autosend(monkeypatch):
-    monkeypatch.setattr(P, "get_settings",
-                        lambda: _settings(AGENCY_PROPOSAL_AUTOSEND=True))
+    monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_PROPOSAL_AUTOSEND=True))
     import app.services.slack_notifications as SN
 
     async def _boom(*a, **k):
@@ -652,18 +674,23 @@ async def test_proposal_sweep_custom_scope_lead_and_autosend(monkeypatch):
 
     lid = uuid.uuid4()
     audit = SimpleNamespace(
-        id=uuid.uuid4(), status=AgencyAuditStatus.completed, score=80,
-        url="https://acme.example", recommended_services=[],
+        id=uuid.uuid4(),
+        status=AgencyAuditStatus.completed,
+        score=80,
+        url="https://acme.example",
+        recommended_services=[],
         action_plan="zzz qqq unmatched gibberish",
         findings=[{"finding": "x", "severity": "warning", "service": "cloud"}],
         meta_data={"lead_email": "c@acme.example", "lead_name": "Acme"},
-        lead_id=lid, espo_lead_id=None, team_id=uuid.uuid4(),
+        lead_id=lid,
+        espo_lead_id=None,
+        team_id=uuid.uuid4(),
     )
     lead_obj = SimpleNamespace(id=lid, email="lead@acme.example", name="Lead Name")
     db = _DB(
-        _Res(rows=[audit]),        # completed audits
-        _Res(scalar=None),         # has_proposal → none
-        _Res(scalar=lead_obj),     # lead lookup via audit.lead_id
+        _Res(rows=[audit]),  # completed audits
+        _Res(scalar=None),  # has_proposal → none
+        _Res(scalar=lead_obj),  # lead lookup via audit.lead_id
     )
     out = await P.proposal_sweep(session_factory=_factory(db))
     assert out["drafted"] == 1
@@ -729,12 +756,12 @@ async def test_post_consult_gates_and_full_path(monkeypatch):
     monkeypatch.setattr(SN, "post_digest_text_to_slack", _boom)
 
     opps = [
-        {"name": "no-id"},                                             # no id → continue
-        {"id": "o1", "name": "Won A", "accountId": None},             # contact email
-        {"id": "o2", "name": "Won B", "accountId": None},             # no email → skipped note
-        {"id": "o3", "name": "Won C", "accountId": "a1"},             # account fallback
-        {"id": "o4", "name": "Won D", "accountId": "a2"},             # both reads raise
-        {"id": "o5", "name": "Won E", "accountId": None},             # has marker note → skipped
+        {"name": "no-id"},  # no id → continue
+        {"id": "o1", "name": "Won A", "accountId": None},  # contact email
+        {"id": "o2", "name": "Won B", "accountId": None},  # no email → skipped note
+        {"id": "o3", "name": "Won C", "accountId": "a1"},  # account fallback
+        {"id": "o4", "name": "Won D", "accountId": "a2"},  # both reads raise
+        {"id": "o5", "name": "Won E", "accountId": None},  # has marker note → skipped
     ]
     noted = {"o5"}
 
@@ -742,8 +769,7 @@ async def test_post_consult_gates_and_full_path(monkeypatch):
         if entity == "Opportunity":
             return opps
         # Note lookup — parentId lives in the where clauses
-        pid = next((c.get("value") for c in (kw.get("where") or [])
-                    if c.get("attribute") == "parentId"), None)
+        pid = next((c.get("value") for c in (kw.get("where") or []) if c.get("attribute") == "parentId"), None)
         if pid in noted:
             return [{"id": "n1", "post": f"{P.POST_CONSULT_MARKER} sent earlier"}]
         return []
@@ -775,12 +801,18 @@ async def test_post_consult_gates_and_full_path(monkeypatch):
 
 def _pm_project(**kw):
     d = dict(
-        id=uuid.uuid4(), team_id=uuid.uuid4(), name="Proj",
+        id=uuid.uuid4(),
+        team_id=uuid.uuid4(),
+        name="Proj",
         status=AgencyProjectStatus.active,
         kickoff_at=datetime.now(UTC) - timedelta(days=5),
         due_at=datetime.now(UTC) + timedelta(days=10),
-        milestones=None, meta_data={}, client_email="c@acme.example",
-        client_name="Acme", handoff_md=None, last_client_update_at=None,
+        milestones=None,
+        meta_data={},
+        client_email="c@acme.example",
+        client_name="Acme",
+        handoff_md=None,
+        last_client_update_at=None,
     )
     d.update(kw)
     return SimpleNamespace(**d)
@@ -815,19 +847,16 @@ async def test_pm_sweep_testimonial_delight_and_edges(monkeypatch):
     send = AsyncMock()
     monkeypatch.setattr(ED, "send_email", send)
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "post_alert_to_slack", AsyncMock())
 
     now = datetime.now(UTC)
     asked = (now - timedelta(days=40)).isoformat()
-    p0 = _pm_project(status=AgencyProjectStatus.delivered,
-                  meta_data={"testimonial_due_at": (now - timedelta(days=1)).isoformat()})
+    p0 = _pm_project(status=AgencyProjectStatus.delivered, meta_data={"testimonial_due_at": (now - timedelta(days=1)).isoformat()})
     p1 = _pm_project(status=AgencyProjectStatus.delivered, meta_data={})
-    p2 = _pm_project(status=AgencyProjectStatus.delivered,
-                  meta_data={"testimonial_asked": asked})
-    p3 = _pm_project(status=AgencyProjectStatus.delivered, client_email=None,
-                  meta_data={"testimonial_due_at": "garbage"})
-    p4 = _pm_project(status=AgencyProjectStatus.delivered,
-                  meta_data={"testimonial_asked": "not-a-date"})
+    p2 = _pm_project(status=AgencyProjectStatus.delivered, meta_data={"testimonial_asked": asked})
+    p3 = _pm_project(status=AgencyProjectStatus.delivered, client_email=None, meta_data={"testimonial_due_at": "garbage"})
+    p4 = _pm_project(status=AgencyProjectStatus.delivered, meta_data={"testimonial_asked": "not-a-date"})
     db = _DB(_Res(rows=[]), _Res(rows=[p0, p1, p2, p3, p4]))
     out = await P.pm_sweep(session_factory=_factory(db))
     assert out["testimonial_asks"] == 1
@@ -843,5 +872,4 @@ async def test_token_expiry_post_slack_error(monkeypatch):
         raise RuntimeError("slack down")
 
     monkeypatch.setattr(SN, "post_alert_to_slack", _boom)
-    await TE._post({"warn": [{"platform": "fb", "account": "a", "expires": "x"}],
-                    "reauth": []})  # must not raise — except path covered
+    await TE._post({"warn": [{"platform": "fb", "account": "a", "expires": "x"}], "reauth": []})  # must not raise — except path covered

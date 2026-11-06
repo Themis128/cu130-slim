@@ -16,14 +16,12 @@ def _client(access_token="bearer", media_signer=object()):
 
 
 def _fake_resp(status=200, payload=None, text="ok"):
-    return SimpleNamespace(status_code=status, headers={"h": "v"}, text=text,
-                           json=lambda: payload or {"id": 1})
+    return SimpleNamespace(status_code=status, headers={"h": "v"}, text=text, json=lambda: payload or {"id": 1})
 
 
 def test_oauth1_request_wrapper(monkeypatch):
     fake = ModuleType("requests_oauthlib")
-    fake.OAuth1Session = lambda *a: SimpleNamespace(
-        request=lambda method, url, **kw: _fake_resp(201, {"k": 1}, "txt"))
+    fake.OAuth1Session = lambda *a: SimpleNamespace(request=lambda method, url, **kw: _fake_resp(201, {"k": 1}, "txt"))
     monkeypatch.setitem(sys.modules, "requests_oauthlib", fake)
 
     c = _client()

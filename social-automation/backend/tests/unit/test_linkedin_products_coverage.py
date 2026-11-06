@@ -119,9 +119,7 @@ async def test_stream_conversion(monkeypatch):
         return _Resp(201, {})
 
     _patch_client(monkeypatch, ADV, h)
-    out = await ADV.stream_conversion(
-        conversion_rule="audit_booked", happened_at_ms=7, email_sha256="e", lead_id="l"
-    )
+    out = await ADV.stream_conversion(conversion_rule="audit_booked", happened_at_ms=7, email_sha256="e", lead_id="l")
     assert out["ok"] and seen["json"]["user"] == {"email": {"sha256": "e"}, "leadId": "l"}
 
 
@@ -220,7 +218,6 @@ async def test_comments_paths(monkeypatch):
 
 
 @pytest.mark.asyncio
-
 @pytest.mark.asyncio
 async def test_score_main_loop_winners_and_commenters(monkeypatch):
     acc = SimpleNamespace(id="acc1", access_token_enc=b"x", team_id="t")
@@ -238,10 +235,12 @@ async def test_score_main_loop_winners_and_commenters(monkeypatch):
     )
     monkeypatch.setattr(S, "task_session", lambda: _AsyncCM(db))
     import app.core.security as sec
+
     monkeypatch.setattr(sec, "decrypt_token", lambda b: "tok")
     monkeypatch.setattr(S, "_social_metadata", AsyncMock(return_value={"likeCount": 50, "impressionCount": 10}))
     monkeypatch.setattr(S, "_comments", AsyncMock(return_value=[{"actor": "u1", "message": {"text": "hi"}}]))
     import httpx
+
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeClient(lambda *a, **k: _Resp(200, {})))
     out = await S._score_linkedin_posts()
     assert out["scored"] == 1 and out["commenters_added"] == 1
@@ -257,9 +256,11 @@ async def test_score_no_stats(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(side_effect=exec_results))
     monkeypatch.setattr(S, "task_session", lambda: _AsyncCM(db))
     import app.core.security as sec
+
     monkeypatch.setattr(sec, "decrypt_token", lambda b: "tok")
     monkeypatch.setattr(S, "_social_metadata", AsyncMock(return_value=None))
     import httpx
+
     monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **k: _FakeClient(lambda *a, **k: _Resp(200, {})))
     out = await S._score_linkedin_posts()
     assert out["scored"] == 0 and out["skip"] == "no-post-stats"
@@ -275,10 +276,12 @@ async def test_route_leads_enabled(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=_result(acc)))
     monkeypatch.setattr(LB, "task_session", lambda: _AsyncCM(db))
     import app.services.linkedin_ads as LADS
+
     monkeypatch.setattr(LADS, "ad_accounts", AsyncMock(return_value=[{"id": "a1"}]))
     monkeypatch.setattr(LADS, "lead_gen_forms", AsyncMock(return_value=[{"id": "f1"}]))
     monkeypatch.setattr(LADS, "lead_form_responses", AsyncMock(return_value=[{"id": "r1"}]))
     import app.services.slack_notifications as SN
+
     alert = AsyncMock()
     monkeypatch.setattr(SN, "post_alert_to_slack", alert)
     out = await LB._route_linkedin_leads()
@@ -297,6 +300,7 @@ async def test_boost_winners(monkeypatch):
     )
     monkeypatch.setattr(LB, "task_session", lambda: _AsyncCM(db))
     import app.services.slack_notifications as SN
+
     alert = AsyncMock()
     monkeypatch.setattr(SN, "post_alert_to_slack", alert)
     out = await LB._boost_linkedin_winners()
@@ -321,6 +325,7 @@ def test_verify_sig_edge(monkeypatch):
     assert CW._verify_sig(b"body", None) is False
     import hashlib
     import hmac
+
     good = hmac.new(b"s", b"body", hashlib.sha256).hexdigest()
     assert CW._verify_sig(b"body", good) is True
 

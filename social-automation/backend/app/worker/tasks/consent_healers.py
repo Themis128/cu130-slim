@@ -68,13 +68,17 @@ async def _linkedin_token_health() -> str:
 
     async with task_session() as db:
         acc = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "linkedin",
-                    SocialAccount.account_type == "organization",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.account_type == "organization",
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if not acc or not acc.access_token_enc:
             return "skip"
         acc_id, team_id = acc.id, str(acc.team_id)
@@ -110,10 +114,7 @@ async def _linkedin_token_health() -> str:
         state=sign_oauth_state({"t": team_id}),
         scope=_linkedin_scopes(),
     )
-    msg = (
-        "LinkedIn token pair dead (access 401 + refresh invalid_grant) "
-        f"— re-consent needed, one click: {url}"
-    )
+    msg = f"LinkedIn token pair dead (access 401 + refresh invalid_grant) — re-consent needed, one click: {url}"
     await post_alert_to_slack(f":rotating_light: {msg}")
     try:
         from app.services.slack_notifications import send_telegram_alert

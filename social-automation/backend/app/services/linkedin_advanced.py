@@ -26,13 +26,17 @@ async def _ctx() -> tuple[str, str] | None:
         return None
     async with task_session() as db:
         acc = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "linkedin",
-                    SocialAccount.account_type == "organization",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.account_type == "organization",
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if not acc or not acc.access_token_enc:
             return None
         return decrypt_token(bytes(acc.access_token_enc)), f"urn:li:organization:{acc.account_id}"

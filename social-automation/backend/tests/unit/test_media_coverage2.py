@@ -98,8 +98,7 @@ async def test_generate_text_qa_retry_workers_ai(monkeypatch):
     asset = _asset(team_id=team.id)
     asset.meta_data = {}
 
-    monkeypatch.setattr(media, "apply_media_quality", AsyncMock(
-        return_value=SimpleNamespace(prompt="p", negative_prompt=None)))
+    monkeypatch.setattr(media, "apply_media_quality", AsyncMock(return_value=SimpleNamespace(prompt="p", negative_prompt=None)))
     monkeypatch.setattr(MA, "expand_visual_prompt", AsyncMock(return_value="expanded"))
     monkeypatch.setattr(MA, "verify_media_semantics", AsyncMock(return_value={"match": True, "reason": ""}))
     monkeypatch.setattr(ITG, "wants_rendered_text", lambda p: False)
@@ -115,6 +114,7 @@ async def test_generate_text_qa_retry_workers_ai(monkeypatch):
             return False
 
     import app.services.gpu_arbiter as GA
+
     monkeypatch.setattr(GA, "media_gpu_lock", lambda: _Lock())
     monkeypatch.setattr(CI, "generate_image", AsyncMock(side_effect=Exception("gpu busy")))
 
@@ -146,8 +146,7 @@ async def test_generate_text_qa_retry_comfyui(monkeypatch):
     asset = _asset(team_id=team.id)
     asset.meta_data = {}
 
-    monkeypatch.setattr(media, "apply_media_quality", AsyncMock(
-        return_value=SimpleNamespace(prompt="p", negative_prompt=None)))
+    monkeypatch.setattr(media, "apply_media_quality", AsyncMock(return_value=SimpleNamespace(prompt="p", negative_prompt=None)))
     monkeypatch.setattr(MA, "expand_visual_prompt", AsyncMock(return_value="expanded"))
     monkeypatch.setattr(MA, "verify_media_semantics", AsyncMock(return_value={"match": True, "reason": ""}))
     monkeypatch.setattr(ITG, "wants_rendered_text", lambda p: False)

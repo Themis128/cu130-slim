@@ -22,11 +22,7 @@ class _AsyncCM:
 
 
 def _db(rows):
-    return SimpleNamespace(
-        execute=AsyncMock(
-            return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
-        )
-    )
+    return SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))))
 
 
 def _acc(plat, name, meta):
@@ -65,9 +61,7 @@ async def test_post_sends_when_nonempty(monkeypatch):
         posted["text"] = text
 
     monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", _fake_post)
-    await TE._post(
-        {"warn": [{"platform": "tiktok", "account": "tt", "expires": "2026-11-01T00:00:00+00:00"}], "reauth": []}
-    )
+    await TE._post({"warn": [{"platform": "tiktok", "account": "tt", "expires": "2026-11-01T00:00:00+00:00"}], "reauth": []})
     assert "Token expiry sweep" in posted["text"]
     await TE._post({"warn": [], "reauth": []})  # empty → no post
 
@@ -86,6 +80,4 @@ async def test_post_swallows_slack_failure(monkeypatch):
         raise RuntimeError("slack down")
 
     monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", _boom)
-    await TE._post(
-        {"warn": [{"platform": "tiktok", "account": "tt", "expires": "2026-11-01T00:00:00+00:00"}], "reauth": []}
-    )
+    await TE._post({"warn": [{"platform": "tiktok", "account": "tt", "expires": "2026-11-01T00:00:00+00:00"}], "reauth": []})

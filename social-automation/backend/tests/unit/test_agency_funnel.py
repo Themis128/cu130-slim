@@ -406,9 +406,7 @@ async def test_mark_proposal_replied_stamps_meta(monkeypatch):
     import app.worker._async as A
 
     monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
-    hit = await E._mark_proposal_replied(
-        "c@acme.example", {"subject": "Re: Audit + plan", "message_id": "m1", "uid": "1"}
-    )
+    hit = await E._mark_proposal_replied("c@acme.example", {"subject": "Re: Audit + plan", "message_id": "m1", "uid": "1"})
     assert hit is True
     assert prop.meta_data["replied"]["message_id"] == "m1"
     assert db.commits == 1
@@ -421,9 +419,7 @@ async def test_mark_proposal_replied_no_match(monkeypatch):
     import app.worker._async as A
 
     monkeypatch.setattr(A, "get_session_factory", lambda: _factory(db))
-    hit = await E._mark_proposal_replied(
-        "nobody@acme.example", {"subject": "hi", "message_id": "m2", "uid": "2"}
-    )
+    hit = await E._mark_proposal_replied("nobody@acme.example", {"subject": "hi", "message_id": "m2", "uid": "2"})
     assert hit is False
     assert db.commits == 0
 
@@ -500,9 +496,7 @@ async def test_agency_payment_url_unconfigured(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_agency_payment_url_mints(monkeypatch):
-    monkeypatch.setattr(
-        P, "get_settings", lambda: _settings(AGENCY_CHECKOUT_URL="https://c/agency", CLOUDLESS_LEADS_WEBHOOK_SECRET="s")
-    )
+    monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_CHECKOUT_URL="https://c/agency", CLOUDLESS_LEADS_WEBHOOK_SECRET="s"))
 
     class _Resp:
         status_code = 200

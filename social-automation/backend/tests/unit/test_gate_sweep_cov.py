@@ -16,8 +16,8 @@ def test_cdp_live_paths(monkeypatch):
 
 def test_pending_paths(monkeypatch):
     import subprocess
-    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(
-        stdout="ok\nlinkedin-oauth pending\nfoo pending\n"))
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="ok\nlinkedin-oauth pending\nfoo pending\n"))
     out = G._pending()
     assert len(out) == 2 and "pending" in out[0].lower()
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(Exception("no file")))
@@ -32,6 +32,7 @@ def test_run_gate_sweep_paths(monkeypatch):
     assert G.run_gate_sweep() == {"fired": 0}
     monkeypatch.setattr(G, "_pending", lambda: ["linkedin", "x"])
     import subprocess
+
     monkeypatch.setattr(subprocess, "run", lambda *a, **k: SimpleNamespace(stdout="out", stderr="err"))
     out = G.run_gate_sweep()
     assert out["fired"] == 2 and "out" in out["out"]
