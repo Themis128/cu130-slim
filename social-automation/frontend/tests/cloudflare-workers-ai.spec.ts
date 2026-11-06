@@ -115,11 +115,13 @@ test.describe('Cloudflare backend contract @e2e', () => {
   test.describe.configure({ mode: 'serial' })
 
   test.beforeAll(async ({ request }) => {
-    // register/login may wait out the auth rate-limit window
+    // register/login may wait out the auth rate-limit window — hooks ignore
+    // a second-arg timeout, so raise it from inside.
+    test.setTimeout(180_000)
     await registerAndLogin(request)
     const h = await request.get(`${API_URL}/health`)
     expect(h.status()).toBe(200)
-  }, { timeout: 180_000 })
+  })
 
   test('GET /health reports the service', async ({ request }) => {
     const r = await request.get(`${API_URL}/health`)
@@ -276,15 +278,17 @@ test.describe('Cloudflare backend contract @e2e', () => {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Real browser E2E (Next dev server on :3001 → live social-api backend)
+//  Real browser E2E (frontend container :8082 → live social-api backend)
 // ─────────────────────────────────────────────────────────────────────────────
 test.describe('Cloudflare UI — live stack @e2e', () => {
   test.describe.configure({ mode: 'serial' })
 
   test.beforeAll(async ({ request }) => {
-    // register/login may wait out the auth rate-limit window
+    // register/login may wait out the auth rate-limit window — hooks ignore
+    // a second-arg timeout, so raise it from inside.
+    test.setTimeout(180_000)
     await registerAndLogin(request)
-  }, { timeout: 180_000 })
+  })
 
   test.use({ baseURL: process.env.E2E_FRONTEND_URL ?? 'http://localhost:8082' })
 
