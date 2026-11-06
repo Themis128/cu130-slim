@@ -1016,6 +1016,15 @@ hit the same drift; keep mirror in sync or mount from WSL.
 - [x] `C:\Users\tbaltzakis\cu130-slim\.env` was a stray empty DIRECTORY —
   removed it and copied the real WSL `.env` there so Windows-side compose
   runs resolve env correctly (compose project merges WSL+Windows configs).
+- [x] Always-on PR sweep (2026-11-06): user directive "always address all
+  PRs, merge all branches to production branch, rebase to it" → rule files
+  `.devin/rules/pr-sweep-always.md` + `.cursor/rules/pr-sweep-always.mdc`,
+  orchestrator `.devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py`
+  (chains pr_watch --fix → pr_rebuild on DIRTY → actionable report;
+  --dry-run/--no-rebuild flags). Verified live: 1 open PR (#1375) correctly
+  reported with 3 actionable failures. NOTE: do NOT run
+  `pr-landing-ops/scripts/pr_sweep.py` unattended — it blind-resolves
+  conflicts with --ours/--theirs.
 - [x] Tailnet exposure on wsl-ubuntu2404 (2026-11-06): `tailscale serve`
   needs root/operator (not set) → used userspace forwarder instead.
   `~/.local/bin/tailnet-forward.py` + systemd **user** unit
