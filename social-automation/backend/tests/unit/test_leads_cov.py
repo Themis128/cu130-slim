@@ -18,7 +18,7 @@ def _audit_body(**kw):
 
 
 def _survey_body(**kw):
-    d = {"email": "a@b.com", "website": "", "phone": "", "name": "T", "consent": True,
+    d = {"email": "a@b.com", "website": "", "phone": "", "consent": True,
          "answers": {}, "company_size": None, "interest": None, "site": None,
          "form": None, "page_path": None, "locale": None, "platform": None,
          "name": None}
