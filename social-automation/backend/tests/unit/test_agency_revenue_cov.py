@@ -773,7 +773,7 @@ async def test_post_consult_gates_and_full_path(monkeypatch):
     assert send.await_count == 2
 
 
-def _pm_pm_project(**kw):
+def _pm_project(**kw):
     d = dict(
         id=uuid.uuid4(), team_id=uuid.uuid4(), name="Proj",
         status=AgencyProjectStatus.active,
