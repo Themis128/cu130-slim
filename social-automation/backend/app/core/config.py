@@ -643,6 +643,17 @@ class Settings(BaseSettings):
     AGENCY_ENABLED: bool = True
     AGENCY_AUDIT_MAX_PER_RUN: int = 5
     AGENCY_PROPOSAL_AUTOSEND: bool = False
+    # Guarded autosend only fires when every deterministic check passes
+    # (completed audit, catalog services, in-band price, valid non-synthetic
+    # recipient, no opt-out/reply signals); this caps sends per UTC day.
+    AGENCY_AUTOSEND_DAILY_CAP: int = 5
+    # Stripe checkouts below this amount never kick off a 14-day project —
+    # a €9 checklist sale is not a consulting engagement.
+    AGENCY_STRIPE_PROJECT_MIN_EUR: int = 500
+    # cloudless.gr /api/checkout/agency minter — proposals embed a Stripe
+    # payment link so checkout.session.completed → Closed Won → won_sweep
+    # closes the money loop without a human invoicing step.
+    AGENCY_CHECKOUT_URL: str = ""
 
     # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
     # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the

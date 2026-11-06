@@ -81,14 +81,12 @@ async def test_list_all_paginates_and_stops(monkeypatch):
     import app.services.espocrm_client as E
 
     monkeypatch.setattr("app.services.espocrm_client.get_settings", lambda: MagicMock(ESPOCRM_BASE_URL="https://e", ESPOCRM_API_KEY="k"))
-    import json as _j
 
     calls = []
 
     async def fake_get(path, params=None):
-        search = _j.loads(params["searchParams"])
-        calls.append(search["offset"])
-        page = [{"id": i} for i in range(search["offset"], min(search["offset"] + E._PAGE, 250))]
+        calls.append(params["offset"])
+        page = [{"id": i} for i in range(params["offset"], min(params["offset"] + E._PAGE, 250))]
         return {"list": page}
 
     monkeypatch.setattr(E, "espo_get", fake_get)

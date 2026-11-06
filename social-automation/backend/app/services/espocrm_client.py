@@ -71,17 +71,21 @@ async def list_all(
     items: list[dict[str, Any]] = []
     offset = 0
     while len(items) < max_items:
-        search: dict[str, Any] = {
+        # Flat params — this EspoCRM version 400s on the searchParams JSON
+        # blob; where[i][type]/[attribute]/[value] and comma-select work.
+        params: dict[str, Any] = {
             "offset": offset,
             "maxSize": min(_PAGE, max_items - len(items)),
             "orderBy": order_by,
             "order": order,
         }
         if select:
-            search["select"] = select  # EspoCRM searchParams takes a JSON array
+            params["select"] = ",".join(select)
         if where:
-            search["where"] = where
-        data = await espo_get(f"/{entity}", params={"searchParams": json.dumps(search)})
+            for i, clause in enumerate(where):
+                for k, v in clause.items():
+                    params[f"where[{i}][{k}]"] = json.dumps(v) if isinstance(v, list | dict) else v
+        data = await espo_get(f"/{entity}", params=params)
         page = data.get("list") or []
         items.extend(page)
         if len(page) < _PAGE:
