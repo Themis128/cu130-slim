@@ -1016,3 +1016,14 @@ hit the same drift; keep mirror in sync or mount from WSL.
 - [x] `C:\Users\tbaltzakis\cu130-slim\.env` was a stray empty DIRECTORY —
   removed it and copied the real WSL `.env` there so Windows-side compose
   runs resolve env correctly (compose project merges WSL+Windows configs).
+- [x] Playwright E2E full-suite acceptance (2026-11-06 run): **189 passed /
+  0 failed / 3 flaky** (calendar seeded-post tests, pass on retry) in 6.6m
+  on chromium, workers=4, retries=1. PRs: #1385 (config hardening, merged),
+  #1386 (round-1 fixes), #1387 (timeout fixes + retries=1, CI running).
+  KEY GOTCHA: `test()`/`test.beforeAll()` do NOT accept a trailing
+  `{ timeout: N }` arg — every occurrence was silently ignored; must use
+  `test.setTimeout(N)` inside the body/hook. All fixed in
+  cloudflare-workers-ai.spec.ts + voice-recorder.test.ts.
+  Remaining flake class: real-stack timing under 4-worker parallel load
+  (auth 5/min rate limit, Whisper/CF cold starts, networkidle) — retries=1
+  absorbs it; failures vary run-to-run, no stable app defect found.
