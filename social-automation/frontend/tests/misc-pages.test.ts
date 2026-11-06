@@ -1,6 +1,8 @@
 import { test, expect } from './helpers/auth';
 
 test.describe('Home and misc pages — real backend', () => {
+  // networkidle waits on the live stack need more than the default 30s.
+  test.describe.configure({ timeout: 60_000 })
   test('home page renders the public landing page when unauthenticated', async ({ page }) => {
     await page.goto('/');
     await page.waitForLoadState('networkidle');
