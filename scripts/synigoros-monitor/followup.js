@@ -11,6 +11,8 @@ const DIR = __dirname;
 const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
 const DRY = process.argv.includes('--dry-run');
 const TO = 'press@synigoros.gr';
+const ALERT_STATE = path.join(DIR, 'followup-alert.json');
+const FAIL_ALERT_EVERY_MS = 60 * 60 * 1000; // one failure alert per hour max
 
 function envVal(key) {
   try {
@@ -146,7 +148,15 @@ function httpSend(url, token, from, to, subject, text) {
     await tg('📮 Follow-up εστάλη στον Συνήγορο (email ' + TO + ', αρ. πρωτ. 408302/81750/2026)');
   } catch (e) {
     console.log('followup send failed:', e.message);
-    await tg('⚠️ ΑΠΟΤΥΧΙΑ αποστολής follow-up Συνηγόρου: ' + e.message + ' — στείλε χειροκίνητα (scripts/synigoros-monitor/followup.txt)');
+    // The monitor retries every ~15min while SMTP is down — without
+    // throttling that spammed Telegram once per retry. Alert at most
+    // once per hour; the retry itself keeps running regardless.
+    let lastAlert = 0;
+    try { lastAlert = JSON.parse(fs.readFileSync(ALERT_STATE, 'utf8')).ts || 0; } catch {}
+    if (Date.now() - lastAlert >= FAIL_ALERT_EVERY_MS) {
+      fs.writeFileSync(ALERT_STATE, JSON.stringify({ ts: Date.now() }));
+      await tg('⚠️ ΑΠΟΤΥΧΙΑ αποστολής follow-up Συνηγόρου: ' + e.message + ' — στείλε χειροκίνητα (scripts/synigoros-monitor/followup.txt)');
+    }
     process.exit(1);
   }
 })();
