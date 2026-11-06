@@ -58,9 +58,11 @@ test.describe('VoiceRecorder — live @e2e', () => {
   test.skip(({ browserName }) => browserName !== 'chromium', 'fake audio device is Chromium-only')
 
   test.beforeAll(async ({ request }) => {
-    // register/login may wait out the auth rate-limit window
+    // register/login may wait out the auth rate-limit window — hooks ignore
+    // a second-arg timeout, so raise it from inside.
+    test.setTimeout(180_000)
     await registerAndLogin(request)
-  }, { timeout: 180_000 })
+  })
 
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(
