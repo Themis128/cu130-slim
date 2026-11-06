@@ -1,6 +1,9 @@
 import { test, expect } from './helpers/auth';
 
 test.describe('Workflows Page — real backend', () => {
+  // Tab clicks + content loads can exceed the 30s default under parallel load.
+  test.describe.configure({ timeout: 60_000 })
+
   test('should render the Workflows heading', async ({ authenticatedPage: page }) => {
     await page.goto('/workflows');
     await expect(page).toHaveURL('/workflows');

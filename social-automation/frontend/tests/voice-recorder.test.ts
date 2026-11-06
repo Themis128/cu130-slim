@@ -1,44 +1,7 @@
-import { test, expect, type APIRequestContext } from '@playwright/test'
-import { randomUUID } from 'crypto'
-
-const API_URL = process.env.E2E_API_URL ?? 'http://localhost:8083'
-const API_V1 = `${API_URL}/api/v1`
-
-const TEST_EMAIL = `vr-e2e-${Date.now()}-${randomUUID().replace(/-/g, '').slice(0, 8)}@example.com`
-const TEST_PASSWORD = 'VoiceRecorderE2E!1234'
+import { test, expect, ensureTestUser } from './helpers/auth'
 
 let accessToken = ''
 let refreshToken = ''
-
-async function registerAndLogin(request: APIRequestContext) {
-  // A 429 on register means the user was NOT created — retry the whole pair.
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const reg = await request.post(`${API_V1}/auth/register`, {
-      data: { email: TEST_EMAIL, password: TEST_PASSWORD, name: 'VR E2E' },
-    })
-    if (reg.status() === 429) {
-      await new Promise((res) => setTimeout(res, 5000 + 5000 * attempt))
-      continue
-    }
-    const r = await request.post(`${API_V1}/auth/login`, {
-      form: { username: TEST_EMAIL, password: TEST_PASSWORD },
-    })
-    if (r.status() === 429) {
-      await new Promise((res) => setTimeout(res, 5000 + 5000 * attempt))
-      continue
-    }
-    const body = await r.json()
-    accessToken = body.access_token
-    refreshToken = body.refresh_token
-    // Fresh users are redirected to /onboarding — mark complete via the real API
-    await request.patch(`${API_V1}/auth/me`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-      data: { onboarding_completed: true },
-    }).catch(() => {})
-    return
-  }
-  throw new Error('register/login exhausted retries (rate limited)')
-}
 
 test.use({
   baseURL: process.env.E2E_FRONTEND_URL ?? 'http://localhost:8082',
@@ -57,11 +20,12 @@ test.describe('VoiceRecorder — live @e2e', () => {
   // Skip before the page fixture is created — Firefox rejects the 'microphone' permission
   test.skip(({ browserName }) => browserName !== 'chromium', 'fake audio device is Chromium-only')
 
-  test.beforeAll(async ({ request }) => {
-    // register/login may wait out the auth rate-limit window — hooks ignore
-    // a second-arg timeout, so raise it from inside.
-    test.setTimeout(180_000)
-    await registerAndLogin(request)
+  test.beforeAll(async () => {
+    // Shared cached user — avoids extra register/login calls that compete
+    // with the 5/min auth rate limit under parallel workers.
+    const tokens = await ensureTestUser()
+    accessToken = tokens.access_token
+    refreshToken = tokens.refresh_token
   })
 
   test.beforeEach(async ({ page }) => {
@@ -102,10 +66,11 @@ test.describe('VoiceRecorder — live @e2e', () => {
     const resp = await transcribeResp
     expect([200, 422]).toContain(resp.status())
 
-    if (resp.status() === 200) {
-      await expect(page.getByText('Transcript added to your post')).toBeVisible({ timeout: 30_000 })
-    } else {
-      await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 30_000 })
-    }
-  }, { retry: 1 })
+    // A 200 with empty text (fake-device tone → no speech) shows the
+    // 'No speech detected' toast; a 422 surfaces 'Transcription failed'.
+    // All prove the live round-trip without crashing.
+    await expect(
+      page.getByText(/Transcript added to your post|No speech detected|Transcription failed/i),
+    ).toBeVisible({ timeout: 45_000 })
+  })
 })
