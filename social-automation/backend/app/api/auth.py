@@ -2580,7 +2580,7 @@ async def oidc_callback(code: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(select(User).where(User.email == email))
     user = res.scalar_one_or_none()
     if not user:
-        user = User(email=email, password_hash=hash_password(secrets.token_urlsafe(32)), role=UserRole.ADMIN, is_active=True)
+        user = User(email=email, password_hash=hash_password(secrets.token_urlsafe(32)))
         db.add(user)
         await db.commit()
         await db.refresh(user)
