@@ -402,7 +402,14 @@ def test_task_failure_swallowed(monkeypatch, task_name, sweep_name):
 
 
 def _settings(**kw):
-    base = dict(AGENCY_ENABLED=True, AGENCY_AUDIT_MAX_PER_RUN=5)
+    base = dict(
+        AGENCY_ENABLED=True,
+        AGENCY_AUDIT_MAX_PER_RUN=5,
+        AGENCY_PROPOSAL_AUTOSEND=False,
+        AGENCY_STRIPE_PROJECT_MIN_EUR=500,
+        AGENCY_CHECKOUT_URL="",
+        CLOUDLESS_LEADS_WEBHOOK_SECRET="",
+    )
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -526,6 +533,11 @@ async def test_engineer_sweep_empty_and_plans(monkeypatch):
 @pytest.mark.asyncio
 async def test_pm_sweep_empty_update_deliver_overdue(monkeypatch):
     monkeypatch.setattr(P, "get_settings", lambda: _settings())
+
+    async def _fake_send_email(**kw):
+        return None
+
+    monkeypatch.setattr("app.services.email_digest.send_email", _fake_send_email)
     r = await P.pm_sweep(session_factory=_factory(_DB(_Res())))
     assert r["status"] == "ok" and not any(r[k] for k in ("updates", "delivered", "overdue"))
 
@@ -755,3 +767,24 @@ async def test_public_survey_endpoint(monkeypatch):
         raise AssertionError("should 400")
     except HTTPException as e:
         assert e.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_proposal_sweep_custom_scope_needs_pricing(monkeypatch):
+    """Out-of-catalog audit → draft flagged needs_pricing, no fabricated price."""
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    monkeypatch.setattr(P.espo, "configured", lambda: False)
+    audit = _audit(
+        status=AgencyAuditStatus.completed,
+        recommended_services=["bespoke-ai"],  # not in SERVICES
+        action_plan="p",  # classifies to nothing
+        meta_data={"lead_email": "c@acme.example", "lead_name": "Acme"},
+    )
+    db = _DB(_Res(rows=[audit]), _Res(scalar=None), _Res(scalar=None))
+    r = await P.proposal_sweep(session_factory=_factory(db))
+    assert r["drafted"] == 1
+    prop = db.added[0]
+    assert prop.meta_data["custom_scope"] is True
+    assert prop.meta_data["needs_pricing"] is True
+    assert prop.price_low_eur is None and prop.price_high_eur is None
+    assert "Custom scope" in prop.body_md
