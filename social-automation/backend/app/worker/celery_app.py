@@ -411,6 +411,13 @@ celery_app.conf.update(
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_surfaces",
             "schedule": crontab(minute=25, hour="*/3"),  # every 3h at :25
         },
+        # Extended Nextcloud lanes — CRM leads → Tables, repo deploys →
+        # Talk/Announce, check-status + failed-publish Talk alerts,
+        # scheduled posts → Calendar, Forms submissions → EspoCRM leads.
+        "sync-nextcloud-extras": {
+            "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_extras",
+            "schedule": crontab(minute="*/30"),
+        },
         # Nightly company-brain journal — real publish/follower outcomes →
         # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.
         # Runs after the day's work settles so the morning strategy brief
