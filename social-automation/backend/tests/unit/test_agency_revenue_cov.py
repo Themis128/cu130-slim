@@ -531,3 +531,317 @@ async def test_agency_payment_url_paths(monkeypatch):
 
     monkeypatch.setattr(httpx, "AsyncClient", _BadClient)
     assert await P._agency_payment_url(prop, 500) is None
+
+
+# ── round 2: block reasons, payment-url edges, sweep branches ────────────────
+
+
+def test_services_line_bundle_and_partial():
+    all_slugs = list(P.SERVICES.keys())
+    assert P._services_line(all_slugs) == P.BUNDLE_NAME
+    assert P._services_line(["cloud", "not-a-service"]) == P.SERVICES["cloud"].name
+    assert P._services_line([]) == "unclassified"
+
+
+def test_autosend_block_reasons_matrix():
+    audit_ok = SimpleNamespace(status=AgencyAuditStatus.completed)
+    assert "no-valid-recipient" in P._autosend_block_reasons(_draft(recipient_email="bad"), audit_ok, None)
+    assert "synthetic-recipient" in P._autosend_block_reasons(
+        _draft(recipient_email="x@messenger.local"), audit_ok, None)
+    assert "audit-not-completed" in P._autosend_block_reasons(_draft(), None, None)
+    assert "audit-not-completed" in P._autosend_block_reasons(
+        _draft(), SimpleNamespace(status=AgencyAuditStatus.draft), None)
+    assert "services-outside-catalog" in P._autosend_block_reasons(
+        _draft(services=["not-in-catalog"]), audit_ok, None)
+    assert "price-missing" in P._autosend_block_reasons(
+        _draft(price_low_eur=None, price_high_eur=None), audit_ok, None)
+    assert "price-above-bundle" in P._autosend_block_reasons(
+        _draft(price_low_eur=1, price_high_eur=10**9), audit_ok, None)
+    assert "lead-engaged-or-opted-out" in P._autosend_block_reasons(
+        _draft(meta_data={"replied": {"at": "x"}}), audit_ok, None)
+    assert "lead-engaged-or-opted-out" in P._autosend_block_reasons(
+        _draft(meta_data={"unsubscribed": True}), audit_ok, None)
+    lead_opt = SimpleNamespace(meta_data={"unsubscribed": True})
+    assert "lead-opted-out" in P._autosend_block_reasons(_draft(), audit_ok, lead_opt)
+    lead_nurture = SimpleNamespace(meta_data={"nurture_opted_out": True})
+    assert "lead-opted-out" in P._autosend_block_reasons(_draft(), audit_ok, lead_nurture)
+    assert P._autosend_block_reasons(_draft(), audit_ok, None) == []
+
+
+@pytest.mark.asyncio
+async def test_agency_payment_url_non200_and_exception(monkeypatch):
+    prop = _proposal()
+    monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_CHECKOUT_URL="https://x"))
+
+    class _R500:
+        status_code = 500
+        text = "err"
+
+        def json(self):
+            return {}
+
+    class _C500:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            return _R500()
+
+    monkeypatch.setattr(httpx, "AsyncClient", _C500)
+    assert await P._agency_payment_url(prop, 100) is None
+
+    class _CErr:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **k):
+            raise RuntimeError("net down")
+
+    monkeypatch.setattr(httpx, "AsyncClient", _CErr)
+    assert await P._agency_payment_url(prop, 100) is None
+
+
+@pytest.mark.asyncio
+async def test_autosend_pass_send_exception_and_slack_fail(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    import app.services.slack_notifications as SN
+
+    async def _boom(text, *a, **k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(SN, "post_alert_to_slack", _boom)
+    send = AsyncMock(side_effect=[{"ok": True}, RuntimeError("smtp boom")])
+    monkeypatch.setattr(P, "send_proposal", send)
+    d1, d2 = _draft(), _draft()
+    audit = SimpleNamespace(status=AgencyAuditStatus.completed)
+    db = _DB(
+        _Res(rows=[d1, d2]),
+        _Res(rows=[]),
+        _Res(scalar=audit),
+        _Res(scalar=audit),
+    )
+    stats = await P._autosend_pass(db, uuid.uuid4())
+    assert stats["sent"] == 1 and stats["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_proposal_sweep_custom_scope_lead_and_autosend(monkeypatch):
+    monkeypatch.setattr(P, "get_settings",
+                        lambda: _settings(AGENCY_PROPOSAL_AUTOSEND=True))
+    import app.services.slack_notifications as SN
+
+    async def _boom(*a, **k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(SN, "post_alert_to_slack", _boom)
+    autosend = AsyncMock(return_value={"sent": 0})
+    monkeypatch.setattr(P, "_autosend_pass", autosend)
+    monkeypatch.setattr(P, "_default_team_id", AsyncMock(return_value=uuid.uuid4()))
+
+    lid = uuid.uuid4()
+    audit = SimpleNamespace(
+        id=uuid.uuid4(), status=AgencyAuditStatus.completed, score=80,
+        url="https://acme.example", recommended_services=[],
+        action_plan="zzz qqq unmatched gibberish",
+        findings=[{"finding": "x", "severity": "warning", "service": "cloud"}],
+        meta_data={"lead_email": "c@acme.example", "lead_name": "Acme"},
+        lead_id=lid, espo_lead_id=None,
+    )
+    lead_obj = SimpleNamespace(id=lid, email="lead@acme.example", name="Lead Name")
+    db = _DB(
+        _Res(rows=[audit]),        # completed audits
+        _Res(scalar=None),         # has_proposal → none
+        _Res(scalar=lead_obj),     # lead lookup via audit.lead_id
+    )
+    out = await P.proposal_sweep(session_factory=_factory(db))
+    assert out["drafted"] == 1
+    prop = db.added[-1]
+    assert prop.meta_data.get("custom_scope") is True
+    autosend.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_engineer_sweep_slack_report_failure(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    import app.services.slack_notifications as SN
+
+    async def _boom(text, *a, **k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", _boom)
+    prop = _proposal(status=AgencyProposalStatus.sent, audit_id=uuid.uuid4(), meta_data={})
+    audit = SimpleNamespace(findings=[{"finding": "f1"}])
+    db = _DB(_Res(rows=[prop]), _Res(scalar=audit))
+    out = await P.engineer_sweep(session_factory=_factory(db))
+    assert out["planned"] == 1
+
+
+@pytest.mark.asyncio
+async def test_won_sweep_no_team(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    monkeypatch.setattr(P.espo, "configured", lambda: True)
+    db = _DB(_Res())  # team query → empty
+    out = await P.won_sweep(session_factory=_factory(db))
+    assert out == {"status": "skipped", "reason": "no_team"}
+
+
+@pytest.mark.asyncio
+async def test_sent_proposal_for_email_no_email():
+    db = _DB()
+    assert await P._sent_proposal_for_email(db, uuid.uuid4(), None) is None
+    assert await P._sent_proposal_for_email(db, uuid.uuid4(), "  ") is None
+
+
+@pytest.mark.asyncio
+async def test_post_consult_gates_and_full_path(monkeypatch):
+    # disabled gate
+    monkeypatch.setattr(P, "get_settings", lambda: _settings(AGENCY_ENABLED=False))
+    assert (await P.post_consult_sweep()) == {"status": "disabled"}
+    # espocrm not configured
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    monkeypatch.setattr(P.espo, "configured", lambda: False)
+    assert (await P.post_consult_sweep())["reason"] == "espocrm_not_configured"
+
+    # full path — contact email, account fallback, exceptions, note-skip, no-email
+    monkeypatch.setattr(P.espo, "configured", lambda: True)
+    import app.services.email_digest as ED
+
+    send = AsyncMock()
+    monkeypatch.setattr(ED, "send_email", send)
+    monkeypatch.setattr(P.espo, "add_lead_note", AsyncMock(return_value=True))
+    import app.services.slack_notifications as SN
+
+    async def _boom(text, *a, **k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(SN, "post_digest_text_to_slack", _boom)
+
+    opps = [
+        {"name": "no-id"},                                             # no id → continue
+        {"id": "o1", "name": "Won A", "accountId": None},             # contact email
+        {"id": "o2", "name": "Won B", "accountId": None},             # no email → skipped note
+        {"id": "o3", "name": "Won C", "accountId": "a1"},             # account fallback
+        {"id": "o4", "name": "Won D", "accountId": "a2"},             # both reads raise
+        {"id": "o5", "name": "Won E", "accountId": None},             # has marker note → skipped
+    ]
+    noted = {"o5"}
+
+    async def fake_list_all(entity, **kw):
+        if entity == "Opportunity":
+            return opps
+        # Note lookup — parentId lives in the where clauses
+        pid = next((c.get("value") for c in (kw.get("where") or [])
+                    if c.get("attribute") == "parentId"), None)
+        if pid in noted:
+            return [{"id": "n1", "post": f"{P.POST_CONSULT_MARKER} sent earlier"}]
+        return []
+
+    async def fake_espo_get(path, params=None):
+        if path == "/Opportunity/o1/contacts":
+            return {"list": [{"emailAddress": " C@X.com ", "name": "See"}]}
+        if path == "/Opportunity/o2/contacts":
+            return {"list": []}
+        if path == "/Opportunity/o3/contacts":
+            return {"list": []}
+        if path == "/Account/a1":
+            return {"emailAddress": "Acct@X.com", "name": "Acct"}
+        if path == "/Opportunity/o4/contacts":
+            raise RuntimeError("contacts down")
+        if path == "/Account/a2":
+            raise RuntimeError("account down")
+        if path == "/Opportunity/o5/contacts":
+            return {"list": []}
+        raise AssertionError(path)
+
+    monkeypatch.setattr(P.espo, "list_all", fake_list_all)
+    monkeypatch.setattr(P.espo, "espo_get", fake_espo_get)
+    db = _DB(_Res())
+    out = await P.post_consult_sweep(session_factory=_factory(db))
+    assert out["sent"] == 2 and out["skipped"] == 3
+    assert send.await_count == 2
+
+
+def _project(**kw):
+    d = dict(
+        id=uuid.uuid4(), team_id=uuid.uuid4(), name="Proj",
+        status=AgencyProjectStatus.active,
+        kickoff_at=datetime.now(UTC) - timedelta(days=5),
+        due_at=datetime.now(UTC) + timedelta(days=10),
+        milestones=None, meta_data={}, client_email="c@acme.example",
+        client_name="Acme", handoff_md=None, last_client_update_at=None,
+    )
+    d.update(kw)
+    return SimpleNamespace(**d)
+
+
+@pytest.mark.asyncio
+async def test_pm_sweep_intake_nudge_escalate_and_slack_fail(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    import app.services.email_digest as ED
+
+    send = AsyncMock()
+    monkeypatch.setattr(ED, "send_email", send)
+    import app.services.slack_notifications as SN
+
+    async def _boom(text, *a, **k):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(SN, "post_alert_to_slack", _boom)
+    proj = _project(kickoff_at=(datetime.now(UTC) - timedelta(days=5)).replace(tzinfo=None))
+    db = _DB(_Res(rows=[proj]), _Res(rows=[]))
+    out = await P.pm_sweep(session_factory=_factory(db))
+    assert out["updates"] >= 1
+    assert out["intake_nudges"] == 1 and out["intake_escalations"] == 1
+    assert send.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_pm_sweep_testimonial_delight_and_edges(monkeypatch):
+    monkeypatch.setattr(P, "get_settings", lambda: _settings())
+    import app.services.email_digest as ED
+
+    send = AsyncMock()
+    monkeypatch.setattr(ED, "send_email", send)
+    import app.services.slack_notifications as SN
+    monkeypatch.setattr(SN, "post_alert_to_slack", AsyncMock())
+
+    now = datetime.now(UTC)
+    asked = (now - timedelta(days=40)).isoformat()
+    p0 = _project(status=AgencyProjectStatus.delivered,
+                  meta_data={"testimonial_due_at": (now - timedelta(days=1)).isoformat()})
+    p1 = _project(status=AgencyProjectStatus.delivered, meta_data={})
+    p2 = _project(status=AgencyProjectStatus.delivered,
+                  meta_data={"testimonial_asked": asked})
+    p3 = _project(status=AgencyProjectStatus.delivered, client_email=None,
+                  meta_data={"testimonial_due_at": "garbage"})
+    p4 = _project(status=AgencyProjectStatus.delivered,
+                  meta_data={"testimonial_asked": "not-a-date"})
+    db = _DB(_Res(rows=[]), _Res(rows=[p0, p1, p2, p3, p4]))
+    out = await P.pm_sweep(session_factory=_factory(db))
+    assert out["testimonial_asks"] == 1
+    assert out.get("delight_checkin_30") == 1
+    assert send.await_count == 2  # p1 stamps due_at (no send); p2 delight_30 only
+
+
+@pytest.mark.asyncio
+async def test_token_expiry_post_slack_error(monkeypatch):
+    import app.services.slack_notifications as SN
+
+    async def _boom(text):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr(SN, "post_alert_to_slack", _boom)
+    await TE._post({"warn": [{"platform": "fb", "account": "a", "expires": "x"}],
+                    "reauth": []})  # must not raise — except path covered
