@@ -49,10 +49,9 @@ def sync_nextcloud_extras() -> None:
 
 
 async def _run_extras() -> None:
-    from app.db.session import async_session_maker
     from app.services import nextcloud_extras
 
-    async with async_session_maker() as db:
+    async with get_session_factory()() as db:
         await nextcloud_extras.sync_extras(db)
 
 
