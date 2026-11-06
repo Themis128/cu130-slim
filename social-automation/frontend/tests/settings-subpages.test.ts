@@ -15,8 +15,9 @@ test.describe('Settings sub-pages — real backend', () => {
     // Filter buttons should be visible
     await expect(page.getByRole('button', { name: 'All' })).toBeVisible({ timeout: 10000 });
     // Should show entry count heading or empty state — use first() to avoid strict mode
+    // Singular "1 entry" is valid — the page renders "{total} entry/entries".
     await expect(
-      page.getByRole('heading', { name: /\d+ entries/i })
+      page.getByRole('heading', { name: /\d+ entr(y|ies)/i })
     ).toBeVisible({ timeout: 10000 });
   });
 

@@ -256,6 +256,9 @@ test.describe('Cloudflare backend contract @e2e', () => {
     const wav = makeToneWav(1)
     const r = await request.post(`${API_V1}/ai/transcribe`, {
       headers: headers(),
+      // Real Whisper call via Cloudflare — cold starts can exceed the
+      // default request timeout; the backend allows up to 120s.
+      timeout: 90_000,
       multipart: {
         file: { name: 'tone.wav', mimeType: 'audio/wav', buffer: wav },
         model: '@cf/openai/whisper',
@@ -266,7 +269,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
     if (r.status() === 200) {
       expect(body.text).toEqual(expect.any(String))
     }
-  }, { timeout: 60_000 })
+  }, { timeout: 120_000 })
 })
 
 
@@ -388,7 +391,8 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
 
       const transcribeResp = page.waitForResponse(
         (r) => r.url().includes('/api/v1/ai/transcribe'),
-        { timeout: 60_000 },
+        // Real Whisper via Cloudflare — cold starts can take 30-60s.
+        { timeout: 90_000 },
       )
       await page.goto('/content/new')
       // Wait for the content editor to be ready (its placeholder is unique).
@@ -408,10 +412,11 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
 
       if (resp.status() === 200) {
         // Real Whisper output — transcript injected into the editor + success toast.
-        await expect(page.getByText('Transcript added to your post')).toBeVisible({ timeout: 15_000 })
+        // Whisper round-trips through Cloudflare can take 30-60s under load.
+        await expect(page.getByText('Transcript added to your post')).toBeVisible({ timeout: 30_000 })
       } else {
         // Empty/inaudible tone → backend 422, frontend must NOT crash.
-        await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 15_000 })
+        await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 30_000 })
       }
     }, { retry: 1 })
   })
