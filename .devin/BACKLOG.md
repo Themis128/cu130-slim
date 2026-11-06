@@ -1061,3 +1061,60 @@ hit the same drift; keep mirror in sync or mount from WSL.
   layout/runner/headed-env/retry patterns.
   RESOLVED: `/api/v1/brand/assets` 404s in probe-404 are a handled domain
   404 ("Brand not found — create one first"), not a missing route.
+- [ ] Publish-failure backlog cleanup (2026-11-06): root causes fixed —
+  R2_PUBLIC_URL env recreated into workers (pub-9dff...), FB sidecar
+  storage-state origin crash patched (server.js, PR #1395), MissingGreenlet
+  on publish exception path fixed (publishing.py, PR #1395), media_dedup
+  DUP_DISTANCE 8→4 (template siblings false-positived at 6-8; monetization
+  report images are TRUE dupes at 0-2). Remaining `failed` posts are legit:
+  text-dedup skips, quality-gate seo<80, posts whose images are real
+  duplicates. Watch: FB personal posts publish slowly via sidecar (~min
+  each); WhatsApp still needs WABA assign in Meta Business (human gate).
+- [x] Media-pipeline repair via platform APIs only (2026-11-06): 3 scheduled
+  posts (2a98a376/572e95aa/ffbc6ddd) regenerated through
+  POST /api/v1/ai/generate-carousel-pipeline (3 branded slides each,
+  verified 200 image/jpeg on pub-9dff...); ad-hoc Pillow assets archived.
+  AGENTS.md now forbids direct DB/R2 media writes. New skill
+  `.devin/skills/socialauto-janitor` (+ .cursor mirror): dry-run-first
+  sweeper — `fixtures` (targetless E2E posts → archived, 5 done),
+  `media-orphans` (unreferenced assets → archived, 4 done),
+  `queue-status`, `queue-requeue <prefix> --delay-minutes N`, `accounts`,
+  `sweep`.
+- [x] publish_retry sweep IntegrityError fixed (PR #1395): it flipped a
+  failed queue row pending even when an active row existed for the same
+  (post,account) → ux_publish_queue_active_target violation every 15min.
+  Now skips pairs with an active row. Also guarded db.refresh for fake-DB
+  tests (8 CI failures).
+- [x] Synigoros duplicate Telegram alerts explained + fixed: the ⚠️ spam was
+  monitor.js retrying followup.js every 15min during the SMTP outage (each
+  failure pinged Telegram); the double 📮 was manual send + monitor send.
+  followup.js now throttles failure alerts to 1/hour via
+  followup-alert.json (PR #1395).
+- [ ] TikTok account `cloudless.gr` status=expired; token refresh returns
+  "no access_token in refresh response". human-gate-ops reports
+  tiktok-oauth: no_session — needs one TikTok login on the bridge (:9223)
+  then the oauth_reauth_watch beat can drive re-auth. Human gate.
+- [ ] WhatsApp still revoked — WABA assign in Meta Business (human gate).
+- [ ] PR #1395 OPEN (BLOCKED→CI re-running after b6550dd4+e1495886 push);
+  #1375 closed-superseded; #1385/#1391/site#2369 MERGED.
+
+## 2026-11-06 — E2E public-surface suite + PR board cleanup (cloudless.gr side)
+
+- cloudless.gr PR #2372 (`test/e2e-public-surface-full`): new
+  `e2e/deep/public-pages-full.spec.ts` (all public routes × en/el/fr/de,
+  dynamic CMS routes, locale integrity) + `public-flows.spec.ts`
+  (survey/audit/booking/auth-redirect/cookie flows). CI is authoritative —
+  local WSL dev server OOM-restarts under full parallel compile.
+- cloudless.gr PR #2373: `.devin/skills/local-e2e-env` — sudo-free
+  Playwright bootstrap (Node 22 tarball, npx pnpm, extracted chromium
+  libs). Replaces the ad-hoc /tmp setup.
+- Fixed on other sessions' branches: #2367 ruff-format push, #2361
+  skipExisting coverage tests (99.49→gate), #2363 mail-outbound
+  add/add conflict resolved to hardened main version.
+- cu130 #1378 merged; #1375 closed by owner (was DIRTY dup of #1373).
+- [ ] `workers/mail-outbound/node_modules.root-owned` in cloudless.gr
+  still needs `sudo rm -rf` (renamed aside during pnpm install).
+- [ ] `.githooks/pre-commit` chmod +x done locally — verify it survives
+  on fresh clones (mode bit may not be committed if core.fileMode off).
+- [ ] WSL docker bind-mount drift persists — durable fix is
+  `wsl --shutdown` from Windows (kills sessions; schedule it).

@@ -91,6 +91,7 @@ async def test_publish_retry_resets_and_skips(monkeypatch):
     res.scalars.return_value.all.return_value = [non_retry, fresh, stale]
     q = MagicMock(status="queued")
     res2 = MagicMock()
+    res2.scalar_one.return_value = 0
     res2.scalars.return_value.first.return_value = q
     calls = {"n": 0}
 
@@ -106,3 +107,36 @@ async def test_publish_retry_resets_and_skips(monkeypatch):
     assert stale.status == "pending"
     assert non_retry.status == "failed" and fresh.status == "failed"
     assert out["retried"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_publish_retry_skips_when_active_queue_row(monkeypatch):
+    """ux_publish_queue_active_target allows one active row per
+    (post_id, social_account_id) — the sweep must not flip a failed
+    queue row to pending while another is already pending/processing."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.worker.tasks import publish_retry as P
+
+    now = datetime.now(UTC)
+    stale = MagicMock(error_message="timeout", updated_at=now - timedelta(hours=2), status="failed", id="t1", target_id="t1", meta_data={})
+
+    res = MagicMock()
+    res.scalars.return_value.all.return_value = [stale]
+    res2 = MagicMock()
+    res2.scalar_one.return_value = 1  # active pending/processing row exists
+
+    calls = {"n": 0}
+
+    async def _exec(*a, **k):
+        calls["n"] += 1
+        return res if calls["n"] == 1 else res2
+
+    db = MagicMock()
+    db.execute = AsyncMock(side_effect=_exec)
+    db.commit = AsyncMock()
+    monkeypatch.setattr(P, "task_session", lambda: _Sess(db))
+    out = await P._sweep()
+    assert stale.status == "failed"
+    assert calls["n"] == 2  # count query ran; no queue-row select needed
+    assert out["retried"] == 0
