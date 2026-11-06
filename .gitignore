@@ -109,6 +109,7 @@ brave-search-mcp-server/
 # AI agent / tooling session state
 .mimosa/
 .playwright-mcp/
+.playwright-mcp-browsers/
 
 # Runtime uploads
 social-automation/uploads/
