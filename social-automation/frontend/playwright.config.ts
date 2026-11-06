@@ -48,9 +48,11 @@ export default defineConfig({
     trace: 'on-first-retry',
     /* Capture screenshot on failure */
     screenshot: 'only-on-failure',
-    /* Pass the LD_LIBRARY_PATH to launched browser processes */
+    /* Pass the environment to launched browser processes — must spread
+       process.env or headed runs lose DISPLAY/WAYLAND_DISPLAY. */
     launchOptions: {
       env: {
+        ...process.env,
         LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH || '',
       },
     },
