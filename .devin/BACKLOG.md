@@ -1112,9 +1112,8 @@ hit the same drift; keep mirror in sync or mount from WSL.
   skipExisting coverage tests (99.49→gate), #2363 mail-outbound
   add/add conflict resolved to hardened main version.
 - cu130 #1378 merged; #1375 closed by owner (was DIRTY dup of #1373).
-- [ ] `workers/mail-outbound/node_modules.root-owned` in cloudless.gr
-  still needs `sudo rm -rf` (renamed aside during pnpm install).
-- [ ] `.githooks/pre-commit` chmod +x done locally — verify it survives
-  on fresh clones (mode bit may not be committed if core.fileMode off).
-- [ ] WSL docker bind-mount drift persists — durable fix is
-  `wsl --shutdown` from Windows (kills sessions; schedule it).
+- [x] `workers/mail-outbound/node_modules.root-owned` in cloudless.gr — deleted 2026-11-07 via `wsl -u root`.
+- [x] WSL docker bind-mount drift — WSL instance restarted 2026-11-07; Docker Desktop restarted, all containers healthy.
+- [ ] Dropbox→Drive rclone migration (`Apps/Google Download Your Data`, ~44 GiB): copy running after restart; watcher auto-verifies + purges Dropbox on completion. Watch: `C:\Users\tbaltzakis\devin-scripts\migrate_log.txt`.
+- [ ] LinkedIn Matched Audiences (`264925843`, CRM:015285039163310) — DENIED "Business verification failed"; support case submitted 2026-11-07 asking for verification evidence. Needs Greek business registration (ΑΦΜ/ΓΕΜΗ) if requested.
+- [ ] LinkedIn Ad Library — Default Tier provisioned on app `265077368`; `backend/scripts/linkedin_adlibrary.py` live-tested (total_reported=26051, uses LinkedIn-Version 202610 — 20251001/20250701/20250301 return 426 NONEXISTENT_VERSION). Lint clean; PR pending.
