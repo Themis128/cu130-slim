@@ -1047,3 +1047,17 @@ hit the same drift; keep mirror in sync or mount from WSL.
   Remaining flake class: real-stack timing under 4-worker parallel load
   (auth 5/min rate limit, Whisper/CF cold starts, networkidle) — retries=1
   absorbs it; failures vary run-to-run, no stable app defect found.
+- [x] Per-platform Playwright suite + arch/doc review (2026-11-06): new
+  `social-automation/frontend/tests/platforms.test.ts` — 23 tests covering
+  all 11 channels (LinkedIn, X, Instagram, Facebook, Messenger, Threads,
+  TikTok, Telegram, WhatsApp, Viber, Bluesky): bogus-UUID API probes must
+  answer <500 with JSON, /accounts platform inventory validated, 8 connect
+  cards + 4 platform dashboard pages render. Verified 23/23 standalone and
+  in full suite: **215 tests → 213 passed / 1 skipped / 1 flaky** (Whisper
+  500 once, passed on retry — transient CF model error, not covered by
+  postWithRetry since it's HTTP not transport). PR #1391 (auto-merge armed).
+  `docs/application-architecture.md` updated: overview now lists messaging
+  channels + email campaigns; new "E2E testing" section documents suite
+  layout/runner/headed-env/retry patterns.
+  RESOLVED: `/api/v1/brand/assets` 404s in probe-404 are a handled domain
+  404 ("Brand not found — create one first"), not a missing route.
