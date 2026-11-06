@@ -199,13 +199,14 @@ test.describe('Cloudflare backend contract @e2e', () => {
   
   
   test('provider test performs a real Cloudflare chat call', async ({ request }) => {
+    test.setTimeout(45_000)
     const r = await request.post(`${API_V1}/ai-providers/cloudflare/test`, { headers: headers() })
     expect(r.status()).toBe(200)
     const body = await r.json()
     expect(body.ok).toBe(true)
     expect(body.response).toEqual(expect.any(String))
     // Response may be empty if the model is overloaded — ok=true means connectivity passed
-  }, { timeout: 45_000 })
+  })
 
   test('generate-content with provider=cloudflare runs a real LLM call', async ({ request }) => {
     test.setTimeout(120_000)
@@ -227,6 +228,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
   })
 
   test('Workers AI batch submit → retrieve (queueRequest)', async ({ request }) => {
+    test.setTimeout(60_000)
     const submitted = await request.post(`${API_V1}/ai/workers-ai/batch`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: {
@@ -252,9 +254,11 @@ test.describe('Cloudflare backend contract @e2e', () => {
     expect(ret.model).toBe(CF_EMBED_MODEL)
     expect('status' in ret).toBe(true)
     expect('responses' in ret).toBe(true)
-  }, { timeout: 60_000 })
+  })
 
   test('transcribe via real Whisper returns 200 (transcript) or 422 (no speech)', async ({ request }) => {
+    // test() ignores a trailing { timeout } arg — raise the budget from inside.
+    test.setTimeout(120_000)
     const wav = makeToneWav(1)
     const r = await request.post(`${API_V1}/ai/transcribe`, {
       headers: headers(),
@@ -271,7 +275,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
     if (r.status() === 200) {
       expect(body.text).toEqual(expect.any(String))
     }
-  }, { timeout: 120_000 })
+  })
 })
 
 
@@ -323,6 +327,7 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
 
 
   test('Browse Workers AI models: live catalog loads, filters, and picks a model', async ({ page }) => {
+    test.setTimeout(60_000)
     await page.goto('/settings/ai-providers')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
 
@@ -354,9 +359,10 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
       .locator('input')
       .evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))
     expect(inputValues).toContain(picked)
-  }, { timeout: 60_000 })
+  })
 
   test('Save Cloudflare provider → "Provider saved" toast and persistence', async ({ page }) => {
+    test.setTimeout(60_000)
     await page.goto('/settings/ai-providers')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
 
@@ -370,9 +376,10 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
     await expect(saveBtn).toBeVisible()
     await saveBtn.click()
     await expect(page.getByText('Provider saved')).toBeVisible({ timeout: 15_000 })
-  }, { timeout: 60_000 })
+  })
 
     test('Test provider button fires a real Cloudflare connectivity check', async ({ page }) => {
+    test.setTimeout(60_000)
     await page.goto('/settings/ai-providers')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
     // Expand the card to access the Test button
@@ -380,7 +387,7 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
     await cfCard.getByRole('button', { name: /^test$/i }).click()
     // Success toast reads: Connected! "<response…>"
     await expect(page.getByText(/connected!/i)).toBeVisible({ timeout: 45_000 })
-  }, { timeout: 60_000 })
+  })
 
   test.describe('VoiceRecorder (Chromium-only)', () => {
     test.skip(({ browserName }) => browserName !== 'chromium', 'fake audio device is Chromium-only')
