@@ -30,7 +30,10 @@ logger = logging.getLogger(__name__)
 UPLOAD_DIR = "/app/uploads"
 PHASH_META_KEY = "phash"
 # Two phashes closer than this are near-identical (out of 64 bits).
-DUP_DISTANCE = 8
+# Branded/template images share layout+palette so different text lands at
+# distance 6-8 — 8 false-positives on template siblings. True reposts of the
+# same image hash ~0-4 even after recompression.
+DUP_DISTANCE = 4
 # Window for "already published with this media" comparisons.
 DUP_WINDOW_DAYS = 30
 
