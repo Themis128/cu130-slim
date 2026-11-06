@@ -1061,3 +1061,12 @@ hit the same drift; keep mirror in sync or mount from WSL.
   layout/runner/headed-env/retry patterns.
   RESOLVED: `/api/v1/brand/assets` 404s in probe-404 are a handled domain
   404 ("Brand not found — create one first"), not a missing route.
+- [ ] Publish-failure backlog cleanup (2026-11-06): root causes fixed —
+  R2_PUBLIC_URL env recreated into workers (pub-9dff...), FB sidecar
+  storage-state origin crash patched (server.js, PR #1395), MissingGreenlet
+  on publish exception path fixed (publishing.py, PR #1395), media_dedup
+  DUP_DISTANCE 8→4 (template siblings false-positived at 6-8; monetization
+  report images are TRUE dupes at 0-2). Remaining `failed` posts are legit:
+  text-dedup skips, quality-gate seo<80, posts whose images are real
+  duplicates. Watch: FB personal posts publish slowly via sidecar (~min
+  each); WhatsApp still needs WABA assign in Meta Business (human gate).
