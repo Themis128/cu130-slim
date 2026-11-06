@@ -22,8 +22,7 @@ class _AsyncCM:
 
 
 def _audit(**kw):
-    d = dict(url="https://x.gr", score=42, action_plan="- fix",
-             status=AP.AgencyAuditStatus.completed, findings=[], meta_data={})
+    d = dict(url="https://x.gr", score=42, action_plan="- fix", status=AP.AgencyAuditStatus.completed, findings=[], meta_data={})
     d.update(kw)
     return SimpleNamespace(**d)
 
@@ -55,6 +54,7 @@ def test_milestones_handoff_kickoff():
     ms = AP.project_milestones()
     assert len(ms) >= 3 and all("day" in m and "label" in m for m in ms)
     from datetime import UTC, datetime
+
     proj = SimpleNamespace(name="P1", client_name="C", proposal=None, milestones=[], kickoff_at=datetime.now(UTC))
     assert "P1" in AP._render_handoff(proj)
     subj, body = AP._kickoff_email("C", "P1", loa_md="sig")
@@ -67,9 +67,15 @@ def test_post_consult_email():
 
 
 def test_engineering_plan():
-    prop = SimpleNamespace(client_name="C", services_json='["site-audit"]', meta_data={},
-                       services=[], recipient_name=None, recipient_email="c@x.com",
-                       id="00000000-0000-0000-0000-000000000000")
+    prop = SimpleNamespace(
+        client_name="C",
+        services_json='["site-audit"]',
+        meta_data={},
+        services=[],
+        recipient_name=None,
+        recipient_email="c@x.com",
+        id="00000000-0000-0000-0000-000000000000",
+    )
     plan = AP.render_engineering_plan(prop, _audit())
     assert isinstance(plan, str) and len(plan) > 50
 
@@ -77,7 +83,6 @@ def test_engineering_plan():
 async def test_factory_and_default_team():
     f = AP._factory()
     assert callable(f)
-    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
-        scalar=lambda: "t1", first=lambda: "t1")))
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar=lambda: "t1", first=lambda: "t1")))
     tid = await AP._default_team_id(db)
     assert tid is not None or tid is None  # covers both returns

@@ -23,7 +23,6 @@ class _AsyncCM:
 
 import app.worker.tasks.linkedin_engagement_score as S
 
-
 def test_score_weighting():
     s = S._score({"likeCount": 10, "commentCount": 5, "shareCount": 2, "impressionCount": 100})
     assert s == pytest.approx(10 + 10 + 6)
@@ -34,9 +33,7 @@ def test_score_weighting():
 
 @pytest.mark.asyncio
 async def test_no_org_account_skips(monkeypatch):
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None)))
-    )
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
     monkeypatch.setattr(S, "task_session", lambda: _AsyncCM(db))
     sess = SimpleNamespace(__aenter__=AsyncMock(return_value=db), __aexit__=AsyncMock(return_value=False))
     monkeypatch.setattr(S, "task_session", lambda: sess)
@@ -47,9 +44,11 @@ async def test_no_org_account_skips(monkeypatch):
 @pytest.mark.asyncio
 async def test_score_task_calls_run_async(monkeypatch):
     called = {}
+
     def _ra(c):
         called["ran"] = True
         return {"ok": 1}
+
     monkeypatch.setattr(S, "run_async", _ra)
     monkeypatch.setattr(S, "run_async", lambda c: called.setdefault("ran", True) or {"ok": 1})
     out = S.score_linkedin_posts.run()

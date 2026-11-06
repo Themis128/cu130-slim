@@ -355,18 +355,15 @@ async def sync_calendar_posts(db: AsyncSession) -> dict:
 
     now = datetime.now(UTC)
     posts = (
-        (
-            await db.execute(
-                select(Post, SocialAccount.platform)
-                .join(PostTarget, PostTarget.post_id == Post.id)
-                .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
-                .where(Post.status == PostStatus.SCHEDULED, Post.scheduled_at > now)
-                .order_by(Post.scheduled_at)
-                .limit(60)
-            )
+        await db.execute(
+            select(Post, SocialAccount.platform)
+            .join(PostTarget, PostTarget.post_id == Post.id)
+            .join(SocialAccount, SocialAccount.id == PostTarget.social_account_id)
+            .where(Post.status == PostStatus.SCHEDULED, Post.scheduled_at > now)
+            .order_by(Post.scheduled_at)
+            .limit(60)
         )
-        .all()
-    )
+    ).all()
     if not posts:
         return {"events": 0}
     user = settings.NEXTCLOUD_USERNAME

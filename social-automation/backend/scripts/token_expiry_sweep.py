@@ -54,15 +54,7 @@ async def run(dry_run: bool) -> dict:
     now = datetime.now(UTC)
     report = {"refreshed": [], "warn": [], "reauth": [], "errors": []}
     async with get_session_factory()() as db:
-        rows = (
-            (
-                await db.execute(
-                    select(SocialAccount).where(SocialAccount.status.in_(["active", "connected"]))
-                )
-            )
-            .scalars()
-            .all()
-        )
+        rows = (await db.execute(select(SocialAccount).where(SocialAccount.status.in_(["active", "connected"])))).scalars().all()
         for acc in rows:
             plat = (acc.platform or "").lower()
             md = acc.meta_data or {}

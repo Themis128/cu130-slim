@@ -70,6 +70,7 @@ async def test_stream_conversion_minimal(monkeypatch):
 
 async def test_list_org_events_skip(monkeypatch):
     import app.services.linkedin_events as E
+
     monkeypatch.setattr(E, "_org_token", AsyncMock(return_value=None))
     assert await E.list_org_events() == {"skip": "no-linkedin-org-account"}
 
@@ -79,6 +80,7 @@ async def test_list_org_events_skip(monkeypatch):
 
 async def test_route_leads_no_org(monkeypatch):
     import app.worker.tasks.linkedin_lead_boost as LB
+
     monkeypatch.setattr(LB, "ENABLED", True)
     db = SimpleNamespace(execute=AsyncMock(return_value=_res(first=None)))
     monkeypatch.setattr(LB, "task_session", lambda: _AsyncCM(db))
@@ -88,6 +90,7 @@ async def test_route_leads_no_org(monkeypatch):
 
 async def test_boost_empty_winners(monkeypatch):
     import app.worker.tasks.linkedin_lead_boost as LB
+
     monkeypatch.setattr(LB, "ENABLED", True)
     db = SimpleNamespace(execute=AsyncMock(return_value=_res(all_=[])), commit=AsyncMock())
     monkeypatch.setattr(LB, "task_session", lambda: _AsyncCM(db))
@@ -99,20 +102,23 @@ async def test_boost_empty_winners(monkeypatch):
 
 def _patch_health(monkeypatch, acc, refresh=None, rt_enc=b"r"):
     import httpx
+
     acc = acc or SimpleNamespace(id="a1", team_id="t1", access_token_enc=b"x", refresh_token_enc=rt_enc)
-    db = SimpleNamespace(execute=AsyncMock(return_value=_res(first=acc)),
-                         get=AsyncMock(return_value=SimpleNamespace(id="a1")), commit=AsyncMock())
+    db = SimpleNamespace(execute=AsyncMock(return_value=_res(first=acc)), get=AsyncMock(return_value=SimpleNamespace(id="a1")), commit=AsyncMock())
     monkeypatch.setattr(CH, "task_session", lambda: _AsyncCM(db))
     monkeypatch.setattr(CH, "decrypt_token", lambda b: "tok")
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client(_Resp(401)))
     import app.api.auth as auth
-    monkeypatch.setattr(auth, "linkedin_client", SimpleNamespace(
-        refresh_token=AsyncMock(return_value=refresh),
-        get_authorization_url=AsyncMock(return_value="https://li/auth")))
+
+    monkeypatch.setattr(
+        auth, "linkedin_client", SimpleNamespace(refresh_token=AsyncMock(return_value=refresh), get_authorization_url=AsyncMock(return_value="https://li/auth"))
+    )
     monkeypatch.setattr(auth, "_linkedin_scopes", lambda: "s")
     import app.core.config as cfg
+
     monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(LINKEDIN_REDIRECT_URI="cb"))
     import app.core.security as sec
+
     monkeypatch.setattr(sec, "sign_oauth_state", lambda d: "st")
     monkeypatch.setattr(sec, "encrypt_token", lambda t: b"enc")
     monkeypatch.setattr(CH, "post_alert_to_slack", AsyncMock())
@@ -121,6 +127,7 @@ def _patch_health(monkeypatch, acc, refresh=None, rt_enc=b"r"):
 async def test_health_dead_pair_no_rt(monkeypatch):
     _patch_health(monkeypatch, None, rt_enc=None)
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "send_telegram_alert", AsyncMock())
     assert await CH._linkedin_token_health() == "dead_pair"
 
@@ -129,15 +136,16 @@ async def test_health_refreshed_no_new_rt(monkeypatch):
     acc2 = SimpleNamespace(id="a1", access_token_enc=None, refresh_token_enc="keep")
     acc = SimpleNamespace(id="a1", team_id="t1", access_token_enc=b"x", refresh_token_enc=b"r")
     import httpx
-    db = SimpleNamespace(execute=AsyncMock(return_value=_res(first=acc)),
-                         get=AsyncMock(return_value=acc2), commit=AsyncMock())
+
+    db = SimpleNamespace(execute=AsyncMock(return_value=_res(first=acc)), get=AsyncMock(return_value=acc2), commit=AsyncMock())
     monkeypatch.setattr(CH, "task_session", lambda: _AsyncCM(db))
     monkeypatch.setattr(CH, "decrypt_token", lambda b: "tok")
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: _Client(_Resp(401)))
     import app.api.auth as auth
-    monkeypatch.setattr(auth, "linkedin_client", SimpleNamespace(
-        refresh_token=AsyncMock(return_value={"access_token": "new"})))
+
+    monkeypatch.setattr(auth, "linkedin_client", SimpleNamespace(refresh_token=AsyncMock(return_value={"access_token": "new"})))
     import app.core.security as sec
+
     monkeypatch.setattr(sec, "encrypt_token", lambda t: b"enc")
     assert await CH._linkedin_token_health() == "refreshed"
     assert acc2.access_token_enc == b"enc" and acc2.refresh_token_enc == "keep"
@@ -146,6 +154,7 @@ async def test_health_refreshed_no_new_rt(monkeypatch):
 async def test_health_telegram_alert_fails(monkeypatch):
     _patch_health(monkeypatch, None, refresh=None)
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "send_telegram_alert", AsyncMock(side_effect=Exception("tg down")))
     assert await CH._linkedin_token_health() == "dead_pair"
 

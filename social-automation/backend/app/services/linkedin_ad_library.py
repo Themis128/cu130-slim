@@ -18,13 +18,17 @@ HDRS = {"Linkedin-Version": "202610", "X-Restli-Protocol-Version": "2.0.0"}
 async def _token() -> str | None:
     async with task_session() as db:
         acc = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "linkedin",
-                    SocialAccount.account_type == "organization",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.account_type == "organization",
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         return decrypt_token(bytes(acc.access_token_enc)) if acc and acc.access_token_enc else None
 
 

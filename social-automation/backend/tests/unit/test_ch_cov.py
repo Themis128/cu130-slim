@@ -90,9 +90,10 @@ async def test_health_refreshed(monkeypatch):
     monkeypatch.setattr(CH, "decrypt_token", lambda b: "tok")
     monkeypatch.setattr(httpx, "AsyncClient", lambda **k: _Client(401))
     import app.api.auth as auth
-    monkeypatch.setattr(auth, "linkedin_client", SimpleNamespace(
-        refresh_token=AsyncMock(return_value={"access_token": "new", "refresh_token": "nr"})))
+
+    monkeypatch.setattr(auth, "linkedin_client", SimpleNamespace(refresh_token=AsyncMock(return_value={"access_token": "new", "refresh_token": "nr"})))
     import app.core.security as sec
+
     monkeypatch.setattr(sec, "encrypt_token", lambda t: b"enc")
     assert await CH._linkedin_token_health() == "refreshed"
     assert acc2.access_token_enc == b"enc" and acc2.refresh_token_enc == b"enc"
@@ -106,17 +107,25 @@ async def test_health_dead_pair(monkeypatch):
     monkeypatch.setattr(CH, "decrypt_token", lambda b: "tok")
     monkeypatch.setattr(httpx, "AsyncClient", lambda **k: _Client(401))
     import app.api.auth as auth
-    monkeypatch.setattr(auth, "linkedin_client", SimpleNamespace(
-        refresh_token=AsyncMock(side_effect=Exception("invalid_grant")),
-        get_authorization_url=AsyncMock(return_value="https://li/auth"),
-    ))
+
+    monkeypatch.setattr(
+        auth,
+        "linkedin_client",
+        SimpleNamespace(
+            refresh_token=AsyncMock(side_effect=Exception("invalid_grant")),
+            get_authorization_url=AsyncMock(return_value="https://li/auth"),
+        ),
+    )
     monkeypatch.setattr(auth, "_linkedin_scopes", lambda: "s")
     import app.core.config as cfg
+
     monkeypatch.setattr(cfg, "get_settings", lambda: SimpleNamespace(LINKEDIN_REDIRECT_URI="https://cb"))
     import app.core.security as sec
+
     monkeypatch.setattr(sec, "sign_oauth_state", lambda d: "st")
     monkeypatch.setattr(CH, "post_alert_to_slack", AsyncMock())
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "send_telegram_alert", AsyncMock())
     out = await CH._linkedin_token_health()
     assert out == "dead_pair" and CH.post_alert_to_slack.called
