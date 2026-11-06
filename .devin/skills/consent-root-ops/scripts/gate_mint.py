@@ -39,6 +39,20 @@ def tabs() -> list:
         return []
 
 
+def _tab_host(url: str) -> str:
+    """Lowercased hostname of a CDP target URL ('' on parse failure)."""
+    try:
+        from urllib.parse import urlparse
+        return (urlparse(url).hostname or "").lower()
+    except Exception:
+        return ""
+
+
+def _tab_for(host: str):
+    """First CDP tab whose URL hostname is `host` (exact match)."""
+    return next((t for t in tabs() if _tab_host(t.get("url") or "") == host), None)
+
+
 def _ws_eval(ws_url: str, expr: str, timeout: int = 15):
     """Runtime.evaluate over the CDP websocket."""
     import websocket  # websocket-client
@@ -117,7 +131,7 @@ def cf_calls():
                         "cloudflare"):
         print("not logged into cloudflare — run bootstrap first")
         return 1
-    page = next((t for t in tabs() if "dash.cloudflare.com" in (t.get("url") or "")), None)
+    page = _tab_for("dash.cloudflare.com")
     # Calls lives under the account sidebar; navigate to the create-app URL directly.
     _navigate(page, "https://dash.cloudflare.com/?to=/:account/calls/apps/new")
     body = _eval_page("cloudflare", "document.body.innerText.slice(0,4000)") or ""
@@ -140,7 +154,7 @@ def gh_pat():
                         "github"):
         print("not logged into github — run bootstrap first")
         return 1
-    page = next((t for t in tabs() if "github.com" in (t.get("url") or "")), None)
+    page = _tab_for("github.com")
     _navigate(page, GH_URL)
     body = _eval_page("github.com", "document.body.innerText.slice(0,3000)") or ""
     if "New fine-grained" in body or "Token name" in body:
