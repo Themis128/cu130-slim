@@ -21,7 +21,6 @@ class LeadSource(enum.StrEnum):
     linkedin_dm = "linkedin_dm"
     website = "website"
     linkedin_ads = "linkedin_ads"
-    linkedin_dm = "linkedin_dm"
 
 
 class LeadInterest(enum.StrEnum):
