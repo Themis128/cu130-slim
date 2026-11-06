@@ -44,7 +44,7 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
     let buf = '', i = 0, sock;
     const onData = (d) => {
       buf += d;
-      if (!/\r\n\d{3} /.test(buf)) return;
+      if (!/(^|\r\n)\d{3} /.test(buf)) return;
       const code = parseInt(buf.slice(0, 3), 10);
       const txt = buf; buf = '';
       if (code >= 400) { sock.destroy(); return reject(new Error('SMTP ' + code + ' ' + txt.slice(4, 80))); }
@@ -53,7 +53,7 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
     };
     const fail = (e) => reject(e instanceof Error ? e : new Error(String(e)));
     if (port === 465) {
-      sock = tls.connect(port, host, { servername: host });
+      sock = tls.connect(port, host, { servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' });
       sock.on('data', onData);
       sock.on('error', fail);
     } else {
@@ -63,7 +63,7 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
       let phase = 0;
       sock.on('data', (d) => {
         buf += d;
-        if (!/\r\n\d{3} /.test(buf)) return;
+        if (!/(^|\r\n)\d{3} /.test(buf)) return;
         const code = parseInt(buf.slice(0, 3), 10); const txt = buf; buf = '';
         if (code >= 400) { sock.destroy(); return fail(new Error('SMTP ' + code)); }
         if (phase === 0) { phase = 1; sock.write('EHLO monitor\r\n'); }
@@ -74,7 +74,7 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
           // 220 → upgrade socket to TLS and resume the normal flow
           const raw = sock;
           raw.removeAllListeners('data');
-          sock = tls.connect({ socket: raw, servername: host }, () => {
+          sock = tls.connect({ socket: raw, servername: host, rejectUnauthorized: envVal('SMTP_SSL_VERIFY') !== 'false' }, () => {
             sock.on('data', onData);
             sock.on('error', fail);
             sock.write('EHLO monitor\r\n');
@@ -88,15 +88,60 @@ function smtpSend(host, port, user, pass, from, to, subject, text) {
   });
 }
 
+// HTTP fallback via the mail-outbound Worker (Cloudflare send_email
+// binding) — used when SMTP auth is unavailable. Requires
+// MAIL_OUTBOUND_URL + MAIL_OUTBOUND_TOKEN in .env.
+function httpSend(url, token, from, to, subject, text) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      to, subject, text, from,
+      category: 'ops-alert',
+    });
+    const u = new URL(url.replace(/\/$/, ''));
+    if (!u.pathname.endsWith('/send')) u.pathname = u.pathname.replace(/\/$/, '') + '/send';
+    const req = https.request({
+      hostname: u.hostname, port: 443, path: u.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token,
+        'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      let d = '';
+      res.on('data', (c) => { d += c; });
+      res.on('end', () => {
+        if (res.statusCode === 200) resolve(true);
+        else reject(new Error('mail-outbound HTTP ' + res.statusCode + ' ' + d.slice(0, 120)));
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(30000, () => { req.destroy(new Error('mail-outbound timeout')); });
+    req.end(body);
+  });
+}
+
 (async () => {
   const raw = fs.readFileSync(path.join(DIR, 'followup.txt'), 'utf8');
   const subject = raw.match(/^Subject:\s*(.+)$/m)[1].trim();
   const body = raw.replace(/^Subject:.*\r?\n\s*\r?\n/, '');
-  const host = envVal('SMTP_HOST'), port = parseInt(envVal('SMTP_PORT') || '465', 10);
+  // SMTP_USER/SMTP_PASSWORD are Resend relay credentials (user "resend" +
+  // API key) — they authenticate against smtp.resend.com, not the omv-ha
+  // postfix (which expects the mailbox account and 535s on "resend").
+  const host = envVal('SMTP_RELAY_HOST') || 'smtp.resend.com';
+  const port = parseInt(envVal('SMTP_RELAY_PORT') || envVal('SMTP_PORT') || '587', 10);
   const user = envVal('SMTP_USER'), pass = envVal('SMTP_PASSWORD'), from = envVal('SMTP_FROM');
+  const outUrl = envVal('MAIL_OUTBOUND_URL'), outTok = envVal('MAIL_OUTBOUND_TOKEN');
   if (DRY) { console.log('DRY-RUN to', TO, 'via', host + ':' + port, 'from', from, '\nSUBJ:', subject, '\nBODY:', body.slice(0, 200)); return; }
   try {
-    await smtpSend(host, port, user, pass, from, TO, subject, body);
+    if (outUrl && outTok) {
+      try {
+        await httpSend(outUrl, outTok, from || 'no-reply@cloudless.gr', TO, subject, body);
+      } catch (e) {
+        console.log('mail-outbound failed, falling back to SMTP:', e.message);
+        await smtpSend(host, port, user, pass, from, TO, subject, body);
+      }
+    } else {
+      await smtpSend(host, port, user, pass, from, TO, subject, body);
+    }
     console.log('followup sent to', TO);
     await tg('📮 Follow-up εστάλη στον Συνήγορο (email ' + TO + ', αρ. πρωτ. 408302/81750/2026)');
   } catch (e) {

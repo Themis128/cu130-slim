@@ -859,6 +859,9 @@ async def _process_publish_queue_async() -> None:
 
             except Exception:
                 await db.rollback()
+                # rollback() expires every ORM attribute; touching item.* below
+                # would lazy-load through the sync driver (MissingGreenlet).
+                await db.refresh(item)
                 item.attempts += 1
                 is_final = item.attempts >= item.max_attempts
                 item.status = QueueStatus.FAILED if is_final else QueueStatus.PENDING
