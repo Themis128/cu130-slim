@@ -387,3 +387,32 @@ python3 .devin/skills/omv-nextcloud-ops/nextcloud-integration/scripts/nextcloud-
 - Page API works for scripting: `POST /apps/intravox/api/pages`
   `{id,title,language,parentPath?}` → 201; `GET /api/pages/tree?language=en`.
   The `/api/v1/pages` collection route 404s — use `/api/pages`.
+
+## Nextcloud core upgrades (deliberately manual)
+
+App updates are automated (`nextcloud-app-update.sh`, daily 05:15). **Core image upgrades are NOT** — a major bump runs `occ upgrade`, which can take minutes and can fail mid-migration.
+
+Runbook (omv):
+1. Snapshot first — the 03:15 backup already covers it, or `rsync` the workspace dir to the backup disk.
+2. In `compose-files/workspace/docker-compose.yml`, bump the `nextcloud:` image tag ONE minor at a time (e.g. 35.x → 35.latest before any 36).
+3. `docker compose up -d nextcloud` then watch: `docker logs -f nextcloud` until "upgrade done" or app starts.
+4. Post-checks: `occ status`, `status.php` 200, `apps/intravox/api/health` 200, open `/apps/intravox` + `/apps/spreed` in a browser.
+5. If `occ upgrade` reports a missing app incompatibility: `occ app:disable <app>`, retry upgrade, re-enable after.
+6. Rollback: restore the snapshot, pin the previous image tag. Never skip majors (35→36→37, not 35→37).
+
+## External TURN (blocked — one dashboard step)
+
+CF Calls TURN app mint via API needs `Calls:Edit` scope the repo's
+`CLOUDFLARE_API_TOKEN` lacks (verified 2026-11-05, auth error 10000).
+Manual: dash.cloudflare.com → **Calls → Create app** → copy the
+`turn:`/`turns:` URIs + credential → on omv:
+`docker exec -u www-data nextcloud php occ talk:turn:add turns <host>:443 static <key>`
+then verify with a call between two NAT-restricted clients.
+Alternative: ask the ISP for a public IPv4 and run eturnal on 443.
+Do NOT run TURN on omv behind CGNAT — it just relocates the unreachable point.
+
+**Interim live fallback (2026-11-05)**: free public relay
+`relay1.expressturn.com:3478` with static creds `efrei`/`home` added via
+direct `oc_appconfig.spreed.turn_servers` JSON edit (occ can't set
+username/password fields). Shared public relay — bandwidth-capped, no
+SLA; replace with Cloudflare Calls `turns:`/443 once the Calls app exists.
