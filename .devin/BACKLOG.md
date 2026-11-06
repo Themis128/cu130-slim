@@ -958,3 +958,54 @@ espo lanes were dormant).
   `devin-funnel-closure-automation` (cloudless.gr) hold same-content
   commits; remote branches are the API-pushed SHAs — cosmetic divergence,
   safe to reset locals once PRs merge.
+
+## 2026-11-06 — WSL2 vsock flaps: root cause found + mitigations landed
+
+**Root cause (upstream, unfixed):** microsoft/WSL#41901 + #40795 — guest
+memory fragmentation → `page allocation failure: order:7` in
+`vmbus_alloc_ring` → `UtilAcceptVsock`/`accept4 failed 110` → permanent
+`E_UNEXPECTED`/`WSAETIMEDOUT` until VM restart. PR #41690 (per-listener
+hvsock buffer sizing) still OPEN, not in any release. We're on WSL
+3.0.5.0 / kernel 6.18.58 (newest).
+
+**Amplifier found + fixed:** Docker Desktop `/initd` writes VM-wide
+`vm.compaction_proactiveness=0` + `vm.watermark_boost_factor=0` into the
+shared kernel (docker/desktop-feedback#809) — disables the exact
+mitigations. Restored in guest:
+`/etc/sysctl.d/90-wsl-vsock-frag.conf` → compaction_proactiveness=100,
+watermark_boost_factor=15000, min_free_kbytes=262144. VERIFY it survives
+reboots (initd ordering) — if it reverts to 0, move to kernelCommandLine.
+
+**Host config:** `.wslconfig` = memory=12GB, swap=24GB, processors=8,
+autoMemoryReclaim=dropCache, sparseVhd — verified against MS Learn, all
+correct; backup `.wslconfig.bak-20261106-commitfix`.
+
+**stack-watchers crash-loop FIXED:** compose project dir is the Windows
+mirror `C:\Users\tbaltzakis\cu130-slim` (NOT the WSL repo) — it lacked
+`.devin/skills/` after the 2026-11-04 repo move, so
+`/app/.devin/skills/pending-triggers-ops/scripts/heal_supervisor.py`
+was missing → restart loop. Copied the 5 needed skill dirs
+(pending-triggers-ops, cdp-watch-ops, li-vetting-watch, wa-verify-ops,
+fb-reauth-ops) into `C:\Users\tbaltzakis\cu130-slim\.devin\skills\`.
+Container now Up(healthy). CAUTION: the Windows mirror is a partial
+copy — any future compose service referencing other repo paths will
+hit the same drift; keep mirror in sync or mount from WSL.
+
+**Also fixed:** `C:\Users\tbaltzakis\wsl-vsock-heal.ps1` had stripped
+`$var` names (broke Test-Path prompt) — rewritten.
+
+**Leftovers:**
+- [ ] Host RAM ~5GB free of 32GB is the flap trigger — close heavy
+  Windows apps; no config fixes this.
+- [ ] Watcher subprocesses inside stack-watchers that need host
+  resources (CDP :9222, docker.sock perms, ssh omv-ha) report degraded
+  — by design tolerated; `/status` on container :9099 is NOT published
+  to host (add `ports:` in compose if wanted).
+- [ ] IDE keeps a `wsl+docker-desktop` remote authority → devin-server
+  install spam loop; close that authority, use `wsl+Ubuntu-24.04`.
+- [ ] `social-api-gateway`, `promtail`, `social-metrics`,
+  `social-media-comfyui-gpu`, `n8n-metrics` exited ~24h (exit 127) —
+  check if still needed or remove.
+- [ ] Proactive nightly `wsl-safe-bounce.ps1` rejected: script header
+  says operator-only, never unattended — if user wants it, schedule
+  manually at ~04:30.
