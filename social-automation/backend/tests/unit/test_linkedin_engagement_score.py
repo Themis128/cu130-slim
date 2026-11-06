@@ -21,7 +21,6 @@ class _AsyncCM:
         return False
 
 
-
 def test_score_weighting():
     s = S._score({"likeCount": 10, "commentCount": 5, "shareCount": 2, "impressionCount": 100})
     assert s == pytest.approx(10 + 10 + 6)
@@ -31,9 +30,7 @@ def test_score_weighting():
 
 @pytest.mark.asyncio
 async def test_no_org_account_skips(monkeypatch):
-    db = SimpleNamespace(
-        execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None)))
-    )
+    db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))
     monkeypatch.setattr(S, "task_session", lambda: _AsyncCM(db))
     out = await S._score_linkedin_posts()
     assert out["skip"] == "no-linkedin-org-account"
@@ -42,9 +39,11 @@ async def test_no_org_account_skips(monkeypatch):
 @pytest.mark.asyncio
 async def test_score_task_calls_run_async(monkeypatch):
     called = {}
+
     def _ra(c):
         called["ran"] = True
         return {"ok": 1}
+
     monkeypatch.setattr(S, "run_async", _ra)
     out = S.score_linkedin_posts.run()
     assert called["ran"] and out == {"ok": 1}

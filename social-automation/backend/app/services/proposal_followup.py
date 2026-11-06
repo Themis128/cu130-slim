@@ -52,11 +52,7 @@ async def _default_team_id(db: AsyncSession) -> uuid.UUID | None:
 def _steps(proposal: AgencyProposal) -> tuple[dict[str, Any], ...]:
     """Concrete follow-up copy for this proposal (service/price personalized)."""
     name = (proposal.recipient_name or "").strip() or "there"
-    price = (
-        f"€{proposal.price_low_eur}–€{proposal.price_high_eur}"
-        if proposal.price_low_eur and proposal.price_high_eur
-        else "the quoted fixed price"
-    )
+    price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}" if proposal.price_low_eur and proposal.price_high_eur else "the quoted fixed price"
     return (
         {
             "day": 3,

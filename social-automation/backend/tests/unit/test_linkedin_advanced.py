@@ -24,7 +24,6 @@ class _AsyncCM:
         return False
 
 
-
 @pytest.mark.asyncio
 async def test_events_no_account(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(first=lambda: None))))

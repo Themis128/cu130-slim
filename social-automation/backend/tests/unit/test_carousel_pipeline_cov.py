@@ -24,14 +24,21 @@ async def test_build_ad_brand_kit(monkeypatch):
     monkeypatch.setattr(CP, "_qa_generated_background", AsyncMock(return_value=b"bg2"))
     monkeypatch.setattr(CP, "compose_ad_creative", lambda **kw: _fake_img())
     kept = []
-    monkeypatch.setattr(CP, "persist_generated_image", AsyncMock(
-        side_effect=lambda db, **kw: kept.append(kw) or SimpleNamespace(id=len(kept))))
+    monkeypatch.setattr(CP, "persist_generated_image", AsyncMock(side_effect=lambda db, **kw: kept.append(kw) or SimpleNamespace(id=len(kept))))
 
     db = SimpleNamespace()
     out = await CP.build_ad_brand_kit(
-        db, team_id="t1", user_id="u1", headline="H", subline="S", cta="C",
-        stat=None, stat_label=None, image_prompt="a bg",
-        sizes={"one": (64, 64), "two": (64, 64)})
+        db,
+        team_id="t1",
+        user_id="u1",
+        headline="H",
+        subline="S",
+        cta="C",
+        stat=None,
+        stat_label=None,
+        image_prompt="a bg",
+        sizes={"one": (64, 64), "two": (64, 64)},
+    )
     assert len(out) == 2 and len(kept) == 2
 
 
@@ -43,7 +50,6 @@ async def test_build_ad_brand_kit_no_bg(monkeypatch):
     monkeypatch.setattr(CP, "compose_ad_creative", lambda **kw: _fake_img())
     monkeypatch.setattr(CP, "persist_generated_image", AsyncMock(return_value=SimpleNamespace(id="a")))
     out = await CP.build_ad_brand_kit(
-        SimpleNamespace(), team_id="t1", user_id="u1", headline="H",
-        subline="S", cta="C", stat=None, stat_label="L",
-        image_prompt=None, sizes={"one": (64, 64)})
+        SimpleNamespace(), team_id="t1", user_id="u1", headline="H", subline="S", cta="C", stat=None, stat_label="L", image_prompt=None, sizes={"one": (64, 64)}
+    )
     assert len(out) == 1

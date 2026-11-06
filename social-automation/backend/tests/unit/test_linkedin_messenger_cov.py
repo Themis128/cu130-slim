@@ -47,6 +47,7 @@ async def test_email_capture_full_path(monkeypatch):
 
 async def test_phone_only_capture(monkeypatch):
     import app.services.espocrm_client as esp
+
     monkeypatch.setattr(esp, "upsert_lead", AsyncMock())
     out = await LM._capture_contact(_acct(), "Bob", "call +30 697 123 4567")
     assert "Bob" in out and "number" in out

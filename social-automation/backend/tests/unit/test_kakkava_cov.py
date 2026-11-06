@@ -17,13 +17,14 @@ def test_extract_bad_suffix_and_exception(tmp_path):
     p.write_text("hello", encoding="utf-8")
     assert K.extract_text(p) == "hello"
     import unittest.mock as um
+
     with um.patch.object(Path, "read_text", side_effect=OSError("denied")):
         assert K.extract_text(p) == ""
 
 
 def test_chunk_text_boundaries():
     assert K.chunk_text("") == []
-    long_text = ("para one.\n\n" + "word " * 400 + "\n\npara tail.")
+    long_text = "para one.\n\n" + "word " * 400 + "\n\npara tail."
     chunks = K.chunk_text(long_text, size=200, overlap=20)
     assert len(chunks) > 1 and all(c.strip() for c in chunks)
 

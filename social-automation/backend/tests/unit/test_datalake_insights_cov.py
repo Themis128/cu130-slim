@@ -32,42 +32,72 @@ def test_pick_actions_all_branches():
         "coaching_latest": {"topic": "offers", "homework_due": "friday"},
     }
     types = [a["type"] for a in D.pick_actions(sig)]
-    for t in ("platform_focus", "lead_source", "ad_efficiency", "monetization_eta",
-              "engagement_high", "email_deliverability", "content_topic",
-              "audit_escalation", "price_signal", "objection_copy", "coaching_prime"):
+    for t in (
+        "platform_focus",
+        "lead_source",
+        "ad_efficiency",
+        "monetization_eta",
+        "engagement_high",
+        "email_deliverability",
+        "content_topic",
+        "audit_escalation",
+        "price_signal",
+        "objection_copy",
+        "coaching_prime",
+    ):
         assert t in types, t
     assert D.pick_actions({}) == []
 
 
 def test_render_slack_full():
-    lines = D.render_slack_lines({
-        "responses": 5, "lead_volume_30d": 3, "best_converting": "linkedin",
-        "platform_funnels": {"linkedin": {"views": 10, "leads": 2}},
-        "lead_sources": [("site", 4)],
-        "ad_campaigns": {"c1": {"cpl": 10.0, "spend": 100.0, "leads": 10}},
-        "growth": {"ig": {"gate": {"eta_days": 7, "gap": 50}, "followers": 10, "per_week": 5}},
-        "platform_engagement": {"x": 0.05},
-        "email_funnel": {"m": {"sent": 50, "open_rate": 0.3}},
-        "audit_yes": ["a"], "pain_topics": [("cost", 2)],
-        "price_anchor_median": 100.0, "coaching_latest": {"topic": "t", "homework_due": "d"},
-        "top_objections": [("obj", 2)],
-    })
+    lines = D.render_slack_lines(
+        {
+            "responses": 5,
+            "lead_volume_30d": 3,
+            "best_converting": "linkedin",
+            "platform_funnels": {"linkedin": {"views": 10, "leads": 2}},
+            "lead_sources": [("site", 4)],
+            "ad_campaigns": {"c1": {"cpl": 10.0, "spend": 100.0, "leads": 10}},
+            "growth": {"ig": {"gate": {"eta_days": 7, "gap": 50}, "followers": 10, "per_week": 5}},
+            "platform_engagement": {"x": 0.05},
+            "email_funnel": {"m": {"sent": 50, "open_rate": 0.3}},
+            "audit_yes": ["a"],
+            "pain_topics": [("cost", 2)],
+            "price_anchor_median": 100.0,
+            "coaching_latest": {"topic": "t", "homework_due": "d"},
+            "top_objections": [("obj", 2)],
+        }
+    )
     blob = "\n".join(lines)
-    for frag in ("best funnel", "leads from site", "ads: c1", "ig:", "engagement",
-                 "email m:", "audit requests", "pain:", "price anchor", "coaching:", "objection"):
+    for frag in (
+        "best funnel",
+        "leads from site",
+        "ads: c1",
+        "ig:",
+        "engagement",
+        "email m:",
+        "audit requests",
+        "pain:",
+        "price anchor",
+        "coaching:",
+        "objection",
+    ):
         assert frag in blob, frag
 
 
 @pytest.mark.asyncio
 async def test_build_and_apply_signals():
     from datetime import datetime
+
     responses = [{"q": "a"}]
     leads = [{"source": "site", "interest": "audit", "company_size": "1-10"}]
     funnel = [{"platform": "linkedin", "views": 10, "clicks": 3, "leads": 2}]
     ad = [{"campaign_name": "c1", "spend_eur": 100.0, "leads": 2, "impressions": 1000}]
     posts = [{"platform": "linkedin", "engagement_rate": 0.08, "post_id": "p1"}]
-    foll = [{"platform": "linkedin", "followers": 10, "captured_at": datetime(2026, 1, 1)},
-            {"platform": "linkedin", "followers": 20, "captured_at": datetime(2026, 1, 8)}]
+    foll = [
+        {"platform": "linkedin", "followers": 10, "captured_at": datetime(2026, 1, 1)},
+        {"platform": "linkedin", "followers": 20, "captured_at": datetime(2026, 1, 8)},
+    ]
     email = [{"kind": "marketing", "status": "opened", "n": 7}]
     coaching = [{"occurred_at": datetime(2026, 1, 1), "meta_data": {"topic": "x", "homework_due": "y"}}]
     results = [_rows_result(r) for r in (responses, leads, funnel, ad, posts, foll, email, coaching)]
@@ -90,6 +120,7 @@ async def test_build_signals_no_coaching():
 @pytest.mark.asyncio
 async def test_funnel_answer_offline(monkeypatch):
     import app.services.minio_storage as MS
+
     monkeypatch.setattr(MS, "minio_enabled", lambda: False)
     out = await D.funnel_answer("how many leads")
     assert out["error"] == "datalake offline"
@@ -99,6 +130,7 @@ async def test_funnel_answer_offline(monkeypatch):
 async def test_funnel_answer_paths(monkeypatch):
     import app.services.ai_functions as AF
     import app.services.minio_storage as MS
+
     monkeypatch.setattr(MS, "minio_enabled", lambda: True)
     summary = json.dumps({"leads": {"rows": 42}, "exported_at": "x"})
 
@@ -146,6 +178,7 @@ def test_survey_signals_full_answers():
 
 def test_growth_gate_and_single_snap():
     from datetime import datetime
+
     snaps = [
         {"platform": "facebook", "followers": 100, "captured_at": datetime(2026, 1, 1)},
         {"platform": "facebook", "followers": 200, "captured_at": datetime(2026, 1, 15)},
@@ -171,6 +204,7 @@ def test_email_statuses_and_rate():
 @pytest.mark.asyncio
 async def test_funnel_answer_lead_fallback(monkeypatch):
     import app.services.minio_storage as MS
+
     monkeypatch.setattr(MS, "minio_enabled", lambda: True)
     body = json.dumps({"leads": {"rows": 9}, "exported_at": "x"}).encode()
     monkeypatch.setattr(MS, "get_object", AsyncMock(return_value=body))

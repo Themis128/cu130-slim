@@ -36,11 +36,7 @@ def _score(s: dict) -> float:
     imp = s.get("impressionCount") or s.get("impressions") or 0
     if not imp:
         imp = 1
-    actions = (
-        (s.get("likeCount") or s.get("reactions") or 0)
-        + 2 * (s.get("commentCount") or 0)
-        + 3 * (s.get("shareCount") or s.get("shareMentions") or 0)
-    )
+    actions = (s.get("likeCount") or s.get("reactions") or 0) + 2 * (s.get("commentCount") or 0) + 3 * (s.get("shareCount") or s.get("shareMentions") or 0)
     return actions * 100.0 / imp
 
 
@@ -94,13 +90,17 @@ async def _score_linkedin_posts() -> dict:
 
     async with task_session() as db:
         acc = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "linkedin",
-                    SocialAccount.account_type == "organization",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.account_type == "organization",
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if not acc or not acc.access_token_enc:
             return {"skip": "no-linkedin-org-account"}
         from app.core.security import decrypt_token
@@ -109,7 +109,8 @@ async def _score_linkedin_posts() -> dict:
         cutoff = datetime.now(UTC) - timedelta(days=LOOKBACK_DAYS)
         targets = (
             await db.execute(
-                select(PostTarget, Post).join(Post, Post.id == PostTarget.post_id)
+                select(PostTarget, Post)
+                .join(Post, Post.id == PostTarget.post_id)
                 .where(
                     PostTarget.social_account_id == acc.id,
                     PostTarget.status == "published",
@@ -176,11 +177,7 @@ async def _score_linkedin_posts() -> dict:
         # upsert commenters (post_id unique → skip dupes)
         added = 0
         for c in commenters:
-            exists = (
-                await db.execute(
-                    select(EngagementCandidate.id).where(EngagementCandidate.post_id == c["post_id"])
-                )
-            ).scalar_one_or_none()
+            exists = (await db.execute(select(EngagementCandidate.id).where(EngagementCandidate.post_id == c["post_id"]))).scalar_one_or_none()
             if not exists:
                 db.add(EngagementCandidate(**c))
                 added += 1

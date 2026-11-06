@@ -11,10 +11,10 @@ pytestmark = pytest.mark.asyncio
 
 
 def test_run_audit_ok(monkeypatch):
-    monkeypatch.setattr(FA.subprocess, "run", lambda *a, **k: SimpleNamespace(
-        returncode=0, stdout="stage table\nok", stderr=""))
+    monkeypatch.setattr(FA.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="stage table\nok", stderr=""))
     monkeypatch.setattr(FA, "_run_audit", lambda: (0, "line1\nsqlalchemy noise\nline2"))
     import app.worker._async as _WA
+
     monkeypatch.setattr(_WA, "run_async", lambda c: None)
     out = FA.run_funnel_audit()
     assert out["status"] == "ok" and out["rc"] == 0
@@ -23,6 +23,7 @@ def test_run_audit_ok(monkeypatch):
 def test_run_audit_broken(monkeypatch):
     monkeypatch.setattr(FA, "_run_audit", lambda: (1, "broken stage output"))
     import app.worker._async as _WA
+
     monkeypatch.setattr(_WA, "run_async", lambda c: None)
     out = FA.run_funnel_audit()
     assert out["status"] == "broken-stage" and out["rc"] == 1
@@ -30,9 +31,11 @@ def test_run_audit_broken(monkeypatch):
 
 def test_run_audit_subprocess_shape(monkeypatch):
     called = {}
+
     def fake_run(args, **kw):
         called.update(kw)
         return SimpleNamespace(returncode=0, stdout="o", stderr="e")
+
     monkeypatch.setattr(FA.subprocess, "run", fake_run)
     rc, out = FA._run_audit()
     assert rc == 0 and "o" in out and "e" in out and called["timeout"] == 180
@@ -40,6 +43,7 @@ def test_run_audit_subprocess_shape(monkeypatch):
 
 async def test_post_arms(monkeypatch):
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "post_alert_to_slack", AsyncMock())
     monkeypatch.setattr(SN, "post_digest_text_to_slack", AsyncMock())
     await FA._post("alert", alert=True)

@@ -46,6 +46,7 @@ async def test_engagement_autoapprove_levels(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=_scalars(rows)), commit=AsyncMock())
     monkeypatch.setattr(AG, "task_session", lambda: _AsyncCM(db))
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "notify_engagement_autoapprove", lambda r: None, raising=False)
 
     monkeypatch.setenv("AUTONOMY_LEVEL", "2")
@@ -64,6 +65,7 @@ async def test_engagement_notify_exception(monkeypatch):
     db = SimpleNamespace(execute=AsyncMock(return_value=_scalars([r])), commit=AsyncMock())
     monkeypatch.setattr(AG, "task_session", lambda: _AsyncCM(db))
     import app.services.slack_notifications as SN
+
     monkeypatch.setattr(SN, "notify_engagement_autoapprove", lambda r: (_ for _ in ()).throw(Exception("down")), raising=False)
     assert (await AG._engagement_autoapprove())["approved"] == 1
 

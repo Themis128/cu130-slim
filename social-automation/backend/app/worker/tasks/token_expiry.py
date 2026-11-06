@@ -40,15 +40,7 @@ async def _sweep() -> dict:
     now = datetime.now(UTC)
     report: dict[str, list] = {"warn": [], "reauth": []}
     async with task_session() as db:
-        rows = (
-            (
-                await db.execute(
-                    select(SocialAccount).where(SocialAccount.status.in_(["active", "connected"]))
-                )
-            )
-            .scalars()
-            .all()
-        )
+        rows = (await db.execute(select(SocialAccount).where(SocialAccount.status.in_(["active", "connected"])))).scalars().all()
         for acc in rows:
             plat = (acc.platform or "").lower()
             md = acc.meta_data or {}
@@ -78,13 +70,9 @@ async def _post(report: dict) -> None:
         return
     lines = [":key: *Token expiry sweep*"]
     for e in report["warn"]:
-        lines.append(
-            f"• {e['platform']}/{e['account']} expires {e['expires'][:16]} — refresh lane should cover it"
-        )
+        lines.append(f"• {e['platform']}/{e['account']} expires {e['expires'][:16]} — refresh lane should cover it")
     for e in report["reauth"]:
-        lines.append(
-            f":rotating_light: {e['platform']}/{e['account']} EXPIRED — needs human reauth (consent lane)"
-        )
+        lines.append(f":rotating_light: {e['platform']}/{e['account']} EXPIRED — needs human reauth (consent lane)")
     try:
         from app.services.slack_notifications import post_alert_to_slack  # noqa: PLC0415
 

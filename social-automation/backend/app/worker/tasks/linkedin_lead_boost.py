@@ -30,13 +30,17 @@ async def _route_linkedin_leads() -> dict:
 
     async with task_session() as db:
         acc = (
-            await db.execute(
-                select(SocialAccount).where(
-                    SocialAccount.platform == "linkedin",
-                    SocialAccount.account_type == "organization",
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.account_type == "organization",
+                    )
                 )
             )
-        ).scalars().first()
+            .scalars()
+            .first()
+        )
         if not acc:
             return {"skip": "no-linkedin-org-account"}
         accounts = await linkedin_ads.ad_accounts(db, str(acc.team_id))
@@ -68,16 +72,10 @@ async def _boost_linkedin_winners() -> dict:
     from app.services.slack_notifications import post_alert_to_slack
 
     async with task_session() as db:
-        winners = (
-            await db.execute(
-                select(Post).where(Post.meta_data["boost_candidate"].astext == "true")
-            )
-        ).scalars().all()
+        winners = (await db.execute(select(Post).where(Post.meta_data["boost_candidate"].astext == "true"))).scalars().all()
         for p in winners:
             p.meta_data = {**(p.meta_data or {}), "boost_candidate": False, "boost_queued": True}
         await db.commit()
     if winners:
-        await post_alert_to_slack(
-            f":rocket: {len(winners)} LinkedIn posts flagged >2σ — promo-credit boost queued"
-        )
+        await post_alert_to_slack(f":rocket: {len(winners)} LinkedIn posts flagged >2σ — promo-credit boost queued")
     return {"boosted": len(winners)}

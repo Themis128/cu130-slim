@@ -258,9 +258,7 @@ async def _project_support_case(sender: str, cand: dict[str, Any]) -> bool:
                     ),
                 },
             )
-            md.setdefault("support_cases", []).append(
-                {"case_id": case.get("id"), "at": datetime.now(UTC).isoformat(), "subject": cand["subject"][:120]}
-            )
+            md.setdefault("support_cases", []).append({"case_id": case.get("id"), "at": datetime.now(UTC).isoformat(), "subject": cand["subject"][:120]})
             project.meta_data = md
             await db.commit()
             return True

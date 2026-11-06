@@ -525,10 +525,7 @@ async def _autosend_pass(db: AsyncSession, team_id: uuid.UUID) -> dict[str, Any]
     drafts = (
         (
             await db.execute(
-                select(AgencyProposal)
-                .where(AgencyProposal.status == AgencyProposalStatus.draft)
-                .order_by(AgencyProposal.created_at.asc())
-                .limit(50)
+                select(AgencyProposal).where(AgencyProposal.status == AgencyProposalStatus.draft).order_by(AgencyProposal.created_at.asc()).limit(50)
             )
         )
         .scalars()
@@ -742,12 +739,7 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             # crm_engagement. Day 2: one gentle nudge. Day 4: Slack
             # escalate — the day-1 access milestone is slipping.
             md = dict(project.meta_data or {})
-            if (
-                day >= 2
-                and project.client_email
-                and not md.get("intake_received")
-                and not md.get("intake_nudged")
-            ):
+            if day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged"):
                 from app.services.email_digest import send_email
 
                 client = (md.get("client_name") or "").strip() or "there"
@@ -1140,9 +1132,7 @@ async def won_sweep(*, session_factory=None) -> dict[str, Any]:
                 continue
             exists = (
                 await db.execute(
-                    select(AgencyProject.id)
-                    .where(AgencyProject.team_id == team_id, AgencyProject.meta_data["espo_opportunity_id"].astext == oid)
-                    .limit(1)
+                    select(AgencyProject.id).where(AgencyProject.team_id == team_id, AgencyProject.meta_data["espo_opportunity_id"].astext == oid).limit(1)
                 )
             ).first()
             if exists or await _opp_has_note(oid, KICKOFF_MARKER):

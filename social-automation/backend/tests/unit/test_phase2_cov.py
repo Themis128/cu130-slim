@@ -11,6 +11,7 @@ pytestmark = pytest.mark.asyncio
 
 async def test_research_endpoints(monkeypatch):
     import app.api.research as R
+
     monkeypatch.setattr(R.rw, "ingest_nextcloud_folder", AsyncMock(return_value={"ok": 1}))
     u = SimpleNamespace(team_id="t1")
     assert await R.ingest(SimpleNamespace(project="p", folder="f"), u) == {"ok": 1}
@@ -25,6 +26,7 @@ async def test_research_endpoints(monkeypatch):
 
 def test_dynamic_price_range_premiums():
     from app.services.agency_catalog import SERVICES, dynamic_price_range
+
     svcs = list(SERVICES)[:1]
     base = dynamic_price_range(svcs, complexity=0.0, concurrent_projects=0)
     high = dynamic_price_range(svcs, complexity=0.9, concurrent_projects=0)
@@ -34,6 +36,7 @@ def test_dynamic_price_range_premiums():
 
 async def test_chat_retry_then_raise(monkeypatch):
     import app.services.ai_functions as AF
+
     monkeypatch.setattr(AF, "_cfg", lambda: ("u", "e", "m", "em"))
     calls = {"n": 0}
 
@@ -55,8 +58,10 @@ async def test_chat_retry_then_raise(monkeypatch):
             return Resp()
 
     import httpx
+
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kw: C())
     import asyncio
+
     monkeypatch.setattr(asyncio, "sleep", AsyncMock())
     out = await AF._chat("p", max_tokens=5)
     assert out == "answer" and calls["n"] == 2
@@ -69,6 +74,7 @@ async def test_chat_retry_then_raise(monkeypatch):
 async def test_eval_post_async(monkeypatch):
     import app.services.content_eval as CE
     import app.services.inference as INF
+
     monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"response": 'pre {"total": 7} post'}))
     assert await CE.eval_post_async("post text", None) == 7
     monkeypatch.setattr(INF, "call_inference", AsyncMock(return_value={"response": "no json"}))
