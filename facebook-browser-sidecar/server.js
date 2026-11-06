@@ -99,7 +99,18 @@ async function ensureBrowser() {
   };
 
   if (storageState) {
-    ctxOptions.storageState = storageState;
+    // Playwright validates each origin by navigating to it; non-facebook
+    // origins (e.g. fbsbx.com) abort and reject newContext. Login state only
+    // lives on facebook.com — strip everything else at the choke point so
+    // POST /session payloads AND the persisted session file are both safe.
+    const safeOrigins = (storageState.origins || []).filter((o) => {
+      try {
+        return /(^|\.)facebook\.com$/.test(new URL(o.origin).hostname);
+      } catch (_) {
+        return false;
+      }
+    });
+    ctxOptions.storageState = { ...storageState, origins: safeOrigins };
   }
 
   context = await browser.newContext(ctxOptions);
@@ -626,7 +637,11 @@ async function handleSetSession(req, res) {
   }
   activePageId = null;
   await closeBrowser();
-  await ensureBrowser();
+  try {
+    await ensureBrowser();
+  } catch (err) {
+    return res.status(500).json({ error: `browser init failed: ${err.message}` });
+  }
   try {
     await page.goto("https://www.facebook.com/", {
       waitUntil: "domcontentloaded",
