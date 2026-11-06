@@ -53,16 +53,36 @@ test.describe('Register Page — real backend', () => {
   });
 
   test('should register a new real user and auto-login to dashboard', async ({ page }) => {
+    // The register endpoint is rate-limited (5/min) — under parallel workers
+    // a 429 can reject this attempt. Wait out the window and resubmit; the
+    // form keeps its values, so only the button needs clicking again.
+    test.setTimeout(200_000)
     await page.goto('/register');
     await page.getByLabel('Full Name').fill(NEW_USER.name);
     await page.getByLabel('Email').fill(NEW_USER.email);
     await page.locator('#password').fill(NEW_USER.password);
     await page.locator('#confirmPassword').fill(NEW_USER.password);
-    await page.getByRole('button', { name: /create account/i }).click();
 
-    // Fresh users land on the onboarding wizard (dashboard layout redirects
-    // while onboarding_completed=false) — still proves auto-login worked.
-    await expect(page).toHaveURL(/\/(onboarding|dashboard)/, { timeout: 30000 });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      await page.getByRole('button', { name: /create account/i }).click();
+      // Fresh users land on the onboarding wizard (dashboard layout redirects
+      // while onboarding_completed=false) — still proves auto-login worked.
+      const landed = await page
+        .waitForURL(/\/(onboarding|dashboard)/, { timeout: 30_000 })
+        .then(() => true)
+        .catch(() => false);
+      if (landed) return;
+      const rateLimited = await page
+        .getByRole('alert')
+        .filter({ hasText: /too many|rate limit|try again/i })
+        .isVisible()
+        .catch(() => false);
+      if (!rateLimited || attempt === 2) {
+        await expect(page).toHaveURL(/\/(onboarding|dashboard)/, { timeout: 5_000 });
+        return;
+      }
+      await page.waitForTimeout(65_000);
+    }
   });
 
   test('should show error when registering an existing email', async ({ page }) => {
@@ -74,7 +94,11 @@ test.describe('Register Page — real backend', () => {
     await page.locator('#confirmPassword').fill(NEW_USER.password);
     await page.getByRole('button', { name: /create account/i }).click();
 
-    // Real backend returns 409/422 — toast surfaces the detail
-    await expect(page.getByText(/already|exists|registered/i)).toBeVisible({ timeout: 15000 });
+    // Real backend returns 409/422 — toast surfaces the detail. Scope to the
+    // status/toast region: the page footer also contains "Already have an
+    // account?", which trips strict mode on the loose regex.
+    await expect(
+      page.getByRole('status').filter({ hasText: /already|exists|registered/i }),
+    ).toBeVisible({ timeout: 15000 });
   });
 });
