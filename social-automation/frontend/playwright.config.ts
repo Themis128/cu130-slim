@@ -27,8 +27,9 @@ export default defineConfig({
   fullyParallel: true,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  /* Retry on CI; one local retry too — tests hit the real stack and
+     transient 429/slow-render flakes are expected under parallel load. */
+  retries: process.env.CI ? 2 : 1,
   /* Cap workers locally — tests hit the real API whose auth endpoints are
      rate-limited (5/min register/login), so unbounded parallelism just
      serializes on 429 backoff anyway. */
