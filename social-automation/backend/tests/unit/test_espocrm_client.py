@@ -87,7 +87,7 @@ class TestListAll:
         pages = [[{"id": 1}, {"id": 2}], [{"id": 3}]]
 
         async def fake_get(path, params=None):
-            calls.append((path, json.loads(params["searchParams"])))
+            calls.append((path, params))
             return {"list": pages.pop(0)}
 
         monkeypatch.setattr(E, "espo_get", fake_get)
@@ -95,8 +95,8 @@ class TestListAll:
         assert [i["id"] for i in out] == [1, 2, 3]
         assert calls[0][0] == "/Lead"
         assert calls[0][1]["offset"] == 0 and calls[1][1]["offset"] == 2
-        assert calls[0][1]["select"] == ["id"]
-        assert calls[0][1]["where"] == [{"type": "isNotNull"}]
+        assert calls[0][1]["select"] == "id"
+        assert calls[0][1]["where[0][type]"] == "isNotNull"
 
     @pytest.mark.asyncio
     async def test_respects_max_items_and_omits_optional(self, monkeypatch):
@@ -104,13 +104,13 @@ class TestListAll:
         seen = []
 
         async def fake_get(path, params=None):
-            seen.append(json.loads(params["searchParams"]))
+            seen.append(params)
             return {"list": [{"id": len(seen) * 10}, {"id": len(seen) * 10 + 1}]}
 
         monkeypatch.setattr(E, "espo_get", fake_get)
         out = await E.list_all("Account", max_items=3)
         assert len(out) == 3
-        assert "select" not in seen[0] and "where" not in seen[0]
+        assert "select" not in seen[0] and not any(k.startswith("where[") for k in seen[0])
         assert seen[1]["maxSize"] == 1  # only the remaining item is requested
 
     @pytest.mark.asyncio
