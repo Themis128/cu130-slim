@@ -294,8 +294,9 @@ async def sync_failed_publishes(db: AsyncSession) -> dict:
     rows = (await db.execute(q)).scalars().all()
     if not rows:
         return {"alerts": 0}
-    newest = max(p.failed_at.isoformat() for p in rows)
-    fresh = [p for p in rows if last is None or p.failed_at.isoformat() > last]
+    timed = [(p, p.failed_at) for p in rows if p.failed_at is not None]
+    newest = max(fa.isoformat() for _p, fa in timed)
+    fresh = [p for p, fa in timed if last is None or fa.isoformat() > last]
     await _set_cursor("failed_at", newest)
     if last is None:  # first run — seed, don't spam history
         return {"alerts": 0, "seeded": len(rows)}
