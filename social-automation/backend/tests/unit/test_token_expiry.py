@@ -79,3 +79,13 @@ def test_task_wrapper_runs(monkeypatch):
     monkeypatch.setattr(TE, "run_async", _fake_run)
     out = TE.run_token_expiry_sweep()
     assert out["status"] == "ok" and out["warn"] == 0
+
+
+async def test_post_swallows_slack_failure(monkeypatch):
+    async def _boom(text):
+        raise RuntimeError("slack down")
+
+    monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", _boom)
+    await TE._post(
+        {"warn": [{"platform": "tiktok", "account": "tt", "expires": "2026-11-01T00:00:00+00:00"}], "reauth": []}
+    )
