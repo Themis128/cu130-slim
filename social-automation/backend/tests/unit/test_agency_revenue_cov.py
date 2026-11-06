@@ -550,7 +550,7 @@ def test_autosend_block_reasons_matrix():
         _draft(recipient_email="x@messenger.local"), audit_ok, None)
     assert "audit-not-completed" in P._autosend_block_reasons(_draft(), None, None)
     assert "audit-not-completed" in P._autosend_block_reasons(
-        _draft(), SimpleNamespace(status=AgencyAuditStatus.draft), None)
+        _draft(), SimpleNamespace(status=AgencyAuditStatus.pending), None)
     assert "services-outside-catalog" in P._autosend_block_reasons(
         _draft(services=["not-in-catalog"]), audit_ok, None)
     assert "price-missing" in P._autosend_block_reasons(
@@ -657,7 +657,7 @@ async def test_proposal_sweep_custom_scope_lead_and_autosend(monkeypatch):
         action_plan="zzz qqq unmatched gibberish",
         findings=[{"finding": "x", "severity": "warning", "service": "cloud"}],
         meta_data={"lead_email": "c@acme.example", "lead_name": "Acme"},
-        lead_id=lid, espo_lead_id=None,
+        lead_id=lid, espo_lead_id=None, team_id=uuid.uuid4(),
     )
     lead_obj = SimpleNamespace(id=lid, email="lead@acme.example", name="Lead Name")
     db = _DB(
@@ -773,7 +773,7 @@ async def test_post_consult_gates_and_full_path(monkeypatch):
     assert send.await_count == 2
 
 
-def _project(**kw):
+def _pm_pm_project(**kw):
     d = dict(
         id=uuid.uuid4(), team_id=uuid.uuid4(), name="Proj",
         status=AgencyProjectStatus.active,
@@ -799,7 +799,7 @@ async def test_pm_sweep_intake_nudge_escalate_and_slack_fail(monkeypatch):
         raise RuntimeError("slack down")
 
     monkeypatch.setattr(SN, "post_alert_to_slack", _boom)
-    proj = _project(kickoff_at=(datetime.now(UTC) - timedelta(days=5)).replace(tzinfo=None))
+    proj = _pm_project(kickoff_at=(datetime.now(UTC) - timedelta(days=5)).replace(tzinfo=None))
     db = _DB(_Res(rows=[proj]), _Res(rows=[]))
     out = await P.pm_sweep(session_factory=_factory(db))
     assert out["updates"] >= 1
@@ -819,14 +819,14 @@ async def test_pm_sweep_testimonial_delight_and_edges(monkeypatch):
 
     now = datetime.now(UTC)
     asked = (now - timedelta(days=40)).isoformat()
-    p0 = _project(status=AgencyProjectStatus.delivered,
+    p0 = _pm_project(status=AgencyProjectStatus.delivered,
                   meta_data={"testimonial_due_at": (now - timedelta(days=1)).isoformat()})
-    p1 = _project(status=AgencyProjectStatus.delivered, meta_data={})
-    p2 = _project(status=AgencyProjectStatus.delivered,
+    p1 = _pm_project(status=AgencyProjectStatus.delivered, meta_data={})
+    p2 = _pm_project(status=AgencyProjectStatus.delivered,
                   meta_data={"testimonial_asked": asked})
-    p3 = _project(status=AgencyProjectStatus.delivered, client_email=None,
+    p3 = _pm_project(status=AgencyProjectStatus.delivered, client_email=None,
                   meta_data={"testimonial_due_at": "garbage"})
-    p4 = _project(status=AgencyProjectStatus.delivered,
+    p4 = _pm_project(status=AgencyProjectStatus.delivered,
                   meta_data={"testimonial_asked": "not-a-date"})
     db = _DB(_Res(rows=[]), _Res(rows=[p0, p1, p2, p3, p4]))
     out = await P.pm_sweep(session_factory=_factory(db))
