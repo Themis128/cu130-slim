@@ -678,6 +678,26 @@ WORKFORCE = [
             )
         ],
     ),
+    Worker(
+        "funnel-audit",
+        "app.worker.tasks.funnel_audit.run_funnel_audit",
+        "default",
+        7 * DAY,
+        goal="Report funnel stage counts + weakest transition weekly so the loop is observable",
+        guardrails=(
+            "read-only — runs the audit script as a subprocess, writes nothing to CRM",
+            "exit-1 (broken stage) escalates to the alert lane, success goes to the digest lane",
+            "compact report — last 40 lines only, never floods the channel",
+        ),
+        autonomy="auto",
+        fallback="subprocess failure or Slack post failure logs a warning; next weekly run retries",
+        evidence=[
+            (
+                "last funnel audit report",
+                "SELECT max(created_at) FROM audit_logs WHERE action LIKE 'funnel-audit%'",
+            )
+        ],
+    ),
 ]
 
 

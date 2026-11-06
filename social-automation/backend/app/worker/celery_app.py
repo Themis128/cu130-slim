@@ -75,6 +75,7 @@ celery_app = Celery(
         "app.worker.tasks.nurture",
         "app.worker.tasks.funnel_sync",
         "app.worker.tasks.funnel_score",
+        "app.worker.tasks.funnel_audit",
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
@@ -290,8 +291,6 @@ celery_app.conf.update(
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
-        "app.worker.tasks.linkedin_lead_boost.route_linkedin_leads": {"queue": "default"},
-        "app.worker.tasks.linkedin_lead_boost.boost_linkedin_winners": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
@@ -310,6 +309,7 @@ celery_app.conf.update(
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
         "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
+        "app.worker.tasks.funnel_audit.run_funnel_audit": {"queue": "default"},
         "app.worker.tasks.auto_gates.engagement_autoapprove": {"queue": "default"},
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
@@ -358,6 +358,12 @@ celery_app.conf.update(
         "funnel-sync": {
             "task": "app.worker.tasks.funnel_sync.run_funnel_sync",
             "schedule": crontab(minute=20),
+        },
+        # Weekly funnel stage audit (Tolstova & Silakova) — weakest-link
+        # report to Slack; exit-1 on a broken stage escalates to alerts.
+        "funnel-audit": {
+            "task": "app.worker.tasks.funnel_audit.run_funnel_audit",
+            "schedule": crontab(day_of_week="wed", hour=8, minute=0),
         },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).
