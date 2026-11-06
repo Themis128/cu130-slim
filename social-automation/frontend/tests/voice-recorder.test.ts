@@ -84,7 +84,8 @@ test.describe('VoiceRecorder — live @e2e', () => {
 
     const transcribeResp = page.waitForResponse(
       (r) => r.url().includes('/api/v1/ai/transcribe'),
-      { timeout: 60_000 },
+      // Real Whisper via Cloudflare — cold starts can take 30-60s.
+      { timeout: 90_000 },
     )
     await page.goto('/content/new')
     await expect(page.getByPlaceholder('What do you want to share?')).toBeVisible({ timeout: 20_000 })
@@ -100,9 +101,9 @@ test.describe('VoiceRecorder — live @e2e', () => {
     expect([200, 422]).toContain(resp.status())
 
     if (resp.status() === 200) {
-      await expect(page.getByText('Transcript added to your post')).toBeVisible({ timeout: 15_000 })
+      await expect(page.getByText('Transcript added to your post')).toBeVisible({ timeout: 30_000 })
     } else {
-      await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 15_000 })
+      await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 30_000 })
     }
   }, { retry: 1 })
 })
