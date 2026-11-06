@@ -1016,6 +1016,17 @@ hit the same drift; keep mirror in sync or mount from WSL.
 - [x] `C:\Users\tbaltzakis\cu130-slim\.env` was a stray empty DIRECTORY —
   removed it and copied the real WSL `.env` there so Windows-side compose
   runs resolve env correctly (compose project merges WSL+Windows configs).
+- [x] Tailnet exposure on wsl-ubuntu2404 (2026-11-06): `tailscale serve`
+  needs root/operator (not set) → used userspace forwarder instead.
+  `~/.local/bin/tailnet-forward.py` + systemd **user** unit
+  `tailnet-forward.service` (linger enabled) binds 100.86.188.43 only:
+  9227 linkedin-MCP, 9228 airbyte-MCP, 9231 nextcloud-MCP, 8082 frontend,
+  8083 api. Reachable as `http://wsl-ubuntu2404.tail4ecae1.ts.net:<port>`
+  or `http://100.86.188.43:<port>` from tailnet devices with `*:*` ACL
+  (office-1 Windows → ZCode can consume the MCP endpoints). Phone
+  (galaxy-s22) is service-scoped — would need an ACL grant for these ports.
+  Stdio MCP servers + Devin acp-host + ZCode desktop app have no TCP
+  surface — nothing to expose; they can only *consume* these endpoints.
 - [x] Playwright E2E full-suite acceptance (2026-11-06 run): **189 passed /
   0 failed / 3 flaky** (calendar seeded-post tests, pass on retry) in 6.6m
   on chromium, workers=4, retries=1. PRs: #1385 (config hardening, merged),
