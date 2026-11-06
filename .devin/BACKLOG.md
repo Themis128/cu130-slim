@@ -1070,3 +1070,30 @@ hit the same drift; keep mirror in sync or mount from WSL.
   text-dedup skips, quality-gate seo<80, posts whose images are real
   duplicates. Watch: FB personal posts publish slowly via sidecar (~min
   each); WhatsApp still needs WABA assign in Meta Business (human gate).
+- [x] Media-pipeline repair via platform APIs only (2026-11-06): 3 scheduled
+  posts (2a98a376/572e95aa/ffbc6ddd) regenerated through
+  POST /api/v1/ai/generate-carousel-pipeline (3 branded slides each,
+  verified 200 image/jpeg on pub-9dff...); ad-hoc Pillow assets archived.
+  AGENTS.md now forbids direct DB/R2 media writes. New skill
+  `.devin/skills/socialauto-janitor` (+ .cursor mirror): dry-run-first
+  sweeper — `fixtures` (targetless E2E posts → archived, 5 done),
+  `media-orphans` (unreferenced assets → archived, 4 done),
+  `queue-status`, `queue-requeue <prefix> --delay-minutes N`, `accounts`,
+  `sweep`.
+- [x] publish_retry sweep IntegrityError fixed (PR #1395): it flipped a
+  failed queue row pending even when an active row existed for the same
+  (post,account) → ux_publish_queue_active_target violation every 15min.
+  Now skips pairs with an active row. Also guarded db.refresh for fake-DB
+  tests (8 CI failures).
+- [x] Synigoros duplicate Telegram alerts explained + fixed: the ⚠️ spam was
+  monitor.js retrying followup.js every 15min during the SMTP outage (each
+  failure pinged Telegram); the double 📮 was manual send + monitor send.
+  followup.js now throttles failure alerts to 1/hour via
+  followup-alert.json (PR #1395).
+- [ ] TikTok account `cloudless.gr` status=expired; token refresh returns
+  "no access_token in refresh response". human-gate-ops reports
+  tiktok-oauth: no_session — needs one TikTok login on the bridge (:9223)
+  then the oauth_reauth_watch beat can drive re-auth. Human gate.
+- [ ] WhatsApp still revoked — WABA assign in Meta Business (human gate).
+- [ ] PR #1395 OPEN (BLOCKED→CI re-running after b6550dd4+e1495886 push);
+  #1375 closed-superseded; #1385/#1391/site#2369 MERGED.
