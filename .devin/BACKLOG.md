@@ -1097,3 +1097,24 @@ hit the same drift; keep mirror in sync or mount from WSL.
 - [ ] WhatsApp still revoked — WABA assign in Meta Business (human gate).
 - [ ] PR #1395 OPEN (BLOCKED→CI re-running after b6550dd4+e1495886 push);
   #1375 closed-superseded; #1385/#1391/site#2369 MERGED.
+
+## 2026-11-06 — E2E public-surface suite + PR board cleanup (cloudless.gr side)
+
+- cloudless.gr PR #2372 (`test/e2e-public-surface-full`): new
+  `e2e/deep/public-pages-full.spec.ts` (all public routes × en/el/fr/de,
+  dynamic CMS routes, locale integrity) + `public-flows.spec.ts`
+  (survey/audit/booking/auth-redirect/cookie flows). CI is authoritative —
+  local WSL dev server OOM-restarts under full parallel compile.
+- cloudless.gr PR #2373: `.devin/skills/local-e2e-env` — sudo-free
+  Playwright bootstrap (Node 22 tarball, npx pnpm, extracted chromium
+  libs). Replaces the ad-hoc /tmp setup.
+- Fixed on other sessions' branches: #2367 ruff-format push, #2361
+  skipExisting coverage tests (99.49→gate), #2363 mail-outbound
+  add/add conflict resolved to hardened main version.
+- cu130 #1378 merged; #1375 closed by owner (was DIRTY dup of #1373).
+- [ ] `workers/mail-outbound/node_modules.root-owned` in cloudless.gr
+  still needs `sudo rm -rf` (renamed aside during pnpm install).
+- [ ] `.githooks/pre-commit` chmod +x done locally — verify it survives
+  on fresh clones (mode bit may not be committed if core.fileMode off).
+- [ ] WSL docker bind-mount drift persists — durable fix is
+  `wsl --shutdown` from Windows (kills sessions; schedule it).
