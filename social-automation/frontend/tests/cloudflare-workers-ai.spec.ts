@@ -7,9 +7,9 @@ import { randomUUID } from 'crypto';
  * These tests talk to the live, dockerized `social-api` backend
  * (http://localhost:8083/api/v1) which is configured with real
  * `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` credentials, and to the
- * live Next.js dev server (port 3001) whose `NEXT_PUBLIC_API_URL` points at
- * that backend. If the dev server is not already running the Playwright
- * `webServer` config will boot it automatically.
+ * live frontend container (E2E_FRONTEND_URL, default http://localhost:8082)
+ * which proxies /api/v1 to that backend. There is no webServer block — the
+ * Docker stack must already be running.
  *
  * Override the backend URL with `E2E_API_URL=http://host:port` if needed.
  */

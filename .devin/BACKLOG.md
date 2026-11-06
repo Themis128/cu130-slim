@@ -1009,3 +1009,10 @@ hit the same drift; keep mirror in sync or mount from WSL.
 - [ ] Proactive nightly `wsl-safe-bounce.ps1` rejected: script header
   says operator-only, never unattended — if user wants it, schedule
   manually at ~04:30.
+- [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh` (gitignored,
+  repo root) strips quotes before exporting E2E_ADMIN_*; plain
+  `playwright test` skips admin-login unless vars are set unquoted.
+  PR #1385 hardened the config (skip-not-throw, workers=4 local).
+- [x] `C:\Users\tbaltzakis\cu130-slim\.env` was a stray empty DIRECTORY —
+  removed it and copied the real WSL `.env` there so Windows-side compose
+  runs resolve env correctly (compose project merges WSL+Windows configs).
