@@ -96,6 +96,30 @@ function headers() {
   return { Authorization: `Bearer ${accessToken}` }
 }
 
+/**
+ * POST with one retry on transport-level failures. Long-running real
+ * Cloudflare/Whisper calls occasionally lose their socket mid-request
+ * (ECONNRESET "socket hang up") when the API recycles a keep-alive
+ * connection — the request never reached a response, so retrying is safe.
+ */
+async function postWithRetry(
+  request: APIRequestContext,
+  url: string,
+  options: Parameters<APIRequestContext['post']>[1],
+) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await request.post(url, options)
+    } catch (err) {
+      const msg = String(err)
+      const transport = /ECONNRESET|socket hang up|ETIMEDOUT|ECONNREFUSED|EPIPE/.test(msg)
+      if (!transport || attempt === 1) throw err
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+  throw new Error('unreachable')
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Live backend contract tests (no browser)
@@ -200,7 +224,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
   
   test('provider test performs a real Cloudflare chat call', async ({ request }) => {
     test.setTimeout(45_000)
-    const r = await request.post(`${API_V1}/ai-providers/cloudflare/test`, { headers: headers() })
+    const r = await postWithRetry(request, `${API_V1}/ai-providers/cloudflare/test`, { headers: headers() })
     expect(r.status()).toBe(200)
     const body = await r.json()
     expect(body.ok).toBe(true)
@@ -210,7 +234,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
 
   test('generate-content with provider=cloudflare runs a real LLM call', async ({ request }) => {
     test.setTimeout(120_000)
-    const r = await request.post(`${API_V1}/ai/generate-content`, {
+    const r = await postWithRetry(request, `${API_V1}/ai/generate-content`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: {
         prompt: 'Write a one-line tip about productivity for remote workers',
@@ -229,7 +253,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
 
   test('Workers AI batch submit → retrieve (queueRequest)', async ({ request }) => {
     test.setTimeout(60_000)
-    const submitted = await request.post(`${API_V1}/ai/workers-ai/batch`, {
+    const submitted = await postWithRetry(request, `${API_V1}/ai/workers-ai/batch`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: {
         model: CF_EMBED_MODEL,
@@ -245,7 +269,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
       model: CF_EMBED_MODEL,
     })
 
-    const retrieved = await request.post(`${API_V1}/ai/workers-ai/batch/retrieve`, {
+    const retrieved = await postWithRetry(request, `${API_V1}/ai/workers-ai/batch/retrieve`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: { model: CF_EMBED_MODEL, request_id: sub.request_id },
     })
@@ -260,7 +284,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
     // test() ignores a trailing { timeout } arg — raise the budget from inside.
     test.setTimeout(120_000)
     const wav = makeToneWav(1)
-    const r = await request.post(`${API_V1}/ai/transcribe`, {
+    const r = await postWithRetry(request, `${API_V1}/ai/transcribe`, {
       headers: headers(),
       // Real Whisper call via Cloudflare — cold starts can exceed the
       // default request timeout; the backend allows up to 120s.
