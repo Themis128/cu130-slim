@@ -150,3 +150,31 @@ def test_scenarios_carry_tiktok_format():
     assert sc[0]["strategy"] == "leader"
     assert "is_aigc" in FORMAT_GUIDE
     assert "trendwatch" not in sc[0]["cta"] or "utm_source=tiktok" in sc[0]["cta"]
+
+
+def test_top_relevant_signal_google_path(monkeypatch):
+    trend_context._cache = (0.0, None)
+
+    def fake_fetch(geo):
+        if geo == "GR":
+            raise RuntimeError("rss down")
+        return [{"query": "ai cloud automation news", "geo": geo,
+                 "traffic": 8000, "pub_date": "x", "news": []}]
+
+    monkeypatch.setattr("scripts.trendwatch.fetch_trending", fake_fetch)
+    sig = trend_context.top_relevant_signal(("GR", "US"))
+    assert sig == "ai cloud automation news"
+    assert trend_context.top_relevant_signal() == sig  # cached path
+
+
+def test_top_relevant_signal_fails_open(monkeypatch):
+    trend_context._cache = (0.0, None)
+    monkeypatch.setattr(
+        "scripts.trendwatch.build_matrix",
+        lambda s: (_ for _ in ()).throw(RuntimeError("matrix boom")),
+    )
+    monkeypatch.setattr(
+        "scripts.trendwatch.fetch_trending",
+        lambda geo: [{"query": "x", "geo": geo, "traffic": 1, "news": []}],
+    )
+    assert trend_context.top_relevant_signal() is None
