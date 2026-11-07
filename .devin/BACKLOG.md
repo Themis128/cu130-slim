@@ -64,12 +64,14 @@ gone.
   request_code/verify_code are the migration API).
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
-- [ ] human: LinkedIn sidecar :9225 browser session dead and stored
-  `LINKEDIN_COOKIE` li_at stale on every automated lane → credential
-  login via noVNC, or store LINKEDIN_EMAIL/PASSWORD so the
-  credentials-login fallback can run. NOTE: the OAuth/API surface is
-  healthy (full-union consent landed on 264925843, 2026-11-07) — this
-  gate only blocks DOM-automation flows (DMs, specialties, portal edits).
+- [ ] LinkedIn sidecar :9225 browser session dead and stored
+  `LINKEDIN_COOKIE` li_at stale — BUT a working lane now exists:
+  debug-chrome CDP `:9229` (headless chrome:9330 + userspace relay,
+  `devin-scripts/cdp_relay.py` + `cdp-launch.bat`) has a LIVE LinkedIn
+  session (verified /feed loads logged-in, 2026-11-07). Point
+  li_devapp_ops/portal scripts at host:9229 to resume the
+  portal/DM/specialties flows. Sidecar :9225 itself still needs a
+  credential login or stored LINKEDIN_EMAIL/PASSWORD.
 - [ ] human: X OAuth approve — fresh auth_token in .env OR click the
   reauth_urls URL; bridge pin holds the session 600s.
 - [ ] human: FB OAuth reconnect — `gate_runner.py fb-token
