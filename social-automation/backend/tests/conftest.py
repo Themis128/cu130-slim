@@ -23,6 +23,10 @@ if not os.environ.get("REDIS_URL"):
 if not os.environ.get("MESSENGER_REDIS_URL"):
     os.environ["MESSENGER_REDIS_URL"] = "redis://localhost:6379/1"
 
+# Unit tests exercise the publish semantic-QA gate for real; the host's DMR
+# vision chain can stall for tens of minutes behind model loads, so bound it.
+os.environ.setdefault("PUBLISH_MEDIA_QA_TIMEOUT_S", "3")
+
 # tests/integration/conftest.py loads the repo's real .env into os.environ
 # (setdefault) before unit-test modules import Settings. When a developer .env
 # carries real INSTAGRAM_* credentials, the module-level _settings in
