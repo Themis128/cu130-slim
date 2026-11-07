@@ -8,8 +8,17 @@ const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
 const STATE_FILE = path.join(DIR, 'state.json');
 const LOG = path.join(DIR, 'monitor.log');
 
+const LOG_MAX_BYTES = 512 * 1024;
+
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
+  try {
+    // rotate once the log outgrows 512 KiB — keeps one generation of history
+    if (fs.statSync(LOG).size > LOG_MAX_BYTES) {
+      fs.rmSync(LOG + '.1', { force: true });
+      fs.renameSync(LOG, LOG + '.1');
+    }
+  } catch {}
   try { fs.appendFileSync(LOG, line + '\n'); } catch {}
   console.log(line);
 }
