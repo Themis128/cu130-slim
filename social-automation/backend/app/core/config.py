@@ -138,6 +138,11 @@ class Settings(BaseSettings):
     # can stall ~20min when the runner is wedged — that must never park a
     # publishing worker. Timeout degrades to "vision unavailable" fail-open.
     PUBLISH_MEDIA_QA_TIMEOUT_S: float = 90.0
+    # What to do when NO vision backend answers (DMR down and Cloudflare
+    # fallback unavailable): "open" publishes anyway (deterministic checks
+    # remain the floor), "closed" skips the publish until vision recovers.
+    # Vision-down skips are never cached, so recovery unblocks queued posts.
+    PUBLISH_MEDIA_QA_ON_VISION_DOWN: str = "open"
 
     # Self-hosted SearXNG metasearch (deployed on omv — see deploy/omv-workspace).
     # JSON API used by /api/v1/ai/web-search and web-grounded generate-content.
