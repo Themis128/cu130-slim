@@ -994,7 +994,7 @@ class TestCoverageTails:
         call = client.calls[0]
         extras = call["extras_params"]
         assert extras["client_key"] == "tt-key"
-        assert extras["scope"] == "user.info.basic,user.info.profile,user.info.stats,video.publish,video.upload,video.list"
+        assert extras["scope"] == "user.info.basic,video.publish,video.upload"
         assert call["code_challenge"] and call["scope"] is None
 
     async def test_test_account_remaining_platforms(self, monkeypatch):

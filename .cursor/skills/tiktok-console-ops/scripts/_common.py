@@ -17,9 +17,7 @@ NODE_WORK = ROOT / ".cursor/tmp-tiktok-pw/node_work"
 PW_IMAGE = "mcr.microsoft.com/playwright:v1.62.1"
 SIDECAR = env("TIKTOK_SIDECAR_URL") or "http://127.0.0.1:9224"
 
-EXPECTED_SCOPES = (
-    "user.info.basic,user.info.profile,user.info.stats,"
-    "video.list,video.publish,video.upload")
+EXPECTED_SCOPES = "user.info.basic,video.publish,video.upload"
 EXPECTED_REDIRECT = "https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback"
 
 

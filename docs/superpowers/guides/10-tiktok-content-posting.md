@@ -123,8 +123,11 @@ container and the Playwright browser image — no local installs needed.
 | Prepare the Direct Post audit | `.devin/skills/tiktok-console-ops/scripts/cp-audit-application.py` | Fills all 4 wizard steps up to Review. Exits without submitting. Requires `TIKTOK_DEV_EMAIL`/`TIKTOK_DEV_PASSWORD` in `.env` and `docs/tiktok-demo/videos/tiktok-demo.mp4`. |
 | Submit the Direct Post audit | `cp-audit-application.py --submit` | Submits, then verifies the app page shows "Under review" beside Direct Post. Exits non-zero if the submission can't be confirmed. |
 
-Expected scope set after reconnect: `user.info.basic`, `user.info.profile`,
-`user.info.stats`, `video.list`, `video.publish`, `video.upload`.
+Expected scope set after reconnect (production app, verified 2026-11-07):
+`user.info.basic`, `video.publish`, `video.upload`. The scopes
+`user.info.profile`, `user.info.stats`, `video.list` are catalog-available
+but not enabled on the production app — they require a console revision +
+review before they can be requested.
 
 ## Analytics sources
 

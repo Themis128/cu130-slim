@@ -265,11 +265,11 @@ async def connect_account_body(
         ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
-        # Official Login Kit + Content Posting + Display scopes.
-        # video.list required for /v2/video/list/ and /v2/video/query/.
-        # user.info.profile → bio/verified/deep-link; user.info.stats →
-        # follower/following/likes/video counts (analytics profile_sync).
-        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
+        # Scopes enabled on the production TikTok app (verified via devportal
+        # app/detail 2026-11-07). user.info.profile/stats + video.list are NOT
+        # enabled — requesting them fails authorize with a `scope` error.
+        # Re-add them here only after enabling them in the console + review.
+        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(data.platform, [])
 
     # Twitter and TikTok OAuth 2.0 require PKCE
@@ -335,11 +335,11 @@ async def connect_account(
         ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
-        # Official Login Kit + Content Posting + Display scopes.
-        # video.list required for /v2/video/list/ and /v2/video/query/.
-        # user.info.profile → bio/verified/deep-link; user.info.stats →
-        # follower/following/likes/video counts (analytics profile_sync).
-        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
+        # Scopes enabled on the production TikTok app (verified via devportal
+        # app/detail 2026-11-07). user.info.profile/stats + video.list are NOT
+        # enabled — requesting them fails authorize with a `scope` error.
+        # Re-add them here only after enabling them in the console + review.
+        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(platform, [])
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
