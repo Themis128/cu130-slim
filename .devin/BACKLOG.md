@@ -21,10 +21,10 @@ gone.
 
 ## Open — engineering
 
-- [ ] cloudless-gr-live (265081467): Live Events product still shows FORM
-  state — fill via `li_devapp_ops.py fill-form <Q_DL>` once the catalog
-  provisions; the app-bound Q_DL link persists (grab a fresh one from the
-  products page when filling).
+- [ ] cloudless-gr-live (265081467): Live Events = FORM state (verified
+  live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
+  <Q_DL>` with a fresh app-bound Q_DL link from the products page
+  (qualtrics-ops). All other products still REQ.
 - [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
   — was blocked on root-owned dir; ownership fixed 2026-11-07, now unblocked.
 - [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
@@ -34,17 +34,17 @@ gone.
   (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
   had spellcheck_applied at start). Confirm final counts +
   `meta_data.quality.spellcheck_applied=true` when it completes.
-- [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start (config
-  `sshd -t` is clean; host keys present). Elevation lane SOLVED: appended
-  an idempotent sshd-ensure block to
-  `D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1` — runs
-  elevated every 30 min via `\DevOptimizer\WSL-Memory-Watchdog`, logs
-  start errors to `C:\Users\tbaltzakis\devin-scripts\sshd_err.txt`.
-  Next: run `sshd.exe -d` under that hook to capture the real start
-  failure (probably post-migration binary/permissions). omv watchdog
-  remediation itself is FIXED in both copies (deployed + cloudless.gr
-  #2374) — only the hop is down. WSL-direct sshd over tailscale also
-  times out (tagged→user device ACL drop likely).
+- [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
+  elevated (`sshd -t` clean, host keys present, "Failed to start service"
+  logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
+  Elevation lane SOLVED + self-healing: sshd-ensure block at top of
+  `D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1` runs every
+  30 min via `\DevOptimizer\WSL-Memory-Watchdog`. Same file also carries
+  the CDP-Relay-9229 firewall pin (verified: WSL->host:9229 live).
+  NOTE: `\DevOptimizer\WSL-Permanent-Fix` (2-min guard) is DEAD — its
+  action calls pwsh.exe which resolves to a per-user Store stub
+  (0x80070002 every run). Repoint task action to conhost+powershell.exe
+  via the same elevated lane.
 - [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
   (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
   plain `playwright test` skips admin-login unless vars are set unquoted.
