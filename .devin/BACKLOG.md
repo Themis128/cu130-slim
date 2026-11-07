@@ -1133,9 +1133,11 @@ hit the same drift; keep mirror in sync or mount from WSL.
   (cloudless-gr-member), CRM:015285039188354 — unlocks `rw_conversions` +
   `r_ads` on tokens issued by that app's OAuth client (`77fd3pui3m2jwm`).
 - Caveat: stored org SocialAccount tokens are issued by `227354605`
-  (`77tf4oysp8u3fz`) — conversions calls need a member-app OAuth token
-  (or confirm whether the same grant also landed on `264925843`, whose
-  forms were submitted in parallel; only the 265077368 email confirmed).
+  (`77tf4oysp8u3fz`) — conversions calls need an OAuth token from an app
+  holding the product. BOTH grants confirmed 2026-11-07: `265077368`
+  (CRM:015285039188354) AND `264925843` (CRM:015285039188357). Preferred
+  path = `264925843` (`77j8kzfi1a6jn8`) — CM-dedicated app already holds
+  the full grantable scope union incl. rw_conversions.
 - Next: `linkedin_advanced.py` conversions service is already coded behind
   `LINKEDIN_ADVANCED` — flip per-scope once a `rw_conversions` token
   exists; wire Cal.com audit_booked / EspoCRM won events as conversion
