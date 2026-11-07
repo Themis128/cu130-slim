@@ -26,7 +26,7 @@ async def _route_linkedin_leads() -> dict:
     from sqlalchemy import select
 
     from app.models.social_account import SocialAccount
-    from app.services import linkedin_ads
+    from app.services import espocrm_client, linkedin_ads
 
     async with task_session() as db:
         acc = (
@@ -44,18 +44,57 @@ async def _route_linkedin_leads() -> dict:
         if not acc:
             return {"skip": "no-linkedin-org-account"}
         accounts = await linkedin_ads.ad_accounts(db, str(acc.team_id))
+
     leads: list[dict] = []
     for a in accounts:
-        for form in await linkedin_ads.lead_gen_forms(db, str(acc.team_id)):
-            for r in await linkedin_ads.lead_form_responses(db, str(acc.team_id)):
-                leads.append({"form": form.get("id"), "response": r})
+        acct_urn = a.get("urn") or f"urn:li:sponsoredAccount:{a.get('id')}"
+        for form in await linkedin_ads.lead_gen_forms(db, acct_urn):
+            responses = await linkedin_ads.lead_form_responses(db, acct_urn)
+            for r in responses:
+                leads.append({"account": acct_urn, "form": form.get("id"), "response": r})
     if not leads:
         return {"routed": 0}
+
     from app.services.slack_notifications import post_alert_to_slack
 
-    for lead in leads[:10]:
-        await post_alert_to_slack(f":new: LinkedIn lead response: `{lead.get('form')}` — route to audit funnel")
-    return {"routed": len(leads)}
+    routed = 0
+    for lead in leads[:25]:
+        resp = lead.get("response") or {}
+        answers = _lead_answers(resp)
+        email = (answers.get("email") or answers.get("emailAddress") or "").strip()
+        if not email:
+            continue
+        first = (answers.get("firstName") or "").strip()
+        last = (answers.get("lastName") or "").strip()
+        lead_id = await espocrm_client.upsert_lead(
+            {
+                "emailAddress": email,
+                "firstName": first,
+                "lastName": last,
+                "source": "LinkedIn Ads",
+                "description": f"LinkedIn lead-gen response {resp.get('id', '')} via {lead.get('form')}",
+            }
+        )
+        if lead_id:
+            routed += 1
+    if routed:
+        await post_alert_to_slack(f":new: LinkedIn lead sync: {routed} lead(s) routed to EspoCRM")
+    return {"routed": routed, "found": len(leads)}
+
+
+def _lead_answers(resp: dict) -> dict[str, str]:
+    """Normalize LinkedIn leadFormResponses answer shapes to {field: value}."""
+    out: dict[str, str] = {}
+    for item in resp.get("formResponse") or resp.get("answers") or []:
+        q = str(item.get("question") or item.get("name") or "")
+        a = item.get("answer")
+        if isinstance(a, list):
+            a = "; ".join(str(x) for x in a)
+        out[q] = str(a or "")
+    # Also accept flat custom-question maps some payloads carry.
+    for k, v in (resp.get("customQuestions") or {}).items():
+        out.setdefault(str(k), str(v))
+    return out
 
 
 @celery_app.task(name="app.worker.tasks.linkedin_lead_boost.boost_linkedin_winners")

@@ -51,9 +51,15 @@ async def lead_form_responses(form_urn: str) -> dict:
     if not ctx:
         return {"skip": "disabled-or-no-account"}
     token, _ = ctx
+    form_id = form_urn.split(":")[-1]
     async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
-        r = await c.get(f"{REST}/leadFormResponses", params={"leadType": "urn:li:leadForm:" + form_urn.split(":")[-1]})
-        return {"responses": (r.json().get("elements") or []) if r.status_code == 200 else [], "status": r.status_code}
+        r = await c.get(
+            f"{REST}/leadFormResponses",
+            params={"q": "leadType", "leadType": f"urn:li:leadForm:{form_id}", "count": 50},
+        )
+        if r.status_code != 200:
+            return {"responses": [], "status": r.status_code}
+        return {"responses": r.json().get("elements") or [], "status": 200}
 
 
 # ── Conversions API ──────────────────────────────────────────────────────
@@ -66,24 +72,47 @@ async def stream_conversion(
     email_sha256: str | None = None,
     lead_id: str | None = None,
 ) -> dict:
-    """Stream a server-side conversion event (``audit_booked``, ``lead_created``)."""
+    """Stream a server-side conversion event (``audit_booked``, ``lead_created``).
+
+    Verified live 2026-11-07: ``POST /rest/conversionEvents`` requires the
+    ``X-RestLi-Method: BATCH_CREATE`` header, an ``elements`` batch wrapper,
+    ``user.userIds[]`` identifiers, and a ``urn:lla:llaPartnerConversion:{id}``
+    rule URN (``urn:li:conversion:*`` prefixes are rejected with 422).
+    """
     ctx = await _ctx()
     if not ctx:
         return {"skip": "disabled-or-no-account"}
     token, _ = ctx
     user: dict = {}
     if email_sha256:
-        user["email"] = {"sha256": email_sha256}
+        user["userIds"] = [{"idType": "SHA256_EMAIL", "idValue": email_sha256}]
     if lead_id:
-        user["leadId"] = lead_id
+        user["lead"] = lead_id if lead_id.startswith("urn:") else f"urn:li:leadGenFormResponse:{lead_id}"
     payload = {
-        "conversion": conversion_rule,
-        "conversionHappenedAt": happened_at_ms,
-        "user": user,
+        "elements": [
+            {
+                "conversion": conversion_rule,
+                "conversionHappenedAt": happened_at_ms,
+                "user": user,
+            }
+        ]
     }
-    async with httpx.AsyncClient(timeout=30, headers={"Authorization": f"Bearer {token}", **HDRS}) as c:
+    headers = {
+        "Authorization": f"Bearer {token}",
+        **HDRS,
+        "Content-Type": "application/json",
+        "X-RestLi-Method": "BATCH_CREATE",
+    }
+    async with httpx.AsyncClient(timeout=30, headers=headers) as c:
         r = await c.post(f"{REST}/conversionEvents", json=payload)
-        return {"status": r.status_code, "ok": r.status_code in (200, 201)}
+        out: dict = {"status": r.status_code, "ok": r.status_code in (200, 201)}
+        try:
+            body = r.json()
+            if body.get("elements"):
+                out["element"] = body["elements"][0]
+        except ValueError:
+            pass
+        return out
 
 
 # ── Matched Audiences ────────────────────────────────────────────────────

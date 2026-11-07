@@ -698,6 +698,30 @@ WORKFORCE = [
             )
         ],
     ),
+    Worker(
+        "linkedin-adlib-watch",
+        "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch",
+        "default",
+        7 * DAY,
+        goal="Weekly Ad Library sweep → linkedin_ad_intel rows + #intel digest",
+        guardrails=(
+            "read-only on LinkedIn — never writes to the platform",
+            "token decrypted in-process only; never logged or emitted",
+            "5s page pacing, ≤10 pages per watch — stays under API fair-use",
+        ),
+        autonomy="auto",
+        fallback="per-watch errors collected into the digest; task failure → celery retry/alert",
+        evidence=[
+            ("latest ad observation", "SELECT max(last_seen_at) FROM linkedin_ad_intel"),
+        ],
+        escalations=[
+            (
+                "enabled watches not running",
+                "SELECT count(*) FROM linkedin_intel_watch WHERE enabled AND (last_run_at IS NULL OR last_run_at < now() - interval '14 days')",
+                "watch list exists but the sweep isn't reaching it — check worker logs / token",
+            )
+        ],
+    ),
 ]
 
 
