@@ -416,7 +416,7 @@ async def create_survey_public(
                 "firstName": first or email.split("@", 1)[0],
                 "lastName": last or "(survey)",
                 "phoneNumber": phone or "",
-                "source": "Website survey",
+                "source": "Web Site",
                 "description": "\n".join([f"{k}: {v}" for k, v in meta["answers"].items()] + ([f"phone: {phone}"] if phone else []))[:2000],
             }
         )

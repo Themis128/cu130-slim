@@ -1678,7 +1678,7 @@ class TestIngestMetaLeadgen:
         assert payload["emailAddress"] == "ada@example.com"
         assert payload["firstName"] == "Ada" and payload["lastName"] == "Lovelace"
         assert payload["phoneNumber"] == "+30 691"
-        assert payload["source"] == "Meta Lead Ad"
+        assert payload["source"] == "Social Media"
         assert payload["utmSource"] == "facebook" and payload["utmMedium"] == "paid"
         assert payload["utmCampaign"] == "Checklist Q4"
         assert payload["targetListsIds"] == ["tl-9"]

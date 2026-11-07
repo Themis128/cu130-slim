@@ -193,7 +193,7 @@ async def _capture_contact(account, convo_name: str, text: str) -> str | None:
                     "firstName": first or convo_name,
                     "lastName": last or "(LinkedIn)",
                     "phoneNumber": phone or "",
-                    "source": "LinkedIn DM",
+                    "source": "Social Media",
                     "description": f"Captured in DM thread\n{phone or ''}",
                 }
             )
