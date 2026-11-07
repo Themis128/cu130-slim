@@ -98,7 +98,7 @@ USER app
 # function-lazy or ImportError-guarded.
 FROM runtime-common AS api
 COPY --from=builder-api /opt/venv /opt/venv
-CMD ["sh", "-c", "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4"]
+CMD ["sh", "-c", "alembic upgrade head && (python scripts/seed_content_templates.py || echo 'WARN content-template seed failed (non-fatal)') && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-worker-healthcheck 30"]
 
 FROM base AS worker
 # Worker only — beat scheduler runs in the dedicated celery-beat service
