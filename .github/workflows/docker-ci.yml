@@ -7,6 +7,7 @@ on:
     tags: ['v*']
     paths:
       - 'social-automation/**'
+      - 'stack-ops/**'
       - 'env-manager/**'
       - 'Dockerfile'
       - '**/Dockerfile*'
@@ -17,6 +18,7 @@ on:
     branches: [master]
     paths:
       - 'social-automation/**'
+      - 'stack-ops/**'
       - 'env-manager/**'
       - 'Dockerfile'
       - '**/Dockerfile*'
@@ -33,6 +35,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  stack-ops-test:
+    timeout-minutes: 10
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pytest && python -m pytest stack-ops/test_stack_ops.py -v --tb=short
+
   build-and-push:
     timeout-minutes: 60
     runs-on: ubuntu-24.04
