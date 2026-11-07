@@ -116,11 +116,15 @@ async def test_stream_conversion(monkeypatch):
 
     def h(m, u, **k):
         seen["json"] = k.get("json")
-        return _Resp(201, {})
+        return _Resp(200, {"elements": [{"status": 201}]})
 
     _patch_client(monkeypatch, ADV, h)
     out = await ADV.stream_conversion(conversion_rule="audit_booked", happened_at_ms=7, email_sha256="e", lead_id="l")
-    assert out["ok"] and seen["json"]["user"] == {"email": {"sha256": "e"}, "leadId": "l"}
+    assert out["ok"] and out["element"] == {"status": 201}
+    event = seen["json"]["elements"][0]
+    assert event["conversion"] == "audit_booked" and event["conversionHappenedAt"] == 7
+    assert event["user"]["userIds"] == [{"idType": "SHA256_EMAIL", "idValue": "e"}]
+    assert event["user"]["lead"] == "urn:li:leadGenFormResponse:l"
 
 
 @pytest.mark.asyncio
@@ -291,13 +295,32 @@ async def test_route_leads_enabled(monkeypatch):
 
     monkeypatch.setattr(LADS, "ad_accounts", AsyncMock(return_value=[{"id": "a1"}]))
     monkeypatch.setattr(LADS, "lead_gen_forms", AsyncMock(return_value=[{"id": "f1"}]))
-    monkeypatch.setattr(LADS, "lead_form_responses", AsyncMock(return_value=[{"id": "r1"}]))
+    monkeypatch.setattr(
+        LADS,
+        "lead_form_responses",
+        AsyncMock(
+            return_value=[
+                {
+                    "id": "r1",
+                    "formResponse": [
+                        {"question": "email", "answer": "lead@example.com"},
+                        {"question": "firstName", "answer": "Ana"},
+                    ],
+                }
+            ]
+        ),
+    )
+    import app.services.espocrm_client as ESPO
+
+    upsert = AsyncMock(return_value="lead-1")
+    monkeypatch.setattr(ESPO, "upsert_lead", upsert)
     import app.services.slack_notifications as SN
 
     alert = AsyncMock()
     monkeypatch.setattr(SN, "post_alert_to_slack", alert)
     out = await LB._route_linkedin_leads()
-    assert out["routed"] == 1 and alert.called
+    assert out["routed"] == 1 and out["found"] == 1 and alert.called
+    assert upsert.call_args.args[0]["emailAddress"] == "lead@example.com"
     monkeypatch.setattr(LADS, "ad_accounts", AsyncMock(return_value=[]))
     assert (await LB._route_linkedin_leads())["routed"] == 0
 
