@@ -58,6 +58,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
+        "app.worker.tasks.linkedin_intel",
         "app.worker.tasks.notebook_reports",
         "app.worker.tasks.paddle_digest",
         "app.worker.tasks.session_healer",
@@ -231,6 +232,11 @@ celery_app.conf.update(
             "soft_time_limit": 300,
             "time_limit": 600,
         },
+        # Weekly Ad Library watch — up to ~7 watches × 10 pages × 5s pacing.
+        "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {
+            "soft_time_limit": 1800,
+            "time_limit": 2100,
+        },
     },
     # Queue routing: time-sensitive publishing tasks are isolated from
     # CPU-heavy media/AI tasks so a long-running batch enhance never blocks
@@ -290,6 +296,7 @@ celery_app.conf.update(
         "app.worker.tasks.auto_gates.post_autoapprove": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
+        "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {"queue": "default"},
         "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
@@ -375,6 +382,12 @@ celery_app.conf.update(
         "newsletter-subs-sync": {
             "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
             "schedule": crontab(day_of_week="sun", hour=9, minute=15),
+        },
+        # Weekly LinkedIn Ad Library watch → linkedin_ad_intel + #intel digest.
+        # ~7 watches × up to 10 pages × 5s pacing — runs well inside 30 min.
+        "linkedin-ad-library-watch": {
+            "task": "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch",
+            "schedule": crontab(day_of_week="mon", hour=9, minute=0),
         },
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
