@@ -1149,3 +1149,30 @@ hit the same drift; keep mirror in sync or mount from WSL.
   tasks are already coded behind `LINKEDIN_ADVANCED`).
   Also approved on `265077368` (CRM:015285039188594) — both apps now
   cover the full ads loop: Ad Library + Conversions + Lead Sync.
+
+## 2026-11-07 — LinkedIn full-union consent LANDED on 264925843 (77j8kzfi1a6jn8)
+
+- **OAuth client switched**: `.env` `LINKEDIN_CLIENT_ID/SECRET` already =
+  `77j8kzfi1a6jn8` (264925843 Cloudless Analytics App). `LINKEDIN_EXTRA_SCOPES`
+  extended with `rw_conversions r_marketing_leadgen_automation r_ads`;
+  social-api + 4 workers + beat recreated (deploy lock used/released).
+- **Consent completed** (user click after checkpoint email-code gate on the
+  debug Chrome :9222 lane): both `social_accounts` LinkedIn rows now carry
+  the 20-scope union — member analytics, feeds, followers, r_events/rw_events,
+  **rw_conversions, r_marketing_leadgen_automation, r_ads**. Token expiry
+  2027-01-06. `linkedin_advanced.py` `_ctx()` reads the org row — services
+  unblocked pending `LINKEDIN_ADVANCED=1` flip.
+- **Live scope probe correction**: `rw_ads` + `r_ads_reporting` are
+  `unauthorized_scope_error` on `77j8kzfi1a6jn8` — they are grantable ONLY
+  on `227354605`. Never add them to this client's consent or the whole
+  flow fails. Ads write/reporting needs a separate 227354605-issued token.
+- **Pre-consent probe results** (old token): adLibrary 200; leadFormResponses
+  403, conversionEvents 403, adAccounts 403 — all expected pre-grant.
+  Post-consent endpoint re-verification PENDING (see WSL note below).
+- **PR #1399** (Ad Library intel pipeline): integration-test failed on
+  `test_every_route_is_inventoried` — fixed by adding the 5 `/intel/*`
+  routes to `docs/api-surface-inventory.md` (commit fdaf10d6 via gh api).
+- **WSL Ubuntu-24.04 crashed ~03:22 UTC** (CreateInstance E_FAIL) — all
+  compose bind mounts went empty, stack crash-looping. Needs an operator
+  WSL VM bounce or guardian T3 auto-bounce. GitHub-side work continued
+  via `gh api`.
