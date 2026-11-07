@@ -45,18 +45,16 @@ def _google_signals(today: str) -> list[dict]:
 
 
 def _tiktok_signals() -> list[dict]:
-    try:
-        from app.services.tiktok_trends import (
-            LIGHT_SWEEP,  # type: ignore[import-not-found]
-            fetch_trending_videos,  # type: ignore[import-not-found]
-        )
+    import importlib
 
+    try:
+        tt = importlib.import_module("app.services.tiktok_trends")
         from scripts.trendwatch import build_matrix
     except ImportError:  # tiktok trendwatch not yet merged — degrade, don't fail
         logger.warning("tiktok_trends module unavailable — skipping TT feed")
         return []
     try:
-        videos = fetch_trending_videos(sweep=LIGHT_SWEEP)
+        videos = tt.fetch_trending_videos(sweep=tt.LIGHT_SWEEP)
     except Exception as exc:  # noqa: BLE001
         logger.warning("tiktok CC fetch failed: %s", exc)
         return []
