@@ -60,7 +60,9 @@ def oauth_url() -> str:
         "FACEBOOK_REDIRECT_URI",
         "https://social.cloudless.gr/api/v1/auth/oauth/facebook/callback",
     )
-    scopes = "pages_manage_posts,pages_read_engagement,pages_show_list,public_profile"
+    # business_management included so the healed token can also mint the
+    # never-expiring system-user token for WhatsApp/Meta (meta_system_user.py).
+    scopes = "pages_manage_posts,pages_read_engagement,pages_show_list,public_profile,business_management"
     return (
         f"https://www.facebook.com/dialog/oauth?client_id={cid}"
         f"&redirect_uri={redirect}&scope={scopes}&response_type=code"
