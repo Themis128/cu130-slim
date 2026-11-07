@@ -454,25 +454,52 @@ async def verify_media_semantics(
     """
     try:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
-        caption = await _call_dmr_vision(
-            b64,
-            "Describe this " + media_type + " in one factual sentence: main subject and setting.",
-            max_tokens=80,
+        caption_prompt = (
+            "Describe this " + media_type + " in one factual sentence: main subject and setting."
         )
+        judge_prompt = (
+            f'The intended subject was: "{intent[:300]}". '
+            "Does this " + media_type + " plausibly depict that subject? "
+            "Answer with exactly YES or NO then a short reason."
+        )
+
+        caption = await _call_dmr_vision(b64, caption_prompt, max_tokens=80)
+        judge = None
+        vision = "dmr"
         if not caption:
-            return {"match": True, "caption": None, "reason": "vision unavailable"}
-        judge = await _call_dmr_vision(
-            b64,
-            (
-                f'The intended subject was: "{intent[:300]}". '
-                "Does this " + media_type + " plausibly depict that subject? "
-                "Answer with exactly YES or NO then a short reason."
-            ),
-            max_tokens=60,
-        )
-        verdict = (judge or "").strip().upper()
+            # DMR vision down — fall back to Cloudflare Workers AI vision so a
+            # local-runner outage doesn't silently disable semantic QA.
+            try:
+                cap_res = await _call_cloudflare_vision(b64, "caption", caption_prompt, max_tokens=80)
+                caption = _extract_caption(cap_res or {})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("CF vision caption fallback failed: %s", exc)
+            vision = "cf" if caption else None
+
+        if not caption:
+            return {"match": True, "caption": None, "reason": "vision unavailable", "vision": None}
+
+        judge = await _call_dmr_vision(b64, judge_prompt, max_tokens=60)
+        if not judge:
+            # DMR judge missing/failed — try Cloudflare vision for the verdict.
+            try:
+                judge_res = await _call_cloudflare_vision(b64, "query", judge_prompt, max_tokens=60)
+                judge = _extract_query_text(judge_res or {})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("CF vision judge fallback failed: %s", exc)
+        if not judge:
+            # Captioned but unjudgeable — treat like a weak pass rather than
+            # fabricating a verdict from nothing.
+            return {"match": True, "caption": caption.strip(), "reason": "judge unavailable", "vision": vision}
+
+        verdict = judge.strip().upper()
         match = not verdict.startswith("NO")
-        return {"match": match, "caption": caption.strip(), "reason": (judge or "").strip()[:200]}
+        return {
+            "match": match,
+            "caption": caption.strip(),
+            "reason": judge.strip()[:200],
+            "vision": vision,
+        }
     except Exception as exc:  # noqa: BLE001
         logger.warning("verify_media_semantics failed (%s)", type(exc).__name__)
-        return {"match": True, "caption": None, "reason": f"qa error: {type(exc).__name__}"}
+        return {"match": True, "caption": None, "reason": f"qa error: {type(exc).__name__}", "vision": None}

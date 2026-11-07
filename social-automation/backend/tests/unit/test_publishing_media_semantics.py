@@ -98,10 +98,28 @@ async def test_vision_unavailable_fails_open(monkeypatch, tmp_path):
     # the gate must never block publishing when DMR/vision is down.
     monkeypatch.setattr(
         "app.services.media_ai.verify_media_semantics",
-        AsyncMock(return_value={"match": True, "caption": None, "reason": "vision unavailable"}),
+        AsyncMock(return_value={"match": True, "caption": None, "reason": "vision unavailable", "vision": None}),
     )
     post = _post()
     assert await P._enforce_media_semantics(post, [_img(tmp_path)], "t") is None
+
+
+@pytest.mark.asyncio
+async def test_vision_down_closed_policy_skips_and_never_caches(monkeypatch, tmp_path):
+    # PUBLISH_MEDIA_QA_ON_VISION_DOWN=closed: no vision backend answered →
+    # skip the publish, but do NOT cache — the post must re-check once
+    # vision recovers.
+    qa = AsyncMock(return_value={"match": True, "caption": None, "reason": "vision unavailable", "vision": None})
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", qa)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_ON_VISION_DOWN", "closed")
+    post = _post()
+    res = await P._enforce_media_semantics(post, [_img(tmp_path)], "t")
+    assert res is not None and res.skipped
+    assert "vision unavailable" in res.error.lower()
+    assert "media_semantic_gate" not in post.platform_specific
+    # second attempt re-queries vision rather than replaying a cached skip
+    await P._enforce_media_semantics(post, [_img(tmp_path)], "t")
+    assert qa.await_count == 2
 
 
 @pytest.mark.asyncio
