@@ -4,6 +4,7 @@ fixed-price offer post. ``validate_media_for_platform`` only proves an asset
 *can* publish; ``_enforce_media_semantics`` proves it *matches the copy*.
 """
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -75,6 +76,20 @@ async def test_no_images_or_no_copy_returns_none(monkeypatch, tmp_path):
     assert await P._enforce_media_semantics(_post(), ["/v/clip.mp4"], "text") is None
     assert await P._enforce_media_semantics(_post(content="", media_ids=[]), [], "") is None
     qa.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_vision_timeout_fails_open(monkeypatch, tmp_path):
+    # A wedged DMR runner must never park the publishing worker — the gate
+    # bounds the check and degrades to vision-unavailable (pass).
+    async def _wedged(*a, **k):
+        await asyncio.sleep(3600)
+
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", _wedged)
+    monkeypatch.setattr(P.get_settings(), "PUBLISH_MEDIA_QA_TIMEOUT_S", 0.1)
+    post = _post()
+    res = await P._enforce_media_semantics(post, [_img(tmp_path)], "t")
+    assert res is None
 
 
 @pytest.mark.asyncio

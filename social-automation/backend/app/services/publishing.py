@@ -651,7 +651,17 @@ async def _enforce_media_semantics(
         except Exception as exc:  # noqa: BLE001 — unreadable asset: deterministic check already passed, don't block here
             logger.warning("[media-qa] could not load %s for semantic check: %s", path, exc)
             continue
-        qa = await verify_media_semantics(image_bytes, subject[:400], media_type="image")
+        try:
+            qa = await asyncio.wait_for(
+                verify_media_semantics(image_bytes, subject[:400], media_type="image"),
+                timeout=float(getattr(settings, "PUBLISH_MEDIA_QA_TIMEOUT_S", 90.0) or 90.0),
+            )
+        except TimeoutError:
+            logger.warning(
+                "[media-qa] semantic check timed out for %s — treating as vision unavailable",
+                os.path.basename(path),
+            )
+            continue
         if not qa.get("match"):
             reason = str(qa.get("reason") or "image does not match post copy")
             caption = str(qa.get("caption") or "")
