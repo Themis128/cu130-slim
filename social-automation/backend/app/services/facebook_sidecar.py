@@ -283,7 +283,9 @@ class FacebookSidecarClient:
             payload["message"] = message
         if privacy:
             payload["privacy"] = privacy
-        return await self._post("/post/photo", payload)
+        # Up to 10 base64 images + composer settle/verify can exceed the
+        # default 180s — same headroom as post_video.
+        return await self._post("/post/photo", payload, timeout=300.0)
 
     async def post_link(self, url: str, message: str | None = None, privacy: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {"url": url}

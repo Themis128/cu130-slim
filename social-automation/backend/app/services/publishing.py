@@ -742,7 +742,9 @@ async def publish_to_platform(
             return _facebook_group_skip_result(blob)
         if _err_has(blob, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS):
             return PublishResult(success=False, skipped=True, error=_tiktok_clarify_error(blob))
-        return PublishResult(success=False, error=blob)
+        # TimeoutError & friends stringify to "" — fall back to the type name
+        # so the failure is diagnosable instead of an empty error_message.
+        return PublishResult(success=False, error=blob or type(exc).__name__)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
