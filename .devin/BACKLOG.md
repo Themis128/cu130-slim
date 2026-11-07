@@ -34,9 +34,12 @@ gone.
   (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
   had spellcheck_applied at start). Confirm final counts +
   `meta_data.quality.spellcheck_applied=true` when it completes.
-- [ ] omv watchdog remediation still references
-  `C:/Users/tbaltzakis/cu130-slim/docker-compose.yml` — repoint to
-  `wsl -d Ubuntu-24.04` (post-distro-migration path).
+- [ ] human: Windows `sshd` on 192.168.1.23 is stopped (Access denied
+  to start it unelevated) — one elevated
+  `Start-Service sshd; Set-Service sshd -StartupType Automatic`. The omv
+  watchdog remediation itself is FIXED in both copies (deployed
+  /usr/local/sbin/safedeploy-watchdog.py + cloudless.gr PR #2374) — only
+  the ssh hop is dead until sshd runs.
 - [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
   (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
   plain `playwright test` skips admin-login unless vars are set unquoted.
