@@ -87,3 +87,47 @@ async def test_vision_unavailable_fails_open(monkeypatch, tmp_path):
     )
     post = _post()
     assert await P._enforce_media_semantics(post, [_img(tmp_path)], "t") is None
+
+
+@pytest.mark.asyncio
+async def test_disabled_flag_skips_gate(monkeypatch, tmp_path):
+    qa = AsyncMock()
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", qa)
+    monkeypatch.setattr(
+        P,
+        "get_settings",
+        lambda: SimpleNamespace(PUBLISH_MEDIA_SEMANTIC_QA=False, PUBLISH_MEDIA_QA_MAX_IMAGES=3),
+    )
+    post = _post()
+    assert await P._enforce_media_semantics(post, [_img(tmp_path)], "text") is None
+    qa.assert_not_called()
+    assert "media_semantic_gate" not in post.platform_specific
+
+
+@pytest.mark.asyncio
+async def test_cached_pass_skips_vision_call(monkeypatch, tmp_path):
+    qa = AsyncMock(return_value={"match": True, "caption": "ok", "reason": "YES"})
+    monkeypatch.setattr("app.services.media_ai.verify_media_semantics", qa)
+    post = _post()
+    paths = [_img(tmp_path)]
+    assert await P._enforce_media_semantics(post, paths, "t") is None
+    qa.reset_mock()
+    # cached passed verdict → early return, no second vision call
+    assert await P._enforce_media_semantics(post, paths, "t") is None
+    qa.assert_not_called()
+
+
+def test_vision_safe_image_bytes_reencodes_non_jpeg(tmp_path):
+    """Non-JPEG / oversized sources go through the PIL downscale path and
+    come back as JPEG bytes for the vision model."""
+    from PIL import Image
+
+    src = tmp_path / "big.png"
+    Image.new("RGB", (64, 64), (10, 20, 30)).save(src, format="PNG")
+    out = P._vision_safe_image_bytes(str(src), max_edge=32)
+    assert out[:3] == b"\xff\xd8\xff"  # JPEG magic
+
+    # small JPEG passthrough — returned verbatim, no re-encode
+    small = _img(tmp_path, "small.jpg")
+    raw = open(small, "rb").read()
+    assert P._vision_safe_image_bytes(small) == raw
