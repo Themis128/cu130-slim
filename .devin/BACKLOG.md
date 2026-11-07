@@ -14,7 +14,10 @@ checked items plus verified-merged/verified-fixed entries were removed —
 see git history for the full log. Verified this sweep: PRs #1247 #1308
 #1309 #1332 #1336 #1046 #1049 #1051 #1053 #1385 #1391 #1395 #1397 merged;
 gh auth + ~/.ssh keys + .git ownership restored; threads/IG tokens active;
-env-manager/languagetool/flower recreated healthy via fixed stack-ops.
+env-manager/languagetool/flower recreated healthy via fixed stack-ops;
+stack-ops tests wired into Docker CI; EspoCRM test lead deleted; get-secret
+already writes to file only; watcher schtasks all registered; grokbot stash
+gone.
 
 ## Open — engineering
 
@@ -22,24 +25,21 @@ env-manager/languagetool/flower recreated healthy via fixed stack-ops.
   state — fill via `li_devapp_ops.py fill-form <Q_DL>` once the catalog
   provisions; the app-bound Q_DL link persists (grab a fresh one from the
   products page when filling).
-- [ ] `li_portal_edit.py get-secret` prints the client secret to stdout —
-  by design, but lands in shell history/logs; add a `--file`/stderr flag.
 - [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
   — was blocked on root-owned dir; ownership fixed 2026-11-07, now unblocked.
 - [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
   OS-click/patchright) — retest now that the 48h fresh-app window passed;
   if still inert it is a fresh-app artifact, not anti-bot.
-- [ ] Backfill verification: final `--force` media-quality pass was
-  interrupted by Docker Desktop WSL bounces — confirm final asset counts
-  and `meta_data.quality.spellcheck_applied=true` once a clean pass lands.
-- [ ] omv watchdog remediation still references
-  `C:/Users/tbaltzakis/cu130-slim/docker-compose.yml` — repoint to
-  `wsl -d Ubuntu-24.04` (post-distro-migration path).
-- [ ] schtasks registration for both watcher scripts on OFFICE host —
-  SynigorosMonitor verified pointing at the WSL checkout; second script
-  unconfirmed.
-- [ ] Stash `grokbot-20261101` (compose autoheal labels) — superseded by
-  #1237; drop when convenient.
+- [ ] Backfill verification: pass resumed 2026-11-07 inside social-api
+  (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
+  had spellcheck_applied at start). Confirm final counts +
+  `meta_data.quality.spellcheck_applied=true` when it completes.
+- [ ] human: Windows `sshd` on 192.168.1.23 is stopped (Access denied
+  to start it unelevated) — one elevated
+  `Start-Service sshd; Set-Service sshd -StartupType Automatic`. The omv
+  watchdog remediation itself is FIXED in both copies (deployed
+  /usr/local/sbin/safedeploy-watchdog.py + cloudless.gr PR #2374) — only
+  the ssh hop is dead until sshd runs.
 - [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
   (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
   plain `playwright test` skips admin-login unless vars are set unquoted.
@@ -47,11 +47,6 @@ env-manager/languagetool/flower recreated healthy via fixed stack-ops.
 - [ ] comfyui image absent locally — first wake via stack-ops:8199 will
   pull the full image (multi-GB, may exceed the 120s wake timeout);
   expect transient proxy failures until the first pull completes.
-- [ ] `stack-ops/test_stack_ops.py` runs clean (39 tests) but verify it is
-  wired into CI; ran manually 2026-11-07.
-- [ ] EspoCRM test lead `6ae9e83353e2` — DELETE via REST returned empty
-  body; verify whether the lead still exists or the call needs different
-  auth (retry through `espocrm_client`).
 
 ## Open — external human gates
 
