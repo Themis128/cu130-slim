@@ -1142,3 +1142,10 @@ hit the same drift; keep mirror in sync or mount from WSL.
   `LINKEDIN_ADVANCED` — flip per-scope once a `rw_conversions` token
   exists; wire Cal.com audit_booked / EspoCRM won events as conversion
   uploads. Pairs with pending Matched Audiences (denied, case open).
+- **Lead Sync API Standard Tier APPROVED** on `264925843`
+  (CRM:015285039188598, same day) — unlocks `r_marketing_leadgen_automation`:
+  LinkedIn Lead Gen Form responses → `lead_form_responses` in
+  `linkedin_advanced.py` → EspoCRM lead write-back (the lead+boost beat
+  tasks are already coded behind `LINKEDIN_ADVANCED`).
+  Also approved on `265077368` (CRM:015285039188594) — both apps now
+  cover the full ads loop: Ad Library + Conversions + Lead Sync.
