@@ -5,8 +5,27 @@ the shape that drifted once already (decorator landed on wrong function)."""
 
 import os
 
-os.environ.setdefault("CELERY_BROKER_URL", "redis://localhost:6379/0")
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _celery_import_env(monkeypatch):
+    """celery_app reads env at import time. Scope the sqlite fallback to this
+    file — a module-level setdefault leaks DATABASE_URL=sqlite into the whole
+    session, and any later get_settings.cache_clear() then builds a sqlite
+    engine where pool_size/max_overflow are invalid. Clearing the settings
+    cache on teardown drops the sqlite-flavored Settings singleton that the
+    import may have captured while the fake env was active."""
+    monkeypatch.setenv(
+        "CELERY_BROKER_URL", os.environ.get("CELERY_BROKER_URL") or "redis://localhost:6379/0"
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL", os.environ.get("DATABASE_URL") or "sqlite+aiosqlite:///:memory:"
+    )
+    yield
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
 
 
 def test_celery_app_import_and_beat_schedule():
