@@ -1126,3 +1126,26 @@ hit the same drift; keep mirror in sync or mount from WSL.
 - [ ] Dropbox→Drive rclone migration (`Apps/Google Download Your Data`, ~44 GiB): copy running after restart; watcher auto-verifies + purges Dropbox on completion. Watch: `C:\Users\tbaltzakis\devin-scripts\migrate_log.txt`.
 - [ ] LinkedIn Matched Audiences (`264925843`, CRM:015285039163310) — DENIED "Business verification failed"; support case submitted 2026-11-07 asking for verification evidence. Needs Greek business registration (ΑΦΜ/ΓΕΜΗ) if requested.
 - [ ] LinkedIn Ad Library — Default Tier provisioned on app `265077368`; `backend/scripts/linkedin_adlibrary.py` live-tested (total_reported=26051, uses LinkedIn-Version 202610 — 20251001/20250701/20250301 return 426 NONEXISTENT_VERSION). Lint clean; PR pending.
+
+## 2026-11-07 — LinkedIn Conversions API granted (265077368)
+
+- **Conversions API Standard Tier APPROVED** on app `265077368`
+  (cloudless-gr-member), CRM:015285039188354 — unlocks `rw_conversions` +
+  `r_ads` on tokens issued by that app's OAuth client (`77fd3pui3m2jwm`).
+- Caveat: stored org SocialAccount tokens are issued by `227354605`
+  (`77tf4oysp8u3fz`) — conversions calls need an OAuth token from an app
+  holding the product. BOTH grants confirmed 2026-11-07: `265077368`
+  (CRM:015285039188354) AND `264925843` (CRM:015285039188357). Preferred
+  path = `264925843` (`77j8kzfi1a6jn8`) — CM-dedicated app already holds
+  the full grantable scope union incl. rw_conversions.
+- Next: `linkedin_advanced.py` conversions service is already coded behind
+  `LINKEDIN_ADVANCED` — flip per-scope once a `rw_conversions` token
+  exists; wire Cal.com audit_booked / EspoCRM won events as conversion
+  uploads. Pairs with pending Matched Audiences (denied, case open).
+- **Lead Sync API Standard Tier APPROVED** on `264925843`
+  (CRM:015285039188598, same day) — unlocks `r_marketing_leadgen_automation`:
+  LinkedIn Lead Gen Form responses → `lead_form_responses` in
+  `linkedin_advanced.py` → EspoCRM lead write-back (the lead+boost beat
+  tasks are already coded behind `LINKEDIN_ADVANCED`).
+  Also approved on `265077368` (CRM:015285039188594) — both apps now
+  cover the full ads loop: Ad Library + Conversions + Lead Sync.
