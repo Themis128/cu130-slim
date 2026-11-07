@@ -50,10 +50,15 @@ gone.
 
 ## Open — external human gates
 
-- [ ] human: TikTok `cloudless.gr` status=expired; refresh returns "no
-  access_token in refresh response" → one TikTok login/QR scan on the
-  bridge (:9223); session_healer injects TIKTOK_SESSION_ID if valid,
-  else `scripts/tiktok_qr_watch.py` watches for the scan.
+- [x] human: TikTok `cloudless.gr` reconnected 2026-11-07 — QR login via
+  headed noVNC bridge + cookie inject into sidecar, fresh OAuth consent
+  on production app (client_key awtn8vvhotyxe9oc, scopes
+  user.info.basic,video.publish,video.upload — PR #1408). New account
+  `ab439e1e-549f-4a8b-901a-2f7eeb8a1c88` (display "Cloudless") is
+  active; manual refresh + creator_info/validate API calls verified;
+  stale 6-scope account `dcda73fb-…` marked revoked. Scheduled
+  refresh-expiring-tokens beat is healthy (publishing queue).
+  watch: first real publish still unproven on the new grant.
 - [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
   in Meta Business, then POST /{phone}/register (standard registration —
   request_code/verify_code are the migration API).
