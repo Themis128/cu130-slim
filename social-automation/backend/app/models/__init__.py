@@ -28,6 +28,7 @@ from app.models.linkedin_intel import LinkedInAdIntel, LinkedInIntelWatch
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
+from app.models.trends import TrendSignal
 from app.models.user import AuditLog, Team, TeamMember, User
 from app.models.web_analytics import WebAnalyticsConfig, WebAnalyticsEvent
 from app.models.whatsapp_message import WhatsAppMessage

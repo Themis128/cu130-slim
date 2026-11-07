@@ -765,6 +765,70 @@ async def _export_reports_index() -> list[dict]:
     return out
 
 
+async def _export_trends(db: AsyncSession) -> list[dict]:
+    """Last 45 days of niche-scored trend signals (Google + TikTok CC feeds)
+    — the gold input for trend-vs-performance decision queries."""
+    from app.models.trends import TrendSignal
+
+    cutoff = datetime.now(UTC) - timedelta(days=45)
+    rows = (
+        await db.execute(
+            select(TrendSignal).where(TrendSignal.captured_at >= cutoff).order_by(TrendSignal.captured_at.desc())
+        )
+    ).scalars().all()
+    return [
+        {
+            "source": s.source,
+            "query": s.query,
+            "geo": s.geo,
+            "traffic": s.traffic,
+            "classification": s.classification,
+            "swot": s.swot,
+            "period_key": s.period_key,
+            "captured_at": _iso(s.captured_at),
+            "meta_data": s.meta_data,
+        }
+        for s in rows
+    ]
+
+
+async def _export_engagement(db: AsyncSession) -> dict:
+    """Engagement candidates + actions — who we're engaging with and what
+    the queue/dispatch did, for the visibility-funnel gold section."""
+    from app.models.engagement import EngagementAction, EngagementCandidate
+
+    cands = (await db.execute(select(EngagementCandidate).order_by(EngagementCandidate.ingested_at.desc()).limit(2000))).scalars().all()
+    acts = (await db.execute(select(EngagementAction).order_by(EngagementAction.created_at.desc()).limit(2000))).scalars().all()
+    return {
+        "candidates": [
+            {
+                "platform": c.platform,
+                "author_handle": c.author_handle,
+                "post_id": c.post_id,
+                "post_text": c.post_text[:400],
+                "posted_at": _iso(c.posted_at),
+                "ingested_at": _iso(c.ingested_at),
+                "scored": c.scored,
+                "meta_data": c.meta_data,
+            }
+            for c in cands
+        ],
+        "actions": [
+            {
+                "platform": a.platform,
+                "target_post_id": a.target_post_id,
+                "target_author": a.target_author,
+                "action": a.action,
+                "score": a.score,
+                "status": a.status,
+                "created_at": _iso(a.created_at),
+                "acted_at": _iso(a.acted_at),
+            }
+            for a in acts
+        ],
+    }
+
+
 async def _export_monetization(db: AsyncSession) -> list[dict]:
     """One row per active account — creator-program gate evaluation so the
     site's materialize ETL can render monetization readiness next to the
@@ -934,6 +998,8 @@ async def _export_async() -> dict:
         await put("lake/socialauto-survey-responses/responses.json", _export_survey_responses(db))
         await put("lake/socialauto-edge-metrics/daily.json", _export_edge_metrics())
         await put("lake/socialauto-reports/reports.json", _export_reports_index())
+        await put("lake/socialauto-trends/signals.json", _export_trends(db))
+        await put("lake/socialauto-engagement/engagement.json", _export_engagement(db))
 
         try:
             cf_usage = await _export_cloudflare_usage()
