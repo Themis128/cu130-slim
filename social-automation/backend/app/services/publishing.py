@@ -644,7 +644,9 @@ async def _enforce_media_semantics(
     from app.services.media_ai import verify_media_semantics
 
     max_images = int(getattr(settings, "PUBLISH_MEDIA_QA_MAX_IMAGES", 3) or 3)
+    on_vision_down = str(getattr(settings, "PUBLISH_MEDIA_QA_ON_VISION_DOWN", "open") or "open").lower()
     failures: list[str] = []
+    vision_down = False
     for path in images[:max_images]:
         try:
             image_bytes = _vision_safe_image_bytes(path)
@@ -661,7 +663,14 @@ async def _enforce_media_semantics(
                 "[media-qa] semantic check timed out for %s — treating as vision unavailable",
                 os.path.basename(path),
             )
-            continue
+            qa = {"match": True, "caption": None, "reason": "vision timeout", "vision": None}
+        if qa.get("vision", "dmr") is None:
+            # Explicit None = no vision backend answered (timeout counts too).
+            # Missing key = legacy/mock result — treat as answered.
+            vision_down = True
+            if on_vision_down == "closed":
+                failures.append(f"{os.path.basename(path)}: vision unavailable — semantic QA required")
+                continue
         if not qa.get("match"):
             reason = str(qa.get("reason") or "image does not match post copy")
             caption = str(qa.get("caption") or "")
@@ -671,19 +680,24 @@ async def _enforce_media_semantics(
     passed = not failures
     reason = ""
     if failures:
-        reason = (
-            "Media semantic QA failed — image does not match the post copy: "
-            + "; ".join(failures)
-        )[:900]
+        if vision_down and all("vision unavailable" in f for f in failures):
+            headline = "Media semantic QA unavailable — no vision backend answered"
+        else:
+            headline = "Media semantic QA failed — image does not match the post copy"
+        reason = (headline + ": " + "; ".join(failures))[:900]
         logger.warning("[media-qa] post %s blocked: %s", getattr(orm_post, "id", "?"), reason)
-    ps["media_semantic_gate"] = {
-        "content_hash": digest,
-        "media_sig": sig,
-        "passed": passed,
-        "reason": reason,
-        "checked_at": datetime.now(UTC).isoformat(),
-    }
-    orm_post.platform_specific = ps
+    if not vision_down:
+        # Only cache verdicts a real vision backend produced — a vision-down
+        # outcome (open or closed policy) must re-check on the next attempt
+        # once vision recovers.
+        ps["media_semantic_gate"] = {
+            "content_hash": digest,
+            "media_sig": sig,
+            "passed": passed,
+            "reason": reason,
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+        orm_post.platform_specific = ps
     if not passed:
         return _skipped_media_result(reason)
     return None
