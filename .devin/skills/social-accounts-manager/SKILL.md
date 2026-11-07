@@ -480,11 +480,11 @@ All should show non-zero char counts.
 ### TikTok scope upgrades (headless reconnect)
 
 **Token refresh can only renew granted scopes — it can never add new ones.**
-Granting a new scope (e.g. `user.info.stats`) requires a fresh authorize
-round-trip. The consent screen grants any scope the client requests —
-scopes do NOT need to be pre-enabled in the developer console (verified
-2026-09-29: `user.info.stats` granted at consent while absent from the
-app's Scopes list).
+Granting a new scope requires BOTH a fresh authorize round-trip AND the
+scope being enabled on the app in the developer console. Requesting a
+scope the app does not have fails the whole authorize with a `scope`
+error (observed 2026-11-07). Scopes are enabled per app version under
+Products → Scopes; adding one means a new revision + review.
 
 ```bash
 ## Dry-run: dump the consent screen, don't click Continue

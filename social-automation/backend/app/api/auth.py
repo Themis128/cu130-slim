@@ -311,7 +311,7 @@ PLATFORM_SCOPES: dict[str, list[str]] = {
     ],
     "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
     "instagram2": ["user_profile", "user_media"],
-    "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
+    "tiktok": ["user.info.basic", "video.publish", "video.upload"],
 }
 
 # Instagram2 client (Instagram API with Instagram Login)
@@ -473,7 +473,7 @@ tiktok_client = TikTokOAuth2(
     authorize_endpoint="https://www.tiktok.com/v2/auth/authorize/",
     access_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
     refresh_token_endpoint="https://open.tiktokapis.com/v2/oauth/token/",
-    base_scopes=["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
+    base_scopes=["user.info.basic", "video.publish", "video.upload"],
     name="tiktok",
     token_endpoint_auth_method="client_secret_post",
 )
@@ -1757,7 +1757,7 @@ async def oauth_callback(
             elif isinstance(_raw_scope, str) and _raw_scope.strip():
                 scopes = [s.strip() for s in _raw_scope.replace(",", " ").split() if s.strip()]
             else:
-                scopes = ["user.info.basic", "video.publish", "video.upload", "video.list"]
+                scopes = ["user.info.basic", "video.publish", "video.upload"]
             # Fetch user info — only request fields whose scope was granted,
             # otherwise TikTok rejects the whole call with scope_not_authorized.
             tt_fields = ["open_id", "union_id", "avatar_url", "display_name"]

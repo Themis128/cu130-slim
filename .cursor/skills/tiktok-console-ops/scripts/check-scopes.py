@@ -14,9 +14,15 @@ from app.db.session import async_session_maker
 from app.models.social_account import SocialAccount
 from sqlalchemy import select
 
+# Scopes enabled on the production TikTok app (devportal app/detail,
+# verified 2026-11-07). user.info.profile/stats + video.list exist in the
+# console scope catalog but are NOT enabled — enabling them requires a
+# new app revision + review.
 EXPECTED = {
-    "user.info.basic", "user.info.profile", "user.info.stats",
-    "video.list", "video.publish", "video.upload",
+    "user.info.basic", "video.publish", "video.upload",
+}
+PENDING_CONSOLE = {
+    "user.info.profile", "user.info.stats", "video.list",
 }
 CAPABILITY = {
     "user.info.basic": "avatar/display_name at OAuth",
@@ -38,6 +44,9 @@ async def m():
             print(f"  granted: {sorted(granted)}")
             for sc in sorted(missing):
                 print(f"  MISSING {sc} — unlocks {CAPABILITY[sc]}")
+            pending = PENDING_CONSOLE - granted
+            for sc in sorted(pending):
+                print(f"  console-pending {sc} — not enabled on prod app")
             if missing:
                 print("  fix: .devin/skills/social-oauth-ops/scripts/tiktok-reconnect.py")
             else:
