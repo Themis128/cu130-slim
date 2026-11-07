@@ -46,7 +46,10 @@ def _google_signals(today: str) -> list[dict]:
 
 def _tiktok_signals() -> list[dict]:
     try:
-        from app.services.tiktok_trends import LIGHT_SWEEP, fetch_trending_videos  # type: ignore[import-not-found]
+        from app.services.tiktok_trends import (
+            LIGHT_SWEEP,  # type: ignore[import-not-found]
+            fetch_trending_videos,  # type: ignore[import-not-found]
+        )
 
         from scripts.trendwatch import build_matrix
     except ImportError:  # tiktok trendwatch not yet merged — degrade, don't fail

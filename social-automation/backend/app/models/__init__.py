@@ -79,6 +79,7 @@ __all__ = [
     "BrandAsset",
     "BrandAssetType",
     "SocialSecret",
+    "TrendSignal",
     "DigitalCard",
     "WebAnalyticsConfig",
     "WebAnalyticsEvent",
