@@ -135,10 +135,9 @@ def fetch_trending_videos(
     TikTok resets TLS on bursts (observed upstream ~40 rapid calls).
     """
     own = client is None
-    if own:
-        client = httpx.Client(http2=False)
+    http = client if client is not None else httpx.Client(http2=False)
     try:
-        week_end = _overview_week_end(client)
+        week_end = _overview_week_end(http)
         seen: dict[str, dict[str, Any]] = {}
         last_call = 0.0
         for combo in sweep:
@@ -156,7 +155,7 @@ def fetch_trending_videos(
                 "limit": 20,
             }
             last_call = time.monotonic()
-            r = client.get(
+            r = http.get(
                 f"{BASE}/CreativeCenterGetTopContentsList",
                 params=params,
                 headers=HEADERS,
@@ -181,4 +180,4 @@ def fetch_trending_videos(
         return list(seen.values())
     finally:
         if own:
-            client.close()
+            http.close()
