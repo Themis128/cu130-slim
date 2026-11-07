@@ -1090,13 +1090,22 @@ hit the same drift; keep mirror in sync or mount from WSL.
   failure pinged Telegram); the double 📮 was manual send + monitor send.
   followup.js now throttles failure alerts to 1/hour via
   followup-alert.json (PR #1395).
+- [x] PR #1395 MERGED 2026-11-06 (fd962b3d): MissingGreenlet fix, FB sidecar
+  fbsbx-origin crash fix, DUP_DISTANCE 8→4, publish_retry active-row guard,
+  janitor skill, synigoros alert throttle, test mock fix.
+- [ ] PR #1397 OPEN (auto-merge armed): publish exception visibility —
+  logger.exception in queue handler, `str(exc) or type(exc).__name__`
+  fallback (TimeoutError stringifies to ""), post_photo 180s→300s.
+- [ ] FB personal publishes: sidecar healthy + one post confirmed published
+  2026-11-06 22:37 UTC (766f864c); remaining FB targets keep cycling through
+  retry sweep — watch for "Unhandled exception"→now-logged tracebacks after
+  #1397 lands. Sidecar post_photo timeouts were the failure class.
 - [ ] TikTok account `cloudless.gr` status=expired; token refresh returns
-  "no access_token in refresh response". human-gate-ops reports
-  tiktok-oauth: no_session — needs one TikTok login on the bridge (:9223)
-  then the oauth_reauth_watch beat can drive re-auth. Human gate.
+  "no access_token in refresh response". Needs one TikTok login/QR scan on
+  the bridge (:9223) — session_healer will inject TIKTOK_SESSION_ID if valid,
+  else QR via scripts/tiktok_qr_watch.py. Human gate.
 - [ ] WhatsApp still revoked — WABA assign in Meta Business (human gate).
-- [ ] PR #1395 OPEN (BLOCKED→CI re-running after b6550dd4+e1495886 push);
-  #1375 closed-superseded; #1385/#1391/site#2369 MERGED.
+- [ ] #1375 closed-superseded; #1385/#1391/site#2369 MERGED.
 
 ## 2026-11-06 — E2E public-surface suite + PR board cleanup (cloudless.gr side)
 
