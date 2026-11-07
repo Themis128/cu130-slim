@@ -1126,3 +1126,17 @@ hit the same drift; keep mirror in sync or mount from WSL.
 - [ ] Dropbox→Drive rclone migration (`Apps/Google Download Your Data`, ~44 GiB): copy running after restart; watcher auto-verifies + purges Dropbox on completion. Watch: `C:\Users\tbaltzakis\devin-scripts\migrate_log.txt`.
 - [ ] LinkedIn Matched Audiences (`264925843`, CRM:015285039163310) — DENIED "Business verification failed"; support case submitted 2026-11-07 asking for verification evidence. Needs Greek business registration (ΑΦΜ/ΓΕΜΗ) if requested.
 - [ ] LinkedIn Ad Library — Default Tier provisioned on app `265077368`; `backend/scripts/linkedin_adlibrary.py` live-tested (total_reported=26051, uses LinkedIn-Version 202610 — 20251001/20250701/20250301 return 426 NONEXISTENT_VERSION). Lint clean; PR pending.
+
+## 2026-11-07 — LinkedIn Conversions API granted (265077368)
+
+- **Conversions API Standard Tier APPROVED** on app 
+  (cloudless-gr-member), CRM:015285039188354 — unlocks  +
+   on tokens issued by that app's OAuth client ().
+- Caveat: stored org SocialAccount tokens are issued by 
+  () — conversions calls need a member-app OAuth token
+  (or confirm whether the same grant also landed on , whose
+  forms were submitted in parallel; only the 265077368 email confirmed).
+- Next:  conversions service is already coded behind
+   — flip per-scope once a  token
+  exists; wire Cal.com audit_booked / EspoCRM won events as conversion
+  uploads. Pairs with pending Matched Audiences (denied, case open).
