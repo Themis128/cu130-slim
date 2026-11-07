@@ -71,7 +71,7 @@ async def _route_linkedin_leads() -> dict:
                 "emailAddress": email,
                 "firstName": first,
                 "lastName": last,
-                "source": "LinkedIn Ads",
+                "source": "Social Media",
                 "description": f"LinkedIn lead-gen response {resp.get('id', '')} via {lead.get('form')}",
             }
         )

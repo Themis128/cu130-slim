@@ -902,7 +902,7 @@ async def _ingest_meta_leadgen(value: dict) -> bool:
                 "firstName": first_name,
                 "lastName": last_name,
                 "phoneNumber": phone,
-                "source": "Meta Lead Ad",
+                "source": "Social Media",
                 "description": "\n".join(line for line in desc_lines if line),
                 "utmSource": platform,
                 "utmMedium": "social" if lead.get("is_organic") else "paid",
