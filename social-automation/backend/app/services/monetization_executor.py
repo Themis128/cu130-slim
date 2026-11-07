@@ -224,7 +224,7 @@ async def _generate_copy(
     from app.services.trend_context import trend_line
 
     prompt = f"""Write a {action.platform} post based on this instruction: "{action.instruction}"
-{trend_line()}
+{trend_line(action.platform)}
 {brand_section}
 Platform guidelines: {guide}
 Tone: professional

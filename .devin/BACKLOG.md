@@ -138,3 +138,23 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
+
+## 2026-11-08 — TikTok Creative Center trendwatch + branch consolidation
+
+- [x] `scripts/tiktok_trendwatch.py` + `app/services/tiktok_trends.py` —
+  weekly trending-video signals from the unsigned CreativeOne report
+  endpoints (post-Oct-2026 deprecation path). `trend_context.trend_line(
+  platform="tiktok")` feeds the top niche hook into TikTok copy
+  generation; LIGHT sweep = 3 calls. Report: `--slack`/`--full`.
+- [x] Branch audit: 20 merged-debris branches deleted; 10 superseded
+  post-PR branches deleted after content verification (fetch-code
+  folders, consent-url, cal.com webhook, org-profile test all already on
+  master). Rescue PR #1419 = wsl-checkout-sync-check.sh +
+  linkedin_attribution_chain.sql.
+- [ ] decide: `feat/nextcloud-extras` + `feat/nextcloud-autoupdate-feeds`
+  — 38/27-file real code deltas vs master (empty #1379 merge era):
+  nextcloud sync lanes, oauth_reauth_watch, series_urn_watch,
+  token_expiry, funnel_audit tasks, agency_pipeline/crm_engagement
+  services, omv app-update cron. Needs a dedicated re-land pass — some
+  content may now be superseded by #1381/#1413-1415 era fixes. DO NOT
+  blind-merge (46-89 commits behind).
