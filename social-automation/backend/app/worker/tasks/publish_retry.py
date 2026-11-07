@@ -75,8 +75,9 @@ async def _sweep() -> dict:
             qr = (
                 (
                     await db.execute(
-                        select(PublishQueue)
-                        .where(PublishQueue.post_id == tgt.post_id, PublishQueue.social_account_id == tgt.social_account_id, PublishQueue.status == "failed")
+                        select(PublishQueue).where(
+                            PublishQueue.post_id == tgt.post_id, PublishQueue.social_account_id == tgt.social_account_id, PublishQueue.status == "failed"
+                        )
                     )
                 )
                 .scalars()
