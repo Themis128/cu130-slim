@@ -25,8 +25,7 @@ celery_app.set_current()
 def _format_digest(summary: dict[str, Any]) -> str:
     lines = [
         "LinkedIn Ad Library watch — weekly run",
-        f"watches={summary.get('watches', 0)} new={summary.get('new', 0)} "
-        f"updated={summary.get('updated', 0)} ended={summary.get('ended', 0)}",
+        f"watches={summary.get('watches', 0)} new={summary.get('new', 0)} updated={summary.get('updated', 0)} ended={summary.get('ended', 0)}",
     ]
     for err in summary.get("errors", [])[:5]:
         lines.append(f"err: {err[:160]}")

@@ -702,16 +702,8 @@ async def linkedin_intel_summary(
 ):
     """Aggregate intel stats: counts by status, top advertisers, recent activity."""
     total = (await db.execute(select(func.count(LinkedInAdIntel.id)))).scalar_one()
-    active = (
-        await db.execute(
-            select(func.count(LinkedInAdIntel.id)).where(LinkedInAdIntel.status == "active")
-        )
-    ).scalar_one()
-    ended = (
-        await db.execute(
-            select(func.count(LinkedInAdIntel.id)).where(LinkedInAdIntel.status == "ended")
-        )
-    ).scalar_one()
+    active = (await db.execute(select(func.count(LinkedInAdIntel.id)).where(LinkedInAdIntel.status == "active"))).scalar_one()
+    ended = (await db.execute(select(func.count(LinkedInAdIntel.id)).where(LinkedInAdIntel.status == "ended"))).scalar_one()
     top_advertisers = (
         await db.execute(
             select(LinkedInAdIntel.advertiser, func.count(LinkedInAdIntel.id).label("n"))
@@ -720,11 +712,7 @@ async def linkedin_intel_summary(
             .limit(10)
         )
     ).all()
-    newest = (
-        await db.execute(
-            select(LinkedInAdIntel).order_by(LinkedInAdIntel.first_seen_at.desc()).limit(10)
-        )
-    ).scalars().all()
+    newest = (await db.execute(select(LinkedInAdIntel).order_by(LinkedInAdIntel.first_seen_at.desc()).limit(10))).scalars().all()
     return {
         "total": total,
         "active": active,
@@ -783,9 +771,7 @@ async def linkedin_intel_watch_add(
     ).scalar_one_or_none()
     if dup:
         raise HTTPException(status_code=409, detail="watch already exists")
-    w = LinkedInIntelWatch(
-        kind=kind, value=value[:300], country=body.country.strip().upper()[:10], enabled=body.enabled
-    )
+    w = LinkedInIntelWatch(kind=kind, value=value[:300], country=body.country.strip().upper()[:10], enabled=body.enabled)
     db.add(w)
     await db.commit()
     return {"id": str(w.id), "kind": w.kind, "value": w.value, "country": w.country}
