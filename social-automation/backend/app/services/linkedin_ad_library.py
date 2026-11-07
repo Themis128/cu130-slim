@@ -140,9 +140,7 @@ async def search_all(
     start = 0
     async with httpx.AsyncClient(timeout=30) as client:
         for page in range(min(pages, MAX_PAGES)):
-            data = await search_page(
-                client, token, keyword=keyword, advertiser=advertiser, start=start
-            )
+            data = await search_page(client, token, keyword=keyword, advertiser=advertiser, start=start)
             if "error" in data:
                 return {"error": data["error"], "body": data.get("body", ""), "ads": collected}
             total = (data.get("paging") or {}).get("total", total)
@@ -180,11 +178,7 @@ async def run_watch(db: AsyncSession | None = None) -> dict:
     assert db is not None  # noqa: S101 — narrowed by the early return
 
     seeded = await _seed_watches(db)
-    watches = (
-        (await db.execute(select(LinkedInIntelWatch).where(LinkedInIntelWatch.enabled.is_(True))))
-        .scalars()
-        .all()
-    )
+    watches = (await db.execute(select(LinkedInIntelWatch).where(LinkedInIntelWatch.enabled.is_(True)))).scalars().all()
     token = await _token()
     if not token:
         return {"skip": "no-linkedin-token"}
@@ -210,9 +204,7 @@ async def run_watch(db: AsyncSession | None = None) -> dict:
             continue
         for row in result.get("ads", []):
             seen_urls.add(row["ad_url"])
-            existing = (
-                await db.execute(select(LinkedInAdIntel).where(LinkedInAdIntel.ad_url == row["ad_url"]))
-            ).scalar_one_or_none()
+            existing = (await db.execute(select(LinkedInAdIntel).where(LinkedInAdIntel.ad_url == row["ad_url"]))).scalar_one_or_none()
             if existing is None:
                 db.add(LinkedInAdIntel(**row, status="active", first_seen_at=now, last_seen_at=now))
                 new_rows += 1
@@ -256,9 +248,7 @@ async def search_ads(
     limit: int = 25,
 ) -> dict:
     """One-shot public search (API surface / ad-hoc use)."""
-    result = await search_all(
-        keyword=keyword, advertiser=advertiser, pages=max(1, -(-limit // PAGE_SIZE))
-    )
+    result = await search_all(keyword=keyword, advertiser=advertiser, pages=max(1, -(-limit // PAGE_SIZE)))
     if "skip" in result or "error" in result:
         return result
     return {"ads": result["ads"][:limit], "total": result.get("total")}

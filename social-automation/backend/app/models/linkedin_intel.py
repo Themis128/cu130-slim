@@ -31,9 +31,7 @@ class LinkedInAdIntel(Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    team_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("teams.id", ondelete="SET NULL"), nullable=True, index=True
-    )
+    team_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("teams.id", ondelete="SET NULL"), nullable=True, index=True)
     ad_url: Mapped[str] = mapped_column(String(500), nullable=False, unique=True)
     advertiser: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     ad_payer: Mapped[str] = mapped_column(String(300), nullable=False, default="")
@@ -51,12 +49,8 @@ class LinkedInAdIntel(Base):
     last_keyword: Mapped[str] = mapped_column(String(300), nullable=False, default="")
     raw: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
 
-    first_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
-    last_seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
     miss_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     team: Mapped[Team | None] = relationship("Team")
@@ -73,6 +67,4 @@ class LinkedInIntelWatch(Base):
     country: Mapped[str] = mapped_column(String(10), nullable=False, default="GR")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False)
