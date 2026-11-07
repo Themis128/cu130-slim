@@ -10,8 +10,8 @@ import api from '@/services/api'
 export default function SharedBrandGuidelinesPage() {
   const params = useParams<{ token: string }>()
   const { data: guidelines, isLoading } = useQuery({
-    queryKey: ['shared-guidelines', params.token],
-    queryFn: () => api.get(`/brand/guidelines/share/${params.token}`),
+    queryKey: ['shared-guidelines', params?.token],
+    queryFn: () => api.get(`/brand/guidelines/share/${params?.token}`),
     select: (r) => r.data,
     retry: false,
   })
