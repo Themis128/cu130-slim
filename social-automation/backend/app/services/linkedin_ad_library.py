@@ -109,11 +109,12 @@ async def search_page(
     *,
     keyword: str | None = None,
     advertiser: str | None = None,
-    country: str = "GR",
     start: int = 0,
     count: int = PAGE_SIZE,
 ) -> dict:
-    params: dict = {"q": "criteria", "start": start, "count": count, "countries": f"List({country})"}
+    # Verified finder params only: q/start/count/keyword/advertiser.
+    # (No `countries` — unverified params risk a Rest.li 400 on every call.)
+    params: dict = {"q": "criteria", "start": start, "count": count}
     if keyword:
         params["keyword"] = keyword
     if advertiser:
@@ -128,7 +129,6 @@ async def search_all(
     *,
     keyword: str | None = None,
     advertiser: str | None = None,
-    country: str = "GR",
     pages: int = MAX_PAGES,
 ) -> dict:
     """Paginated ad-library search → {"ads": [summarized...], "total": n}."""
@@ -141,7 +141,7 @@ async def search_all(
     async with httpx.AsyncClient(timeout=30) as client:
         for page in range(min(pages, MAX_PAGES)):
             data = await search_page(
-                client, token, keyword=keyword, advertiser=advertiser, country=country, start=start
+                client, token, keyword=keyword, advertiser=advertiser, start=start
             )
             if "error" in data:
                 return {"error": data["error"], "body": data.get("body", ""), "ads": collected}
@@ -200,7 +200,6 @@ async def run_watch(db: AsyncSession | None = None) -> dict:
             result = await search_all(
                 keyword=w.value if w.kind == "keyword" else None,
                 advertiser=w.value if w.kind == "advertiser" else None,
-                country=w.country,
             )
         except Exception as exc:  # one bad watch must not kill the run
             errors.append(f"{w.kind}:{w.value}: {type(exc).__name__}: {exc}")
@@ -254,12 +253,11 @@ async def search_ads(
     *,
     advertiser: str | None = None,
     keyword: str | None = None,
-    country: str = "GR",
     limit: int = 25,
 ) -> dict:
     """One-shot public search (API surface / ad-hoc use)."""
     result = await search_all(
-        keyword=keyword, advertiser=advertiser, country=country, pages=max(1, -(-limit // PAGE_SIZE))
+        keyword=keyword, advertiser=advertiser, pages=max(1, -(-limit // PAGE_SIZE))
     )
     if "skip" in result or "error" in result:
         return result

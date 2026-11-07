@@ -49,7 +49,7 @@ class _FakeClient:
     async def __aexit__(self, *a):
         return False
 
-    async def get(self, url, params=None):
+    async def get(self, url, params=None, headers=None):
         self.calls.append(("GET", url))
         return self._handler("GET", url, params=params)
 
@@ -168,11 +168,23 @@ async def test_ad_library_search(monkeypatch):
 
     def h(m, u, **k):
         seen.update(k.get("params") or {})
-        return _Resp(200, {"elements": [{"ad": 1}]})
+        return _Resp(
+            200,
+            {
+                "elements": [
+                    {
+                        "adUrl": "https://www.linkedin.com/ad-library/detail/1",
+                        "details": {"advertiser": {"advertiserName": "Cloudless"}},
+                    }
+                ]
+            },
+        )
 
     _patch_client(monkeypatch, AL, h)
     out = await AL.search_ads(advertiser="Cloudless", keyword="cloud")
-    assert out["ads"] == [{"ad": 1}] and seen["advertisers"] == "List(Cloudless)"
+    assert out["ads"][0]["advertiser"] == "Cloudless"
+    assert seen["advertiser"] == "Cloudless" and seen["keyword"] == "cloud"
+    assert seen["q"] == "criteria"
     _patch_client(monkeypatch, AL, lambda m, u, **k: _Resp(403, text="no"))
     assert (await AL.search_ads())["error"] == 403
 
