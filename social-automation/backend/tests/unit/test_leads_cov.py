@@ -11,6 +11,17 @@ import app.api.leads as L
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+def _unwrap_rate_limiter(monkeypatch):
+    """Call the views directly — SlowAPI's limiter is an infra boundary and
+    requires a real starlette Request these tests don't construct."""
+    for name in ("create_audit_public", "create_survey_public"):
+        fn = getattr(L, name)
+        while hasattr(fn, "__wrapped__"):
+            fn = fn.__wrapped__
+        monkeypatch.setattr(L, name, fn)
+
+
 def _audit_body(**kw):
     d = {"email": "a@b.com", "website": "", "url": "https://x.gr", "consent": True}
     d.update(kw)
