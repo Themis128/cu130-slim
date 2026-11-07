@@ -149,6 +149,34 @@ gone.
 - [ ] watch: PRs #1422, #1424, #1428 — auto-merge armed, checks
   pending, 0 failures.
 
+## 2026-11-08 session leftovers (Devin)
+
+- [ ] **Branch consolidation worklist** — 24 remote branches unmerged vs
+  master. Stale/dup (verify-content-then-delete, do NOT merge): `pr-1343`,
+  `pr-1344`, `pr-1347`, `pr-1350`, `pr-1364`, `pr-1370`, `pr-1372`,
+  `pr-1387`, `pr-1397`, `heal/20261104-2338`, `heal/20261105-0641`,
+  `heal/20261105-1955`, `heal/20261106-0638`, `heal/20261107-1256`,
+  `heal/20261107-2147`, `feat/fb-token-watch` (merged via #1425 squash).
+  Real deltas needing PR-per-branch (sizes = files vs master):
+  `chore/leftover-sync` (16), `devin/cfdb-infisical-rebuilt` (6),
+  `feat/operator-gate-ops` (4), `feat/linkedin-adlibrary` (4),
+  `chore/backlog-items-20261107` (2). In-flight PRs cover:
+  `feat/tiktok-trendwatch` (#1422), `feat/trend-signals-lake` (#1424),
+  `fix/media-qa-timeout`, `fix/test-infra-hardening`.
+- [ ] **OMV iptables fix landed manually** — docker-ce 29.9.3 upgrade
+  dropped FORWARD ACCEPTs for published ports 8090/9980/11000/7867;
+  patched DOCKER chain + restarted nextcloud stack (docker re-added its
+  own rules). If 502s recur after reboot, re-check `iptables -L DOCKER`.
+- [ ] **TikTok `cloudless.gr` re-consent blocked** — needs current
+  SOCIAL_ADMIN creds (`.env` values return "Invalid credentials");
+  refresh grant confirmed dead (invalid_grant). Live `Managed Cloud`
+  account covers posting meanwhile.
+- [ ] **Windows logon needed** — `cdp-launch.bat` now in Startup folder;
+  `fb_token_watch` (PID may have died — restart:
+  `nohup python3 .devin/skills/operator-gate-ops/scripts/fb_token_watch.py &`)
+  fires FB OAuth w/ business_management → then run
+  `meta_system_user.py` for the permanent WhatsApp/Meta token.
+
 ## 2026-11-08 — TikTok Creative Center trendwatch + branch consolidation
 
 - [x] `scripts/tiktok_trendwatch.py` + `app/services/tiktok_trends.py` —
