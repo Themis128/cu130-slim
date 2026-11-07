@@ -19,6 +19,15 @@ Lists every open issue with its live-verified unblock action — run anytime:
 
     python3 .devin/skills/gates-ops/scripts/gate_check.py
 
+## gate_probe.py
+
+Live-state companion to gate_check — probes each gate right now (container
+env, `*_tool.py` CLIs inside social-api, `adb devices`, `gh issue list`) and
+prints `live:` evidence plus the residual human action. `--json` for
+machines. Read-only, never prints secrets:
+
+    python3 .devin/skills/gates-ops/scripts/gate_probe.py
+
 ## cdp_click.py <url> <text-regex>
 
 Drives the user's real logged-in Chrome (CDP :9222): navigates, finds a
