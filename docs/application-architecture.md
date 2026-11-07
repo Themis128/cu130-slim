@@ -1947,7 +1947,7 @@ LAN; public traffic arrives only via the Cloudflare Tunnel.
 | 8010 | languagetool | Spellcheck |
 | 8011 | instagram-private-api | aiograpi |
 | 8080 | env-manager-frontend | .env UI |
-| 8081 | env-manager-backend | .env API |
+| 8085 | env-manager-backend | .env API (host port; container listens on 8081 — 8081 is owned by galaxy-s22-toolkit-dashboard) |
 | 8082 | social-frontend | Next.js |
 | 8083 | social-api | FastAPI |
 | 9000 | portainer | Container mgmt |
