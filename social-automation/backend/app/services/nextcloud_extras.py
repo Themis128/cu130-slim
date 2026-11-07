@@ -427,7 +427,7 @@ async def sync_forms_intake() -> dict:
                         {
                             "name": name or email,
                             "emailAddress": email,
-                            "source": f"nextcloud-form-{fid}",
+                            "source": "Web Site",
                             "description": f"Form {fid} submission {sid}: {answers}",
                         }
                     )

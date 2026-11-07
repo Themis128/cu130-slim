@@ -67,7 +67,12 @@ def test_brain_journal_failure_logged(monkeypatch):
     from app.worker.tasks import company_brain as T
 
     monkeypatch.setattr(svc, "company_brain_enabled", lambda: True)
-    monkeypatch.setattr(T, "run_async", lambda coro: (_ for _ in ()).throw(RuntimeError("x")))
+
+    def _boom(coro):
+        coro.close()  # don't leak the un-awaited coroutine
+        raise RuntimeError("x")
+
+    monkeypatch.setattr(T, "run_async", _boom)
     T.write_company_brain_journal()  # warned, no raise
 
 
