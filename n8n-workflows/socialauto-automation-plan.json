@@ -148,7 +148,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Explode the plan into one item per dispatchable action.\nconst plan = $json || {};\nconst actions = Array.isArray(plan.actions) ? plan.actions : [];\nconst out = [];\nfor (const a of actions) {\n  if (!a.webhook || !a.schedule_at) continue;   // needs a pipeline + a slot\n  if (new Date(a.schedule_at).getTime() <= Date.now()) continue; // never schedule backwards\n  out.push({ json: {\n    webhook: a.webhook,\n    platform: a.platform, format: a.format,\n    schedule_at: a.schedule_at, time_local: a.time_local,\n    topic: a.instruction,\n    source: 'automation-plan', target_date: plan.target_date\n  }});\n}\nif (!out.length) out.push({ json: { webhook: null, skipped: true, reason: 'no dispatchable actions' } });\nreturn out;"
+        "jsCode": "// Explode the plan into one item per dispatchable action.\nconst plan = $json || {};\nconst actions = Array.isArray(plan.actions) ? plan.actions : [];\nconst out = [];\nfor (const a of actions) {\n  if (!a.webhook || !a.schedule_at) continue;   // needs a pipeline + a slot\n  if (new Date(a.schedule_at).getTime() <= Date.now()) continue; // never schedule backwards\n  out.push({ json: {\n    webhook: a.webhook,\n    platform: a.platform, format: a.format,\n    schedule_at: a.schedule_at, time_local: a.time_local,\n    topic: a.topic || a.instruction,\n    source: 'automation-plan', target_date: plan.target_date\n  }});\n}\nif (!out.length) out.push({ json: { webhook: null, skipped: true, reason: 'no dispatchable actions' } });\nreturn out;"
       },
       "id": "explode-actions",
       "name": "Explode Actions",

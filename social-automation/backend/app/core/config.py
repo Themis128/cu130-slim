@@ -124,6 +124,16 @@ class Settings(BaseSettings):
     # Improvement rounds the gate may run before accepting/rejecting.
     PUBLISH_QUALITY_MAX_ITERATIONS: int = 2
 
+    # Publish media-semantics gate — before dispatch, each image asset is
+    # captioned by the DMR vision model and judged against the post copy;
+    # a mismatch skips the target (wrong-media posts like the 2026-11-06
+    # LinkedIn "marketing slide for a pricing post" never ship again).
+    # Fail-open when vision is unavailable. Set to false to disable.
+    PUBLISH_MEDIA_SEMANTIC_QA: bool = True
+    # Max image assets semantically checked per publish (first N in
+    # media_ids order — the lead image carries the topic).
+    PUBLISH_MEDIA_QA_MAX_IMAGES: int = 3
+
     # Self-hosted SearXNG metasearch (deployed on omv — see deploy/omv-workspace).
     # JSON API used by /api/v1/ai/web-search and web-grounded generate-content.
     SEARXNG_URL: str = "http://searxng:8080"
