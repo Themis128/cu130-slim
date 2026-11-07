@@ -71,6 +71,20 @@ def _action_hash(report_date: str, action: MonetizationAction) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+_MEDIA_STRIP_RE = re.compile(r"https?://\S+|#\w+|@[A-Za-z0-9_]+|urn:li:\S+")
+
+
+def _media_subject(content: str, *, max_chars: int = 300) -> str:
+    """Derive a visual-prompt subject from generated post copy.
+
+    Strips links, hashtags, mentions and URN markup, then keeps the opening
+    copy — the hook carries the topic. Returns "" when nothing usable
+    remains so callers can fall back to the action instruction."""
+    cleaned = _MEDIA_STRIP_RE.sub(" ", content or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:max_chars].strip()
+
+
 async def _resolve_account(db: AsyncSession, team_id: uuid.UUID, platform: str, instruction: str) -> SocialAccount | None:
     accounts = (
         (
@@ -258,15 +272,28 @@ Return JSON with: content, hashtags (array), suggested_media (string or null)"""
     )
 
 
-async def _generate_media(db: AsyncSession, team: Team, user_id, action: MonetizationAction) -> uuid.UUID | None:
+async def _generate_media(
+    db: AsyncSession,
+    team: Team,
+    user_id,
+    action: MonetizationAction,
+    content: str = "",
+) -> uuid.UUID | None:
     """Branded image for the post — ComfyUI FLUX → Cloudflare Workers AI →
-    brand banner (PIL, always succeeds). Returns a MediaAsset id or None."""
+    brand banner (PIL, always succeeds). Returns a MediaAsset id or None.
+
+    The visual subject comes from the GENERATED COPY, not the raw action
+    instruction: the instruction carries the playbook envelope
+    ("LinkedIn - 08:00 - text - …") and meta-directives ("replicate the
+    format of your top post"), which produced an off-topic "LinkedIn
+    marketing" slide on a pricing post (2026-11-06 incident)."""
     from app.services.media_ai import expand_visual_prompt
     from app.services.media_storage import persist_generated_image
     from app.services.trend_context import top_relevant_signal
 
+    subject = _media_subject(content) or action.instruction
     signal = top_relevant_signal()
-    media_instruction = f"{action.instruction} — visual theme may draw on the live trend signal: {signal}" if signal else action.instruction
+    media_instruction = f"{subject} — visual theme may draw on the live trend signal: {signal}" if signal else subject
     prompt = await expand_visual_prompt(media_instruction, media_type="image")
 
     png: bytes | None = None
@@ -338,7 +365,7 @@ async def _generate_media(db: AsyncSession, team: Team, user_id, action: Monetiz
                 render_infographic,
             )
 
-            infographic_content = await generate_infographic_content(action.instruction)
+            infographic_content = await generate_infographic_content(subject or action.instruction)
             png = render_infographic(infographic_content, png)
         except Exception as exc:  # noqa: BLE001
             logger.warning("infographic overlay failed — keeping clean background: %s", str(exc)[:120])
@@ -348,9 +375,9 @@ async def _generate_media(db: AsyncSession, team: Team, user_id, action: Monetiz
             from app.services.brand_assets import generate_og_image
             from app.services.spellcheck import auto_correct, preprocess_for_render
 
-            # action.instruction is LLM text going straight onto the image —
-            # gate it through LanguageTool + PIL-safe preprocessing first.
-            tagline = preprocess_for_render(await auto_correct(action.instruction))
+            # The subject text goes straight onto the image — gate it
+            # through LanguageTool + PIL-safe preprocessing first.
+            tagline = preprocess_for_render(await auto_correct(subject or action.instruction))
             png = generate_og_image("cloudless.gr", tagline=tagline[:80])
         except Exception as exc:  # noqa: BLE001
             logger.warning("brand banner gen failed: %s", str(exc)[:120])
@@ -452,7 +479,7 @@ async def schedule_report_actions(
         if video_only:
             entry["reason"] = "video format — media pipeline produces images; left as draft"
         else:
-            media_id = await _generate_media(db, team, owner.id if owner else None, action)
+            media_id = await _generate_media(db, team, owner.id if owner else None, action, content=content)
             if not media_id:
                 entry["reason"] = "media generation failed — left as draft"
         status = PostStatus.SCHEDULED if media_id else PostStatus.DRAFT

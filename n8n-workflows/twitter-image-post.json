@@ -22,7 +22,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_TWITTER_ACCOUNT_ID || 'a89d6852-eff8-479a-835f-50d806cf59dd';\nconst imagePrompt = body.image_prompt || topic;\nconst scheduledAt = body.scheduled_at || null;\nconst publish = body.publish === false ? false : !scheduledAt;\nreturn [{ json: { topic, account_id: accountId, image_prompt: imagePrompt, platform: 'twitter', scheduled_at: scheduledAt, publish } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_TWITTER_ACCOUNT_ID || 'a89d6852-eff8-479a-835f-50d806cf59dd';\nconst imagePrompt = body.image_prompt || topic;\nconst scheduledAt = body.scheduled_at || null;\nconst publish = body.publish === false ? false : !scheduledAt;\nreturn [{ json: { topic, account_id: accountId, image_prompt: imagePrompt, custom_image_prompt: !!body.image_prompt, platform: 'twitter', scheduled_at: scheduledAt, publish } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
@@ -146,7 +146,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.image_prompt) }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify($('Resolve Config').item.json.custom_image_prompt ? $('Resolve Config').item.json.image_prompt : 'Marketing image for: ' + (((($('Generate Tweet (DMR)').item.json.content || $('Resolve Config').item.json.image_prompt || '') + '').replace(/https?:\\/\\/\\S+|#\\w+|@[A-Za-z0-9_]+|urn:li:\\S+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 220) || $('Resolve Config').item.json.image_prompt)) + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
           "timeout": 600000
         }

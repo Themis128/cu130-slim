@@ -216,6 +216,23 @@ def _parse_playbook_item(action: str) -> PlaybookItem:
     )
 
 
+_ACTION_ENVELOPE_RE = re.compile(
+    r"^\s*(?:\d+[.)]\s*)?(?:" + "|".join(_KNOWN_PLATFORMS) + r")\b\s*[-–—,:]\s*"
+    r"\d{1,2}:\d{2}\s*[-–—,]\s*[^-–—]{1,30}?\s*[-–—,]\s*",
+    re.IGNORECASE,
+)
+
+
+def _action_topic(instruction: str) -> str:
+    """Playbook line minus its ``platform - HH:MM - format -`` envelope.
+
+    The envelope is scheduling metadata, not subject matter — feeding it to
+    copy/media prompts produced off-topic output (the 2026-11-06 LinkedIn
+    post got a generic "LinkedIn marketing" image because the image prompt
+    was built from the raw instruction)."""
+    return _ACTION_ENVELOPE_RE.sub("", instruction or "", count=1).strip()
+
+
 def _agent_playbook_block(items: list[PlaybookItem], tz_name: str) -> str:
     """Machine-readable playbook for a Devin/automation agent — JSON fenced
     block that can be pasted verbatim. Times are Athens local; the agent is
@@ -315,6 +332,7 @@ def automation_plan(report: StrategyReport, *, target_date: date | None = None) 
                 "webhook": _AUTOMATION_WEBHOOKS.get((it.platform, fmt or it.format or "")),
                 "rescheduled_from": it.rescheduled_from or None,
                 "instruction": it.instruction,
+                "topic": _action_topic(it.instruction) or it.instruction,
             }
         )
     return {

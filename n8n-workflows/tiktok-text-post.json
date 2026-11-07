@@ -305,7 +305,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Config').item.json.topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + (((($('Generate Caption (DMR)').item.json.content || $('Resolve Config').item.json.topic || '') + '').replace(/https?:\\/\\/\\S+|#\\w+|@[A-Za-z0-9_]+|urn:li:\\S+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 220) || $('Resolve Config').item.json.topic)) + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
           "timeout": 600000
         }
