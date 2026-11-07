@@ -133,6 +133,11 @@ class Settings(BaseSettings):
     # Max image assets semantically checked per publish (first N in
     # media_ids order — the lead image carries the topic).
     PUBLISH_MEDIA_QA_MAX_IMAGES: int = 3
+    # Hard per-image budget for the semantic check. The DMR vision chain
+    # (GPU-idle wait → slot acquire → model load → inference → heal+retry)
+    # can stall ~20min when the runner is wedged — that must never park a
+    # publishing worker. Timeout degrades to "vision unavailable" fail-open.
+    PUBLISH_MEDIA_QA_TIMEOUT_S: float = 90.0
 
     # Self-hosted SearXNG metasearch (deployed on omv — see deploy/omv-workspace).
     # JSON API used by /api/v1/ai/web-search and web-grounded generate-content.
