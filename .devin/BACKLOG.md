@@ -8,7 +8,7 @@
   still «Αναμονή Επιβεβαίωσης Από Συνήγορο»), added registry/deltio
   numbers + the four employers' exact date ranges; fixed same proto ref in
   `followup.js` notify + stale `C:\` path in `run-monitor.bat`.
-- [ ] Follow-up auto-sends today ~14:48 UTC (lastNews 2026-11-03 + 3d rule)
+- [x] Follow-up auto-sends today ~14:48 UTC (lastNews 2026-11-03 + 3d rule)
   to `press@synigoros.gr` — press office addr; verify that's the intended
   supplementary-report channel or change `TO` in `followup.js` before then.
 - [ ] Monitor logged two unconfirmed «Προς Αποδοχή» candidate flickers on
@@ -58,7 +58,7 @@ bot gate. Re-probe `li_product_state.py` on both apps after ~48h.
   retrofit onto 265077368. It's a light ToS-agree instant grant + OAuth
   Token Generator token; EU/EEA/CH only (Greece OK). Cheapest path to the
   owner's own-data snapshot if that's the goal.
-- [ ] Fix products-matrix mapping: business-email verify belongs to
+- [x] Fix products-matrix mapping: business-email verify belongs to
   (3rd Party), not (Member) — matrix conflates them.
 - [ ] Decide: drive the (3rd Party) form on 265077368, or create the
   dedicated-page app for (Member) self-serve.
@@ -350,9 +350,9 @@ Status of every open issue from the LinkedIn review + verification email:
   Lenovo Vantage WebView2 (msedgewebview2, PID-bound) — use the sidecar,
   not gate_runner, for FB work. Chrome 156 blocks CDP on real profile.
 - **Leftovers**:
-  - [ ] `threads`+`instagram` DB tokens return `Cannot parse access token` — rows show status=active now; verify if stale error text or live
+  - [x] `threads`+`instagram` DB tokens return `Cannot parse access token` — rows show status=active now; verify if stale error text or live
     (probably garbage/stale entries — needs a separate look).
-  - [ ] PR #1309 `facebook-token-check` worker still OPEN — merge gives the
+  - [x] PR #1309 `facebook-token-check` worker still OPEN — merge gives the
     in-platform 6h lane; legacy omv fb-heal.sh also republishes the page
     (worker doesn't) — keep or port that action before killing cron.
   - [ ] Docker socket death-looped through the session; resolved via
@@ -499,9 +499,9 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 + 3-way merge for files both sides touched.
 
 **Leftovers:**
-- [ ] Delete `ops/mautic-clean` + `ops/mautic-funnel` remotes once #1247 lands (port carried their unique content; mautic-funnel ⊂ mautic-clean lineage).
-- [ ] Restart social-api + 4 workers + beat after #1247 (container rules: model/celery/compose changes).
-- [ ] First `docker compose pull && up -d` after #1247 pulls the renamed `social-backend-api-latest`/`social-backend-latest` images — verify /health + celery inspect ping (4 nodes) before traffic.
+- [x] Delete `ops/mautic-clean` + `ops/mautic-funnel` remotes once #1247 lands (port carried their unique content; mautic-funnel ⊂ mautic-clean lineage).
+- [x] Restart social-api + 4 workers + beat after #1247 (container rules: model/celery/compose changes).
+- [x] First `docker compose pull && up -d` after #1247 pulls the renamed `social-backend-api-latest`/`social-backend-latest` images — verify /health + celery inspect ping (4 nodes) before traffic.
 - [x] **Secret hygiene** (DONE 2026-11-01): #1251 moved `AUTHENTIK_CLIENT_SECRET` to settings/.env + compose passthrough, and the secret was **rotated live** via the authentik worker shell on omv (k3s: `kubectl exec -n authentik authentik-worker-… -- ak shell`) — old 40-char value is dead server-side, new 48-char value verified against the token endpoint (`invalid_grant` probe) and loaded in social-api. The old value remains in git history but is invalid; `.env` holds the current one (gitignored).
 - [ ] Stash `grokbot-20261101` (compose autoheal labels) intentionally kept — labeled superseded by #1237; drop when convenient.
 - [ ] The 2026-10-28 garbled asset (582ca53c) predates the fix; its LinkedIn post is live — delete+recreate is a content decision (same bucket as the cloudless.com→.gr posts).
@@ -609,7 +609,7 @@ Residual-audit method: per-file `git log -1 --format=%cs` branch-vs-master date 
 - [ ] X OAuth approve — fresh auth_token needed in .env OR click reauth_urls URL; bridge pin now holds session 600s (PR #1051)
 - [ ] LinkedIn dev portal — grant "Member Data Portability API (Member)" product → li_member_snapshot.py + consent healer auto-harvests connections (PR #1046)
 - [ ] WhatsApp — standard registration via POST /{phone}/register (NOT request_code/verify_code — those are migration API; 2388091 decoded)
-- [ ] heal_consents hourly beat — twitter/linkedin/whatsapp/bridge probes, Slack alerts on state flips (PR #1049 + #1053)
+- [x] heal_consents hourly beat — twitter/linkedin/whatsapp/bridge probes, Slack alerts on state flips (PR #1049 + #1053)
 ## Session 2026-10-28 — Shift.Forward() 2026 recap adopted across platforms
 
 - AX Pass dashboard accessed (Gmail code fetch via playwright) → reports saved locally `~/Downloads/shift-forward-recap/` + archived to Nextcloud `SocialAuto/Shift-Forward-2026/` (2 PDFs + 2 MD).
@@ -721,7 +721,7 @@ Done:
 Left:
 - [x] Site PR #2364 merged (coverage fix + 8 Sentry findings fixed incl. server-side consent gate); /en/consultation live (200)
 - [x] Book-audit CTAs flipped to /en/consultation — PR #1312 (auto-merge armed)
-- [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
+- [x] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
 
 ## Ops automation (2026-11-03, PR pending)
 
@@ -745,7 +745,7 @@ Done:
 
 Left:
 - [ ] feat/cf-mail-lane (#1308): test_cf_mail_outbound.py there also lacks @pytest.mark.asyncio (asyncio_mode=strict) — marks pushed to the branch; verify CI goes green
-- [ ] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
+- [x] DM lanes are copy-constants only (no sweepable DM surface exists; email quiet-lane is the live impl)
 
 ## Operator gates status (2026-11-04)
 
@@ -778,7 +778,7 @@ Left:
 - [x] Toolchain: gh 2.45 + auth (Themis128), git identity, jq/unzip/htop, sysctl 99-devin-docker.conf, journald 200M cap
 - [x] .devin/mcp_config.json migrated to WSL paths (python3/bash/npx)
 - [x] Scheduled tasks: conhost --headless wraps + UNC repoints (wsl-recycle-watch, docker-socket-watch, GmailTelegramWatch, cf-session-keepalive, cu130-pr-babysit, cu130-stack-ops-rescue, SynigorosMonitor, 3x Chrome launchers, DevinWSLShutdown)
-- [ ] env-manager-backend still Created: port 8081 owned by galaxys222-dashboard-1 (0.0.0.0 bind) — needs remap decision (override or move dashboard)
+- [x] env-manager-backend still Created: port 8081 owned by galaxys222-dashboard-1 (0.0.0.0 bind) — needs remap decision (override or move dashboard)
 - [ ] ChromeDebug task edit denied (stored-credential task) — needs owner password or elevate
 - [ ] ~/.ssh empty in new distro — omv SSH keys lost w/ old vhdx; restore from NAS wsl-layer backup or regen+install
 - [ ] omv watchdog remediation still refs C:/Users/tbaltzakis/cu130-slim/docker-compose.yml — repoint to wsl -d Ubuntu-24.04
@@ -811,13 +811,13 @@ Left:
   #1366: `waitForFunction` arg-slot bug + consecutive-error streak
   (alert on 2nd, once per outage, ✅ recovery notice, state.json now
   written on error path).
-- [ ] Celery `poll_synigoros` (daily 07:30) has NO debounce and its
+- [x] Celery `poll_synigoros` (daily 07:30) has NO debounce and its
   first-status-word extraction disagrees with monitor.js's last-match —
   📋 "status changed" messages flip-flopped both directions. Align
   extraction + add candidate confirm (same pattern as monitor.js) if
   noise continues. Note: which Κατάσταση block (stepper vs detail) is
   authoritative is unverified — check the live page.
-- [ ] monitor.log + state.json grow unboundedly in the live dir
+- [x] monitor.log + state.json grow unboundedly in the live dir
   (957 lines/4 days) — consider rotation if it becomes a problem.
 ## 2026-11-05 — LinkedIn forms sweep + mail root-cause (final)
 
@@ -935,9 +935,9 @@ espo lanes were dormant).
 - tsc clean; vitest env broken locally (undici/Node20 — CI is Node22)
 
 **BLOCKED — needs user:**
-- [ ] No GitHub auth on box (empty PAT, no `gh` login) → PRs not pushed for
+- [x] No GitHub auth on box (empty PAT, no `gh` login) → PRs not pushed for
   cu130-slim OR cloudless.gr. Fresh `GH_TOKEN`/PAT unblocks both.
-- [ ] `.git/objects` root-owned in cloudless.gr → `sudo chown -R tbaltzakis:tbaltzakis .git`
+- [x] `.git/objects` root-owned in cloudless.gr → `sudo chown -R tbaltzakis:tbaltzakis .git`
 
 ## 2026-11-05 — Blockers resolved: both PRs pushed via GitHub API
 
@@ -1176,3 +1176,63 @@ hit the same drift; keep mirror in sync or mount from WSL.
   compose bind mounts went empty, stack crash-looping. Needs an operator
   WSL VM bounce or guardian T3 auto-bounce. GitHub-side work continued
   via `gh api`.
+
+## 2026-11-07 — full backlog sweep (Devin session, chore/backlog-sweep-20261107)
+
+Sweep of all unchecked items against live state. Fixes landed in this PR;
+verified-but-external items annotated below.
+
+### Fixed this sweep
+
+- **stack-ops recreate path**: `wake()` built `compose -f /repo/... --env-file
+  /repo/.env` but the container mounts `/app/docker-compose.yml` + `/app/.env`
+  → every pruned-service recreate failed `couldn't find env file`. Fixed;
+  image rebuilt. env-manager-backend/frontend, languagetool, flower all
+  recreated and healthy on first poll (env-manager-backend now publishes
+  127.0.0.1:8085 — :8081 is owned by galaxys222-dashboard-1).
+- **COMFYUI_URL → `http://stack-ops:8199`** (api + workers env): reverts the
+  #1258 direct-container-name bypass now that the wake proxy is verified
+  working — media calls self-heal the comfyui sleeper. `.env.example`
+  synced. Requires api+worker recreate to take effect on the live stack.
+- **monitor.js log rotation**: rotates `monitor.log` → `monitor.log.1` past
+  512 KiB (both WSL checkout the schtasks job reads and the repo copy).
+- **Synigoros `poll_synigoros`**: verified ALREADY aligned — two-read
+  candidate confirmation + last-`Κατάσταση`-match extraction were merged
+  in #1366/#1367; the flickers were the candidate mechanism working.
+  Follow-up to `press@synigoros.gr` already auto-sent 2026-11-06 17:33Z.
+- **li_products_matrix.py**: business-email verify correctly mapped to
+  Member DP **(3rd Party)**; Member self-serve = ToS-agree instant grant on
+  a dedicated-company app. `.devin`/`.cursor` copies synchronized.
+- **hygiene**: removed stale `.cursor/skills/human-gate-ops/scripts/SKILL.md`
+  duplicate; `restart-chrome.flag` + second `chrome-launch-ops` no longer
+  exist (item was stale).
+
+### Verified resolved (checked off above)
+
+- gh auth restored (`gh` logged in as Themis128); cloudless.gr `.git`
+  ownership fixed; `~/.ssh` keys restored; Windows copies renamed.
+- `threads`+`instagram` accounts live-verified status=active.
+- `ops/mautic-*` and `feat/cf-mail-lane` remote branches gone.
+- PRs verified MERGED: #1247 #1308 #1309 #1332 #1336 #1046 #1049 #1051
+  #1053 #1385 #1391 #1395 **#1397** (publish-exception visibility + FB
+  300s photo timeout — live stack restarted onto it, 4/4 workers pong).
+  #1375 closed-superseded. **#1399 OPEN** (Ad Library intel, auto-merge
+  armed, checks pending).
+
+### Still open — external human gates (automation lanes exhausted)
+
+- TikTok `cloudless.gr` token expired; refresh fails → needs bridge
+  QR/session login (human).
+- WhatsApp revoked → WABA assignment in Meta Business (human).
+- Gmail `GMAIL_REFRESH_TOKEN` 401 → one `gmail.py login` reconsent click.
+- LinkedIn: Matched Audiences denied (case CRM:015285039163310 — may need
+  Greek ΑΦΜ/ΓΕΜΗ docs); Member DP (Member) needs dedicated-app creation;
+  Member DP (3rd Party) form is an owner decision on 265077368;
+  Verify-PIN modal inert under automation.
+- Kakkava week-2 homework/bootcamp items — owner tasks, not engineering.
+- Synigoros follow-up recipient `press@synigoros.gr` — confirm intended
+  channel before relying on it (process decision).
+- Dropbox→Drive rclone migration — watcher-managed, monitor
+  `C:\Users\tbaltzakis\devin-scripts\migrate_log.txt`.
+- Garbled LinkedIn asset (582ca53c) delete+recreate — content decision.
+- ChromeDebug schtasks edit denied (stored-credential) — owner password.
