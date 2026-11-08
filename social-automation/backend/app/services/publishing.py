@@ -2067,7 +2067,7 @@ async def _publish_facebook(
     # sidecar failure as a terminal "skipped" instead of a retryable fail.
     if account.account_type == "user" and _has_facebook_browser_session(account):
         result = await _publish_facebook_via_sidecar(account, text, post, media_paths)
-        return result
+        return _with_publish_path(result, "sidecar")
 
     page_id = account.account_id
     # access_token is stored as the page token from OAuth callback.
@@ -2096,6 +2096,7 @@ async def _publish_facebook(
                 success=True,
                 platform_post_id=fb_post_id,
                 platform_url=f"https://www.facebook.com/{fb_post_id}",
+                platform_meta={"publish_path": "graph_feed"},
             )
 
         if media_paths[0].lower().endswith(VIDEO_EXTS_ALL):
@@ -2111,6 +2112,23 @@ async def _publish_facebook(
                     skipped=True,
                     error=("Facebook video has no public URL (MEDIA_PUBLIC_BASE_URL unset?) — not publishing without its media; retrying cannot help."),
                 )
+            fb_opts = (post.platform_specific or {}).get("facebook", {}) or {}
+            # Auto-format: every page video defaults to a Reel (Meta heavily
+            # favors reels for organic reach). Opt out with format="video".
+            if str(fb_opts.get("format", "auto")).lower() in ("auto", "reel"):
+                video = await fb_client.create_reel_post(video_url=video_url, description=text)
+                video_id = str(video.get("id") or "")
+                if not video_id:
+                    return PublishResult(
+                        success=False,
+                        error="Facebook API returned no reel id — cannot confirm publish",
+                    )
+                return PublishResult(
+                    success=True,
+                    platform_post_id=video_id,
+                    platform_url=f"https://www.facebook.com/reel/{video_id}",
+                    platform_meta={"publish_path": "graph_reels"},
+                )
             video = await fb_client.create_video_post(video_url=video_url, description=text)
             video_id = str(video.get("id") or "")
             if not video_id:
@@ -2122,6 +2140,7 @@ async def _publish_facebook(
                 success=True,
                 platform_post_id=video_id,
                 platform_url=f"https://www.facebook.com/{page_id}/videos/{video_id}",
+                platform_meta={"publish_path": "graph_videos"},
             )
 
         graph_base = f"{FACEBOOK_GRAPH_BASE}/{FACEBOOK_GRAPH_VERSION}"
@@ -2176,6 +2195,7 @@ async def _publish_facebook(
             success=True,
             platform_post_id=fb_post_id,
             platform_url=f"https://www.facebook.com/{fb_post_id}",
+            platform_meta={"publish_path": "graph_photos"},
         )
     except Exception as exc:
         if _err_has(str(exc), _FB_GROUP_MARKERS):
@@ -2829,6 +2849,58 @@ async def _publish_instagram_via_instagrapi(
     )
 
 
+def _with_publish_path(result: PublishResult, path: str) -> PublishResult:
+    """Tag a PublishResult with the publish path that produced it.
+
+    Merged into Post.platform_specific by the publishing worker, so every
+    post records which transport actually landed (or last attempted) it —
+    feed this into per-path success dashboards instead of guessing.
+    """
+    result.platform_meta = {**(result.platform_meta or {}), "publish_path": path}
+    return result
+
+
+async def _publish_instagram_story(
+    post: Post,
+    media_paths: list[str],
+) -> PublishResult:
+    """Publish an Instagram Story via instagrapi.
+
+    Selected by ``platform_specific.instagram.format == "story"``. Stories
+    take exactly one image or short video and are ephemeral — the feed
+    publish-path fallback ladder does not apply.
+    """
+    if len(media_paths) != 1:
+        return PublishResult(
+            success=False,
+            error="Instagram Story requires exactly one media item.",
+        )
+    username = (_settings.INSTAGRAM_USERNAME or "").strip()
+    password = (_settings.INSTAGRAM_PASSWORD or "").strip()
+    if not username or not password:
+        return PublishResult(
+            success=False,
+            error="INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are not set — Stories publish via instagrapi only.",
+        )
+    proxy = (_settings.INSTAGRAM_PROXY or "").strip() or None
+    client = InstagrapiClient(username=username, password=password, proxy=proxy)
+    fp = media_paths[0]
+    try:
+        if fp.lower().endswith((".mp4", ".mov", ".webm", ".avi")):
+            result = await client.upload_video_to_story(fp)
+        else:
+            result = await client.upload_photo_to_story(fp)
+    except InstagrapiError as exc:
+        return PublishResult(success=False, error=f"Instagram Story (instagrapi) publish failed: {exc}")
+
+    media_id = str(result.get("id") or result.get("pk") or "")
+    return PublishResult(
+        success=True,
+        platform_post_id=media_id,
+        platform_meta={"publish_path": "instagrapi_story"},
+    )
+
+
 async def _publish_instagram(
     access_token: str,
     text: str,
@@ -2856,6 +2928,13 @@ async def _publish_instagram(
         5. **Facebook Login Graph API** (graph.facebook.com) — last resort
            (requires Meta App Review + Page-Instagram linkage).
     """
+    # Story route: platform_specific.instagram.format == "story" (or "auto"
+    # with a single media item) bypasses the feed ladder entirely.
+    ig_opts = (post.platform_specific or {}).get("instagram", {}) or {}
+    ig_fmt = str(ig_opts.get("format", "")).lower()
+    if ig_fmt == "story" or (ig_fmt == "auto" and len(media_paths) == 1):
+        return await _publish_instagram_story(post, media_paths)
+
     # Content rule: Instagram has no text-only feed posts (Graph / private / web).
     if not media_paths:
         return PublishResult(
@@ -2902,19 +2981,19 @@ async def _publish_instagram(
             db,
         )
         if graph_result.success:
-            return graph_result
+            return _with_publish_path(graph_result, "graph_business")
         if graph_result.ambiguous:
             # media_publish may have landed despite the error — trying the
             # fallback chain now would publish a duplicate. The queue worker
             # schedules a delayed feed reconciliation for ambiguous failures.
-            return graph_result
+            return _with_publish_path(graph_result, "graph_business")
         logger.warning("Business Login Graph API failed: %s — trying fallback paths", graph_result.error)
 
     # 2. instagrapi (direct Python) — primary fallback when credentials are set
     if (_settings.INSTAGRAM_USERNAME or "").strip() and (_settings.INSTAGRAM_PASSWORD or "").strip():
         ig_result = await _publish_instagram_via_instagrapi(text, post, media_paths)
         if ig_result.success:
-            return ig_result
+            return _with_publish_path(ig_result, "instagrapi")
         logger.warning("instagrapi path failed: %s — trying fallback paths", ig_result.error)
 
     _decrypted_session = decrypt_field(meta.get("private_api_session_id"))
@@ -2926,13 +3005,13 @@ async def _publish_instagram(
     if has_web_session:
         web_result = await _publish_instagram_via_web(account, text, post, media_paths)
         if web_result.success:
-            return web_result
+            return _with_publish_path(web_result, "web_rupload")
 
     # 4. Sidecar (aiograpi-rest)
     if has_sidecar_session:
         result = await _publish_instagram_via_sidecar(account, text, post, media_paths)
         if result.success:
-            return result
+            return _with_publish_path(result, "sidecar")
         if not ("session" in (result.error or "").lower() and "expired" in (result.error or "").lower()):
             graph_token = await _resolve_ig_user_token(access_token, account, db)
             graph_result = await _publish_instagram_via_graph(
@@ -2945,31 +3024,25 @@ async def _publish_instagram(
                 db,
             )
             if graph_result.success or graph_result.ambiguous:
-                return graph_result
+                return _with_publish_path(graph_result, "graph_fb")
             if web_result is not None and not web_result.success:
                 return web_result
             return result
         graph_token = await _resolve_ig_user_token(access_token, account, db)
-        return await _publish_instagram_via_graph(
-            graph_token,
-            text,
-            account,
-            post,
-            media_paths,
-            storage_paths,
-            db,
+        return _with_publish_path(
+            await _publish_instagram_via_graph(
+                graph_token, text, account, post, media_paths, storage_paths, db,
+            ),
+            "graph_fb",
         )
 
     # 5. Facebook Login Graph API (last resort)
     graph_token = await _resolve_ig_user_token(access_token, account, db)
-    return await _publish_instagram_via_graph(
-        graph_token,
-        text,
-        account,
-        post,
-        media_paths,
-        storage_paths,
-        db,
+    return _with_publish_path(
+        await _publish_instagram_via_graph(
+            graph_token, text, account, post, media_paths, storage_paths, db,
+        ),
+        "graph_fb",
     )
 
 
