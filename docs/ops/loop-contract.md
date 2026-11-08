@@ -17,6 +17,7 @@ Each loop must answer: **Trigger** (when it fires) · **Code** (where it lives) 
 | Loop | Trigger | Code | Health signal | State |
 |---|---|---|---|---|
 | Daily strategy brief → playbook JSON | `0 9 * * *` | `worker/tasks/notebook_reports.py` (`daily-strategy-report`) | Slack digest + report row | ✅ live |
+| Central brain daily decision sweep | `30 6 * * *` | `worker/tasks/central_brain.py` (`central-brain-daily`) | `central-brain-YYYY-MM-DD` company_brain journal + posts tagged `meta_data.central_brain_action` | ✅ live (post-merge) |
 | Company brain journal | `45 23 * * *` | `worker/tasks/company_brain.py` | Chroma journal entry | ✅ live |
 | n8n digest → Slack + IntraVox news | n8n schedule | n8n `cloudless-daily-digest` workflows | Slack msg + IntraVox feed | ✅ live |
 | Weekly CRM-hygiene report | `30 7 * * mon` | `services/crm_hygiene.py` | Slack report w/ quarantine/stale counts | ✅ live (verified today: +1 quarantine, +3 assigned, 0 err) |

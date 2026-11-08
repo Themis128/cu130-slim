@@ -130,6 +130,8 @@ worker/tasks/      publishing, *_messenger pollers, session checks/refreshes,
                    linkedin_ads_{report,control}, linkedin_invites,
                    nextcloud (omv WebDAV export), nextcloud_sync (posts→Deck,
                    followers→Tables), company_brain (daily journal 23:45),
+                   central_brain (daily decision sweep 06:30 → journal +
+                   schedule_report_actions dispatch),
                    lead_emails (drip), email_drip (first-approach+renewal),
                    email_campaigns, lead_research, promo_scan (IMAP),
                    crm_hygiene (Mon dedupe), crm_lifecycle (score→convert),
@@ -304,7 +306,7 @@ dedupe, New/Assigned → In Process, Slack on hits).
 
 ## Beat schedule highlights
 
-publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · account-status reconcile 6h · NC surfaces sync 3h :25 · session heal hourly :20 · promo scan 08:00 · email drip 08:20 · monetization report 08:30 · lead research 08:40 · CRM lifecycle 08:50 · CRM engagement 30min · CRM hygiene Mon 07:30 · company-brain journal 23:45 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily · Telegram agent daily 11:00
+publish queue 30s · scheduled posts 60s · analytics sync 30min · token refresh hourly :15/:45 · personal messenger 2min · threads/IG DMs 3min · twitter/tiktok DMs 5min · linkedin DMs 6h · IG session check 6h :30 · LinkedIn session check 12h :45 · WhatsApp verify 30min · DMR health 5min · datalake export 6h :10 · account-status reconcile 6h · NC surfaces sync 3h :25 · session heal hourly :20 · promo scan 08:00 · email drip 08:20 · monetization report 08:30 · lead research 08:40 · CRM lifecycle 08:50 · CRM engagement 30min · CRM hygiene Mon 07:30 · company-brain journal 23:45 · central brain daily 06:30 · strategy brief (notebook) daily 10:30 EEST · ops health (notebook) daily 10:45 EEST · LinkedIn ads report daily · LinkedIn invites daily · Telegram agent daily 11:00
 
 ## Account-status reconciliation (`account_status_reconcile.reconcile_account_status`)
 
