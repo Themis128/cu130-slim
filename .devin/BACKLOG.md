@@ -138,11 +138,15 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
-- [ ] watch: TikTok Creative Center SSO — sidecar session live on
-  @cloudless.gr; full top-100 trend lists need one QR scan
-  (tt_qr_login.png) to pass the ads.tiktok.com login wall. Public
-  anonymous tier already pulled (US/UK/DE hashtags + US videos via
-  CreativeOne unsigned endpoint).
+- [x] TikTok Creative Center trend pull — RESOLVED 2026-11-08: video
+  pipeline already built in PR #1422 (app/services/tiktok_trends.py,
+  unsigned CreativeOne sweep) + PR #1424 (trend_ingest 6h beat →
+  trend_signals → datalake). Verified live: 12 videos LIGHT_SWEEP.
+  Hashtag gap confirmed dead-end: no unsigned hashtag API (all
+  CreativeOne/radar endpoint guesses 404); top-3/region only via
+  SSR-embedded page state; full rankings need TikTok For Business
+  login (consumer QR session insufficient — SSO bounces). Use the
+  TikTok app's native Creative Center for full hashtag lists.
 - [ ] owner-gate: TikTok profile website link needs 1,000 followers OR
   Registered Business Account; business verification was rejected —
   resubmit with Greek sole-trader/ΑΑΔΕ tax doc type, not ΓΕΜΗ.
