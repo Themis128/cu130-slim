@@ -2113,7 +2113,9 @@ async def _publish_facebook(
                     error=("Facebook video has no public URL (MEDIA_PUBLIC_BASE_URL unset?) — not publishing without its media; retrying cannot help."),
                 )
             fb_opts = (post.platform_specific or {}).get("facebook", {}) or {}
-            if str(fb_opts.get("format", "")).lower() == "reel":
+            # Auto-format: every page video defaults to a Reel (Meta heavily
+            # favors reels for organic reach). Opt out with format="video".
+            if str(fb_opts.get("format", "auto")).lower() in ("auto", "reel"):
                 video = await fb_client.create_reel_post(video_url=video_url, description=text)
                 video_id = str(video.get("id") or "")
                 if not video_id:
@@ -2926,10 +2928,11 @@ async def _publish_instagram(
         5. **Facebook Login Graph API** (graph.facebook.com) — last resort
            (requires Meta App Review + Page-Instagram linkage).
     """
-    # Story route: platform_specific.instagram.format == "story" bypasses the
-    # feed ladder entirely (ephemeral surface, instagrapi only).
+    # Story route: platform_specific.instagram.format == "story" (or "auto"
+    # with a single media item) bypasses the feed ladder entirely.
     ig_opts = (post.platform_specific or {}).get("instagram", {}) or {}
-    if str(ig_opts.get("format", "")).lower() == "story":
+    ig_fmt = str(ig_opts.get("format", "")).lower()
+    if ig_fmt == "story" or (ig_fmt == "auto" and len(media_paths) == 1):
         return await _publish_instagram_story(post, media_paths)
 
     # Content rule: Instagram has no text-only feed posts (Graph / private / web).
