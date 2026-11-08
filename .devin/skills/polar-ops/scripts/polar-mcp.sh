@@ -34,7 +34,11 @@ else
 fi
 
 _MOD="$_LIB/mcp-remote/node_modules/mcp-remote/dist/proxy.js"
-command -v wslpath >/dev/null 2>&1 && _MOD="$(wslpath -w "$_MOD")"
+# Only translate to a Windows path when the node binary is a Windows one —
+# wslpath output breaks Linux node even under WSL.
+if [[ "$_NODE" == *.exe || "$_NODE" == /mnt/* || "$_NODE" == /c/* ]]; then
+  command -v wslpath >/dev/null 2>&1 && _MOD="$(wslpath -w "$_MOD")"
+fi
 exec "$_NODE" "$_MOD" \
   https://mcp.polar.sh/mcp/polar-mcp \
   --header "Authorization: Bearer \${POLAR_ACCESS_TOKEN}" \
