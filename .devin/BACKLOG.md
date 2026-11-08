@@ -266,3 +266,41 @@ Env issues found (document, not code):
   probes to :11000 succeed — if LAN→published-port access breaks, re-check.
 - [ ] `nas-docker-health` cron (10min) IS alive — log file grows; earlier
   "PERSISTENT unhealthy: nextcloud-talk-hpb" lines were Nov 1 leftovers.
+
+## 2026-11-08 — backlog sweep (Devin) — resolved this pass
+
+- [x] Backfill verification DONE: `backfill_media_quality.py` scanned all
+  744 media_assets — 453 have spellcheck_applied, the remainder have no
+  text/quality metadata to fill (terminal state, not a stall). Note for
+  future runs: script needs `-w /app PYTHONPATH=/app` inside social-api
+  and `--limit` >= total rows (it scans batches sequentially).
+- [x] linkedin-access-forms SKILL.md update — already merged via PR #1356
+  (stale entry).
+- [x] OMV iptables watch RESOLVED: rules ARE present — DOCKER chain keys
+  on container ports (dpt:80→nextcloud 11000, dpt:8081→hpb 8090,
+  dpt:9980→collabora, dpt:7867→push). Earlier "missing 11000/8090" was a
+  grep error, not a real gap.
+- [x] Branch debris deleted: heal/20261104-2338, -1105-0641, -1105-1955,
+  -1106-0638, -1107-1256, -1107-2147 (remote) + 9 stale local
+  refs/remotes/pr-* (remote was deleted long ago; refs were local-only).
+  All verified zero unmerged content (git cherry / file-diff vs master).
+- [x] DIRTY consolidation PRs rebuilt via fixed pr_rebuild.py:
+  #1430→#1436 (chore/leftover-sync-rebuilt), #1433→#1434
+  (fix/media-qa-timeout-rebuilt); #1432's files were already on master
+  (rebuild no-op); user-authored revert #1437 auto-merge armed (it only
+  undoes the redundant #1435 diff — gate_runner.py exists on master).
+- [x] feat/nextcloud-extras + feat/nextcloud-autoupdate-feeds decide item
+  — STALE: both already merged (#1377/#1379); refs deleted server-side.
+- [x] Playwright E2E env-quote gotcha AUTOMATED: playwright.config.ts now
+  loads repo-root .env itself, strips quotes, maps SOCIAL_ADMIN_*→
+  E2E_ADMIN_* — plain `playwright test` works, no wrapper needed.
+- PR board end of sweep: 5 open, all auto-merge armed, 0 actionable
+  failures (#1424 #1428 #1434 #1436 #1437).
+
+Still human-only (unchanged): WABA assignment, Gmail re-consent, LinkedIn
+sidecar session + cookie, X OAuth approve, FB OAuth, CM survey recording,
+Member DP modal, Matched Audiences, ChromeDebug schtasks, Windows sshd
+elevation, TikTok business resubmit (ΑΑΔΕ doc), SOCIAL_ADMIN creds for
+TikTok re-consent, host RAM pressure, IDE authority choice, Member DP
+form-vs-app decision, garbled LI asset, synigoros recipient confirm,
+wsl-safe-bounce schedule, Kakkava week-2 content work.
