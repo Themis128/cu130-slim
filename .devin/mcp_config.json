@@ -108,9 +108,9 @@
       "url": "http://127.0.0.1:9231/mcp"
     },
     "cloudflare-docs": {
-      "command": "node",
+      "command": "bash",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
+        "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/mcp-remote.sh",
         "https://docs.mcp.cloudflare.com/mcp"
       ]
     },
@@ -122,16 +122,16 @@
       "cwd": "/home/tbaltzakis/cu130-slim"
     },
     "cloudflare-api": {
-      "command": "node",
+      "command": "bash",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
+        "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/mcp-remote.sh",
         "https://mcp.cloudflare.com/mcp"
       ]
     },
     "slack": {
-      "command": "node",
+      "command": "bash",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
+        "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/mcp-remote.sh",
         "https://mcp.slack.com/mcp",
         "3118",
         "--host",
@@ -139,13 +139,19 @@
         "--callback-path",
         "/callback",
         "--static-oauth-client-info",
-        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
-      ]
+        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}",
+        "--enable-proxy"
+      ],
+      "env": {
+        "HTTPS_PROXY": "socks5://127.0.0.1:1080",
+        "ALL_PROXY": "socks5://127.0.0.1:1080",
+        "HTTP_PROXY": "socks5://127.0.0.1:1080"
+      }
     },
     "slack-cloudless": {
-      "command": "node",
+      "command": "bash",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
+        "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/mcp-remote.sh",
         "https://mcp.slack.com/mcp?workspace=wwwcloudlessgr",
         "3118",
         "--host",
@@ -153,8 +159,14 @@
         "--callback-path",
         "/callback",
         "--static-oauth-client-info",
-        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
-      ]
+        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}",
+        "--enable-proxy"
+      ],
+      "env": {
+        "HTTPS_PROXY": "socks5://127.0.0.1:1080",
+        "ALL_PROXY": "socks5://127.0.0.1:1080",
+        "HTTP_PROXY": "socks5://127.0.0.1:1080"
+      }
     },
     "metabase": {
       "command": "bash",
@@ -176,33 +188,22 @@
       "url": "https://mcp.deepwiki.com/mcp"
     },
     "google-photos": {
-      "command": "npx",
+      "command": "bash",
       "args": [
-        "-y",
-        "@thenavidm/google-photos-mcp-cli",
-        "google-photos-mcp"
-      ],
-      "env": {
-        "GOOGLE_PHOTOS_CLIENT_ID": "${GOOGLE_PHOTOS_CLIENT_ID}",
-        "GOOGLE_PHOTOS_CLIENT_SECRET": "${GOOGLE_PHOTOS_CLIENT_SECRET}",
-        "GOOGLE_PHOTOS_REFRESH_TOKEN": "${GOOGLE_PHOTOS_REFRESH_TOKEN}"
-      }
+        "/home/tbaltzakis/cu130-slim/.devin/skills/google-photos-ops/scripts/google-photos-mcp.sh"
+      ]
     },
     "phone": {
       "command": "python3",
       "args": [
-        "/home/tbaltzakis/cu130-slim\\.devin\\skills\\phone-access\\scripts\\phone-mcp-server.py"
+        "/home/tbaltzakis/cu130-slim/.devin/skills/phone-access/scripts/phone-mcp-server.py"
       ]
     },
     "linkedin-ads": {
-      "command": "uvx",
+      "command": "bash",
       "args": [
-        "linkedin-ads-mcp"
-      ],
-      "env": {
-        "LINKEDIN_ACCESS_TOKEN": "${LINKEDIN_ACCESS_TOKEN}",
-        "LINKEDIN_API_VERSION": "202511"
-      }
+        "/home/tbaltzakis/cu130-slim/.devin/skills/linkedin-ads-mcp/scripts/linkedin-ads-mcp.sh"
+      ]
     }
   }
 }
