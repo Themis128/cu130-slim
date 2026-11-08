@@ -1,0 +1,22 @@
+{
+  "events": [
+    {
+      "id": "dypa-nudge-1",
+      "sendAt": "2026-11-20",
+      "to": ["kpamark@dypa.gov.gr", "protokollo@dypa.gov.gr"],
+      "file": "dypa-nudge-1.txt"
+    },
+    {
+      "id": "ombudsman-escalation-2",
+      "sendAt": "2026-11-25",
+      "to": ["press@synigoros.gr"],
+      "file": "ombudsman-escalation-2.txt"
+    },
+    {
+      "id": "sepe-status-1",
+      "sendAt": "2026-12-08",
+      "to": ["helpdesk@hli.gov.gr"],
+      "file": "sepe-status-1.txt"
+    }
+  ]
+}
