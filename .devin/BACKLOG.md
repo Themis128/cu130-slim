@@ -158,8 +158,31 @@ gone.
 - [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
 - [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
 
-## 2026-11-08 — WABA creation: 90% automated, display-name gate remains
+## 2026-11-08 — omv WAN blips (cloud.cloudless.gr 502s)
 
-- [~] Business Manager WhatsApp wizard driven via CDP (:9222 bridge → debug Chrome, FB session live). Reached Details step: messaging account "cloudless.gr" + "Create a WhatsApp account". Blocker: display-name combobox — "cloudless.gr" violates no-URL rule; "Cloudless"/"Cloudless Cloud" fill React state but Continue stays aria-disabled (likely needs real keystroke cadence / suggestion pick that synthetic events can't reproduce). API path dead: POST /{bid}/whatsapp_business_accounts → (#3) app lacks capability; system_users POST → (#100) same.
-- [ ] HUMAN (~90s, normal browser): business.facebook.com → cloudless.gr portfolio → Accounts → WhatsApp accounts → Add → "Create a WhatsApp account" → display name "Cloudless Cloud", category Professional Services → phone +306977777838 → SMS code. ADB lane (wa_verify.py / phone RFCTA0AEKZP) reads the code automatically once sent.
-- [ ] After WABA exists: add phone_number_id to whatsapp row meta_data + mint system-user token (needs app capability enabled in App Dashboard → Advanced Access for business_management/whatsapp_*)
+Recurring ~1-8 min CGNAT uplink drops on omv kill all 4 cloudflared QUIC
+conns → Cloudflare 502/530 on cloud/office/signal/push.cloudless.gr.
+Events: 11-06 ~03:00Z, 11-07 ~03:00Z + 14:48Z (~8min), 11-08 00:58Z.
+All self-heal. Mitigations live on omv + mirrored via PR #1454:
+metrics on 127.0.0.1:60123 + cloudflared-tunnel-watchdog timer.
+
+- [ ] `human:` ISP ticket if the ~03:00Z pattern persists (looks like
+  provider maintenance/CGNAT session resets).
+- [ ] `decide:` dual-WAN/4G failover on the router — only real fix for
+  WAN loss; replica tunnels don't help (all tailnet hosts share the WAN).
+- [ ] `watch:` monitor `journalctl -t cf-tunnel-watchdog` for restart
+  frequency; if >2/wk, escalate to router failover.
+
+Also fixed this session: k3s `loki-{chunks,results}-cache` STS scaled
+to 0 (helm values disable them; spec was both invalid under LimitRange
+300m and unschedulable at 9.6Gi mem request — was spamming FailedCreate);
+tailscale `kube` ProxyGroup restored (applied upstream authproxy-rbac.yaml
+→ SA + impersonation RBAC, cleared stale state secret `kube-0` → device
+re-registered as kube-0-1, all conditions True). Dead `kube-0` device can
+be deleted from the tailnet admin console (cosmetic).
+
+## 2026-11-08 (cont.) — FB/IG publish enhancements shipped
+
+PR #1472 (auto-merge armed): FB Page Reels (`platform_specific.facebook.format="reel"` → video_reels 3-phase), IG Stories (`platform_specific.instagram.format="story"` → instagrapi story upload), `publish_path` telemetry on every PublishResult → `Post.platform_specific.publish_path`. Deployed live to all 5 backend containers.
+- [ ] Wire scheduler/UI to set `platform_specific.{facebook,instagram}.format` so Reels/Stories get used; currently opt-in flag only.
+- [ ] Watch: first real Reel/Story publish — verify Graph scopes (`pages_manage_posts` covers reels; story via instagrapi session).
