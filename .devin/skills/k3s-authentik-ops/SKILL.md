@@ -1,10 +1,10 @@
 # k3s-authentik-ops
 
-Operate the authentik SERVER workload on the omv-ha k3s cluster (auth.cloudless.gr → cloudflared-omv → `http://192.168.1.128:30910` NodePort). Companion to `authentik-ops` (admin API calls) and `omv-ops` (host ops). Use to mint the admin API token, apply the blueprint, and stand up the tailnet admin plane.
+Operate the authentik SERVER workload on the omv k3s cluster (single-node since 2026-08-08 — NOT omv-ha, which is now a mail host) (auth.cloudless.gr → cloudflared-omv → `http://192.168.1.128:30910` NodePort). Companion to `authentik-ops` (admin API calls) and `omv-ops` (host ops). Use to mint the admin API token, apply the blueprint, and stand up the tailnet admin plane.
 
 ## Access ladder (2026-11-04 findings)
 
-- SSH: `ssh tbaltzakis@100.95.117.84` over Tailscale (per global rule — never LAN IP).
+- SSH: `ssh -i ~/.ssh/id_rsa_win tbaltzakis@100.74.191.58` (github-omv) over Tailscale (per global rule — never LAN IP).
 - `kubectl` as user tbaltzakis: kubeconfig exists (`~/.kube/config`) but calls returned empty/hung — verify cluster health first: `systemctl status k3s`.
 - `sudo` needs a password — non-interactive calls fail; use `sudo -S` with the password piped from a secret-store env var (`OMV_SUDO_PASS` — never hardcode/print), or run interactively.
 - Tagged nodes (ingress-0, k3s-subnet-router-0) accept no user SSH.
