@@ -335,3 +335,38 @@ Leftovers:
 - [ ] Synigoros followups: added tgOnly reminder events (call-ombudsman-1
   11-25, call-sepe-1 12-08, dypa-written-demand 12-04) + tgOnly support in
   admin-followups.js — committed on feat/synigoros-tg-reminders.
+
+### WSL-Weekly-Bounce Slack failover (2026-11-09)
+
+- `C:\Users\tbaltzakis\scripts\wsl-weekly-bounce.ps1` now fails over to
+  Slack `chat.postMessage` when `Send-Tg` exhausts its 3 retries — covers
+  all 4 outcomes (deploy-lock skip, success, docker-degraded, fatal).
+  Slack path is pure Windows-side HTTP (no WSL), so it still fires while
+  the VM is down. Severity rides in the text as `digest|…` / `ops|…`.
+- Token resolution (`Get-SlackToken`): scans
+  `%USERPROFILE%\.mcp-auth\mcp-remote-v1\*_tokens.json` for
+  `chat:write`-scoped tokens, uses a live one or refreshes via
+  `oauth.v2.user.access` (public client, client_id only) and writes the
+  rotation back — same contract as `slack_token_sync.py`.
+- Workspace guard (`Test-SlackToken` → `auth.test`): two Slack
+  workspaces share the token store (SocialAuto T0C18DXH8P7 +
+  www.cloudless.gr T09AF5VTK4G); only team_id T0C18DXH8P7 tokens are used,
+  preventing the 2026-11-08 channel_not_found flip-flop. Wrong-workspace
+  refreshes are still written back (rotation chain stays alive) but not
+  used for posting.
+- Channel: `SLACK_CHANNEL_ID` from `%USERPROFILE%\scripts\.slack-alerts.env`
+  (currently C0C1F1…); static `SLACK_BOT_TOKEN` there is last-resort only.
+- BLOCKED — no live Slack credential on the host: both mcp-remote
+  `xoxe` tokens are expired AND their refresh_tokens return
+  `invalid_grant` (Slack MCP session dead — consistent with the
+  slack-remote port-3118 collision above); no `xoxb` bot token exists
+  (app reinstall still pending); all incoming webhooks 404. Failover
+  code is verified parse-clean + fail-soft, and self-heals the moment a
+  valid chat:write token lands in the token store — i.e. after Slack MCP
+  re-auth in Devin or the app reinstall. Until then Slack attempts log
+  `slack failover api error: invalid_auth` to bounce.log and Telegram
+  remains the only working lane.
+- Gotcha fixed during testing: `Log` (Tee-Object) emits to the pipeline —
+  unguarded `Log` calls inside `Get-SlackToken`/`Send-Slack` polluted
+  their return values (array instead of bool/token, truthy-on-failure).
+  All Log calls inside value-returning functions now use `$null = Log`.
