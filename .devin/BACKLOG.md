@@ -1,199 +1,125 @@
-# BACKLOG (living)
+# BACKLOG
 
-## 2026-11-06 — Synigoros follow-up letter synced to filed report PDF
+Living backlog for the cu130-slim / SocialAuto stack.
 
-- `scripts/synigoros-monitor/followup.txt` rewritten from the filed receipt
-  (29.sinigorosreport.pdf): full protocol 408302/81750/2026 (was "81750"),
-  dropped the unconfirmed «Προς Αποδοχή» status claim (confirmed status is
-  still «Αναμονή Επιβεβαίωσης Από Συνήγορο»), added registry/deltio
-  numbers + the four employers' exact date ranges; fixed same proto ref in
-  `followup.js` notify + stale `C:\` path in `run-monitor.bat`.
-- [ ] Follow-up auto-sends today ~14:48 UTC (lastNews 2026-11-03 + 3d rule)
-  to `press@synigoros.gr` — press office addr; verify that's the intended
-  supplementary-report channel or change `TO` in `followup.js` before then.
-- [ ] Monitor logged two unconfirmed «Προς Αποδοχή» candidate flickers on
-  Nov 5 — watch whether the stepper genuinely transitions today.
+Convention: new issues are logged under a dated `## YYYY-MM-DD — <topic>`
+heading at the bottom; sweeps prune resolved entries (full history in git).
+Tags: `human:` = owner action required · `decide:` = content/process decision
+· `watch:` = no action until the trigger fires.
 
-## 2026-11-05 — LinkedIn dev apps parked until ~Nov 7 (fresh-app provisioning)
+## 2026-11-07 — sweep cleanup (this file was consolidated)
 
-New apps created today (cloudless-gr-dma 265077464, cloudless-gr-live
-265081467) — LinkedIn needs ~24-48h to provision the product catalog;
-inert buttons + empty modals observed on fresh apps are expected, NOT a
-bot gate. Re-probe `li_product_state.py` on both apps after ~48h.
+Resolved history pruned 2026-11-07 (PRs #1404/#1405 era). All previously
+checked items plus verified-merged/verified-fixed entries were removed —
+see git history for the full log. Verified this sweep: PRs #1247 #1308
+#1309 #1332 #1336 #1046 #1049 #1051 #1053 #1385 #1391 #1395 #1397 merged;
+gh auth + ~/.ssh keys + .git ownership restored; threads/IG tokens active;
+env-manager/languagetool/flower recreated healthy via fixed stack-ops;
+stack-ops tests wired into Docker CI; EspoCRM test lead deleted; get-secret
+already writes to file only; watcher schtasks all registered; grokbot stash
+gone.
 
-- [ ] cloudless-gr-dma (265077464): Member DP (3rd Party) = "Review in
-  progress" (step 1/2 Access Form Review). LinkedIn decides in 10-14
-  business days; watch tbaltzakis@cloudless.gr for decision / docs-request
-  mail. Biz-email verify PIN was already consumed at submission.
-- [ ] cloudless-gr-live (265081467): Live Events still shows FORM state —
-  fill via `li_devapp_ops.py fill-form <Q_DL>` once catalog provisions;
-  app-bound Q_DL link persists (grab fresh from products page when filling).
-- [ ] Member DP (Member) `r_dma_portability_self_serve`: needs dedicated
-  app bound to "Member Data Portability (Member) Default Company" page —
-  retry once apps provision; cloudless-gr-live is bound to cloudless.gr so
-  the Member product may not be requestable there.
-- [ ] Verify-PIN modal inert under all automation (CDP/keyboard/OS-click/
-  patchright) — retest after 48h; likely fresh-app artifact not anti-bot.
-- [ ] cloudless-gr-member (265077368): Member DP variants locked by
-  sole-product rule (app has other products) — by design, leave.
-- [ ] Gmail OAuth: GMAIL_REFRESH_TOKEN 401s on exchange — needs one
-  `gmail.py login` re-consent click (human gate).
-- Note: another agent session was landing linkedin-devapp-ops/qualtrics-ops
-  skill work concurrently — coordinate before re-driving portal clicks.
+## Open — engineering
 
-## 2026-11-05 — Member app 265077368 company-verified
-
-- LinkedIn email: `cloudless-gr-member` (265077368) approved as associated
-  with the cloudless.gr Page (org 108614163). Page verification was already
-  done earlier today — this is the *company* verification.
-- **Unblocks** (docs-verified 2026-11-05, learn.microsoft.com/linkedin/dma):
-  **Member Data Portability (3rd Party)** — "Request access" is enabled only
-  after company-page verification. Products tab → access-request form
-  (legal name, registered address, website, privacy policy + business-email
-  verify — personal email fails) → LinkedIn review. Scope:
-  `r_dma_portability_3rd_party` via standard auth-code flow.
-- **NOT the (Member) variant**: Member DP (Member) grants
-  `r_dma_portability_self_serve` but requires a NEW app created with the
-  dedicated "Member Data Portability (Member) Default Company" page — no
-  retrofit onto 265077368. It's a light ToS-agree instant grant + OAuth
-  Token Generator token; EU/EEA/CH only (Greece OK). Cheapest path to the
-  owner's own-data snapshot if that's the goal.
-- [ ] Fix products-matrix mapping: business-email verify belongs to
-  (3rd Party), not (Member) — matrix conflates them.
-- [ ] Decide: drive the (3rd Party) form on 265077368, or create the
-  dedicated-page app for (Member) self-serve.
-
-## 2026-11-05 — Consolidated issue backlog (LinkedIn ops sprint)
-
-Status of every open issue from the LinkedIn review + verification email:
-
-| # | Issue | Status |
-|---|-------|--------|
-| 1 | `li_consent_trim.py` truncated stub (SyntaxError) | ✅ fixed PR #1364 |
-| 2 | `qualtrics_fill.py` truncated mid-expression | ✅ fixed PR #1364 |
-| 3 | `record_integration.sh` flag-ignoring arg parse | ✅ fixed PR #1364 |
-| 4 | `linkedin_scope_audit.py` broken `E` literal + invalid URN | ✅ fixed PR #1364 |
-| 5 | `survey_fill.js` `module.exports` in eval ctx | ✅ fixed PR #1364 |
-| 6 | argv guards `li_portal_edit`/`li_consent_drive` | ✅ fixed PR #1364 |
-| 7 | Member DP product map conflation | ✅ fixed (docs-verified) |
-| 8 | Lenovo Vantage WebView2 owns :9222 — CDP lane blocked | ✅ resolved — our lane moved to **:9229** (docs: any port works; Vantage rebinds 9222 on respawn via `DebuggingPortEnabled` reg flag / webview default — not worth fighting). chrome-debug-profile live on :9229 |
-| 9 | CDP scripts hardcode :9222 — need port parameter | ✅ fixed — `$CDP_URL` env (default :9229) in `li_portal_edit.py`, `qualtrics_fill.py`, `--cdp` in `cdp_shot.py`, `start-chrome-debug.bat` takes port arg |
-| 10 | Member DP request: pick (3rd Party) form vs new (Member) app | ⬜ open — login DONE (feed loads on :9229). Findings: **(Member) product shows NO request button** on 265077368 (dedicated-page gate real); (3rd Party)/(Member)/Pages buttons render enabled (`aria-disabled` null, secondary blue styling) but **synthetic + CDP mouse clicks fire nothing** — likely `window.open` form blocked as popup on background tab. NEXT: one manual click in the debug Chrome window on "Request access" for `Member Data Portability API (3rd Party)`, then fill form (legal name, reg. address, privacy policy + biz-email verify → LinkedIn review) |
-| 11 | `li_portal_edit.py get-secret` prints secret to stdout | ✅ fixed — writes to `$LI_SECRET_OUT` file when set, stdout otherwise |
-| 12 | LinkedIn token dead — one consent click (once lane up) | ⬜ open (blocked by #10 login) |
-| 13 | LinkedIn sidecar :9225 session dead — no stored creds | ⬜ open (manual — noVNC login once) |
-- **Unblocks**: product "Request access" modals on the app's Products tab
-  (only clickable when company-verified). Next action: request **Member
-  Data Portability (Member)** via
-  `li_portal_edit.py products 265077368 request "Member Data Portability"`
-  — modal still needs the business-email verify step (Edge :9222 +
-  logged-in LinkedIn required).
-
-## Mail-stack triage 2026-11-05 (business-email verification hunt)
-
-- ✅ `heartbeat.svbin` root-owned inside vmail dir → chowned to `vmail:vmail`
-- ✅ `fetch-code.py` — `mailbox '*'` broke on `.dovecot.sieve` maildir entry
-  (doveadm exit 75); patched to query INBOX/Junk/Sent/Trash/Heartbeat
-  explicitly. Residual: the dovecot folder-listing quirk is cosmetic and
-  stays until `.dovecot.sieve` moves out of the maildir root (config change).
-- ✅ `SPAM_REJECT_AT` on `mail-ingest` Worker: raised 9→25 to test, restored 9.
-- ✅ End-to-end ingest verified (POST → `ingest.php` → `dovecot-lda` → 204,
-  mail delivered). External inbound works (DMARC/LinkedIn mails landed today).
-- ❌ LinkedIn **business-email verification mail never arrives** — 3 sends,
-  not in any folder; dies at/before the Worker (likely edge spam-reject; log
-  sampling is 5%). Fallback Gmail `themis.baltzakis@gmail.com` checked via
-  google-workspace MCP — not there either.
-- ⬜ `gmail-ops` OAuth refresh token stale → needs `gmail.py login` re-consent.
-- ✅ **ROOT CAUSE found**: my `PATCH` on `SPAM_REJECT_AT` replaced the entire
-  worker bindings array — `MAIL_INGEST_URL`, `FALLBACK_FORWARD`, `SPAM_TAG_AT`,
-  `SPAM_BLOCK_SENDERS` were wiped → "missing ingest configuration" → every
-  inbound mail bounced at edge ~14:40-16:10. Restored all bindings; Gmail
-  test landed (204 → Maildir). Worker PATCH gotcha: always send full set.
-- ✅ Business email verified (`themis.baltzakis@gmail.com` on
-  `/developers/settings` — gmail rejected for the PRODUCT email field though:
-  "personal email domain" — product verify needs a business domain).
-- ✅ **Dedicated app created**: `cloudless-gr-dma` (id `265077464`,
-  client `77tdkcl3ukzx2d`) — Member DP (3rd Party) requires an app whose ONLY
-  product is itself (tooltip-verified); app `265077368` permanently blocked.
-- ✅ Page-admin company verification driven end-to-end (generate URL →
-  open → Verify → Confirm — I am the page admin in the debug session).
-- ✅ Code `633696` fetched from Maildir → business email verified in-modal.
-- ✅ Qualtrics access form `SV_08398ogFnu89WZg` filled + submitted via
-  qualtrics_fill.py (legal name, Koropi/Attica/19400/Greece, cloudless.gr
-  website+privacy, use-case text) → **LinkedIn review pending (up to 21d)**.
-- ⬜ `SPAM_REJECT_AT` restored to 9 ✓ (kept 25 during code fetch, done now).
-- ⬜ NEXT after review: OAuth token re-auth on `265077464` to mint
-  `r_dma_portability_3rd_party`; heal dead token on `265077368` separately.
-
-## Dev-app audit 2026-11-05 (all 4 apps vs portal)
-
-| App | Redirect URLs | Products/status | Issues |
-|---|---|---|---|
-| `265077464` cloudless-gr-dma | ✅ canonical callback added today | DP (3rd Party) request submitted + Qualtrics form done → review pending (≤21d) | scopes pending until grant |
-| `265077368` cloudless-gr-member | ✅ canonical callback | Share/OIDC/EventsMgmt provisioned; Lead Sync review in progress; DP blocked by only-product rule (correct) | dead OAuth token (consent click) |
-| `264925843` Cloudless Analytics | ✅ canonical callback | CM API Standard + Share/OIDC/Events | none |
-| `227354605` Cloudless API App | ⚠ has postiz + localhost + `social.cloudless.gr/` root — **canonical `/api/v1/auth/oauth/linkedin/callback` NOT registered** | Advertising Standard ✓; Lead Sync **Access denied** | add canonical redirect; Lead Sync denied — re-request with different justification if needed |
-
-## 2026-11-05 — LinkedIn ops-script repairs (review follow-up)
-
-- Review of today's LinkedIn PRs (#1344–#1358) found two files landed
-  **truncated mid-write**: `li_consent_trim.py` (9-line stub, unterminated
-  docstring → SyntaxError; `li_consent_drive.py` + portal-ops SKILL.md both
-  depend on it) and `qualtrics_fill.py` (101→25 lines, ends mid-expression;
-  all documented subcommands dead).
-- **Fixed on `fix/linkedin-ops-script-repairs`**: full `li_consent_trim.py`
-  implementation (strip scopes in place, `--show`, `--from-error` parses the
-  callback's error_description); complete CDP `qualtrics_fill.py`
-  (`--map`/`--answers`/`--country`/`--submit` per docstring); real flag parsing
-  in `record_integration.sh`; `linkedin_scope_audit.py` — fixed broken
-  `E = "{ORG.replace...}"` literal (was never an f-string — EVERY `{E}` probe
-  URL was malformed) + `{post}` URN now resolved live from /rest/posts
-  (comments endpoint needs share/ugcPost/activity URNs); `survey_fill.js` —
-  dropped `module.exports` (throws in browser eval) + argv guards on
-  `li_portal_edit.py`/`li_consent_drive.py`; dead-code cleanups. All touched
-  files ruff-clean.
-- [ ] `li_portal_edit.py get-secret` prints client secret to stdout — by
-  design, but lands in shell history/logs; consider stderr flag or file out.
-
-## 2026-11-05 — LinkedIn products/scopes: correct process codified
-
-- **Share on LinkedIn (Default Tier) + Sign In OIDC (Standard Tier) provisioned** on member app
-  `265077368` "cloudless-gr-member" (client_id `77fd3pui3m2jwm`, redirect
-  already = social.cloudless.gr callback). Email received today.
-- **NEW skill `linkedin-products-ops`** (+ `.cursor` mirror): canonical
-  product→scope→tier map (Microsoft Learn verified), app topology, rules
-  (REPLACE-not-union consent, 60d tokens, refresh=partner-only, 21-day
-  survey window, Standard-tier needs AUDIO-narrated video, dedicated-page
-  gate for portability). Tools: `li_scope_probe.py` (live
-  unauthorized_scope_error probe — no secret needed), `li_products_matrix.py`
-  (doc x live matrix), `li_portal_dump.py` (CDP portal scrape).
-- **Live probe matrix** (both apps): main `227354605` grantable = self-serve
-  + all org scopes + r_ads/rw_ads/r_ads_reporting + r_1st_connections_size +
-  rw_organization_admin + r_events/rw_events. Rejected on BOTH:
-  *_social_feed, r_member_profileAnalytics, r_member_postAnalytics,
-  r_organization_followers, r_dma_portability_self_serve.
-- **`.env` EXTRA_SCOPES trimmed** to the grantable union
-  (rw_organization_admin r_ads rw_ads r_ads_reporting r_1st_connections_size)
-  — previous value had 7 ungrantable scopes → every consent would
-  unauthorized_scope_error. social-api recreated, healthy.
-- **member-analytics are CM permissions** (not a separate product) — correct
-  path = Developer Support Portal ticket on 227354605 asking to provision
-  missing CM permissions; the "create new app" instinct is wrong.
-- **LinkedIn token still dead** (401 + invalid_grant) → one consent click
-  needed; now safe since scope union is grantable.
-- **Team fix**: admin@example.com added as owner on team 10024d25 (real
-  accounts team) — /auth/switch-team gives full access.
-- **linkedin-review@cloudless.gr password reset** (LinkedInReview2026!) —
-  reviewer login for demo recordings.
-- **264925843 (Cloudless Analytics App, `77j8kzfi1a6jn8`) consents the
-  FULL union** — probed: member analytics, feeds, followers, dma
-  portability all grantable. Events Management Standard Tier granted
-  11-05. RECOMMEND: switch LINKEDIN_CLIENT_ID/SECRET to this client +
-  one consent click → heals token AND unlocks member surfaces.
-- [ ] CM Standard-tier survey: needs ~2min screen recording WITH US-English
-  audio commentary (per LinkedIn requirements) + registered address.
-  Recording blocked until token healed via consent click.
+- [ ] cloudless-gr-live (265081467): Live Events = FORM state (verified
+  live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
+  <Q_DL>` with a fresh app-bound Q_DL link from the products page
+  (qualtrics-ops). All other products still REQ.
 - [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
+  — was blocked on root-owned dir; ownership fixed 2026-11-07, now unblocked.
+- [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
+  OS-click/patchright) — retest now that the 48h fresh-app window passed;
+  if still inert it is a fresh-app artifact, not anti-bot.
+- [ ] Backfill verification: pass resumed 2026-11-07 inside social-api
+  (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
+  had spellcheck_applied at start). Confirm final counts +
+  `meta_data.quality.spellcheck_applied=true` when it completes.
+- [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
+  elevated (`sshd -t` clean, host keys present, "Failed to start service"
+  logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
+  Elevation lane SOLVED + self-healing: sshd-ensure block at top of
+  `D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1` runs every
+  30 min via `\DevOptimizer\WSL-Memory-Watchdog`. Same file also carries
+  the CDP-Relay-9229 firewall pin (verified: WSL->host:9229 live).
+  NOTE: `\DevOptimizer\WSL-Permanent-Fix` (2-min guard) is DEAD — its
+  action calls pwsh.exe which resolves to a per-user Store stub
+  (0x80070002 every run). Repoint task action to conhost+powershell.exe
+  via the same elevated lane.
+- [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
+  (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
+  plain `playwright test` skips admin-login unless vars are set unquoted.
+  Documented gotcha, not a bug.
+- [ ] comfyui image absent locally — first wake via stack-ops:8199 will
+  pull the full image (multi-GB, may exceed the 120s wake timeout);
+  expect transient proxy failures until the first pull completes.
+
+## Open — external human gates
+
+- [ ] human: TikTok `cloudless.gr` status=expired; refresh returns "no
+  access_token in refresh response" → one TikTok login/QR scan on the
+  bridge (:9223); session_healer injects TIKTOK_SESSION_ID if valid,
+  else `scripts/tiktok_qr_watch.py` watches for the scan.
+- [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
+  in Meta Business, then POST /{phone}/register (standard registration —
+  request_code/verify_code are the migration API).
+- [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
+  `gmail.py login` re-consent click.
+- [ ] LinkedIn sidecar :9225 browser session dead and stored
+  `LINKEDIN_COOKIE` li_at stale — BUT a working lane now exists:
+  debug-chrome CDP `:9229` (headless chrome:9330 + userspace relay,
+  `devin-scripts/cdp_relay.py` + `cdp-launch.bat`) has a LIVE LinkedIn
+  session (verified /feed loads logged-in, 2026-11-07). Point
+  li_devapp_ops/portal scripts at host:9229 to resume the
+  portal/DM/specialties flows. Sidecar :9225 itself still needs a
+  credential login or stored LINKEDIN_EMAIL/PASSWORD.
+- [ ] human: X OAuth approve — fresh auth_token in .env OR click the
+  reauth_urls URL; bridge pin holds the session 600s.
+- [ ] human: FB OAuth reconnect — `gate_runner.py fb-token
+  <authorize-url>` needs an authorize URL + FB login in debug Chrome.
+  FACEBOOK_CLIENT_ID/SECRET are now set in .env — try the Accounts-UI
+  OAuth path first before the manual lane.
+- [ ] human: CM Standard-tier survey — needs ~2min screen recording with
+  US-English audio commentary + registered address (LinkedIn
+  requirement). Token healed 11-07; the recording itself is a human task.
+- [ ] human: Member DP (Member) in-portal modal on 265077368 after
+  biz-email verify — modal was inert under automation; retry once a
+  valid portal session exists.
+- [ ] human: LinkedIn Matched Audiences (264925843,
+  CRM:015285039163310) — DENIED "Business verification failed"; support
+  case submitted 2026-11-07, may need Greek business registration
+  (ΑΦΜ/ΓΕΜΗ) if requested.
+- [ ] human: Gmail MCP connector in Devin Desktop fails client-side
+  (likely expired OAuth); repo gmail-ops OAuth path works as fallback.
+- [ ] human: ChromeDebug schtasks edit denied (stored-credential task) —
+  needs owner password or elevation.
+- [ ] human: Devin storage.json regen from memory until next Devin
+  restart — watcher armed.
+- [ ] human: Host RAM ~5GB free of 32GB triggers the WSL vsock flaps —
+  close heavy Windows apps; no config fix.
+- [ ] human: IDE keeps a `wsl+docker-desktop` remote authority →
+  devin-server install-spam loop; close that authority and use
+  `wsl+Ubuntu-24.04` instead.
+
+## Open — owner decisions
+
+- [ ] decide: drive the Member DP (3rd Party) access-request form on
+  265077368, or create the dedicated-page app for (Member) self-serve
+  (`r_dma_portability_self_serve`). (3rd Party) needs legal/business info
+  + privacy policy + business-email verify.
+- [ ] decide: garbled LinkedIn asset 582ca53c (predates the image-text
+  fix; post is live) — delete+recreate is a content decision.
+- [ ] decide: Synigoros follow-up recipient `press@synigoros.gr` —
+  confirm the press office is the intended supplementary-report channel
+  before the next auto-send.
+- [ ] decide: schedule `wsl-safe-bounce.ps1` nightly ~04:30 — the script
+  is marked operator-only; declined unattended so far.
+- [ ] owner: Kakkava Founders week-2 items — recording
+  youtu.be/vHlKLsSF4rM, slides canva.link/dzabh086dzjph5v, mastersheet on
+  Notion; prime bootcamp outcomes into offer_survey copy + the 4-YES
+  diagnostic.
+
+## Watch — no action needed now
+
   blocked — file + dir root-owned; needs `sudo chown -R` on .devin/skills.
 - [x] Page verification done on 265077368 (11-05) → Member DP modal unblocked.
 - [ ] Member DP (Member) in-portal modal on 265077368 after biz-email verify.
@@ -257,6 +183,7 @@ Status of every open issue from the LinkedIn review + verification email:
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
+
 - [x] TikTok Creative Center trend pull — RESOLVED 2026-11-08: video
   pipeline already built in PR #1422 (app/services/tiktok_trends.py,
   unsigned CreativeOne sweep) + PR #1424 (trend_ingest 6h beat →
