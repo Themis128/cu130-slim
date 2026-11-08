@@ -16,8 +16,12 @@ def _celery_import_env(monkeypatch):
     engine where pool_size/max_overflow are invalid. Clearing the settings
     cache on teardown drops the sqlite-flavored Settings singleton that the
     import may have captured while the fake env was active."""
-    monkeypatch.setenv("CELERY_BROKER_URL", os.environ.get("CELERY_BROKER_URL") or "redis://localhost:6379/0")
-    monkeypatch.setenv("DATABASE_URL", os.environ.get("DATABASE_URL") or "sqlite+aiosqlite:///:memory:")
+    monkeypatch.setenv(
+        "CELERY_BROKER_URL", os.environ.get("CELERY_BROKER_URL") or "redis://localhost:6379/0"
+    )
+    monkeypatch.setenv(
+        "DATABASE_URL", os.environ.get("DATABASE_URL") or "sqlite+aiosqlite:///:memory:"
+    )
     yield
     from app.core.config import get_settings
 
