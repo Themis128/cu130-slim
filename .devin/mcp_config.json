@@ -131,7 +131,6 @@
     "slack": {
       "command": "bash",
       "args": [
-        "bash",
         "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/mcp-remote.sh",
         "https://mcp.slack.com/mcp",
         "3118",
@@ -140,13 +139,18 @@
         "--callback-path",
         "/callback",
         "--static-oauth-client-info",
-        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
-      ]
+        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}",
+        "--enable-proxy"
+      ],
+      "env": {
+        "HTTPS_PROXY": "socks5://127.0.0.1:1080",
+        "ALL_PROXY": "socks5://127.0.0.1:1080",
+        "HTTP_PROXY": "socks5://127.0.0.1:1080"
+      }
     },
     "slack-cloudless": {
       "command": "bash",
       "args": [
-        "bash",
         "/home/tbaltzakis/cu130-slim/.devin/skills/mcp-ops/scripts/mcp-remote.sh",
         "https://mcp.slack.com/mcp?workspace=wwwcloudlessgr",
         "3118",
@@ -155,8 +159,14 @@
         "--callback-path",
         "/callback",
         "--static-oauth-client-info",
-        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
-      ]
+        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}",
+        "--enable-proxy"
+      ],
+      "env": {
+        "HTTPS_PROXY": "socks5://127.0.0.1:1080",
+        "ALL_PROXY": "socks5://127.0.0.1:1080",
+        "HTTP_PROXY": "socks5://127.0.0.1:1080"
+      }
     },
     "metabase": {
       "command": "bash",
