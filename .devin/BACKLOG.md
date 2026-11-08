@@ -193,3 +193,19 @@ gone.
 - Remaining TikTok gaps: website link gated by 1k followers OR business verify (user files papers later); only 4 followers — growth = posting cadence.
 - myAADE: login works (TAXISNET creds in .env, do not echo); Βεβαιώσεις Μητρώου page reachable via `#!/vevaiwseismhtrwou`; Οντότητας/Επιχείρησης tiles HIDDEN because company isn't active yet — person certs only until Έναρξη filed.
 - Windows App privacy dialog can hijack ADB taps — verify screen state before/after every tap.
+
+## 2026-11-08 — Nextcloud docs mirror + devapps pipeline directive
+
+- [x] Standing directive saved to memory (`.devin/rules/cloudless-social-stack.md`
+  + `.cursor` mirror): dev-app pulls → datalake → analytics → reports →
+  per-channel post generation/publishing is the required flow; Nextcloud must
+  always carry the latest documentation/architecture.
+- [x] `sync-nextcloud-docs` worker added (6h beat, :45) — mirrors merged repo
+  markdown (root, docs/, deploy/, .devin/, .cursor/, social-automation/) from
+  GitHub master into Nextcloud `SocialAuto/docs/repo/` via WebDAV; per-file
+  blob SHAs in Redis (`ncx:doc:*`) so only changed files re-upload; writes
+  `_manifest.json` each run. Governed in `scripts/workforce_audit.py`.
+- [ ] Verify first live run after deploy: `SocialAuto/docs/repo/_manifest.json`
+  exists and `uploaded` count ≈ full manifest on first pass, ~0 afterwards.
+- [ ] PR #1522 (devapps→datalake→channel publishing) still open — merge when
+  checks green, then restart workers + beat to register the new tasks.

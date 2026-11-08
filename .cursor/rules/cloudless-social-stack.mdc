@@ -13,6 +13,8 @@ This repo runs Docker Compose (`cu130-slim`) with social-api, social-worker, n8n
 - **Email campaigns** (`/campaigns`, `/api/v1/email-campaigns`) must be unique (30-day dedup gate) and written in the Sofia Kakkava Visibility Era voice — subject=hook, one point, one CTA; `PLATFORM_GUIDES["email"]` + `voice_signature.email_formula` enforce it; UI has a "Draft with AI" button.
 - Carousel slide backgrounds use **ComfyUI FLUX.1-schnell GGUF** (local GPU, `media_gpu_lock`) → Cloudflare Workers AI FLUX schnell fallback; copy/NLP stays DMR (`ai/llama3.2`) + CF.
 - Automate via **n8n** workflow `cloudless-cf-carousel-linkedin` when the user wants scheduling/webhooks.
+- **Dev-apps → datalake → reports → per-channel publishing** — standing directive: pull live data from every connected social developer app (`devapps-sync`, 6h) → `analytics_events` → `export-datalake` (`lake/socialauto-devapps/*`, `socialauto-channel-actions/*`) → preprocessing + analytics (`datalake-insights`) → report sections → `devapp-channel-actions` → `schedule_report_actions` generates/schedules posts per channel. Never fabricate metrics; unhealthy accounts produce health/remediation actions, not posts.
+- **Nextcloud always carries latest docs** — `sync-nextcloud-docs` (6h) mirrors merged documentation/architecture from GitHub master into Nextcloud Files at `SocialAuto/docs/repo/`. When docs or architecture change, they must reach Nextcloud on the next sweep — do not treat the mirror as optional.
 
 ## Social funnel (conversion → Polar on social.cloudless.gr)
 

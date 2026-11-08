@@ -589,6 +589,19 @@ WORKFORCE = [
         fallback="sync gap logged; next run retries",
     ),
     Worker(
+        "nextcloud-docs-sync",
+        "app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task",
+        "default",
+        21600,
+        goal="Keep Nextcloud Files stocked with the latest repo documentation/architecture",
+        guardrails=(
+            "read-only on GitHub master — never pushes or mutates the repo",
+            "uploads only *.md under root/docs/deploy/.devin, capped per file",
+            "never writes outside SocialAuto/docs/repo/ in the workspace",
+        ),
+        fallback="sync gap logged; next run retries — docs are never lost, just stale",
+    ),
+    Worker(
         "strategy-brief",
         "app.worker.tasks.notebook_reports.run_notebook_report",
         "default",
