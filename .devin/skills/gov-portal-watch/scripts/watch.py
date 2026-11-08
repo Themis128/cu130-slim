@@ -1,0 +1,8 @@
+"""One-shot portal check: `python watch.py [config.json]` (default portal.json beside this file)."""
+import json, os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import engine
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+cfg_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "portal.json")
+engine.run_check(engine.load_config(cfg_path))
