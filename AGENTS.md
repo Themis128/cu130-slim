@@ -48,6 +48,7 @@ gh pr merge <N> --squash --delete-branch --auto
 - If local history has been cleaned/rewritten, use `git push --force-with-lease` and mention it in the summary.
 - Do not leave the working tree dirty at the end of a session unless the user explicitly asked for uncommitted changes.
 - A pre-commit or post-edit hook may auto-commit staged changes. Always check `git log --oneline -3` before committing to avoid duplicate or empty commits.
+- **On every "commit and push" request, also run the PR merge sweep** (user directive 2026-11-08): after committing+pushing, run `python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py` so all open PRs get update-branch + auto-merge armed toward `master`. Same for "address all PRs/issues" prompts.
 
 ## Test gate before commit/push
 
@@ -727,8 +728,8 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 
 - **The user uses Dodo, not Stripe.** For merchant-of-record / payment work, prefer Dodo. Polar is configured as `BILLING_PROVIDER=polar` but the user's payment platform of choice is Dodo. Do not direct the user to Stripe-branded flows expecting them to have a Stripe account — note that Polar internally uses Stripe Identity/Stripe Express for its KYC and payout onboarding even when the merchant doesn't otherwise use Stripe.
 - **Email**: The user's email client/server runs on their OMV-HA box (home server, Raspberry Pi — see below). Dedicated mailboxes (e.g. for the Polar SocialAuto app) must be created there — do NOT set up forwarding to Gmail. Inbound mail for cloudless.gr is handled by Cloudflare Email Routing (route*.mx.cloudflare.net); mailbox creds live in `/etc/dovecot/users` (virtual users `tbaltzakis@` / `espocrm@` / `polar@` / `omv-relay@`).
-- **OMV-HA SSH access**: `ssh tbaltzakis@192.168.1.130` — password stored in `.env` as `OMV_SSH_PASSWORD` (never commit it). Despite the name it is a Raspberry Pi running Debian 13 (no openmediavault packages): dovecot (IMAP 993, virtual mailboxes under `/var/mail/vhosts/cloudless.gr/`), postfix (submission 587, relays via Resend, cert from Let's Encrypt via acme.sh DNS-01 — auto-renews, see `/root/.acme.sh/`), roundcube webmail, valkey, cloudflared, keepalived BACKUP node (VIP 192.168.1.200). Reachable directly on LAN from this WSL2 host.
-- **omv master (192.168.1.128, hostname `omv`)**: keepalived MASTER holding the VIP; runs the Nextcloud docker stack (`cloud.cloudless.gr` — nextcloud, nextcloud-cron, notify-push, talk-hpb, talk-recording) + k3s. SSH only via the deploy key on the Pi: `ssh -i ~/.ssh/omv_ha tbaltzakis@192.168.1.128` (no password auth). occ: `sudo docker exec -u www-data nextcloud php occ …`. Nextcloud Mail account `tbaltzakis@cloudless.gr` → IMAP/SMTP at `mail.cloudless.gr` (container hosts-entry → the Pi); `app.mail.verify-tls-peer=true` (valid LE cert, do NOT set it back to false). Talk TURN is advertised at `192.168.1.200:3478` (LAN-only; external guests need a port-forward or hosted TURN). The omv compose/config fixes are codified in the `Themis128/cloudless.gr` repo under `infrastructure/omv/`.
+- **OMV-HA SSH access**: `ssh tbaltzakis@100.95.117.84` (tailnet; LAN 192.168.1.130 also works on-LAN) — password stored in `.env` as `OMV_SSH_PASSWORD` (never commit it). Despite the name it is a Raspberry Pi running Debian 13 (no openmediavault packages): dovecot (IMAP 993, virtual mailboxes under `/var/mail/vhosts/cloudless.gr/`), postfix (submission 587, relays via Resend, cert from Let's Encrypt via acme.sh DNS-01 — auto-renews, see `/root/.acme.sh/`), roundcube webmail, valkey, cloudflared, keepalived BACKUP node (VIP 192.168.1.200 (LAN)). Reachable directly on LAN from this WSL2 host.
+- **omv master (192.168.1.128, hostname `omv`)**: keepalived MASTER holding the VIP; runs the Nextcloud docker stack (`cloud.cloudless.gr` — nextcloud, nextcloud-cron, notify-push, talk-hpb, talk-recording) + k3s. SSH only via the deploy key on the Pi: `ssh -i ~/.ssh/omv_ha tbaltzakis@100.74.191.58` (tailnet; LAN 192.168.1.128 also works on-LAN) (no password auth). occ: `sudo docker exec -u www-data nextcloud php occ …`. Nextcloud Mail account `tbaltzakis@cloudless.gr` → IMAP/SMTP at `mail.cloudless.gr` (container hosts-entry → the Pi); `app.mail.verify-tls-peer=true` (valid LE cert, do NOT set it back to false). Talk TURN is advertised at `192.168.1.200:3478` (LAN-only; external guests need a port-forward or hosted TURN). The omv compose/config fixes are codified in the `Themis128/cloudless.gr` repo under `infrastructure/omv/`.
 - **Public DNS quirk**: `mail.cloudless.gr` resolves publicly to a dead IP (150.228.61.158) — direct external IMAP/SMTP by hostname does NOT work; LAN + Nextcloud (hosts entry) only. MX is Cloudflare Email Routing and does not use this record.
 
 ## Proactivity principle — platform-side rejections
@@ -737,3 +738,14 @@ The stack runs on an **8 GB VRAM** GPU (RTX 3070 Laptop). System RAM: Windows ho
 - **Before publish**: verify what IS knowable — token expiry + publish scopes, media public-URL reachability, per-account dedup, correct-media gate. This is the only class of failure you can prevent.
 - **After publish**: a failure is not done when it retries — it is done when it is *classified* and *surfaced*. The path exists (retry ×3 → failed → failure-learning signature → Slack digest + remediation proposals at ≥3x/7d). Never leave a failed post silent: confirm the signature landed and, for recurring signatures, write the remediation note before being asked.
 - **The healer contract**: auto-heal mechanical stalls (queue orphans, wedged publishes, stale locks, daemon death); alert-not-autofix on judgment calls (media choice, content edits, platform policy decisions).
+
+## Network access policy (user directive 2026-11-08)
+
+- **Work only with tailnet IPs.** All remote access to the user's machines/services (OMV, Pi/OMV-HA, phone, k3s nodes, etc.) must go over Tailscale addresses (`100.x.y.z`), never LAN IPs (`192.168.x.x`) or public hostnames, unless the user explicitly says otherwise for a specific task.
+- Known tailnet endpoints (from `tailscale status` 2026-11-08):
+- `wsl-ubuntu2404` 100.86.188.43 (this host)
+- `galaxy-s22` 100.84.31.85 — ADB at `:5555`
+- `github-omv` 100.74.191.58 (omv master / Nextcloud+k3s)
+- `omv-ha` 100.95.117.84 (Pi: mail stack)
+- `grokbot-box-1` 100.65.100.39, `ingress-0` 100.110.250.58, `k3s-subnet-router-0` 100.93.92.77, `office-1-win-exitnode` 100.83.120.93, `tailscale-operator` 100.85.166.50
+Re-run `tailscale status` for current state.
