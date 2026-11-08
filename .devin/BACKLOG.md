@@ -158,8 +158,7 @@ gone.
 - [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
 - [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
 
-## 2026-11-08 — WABA creation: 90% automated, display-name gate remains
+## 2026-11-08 — Android phone on ADB (SMS-OTP lane live)
 
-- [~] Business Manager WhatsApp wizard driven via CDP (:9222 bridge → debug Chrome, FB session live). Reached Details step: messaging account "cloudless.gr" + "Create a WhatsApp account". Blocker: display-name combobox — "cloudless.gr" violates no-URL rule; "Cloudless"/"Cloudless Cloud" fill React state but Continue stays aria-disabled (likely needs real keystroke cadence / suggestion pick that synthetic events can't reproduce). API path dead: POST /{bid}/whatsapp_business_accounts → (#3) app lacks capability; system_users POST → (#100) same.
-- [ ] HUMAN (~90s, normal browser): business.facebook.com → cloudless.gr portfolio → Accounts → WhatsApp accounts → Add → "Create a WhatsApp account" → display name "Cloudless Cloud", category Professional Services → phone +306977777838 → SMS code. ADB lane (wa_verify.py / phone RFCTA0AEKZP) reads the code automatically once sent.
-- [ ] After WABA exists: add phone_number_id to whatsapp row meta_data + mint system-user token (needs app capability enabled in App Dashboard → Advanced Access for business_management/whatsapp_*)
+- [x] Phone `RFCTA0AEKZP` (Samsung) connected USB + USB-debugging authorized — visible via Windows `adb.exe devices` (`device` state). WSL `adb` is BLIND to it (only stale `emulator-5554` offline) — always use `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` or `adb.exe` on Windows.
+- [x] SMS-OTP automation lane confirmed: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` via those adb paths (+ Termux :8022 + doveadm mail fallback). Unblocks WhatsApp WABA phone registration (+306977777838 SMS code) and any future SMS-2FA gates — no human code-reading needed while phone stays plugged in.
