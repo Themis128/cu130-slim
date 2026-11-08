@@ -174,3 +174,14 @@ gone.
   else powershell), logs to logs/omv-pull.log. Verified end-to-end
   02:54Z. omv-side callers just write to /tmp/win_cmds.sh now — no
   inbound sshd needed at all.
+- [x] Issues #793 + #795 answered (`approve` / `done` posted).
+- [x] Registered business address saved to .env as
+  REGISTERED_BUSINESS_ADDRESS (Thermopilon 15, Koropi 19441) — ready
+  for the LinkedIn CM access form + narrated recording.
+- [ ] myAADE doc download — needs Taxisnet creds (gov.gr SSO, none
+  stored anywhere). Add TAXISNET_USER/TAXISNET_PASS to .env and I'll
+  CDP-drive the two Βεβαιώσεις downloads; or drop the PDFs in
+  Downloads manually.
+- [~] sshd :2222 running; OmVPull already bypasses the inbound-SSH
+  need. Optional full expose still via `sudo tailscale set
+  --operator=$USER` + serve, or mirrored .wslconfig.
