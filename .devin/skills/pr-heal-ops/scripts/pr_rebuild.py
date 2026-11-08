@@ -23,9 +23,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pr"); ap.add_argument("--close", action="store_true")
     args = ap.parse_args()
-    REPO = os.environ.get("GH_REPO") or json.loads(subprocess.run(
+    REPO = os.environ.get("GH_REPO") or subprocess.run(
         ["gh","repo","view","--json","nameWithOwner","-q",".nameWithOwner"],
-        capture_output=True,text=True).stdout or "null")
+        capture_output=True,text=True).stdout.strip() or None
+    if not REPO:
+        raise SystemExit("cannot resolve repo — set GH_REPO=owner/name")
     pr = gh(f"repos/{REPO}/pulls/{args.pr}") or {}
     head = pr["head"]["ref"]
     files = gh(f"repos/{REPO}/pulls/{args.pr}/files?per_page=300") or []
