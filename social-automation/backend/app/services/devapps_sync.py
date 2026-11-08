@@ -24,6 +24,7 @@ the sweep.
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -92,7 +93,8 @@ async def _meta_debug_token(client: httpx.AsyncClient, token: str) -> dict[str, 
         params={"input_token": token, "access_token": token},
     )
     data = _resp_json(resp)
-    inner = data.get("data") if isinstance(data.get("data"), dict) else data
+    inner_raw = data.get("data")
+    inner: dict[str, Any] = inner_raw if isinstance(inner_raw, dict) else data
     out: dict[str, Any] = {"token_valid": bool(inner.get("is_valid"))}
     for k in ("expires_at", "data_access_expires_at"):
         if inner.get(k):
@@ -132,6 +134,7 @@ async def _pull_facebook(db: AsyncSession, account: SocialAccount, token: str) -
                 insights["object_error"] = str(exc)[:200]
             try:
                 from app.services.analytics_sync import _meta_insights_get
+                from app.services.meta_graph import facebook_graph_url
 
                 resp = await _meta_insights_get(
                     client,
@@ -469,7 +472,9 @@ async def _pull_viber(db: AsyncSession, account: SocialAccount, token: str) -> d
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
-_PULLERS = {
+_Puller = Callable[..., Awaitable[dict[str, Any]]]
+
+_PULLERS: dict[str, _Puller] = {
     "facebook": _pull_facebook,
     "instagram": _pull_instagram,
     "threads": _pull_threads,
