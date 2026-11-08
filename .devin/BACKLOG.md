@@ -227,9 +227,13 @@ gone.
   stored anywhere). Add TAXISNET_USER/TAXISNET_PASS to .env and I'll
   CDP-drive the two Βεβαιώσεις downloads; or drop the PDFs in
   Downloads manually.
-- [~] sshd :2222 running; OmVPull already bypasses the inbound-SSH
-  need. Optional full expose still via `sudo tailscale set
-  --operator=$USER` + serve, or mirrored .wslconfig.
+- [x] sshd :2222 EXPOSED via tailnet — RESOLVED 2026-11-08. WSL
+  already runs tailscaled as node `wsl-ubuntu2404` (100.86.188.43);
+  sshd binds 0.0.0.0:2222. The only gap was a tailnet ACL: added
+  `tag:pi → 100.86.188.43:2222` via Tailscale API (github-omv carries
+  tag:pi). Verified end-to-end: `ssh -p 2222 tbaltzakis@100.86.188.43`
+  from github-omv → shell on OFFICE. No .wslconfig change needed —
+  mirrored mode would have killed the session for zero gain.
 
 ## 2026-11-08 — stale human gates verified CLOSED (no action needed)
 
