@@ -21,10 +21,10 @@ gone.
 
 ## Open — engineering
 
-- [ ] cloudless-gr-live (265081467): Live Events product still shows FORM
-  state — fill via `li_devapp_ops.py fill-form <Q_DL>` once the catalog
-  provisions; the app-bound Q_DL link persists (grab a fresh one from the
-  products page when filling).
+- [ ] cloudless-gr-live (265081467): Live Events = FORM state (verified
+  live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
+  <Q_DL>` with a fresh app-bound Q_DL link from the products page
+  (qualtrics-ops). All other products still REQ.
 - [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
   — was blocked on root-owned dir; ownership fixed 2026-11-07, now unblocked.
 - [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
@@ -34,12 +34,17 @@ gone.
   (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
   had spellcheck_applied at start). Confirm final counts +
   `meta_data.quality.spellcheck_applied=true` when it completes.
-- [ ] human: Windows `sshd` on 192.168.1.23 is stopped (Access denied
-  to start it unelevated) — one elevated
-  `Start-Service sshd; Set-Service sshd -StartupType Automatic`. The omv
-  watchdog remediation itself is FIXED in both copies (deployed
-  /usr/local/sbin/safedeploy-watchdog.py + cloudless.gr PR #2374) — only
-  the ssh hop is dead until sshd runs.
+- [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
+  elevated (`sshd -t` clean, host keys present, "Failed to start service"
+  logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
+  Elevation lane SOLVED + self-healing: sshd-ensure block at top of
+  `D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1` runs every
+  30 min via `\DevOptimizer\WSL-Memory-Watchdog`. Same file also carries
+  the CDP-Relay-9229 firewall pin (verified: WSL->host:9229 live).
+  NOTE: `\DevOptimizer\WSL-Permanent-Fix` (2-min guard) is DEAD — its
+  action calls pwsh.exe which resolves to a per-user Store stub
+  (0x80070002 every run). Repoint task action to conhost+powershell.exe
+  via the same elevated lane.
 - [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
   (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
   plain `playwright test` skips admin-login unless vars are set unquoted.
@@ -50,26 +55,23 @@ gone.
 
 ## Open — external human gates
 
-- [x] human: TikTok `cloudless.gr` reconnected 2026-11-07 — QR login via
-  headed noVNC bridge + cookie inject into sidecar, fresh OAuth consent
-  on production app (client_key awtn8vvhotyxe9oc, scopes
-  user.info.basic,video.publish,video.upload — PR #1408). New account
-  `ab439e1e-549f-4a8b-901a-2f7eeb8a1c88` (display "Cloudless") is
-  active; manual refresh + creator_info/validate API calls verified;
-  stale 6-scope account `dcda73fb-…` marked revoked. Scheduled
-  refresh-expiring-tokens beat is healthy (publishing queue).
-  watch: first real publish still unproven on the new grant.
+- [ ] human: TikTok `cloudless.gr` status=expired; refresh returns "no
+  access_token in refresh response" → one TikTok login/QR scan on the
+  bridge (:9223); session_healer injects TIKTOK_SESSION_ID if valid,
+  else `scripts/tiktok_qr_watch.py` watches for the scan.
 - [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
   in Meta Business, then POST /{phone}/register (standard registration —
   request_code/verify_code are the migration API).
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
-- [ ] human: LinkedIn sidecar :9225 browser session dead and stored
-  `LINKEDIN_COOKIE` li_at stale on every automated lane → credential
-  login via noVNC, or store LINKEDIN_EMAIL/PASSWORD so the
-  credentials-login fallback can run. NOTE: the OAuth/API surface is
-  healthy (full-union consent landed on 264925843, 2026-11-07) — this
-  gate only blocks DOM-automation flows (DMs, specialties, portal edits).
+- [ ] LinkedIn sidecar :9225 browser session dead and stored
+  `LINKEDIN_COOKIE` li_at stale — BUT a working lane now exists:
+  debug-chrome CDP `:9229` (headless chrome:9330 + userspace relay,
+  `devin-scripts/cdp_relay.py` + `cdp-launch.bat`) has a LIVE LinkedIn
+  session (verified /feed loads logged-in, 2026-11-07). Point
+  li_devapp_ops/portal scripts at host:9229 to resume the
+  portal/DM/specialties flows. Sidecar :9225 itself still needs a
+  credential login or stored LINKEDIN_EMAIL/PASSWORD.
 - [ ] human: X OAuth approve — fresh auth_token in .env OR click the
   reauth_urls URL; bridge pin holds the session 600s.
 - [ ] human: FB OAuth reconnect — `gate_runner.py fb-token
@@ -138,23 +140,3 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
-
-## 2026-11-08 — TikTok Creative Center trendwatch + branch consolidation
-
-- [x] `scripts/tiktok_trendwatch.py` + `app/services/tiktok_trends.py` —
-  weekly trending-video signals from the unsigned CreativeOne report
-  endpoints (post-Oct-2026 deprecation path). `trend_context.trend_line(
-  platform="tiktok")` feeds the top niche hook into TikTok copy
-  generation; LIGHT sweep = 3 calls. Report: `--slack`/`--full`.
-- [x] Branch audit: 20 merged-debris branches deleted; 10 superseded
-  post-PR branches deleted after content verification (fetch-code
-  folders, consent-url, cal.com webhook, org-profile test all already on
-  master). Rescue PR #1419 = wsl-checkout-sync-check.sh +
-  linkedin_attribution_chain.sql.
-- [ ] decide: `feat/nextcloud-extras` + `feat/nextcloud-autoupdate-feeds`
-  — 38/27-file real code deltas vs master (empty #1379 merge era):
-  nextcloud sync lanes, oauth_reauth_watch, series_urn_watch,
-  token_expiry, funnel_audit tasks, agency_pipeline/crm_engagement
-  services, omv app-update cron. Needs a dedicated re-land pass — some
-  content may now be superseded by #1381/#1413-1415 era fixes. DO NOT
-  blind-merge (46-89 commits behind).
