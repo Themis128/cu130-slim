@@ -97,9 +97,7 @@ class TestComputeDevappSignals:
         assert sig["devapp_channels"][0]["followers"] == 1200.0
 
     def test_pick_actions_emits_devapp_health(self):
-        sig = compute_devapp_signals(
-            [_payload(platform="twitter", health={"token_valid": False}, username="tb")]
-        )
+        sig = compute_devapp_signals([_payload(platform="twitter", health={"token_valid": False}, username="tb")])
         actions = pick_actions(sig)
         health = [a for a in actions if a["type"] == "devapp_health"]
         assert len(health) == 1
@@ -107,9 +105,7 @@ class TestComputeDevappSignals:
         assert health[0]["priority"] == "high"
 
     def test_pick_actions_expiring_token_medium(self):
-        sig = compute_devapp_signals(
-            [_payload(token_expires_at=(NOW + timedelta(days=2)).isoformat())]
-        )
+        sig = compute_devapp_signals([_payload(token_expires_at=(NOW + timedelta(days=2)).isoformat())])
         actions = pick_actions(sig)
         health = [a for a in actions if a["type"] == "devapp_health"]
         assert len(health) == 1
@@ -124,9 +120,7 @@ class TestComputeDevappSignals:
 
 class TestMonetizationActionsFromChannels:
     def test_channel_action_becomes_instruction(self):
-        actions = build_channel_actions(
-            [_payload(platform="linkedin", account_type="organization")], now=NOW
-        )
+        actions = build_channel_actions([_payload(platform="linkedin", account_type="organization")], now=NOW)
         out = monetization_actions_from_channels(actions)
         assert len(out) == 1
         a = out[0]
@@ -136,9 +130,7 @@ class TestMonetizationActionsFromChannels:
         assert "1200 followers" in a["instruction"]
 
     def test_health_rows_never_generate_posts(self):
-        actions = build_channel_actions(
-            [_payload(health={"token_valid": False})], now=NOW
-        )
+        actions = build_channel_actions([_payload(health={"token_valid": False})], now=NOW)
         assert monetization_actions_from_channels(actions) == []
 
     def test_media_required_gets_image_format(self):
@@ -153,3 +145,63 @@ class TestMonetizationActionsFromChannels:
 
     def test_junk_rows_dropped(self):
         assert monetization_actions_from_channels(["x", None, {"type": "other"}]) == []
+
+
+class TestPrivateHelpers:
+    """Coverage for the small pure helpers the action builders rely on."""
+
+    def test_num_nested_dict_and_bool_exclusion(self):
+        from app.services.devapps_sync import _num
+
+        assert _num({"a": {"b": 4}}, "a", "b") == 4.0
+        assert _num({"a": True, "b": 2}, "a", "b") == 2.0
+        assert _num({"a": "x"}, "a", "b") is None
+        assert _num({}, "a") is None
+
+    def test_followers_creator_info_and_bad_container(self):
+        from app.services.devapps_sync import _followers
+
+        p = {"insights": {"profile": "not-a-dict", "creator_info": {"follower_count": 88}}}
+        assert _followers(p) == 88.0
+        p2 = {"insights": {"organization": {"followerCounts": {"totalFollowerCount": 5}}}}
+        assert _followers(p2) is None or _followers(p2) == 5.0
+
+    def test_days_to_expiry_naive_and_invalid(self):
+        from app.services.devapps_sync import _days_to_expiry
+
+        naive = {"health": {"expires_at": "2026-11-10T00:00:00"}}
+        d = _days_to_expiry(naive, NOW)
+        assert d is not None and d > 0
+        bad = {"token_expires_at": "not-a-date"}
+        assert _days_to_expiry(bad, NOW) is None
+        assert _days_to_expiry({}, NOW) is None
+
+    def test_content_hint_surfaces_engagement_counters(self):
+        from app.services.devapps_sync import _content_hint
+
+        p = _payload(
+            platform="facebook",
+            insights={
+                "profile": {"followers_count": 10},
+                "reach_30d": 900,
+                "page_impressions_unique_30d": 1200,
+                "accounts_engaged_30d": "NaN-ish",
+            },
+        )
+        hint = _content_hint(p)
+        assert hint["reach_30d"] == 900
+        assert hint["page_impressions_unique_30d"] == 1200
+        assert "accounts_engaged_30d" not in hint
+
+    def test_monetization_actions_drops_platformless_rows(self):
+        out = monetization_actions_from_channels(
+            [
+                {"type": "channel_action"},  # no platform → dropped
+                {"type": "channel_health", "platform": "x"},  # health → dropped
+                "junk",
+                {"type": "channel_action", "platform": "linkedin", "username": "u", "followers": 5},
+            ]
+        )
+        assert len(out) == 1
+        assert out[0]["platform"] == "linkedin"
+        assert "5 followers" in out[0]["instruction"]
