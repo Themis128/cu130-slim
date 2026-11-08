@@ -70,3 +70,17 @@ def test_avatar_story_routed_to_media_queue():
     assert limits.get("soft_time_limit") and limits.get("time_limit"), (
         "avatar story needs explicit soft/hard limits — the global 1h default is sized for sweeps, not a GPU render"
     )
+
+
+def test_central_brain_registered_and_scheduled():
+    """The daily decision sweep must be importable, routed, and on beat."""
+    import app.worker.tasks.central_brain  # noqa: F401 — registers the task
+    from app.worker.celery_app import celery_app
+
+    task = "app.worker.tasks.central_brain.run_central_brain"
+    names = list(celery_app.tasks.keys())
+    assert task in names
+    routes = celery_app.conf.task_routes or {}
+    assert routes.get(task, {}).get("queue") == "default"
+    entry = celery_app.conf.beat_schedule.get("central-brain-daily")
+    assert entry is not None and entry["task"] == task

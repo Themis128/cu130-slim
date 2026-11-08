@@ -602,6 +602,33 @@ WORKFORCE = [
         fallback="sync gap logged; next run retries — docs are never lost, just stale",
     ),
     Worker(
+        "central-brain",
+        "app.worker.tasks.central_brain.run_central_brain",
+        "default",
+        DAY,
+        goal=(
+            "Decide each day's prioritized per-channel actions from live signals "
+            "(devapp health, engagement, followers, market trends) and dispatch "
+            "them through the report executor"
+        ),
+        guardrails=(
+            "unhealthy channels never generate posts — health decisions only",
+            "trend 'noise' classifications are ignored; only opportunity/early_window move the plan",
+            "dispatch dedups on meta_data.central_brain_action — reruns never double-post",
+            "max 5 post actions per team per day",
+        ),
+        autonomy="auto",
+        fallback="sweep failure logged per team; next daily run retries — plan is journaled to company_brain either way",
+        escalations=[
+            (
+                "devapp snapshots reporting ok=false",
+                "SELECT count(*) FROM analytics_events WHERE event_type='devapp_snapshot' "
+                "AND meta_data->>'ok' = 'false' AND occurred_at > now() - interval '2 days'",
+                "a connected developer app is failing its health pull — needs token re-auth or scope repair before the channel can publish again",
+            )
+        ],
+    ),
+    Worker(
         "strategy-brief",
         "app.worker.tasks.notebook_reports.run_notebook_report",
         "default",

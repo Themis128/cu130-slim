@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.worker.tasks.nextcloud_sync",
         "app.worker.tasks.nextcloud_docs",
         "app.worker.tasks.company_brain",
+        "app.worker.tasks.central_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
         "app.worker.tasks.crm_engagement",
@@ -294,6 +295,7 @@ celery_app.conf.update(
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
         "app.worker.tasks.datalake_insights.datalake_insights_sweep": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
+        "app.worker.tasks.central_brain.run_central_brain": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
@@ -478,6 +480,16 @@ celery_app.conf.update(
         "sync-nextcloud-docs": {
             "task": "app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task",
             "schedule": crontab(minute=45, hour="*/6"),  # every 6h at :45
+        },
+        # Central brain — daily decision sweep: snapshot all signals →
+        # score channels against market trends → journal the plan →
+        # dispatch post actions through schedule_report_actions.
+        "central-brain-daily": {
+            "task": "app.worker.tasks.central_brain.run_central_brain",
+            "schedule": crontab(
+                hour=settings.CENTRAL_BRAIN_HOUR,
+                minute=settings.CENTRAL_BRAIN_MINUTE,
+            ),
         },
         # Nightly company-brain journal — real publish/follower outcomes →
         # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.

@@ -209,3 +209,13 @@ gone.
   exists and `uploaded` count ≈ full manifest on first pass, ~0 afterwards.
 - [ ] PR #1522 (devapps→datalake→channel publishing) still open — merge when
   checks green, then restart workers + beat to register the new tasks.
+
+### Central brain (feat/central-brain PR)
+
+- [ ] After merge + worker/beat restart: first `central-brain-daily` run at
+  06:30 Athens — verify `posts.meta_data.central_brain_action` rows appear,
+  `company_brain` journal gets a `central-brain-YYYY-MM-DD` memory, and
+  unhealthy channels produce health decisions only (no posts).
+- [ ] Brain reads `devapp_snapshot` events — full channel health scoring
+  activates once PR #1525 merges and `devapps-sync` starts writing them;
+  until then channels score on engagement/followers/trends only.
