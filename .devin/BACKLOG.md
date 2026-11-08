@@ -158,17 +158,31 @@ gone.
 - [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
 - [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
 
-## 2026-11-08 — Android phone on ADB (SMS-OTP lane live)
+## 2026-11-08 — omv WAN blips (cloud.cloudless.gr 502s)
 
-- [x] Phone `RFCTA0AEKZP` (Samsung) connected USB + USB-debugging authorized — visible via Windows `adb.exe devices` (`device` state). WSL `adb` is BLIND to it (only stale `emulator-5554` offline) — always use `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` or `adb.exe` on Windows.
-- [x] SMS-OTP automation lane confirmed: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` via those adb paths (+ Termux :8022 + doveadm mail fallback). Unblocks WhatsApp WABA phone registration (+306977777838 SMS code) and any future SMS-2FA gates — no human code-reading needed while phone stays plugged in.
+Recurring ~1-8 min CGNAT uplink drops on omv kill all 4 cloudflared QUIC
+conns → Cloudflare 502/530 on cloud/office/signal/push.cloudless.gr.
+Events: 11-06 ~03:00Z, 11-07 ~03:00Z + 14:48Z (~8min), 11-08 00:58Z.
+All self-heal. Mitigations live on omv + mirrored via PR #1454:
+metrics on 127.0.0.1:60123 + cloudflared-tunnel-watchdog timer.
 
-## 2026-11-08 — WhatsApp account pulled OUT of cloudless.gr business (moving to another portfolio)
+- [ ] `human:` ISP ticket if the ~03:00Z pattern persists (looks like
+  provider maintenance/CGNAT session resets).
+- [ ] `decide:` dual-WAN/4G failover on the router — only real fix for
+  WAN loss; replica tunnels don't help (all tailnet hosts share the WAN).
+- [ ] `watch:` monitor `journalctl -t cf-tunnel-watchdog` for restart
+  frequency; if >2/wk, escalate to router failover.
 
-- [x] WAAC `+30 697 777 7838` / display `Cloudless` (created earlier via BM wizard, status Unverified) — phone number DELETED from it via BM → WhatsApp accounts → row ⋯ → Delete phone number (password gate: FACEBOOK_PASSWORD from Infisical via `docker exec infisical node` — host :8090 port-forward is dead post Docker restart, use container IP/exec).
-- [x] Empty WAAC shell then removed via detail-panel ⋯ → "Remove from business portfolio" → Delete WhatsApp account. BM now shows "No WhatsApp accounts added" under business `1558125105019725`.
-- [x] Phone side: WhatsApp Business app (`com.whatsapp.w4b`, `RFCTA0AEKZP`) backed out of the coexistence `InputVerificationCodeActivity` screen — app account + chats untouched; number stays registered to the app.
-- [ ] USER ACTION: re-add the WhatsApp Business account under the TARGET business portfolio (the one- business-per-WABA rule blocked it while it lived in cloudless.gr). Then: phone verify (SMS reads itself via `wa_verify.py` ADB lane) → Messaging account → new phone_number_id → update `social_accounts` whatsapp row `77f17091` meta_data + token.
-- [ ] Still open from before: app `1936126137016578` lacks system-user capability (#100) — needs Advanced Access for whatsapp_business_management mint; TikTok stale rows `dcda73fb`/`ab439e1e`/`7c33ed15` cleanup candidates.
-- [ ] NOTE: `/tmp/wa_coex_watch.sh` watcher is now MOOT — it polled the Meta embedded-signup unblock for coexistence under cloudless.gr; the account moved businesses instead. Safe to kill if still running.
-- [~] WhatsApp coexistence automation re-armed (watcher v2, PID varies — check `pgrep -f wa_coex_watch2`): `/tmp/wa_coex_watch2.sh` → `/tmp/wa_coex_probe.py` polls dev-console every 30 min/48h, detects the account-level "temporarily blocked" cooldown (toast is transient — probe polls 60s post-Continue), on UNBLOCKED runs `/tmp/wa_coex_drive.py` (tab-targeted, hunts access code → `/tmp/wa_access_code.txt`) + kicks `/tmp/wa_phone_link.py` (ADB actuator: code entry, share-history confirm, camera permission; alerts on biometric/QR gates) + Telegram P2. NOTE: dev-console business selector offers ONLY cloudless.gr — the user's target business is NOT visible to this FB session (me/business_users = cloudless.gr only), so the actual add-under-other-business step happens in the user's own BM session; watcher only signals the cooldown lifting.
+Also fixed this session: k3s `loki-{chunks,results}-cache` STS scaled
+to 0 (helm values disable them; spec was both invalid under LimitRange
+300m and unschedulable at 9.6Gi mem request — was spamming FailedCreate);
+tailscale `kube` ProxyGroup restored (applied upstream authproxy-rbac.yaml
+→ SA + impersonation RBAC, cleared stale state secret `kube-0` → device
+re-registered as kube-0-1, all conditions True). Dead `kube-0` device can
+be deleted from the tailnet admin console (cosmetic).
+
+## 2026-11-08 (cont.) — FB/IG publish enhancements shipped
+
+PR #1472 (auto-merge armed): FB Page Reels (`platform_specific.facebook.format="reel"` → video_reels 3-phase), IG Stories (`platform_specific.instagram.format="story"` → instagrapi story upload), `publish_path` telemetry on every PublishResult → `Post.platform_specific.publish_path`. Deployed live to all 5 backend containers.
+- [ ] Wire scheduler/UI to set `platform_specific.{facebook,instagram}.format` so Reels/Stories get used; currently opt-in flag only.
+- [ ] Watch: first real Reel/Story publish — verify Graph scopes (`pages_manage_posts` covers reels; story via instagrapi session).
