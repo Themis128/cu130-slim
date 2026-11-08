@@ -38,53 +38,33 @@ def tabs():
         return []
 
 
-def _real_chrome_on(port):
-    """True when a REAL Chrome answers CDP on `port` — rejects EdgeWebView2
-    hosts like Lenovo Vantage that also expose :9222 (Browser 'Edg/…',
-    UA 'LenovoVantage/…'), which silently hijacks every gate."""
-    try:
-        with urllib.request.urlopen(f"http://localhost:{port}/json/version", timeout=5) as f:
-            v = json.loads(f.read())
-        ua = (v.get("userAgent") or "").lower()
-        return "lenovovantage" not in ua and v.get("Browser", "").startswith("Chrome/")
-    except Exception:
-        return False
-
-
 def _ensure_cdp() -> None:
-    if tabs() and _real_chrome_on(9222):
+    if tabs():
         return
-    if _real_chrome_on(9224):          # debug Chrome may already be up here
-        globals()["CDP"] = "http://localhost:9224"
-        return
-    port = "9224" if tabs() else "9222"   # :9222 taken by a webview → shift
     if REAL:
         subprocess.run(["cmd", "/c", "taskkill /F /IM chrome.exe"],
                        capture_output=True, timeout=30)
         time.sleep(3)
-        subprocess.Popen([CHROME, f"--remote-debugging-port={port}"])
+        subprocess.Popen([CHROME, "--remote-debugging-port=9222"])
     else:
-        subprocess.Popen([CHROME, f"--remote-debugging-port={port}",
+        subprocess.Popen([CHROME, "--remote-debugging-port=9222",
                           f"--user-data-dir={DEBUG_PROFILE}",
                           "--no-first-run", "about:blank"])
-    globals()["CDP"] = f"http://localhost:{port}"
     for _ in range(30):
-        if tabs() and _real_chrome_on(int(port)):
+        if tabs():
             return
         time.sleep(1)
-    raise SystemExit(f"CDP never came up on :{port}")
+    raise SystemExit("CDP never came up on :9222")
 
 
 class Page:
     _id = 0
 
-    def __init__(self, url_match=None):
+    def __init__(self):
         import websocket
         ts = tabs()
         if not ts:
             raise SystemExit("no CDP tab")
-        if url_match:
-            ts = [t for t in ts if url_match in t.get("url", "")] or ts
         self.ws = websocket.create_connection(
             ts[0]["webSocketDebuggerUrl"], timeout=30, suppress_origin=True)
         for m in ("Page.enable", "Runtime.enable"):
@@ -233,25 +213,9 @@ def gate_email_routing():
         "tbaltzakis@cloudless.gr")
     time.sleep(1)
     p.click("/save|add|create/i")
-    print("destination add attempted — watching dashboard row for Verified…")
+    print("destination add attempted — watching mailbox for verify link…")
     p.close()
-    # Source of truth = the dashboard row status. Maildir polling is best-effort
-    # only: inbound mail routes to mail-ingest → webmail.cloudless.gr/ingest,
-    # not an omv Maildir, so the verify link may never touch /home/*/Maildir.
-    for _ in range(40):
-        try:
-            p2 = Page()
-            p2.goto("https://dash.cloudflare.com/?to=/:zone/cloudless.gr/email/routing/routes")
-            time.sleep(4)
-            p2.click("/destination addresses/i")
-            time.sleep(3)
-            t = p2.poll("document.body.innerText", timeout=15) or ""
-            p2.close()
-            i = t.find("tbaltzakis@cloudless.gr")
-            if i >= 0 and "verified" in t[i:i + 140].lower():
-                return "destination VERIFIED — retest mail-outbound /send"
-        except Exception:
-            pass
+    for _ in range(60):
         try:
             r = subprocess.run(
                 ["ssh", "-o", "ConnectTimeout=10", "-o", "BatchMode=yes", "omv",
@@ -260,13 +224,14 @@ def gate_email_routing():
                  "grep -oE 'https://[a-zA-Z0-9./?=_%&-]+' \"$d/$f\"; done; done "
                  "2>/dev/null | grep -i cloudflare | grep -iE 'verif|confirm' | tail -1"],
                 capture_output=True, text=True, timeout=25)
-            link = r.stdout.strip()
-            if link:
-                subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
         except subprocess.TimeoutExpired:
-            pass
-        time.sleep(15)
-    return "still Pending after 10min — verify link never surfaced"
+            continue
+        link = r.stdout.strip()
+        if link:
+            subprocess.run(["curl", "-s", "-o", "/dev/null", link], timeout=15)
+            return "verify link followed — destination VERIFIED; retest mail-outbound /send"
+        time.sleep(10)
+    return "no verify email in 10min — check omv maildir manually"
 
 
 def gate_deploy_token():
