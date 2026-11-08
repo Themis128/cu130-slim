@@ -491,12 +491,10 @@ class TestVerifyMediaSemantics:
     @pytest.mark.asyncio
     async def test_cf_fallback_when_dmr_down(self, monkeypatch):
         monkeypatch.setattr(MA, "_call_dmr_vision", AsyncMock(return_value=None))
-        cf = AsyncMock(
-            side_effect=[
-                {"result": {"caption": "A cat sleeping on a mat"}},
-                {"result": {"response": "YES it is a cat"}},
-            ]
-        )
+        cf = AsyncMock(side_effect=[
+            {"result": {"caption": "A cat sleeping on a mat"}},
+            {"result": {"response": "YES it is a cat"}},
+        ])
         monkeypatch.setattr(MA, "_call_cloudflare_vision", cf)
         out = await MA.verify_media_semantics(b"img", "a cat")
         assert out["match"] is True
@@ -509,12 +507,10 @@ class TestVerifyMediaSemantics:
         monkeypatch.setattr(
             MA,
             "_call_cloudflare_vision",
-            AsyncMock(
-                side_effect=[
-                    {"result": {"caption": "A red sports car"}},
-                    {"result": {"response": "NO it shows a car, not a cat"}},
-                ]
-            ),
+            AsyncMock(side_effect=[
+                {"result": {"caption": "A red sports car"}},
+                {"result": {"response": "NO it shows a car, not a cat"}},
+            ]),
         )
         out = await MA.verify_media_semantics(b"img", "a cat")
         assert out["match"] is False
