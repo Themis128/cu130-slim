@@ -127,7 +127,7 @@ function loadState() {
   if (LIST) {
     for (const ev of SCHEDULE.events) {
       const due = now >= new Date(ev.sendAt + 'T08:00:00+03:00').getTime();
-      console.log(`${ev.id}  sendAt=${ev.sendAt}  ${due ? 'DUE' : 'pending'}  sent=${!!state.sent[ev.id]}  -> ${ev.to.join(',')}  file=${ev.file}`);
+      console.log(`${ev.id}  sendAt=${ev.sendAt}  ${due ? 'DUE' : 'pending'}  sent=${!!state.sent[ev.id]}  ${ev.tgOnly ? 'TG: ' + ev.tgText : '-> ' + ev.to.join(',') + '  file=' + ev.file}`);
     }
     return;
   }
@@ -137,6 +137,20 @@ function loadState() {
     if (state.sent[ev.id]) continue;
     const dueAt = new Date(ev.sendAt + 'T08:00:00+03:00').getTime();
     if (now < dueAt) continue;
+
+    // tg-only reminder events (e.g. scheduled phone calls) — no email sent.
+    if (ev.tgOnly) {
+      if (DRY) { console.log(`DRY-TG ${ev.id}: ${ev.tgText}`); continue; }
+      const ok = await tg(`⏰ ${ev.tgText}`);
+      if (ok) {
+        state.sent[ev.id] = new Date().toISOString();
+        changed = true;
+        console.log(ev.id + ' tg reminder sent');
+      } else {
+        console.log(ev.id + ' tg reminder failed');
+      }
+      continue;
+    }
 
     const raw = fs.readFileSync(path.join(DIR, ev.file), 'utf8');
     const subject = raw.match(/^Subject:\s*(.+)$/m)[1].trim();
