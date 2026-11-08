@@ -271,6 +271,26 @@ class InstagrapiClient:
 
         return await asyncio.to_thread(self._sync_call, _do)
 
+    async def upload_photo_to_story(self, file_path: str) -> dict[str, Any]:
+        """Publish a photo as an Instagram Story. Returns dict with id, pk."""
+        await self._wait_for_rate_limit()
+
+        def _do(cl: Any) -> dict[str, Any]:
+            media = cl.photo_upload_to_story(Path(file_path))
+            return {"id": str(media.id), "pk": str(media.pk), "code": getattr(media, "code", "")}
+
+        return await asyncio.to_thread(self._sync_call, _do)
+
+    async def upload_video_to_story(self, file_path: str) -> dict[str, Any]:
+        """Publish a video as an Instagram Story (<=60s). Returns dict with id, pk."""
+        await self._wait_for_rate_limit()
+
+        def _do(cl: Any) -> dict[str, Any]:
+            media = cl.video_upload_to_story(Path(file_path))
+            return {"id": str(media.id), "pk": str(media.pk), "code": getattr(media, "code", "")}
+
+        return await asyncio.to_thread(self._sync_call, _do)
+
     # ── Read-only profile (with free fallback chain) ──────────────────────
 
     async def get_profile(self) -> dict[str, Any]:
