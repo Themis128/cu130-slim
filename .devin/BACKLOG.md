@@ -180,3 +180,9 @@ tailscale `kube` ProxyGroup restored (applied upstream authproxy-rbac.yaml
 → SA + impersonation RBAC, cleared stale state secret `kube-0` → device
 re-registered as kube-0-1, all conditions True). Dead `kube-0` device can
 be deleted from the tailnet admin console (cosmetic).
+
+## 2026-11-08 (cont.) — FB/IG publish enhancements shipped
+
+PR #1472 (auto-merge armed): FB Page Reels (`platform_specific.facebook.format="reel"` → video_reels 3-phase), IG Stories (`platform_specific.instagram.format="story"` → instagrapi story upload), `publish_path` telemetry on every PublishResult → `Post.platform_specific.publish_path`. Deployed live to all 5 backend containers.
+- [ ] Wire scheduler/UI to set `platform_specific.{facebook,instagram}.format` so Reels/Stories get used; currently opt-in flag only.
+- [ ] Watch: first real Reel/Story publish — verify Graph scopes (`pages_manage_posts` covers reels; story via instagrapi session).
