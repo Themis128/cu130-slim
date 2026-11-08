@@ -285,27 +285,99 @@ def _install_cron() -> int:
     return 0
 
 
+def _slack_api(token: str, method: str, **params) -> dict:
+    params["token"] = token
+    req = urllib.request.Request(
+        f"https://slack.com/api/{method}",
+        data=urllib.parse.urlencode(params).encode(),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.load(resp)
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _env_token_candidates() -> list[tuple[float, Path, dict]]:
+    """Every Slack-scoped token file, refreshed when inside the window."""
+    out: list[tuple[float, Path, dict]] = []
+    now_ms = time.time() * 1000
+    for expires_ms, path in _slack_token_files():
+        os.chmod(path, 0o600)  # rotated creds must never sit world/group-readable
+        tok = json.loads(path.read_text())
+        if expires_ms - now_ms < REFRESH_WINDOW_S * 1000:
+            try:
+                resp = _refresh(tok)
+            except Exception as exc:  # noqa: BLE001
+                print(f"refresh failed for {path.name}: {exc}", file=sys.stderr)
+                continue
+            tok["access_token"] = resp["access_token"]
+            if resp.get("refresh_token"):
+                tok["refresh_token"] = resp["refresh_token"]
+            tok["token_type"] = resp.get("token_type", "Bearer")
+            tok["expires_in"] = resp.get("expires_in", 43200)
+            tok["expires_at"] = int(now_ms + tok["expires_in"] * 1000)
+            path.write_text(json.dumps(tok))
+            os.chmod(path, 0o600)
+            print(f"refreshed token → {path.name}, new expiry in {tok['expires_in']}s")
+        out.append((float(tok.get("expires_at") or 0), path, tok))
+    return sorted(out, key=lambda t: t[0], reverse=True)
+
+
+def _pick_workspace_token(
+    cands: list[tuple[float, Path, dict]],
+) -> tuple[Path | None, dict | None]:
+    """Prefer the token whose workspace owns SLACK_CHANNEL_ID.
+
+    mcp-remote keeps one token file per connected Slack workspace; with
+    several workspaces, picking files[0] is arbitrary and every post lands
+    in (or fails against) the wrong workspace. conversations.info resolves
+    the channel only inside its own workspace, so the first candidate that
+    can see it is the right token. Falls back to the freshest file.
+    """
+    channel = _env_lookup("SLACK_CHANNEL_ID")
+    if channel:
+        for _, path, tok in cands:
+            r = _slack_api(tok["access_token"], "conversations.info", channel=channel)
+            if r.get("ok"):
+                return path, tok
+            print(
+                f"{path.name}: cannot see SLACK_CHANNEL_ID "
+                f"({r.get('error', 'request failed')})",
+                file=sys.stderr,
+            )
+    # Offline fallback: this host cannot always reach slack.com (seen
+    # 2026-11-08 — github OK, slack/google TCP timeouts). mcp-remote keeps
+    # one token file per workspace; _team_map.json (written by auth.test
+    # probes) records which team each file belongs to, and SLACK_TEAM_ID
+    # in .env names the workspace the configured channel IDs live in.
+    want_team = _env_lookup("SLACK_TEAM_ID")
+    if want_team:
+        team_map = _team_map()
+        for _, path, tok in cands:
+            if (team_map.get(path.name) or {}).get("team_id") == want_team:
+                return path, tok
+    if cands:
+        return cands[0][1], cands[0][2]
+    return None, None
+
+
+def _team_map() -> dict:
+    try:
+        return json.loads((TOKEN_DIR / "_team_map.json").read_text())
+    except Exception:  # noqa: BLE001
+        return {}
+
+
 def main() -> int:
-    files = _slack_token_files()
-    if not files:
+    cands = _env_token_candidates()
+    if not cands:
         print("no Slack-scoped token file found", file=sys.stderr)
         return 1
-    expires_ms, path = files[0]
-    os.chmod(path, 0o600)  # rotated creds must never sit world/group-readable
-    tok = json.loads(path.read_text())
-    now_ms = time.time() * 1000
-
-    if expires_ms - now_ms < REFRESH_WINDOW_S * 1000:
-        resp = _refresh(tok)
-        tok["access_token"] = resp["access_token"]
-        if resp.get("refresh_token"):
-            tok["refresh_token"] = resp["refresh_token"]
-        tok["token_type"] = resp.get("token_type", "Bearer")
-        tok["expires_in"] = resp.get("expires_in", 43200)
-        tok["expires_at"] = int(now_ms + tok["expires_in"] * 1000)
-        path.write_text(json.dumps(tok))
-        os.chmod(path, 0o600)
-        print(f"refreshed token → {path.name}, new expiry in {tok['expires_in']}s")
+    path, tok = _pick_workspace_token(cands)
+    if path is None or tok is None:
+        return 1
 
     changed = _write_env_token(tok["access_token"])
     print(f"env {'updated' if changed else 'unchanged'}")
