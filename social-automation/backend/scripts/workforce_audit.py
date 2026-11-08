@@ -580,6 +580,63 @@ WORKFORCE = [
         fallback="export retried next sweep; partial files are not kept",
     ),
     Worker(
+        "devapps-sync",
+        "app.worker.tasks.devapps_sync.sync_devapps",
+        "default",
+        21600,
+        goal="Pull live developer-app health/insights/demographics into the datalake",
+        guardrails=(
+            "read-only on platform APIs — never publishes or mutates accounts",
+            "one account's failure degrades to an error payload, never aborts the sweep",
+            "no token values in payloads — health flags + scopes only",
+        ),
+        fallback="account skipped with error payload; next 6h sweep retries",
+        evidence=[
+            (
+                "last devapp snapshot",
+                "SELECT max(occurred_at) FROM analytics_events WHERE event_type='devapp_snapshot'",
+            )
+        ],
+        escalations=[
+            (
+                "dead devapp channels",
+                "SELECT count(*) FROM analytics_events WHERE event_type='devapp_snapshot'"
+                " AND meta_data->>'ok'='false'"
+                " AND occurred_at >= now() - interval '24 hours'",
+                "channel pull failed — token dead, scope missing, or platform API down; needs heal lane",
+            )
+        ],
+    ),
+    Worker(
+        "devapp-channel-actions",
+        "app.worker.tasks.devapp_channel_actions.run_channel_actions",
+        "default",
+        21600,
+        goal="Turn healthy devapp channel actions into scheduled per-channel posts",
+        guardrails=(
+            "posts go through the full executor chain — copy, quality pipeline, media, brand compliance",
+            "health-override channels never generate posts (devapp_health lane owns them)",
+            "idempotent per day via devapp_channel_action hash dedup",
+            "messaging-only platforms skipped by the executor",
+        ),
+        fallback="executor failure logged per team; next 6h sweep retries (daily dedup window)",
+        evidence=[
+            (
+                "last channel-action post",
+                "SELECT max(created_at) FROM posts WHERE meta_data->>'source'='devapp-channel-actions'",
+            )
+        ],
+        escalations=[
+            (
+                "channel actions failing",
+                "SELECT count(*) FROM analytics_events WHERE event_type='devapp_snapshot'"
+                " AND meta_data->>'ok'='false'"
+                " AND occurred_at >= now() - interval '24 hours'",
+                "no fresh healthy snapshots — channel posts can't be generated; heal lane needed",
+            )
+        ],
+    ),
+    Worker(
         "nextcloud-sync",
         "app.worker.tasks.nextcloud_sync.sync_nextcloud_surfaces",
         "default",
@@ -587,19 +644,6 @@ WORKFORCE = [
         goal="Mirror operational state into Nextcloud Tables/Deck memory",
         guardrails=("never overwrite a human-edited Nextcloud row",),
         fallback="sync gap logged; next run retries",
-    ),
-    Worker(
-        "nextcloud-docs-sync",
-        "app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task",
-        "default",
-        21600,
-        goal="Keep Nextcloud Files stocked with the latest repo documentation/architecture",
-        guardrails=(
-            "read-only on GitHub master — never pushes or mutates the repo",
-            "uploads only *.md under root/docs/deploy/.devin, capped per file",
-            "never writes outside SocialAuto/docs/repo/ in the workspace",
-        ),
-        fallback="sync gap logged; next run retries — docs are never lost, just stale",
     ),
     Worker(
         "strategy-brief",
