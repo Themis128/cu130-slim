@@ -155,7 +155,7 @@ export default function BillingPage() {
 
   // Reconcile after checkout redirect
   useEffect(() => {
-    if (searchParams.get('checkout') === 'success') {
+    if (searchParams?.get('checkout') === 'success') {
       billingApi.sync().then(() => {
         toast.success('Subscription updated')
         load()
