@@ -78,7 +78,4 @@ def trend_line(platform: str | None = None) -> str:
     s = s or top_relevant_signal()
     if not s:
         return ""
-    return (
-        f'\n\nA live trend signal audiences are watching now: "{s}". '
-        "Reference it only if it fits the instruction naturally — never force it."
-    )
+    return f'\n\nA live trend signal audiences are watching now: "{s}". Reference it only if it fits the instruction naturally — never force it.'

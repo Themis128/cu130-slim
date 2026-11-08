@@ -158,8 +158,7 @@ def test_top_relevant_signal_google_path(monkeypatch):
     def fake_fetch(geo):
         if geo == "GR":
             raise RuntimeError("rss down")
-        return [{"query": "ai cloud automation news", "geo": geo,
-                 "traffic": 8000, "pub_date": "x", "news": []}]
+        return [{"query": "ai cloud automation news", "geo": geo, "traffic": 8000, "pub_date": "x", "news": []}]
 
     monkeypatch.setattr("scripts.trendwatch.fetch_trending", fake_fetch)
     sig = trend_context.top_relevant_signal(("GR", "US"))
