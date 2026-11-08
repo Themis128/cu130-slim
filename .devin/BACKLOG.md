@@ -343,3 +343,33 @@ wsl-safe-bounce schedule, Kakkava week-2 content work.
   CM recording, Windows sshd elevation, Member DP modal, decisions
   (garbled LI asset / synigoros / wsl-safe-bounce / Member DP path),
   issues #793/#795 = literal `approve`/`done` replies.
+
+## 2026-11-08 — MCP fleet + Infisical migration + human-gate sweep (Devin)
+
+- [x] MCP fleet 20/20 healthy (`.devin/skills/mcp-ops/scripts/mcp_health.py`):
+  fixed wslpath bugs in metabase/polar wrappers, generic `mcp-remote.sh`,
+  slack proxy env, phone path, google-photos + linkedin-ads wrappers,
+  uvx install, mcp_health stdin/stderr handling, woke sleep-managed
+  linkedin:9227 / airbyte:9228 / nextcloud:9231.
+- [x] `linkedin_token_dump.py` rewritten standalone (asyncpg+cryptography,
+  ~6s vs ~20s) — linkedin-ads MCP init no longer borderline.
+- [x] LinkedIn sidecar personal login DONE: credential login → LinkedIn
+  SMS challenge → code self-read off Galaxy S22+ via ADB → feed live,
+  has_session=true. LINKEDIN_EMAIL/PASSWORD/USERNAME in Infisical+D1+PG.
+- [x] Infisical `cloudless-infra`/prod now holds 95 secrets — all 85
+  credential vars from `.env` + 8 Postgres-only social_secrets keys.
+  Tool: `.devin/skills/infisical-ops/scripts/migrate-env.py`.
+- [x] Network policy: tailnet IPs only for remote access (AGENTS.md);
+  SSH lines updated to 100.x.
+- [x] PR sweep: pr_rebuild.py JSON bug fixed; #1424 CI failures fixed
+  (celery include + test mocks); all open PRs auto-merge armed.
+- [~] LinkedIn org specialties: already populated but DUPLICATED
+  (each tag x2). Org-write API returns 404 on every shape tried despite
+  rw_organization_admin granted — cosmetic; dedup via sidecar UI if wanted.
+- [ ] Dependabot #193/#194 minimatch moderate: only fix is minimatch@11
+  via breaking typescript-eslint chain — dev-only DoS, skipped deliberately.
+- [ ] True-human remaining (unchanged): WhatsApp Meta Business payment +
+  WABA token, Viber partners.viber.com approval, #795 pricing decision,
+  #793 partner approvals, WABA assignment + Meta evidence upload,
+  CM recording, Windows sshd elevation, TikTok re-consent, X OAuth click
+  (chrome-error tab — WSL↔Win CDP flake noted in BACKLOG above).
