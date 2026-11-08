@@ -233,3 +233,14 @@ Env issues found (document, not code):
   services, omv app-update cron. Needs a dedicated re-land pass — some
   content may now be superseded by #1381/#1413-1415 era fixes. DO NOT
   blind-merge (46-89 commits behind).
+
+## 2026-11-08 — MCP health (Devin)
+
+- [x] `mcp_health.py` sweep: 20/20 healthy. Only `linkedin-ads` failed on
+  the first pass — cold `uvx` bootstrap (`Installed 68 packages`) exceeds
+  the 20s default probe timeout. After the install, uv's cache keeps it
+  warm; re-probe with `--timeout 60` if the uv cache is ever purged.
+- [x] `pr_rebuild.py` repo-resolution bug fixed — `gh repo view -q` emits a
+  bare string, not JSON (`JSONDecodeError` during the PR sweep).
+- [ ] PR queue: #1430/#1432/#1433 DIRTY (real-delta branches from the
+  consolidation worklist) — need worktree rebase or pr_rebuild.
