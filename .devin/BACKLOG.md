@@ -21,15 +21,22 @@ gone.
 
 ## Open — engineering
 
-- [ ] cloudless-gr-live (265081467): Live Events = FORM state (verified
-  live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
-  <Q_DL>` with a fresh app-bound Q_DL link from the products page
-  (qualtrics-ops). All other products still REQ.
+- [x] cloudless-gr-live (265081467): Live Events access form SUBMITTED
+  2026-11-08 ~06:1xZ — drove the app-bound Q_DL link
+  (SV_0PAUJOVR2DFcgES, EMD_…_CGC_3wnd5m4f9XRmpoP) via CDP :9222 + JFE
+  DOM-fill (setTextValue absent on this theme — native setter works;
+  setChoiceValue OK for MC). Org=Themistoklis Baltzakis, Koropi 19441,
+  Greece; product=Events Technology Platform + Marketing/CRM. End page:
+  "Thank you for submitting the Live Events API development tier access
+  form." WATCH: confirmation says an email-verification mail arrives
+  from Microsoft Vetting Services at the business email — complete it
+  when it lands (mail-ingest lane). All other products still REQ.
 - [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
   — was blocked on root-owned dir; ownership fixed 2026-11-07, now unblocked.
-- [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
-  OS-click/patchright) — retest now that the 48h fresh-app window passed;
-  if still inert it is a fresh-app artifact, not anti-bot.
+- [x] LinkedIn Verify-PIN modal — NOT reproduced 2026-11-08: dev-portal
+  products pages + Qualtrics form drive cleanly via CDP :9222 (no modal
+  encountered across li_product_state + form fill). Consistent with the
+  fresh-app-artifact hypothesis; revisit only if it reappears.
 - [ ] Backfill verification: pass resumed 2026-11-07 inside social-api
   (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
   had spellcheck_applied at start). Confirm final counts +
