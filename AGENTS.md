@@ -123,6 +123,11 @@ rm -f .deploy.lock                                                 # release
 - `n8n` — restart and re-import workflows after any `n8n-workflows/` or webhook change.
 - `social-frontend` — rebuild image or restart dev container after frontend source change.
 
+## Android phone / ADB (SMS-OTP lane)
+
+- Galaxy S22+ `RFCTA0AEKZP` is USB-connected to the Windows host with USB debugging authorized. WSL `adb` is **blind** to it (only sees a stale offline `emulator-5554`) — always call the Windows binary: `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` (or `adb.exe` via powershell interop).
+- SMS-OTP automation: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` over those adb paths (+ Termux `:8022`, doveadm mail fallback). Unblocks WhatsApp WABA phone registration and any SMS-2FA gate while the phone stays plugged in. UI automation: `phone-access` skill (`scripts/phone-mcp-server.py`).
+
 ## Common commands
 
 ```bash
