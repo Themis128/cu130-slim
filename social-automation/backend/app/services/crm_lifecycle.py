@@ -190,7 +190,7 @@ def score_lead(lead: dict[str, Any], notes: list[dict[str, Any]]) -> tuple[int, 
         age
         for n in notes
         if any(m in str(n.get("post") or "") for m in ENGAGEMENT_MARKERS)
-        for age in [_note_age_days(n) if _note_age_days(n) is not None else 0.0]
+        for age in [_note_age_days(n) or 0.0]
     ]
     freshest_engagement = min(engagement_ages) if engagement_ages else None
     if freshest_engagement is not None and freshest_engagement <= REPLY_FRESH_DAYS:
