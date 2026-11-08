@@ -108,7 +108,7 @@ def account():
 
 @pytest.fixture
 def post():
-    return SimpleNamespace()
+    return SimpleNamespace(platform_specific={})
 
 
 @pytest.mark.asyncio
