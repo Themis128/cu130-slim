@@ -272,7 +272,7 @@ async def _team_ids() -> list:
     from app.models.user import Team
 
     try:
-        async with async_session_maker()() as db:
+        async with async_session_maker() as db:
             return list((await db.execute(select(Team.id))).scalars().all())
     except Exception as exc:  # noqa: BLE001
         logger.warning("slack ops journal: team lookup failed: %s", exc)
