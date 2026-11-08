@@ -21,7 +21,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import get_settings
@@ -123,8 +123,8 @@ def _note_age_days(note: dict[str, Any]) -> float | None:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - dt).total_seconds() / 86400
+        dt = dt.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - dt).total_seconds() / 86400
 
 
 def score_lead(lead: dict[str, Any], notes: list[dict[str, Any]]) -> tuple[int, str, list[str]]:
@@ -246,7 +246,7 @@ async def _store_score(lead_id: str, score: int, band: str) -> None:
         try:
             await r.set(
                 f"espo:leadscore:{lead_id}",
-                json.dumps({"score": score, "band": band, "at": datetime.now(timezone.utc).isoformat()}),
+                json.dumps({"score": score, "band": band, "at": datetime.now(UTC).isoformat()}),
                 ex=SCORE_REDIS_TTL,
             )
         finally:

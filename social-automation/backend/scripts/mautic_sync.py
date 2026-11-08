@@ -27,7 +27,7 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -146,9 +146,9 @@ async def _winback_bridge(leads: list[dict], stats: dict[str, int]) -> None:
     if r is None:
         return
     try:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=_WINBACK_WINDOW_DAYS)
+        cutoff = datetime.now(UTC) - timedelta(days=_WINBACK_WINDOW_DAYS)
         active = await mautic_client.list_recently_active_contacts(limit=100)
-        by_email = {(l.get("emailAddress") or "").strip().lower(): str(l.get("id")) for l in leads if l.get("emailAddress")}
+        by_email = {(lead.get("emailAddress") or "").strip().lower(): str(lead.get("id")) for lead in leads if lead.get("emailAddress")}
         noted = 0
         for c in active:
             email = str(c.get("email") or "").strip().lower()
@@ -159,7 +159,7 @@ async def _winback_bridge(leads: list[dict], stats: dict[str, int]) -> None:
             try:
                 ts = datetime.fromisoformat(last_active.replace("Z", "+00:00"))
                 if ts.tzinfo is None:
-                    ts = ts.replace(tzinfo=timezone.utc)
+                    ts = ts.replace(tzinfo=UTC)
             except ValueError:
                 continue
             if ts < cutoff:

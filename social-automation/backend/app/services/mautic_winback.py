@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.config import get_settings
@@ -68,7 +68,7 @@ def _state_key(email: str) -> str:
 def _parse_ts(raw: str) -> datetime | None:
     try:
         ts = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-        return ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        return ts if ts.tzinfo else ts.replace(tzinfo=UTC)
     except (ValueError, TypeError):
         return None
 
@@ -185,9 +185,9 @@ async def run_mautic_winback_sweep(*, dry_run: bool = False, limit: int = 1000) 
         select=["id", "emailAddress", "status", "source", "firstName", "lastName"],
         max_items=limit,
     )
-    leads = [l for l in leads if l.get("emailAddress")]
+    leads = [lead for lead in leads if lead.get("emailAddress")]
     stats["scanned"] = len(leads)
-    bands = await _lifecycle_bands([str(l.get("id")) for l in leads])
+    bands = await _lifecycle_bands([str(lead.get("id")) for lead in leads])
     hot_emails = await _socialauto_hot_emails()
     email_ids = await _email_ids()
     r = await _redis()
@@ -195,7 +195,7 @@ async def run_mautic_winback_sweep(*, dry_run: bool = False, limit: int = 1000) 
         stats["errors"] += 1
         return stats
     try:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         for lead in leads:
             email = str(lead.get("emailAddress") or "").strip().lower()
             if not email or any(j in email for j in _JUNK):
