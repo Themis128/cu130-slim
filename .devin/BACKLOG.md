@@ -193,3 +193,36 @@ gone.
 - Remaining TikTok gaps: website link gated by 1k followers OR business verify (user files papers later); only 4 followers — growth = posting cadence.
 - myAADE: login works (TAXISNET creds in .env, do not echo); Βεβαιώσεις Μητρώου page reachable via `#!/vevaiwseismhtrwou`; Οντότητας/Επιχείρησης tiles HIDDEN because company isn't active yet — person certs only until Έναρξη filed.
 - Windows App privacy dialog can hijack ADB taps — verify screen state before/after every tap.
+
+## 2026-11-08 — devapps → datalake → reports → per-channel publishing
+
+Landed on `feat/devapps-datalake-reports` (PR pending):
+
+- `app/services/devapps_sync.py` — per-account developer-app pull
+  (token health/scopes/expiry via debug_token or platform validate,
+  page/org/creator insights, IG follower_demographics, quota state).
+  Persists `AnalyticsEvent(event_type="devapp_snapshot")`; one account's
+  failure degrades to `ok:false`, never aborts the sweep.
+- Beat: `devapps-sync` :05 → `export-datalake` :10 →
+  `datalake-insights-sweep` :20 → `devapp-channel-actions` :30 (all */6h).
+- Lake: `lake/socialauto-devapps/snapshots.json` +
+  `lake/socialauto-channel-actions/actions.json` (both NC-mirrored);
+  cloudless.gr ETL emits `social_devapps` + `social_channel_actions`
+  gold sections.
+- `datalake_insights.compute_devapp_signals` + `pick_actions`
+  `devapp_health` (Slack alert via executor); `build_channel_actions`
+  health-override → `channel_health`, else `channel_action` hint.
+- `devapp_channel_actions` task → `monetization_actions_from_channels`
+  → `schedule_report_actions` (source=`devapp-channel-actions`,
+  dedup_field=`devapp_channel_action`) — full copy/quality/media/
+  compliance chain, daily-deduped, health channels never post.
+- workforce_audit: `devapps-sync` + `devapp-channel-actions` entries.
+
+Leftovers:
+- [ ] First live `devapps-sync` run — verify per-platform pullers
+  against real tokens (FB page_token path, IG demographics metric name,
+  LinkedIn org vs member split); failures land as `ok:false` rows.
+- [ ] `devapp-channel-actions` first run — confirm scheduled posts land
+  per channel and dedup holds on the 2nd/3rd/4th daily sweep.
+- [ ] X quota: `me_metrics` 402 → `quota_exhausted` → `wait_for_quota_reset`
+  health action; verify it doesn't spam channel_health alerts daily.

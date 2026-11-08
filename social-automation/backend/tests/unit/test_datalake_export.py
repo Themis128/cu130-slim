@@ -508,6 +508,8 @@ def test_export_async_full_run(monkeypatch):
         "_export_monetization",
         "_export_email_campaigns",
         "_export_survey_responses",
+        "_export_devapps",
+        "_export_channel_actions",
     ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[{"r": 1}]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"q": 1}))
@@ -520,8 +522,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 21  # 16 tables + edge + reports + insights + 2 CF files
-    assert out["bytes"] == 210
+    assert out["files"] == 23  # 18 tables + edge + reports + insights + 2 CF files
+    assert out["bytes"] == 230
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):
@@ -549,6 +551,8 @@ def test_export_async_insights_and_put_failures(monkeypatch):
         "_export_monetization",
         "_export_email_campaigns",
         "_export_survey_responses",
+        "_export_devapps",
+        "_export_channel_actions",
     ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
@@ -796,6 +800,8 @@ def test_export_async_cf_usage_failure_isolated(monkeypatch):
         "_export_monetization",
         "_export_email_campaigns",
         "_export_survey_responses",
+        "_export_devapps",
+        "_export_channel_actions",
     ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={}))
@@ -843,6 +849,8 @@ def test_export_async_nextcloud_mirror(monkeypatch):
         "_export_monetization",
         "_export_email_campaigns",
         "_export_survey_responses",
+        "_export_devapps",
+        "_export_channel_actions",
     ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"h": 1}))
@@ -899,6 +907,8 @@ def test_export_async_nextcloud_mirror_upload_failure(monkeypatch):
         "_export_monetization",
         "_export_email_campaigns",
         "_export_survey_responses",
+        "_export_devapps",
+        "_export_channel_actions",
     ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"h": 1}))

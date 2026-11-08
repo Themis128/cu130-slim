@@ -203,6 +203,62 @@ def compute_growth_signals(snaps: list[dict]) -> dict[str, Any]:
     return {"growth": out}
 
 
+def _devapp_followers(payload: dict[str, Any]) -> float | None:
+    """Best-effort follower count from a devapp_snapshot payload."""
+    ins = payload.get("insights") or {}
+    for container in (ins, ins.get("profile") or {}, ins.get("organization") or {}, ins.get("creator_info") or {}):
+        if not isinstance(container, dict):
+            continue
+        for key in ("followers", "followers_count", "follower_count", "firstDegreeSize"):
+            v = container.get(key)
+            if isinstance(v, int | float):
+                return float(v)
+    return None
+
+
+def compute_devapp_signals(rows: list[dict]) -> dict[str, Any]:
+    """Latest devapp_snapshot payloads → per-channel health + audience state.
+
+    rows: meta_data payloads from AnalyticsEvent(event_type='devapp_snapshot'),
+    one per account (latest only — the export does the dedup upstream).
+    """
+    now = datetime.now(UTC)
+    channels: list[dict[str, Any]] = []
+    for r in rows:
+        health = r.get("health") or {}
+        token_valid = health.get("token_valid")
+        expiry_raw = health.get("expires_at") or r.get("token_expires_at")
+        days_to_expiry = None
+        if expiry_raw:
+            try:
+                dt = datetime.fromisoformat(str(expiry_raw).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                days_to_expiry = round((dt - now).total_seconds() / 86400.0, 1)
+            except ValueError:
+                pass
+        channels.append(
+            {
+                "platform": r.get("platform"),
+                "username": r.get("username"),
+                "ok": r.get("ok"),
+                "token_valid": token_valid,
+                "days_to_expiry": days_to_expiry,
+                "scopes": r.get("scopes") or [],
+                "followers": _devapp_followers(r),
+                "error": r.get("error"),
+                "quota_exhausted": bool((r.get("insights") or {}).get("quota_exhausted")),
+            }
+        )
+    unhealthy = [
+        c
+        for c in channels
+        if c["ok"] is False or c["token_valid"] is False or c["quota_exhausted"]
+    ]
+    expiring = [c for c in channels if c["days_to_expiry"] is not None and c["days_to_expiry"] <= 7]
+    return {"devapp_channels": channels, "devapp_unhealthy": unhealthy, "devapp_expiring": expiring}
+
+
 def compute_email_signals(rows: list[dict]) -> dict[str, Any]:
     """Recipient status counts → per-kind send/open/response funnel.
 
@@ -280,6 +336,27 @@ def pick_actions(signals: dict[str, Any]) -> list[dict[str, Any]]:
                     "reason": f"{plat} at {rate:.1%} engagement — boost reach there",
                 }
             )
+    for c in signals.get("devapp_unhealthy") or []:
+        actions.append(
+            {
+                "type": "devapp_health",
+                "platform": c.get("platform"),
+                "username": c.get("username"),
+                "priority": "high",
+                "reason": c.get("error")
+                or ("quota exhausted" if c.get("quota_exhausted") else "token invalid"),
+            }
+        )
+    for c in signals.get("devapp_expiring") or []:
+        actions.append(
+            {
+                "type": "devapp_health",
+                "platform": c.get("platform"),
+                "username": c.get("username"),
+                "priority": "medium",
+                "reason": f"token expires in {c.get('days_to_expiry')}d",
+            }
+        )
     ef = signals.get("email_funnel") or {}
     for kind, d in ef.items():
         if d.get("sent") and d.get("open_rate", 0) < 0.2:
@@ -429,6 +506,22 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
         .all()
     )
 
+    devapp_rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT DISTINCT ON (social_account_id) meta_data"
+                    " FROM analytics_events"
+                    " WHERE event_type='devapp_snapshot' AND social_account_id IS NOT NULL AND team_id=:t"
+                    " ORDER BY social_account_id, occurred_at DESC"
+                ),
+                {"t": team_id},
+            )
+        )
+        .mappings()
+        .all()
+    )
+
     coaching = (
         (
             await db.execute(
@@ -447,6 +540,7 @@ async def build_signals(db: AsyncSession, team_id: UUID) -> dict[str, Any]:
     signals.update(compute_engagement_signals([dict(r) for r in post_metrics]))
     signals.update(compute_growth_signals([dict(r) for r in followers]))
     signals.update(compute_email_signals([dict(r) for r in email_counts]))
+    signals.update(compute_devapp_signals([dict(r["meta_data"] or {}) for r in devapp_rows]))
     signals.update(
         compute_ad_signals(
             [{"campaign": r["campaign_name"], "spend_eur": r["spend_eur"], "leads": r["leads"], "impressions": r["impressions"]} for r in ad_daily]
@@ -504,6 +598,14 @@ def render_slack_lines(signals: dict[str, Any]) -> list[str]:
             lines.append(f"• email {kind}: {d['sent']} sent, open {d.get('open_rate', 0):.0%}")
     if signals.get("audit_yes"):
         lines.append(f"• audit requests: {len(signals['audit_yes'])} → book them")
+    for c in signals.get("devapp_unhealthy") or []:
+        label = f"{c.get('platform')}/@{c.get('username')}" if c.get("username") else str(c.get("platform"))
+        reason = c.get("error") or ("quota exhausted" if c.get("quota_exhausted") else "token invalid")
+        lines.append(f"• devapp {label}: {reason} → heal/reauthorize")
+    for c in signals.get("devapp_expiring") or []:
+        lines.append(
+            f"• devapp {c.get('platform')}/@{c.get('username')}: token expires in {c.get('days_to_expiry')}d"
+        )
     for w, n in (signals.get("pain_topics") or [])[:3]:
         lines.append(f"• pain: {w} ({n}x) → content topic")
     if signals.get("price_anchor_median"):
