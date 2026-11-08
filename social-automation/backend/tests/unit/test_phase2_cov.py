@@ -13,15 +13,15 @@ async def test_research_endpoints(monkeypatch):
     import app.api.research as R
 
     monkeypatch.setattr(R.rw, "ingest_nextcloud_folder", AsyncMock(return_value={"ok": 1}))
-    u = SimpleNamespace(team_id="t1")
-    assert await R.ingest(SimpleNamespace(project="p", folder="f"), u) == {"ok": 1}
+    team_id = "t1"
+    assert await R.ingest(SimpleNamespace(project="p", folder="f"), team_id) == {"ok": 1}
     monkeypatch.setattr(R.rw, "ask", AsyncMock(return_value={"a": 1}))
-    assert await R.ask(SimpleNamespace(question="q", n=3), u) == {"a": 1}
+    assert await R.ask(SimpleNamespace(question="q", n=3), team_id) == {"a": 1}
     monkeypatch.setattr(R.rw, "ask", AsyncMock(side_effect=Exception("down")))
     with pytest.raises(HTTPException) as e:
-        await R.ask(SimpleNamespace(question="q", n=3), u)
+        await R.ask(SimpleNamespace(question="q", n=3), team_id)
     assert e.value.status_code == 502
-    assert (await R.status(u))["collection"] == "research_t1"
+    assert (await R.status(team_id))["collection"] == "research_t1"
 
 
 def test_dynamic_price_range_premiums():

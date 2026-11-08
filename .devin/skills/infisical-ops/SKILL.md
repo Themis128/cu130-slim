@@ -27,6 +27,7 @@ Login: `POST /api/v1/auth/universal-auth/login {clientId,clientSecret}` -> `acce
 ## Tools
 
 `scripts/push-secret.sh <NAME> <value-file|->` — logs in via universal-auth (creds from `~/.config/secrets/infisical`), pushes to `cloudless-infra`/prod, masks value in output.
+`scripts/migrate-env.py [--env-file PATH] [--dry-run]` — batch-push every credential-looking var from a dotenv file to `cloudless-infra`/prod (universal-auth login once, values never printed). Used 2026-11-08 to back up all 85 `.env` creds + 8 Postgres `social_secrets`-only keys (FB_USER_TOKEN, TIKTOK_SESSION_ID/USER_ID, SKOOL_*, *_VERIFY_TOKEN, LINKEDIN_COOKIE) — 95 secrets total in prod.
 
 ## Gotchas
 
