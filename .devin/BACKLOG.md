@@ -307,3 +307,26 @@ Leftovers:
 
 - [x] gov-portal-watch + gsis-login-ops skills (PR #1540): config-driven authenticated gov-portal watcher engine (CDP :9229, extract_js diff, Telegram, GSIS+AMKA auto re-login) + doctor.py/run-all-watches.py ops tooling. Live `C:/Users/tbaltzakis/idika-watch/` refactored onto engine.py via portal.json + thin wrappers; schtasks IdikaWatch/IdikaKeepalive/IdikaMorningRelogin unchanged; doctor 7/7 PASS.
 - [ ] Warm-back Engine (PR #1542): residual gates — (a) CF `mail-outbound` worker still needs a token with Zone:Read + Email Routing perms OR dashboard destination verification; SMTP fallback now works via OMV mailbox creds (535 fixed 2026-11-09). (b) LinkedIn Insight Tag PR cloudless.gr#2389 needs `NEXT_PUBLIC_LINKEDIN_PARTNER_ID` from Campaign Manager → Analyze → Insight Tag before tag activates. (c) Mautic win-back beat fires daily 10:45 — verify first real sends once eligible cold contacts exist (dry-run scanned=21, 0 sends on 2026-11-09 — most Espo leads lack usable email).
+
+## 2026-11-09 — WSL self-maintenance automation + Devin popup fix
+
+- WSL Ubuntu-24.04 is now fully self-maintaining: unattended-upgrades covers
+  all 8 origins incl. noble-proposed + phased updates forced; needrestart
+  auto mode via apt hook; weekly `/etc/cron.weekly/apt-clean` +
+  `scripts/system-hygiene.sh` (journal/docker/snap/logs, TG #digest);
+  `WSL-Weekly-Bounce` scheduled task Sundays 05:00 (deploy-lock guarded,
+  TG-reported, first live run 2026-11-15); tmux-resurrect/continuum
+  configured at /root/.tmux for session restore.
+- [ ] tmux-resurrect end-to-end restore NOT yet proven — plugin perms fixed
+  and save test passed once, but restore verification was interrupted.
+  Retest on isolated tmux socket before relying on it Sunday.
+- [ ] Proposed-pocket auto-updates carry regression risk; revert = remove
+  `-proposed` origin in `/etc/apt/apt.conf.d/52auto-updates` + suite in
+  `ubuntu.sources`, then `apt-get update`.
+- Devin "missing file" popup root-caused: stale untitled editor tabs
+  `d:\DevOptimizer\{status,doctor,explore}` (files don't exist) make
+  helm-intellisense statSync ENOENT every lint pass → notification.
+  Fix = close those tabs; if they respawn, trace the creator.
+- [ ] Synigoros followups: added tgOnly reminder events (call-ombudsman-1
+  11-25, call-sepe-1 12-08, dypa-written-demand 12-04) + tgOnly support in
+  admin-followups.js — committed on feat/synigoros-tg-reminders.
