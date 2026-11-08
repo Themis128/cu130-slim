@@ -172,6 +172,26 @@ STUN binding requests) and prints an honest pass/fail summary.
   LIMIT 30000)` looped to zero (deleted ~364k rows). Find the storage id
   via `oc_storages` (`local::/omv-storage/` = 5); filecache paths are
   storage-relative, no `files/` prefix.
+- **WAN blip → tunnel 502s** (signature first seen 2026-11-06, recurring
+  ~daily): `cloud/cloudless.gr` (and office/signal/push) return Cloudflare
+  502/530 for ~1–8 min while `cloudflared-omv` logs show all 4 QUIC conns
+  dying simultaneously with `timeout: no recent network activity`, then
+  re-registering on their own. Cause is the CGNAT ISP uplink dropping,
+  not Apache and not cloudflared — eth0 never flaps, tailscaled also
+  logs failures in the same window. Two events hit ~03:00 UTC on
+  consecutive nights (likely ISP maintenance/session resets). Nothing
+  local prevents it; two mitigations shipped 2026-11-08:
+  - cloudflared metrics now exposed on `127.0.0.1:60123` (`--metrics`
+    in `~/cloudflared/docker-compose.yml`) — `GET /ready` = 200 while
+    any edge conn is registered. Quick check: `curl -sf 127.0.0.1:60123/ready`.
+  - **`cloudflared-tunnel-watchdog`** (systemd timer, every 2 min,
+    `/usr/local/sbin/cloudflared_tunnel_watchdog.py`): after 3
+    consecutive `/ready` failures (~6 min of zero registered conns) it
+    `docker restart`s the container — covers wedged cloudflared cases
+    the built-in retry loop doesn't; 30-min cooldown, ntfy notice via
+    the wedge-watchdog env file. Repo mirror: `host-scripts/`.
+  - Only real fixes for WAN loss itself: dual-WAN/4G failover on the
+    router, or an ISP ticket for the recurring CGNAT drops.
 - Recreated containers = ~40 s Nextcloud blip; fine for ops work.
 
 ## nextcloud-integration
