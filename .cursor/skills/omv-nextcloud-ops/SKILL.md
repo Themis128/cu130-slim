@@ -27,7 +27,8 @@ Consolidated skill — each section below was a standalone skill. Member scripts
   Changes go into `workspace.yml` directly or `compose.override.yml`
   (override survives plugin regeneration); a GUI save can regenerate
   `workspace.yml`. Repo copy: `deploy/omv-workspace/docker-compose.yml` —
-  keep it in sync via PR.
+  keep it in sync via PR. Canonical Nextcloud source since 2026-11:
+  `Themis128/cloudless-nextcloud` (this repo's copy is the deploy mirror).
 - **Containers**: `nextcloud` (:11000→80), `nextcloud-db`, `nextcloud-redis`,
   `nextcloud-cron`, `collabora` (:9980), `nextcloud-talk-hpb` (TCP+UDP 3478,
   signaling on host port 8090), `nextcloud-talk-recording`, `nextcloud-appapi-harp`,
