@@ -317,9 +317,14 @@ Leftovers:
   `WSL-Weekly-Bounce` scheduled task Sundays 05:00 (deploy-lock guarded,
   TG-reported, first live run 2026-11-15); tmux-resurrect/continuum
   configured at /root/.tmux for session restore.
-- [ ] tmux-resurrect end-to-end restore NOT yet proven — plugin perms fixed
-  and save test passed once, but restore verification was interrupted.
-  Retest on isolated tmux socket before relying on it Sunday.
+- [x] tmux-resurrect verified 2026-11-09 (isolated HOME+TMUX_TMPDIR):
+  save→kill→auto-restore works — sessions/windows/cwds come back via
+  continuum-restore 'on'. Caveats found: resurrect dir is XDG
+  `$HOME/.local/share/tmux/resurrect` (not ~/.tmux/resurrect); pane
+  process respawn needs an attached client (detached `-d` restore skips
+  it — fine in real usage); a stale `tmux new-session` client process
+  trips continuum's another-server guard and silently blocks restore —
+  kill stray `tmux` clients if restore ever seems dead.
 - [ ] Proposed-pocket auto-updates carry regression risk; revert = remove
   `-proposed` origin in `/etc/apt/apt.conf.d/52auto-updates` + suite in
   `ubuntu.sources`, then `apt-get update`.
