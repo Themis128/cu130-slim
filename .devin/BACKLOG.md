@@ -265,3 +265,36 @@ Leftovers:
   (identical-media 30d, duplicate content, media semantic QA). Working
   as intended but status=failed is misleading; consider a 'suppressed'
   status so failure metrics stay honest.
+
+### Synigoros (Ombudsman) complaint ops — monitor repaired (2026-11-08)
+
+- Complaint live: ΔΥΠΑ–ΚΠΑ2 Μαρκοπούλου unemployment-benefit rejection.
+  Protocol 2026-81750, Φάκελος 408302, ΚΠΑ 202610260029, filed 26/10/2026.
+  Status «Προς Αποδοχή» as of 08/11. 05/11: ΚΠΑ reminder email received.
+- Monitor was dead: scheduled task `SynigorosMonitor` (15 min) ran against
+  `\wsl.localhost\...\scripts\synigoros-monitor` but `config.json` +
+  `node_modules` + repo-root `.env` (TELEGRAM_BOT_TOKEN, MAIL_OUTBOUND_*,
+  SMTP_*) were all missing → every run crashed silently (result 0 anyway).
+- Fixed live in the WSL checkout: copied config.json + node_modules from
+  `C:\Users\tbaltzakis\synigoros-monitor`, created `.env` with the 8 needed
+  vars from `C:\Users\tbaltzakis\cu130-slim\.env`. Verified: state.json
+  updates, status reads «Προς Αποδοχή», next poll ~15 min cadence.
+- monitor.js bugs fixed (PR this branch): (a) info panel renders placeholder
+  «Αναμονή Επιβεβαίωσης Από Συνήγορο» ~1s before real status — added
+  1500ms settle before extraction; (b) fresh arm left lastNews=null so the
+  3-day auto-followup (followup.js → press@synigoros.gr) could never fire —
+  arm now seeds lastNews=now.
+- [ ] WSL repo `/home/tbaltzakis/cu130-slim` is the compose project working_dir
+  but has NO `.env` — since the 2026-11-04 move off Windows, `${VAR}`
+  interpolation resolves empty/default for everything except the 8 vars just
+  added. Containers still run on env baked at creation; next `compose up`
+  could strip creds. Restore full `.env` (canonical:
+  `C:\Users\tbaltzakis\cu130-slim\.env`, 278 vars) — audit for Windows paths.
+- [ ] ΔΥΠΑ re-examination request sent 11/06/2026 to kpamark@dypa.gov.gr —
+  NO reply in ~5 months. Ombudsman file covers the silence; optional direct
+  status-inquiry email drafted pending user send.
+- [ ] ΣΕΠΕ/Επιθεώρηση Εργασίας complaint for the «find a company to hire and
+  fire you» suggestion — draft pending user review before filing.
+- [ ] Monitor followup fires ~2026-11-11 if status stays «Προς Αποδοχή»
+  (lastNews seeded 08/11); verify followup.js SMTP/MAIL_OUTBOUND path works
+  on first real send (httpSend → mail-outbound worker preferred).
