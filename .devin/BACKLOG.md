@@ -158,12 +158,31 @@ gone.
 - [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
 - [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
 
-## 2026-11-08 — WABA: WAAC created; waiting on Meta cooldown for coexistence
+## 2026-11-08 — omv WAN blips (cloud.cloudless.gr 502s)
 
-- [x] **Breakthrough**: relaunched debug Chrome NON-headless on Windows (`chrome-debug-profile`, :9330 + relay :9229 — a visible window now lives on the desktop; `chrome-headless-debug.bat`/`cdp-launch.bat` can restore headless). Same FB session, real-browser fingerprint → BM wizard's Continue finally enabled.
-- [x] **WAAC created**: BM → Accounts → **WhatsApp accounts** (`whatsapp_business_presence`, NOT "Messaging accounts") now holds `+30 697 777 838` / display name `Cloudless`, status `Unverified`. The earlier wizard created the phone-number holder before failing.
-- [~] Phone verify blocked: Meta refuses — number is registered on **WhatsApp Business app** (`com.whatsapp.w4b` on S22+ `RFCTA0AEKZP`). Wizard offers only "migrate or disconnect"; no self-serve migrate button exists.
-- [ ] **USER DECISION: WAIT for coexistence** — Embedded Signup (app dashboard `wa-dev-console` → Continue) offers "I already use the WhatsApp Business App" = lossless coexistence (app + API + chat sync). Currently `Onboarding failure: temporarily blocked` — server-side cooldown, same in headless AND real Chrome.
-- [x] `wa_coex_watch` running (PID in /tmp, log `/tmp/wa_coex_watch.log`): probes embedded-signup every 30 min × 48h, Telegram P2 alert when unblocked. On unblock: drive coexistence flow; phone-side steps via ADB/`phone-automation-ops`.
-- [ ] After WABA+verify: add Messaging account (BM → WhatsApp accounts → "Add a Messaging account"), write phone_number_id into whatsapp row `77f17091` meta_data, mint system-user token (still needs App Dashboard Advanced Access for business_management/whatsapp_*).
-- [ ] Fallback if cooldown never lifts: user deletes WhatsApp Business account on phone (loses chats — NOT chosen).
+Recurring ~1-8 min CGNAT uplink drops on omv kill all 4 cloudflared QUIC
+conns → Cloudflare 502/530 on cloud/office/signal/push.cloudless.gr.
+Events: 11-06 ~03:00Z, 11-07 ~03:00Z + 14:48Z (~8min), 11-08 00:58Z.
+All self-heal. Mitigations live on omv + mirrored via PR #1454:
+metrics on 127.0.0.1:60123 + cloudflared-tunnel-watchdog timer.
+
+- [ ] `human:` ISP ticket if the ~03:00Z pattern persists (looks like
+  provider maintenance/CGNAT session resets).
+- [ ] `decide:` dual-WAN/4G failover on the router — only real fix for
+  WAN loss; replica tunnels don't help (all tailnet hosts share the WAN).
+- [ ] `watch:` monitor `journalctl -t cf-tunnel-watchdog` for restart
+  frequency; if >2/wk, escalate to router failover.
+
+Also fixed this session: k3s `loki-{chunks,results}-cache` STS scaled
+to 0 (helm values disable them; spec was both invalid under LimitRange
+300m and unschedulable at 9.6Gi mem request — was spamming FailedCreate);
+tailscale `kube` ProxyGroup restored (applied upstream authproxy-rbac.yaml
+→ SA + impersonation RBAC, cleared stale state secret `kube-0` → device
+re-registered as kube-0-1, all conditions True). Dead `kube-0` device can
+be deleted from the tailnet admin console (cosmetic).
+
+## 2026-11-08 (cont.) — FB/IG publish enhancements shipped
+
+PR #1472 (auto-merge armed): FB Page Reels (`platform_specific.facebook.format="reel"` → video_reels 3-phase), IG Stories (`platform_specific.instagram.format="story"` → instagrapi story upload), `publish_path` telemetry on every PublishResult → `Post.platform_specific.publish_path`. Deployed live to all 5 backend containers.
+- [ ] Wire scheduler/UI to set `platform_specific.{facebook,instagram}.format` so Reels/Stories get used; currently opt-in flag only.
+- [ ] Watch: first real Reel/Story publish — verify Graph scopes (`pages_manage_posts` covers reels; story via instagrapi session).
