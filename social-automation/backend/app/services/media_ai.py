@@ -454,7 +454,9 @@ async def verify_media_semantics(
     """
     try:
         b64 = base64.b64encode(image_bytes).decode("utf-8")
-        caption_prompt = "Describe this " + media_type + " in one factual sentence: main subject and setting."
+        caption_prompt = (
+            "Describe this " + media_type + " in one factual sentence: main subject and setting."
+        )
         judge_prompt = (
             f'The intended subject was: "{intent[:300]}". '
             "Does this " + media_type + " plausibly depict that subject? "
