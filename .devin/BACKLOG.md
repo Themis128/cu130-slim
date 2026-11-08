@@ -158,25 +158,7 @@ gone.
 - [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
 - [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
 
-## 2026-11-08 — omv WAN blips (cloud.cloudless.gr 502s)
+## 2026-11-08 — Android phone on ADB (SMS-OTP lane live)
 
-Recurring ~1-8 min CGNAT uplink drops on omv kill all 4 cloudflared QUIC
-conns → Cloudflare 502/530 on cloud/office/signal/push.cloudless.gr.
-Events: 11-06 ~03:00Z, 11-07 ~03:00Z + 14:48Z (~8min), 11-08 00:58Z.
-All self-heal. Mitigations live on omv + mirrored via PR #1454:
-metrics on 127.0.0.1:60123 + cloudflared-tunnel-watchdog timer.
-
-- [ ] `human:` ISP ticket if the ~03:00Z pattern persists (looks like
-  provider maintenance/CGNAT session resets).
-- [ ] `decide:` dual-WAN/4G failover on the router — only real fix for
-  WAN loss; replica tunnels don't help (all tailnet hosts share the WAN).
-- [ ] `watch:` monitor `journalctl -t cf-tunnel-watchdog` for restart
-  frequency; if >2/wk, escalate to router failover.
-
-Also fixed this session: k3s `loki-{chunks,results}-cache` STS scaled
-to 0 (helm values disable them; spec was both invalid under LimitRange
-300m and unschedulable at 9.6Gi mem request — was spamming FailedCreate);
-tailscale `kube` ProxyGroup restored (applied upstream authproxy-rbac.yaml
-→ SA + impersonation RBAC, cleared stale state secret `kube-0` → device
-re-registered as kube-0-1, all conditions True). Dead `kube-0` device can
-be deleted from the tailnet admin console (cosmetic).
+- [x] Phone `RFCTA0AEKZP` (Samsung) connected USB + USB-debugging authorized — visible via Windows `adb.exe devices` (`device` state). WSL `adb` is BLIND to it (only stale `emulator-5554` offline) — always use `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` or `adb.exe` on Windows.
+- [x] SMS-OTP automation lane confirmed: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` via those adb paths (+ Termux :8022 + doveadm mail fallback). Unblocks WhatsApp WABA phone registration (+306977777838 SMS code) and any future SMS-2FA gates — no human code-reading needed while phone stays plugged in.
