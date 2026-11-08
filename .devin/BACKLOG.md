@@ -373,3 +373,24 @@ wsl-safe-bounce schedule, Kakkava week-2 content work.
   #793 partner approvals, WABA assignment + Meta evidence upload,
   CM recording, Windows sshd elevation, TikTok re-consent, X OAuth click
   (chrome-error tab — WSL↔Win CDP flake noted in BACKLOG above).
+
+## 2026-11-08 — human-gate automation pass #3 (Devin) + cdp_click upgrade
+
+- [x] TOOL UPGRADE: `cdp_click.py` now auto-reexecs under Windows python
+  (via powershell.exe interop + wslpath) when invoked from WSL — the ws
+  used to die mid-navigation on the WSL side. Windows python has
+  websocket-client and the transport stays alive.
+- [x] FB OAuth — CONFIRMED closed (social_accounts facebook row active).
+- [~] X OAuth — minted a fresh authorize URL and drove it into debug
+  Chrome. Result: google.com loads fine in that Chrome but x.com hits
+  `chrome-error` — x.com is network-blocked from that browser profile
+  (not a CDP problem, not a token problem). Two ways around: open the
+  authorize URL in the user's NORMAL Chrome (logged into X — one click)
+  or fix the debug-Chrome network path (proxy/DNS). The OAuth bearer in
+  social_accounts was NOT re-probed after docker vsock dropped —
+  verify `social_accounts` x/twitter status next session before
+  spending more on this gate.
+- [ ] docker.sock dropped mid-session (vsock flap) — recover with
+  `docker desktop restart` if `docker ps` still fails next session.
+- [ ] Still manual: WABA assign + Meta evidence, CM recording, sshd
+  elevation, Member DP modal, decisions, issues #793/#795 replies.
