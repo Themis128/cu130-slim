@@ -61,7 +61,16 @@ gone.
   else `scripts/tiktok_qr_watch.py` watches for the scan.
 - [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
   in Meta Business, then POST /{phone}/register (standard registration —
-  request_code/verify_code are the migration API).
+  request_code/verify_code are the migration API). `WHATSAPP_PHONE_NUMBER_ID`
+  still unset; Meta Business billing/payment is the hard prerequisite.
+- [ ] human: Viber bot — partners.viber.com/webadmin.viber.com RETIRED
+  (verified 2026-11-08, see viber-ops SKILL.md). No bot exists on the
+  phone account; new bots are commercial-only → apply via Rakuten Viber
+  / partner (respond.io docs: cecile.tizon@viber.com). Once a token is
+  issued: `viber_token_fetch.py --token <T>` → `viber_provision.py`.
+- [ ] human: TikTok business verification — needs Greek sole-trader/ΑΑΔΕ
+  tax certificate under the correct doc type (ΓΕΜΗ submissions rejected);
+  unlocks profile website field + full Creative Center rankings.
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
 - [ ] LinkedIn sidecar :9225 browser session dead and stored
