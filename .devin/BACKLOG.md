@@ -194,18 +194,35 @@ gone.
 - myAADE: login works (TAXISNET creds in .env, do not echo); Βεβαιώσεις Μητρώου page reachable via `#!/vevaiwseismhtrwou`; Οντότητας/Επιχείρησης tiles HIDDEN because company isn't active yet — person certs only until Έναρξη filed.
 - Windows App privacy dialog can hijack ADB taps — verify screen state before/after every tap.
 
-## 2026-11-08 — Nextcloud docs mirror + devapps pipeline directive
+## 2026-11-08 — devapps → datalake → reports → per-channel publishing
 
-- [x] Standing directive saved to memory (`.devin/rules/cloudless-social-stack.md`
-  + `.cursor` mirror): dev-app pulls → datalake → analytics → reports →
-  per-channel post generation/publishing is the required flow; Nextcloud must
-  always carry the latest documentation/architecture.
-- [x] `sync-nextcloud-docs` worker added (6h beat, :45) — mirrors merged repo
-  markdown (root, docs/, deploy/, .devin/, .cursor/, social-automation/) from
-  GitHub master into Nextcloud `SocialAuto/docs/repo/` via WebDAV; per-file
-  blob SHAs in Redis (`ncx:doc:*`) so only changed files re-upload; writes
-  `_manifest.json` each run. Governed in `scripts/workforce_audit.py`.
-- [ ] Verify first live run after deploy: `SocialAuto/docs/repo/_manifest.json`
-  exists and `uploaded` count ≈ full manifest on first pass, ~0 afterwards.
-- [ ] PR #1522 (devapps→datalake→channel publishing) still open — merge when
-  checks green, then restart workers + beat to register the new tasks.
+Landed on `feat/devapps-datalake-reports` (PR pending):
+
+- `app/services/devapps_sync.py` — per-account developer-app pull
+  (token health/scopes/expiry via debug_token or platform validate,
+  page/org/creator insights, IG follower_demographics, quota state).
+  Persists `AnalyticsEvent(event_type="devapp_snapshot")`; one account's
+  failure degrades to `ok:false`, never aborts the sweep.
+- Beat: `devapps-sync` :05 → `export-datalake` :10 →
+  `datalake-insights-sweep` :20 → `devapp-channel-actions` :30 (all */6h).
+- Lake: `lake/socialauto-devapps/snapshots.json` +
+  `lake/socialauto-channel-actions/actions.json` (both NC-mirrored);
+  cloudless.gr ETL emits `social_devapps` + `social_channel_actions`
+  gold sections.
+- `datalake_insights.compute_devapp_signals` + `pick_actions`
+  `devapp_health` (Slack alert via executor); `build_channel_actions`
+  health-override → `channel_health`, else `channel_action` hint.
+- `devapp_channel_actions` task → `monetization_actions_from_channels`
+  → `schedule_report_actions` (source=`devapp-channel-actions`,
+  dedup_field=`devapp_channel_action`) — full copy/quality/media/
+  compliance chain, daily-deduped, health channels never post.
+- workforce_audit: `devapps-sync` + `devapp-channel-actions` entries.
+
+Leftovers:
+- [ ] First live `devapps-sync` run — verify per-platform pullers
+  against real tokens (FB page_token path, IG demographics metric name,
+  LinkedIn org vs member split); failures land as `ok:false` rows.
+- [ ] `devapp-channel-actions` first run — confirm scheduled posts land
+  per channel and dedup holds on the 2nd/3rd/4th daily sweep.
+- [ ] X quota: `me_metrics` 402 → `quota_exhausted` → `wait_for_quota_reset`
+  health action; verify it doesn't spam channel_health alerts daily.

@@ -17,7 +17,6 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
-        "app.worker.tasks.nextcloud_docs",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
@@ -56,6 +55,8 @@ celery_app = Celery(
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.datalake_insights",
+        "app.worker.tasks.devapps_sync",
+        "app.worker.tasks.devapp_channel_actions",
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
@@ -288,6 +289,7 @@ celery_app.conf.update(
         "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
         "app.worker.tasks.datalake_insights.datalake_insights_sweep": {"queue": "default"},
+        "app.worker.tasks.devapp_channel_actions.run_channel_actions": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
@@ -418,6 +420,21 @@ celery_app.conf.update(
             "task": "app.worker.tasks.datalake_insights.datalake_insights_sweep",
             "schedule": crontab(minute=20, hour="*/6"),  # every 6h at :20
         },
+        # Developer-app ingest — live health/insights/demographics/quota per
+        # connected account, 5min before the export so the same pass lands
+        # the fresh devapp_snapshot events in the lake.
+        "devapps-sync": {
+            "task": "app.worker.tasks.devapps_sync.sync_devapps",
+            "schedule": crontab(minute=5, hour="*/6"),  # every 6h at :05
+        },
+        # Report → publish hop: latest devapp snapshots → channel actions →
+        # schedule_report_actions per team (copy → quality → media →
+        # compliance → scheduled/draft). Deduped per day, so only the
+        # first run of the day materialises posts.
+        "devapp-channel-actions": {
+            "task": "app.worker.tasks.devapp_channel_actions.run_channel_actions",
+            "schedule": crontab(minute=30, hour="*/6"),  # every 6h at :30
+        },
         # Push real follower metrics → Nextcloud Tables and mirror the
         # post pipeline → Deck board (idempotent, deduped by post:<uuid>
         # markers + date/platform/metric row keys).
@@ -431,14 +448,6 @@ celery_app.conf.update(
         "sync-nextcloud-extras": {
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_extras",
             "schedule": crontab(minute="*/30"),
-        },
-        # Mirror repo documentation/architecture (AGENTS.md, docs/, deploy/,
-        # .devin/) into Nextcloud Files at SocialAuto/docs/repo/ — manifest is
-        # read from GitHub master so it always reflects merged docs; per-file
-        # blob SHAs in Redis mean only changed files are re-uploaded.
-        "sync-nextcloud-docs": {
-            "task": "app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task",
-            "schedule": crontab(minute=45, hour="*/6"),  # every 6h at :45
         },
         # Nightly company-brain journal — real publish/follower outcomes →
         # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.

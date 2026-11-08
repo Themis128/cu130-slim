@@ -104,10 +104,21 @@ def _exec_platform_focus(action) -> dict:
     return {"platform_focus": action.get("platform"), "weight": "boost"}
 
 
+async def _exec_devapp_health(db, team_id, action) -> dict:
+    """devapp_health → Slack alert; the heal lanes (token-refresh,
+    session-healer, consent_healers) own the actual remediation."""
+    from app.services.slack_notifications import post_alert_to_slack
+
+    label = f"{action.get('platform')}/@{action.get('username')}" if action.get("username") else str(action.get("platform"))
+    await post_alert_to_slack(f"⚠️ devapp health — {label}: {action.get('reason', 'unknown')}")
+    return {"alerted": label}
+
+
 _EXECUTORS = {
     "content_topic": _exec_content_topic,
     "audit_escalation": _exec_audit_escalation,
     "platform_focus": _exec_platform_focus,
+    "devapp_health": _exec_devapp_health,
 }
 
 

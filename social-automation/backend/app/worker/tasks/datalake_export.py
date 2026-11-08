@@ -15,6 +15,8 @@ site's ``materialize-datalake-snapshots`` ETL can build gold sections:
     lake/socialauto-ads/snapshots.json
     lake/socialauto-ads/daily.json
     lake/socialauto-ads/demographics.json
+    lake/socialauto-devapps/snapshots.json
+    lake/socialauto-channel-actions/actions.json
 
 Each run overwrites the whole table (snapshot-style export) — idempotent
 by construction, no dedup needed downstream. PII is minimized: leads keep
@@ -60,7 +62,9 @@ settings = get_settings()
 _WEB_EVENTS_DAYS = 90
 
 # Datalake keys mirrored to Nextcloud — summary artifacts only.
-_NC_MIRROR_RE = re.compile(r"^lake/(socialauto-(funnel|ops|reports|monetization|insights)/|cloudflare-usage/)")
+_NC_MIRROR_RE = re.compile(
+    r"^lake/(socialauto-(funnel|ops|reports|monetization|insights|devapps|channel-actions)/|cloudflare-usage/)"
+)
 
 
 _worker_db = task_session
@@ -822,6 +826,49 @@ async def _export_monetization(db: AsyncSession) -> list[dict]:
     return rows
 
 
+async def _latest_devapp_snapshots(db: AsyncSession) -> list[dict]:
+    """Latest ``devapp_snapshot`` AnalyticsEvent per connected account.
+
+    Rows are produced by ``devapps_sync`` every 6h; we only export the newest
+    per account so the lake file stays a current-state rollup (history lives
+    in the raw analytics_events stream / Postgres).
+    """
+    from app.services.devapps_sync import DEVAPP_EVENT_TYPE
+
+    rows = (
+        (
+            await db.execute(
+                text(
+                    "SELECT DISTINCT ON (social_account_id) meta_data, occurred_at"
+                    " FROM analytics_events"
+                    " WHERE event_type=:t AND social_account_id IS NOT NULL"
+                    " ORDER BY social_account_id, occurred_at DESC"
+                ),
+                {"t": DEVAPP_EVENT_TYPE},
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return [dict(r["meta_data"] or {}) for r in rows]
+
+
+async def _export_devapps(db: AsyncSession) -> list[dict]:
+    """Developer-app rollup — one row per account: health, insights,
+    demographics, quota state as last pulled by the devapps-sync sweep."""
+    return await _latest_devapp_snapshots(db)
+
+
+async def _export_channel_actions(db: AsyncSession) -> list[dict]:
+    """Per-channel action rows for the post-generation loop — health
+    overrides (reauthorize/heal/quota) else content hints (followers,
+    media_required, engagement counters)."""
+    from app.services.devapps_sync import build_channel_actions
+
+    snapshots = await _latest_devapp_snapshots(db)
+    return build_channel_actions(snapshots)
+
+
 async def _export_ops_health(db: AsyncSession) -> dict:
     """Current ops snapshot: queue state, recent failures, sync freshness."""
     queue = (
@@ -927,6 +974,8 @@ async def _export_async() -> dict:
         await put("lake/socialauto-ads/snapshots.json", _export_ad_snapshots(db))
         await put("lake/socialauto-ads/daily.json", _export_ad_daily(db))
         await put("lake/socialauto-ads/demographics.json", _export_ad_demographics(db))
+        await put("lake/socialauto-devapps/snapshots.json", _export_devapps(db))
+        await put("lake/socialauto-channel-actions/actions.json", _export_channel_actions(db))
         await put("lake/socialauto-ops/health.json", _export_ops_health(db))
         await put("lake/socialauto-funnel/funnel.json", _export_funnel(db))
         await put("lake/socialauto-monetization/gates.json", _export_monetization(db))
