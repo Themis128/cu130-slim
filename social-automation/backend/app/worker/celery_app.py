@@ -29,6 +29,7 @@ celery_app = Celery(
         "app.worker.tasks.instagram_session_check",
         "app.worker.tasks.facebook_token_check",
         "app.worker.tasks.account_status_reconcile",
+        "app.worker.tasks.publish_verify",
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.personal_messenger",
         "app.worker.tasks.linkedin_messenger",
@@ -283,6 +284,7 @@ celery_app.conf.update(
         "app.worker.tasks.instagram_session_check.check_instagram_sessions": {"queue": "default"},
         "app.worker.tasks.facebook_token_check.check_facebook_tokens": {"queue": "default"},
         "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
+        "app.worker.tasks.publish_verify.verify_publish_paths": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
@@ -398,6 +400,10 @@ celery_app.conf.update(
         },
         # Retry failed publish targets — transient causes (media URL
         # expiry, token contention) resolve on requeue. 15min cadence.
+        "publish-verify": {
+            "task": "app.worker.tasks.publish_verify.verify_publish_paths",
+            "schedule": crontab(minute=45, hour="*/2"),
+        },
         "publish-retry-sweep": {
             "task": "app.worker.tasks.publish_retry.run_publish_retry_sweep",
             "schedule": crontab(minute="*/15"),
