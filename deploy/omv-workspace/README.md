@@ -1,5 +1,10 @@
 # Self-hosted workspace on `omv` (replaces M365 / Google Workspace)
 
+> **Canonical source (2026-11):** the Nextcloud workspace implementation now
+> lives in [Themis128/cloudless-nextcloud](https://github.com/Themis128/cloudless-nextcloud)
+> (extracted with full history). This directory remains the deploy mirror —
+> keep changes in sync via PR to both repos.
+
 Runs on the **omv node** (`192.168.1.200`, aarch64, 8 GB RAM, k3s host) — NOT on
 cu130. All persistent data lives on the 1 TB USB SSD
 (`/srv/dev-disk-by-uuid-fa6231ab-eae7-40ea-a4b6-400f767a89d7/workspace/`).

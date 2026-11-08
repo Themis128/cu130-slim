@@ -159,6 +159,7 @@ HaRP, replacing M365/Google Workspace. Managed natively by the OMV Compose
 plugin; all data on the 1 TB USB SSD.
 
 - Deployment, endpoints, ops commands: [`deploy/omv-workspace/README.md`](deploy/omv-workspace/README.md)
+  (canonical Nextcloud source: [Themis128/cloudless-nextcloud](https://github.com/Themis128/cloudless-nextcloud))
 - Phone/tablet onboarding (Nextcloud, Talk, DAVx⁵, CalDAV/CardDAV):
   [`deploy/omv-workspace/MOBILE_SETUP.md`](deploy/omv-workspace/MOBILE_SETUP.md)
 - Public: `cloud.cloudless.gr` (files/office), `office.cloudless.gr` (Collabora),
