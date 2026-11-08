@@ -394,3 +394,20 @@ wsl-safe-bounce schedule, Kakkava week-2 content work.
   `docker desktop restart` if `docker ps` still fails next session.
 - [ ] Still manual: WABA assign + Meta evidence, CM recording, sshd
   elevation, Member DP modal, decisions, issues #793/#795 replies.
+
+## 2026-11-08 — human-gate automation pass #4 + gates_autopilot tool
+
+- [x] NEW TOOL `gates_autopilot.py` (gates-ops): one-shot sweep —
+  gate_probe + sidecar/bridge health truth-check + debug-Chrome/ADB/env
+  lane inventory + docker state, `--dry-run`/`--json`. Wired into
+  gates-ops SKILL.md. Run it before trusting any "session dead" entry.
+- [x] cdp_click.py upgraded to auto-reexec under Windows python (wslpath
+  + powershell.exe) — WSL-side websocket drops on navigation are fixed
+  by running the client where the browser lives.
+- [x] FB OAuth + LinkedIn/TikTok sidecar sessions — verified live.
+- [~] X OAuth — URL minted; debug Chrome reaches google.com but x.com
+  hits chrome-error (profile network path, not CDP/token). Normal-Chrome
+  click or a proxy fix unblocks it.
+- [ ] Remaining true-human: WABA assign + Meta evidence, CM recording,
+  sshd/schtasks elevation, Member DP modal, TikTok ΑΑΔΕ resubmit,
+  decision items, issues #793/#795 `approve`/`done` replies.
