@@ -75,18 +75,13 @@ def model_scenarios(rows: list[dict]) -> list[dict]:
                 "strategy": strategy,
                 "innovative_value": f"hook: {r['query'][:90]}",
                 "target_segment": "TikTok organic discovery (FYP) → funnel",
-                "action": (
-                    "produce vertical clip inside the weekly window"
-                    if strategy == "leader"
-                    else "pre-draft format for the GR/EU lag wave"
-                ),
+                "action": ("produce vertical clip inside the weekly window" if strategy == "leader" else "pre-draft format for the GR/EU lag wave"),
                 "channel": "tiktok",
                 "format_guide": FORMAT_GUIDE,
                 "reference": tt.get("url") or "",
                 "creator": tt.get("author") or "",
                 "engagement_rate": tt.get("engagement_rate"),
-                "cta": "utm_source=tiktok&utm_medium=social&utm_campaign=trend-"
-                + re.sub(r"[^a-z0-9]+", "-", r["query"].lower())[:40],
+                "cta": "utm_source=tiktok&utm_medium=social&utm_campaign=trend-" + re.sub(r"[^a-z0-9]+", "-", r["query"].lower())[:40],
             }
         )
     scenarios.sort(key=lambda s: (-(s["classification"] == "opportunity"), -s["traffic"]))

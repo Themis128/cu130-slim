@@ -27,10 +27,7 @@ import httpx
 
 BASE = "https://ads.us.tiktok.com/CreativeOne/Report"
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"),
     "Accept": "application/json",
     "Origin": "https://ads.tiktok.com",
     "Referer": "https://ads.tiktok.com/",
@@ -52,21 +49,14 @@ CONTENT_LABELS = {
 }
 
 DEFAULT_SWEEP: tuple[dict[str, Any], ...] = tuple(
-    {"orderByMetric": m, "contentLabelIDs": lbl, "organicOnly": "false"}
-    for m in ORDER_METRICS
-    for lbl in CONTENT_LABELS
+    {"orderByMetric": m, "contentLabelIDs": lbl, "organicOnly": "false"} for m in ORDER_METRICS for lbl in CONTENT_LABELS
 )
 
-FULL_SWEEP: tuple[dict[str, Any], ...] = DEFAULT_SWEEP + tuple(
-    {**c, "organicOnly": "true"} for c in DEFAULT_SWEEP
-)
+FULL_SWEEP: tuple[dict[str, Any], ...] = DEFAULT_SWEEP + tuple({**c, "organicOnly": "true"} for c in DEFAULT_SWEEP)
 
 # Prompt-context tier — 3 calls, ~5s, up to 12 videos (one per metric,
 # unfiltered labels). The report script uses the wider sweeps.
-LIGHT_SWEEP: tuple[dict[str, Any], ...] = tuple(
-    {"orderByMetric": m, "contentLabelIDs": "", "organicOnly": "false"}
-    for m in ORDER_METRICS
-)
+LIGHT_SWEEP: tuple[dict[str, Any], ...] = tuple({"orderByMetric": m, "contentLabelIDs": "", "organicOnly": "false"} for m in ORDER_METRICS)
 
 CALL_PACE_SEC = 1.6
 
