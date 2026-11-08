@@ -15,17 +15,6 @@ Cloudless apps (264925843 org/CM/ads; 265077368 `cloudless-gr-member` DMA).
 | Access request form | Advertising API | Qualtrics | use case |
 | Request access | Lead Sync / Matched Audiences / Events | self-serve modal | none |
 
-## App credentials (confirmed 2026-11-05)
-
-- 265077368 cloudless-gr-member — client_id 77fd3pui3m2jwm, Share+OIDC
-  granted, company verified, redirect = social.cloudless.gr callback.
-- 264925843 Cloudless Analytics App — client_id 77j8kzfi1a6jn8, CM Standard
-  + Events Standard; consents the FULL union (member analytics, feeds,
-  followers). PRIMARY OAuth client going forward.
-- 227354605 Cloudless API App — client_id 77tf4oysp8u3fz, ads+org lane only.
-- Tools: linkedin-products-ops (li_scope_probe/li_products_matrix/
-  li_consent_trim), linkedin-portal-ops (li_portal_edit).
-
 ## Driving the Qualtrics survey (playwright MCP)
 
 The forms are third-party `linkedincustomerops.qualtrics.com` pages — no
