@@ -17,6 +17,7 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
+        "app.worker.tasks.nextcloud_docs",
         "app.worker.tasks.company_brain",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
@@ -430,6 +431,14 @@ celery_app.conf.update(
         "sync-nextcloud-extras": {
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_extras",
             "schedule": crontab(minute="*/30"),
+        },
+        # Mirror repo documentation/architecture (AGENTS.md, docs/, deploy/,
+        # .devin/) into Nextcloud Files at SocialAuto/docs/repo/ — manifest is
+        # read from GitHub master so it always reflects merged docs; per-file
+        # blob SHAs in Redis mean only changed files are re-uploaded.
+        "sync-nextcloud-docs": {
+            "task": "app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task",
+            "schedule": crontab(minute=45, hour="*/6"),  # every 6h at :45
         },
         # Nightly company-brain journal — real publish/follower outcomes →
         # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.
