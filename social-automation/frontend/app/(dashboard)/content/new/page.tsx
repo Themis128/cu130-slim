@@ -406,7 +406,7 @@ export default function NewPostPage() {
 
   // Prefill schedule from calendar links: /content/new?date=YYYY-MM-DD
   useEffect(() => {
-    const date = searchParams.get('date')
+    const date = searchParams?.get('date')
     if (date && /^\d{4}-\d{2}-\d{2}$/.test(date) && !scheduleDate) {
       setScheduleDate(`${date}T19:00`)
     }

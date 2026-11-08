@@ -42,7 +42,7 @@ type Operation = 'resize' | 'upscale' | 'remove_bg' | 'smart_crop' | 'convert' |
 
 export default function EnhancePage() {
   const params = useParams()
-  const assetId = params.id as string
+  const assetId = (params?.id ?? '') as string
 
   const [asset, setAsset] = useState<any>(null)
   const [info, setInfo] = useState<ImageInfo | null>(null)
