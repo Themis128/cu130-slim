@@ -508,6 +508,8 @@ def test_export_async_full_run(monkeypatch):
         "_export_monetization",
         "_export_email_campaigns",
         "_export_survey_responses",
+        "_export_trends",
+        "_export_engagement",
     ):
         monkeypatch.setattr(de, name, AsyncMock(return_value=[{"r": 1}]))
     monkeypatch.setattr(de, "_export_ops_health", AsyncMock(return_value={"q": 1}))
@@ -520,8 +522,8 @@ def test_export_async_full_run(monkeypatch):
 
     out = _run(de._export_async())
     assert out["ok"] is True
-    assert out["files"] == 21  # 16 tables + edge + reports + insights + 2 CF files
-    assert out["bytes"] == 210
+    assert out["files"] == 23  # 16 tables + edge + reports + trends + engagement + insights + 2 CF files
+    assert out["bytes"] == 230
 
 
 def test_export_async_insights_and_put_failures(monkeypatch):

@@ -80,6 +80,11 @@ celery_app = Celery(
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
+        "app.worker.tasks.trend_ingest",
+        "app.worker.tasks.engagement_ingest_li",
+        "app.worker.tasks.engagement_ingest_ig",
+        "app.worker.tasks.engagement_ingest_fb",
+        "app.worker.tasks.engagement_ingest_tt",
     ],
 )
 
