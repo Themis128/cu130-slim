@@ -245,6 +245,21 @@ gone.
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
 
+## 2026-11-08 — phone ADB state + X OAuth phone attempt (memory)
+
+- PHONE STATE: user's S22+ is USB-connected with ADB enabled. WSL can't
+  see USB directly — reachable via `adb connect`: two live endpoints
+  `100.84.31.85:5555` (tailnet) + `192.168.1.77:5555` (LAN). A stale
+  `emulator-5554 offline` entry is noise — ignore it.
+- X OAuth via phone browser ATTEMPTED: authorize URL opened via
+  `am start` → X app answered "Something went wrong / You weren't able
+  to give access to the App" — X-side rejection (state/code_challenge
+  mismatch or wrong logged-in X account on the phone), NOT a load
+  failure. Next try: mint a FRESH URL, open it in Chrome-on-phone (not
+  the X app intent) while @TBaltzakis is the active session, or do the
+  single approve click in desktop Chrome.
+- powershell.exe interop + docker both back up.
+
 
 ## 2026-11-08 — human-gate automation pass #5 (Devin) — X path exhausted
 
