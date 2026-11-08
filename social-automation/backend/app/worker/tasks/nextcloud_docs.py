@@ -18,7 +18,7 @@ from app.worker._async import run_async
 logger = logging.getLogger(__name__)
 
 
-@shared_task(name="app.worker.tasks.nextcloud_docs.sync_nextcloud_docs", bind=True, max_retries=1)
+@shared_task(name="app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task", bind=True, max_retries=1)
 def sync_nextcloud_docs_task(self) -> dict[str, Any]:
     if not nextcloud_docs.nextcloud_docs_enabled():
         return {"skipped": "nextcloud export disabled"}
