@@ -12,7 +12,6 @@ from sqlalchemy import select
 
 from app.db.session import async_session_maker
 from app.models.analytics import AnalyticsEvent
-from app.models.social_account import SocialAccount
 from app.services.devapps_sync import DEVAPP_EVENT_TYPE, build_channel_actions, sync_all_devapps
 
 
