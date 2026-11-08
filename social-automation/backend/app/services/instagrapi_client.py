@@ -291,6 +291,16 @@ class InstagrapiClient:
 
         return await asyncio.to_thread(self._sync_call, _do)
 
+    async def get_own_stories(self) -> list[dict[str, Any]]:
+        """List own active stories. Returns list of dicts with id/pk."""
+        await self._wait_for_rate_limit()
+
+        def _do(cl: Any) -> list[dict[str, Any]]:
+            stories = cl.user_stories(cl.user_id)
+            return [{"id": str(m.id), "pk": str(m.pk)} for m in stories]
+
+        return await asyncio.to_thread(self._sync_call, _do)
+
     # ── Read-only profile (with free fallback chain) ──────────────────────
 
     async def get_profile(self) -> dict[str, Any]:

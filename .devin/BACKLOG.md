@@ -186,3 +186,4 @@ be deleted from the tailnet admin console (cosmetic).
 PR #1472 (auto-merge armed): FB Page Reels (`platform_specific.facebook.format="reel"` → video_reels 3-phase), IG Stories (`platform_specific.instagram.format="story"` → instagrapi story upload), `publish_path` telemetry on every PublishResult → `Post.platform_specific.publish_path`. Deployed live to all 5 backend containers.
 - [ ] Wire scheduler/UI to set `platform_specific.{facebook,instagram}.format` so Reels/Stories get used; currently opt-in flag only.
 - [ ] Watch: first real Reel/Story publish — verify Graph scopes (`pages_manage_posts` covers reels; story via instagrapi session).
+- [x] publish_verify beat task (2h at :45): reconciles graph_reels/instagrapi_story publishes vs platform, sets platform_specific.publish_verified, P2 alert on "failed"
