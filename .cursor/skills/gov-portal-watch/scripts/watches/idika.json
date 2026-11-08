@@ -1,0 +1,12 @@
+{
+  "name": "IDIKA Epidoma Paidiou 2026",
+  "url": "https://www.idika.gr/epidomapaidiou/2026/LandingPage",
+  "host": "idika.gr",
+  "login_url": "https://www.idika.gr/epidomapaidiou/Account/Login?ReturnUrl=%2Fepidomapaidiou%2F2026%2FLandingPage",
+  "oauth_button": "Gsis.OAuth2",
+  "auth_expr": "(()=>{const t=document.body.innerText||'';return /Κωδικός\\s*αίτησης|Αιτήσεις που αφορούν το πρόσωπο/.test(t)?'auth':'guest'})()",
+  "auth_regex": "Κωδικός",
+  "login": "gsis",
+  "creds": "taxisnet.json",
+  "extract_js": "(() => {\n  const rows=[];\n  document.querySelectorAll('table tr').forEach(tr=>{\n    const cells=[...tr.querySelectorAll('th,td')].map(c=>c.innerText.trim().replace(/\\s+/g,' '));\n    if(cells.length) rows.push(cells.join(' | '));\n  });\n  return JSON.stringify({url:location.href, title:document.title, rows:rows});\n})()"
+}
