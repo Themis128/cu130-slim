@@ -250,11 +250,7 @@ def compute_devapp_signals(rows: list[dict]) -> dict[str, Any]:
                 "quota_exhausted": bool((r.get("insights") or {}).get("quota_exhausted")),
             }
         )
-    unhealthy = [
-        c
-        for c in channels
-        if c["ok"] is False or c["token_valid"] is False or c["quota_exhausted"]
-    ]
+    unhealthy = [c for c in channels if c["ok"] is False or c["token_valid"] is False or c["quota_exhausted"]]
     expiring = [c for c in channels if c["days_to_expiry"] is not None and c["days_to_expiry"] <= 7]
     return {"devapp_channels": channels, "devapp_unhealthy": unhealthy, "devapp_expiring": expiring}
 
@@ -343,8 +339,7 @@ def pick_actions(signals: dict[str, Any]) -> list[dict[str, Any]]:
                 "platform": c.get("platform"),
                 "username": c.get("username"),
                 "priority": "high",
-                "reason": c.get("error")
-                or ("quota exhausted" if c.get("quota_exhausted") else "token invalid"),
+                "reason": c.get("error") or ("quota exhausted" if c.get("quota_exhausted") else "token invalid"),
             }
         )
     for c in signals.get("devapp_expiring") or []:
@@ -603,9 +598,7 @@ def render_slack_lines(signals: dict[str, Any]) -> list[str]:
         reason = c.get("error") or ("quota exhausted" if c.get("quota_exhausted") else "token invalid")
         lines.append(f"• devapp {label}: {reason} → heal/reauthorize")
     for c in signals.get("devapp_expiring") or []:
-        lines.append(
-            f"• devapp {c.get('platform')}/@{c.get('username')}: token expires in {c.get('days_to_expiry')}d"
-        )
+        lines.append(f"• devapp {c.get('platform')}/@{c.get('username')}: token expires in {c.get('days_to_expiry')}d")
     for w, n in (signals.get("pain_topics") or [])[:3]:
         lines.append(f"• pain: {w} ({n}x) → content topic")
     if signals.get("price_anchor_median"):

@@ -19,9 +19,7 @@ from app.db.base import Base
 
 class TrendSignal(Base):
     __tablename__ = "trend_signals"
-    __table_args__ = (
-        UniqueConstraint("source", "query", "geo", "period_key", name="uq_trend_signal"),
-    )
+    __table_args__ = (UniqueConstraint("source", "query", "geo", "period_key", name="uq_trend_signal"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     source: Mapped[str] = mapped_column(String(30))  # google-trends | tiktok-cc

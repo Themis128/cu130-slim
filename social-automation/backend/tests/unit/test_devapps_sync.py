@@ -232,9 +232,7 @@ class TestDevappSignalEdges:
             {
                 "responses": 0,
                 "lead_volume_30d": 0,
-                "devapp_unhealthy": [
-                    {"platform": "twitter", "username": "tb", "error": "401 dead", "quota_exhausted": False}
-                ],
+                "devapp_unhealthy": [{"platform": "twitter", "username": "tb", "error": "401 dead", "quota_exhausted": False}],
                 "devapp_expiring": [{"platform": "tiktok", "username": "tt", "days_to_expiry": 2.5}],
             }
         )
