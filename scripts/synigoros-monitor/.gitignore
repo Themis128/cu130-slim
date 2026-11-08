@@ -1,4 +1,6 @@
 config.json
 state.json
 monitor.log
+admin-followups-state.json
+followup-alert.json
 node_modules/

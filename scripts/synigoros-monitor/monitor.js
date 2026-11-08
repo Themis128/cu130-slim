@@ -196,6 +196,11 @@ async function notify(text) {
       lastNews: prev && prev.lastNews, followupSent: prev && prev.followupSent,
       errorStreak: 0, errorAlerted: false,
       checked: new Date().toISOString() }, null, 2));
+    // Dated follow-up scheduler (ΔΥΠΑ/ΣΕΠΕ/Συνήγορος cadence) — fire-and-forget.
+    try {
+      require('child_process').spawn('C:\\Program Files\\nodejs\\node.exe',
+        [path.join(DIR, 'admin-followups.js')], { stdio: 'ignore', detached: true }).unref();
+    } catch (e) { log('admin-followups spawn failed: ' + e.message); }
   } catch (e) {
     log('ERROR: ' + e.message);
     // Debounce: synigoros.gr blips are ~3% of polls and self-heal — alert
