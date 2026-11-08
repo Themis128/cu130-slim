@@ -81,6 +81,11 @@ celery_app = Celery(
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
+        "app.worker.tasks.trend_ingest",
+        "app.worker.tasks.engagement_ingest_li",
+        "app.worker.tasks.engagement_ingest_ig",
+        "app.worker.tasks.engagement_ingest_fb",
+        "app.worker.tasks.engagement_ingest_tt",
     ],
 )
 
@@ -328,6 +333,11 @@ celery_app.conf.update(
         "app.worker.tasks.twitter_messenger.poll_twitter_messenger": {"queue": "messenger"},
         "app.worker.tasks.tiktok_messenger.poll_tiktok_messenger": {"queue": "messenger"},
         "app.worker.tasks.instagram_messenger.poll_instagram_messenger": {"queue": "messenger"},
+        "app.worker.tasks.trend_ingest.ingest_trends": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_li.ingest_linkedin_feed": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_ig.ingest_ig_feed": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_fb.ingest_fb_groups": {"queue": "default"},
+        "app.worker.tasks.engagement_ingest_tt.ingest_tiktok_tags": {"queue": "default"},
     },
     beat_schedule={
         # Weekly publish/agency/audit KPI digest → ops channel (notebook twin).
@@ -357,6 +367,35 @@ celery_app.conf.update(
         "gate-sweep": {
             "task": "app.worker.tasks.gate_sweep.run_gate_sweep",
             "schedule": crontab(minute=15),
+        },
+        # Trend-signal ingest — persists niche-scored Google + TikTok CC
+        # signals to trend_signals (datalake/Metabase decision layer).
+        "trend-ingest": {
+            "task": "app.worker.tasks.trend_ingest.ingest_trends",
+            "schedule": crontab(minute=25, hour="*/6"),
+            "options": {"queue": "default"},
+        },
+        # Engagement feed scrapers — staggered through the shared
+        # engagement-browser bridge (tasks skip on 409 browser-busy).
+        "engagement-ingest-li": {
+            "task": "app.worker.tasks.engagement_ingest_li.ingest_linkedin_feed",
+            "schedule": crontab(minute=45),
+            "options": {"queue": "default"},
+        },
+        "engagement-ingest-ig": {
+            "task": "app.worker.tasks.engagement_ingest_ig.ingest_ig_feed",
+            "schedule": crontab(minute=47),
+            "options": {"queue": "default"},
+        },
+        "engagement-ingest-fb": {
+            "task": "app.worker.tasks.engagement_ingest_fb.ingest_fb_groups",
+            "schedule": crontab(minute=49),
+            "options": {"queue": "default"},
+        },
+        "engagement-ingest-tt": {
+            "task": "app.worker.tasks.engagement_ingest_tt.ingest_tiktok_tags",
+            "schedule": crontab(minute=51),
+            "options": {"queue": "default"},
         },
         # Funnel sync — EspoCRM→Mautic contacts + MinIO funnel-zone export.
         "funnel-score": {
