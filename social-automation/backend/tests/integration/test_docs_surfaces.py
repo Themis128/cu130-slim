@@ -209,6 +209,11 @@ SWEEP_SKIP = re.compile(
     # (use_llm=True default) — a real DMR inference that can exceed the probe
     # timeout on cold model load. Existence verified via the schema.
     r"ops/automation-plan|"
+    # media-sources proxies fan out to live upstreams (Nextcloud PROPFIND,
+    # Google Drive token refresh). When those integrations' credentials are
+    # stale/off-box the endpoint legitimately relays a 502 — external-state,
+    # not app correctness. Existence verified via the schema.
+    r"media-sources/|"
     # Browser-automation surfaces: real browser sessions into TikTok that can
     # legitimately exceed the probe timeout on cold start — same class as oauth
     # callbacks. Existence is still verified via the OpenAPI schema.
