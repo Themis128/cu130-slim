@@ -51,3 +51,11 @@ before/after into /tmp for verification. App-side only surface.
 | TikTok #789 | rejected ×2 | doc-type fix — see `tiktok-verification` | rerun flow after type fix |
 
 Runner: `gate_runner2.py` = clone→debug→forwarder→watch→click, single call.
+
+## gates_autopilot.py
+
+Single-shot sweep: runs `gate_probe.py`, truth-checks every sidecar's
+`/health` (many "dead session" entries are stale), verifies debug Chrome
++ ADB devices + which credential fallbacks are armed in `.env`, and
+reports docker state. `--dry-run` prints the plan only; `--json` for
+machines. Run it first whenever a backlog entry claims a session is dead.
