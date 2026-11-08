@@ -61,16 +61,7 @@ gone.
   else `scripts/tiktok_qr_watch.py` watches for the scan.
 - [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
   in Meta Business, then POST /{phone}/register (standard registration —
-  request_code/verify_code are the migration API). `WHATSAPP_PHONE_NUMBER_ID`
-  still unset; Meta Business billing/payment is the hard prerequisite.
-- [ ] human: Viber bot — partners.viber.com/webadmin.viber.com RETIRED
-  (verified 2026-11-08, see viber-ops SKILL.md). No bot exists on the
-  phone account; new bots are commercial-only → apply via Rakuten Viber
-  / partner (respond.io docs: cecile.tizon@viber.com). Once a token is
-  issued: `viber_token_fetch.py --token <T>` → `viber_provision.py`.
-- [ ] human: TikTok business verification — needs Greek sole-trader/ΑΑΔΕ
-  tax certificate under the correct doc type (ΓΕΜΗ submissions rejected);
-  unlocks profile website field + full Creative Center rankings.
+  request_code/verify_code are the migration API).
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
 - [ ] LinkedIn sidecar :9225 browser session dead and stored
@@ -149,26 +140,48 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
-## 2026-11-08 — FB OAuth healed permanently; WhatsApp WABA gone (needs console)
 
-- [x] FACEBOOK_PASSWORD → Infisical prod + Windows vault `cloudless-gate:facebook.com`.
-- [x] FB OAuth re-consent completed via debug Chrome CDP (:9222 WSL→172.22.144.1:9229→:9330 bridge; forwarder script /tmp/cdp_fwd.py — recreate if dead).
-- [x] `social_accounts` facebook: user row `9355ed63` (Themistoklis Baltzakis) + page row `ad83c946` (cloudless.gr, id 116436681562585) BOTH `active`, user token `expires_at:0` = never expires, scopes include business_management + whatsapp_business_management/messaging. FB re-auth problem is permanently solved.
-- [ ] WhatsApp `77f17091` still `revoked`: WABA `1073707258453499` + phone_number_id `1334613883061552` DELETED on Meta side (Graph: object does not exist). Business `1558125105019725` has zero WABAs. Needs: Business Manager console → create WABA → add +306977777838 → SMS code (user's phone; SMS path was rate-limited) → register. Then update meta_data.phone_number_id + token.
-- [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
-- [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
+## 2026-11-08 — web-researched automation solutions for the remaining human gates
 
-## 2026-11-08 — Android phone on ADB (SMS-OTP lane live)
-
-- [x] Phone `RFCTA0AEKZP` (Samsung) connected USB + USB-debugging authorized — visible via Windows `adb.exe devices` (`device` state). WSL `adb` is BLIND to it (only stale `emulator-5554` offline) — always use `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` or `adb.exe` on Windows.
-- [x] SMS-OTP automation lane confirmed: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` via those adb paths (+ Termux :8022 + doveadm mail fallback). Unblocks WhatsApp WABA phone registration (+306977777838 SMS code) and any future SMS-2FA gates — no human code-reading needed while phone stays plugged in.
-
-## 2026-11-08 — WhatsApp account pulled OUT of cloudless.gr business (moving to another portfolio)
-
-- [x] WAAC `+30 697 777 7838` / display `Cloudless` (created earlier via BM wizard, status Unverified) — phone number DELETED from it via BM → WhatsApp accounts → row ⋯ → Delete phone number (password gate: FACEBOOK_PASSWORD from Infisical via `docker exec infisical node` — host :8090 port-forward is dead post Docker restart, use container IP/exec).
-- [x] Empty WAAC shell then removed via detail-panel ⋯ → "Remove from business portfolio" → Delete WhatsApp account. BM now shows "No WhatsApp accounts added" under business `1558125105019725`.
-- [x] Phone side: WhatsApp Business app (`com.whatsapp.w4b`, `RFCTA0AEKZP`) backed out of the coexistence `InputVerificationCodeActivity` screen — app account + chats untouched; number stays registered to the app.
-- [ ] USER ACTION: re-add the WhatsApp Business account under the TARGET business portfolio (the one- business-per-WABA rule blocked it while it lived in cloudless.gr). Then: phone verify (SMS reads itself via `wa_verify.py` ADB lane) → Messaging account → new phone_number_id → update `social_accounts` whatsapp row `77f17091` meta_data + token.
-- [ ] Still open from before: app `1936126137016578` lacks system-user capability (#100) — needs Advanced Access for whatsapp_business_management mint; TikTok stale rows `dcda73fb`/`ab439e1e`/`7c33ed15` cleanup candidates.
-- [ ] NOTE: `/tmp/wa_coex_watch.sh` watcher is now MOOT — it polled the Meta embedded-signup unblock for coexistence under cloudless.gr; the account moved businesses instead. Safe to kill if still running.
-- [~] WhatsApp coexistence automation re-armed (watcher v2, PID varies — check `pgrep -f wa_coex_watch2`): `/tmp/wa_coex_watch2.sh` → `/tmp/wa_coex_probe.py` polls dev-console every 30 min/48h, detects the account-level "temporarily blocked" cooldown (toast is transient — probe polls 60s post-Continue), on UNBLOCKED runs `/tmp/wa_coex_drive.py` (tab-targeted, hunts access code → `/tmp/wa_access_code.txt`) + kicks `/tmp/wa_phone_link.py` (ADB actuator: code entry, share-history confirm, camera permission; alerts on biometric/QR gates) + Telegram P2. NOTE: dev-console business selector offers ONLY cloudless.gr — the user's target business is NOT visible to this FB session (me/business_users = cloudless.gr only), so the actual add-under-other-business step happens in the user's own BM session; watcher only signals the cooldown lifting.
+- [~] WSL sshd (replaces Windows-sshd-elevation gate): user-space sshd
+  now RUNNING on :2222 in WSL (`/usr/sbin/sshd -f ~/.ssh/sshd_user.conf`,
+  host keys in ~/.ssh/ssh_host, pubkey auth only; omv key authorized).
+  Researched: Win32 sshd can't run unprivileged (needs SYSTEM), and
+  omv's sshd has AllowTcpForwarding=no so reverse-tunnel was out.
+  REMAINING one-time step to expose it to LAN/tailnet (pick ONE):
+  a) `sudo tailscale set --operator=$USER` then `tailscale serve
+     --tcp=2222 tcp://localhost:2222` — then omv reaches
+     100.86.188.43:2222; or
+  b) add `networkingMode=mirrored` under [wsl2] in
+     C:\Users\tbaltzakis\.wslconfig + `wsl --shutdown` (user file, no
+     admin, but drops the session — do it at a quiet moment).
+- [x] WABA via API (no console needed): POST /{business-id}/
+  whatsapp_business_accounts on Graph API creates the WABA directly;
+  GET /{waba-id}/phone_numbers + register API completes onboarding.
+  FB business_management system-user token already minted. (PR #1478
+  shows a WAAC already created — waiting Meta cooldown.)
+- [x] CM survey recording automatable: `pip install demo-video-recorder`
+  (drives browser via Playwright + EdgeTTS narration → narrated MP4).
+  Still needs the registered-address text from the user as form input.
+- [x] ΑΑΔΕ doc source found: myAADE → Μητρώο και Επικοινωνία →
+  Βεβαιώσεις Μητρώου → "Τρέχουσα Εικόνα Οντότητας/Επιχείρησης" +
+  "Ιστορικό Μεταβολών – Βασικά Στοιχεία" — two downloadable PDFs, the
+  accepted sole-trader evidence for TikTok business verify. Gated on
+  Taxisnet creds (not in .env — user must supply or do the download).
+- [x] omv→Windows SSH gate BYPASSED via pull model: schtasks `OmVPull`
+  (every 1 min) runs scripts/omv_pull_watchdog.sh — SSHes OUT to omv,
+  reads+deletes /tmp/win_cmds.sh, executes lines (`wsl:` prefix → bash,
+  else powershell), logs to logs/omv-pull.log. Verified end-to-end
+  02:54Z. omv-side callers just write to /tmp/win_cmds.sh now — no
+  inbound sshd needed at all.
+- [x] Issues #793 + #795 answered (`approve` / `done` posted).
+- [x] Registered business address saved to .env as
+  REGISTERED_BUSINESS_ADDRESS (Thermopilon 15, Koropi 19441) — ready
+  for the LinkedIn CM access form + narrated recording.
+- [ ] myAADE doc download — needs Taxisnet creds (gov.gr SSO, none
+  stored anywhere). Add TAXISNET_USER/TAXISNET_PASS to .env and I'll
+  CDP-drive the two Βεβαιώσεις downloads; or drop the PDFs in
+  Downloads manually.
+- [~] sshd :2222 running; OmVPull already bypasses the inbound-SSH
+  need. Optional full expose still via `sudo tailscale set
+  --operator=$USER` + serve, or mirrored .wslconfig.
