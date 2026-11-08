@@ -1,0 +1,8 @@
+[Unit]
+Description=Cloudflare Tunnel (omv-cloudless) watchdog
+After=docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/nextcloud-wedge-watchdog.env
+ExecStart=/usr/bin/python3 /usr/local/sbin/cloudflared_tunnel_watchdog.py
