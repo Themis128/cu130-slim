@@ -42,9 +42,7 @@ def test_resp_json_edges() -> None:
 async def test_meta_debug_token_empty_scope_names() -> None:
     with respx.mock(assert_all_called=False) as mock:
         mock.get(url__regex=rf"{_GRAPH}debug_token.*").mock(
-            return_value=respx.MockResponse(
-                200, json={"data": {"is_valid": True, "granular_scopes": [{"no_scope_key": 1}]}}
-            )
+            return_value=respx.MockResponse(200, json={"data": {"is_valid": True, "granular_scopes": [{"no_scope_key": 1}]}})
         )
         async with httpx.AsyncClient() as client:
             out = await ds._meta_debug_token(client, "tok")
@@ -75,12 +73,8 @@ async def test_pull_facebook_section_errors(monkeypatch: pytest.MonkeyPatch) -> 
 @pytest.mark.asyncio
 async def test_pull_facebook_insights_row_edges() -> None:
     with respx.mock(assert_all_called=False) as mock:
-        mock.get(url__regex=rf"{_GRAPH}debug_token.*").mock(
-            return_value=respx.MockResponse(200, json={"data": {"is_valid": True}})
-        )
-        mock.get(url__regex=rf"{_GRAPH}12345\?.*").mock(
-            return_value=respx.MockResponse(200, json={"name": "P", "followers_count": 3})
-        )
+        mock.get(url__regex=rf"{_GRAPH}debug_token.*").mock(return_value=respx.MockResponse(200, json={"data": {"is_valid": True}}))
+        mock.get(url__regex=rf"{_GRAPH}12345\?.*").mock(return_value=respx.MockResponse(200, json={"name": "P", "followers_count": 3}))
         mock.get(url__regex=rf"{_GRAPH}12345/insights.*").mock(
             return_value=respx.MockResponse(
                 200,
@@ -264,9 +258,7 @@ async def test_pull_linkedin_section_errors(monkeypatch: pytest.MonkeyPatch) -> 
     assert "error" in out["health"]
     assert "note" in out["insights"]  # member account note still set
 
-    account = _account(
-        "linkedin", account_type="organization", meta_data={"author_urn": "urn:li:organization:42"}
-    )
+    account = _account("linkedin", account_type="organization", meta_data={"author_urn": "urn:li:organization:42"})
     out2 = await ds._pull_linkedin(None, account, "tok")
     assert "followers_error" in out2["insights"]
     assert "organization_error" in out2["insights"]

@@ -62,9 +62,7 @@ settings = get_settings()
 _WEB_EVENTS_DAYS = 90
 
 # Datalake keys mirrored to Nextcloud — summary artifacts only.
-_NC_MIRROR_RE = re.compile(
-    r"^lake/(socialauto-(funnel|ops|reports|monetization|insights|devapps|channel-actions)/|cloudflare-usage/)"
-)
+_NC_MIRROR_RE = re.compile(r"^lake/(socialauto-(funnel|ops|reports|monetization|insights|devapps|channel-actions)/|cloudflare-usage/)")
 
 
 _worker_db = task_session

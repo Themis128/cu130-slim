@@ -11,8 +11,7 @@ from app.worker.tasks import trend_ingest as TI
 
 
 def _row(query, traffic, cls):
-    return {"query": query, "geo": "US", "traffic": traffic,
-            "classification": cls, "swot": "O", "news": [{"title": "n", "source": "s"}]}
+    return {"query": query, "geo": "US", "traffic": traffic, "classification": cls, "swot": "O", "news": [{"title": "n", "source": "s"}]}
 
 
 def test_google_signals_shape_and_matrix(monkeypatch):
@@ -20,8 +19,7 @@ def test_google_signals_shape_and_matrix(monkeypatch):
 
     def fake_fetch(geo):
         calls.append(geo)
-        return [{"query": "ai agents deploy pipeline", "geo": geo,
-                 "traffic": 5000, "pub_date": "x", "news": []}]
+        return [{"query": "ai agents deploy pipeline", "geo": geo, "traffic": 5000, "pub_date": "x", "news": []}]
 
     monkeypatch.setattr("scripts.trendwatch.fetch_trending", fake_fetch)
     out = TI._google_signals("2026-11-08")
@@ -141,9 +139,7 @@ async def test_run_no_signals_skips_db(monkeypatch):
 
     monkeypatch.setattr(TI, "_google_signals", lambda today: [])
     monkeypatch.setattr(TI, "_tiktok_signals", lambda: [])
-    monkeypatch.setattr(
-        session_mod, "async_session_maker", MagicMock(side_effect=AssertionError("session must not open"))
-    )
+    monkeypatch.setattr(session_mod, "async_session_maker", MagicMock(side_effect=AssertionError("session must not open")))
     assert await TI._run() == {"inserted": 0, "skipped": "no signals"}
 
 
