@@ -162,3 +162,12 @@ gone.
 
 - [x] Phone `RFCTA0AEKZP` (Samsung) connected USB + USB-debugging authorized — visible via Windows `adb.exe devices` (`device` state). WSL `adb` is BLIND to it (only stale `emulator-5554` offline) — always use `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` or `adb.exe` on Windows.
 - [x] SMS-OTP automation lane confirmed: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` via those adb paths (+ Termux :8022 + doveadm mail fallback). Unblocks WhatsApp WABA phone registration (+306977777838 SMS code) and any future SMS-2FA gates — no human code-reading needed while phone stays plugged in.
+
+## 2026-11-08 — WhatsApp account pulled OUT of cloudless.gr business (moving to another portfolio)
+
+- [x] WAAC `+30 697 777 7838` / display `Cloudless` (created earlier via BM wizard, status Unverified) — phone number DELETED from it via BM → WhatsApp accounts → row ⋯ → Delete phone number (password gate: FACEBOOK_PASSWORD from Infisical via `docker exec infisical node` — host :8090 port-forward is dead post Docker restart, use container IP/exec).
+- [x] Empty WAAC shell then removed via detail-panel ⋯ → "Remove from business portfolio" → Delete WhatsApp account. BM now shows "No WhatsApp accounts added" under business `1558125105019725`.
+- [x] Phone side: WhatsApp Business app (`com.whatsapp.w4b`, `RFCTA0AEKZP`) backed out of the coexistence `InputVerificationCodeActivity` screen — app account + chats untouched; number stays registered to the app.
+- [ ] USER ACTION: re-add the WhatsApp Business account under the TARGET business portfolio (the one- business-per-WABA rule blocked it while it lived in cloudless.gr). Then: phone verify (SMS reads itself via `wa_verify.py` ADB lane) → Messaging account → new phone_number_id → update `social_accounts` whatsapp row `77f17091` meta_data + token.
+- [ ] Still open from before: app `1936126137016578` lacks system-user capability (#100) — needs Advanced Access for whatsapp_business_management mint; TikTok stale rows `dcda73fb`/`ab439e1e`/`7c33ed15` cleanup candidates.
+- [ ] NOTE: `/tmp/wa_coex_watch.sh` watcher is now MOOT — it polled the Meta embedded-signup unblock for coexistence under cloudless.gr; the account moved businesses instead. Safe to kill if still running.
