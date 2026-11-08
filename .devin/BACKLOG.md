@@ -298,3 +298,5 @@ Leftovers:
 - [ ] Monitor followup fires ~2026-11-11 if status stays «Προς Αποδοχή»
   (lastNews seeded 08/11); verify followup.js SMTP/MAIL_OUTBOUND path works
   on first real send (httpSend → mail-outbound worker preferred).
+
+- [x] gov-portal-watch + gsis-login-ops skills (PR #1540): config-driven authenticated gov-portal watcher engine (CDP :9229, extract_js diff, Telegram, GSIS+AMKA auto re-login) + doctor.py/run-all-watches.py ops tooling. Live `C:/Users/tbaltzakis/idika-watch/` refactored onto engine.py via portal.json + thin wrappers; schtasks IdikaWatch/IdikaKeepalive/IdikaMorningRelogin unchanged; doctor 7/7 PASS.
