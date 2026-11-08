@@ -40,7 +40,12 @@ ENV_DEFINITIONS = {
     "INSTAGRAM_PASSWORD": {"category": "Social Media", "description": "Instagram private API password", "required": False, "sensitive": True},
     "FACEBOOK_APP_ID": {"category": "Social Media", "description": "Facebook App ID", "required": False, "sensitive": True},
     "FACEBOOK_APP_SECRET": {"category": "Social Media", "description": "Facebook App Secret", "required": False, "sensitive": True},
-    "FACEBOOK_CLIENT_ID": {"category": "Social Media", "description": "Facebook OAuth client_id (App ID) — powers /oauth/facebook/authorize", "required": False, "sensitive": True},
+    "FACEBOOK_CLIENT_ID": {
+        "category": "Social Media",
+        "description": "Facebook OAuth client_id (App ID) — powers /oauth/facebook/authorize",
+        "required": False,
+        "sensitive": True,
+    },
     "FACEBOOK_CLIENT_SECRET": {"category": "Social Media", "description": "Facebook OAuth client_secret (App Secret)", "required": False, "sensitive": True},
     "FACEBOOK_REDIRECT_URI": {"category": "Social Media", "description": "Facebook OAuth callback URL", "required": False, "sensitive": False},
     "FACEBOOK_USERNAME": {"category": "Social Media", "description": "Facebook browser-automation username", "required": False, "sensitive": True},
@@ -59,7 +64,12 @@ ENV_DEFINITIONS = {
     "N8N_API_KEY": {"category": "Core", "description": "n8n API Key", "required": True, "sensitive": True},
     "N8N_BASIC_AUTH_USER": {"category": "Core", "description": "n8n Basic Auth User", "required": True},
     "N8N_BASIC_AUTH_PASSWORD": {"category": "Core", "description": "n8n Basic Auth Password", "required": True, "sensitive": True},
-    "COMFYUI_MODEL": {"category": "Core", "description": "ComfyUI Checkpoint Model", "required": True, "default": "Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors"},
+    "COMFYUI_MODEL": {
+        "category": "Core",
+        "description": "ComfyUI Checkpoint Model",
+        "required": True,
+        "default": "Juggernaut-XL_v9_RunDiffusionPhoto_v2.safetensors",
+    },
     "UPSCALE_MODEL": {"category": "Core", "description": "Upscale Model", "required": True, "default": "4x-UltraSharp.pth"},
     "OLLAMA_MODEL": {"category": "Core", "description": "Ollama Model Name", "required": True, "default": "llama3"},
 }

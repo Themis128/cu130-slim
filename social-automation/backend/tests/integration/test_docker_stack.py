@@ -63,7 +63,7 @@ COMPOSE_DIR = os.environ.get("COMPOSE_DIR") or _default_compose_dir()
 _HOST_PORT_MAP = {
     "social-postgres:5432": "localhost:5433",
     "redis:6379": "localhost:6379",
-    "minio:9000": "localhost:9100",
+    "minio:9000": "localhost:9102",
     "n8n:5678": "localhost:5678",
     "chroma:8000": "localhost:8001",
 }
@@ -343,7 +343,7 @@ class TestChroma:
 class TestMinIO:
     @pytest.mark.asyncio
     async def test_minio_api_accessible(self):
-        minio_api = _host_url(os.environ.get("MINIO_API_URL") or "http://localhost:9100")
+        minio_api = _host_url(os.environ.get("MINIO_API_URL") or "http://localhost:9102")
         async with httpx.AsyncClient() as client:
             try:
                 resp = await client.get(minio_api, timeout=10)

@@ -21,10 +21,10 @@ gone.
 
 ## Open — engineering
 
-- [ ] cloudless-gr-live (265081467): Live Events = FORM state (verified
-  live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
-  <Q_DL>` with a fresh app-bound Q_DL link from the products page
-  (qualtrics-ops). All other products still REQ.
+- [ ] cloudless-gr-live (265081467): Live Events product still shows FORM
+  state — fill via `li_devapp_ops.py fill-form <Q_DL>` once the catalog
+  provisions; the app-bound Q_DL link persists (grab a fresh one from the
+  products page when filling).
 - [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
   — was blocked on root-owned dir; ownership fixed 2026-11-07, now unblocked.
 - [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
@@ -34,17 +34,12 @@ gone.
   (`scripts/backfill_media_quality.py --limit 500`, non-force — 355/732
   had spellcheck_applied at start). Confirm final counts +
   `meta_data.quality.spellcheck_applied=true` when it completes.
-- [ ] Windows `sshd` on 192.168.1.23 genuinely fails to start even
-  elevated (`sshd -t` clean, host keys present, "Failed to start service"
-  logged to devin-scripts/sshd_err.txt). Next: `sshd.exe -d` capture.
-  Elevation lane SOLVED + self-healing: sshd-ensure block at top of
-  `D:\DevOptimizer\scripts\check-wsl-memory-pressure.ps1` runs every
-  30 min via `\DevOptimizer\WSL-Memory-Watchdog`. Same file also carries
-  the CDP-Relay-9229 firewall pin (verified: WSL->host:9229 live).
-  NOTE: `\DevOptimizer\WSL-Permanent-Fix` (2-min guard) is DEAD — its
-  action calls pwsh.exe which resolves to a per-user Store stub
-  (0x80070002 every run). Repoint task action to conhost+powershell.exe
-  via the same elevated lane.
+- [ ] human: Windows `sshd` on 192.168.1.23 is stopped (Access denied
+  to start it unelevated) — one elevated
+  `Start-Service sshd; Set-Service sshd -StartupType Automatic`. The omv
+  watchdog remediation itself is FIXED in both copies (deployed
+  /usr/local/sbin/safedeploy-watchdog.py + cloudless.gr PR #2374) — only
+  the ssh hop is dead until sshd runs.
 - [ ] Playwright E2E: `.env` values are quoted — `run_pw_e2e.sh`
   (gitignored, repo root) strips quotes before exporting E2E_ADMIN_*;
   plain `playwright test` skips admin-login unless vars are set unquoted.
@@ -55,32 +50,26 @@ gone.
 
 ## Open — external human gates
 
-- [ ] human: TikTok `cloudless.gr` status=expired; refresh returns "no
-  access_token in refresh response" → one TikTok login/QR scan on the
-  bridge (:9223); session_healer injects TIKTOK_SESSION_ID if valid,
-  else `scripts/tiktok_qr_watch.py` watches for the scan.
+- [x] human: TikTok `cloudless.gr` reconnected 2026-11-07 — QR login via
+  headed noVNC bridge + cookie inject into sidecar, fresh OAuth consent
+  on production app (client_key awtn8vvhotyxe9oc, scopes
+  user.info.basic,video.publish,video.upload — PR #1408). New account
+  `ab439e1e-549f-4a8b-901a-2f7eeb8a1c88` (display "Cloudless") is
+  active; manual refresh + creator_info/validate API calls verified;
+  stale 6-scope account `dcda73fb-…` marked revoked. Scheduled
+  refresh-expiring-tokens beat is healthy (publishing queue).
+  watch: first real publish still unproven on the new grant.
 - [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
   in Meta Business, then POST /{phone}/register (standard registration —
-  request_code/verify_code are the migration API). `WHATSAPP_PHONE_NUMBER_ID`
-  still unset; Meta Business billing/payment is the hard prerequisite.
-- [ ] human: Viber bot — partners.viber.com/webadmin.viber.com RETIRED
-  (verified 2026-11-08, see viber-ops SKILL.md). No bot exists on the
-  phone account; new bots are commercial-only → apply via Rakuten Viber
-  / partner (respond.io docs: cecile.tizon@viber.com). Once a token is
-  issued: `viber_token_fetch.py --token <T>` → `viber_provision.py`.
-- [ ] human: TikTok business verification — needs Greek sole-trader/ΑΑΔΕ
-  tax certificate under the correct doc type (ΓΕΜΗ submissions rejected);
-  unlocks profile website field + full Creative Center rankings.
+  request_code/verify_code are the migration API).
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
-- [ ] LinkedIn sidecar :9225 browser session dead and stored
-  `LINKEDIN_COOKIE` li_at stale — BUT a working lane now exists:
-  debug-chrome CDP `:9229` (headless chrome:9330 + userspace relay,
-  `devin-scripts/cdp_relay.py` + `cdp-launch.bat`) has a LIVE LinkedIn
-  session (verified /feed loads logged-in, 2026-11-07). Point
-  li_devapp_ops/portal scripts at host:9229 to resume the
-  portal/DM/specialties flows. Sidecar :9225 itself still needs a
-  credential login or stored LINKEDIN_EMAIL/PASSWORD.
+- [ ] human: LinkedIn sidecar :9225 browser session dead and stored
+  `LINKEDIN_COOKIE` li_at stale on every automated lane → credential
+  login via noVNC, or store LINKEDIN_EMAIL/PASSWORD so the
+  credentials-login fallback can run. NOTE: the OAuth/API surface is
+  healthy (full-union consent landed on 264925843, 2026-11-07) — this
+  gate only blocks DOM-automation flows (DMs, specialties, portal edits).
 - [ ] human: X OAuth approve — fresh auth_token in .env OR click the
   reauth_urls URL; bridge pin holds the session 600s.
 - [ ] human: FB OAuth reconnect — `gate_runner.py fb-token
@@ -149,17 +138,169 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
-## 2026-11-08 — FB OAuth healed permanently; WhatsApp WABA gone (needs console)
+- [x] TikTok Creative Center trend pull — RESOLVED 2026-11-08: video
+  pipeline already built in PR #1422 (app/services/tiktok_trends.py,
+  unsigned CreativeOne sweep) + PR #1424 (trend_ingest 6h beat →
+  trend_signals → datalake). Verified live: 12 videos LIGHT_SWEEP.
+  Hashtag gap confirmed dead-end: no unsigned hashtag API (all
+  CreativeOne/radar endpoint guesses 404); top-3/region only via
+  SSR-embedded page state; full rankings need TikTok For Business
+  login (consumer QR session insufficient — SSO bounces). Use the
+  TikTok app's native Creative Center for full hashtag lists.
+- [ ] owner-gate: TikTok profile website link needs 1,000 followers OR
+  Registered Business Account; business verification was rejected —
+  resubmit with Greek sole-trader/ΑΑΔΕ tax doc type, not ΓΕΜΗ.
+- [ ] watch: PRs #1422, #1424, #1428 — auto-merge armed, checks
+  pending, 0 failures.
 
-- [x] FACEBOOK_PASSWORD → Infisical prod + Windows vault `cloudless-gate:facebook.com`.
-- [x] FB OAuth re-consent completed via debug Chrome CDP (:9222 WSL→172.22.144.1:9229→:9330 bridge; forwarder script /tmp/cdp_fwd.py — recreate if dead).
-- [x] `social_accounts` facebook: user row `9355ed63` (Themistoklis Baltzakis) + page row `ad83c946` (cloudless.gr, id 116436681562585) BOTH `active`, user token `expires_at:0` = never expires, scopes include business_management + whatsapp_business_management/messaging. FB re-auth problem is permanently solved.
-- [ ] WhatsApp `77f17091` still `revoked`: WABA `1073707258453499` + phone_number_id `1334613883061552` DELETED on Meta side (Graph: object does not exist). Business `1558125105019725` has zero WABAs. Needs: Business Manager console → create WABA → add +306977777838 → SMS code (user's phone; SMS path was rate-limited) → register. Then update meta_data.phone_number_id + token.
-- [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
-- [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
+## 2026-11-08 session leftovers (Devin)
 
-## 2026-11-08 — WABA creation: 90% automated, display-name gate remains
+- [ ] **Branch consolidation worklist** — 24 remote branches unmerged vs
+  master. Stale/dup (verify-content-then-delete, do NOT merge): `pr-1343`,
+  `pr-1344`, `pr-1347`, `pr-1350`, `pr-1364`, `pr-1370`, `pr-1372`,
+  `pr-1387`, `pr-1397`, `heal/20261104-2338`, `heal/20261105-0641`,
+  `heal/20261105-1955`, `heal/20261106-0638`, `heal/20261107-1256`,
+  `heal/20261107-2147`, `feat/fb-token-watch` (merged via #1425 squash).
+  Real deltas needing PR-per-branch (sizes = files vs master):
+  `chore/leftover-sync` (16), `devin/cfdb-infisical-rebuilt` (6),
+  `feat/operator-gate-ops` (4), `feat/linkedin-adlibrary` (4),
+  `chore/backlog-items-20261107` (2). In-flight PRs cover:
+  `feat/tiktok-trendwatch` (#1422), `feat/trend-signals-lake` (#1424),
+  `fix/media-qa-timeout`, `fix/test-infra-hardening`.
+- [ ] **OMV iptables fix landed manually** — docker-ce 29.9.3 upgrade
+  dropped FORWARD ACCEPTs for published ports 8090/9980/11000/7867;
+  patched DOCKER chain + restarted nextcloud stack (docker re-added its
+  own rules). If 502s recur after reboot, re-check `iptables -L DOCKER`.
+- [ ] **TikTok `cloudless.gr` re-consent blocked** — needs current
+  SOCIAL_ADMIN creds (`.env` values return "Invalid credentials");
+  refresh grant confirmed dead (invalid_grant). Live `Managed Cloud`
+  account covers posting meanwhile.
+- [ ] **Windows logon needed** — `cdp-launch.bat` now in Startup folder;
+  `fb_token_watch` (PID may have died — restart:
+  `nohup python3 .devin/skills/operator-gate-ops/scripts/fb_token_watch.py &`)
+  fires FB OAuth w/ business_management → then run
+  `meta_system_user.py` for the permanent WhatsApp/Meta token.
 
-- [~] Business Manager WhatsApp wizard driven via CDP (:9222 bridge → debug Chrome, FB session live). Reached Details step: messaging account "cloudless.gr" + "Create a WhatsApp account". Blocker: display-name combobox — "cloudless.gr" violates no-URL rule; "Cloudless"/"Cloudless Cloud" fill React state but Continue stays aria-disabled (likely needs real keystroke cadence / suggestion pick that synthetic events can't reproduce). API path dead: POST /{bid}/whatsapp_business_accounts → (#3) app lacks capability; system_users POST → (#100) same.
-- [ ] HUMAN (~90s, normal browser): business.facebook.com → cloudless.gr portfolio → Accounts → WhatsApp accounts → Add → "Create a WhatsApp account" → display name "Cloudless Cloud", category Professional Services → phone +306977777838 → SMS code. ADB lane (wa_verify.py / phone RFCTA0AEKZP) reads the code automatically once sent.
-- [ ] After WABA exists: add phone_number_id to whatsapp row meta_data + mint system-user token (needs app capability enabled in App Dashboard → Advanced Access for business_management/whatsapp_*)
+## 2026-11-08 — full test-suite sweep (Devin)
+
+Ran every suite on host. Results + fixes landed on `feat/fb-token-watch`
+(commits 9031a35a + 815e40e2, open PR #1428).
+
+Green: backend unit (8014p/2s), stack-ops + scripts/tests (49p),
+cloudless-email-worker (7p + tsc), env-manager (vitest/tsc/eslint/ruff/mypy),
+frontend vitest (958p), frontend tsc, root comfyui vitest, compose config.
+Backend integration: 104p after heals+fixes below.
+
+Fixed:
+- research.py used nonexistent `User.team_id` → switched to `TeamId` dep
+  (was live 500 on /api/v1/research/*).
+- messenger+whatsapp webhooks accepted unsigned POSTs when
+  FACEBOOK_APP_SECRET unset → now fall back to FACEBOOK_CLIENT_SECRET
+  (live-verified 403). SECURITY gap closed.
+- 6 frontend TS18047 (`useSearchParams`/`useParams` null) → `?.`/`?? ''`.
+- env-manager ruff (2×E501, W292); minio test port 9100→9102;
+  SWEEP_SKIP += media-sources/ (external upstream relays).
+
+Env issues found (document, not code):
+- uid-1000-owned `frontend/node_modules`+`test-results` block installs —
+  renamed aside to `*.bak`; needs `sudo chown -R 1001:1001` or rm to purge.
+- Docker Desktop port forwards went stale → `docker restart chroma minio`
+  + `compose up -d stack-ops` (its bind-mount staging had vanished; a plain
+  `docker restart stack-ops` fails — must recreate).
+- Node 22.22.2 installed at `~/.local/bin` (apt node is v20; undici/vitest
+  require >=22 per engines).
+- Playwright browsers: installed -1248 but tests wanted -1234 → symlinked
+  `chromium{,_headless_shell}-1234 -> -1248` in ~/.cache/ms-playwright.
+- `/api/v1/analytics/overview` takes ~41s cold (over the sweep's 45s budget);
+  `analytics/insights` dropped a conn once under load — watch, not proven bug.
+- media-sources gdrive `invalid_grant` + nextcloud PROPFIND 502 — external
+  creds dead (matches existing human-gate entries).
+- Playwright full e2e running against live stack at end of session; interim
+  smoke 21p/2flaky(authTokens setup timeouts under parallel load).
+
+## 2026-11-08 — TikTok Creative Center trendwatch + branch consolidation
+
+- [x] `scripts/tiktok_trendwatch.py` + `app/services/tiktok_trends.py` —
+  weekly trending-video signals from the unsigned CreativeOne report
+  endpoints (post-Oct-2026 deprecation path). `trend_context.trend_line(
+  platform="tiktok")` feeds the top niche hook into TikTok copy
+  generation; LIGHT sweep = 3 calls. Report: `--slack`/`--full`.
+- [x] Branch audit: 20 merged-debris branches deleted; 10 superseded
+  post-PR branches deleted after content verification (fetch-code
+  folders, consent-url, cal.com webhook, org-profile test all already on
+  master). Rescue PR #1419 = wsl-checkout-sync-check.sh +
+  linkedin_attribution_chain.sql.
+- [ ] decide: `feat/nextcloud-extras` + `feat/nextcloud-autoupdate-feeds`
+  — 38/27-file real code deltas vs master (empty #1379 merge era):
+  nextcloud sync lanes, oauth_reauth_watch, series_urn_watch,
+  token_expiry, funnel_audit tasks, agency_pipeline/crm_engagement
+  services, omv app-update cron. Needs a dedicated re-land pass — some
+  content may now be superseded by #1381/#1413-1415 era fixes. DO NOT
+  blind-merge (46-89 commits behind).
+
+## 2026-11-08 — MCP health (Devin)
+
+- [x] `mcp_health.py` sweep: 20/20 healthy. Only `linkedin-ads` failed on
+  the first pass — cold `uvx` bootstrap (`Installed 68 packages`) exceeds
+  the 20s default probe timeout. After the install, uv's cache keeps it
+  warm; re-probe with `--timeout 60` if the uv cache is ever purged.
+- [x] `pr_rebuild.py` repo-resolution bug fixed — `gh repo view -q` emits a
+  bare string, not JSON (`JSONDecodeError` during the PR sweep).
+- [ ] PR queue: #1430/#1432/#1433 DIRTY (real-delta branches from the
+  consolidation worklist) — need worktree rebase or pr_rebuild.
+
+## 2026-11-08 — cloud.cloudless.gr 502 (RESOLVED, transient)
+
+- User-reported Cloudflare 502 at 23:41 UTC. Root cause: the four
+  tunnel-fronted workspace containers (`nextcloud`, `collabora`,
+  `nextcloud-talk-hpb`, `nextcloud-notify-push`) were recreated/restarted
+  on omv at ~01:48 EET — journal shows them re-joining `workspace_default`.
+  While down, `cloudflared-omv` had no origin → CF 502. Self-healed ~7min.
+- Trigger: a compose redeploy/recreate (OMV plugin op or external agent);
+  not a crash (RestartCount=0, no OOM, no Apache segfaults this time).
+- Verified healthy after: status.php 200, dav 401, signal /api/v1/welcome
+  200, office 200, occ installed/35.0.2/no-maintenance. push root 404 and
+  signal root 404 are NORMAL for those Go services.
+- [ ] Residual watch: docker-ce 29.9.3 DOCKER-chain FORWARD ACCEPTs for
+  11000/8090 didn't show in `iptables -L DOCKER` post-restart, yet LAN
+  probes to :11000 succeed — if LAN→published-port access breaks, re-check.
+- [ ] `nas-docker-health` cron (10min) IS alive — log file grows; earlier
+  "PERSISTENT unhealthy: nextcloud-talk-hpb" lines were Nov 1 leftovers.
+
+## 2026-11-08 — backlog sweep (Devin) — resolved this pass
+
+- [x] Backfill verification DONE: `backfill_media_quality.py` scanned all
+  744 media_assets — 453 have spellcheck_applied, the remainder have no
+  text/quality metadata to fill (terminal state, not a stall). Note for
+  future runs: script needs `-w /app PYTHONPATH=/app` inside social-api
+  and `--limit` >= total rows (it scans batches sequentially).
+- [x] linkedin-access-forms SKILL.md update — already merged via PR #1356
+  (stale entry).
+- [x] OMV iptables watch RESOLVED: rules ARE present — DOCKER chain keys
+  on container ports (dpt:80→nextcloud 11000, dpt:8081→hpb 8090,
+  dpt:9980→collabora, dpt:7867→push). Earlier "missing 11000/8090" was a
+  grep error, not a real gap.
+- [x] Branch debris deleted: heal/20261104-2338, -1105-0641, -1105-1955,
+  -1106-0638, -1107-1256, -1107-2147 (remote) + 9 stale local
+  refs/remotes/pr-* (remote was deleted long ago; refs were local-only).
+  All verified zero unmerged content (git cherry / file-diff vs master).
+- [x] DIRTY consolidation PRs rebuilt via fixed pr_rebuild.py:
+  #1430→#1436 (chore/leftover-sync-rebuilt), #1433→#1434
+  (fix/media-qa-timeout-rebuilt); #1432's files were already on master
+  (rebuild no-op); user-authored revert #1437 auto-merge armed (it only
+  undoes the redundant #1435 diff — gate_runner.py exists on master).
+- [x] feat/nextcloud-extras + feat/nextcloud-autoupdate-feeds decide item
+  — STALE: both already merged (#1377/#1379); refs deleted server-side.
+- [x] Playwright E2E env-quote gotcha AUTOMATED: playwright.config.ts now
+  loads repo-root .env itself, strips quotes, maps SOCIAL_ADMIN_*→
+  E2E_ADMIN_* — plain `playwright test` works, no wrapper needed.
+- PR board end of sweep: 5 open, all auto-merge armed, 0 actionable
+  failures (#1424 #1428 #1434 #1436 #1437).
+
+Still human-only (unchanged): WABA assignment, Gmail re-consent, LinkedIn
+sidecar session + cookie, X OAuth approve, FB OAuth, CM survey recording,
+Member DP modal, Matched Audiences, ChromeDebug schtasks, Windows sshd
+elevation, TikTok business resubmit (ΑΑΔΕ doc), SOCIAL_ADMIN creds for
+TikTok re-consent, host RAM pressure, IDE authority choice, Member DP
+form-vs-app decision, garbled LI asset, synigoros recipient confirm,
+wsl-safe-bounce schedule, Kakkava week-2 content work.

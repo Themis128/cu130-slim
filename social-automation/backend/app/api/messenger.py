@@ -702,8 +702,15 @@ async def receive_webhook(
     """
     raw_body = await request.body()
 
-    # Verify webhook signature if FACEBOOK_APP_SECRET is set
-    app_secret = settings.FACEBOOK_APP_SECRET or os.getenv("FACEBOOK_APP_SECRET", "")
+    # Verify webhook signature if an app secret is configured. FACEBOOK_APP_SECRET
+    # is the Meta App Secret — the same credential as FACEBOOK_CLIENT_SECRET —
+    # so fall back to it when the dedicated var is unset.
+    app_secret = (
+        settings.FACEBOOK_APP_SECRET
+        or os.getenv("FACEBOOK_APP_SECRET", "")
+        or settings.FACEBOOK_CLIENT_SECRET
+        or os.getenv("FACEBOOK_CLIENT_SECRET", "")
+    )
     if app_secret:
         signature = request.headers.get("X-Hub-Signature-256", "")
         if not _verify_webhook_signature(raw_body, signature, app_secret):
