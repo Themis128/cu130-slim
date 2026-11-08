@@ -1,66 +1,22 @@
 #!/usr/bin/env python3
-"""viber_token_fetch.py — get the Viber Business bot token.
+"""viber_token_fetch.py — validate + store the Viber Business bot token.
 
-Path A (automated): drives the user's real Chrome via CDP :9222 to
-webadmin.viber.com — if a session exists, opens the bot edit page and
-pulls the token from the UI.
-
-Path B (manual): waits for the user to paste the token, then validates
-it against chatapi.viber.com (get_account_info) and stores
-VIBER_AUTH_TOKEN in .env.
+NOTE (2026-11-08): partners.viber.com / webadmin.viber.com are RETIRED —
+the old CDP scrape path is dead. New bots are commercial-only (Rakuten
+Viber application); once a token is issued, use --token or paste it.
 
 Usage:
-  viber_token_fetch.py            # try CDP, fall back to manual paste
-  viber_token_fetch.py --manual   # skip CDP, just validate+store
+  viber_token_fetch.py --token <TOKEN>   # validate + store
+  viber_token_fetch.py                   # prompt for token (interactive)
 """
 import argparse
 import json
 import os
 import re
 import sys
-import time
 import urllib.request
 
-sys.path.insert(0, os.path.normpath(os.path.join(
-    os.path.dirname(__file__), "..", "..", "_lib")))
-
-CDP = "http://localhost:9222"
 ENV_PATH = r"C:\Users\tbaltzakis\cu130-slim\.env"
-WEBADMIN = "https://partners.viber.com/account/edit-bot-account"
-
-
-def try_cdp():
-    try:
-        from cdp_common import ensure_cdp
-        import websocket
-        ensure_cdp()
-        tabs = json.load(urllib.request.urlopen(f"{CDP}/json", timeout=6))
-        pages = [t for t in tabs if t.get("type") == "page"]
-        if not pages:
-            return None
-        ws = websocket.create_connection(pages[0]["webSocketDebuggerUrl"],
-                                         timeout=15, suppress_origin=True)
-        i = [0]
-
-        def send(m, p=None):
-            i[0] += 1
-            ws.send(json.dumps({"id": i[0], "method": m, "params": p or {}}))
-            while True:
-                r = json.loads(ws.recv())
-                if r.get("id") == i[0]:
-                    return r
-
-        send("Page.enable")
-        send("Page.navigate", {"url": WEBADMIN})
-        time.sleep(8)
-        r = send("Runtime.evaluate", {
-            "expression": "document.body.innerText.slice(0,1500)",
-            "returnByValue": True})
-        txt = r.get("result", {}).get("result", {}).get("value", "")
-        m = re.search(r"[0-9a-f]{24}-[0-9a-f-]{27,}", txt)
-        return m.group(0) if m else None
-    except Exception:
-        return None
 
 
 def validate(token):
@@ -84,16 +40,20 @@ def store(token):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--manual", action="store_true")
+    ap.add_argument("--token", default=os.environ.get("VIBER_AUTH_TOKEN"))
     a = ap.parse_args()
 
-    token = None if a.manual else try_cdp()
-    if token:
-        print("CDP token:", token[:12] + "…")
-    else:
-        print("no CDP session/token — paste the bot token from "
-              "webadmin.viber.com (Bot -> your bot -> token):")
-        token = input("token> ").strip()
+    token = (a.token or "").strip()
+    if not token:
+        print("partners.viber.com is retired — paste the bot token issued "
+              "by Rakuten Viber / your Viber partner:")
+        try:
+            token = input("token> ").strip()
+        except EOFError:
+            print("no token provided (non-interactive)", file=sys.stderr)
+            sys.exit(2)
+    if not token:
+        sys.exit(2)
     ok, info = validate(token)
     if ok:
         store(token)
