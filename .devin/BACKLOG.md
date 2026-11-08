@@ -158,7 +158,12 @@ gone.
 - [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
 - [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
 
-## 2026-11-08 — Android phone on ADB (SMS-OTP lane live)
+## 2026-11-08 — WABA: WAAC created; waiting on Meta cooldown for coexistence
 
-- [x] Phone `RFCTA0AEKZP` (Samsung) connected USB + USB-debugging authorized — visible via Windows `adb.exe devices` (`device` state). WSL `adb` is BLIND to it (only stale `emulator-5554` offline) — always use `/mnt/c/Users/tbaltzakis/AppData/Local/Android/Sdk/platform-tools/adb.exe` or `adb.exe` on Windows.
-- [x] SMS-OTP automation lane confirmed: `human-gate-bridges/scripts/wa_verify.py` polls `content://sms/inbox` via those adb paths (+ Termux :8022 + doveadm mail fallback). Unblocks WhatsApp WABA phone registration (+306977777838 SMS code) and any future SMS-2FA gates — no human code-reading needed while phone stays plugged in.
+- [x] **Breakthrough**: relaunched debug Chrome NON-headless on Windows (`chrome-debug-profile`, :9330 + relay :9229 — a visible window now lives on the desktop; `chrome-headless-debug.bat`/`cdp-launch.bat` can restore headless). Same FB session, real-browser fingerprint → BM wizard's Continue finally enabled.
+- [x] **WAAC created**: BM → Accounts → **WhatsApp accounts** (`whatsapp_business_presence`, NOT "Messaging accounts") now holds `+30 697 777 838` / display name `Cloudless`, status `Unverified`. The earlier wizard created the phone-number holder before failing.
+- [~] Phone verify blocked: Meta refuses — number is registered on **WhatsApp Business app** (`com.whatsapp.w4b` on S22+ `RFCTA0AEKZP`). Wizard offers only "migrate or disconnect"; no self-serve migrate button exists.
+- [ ] **USER DECISION: WAIT for coexistence** — Embedded Signup (app dashboard `wa-dev-console` → Continue) offers "I already use the WhatsApp Business App" = lossless coexistence (app + API + chat sync). Currently `Onboarding failure: temporarily blocked` — server-side cooldown, same in headless AND real Chrome.
+- [x] `wa_coex_watch` running (PID in /tmp, log `/tmp/wa_coex_watch.log`): probes embedded-signup every 30 min × 48h, Telegram P2 alert when unblocked. On unblock: drive coexistence flow; phone-side steps via ADB/`phone-automation-ops`.
+- [ ] After WABA+verify: add Messaging account (BM → WhatsApp accounts → "Add a Messaging account"), write phone_number_id into whatsapp row `77f17091` meta_data, mint system-user token (still needs App Dashboard Advanced Access for business_management/whatsapp_*).
+- [ ] Fallback if cooldown never lifts: user deletes WhatsApp Business account on phone (loses chats — NOT chosen).
