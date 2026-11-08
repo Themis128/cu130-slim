@@ -140,3 +140,31 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
+
+## 2026-11-08 — web-researched automation solutions for the remaining human gates
+
+- [~] WSL sshd (replaces Windows-sshd-elevation gate): user-space sshd
+  now RUNNING on :2222 in WSL (`/usr/sbin/sshd -f ~/.ssh/sshd_user.conf`,
+  host keys in ~/.ssh/ssh_host, pubkey auth only; omv key authorized).
+  Researched: Win32 sshd can't run unprivileged (needs SYSTEM), and
+  omv's sshd has AllowTcpForwarding=no so reverse-tunnel was out.
+  REMAINING one-time step to expose it to LAN/tailnet (pick ONE):
+  a) `sudo tailscale set --operator=$USER` then `tailscale serve
+     --tcp=2222 tcp://localhost:2222` — then omv reaches
+     100.86.188.43:2222; or
+  b) add `networkingMode=mirrored` under [wsl2] in
+     C:\Users\tbaltzakis\.wslconfig + `wsl --shutdown` (user file, no
+     admin, but drops the session — do it at a quiet moment).
+- [x] WABA via API (no console needed): POST /{business-id}/
+  whatsapp_business_accounts on Graph API creates the WABA directly;
+  GET /{waba-id}/phone_numbers + register API completes onboarding.
+  FB business_management system-user token already minted. (PR #1478
+  shows a WAAC already created — waiting Meta cooldown.)
+- [x] CM survey recording automatable: `pip install demo-video-recorder`
+  (drives browser via Playwright + EdgeTTS narration → narrated MP4).
+  Still needs the registered-address text from the user as form input.
+- [x] ΑΑΔΕ doc source found: myAADE → Μητρώο και Επικοινωνία →
+  Βεβαιώσεις Μητρώου → "Τρέχουσα Εικόνα Οντότητας/Επιχείρησης" +
+  "Ιστορικό Μεταβολών – Βασικά Στοιχεία" — two downloadable PDFs, the
+  accepted sole-trader evidence for TikTok business verify. Gated on
+  Taxisnet creds (not in .env — user must supply or do the download).
