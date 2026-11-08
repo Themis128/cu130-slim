@@ -193,6 +193,20 @@ gone.
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
 
+## 2026-11-08 — human-gate automation pass #5 (Devin) — X path exhausted
+
+- [x] X cookie-seed path checked: `X_WEB_AUTH_TOKEN` + `X_WEB_CT0` in
+  .env are EMPTY placeholders (len 0) — the bridge seed-x lane can't
+  run without a real x.com session token. X OAuth therefore needs one
+  real approve click in the user's normal Chrome (x.com loads there;
+  it's only chrome-error'd inside the debug profile) — the authorize
+  URL minted last pass is the one to open.
+- PR board: rebuilt PRs #1446-1448 DIRTY (parallel-agent rebuilds in
+  flight), #1442/#1434/#1424 BEHIND — sweep re-runs handle them.
+- Still true-human: WABA assign + Meta evidence, CM recording, sshd
+  elevation, Member DP modal, TikTok ΑΑΔΕ resubmit, X approve click,
+  decisions, issues #793/#795 replies.
+
 - [x] TikTok Creative Center trend pull — RESOLVED 2026-11-08: video
   pipeline already built in PR #1422 (app/services/tiktok_trends.py,
   unsigned CreativeOne sweep) + PR #1424 (trend_ingest 6h beat →
