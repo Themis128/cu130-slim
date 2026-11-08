@@ -1,4 +1,20 @@
 import { defineConfig, devices } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Auto-load admin creds from the repo-root .env (values may be quoted).
+// SOCIAL_ADMIN_* -> E2E_ADMIN_*; never overrides an already-set var.
+// Lets plain `playwright test` work without the run_pw_e2e.sh wrapper.
+const ENV_PATH = path.resolve(import.meta.dirname, '../../.env');
+if (fs.existsSync(ENV_PATH)) {
+  for (const line of fs.readFileSync(ENV_PATH, 'utf8').split('\n')) {
+    const m = line.match(/^\s*(SOCIAL_ADMIN_(?:EMAIL|PASSWORD))\s*=\s*(.*)\s*$/);
+    if (!m) continue;
+    const key = m[1].replace('SOCIAL_ADMIN', 'E2E_ADMIN');
+    const val = m[2].replace(/^["']|["']$/g, '');
+    if (val && !process.env[key]) process.env[key] = val;
+  }
+}
 
 // User-space browser libraries (extracted .deb files — no sudo needed).
 // See tests/helpers/playwright-env.sh for setup instructions.
