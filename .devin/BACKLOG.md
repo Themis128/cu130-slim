@@ -177,6 +177,43 @@ gone.
   fires FB OAuth w/ business_management → then run
   `meta_system_user.py` for the permanent WhatsApp/Meta token.
 
+## 2026-11-08 — full test-suite sweep (Devin)
+
+Ran every suite on host. Results + fixes landed on `feat/fb-token-watch`
+(commits 9031a35a + 815e40e2, open PR #1428).
+
+Green: backend unit (8014p/2s), stack-ops + scripts/tests (49p),
+cloudless-email-worker (7p + tsc), env-manager (vitest/tsc/eslint/ruff/mypy),
+frontend vitest (958p), frontend tsc, root comfyui vitest, compose config.
+Backend integration: 104p after heals+fixes below.
+
+Fixed:
+- research.py used nonexistent `User.team_id` → switched to `TeamId` dep
+  (was live 500 on /api/v1/research/*).
+- messenger+whatsapp webhooks accepted unsigned POSTs when
+  FACEBOOK_APP_SECRET unset → now fall back to FACEBOOK_CLIENT_SECRET
+  (live-verified 403). SECURITY gap closed.
+- 6 frontend TS18047 (`useSearchParams`/`useParams` null) → `?.`/`?? ''`.
+- env-manager ruff (2×E501, W292); minio test port 9100→9102;
+  SWEEP_SKIP += media-sources/ (external upstream relays).
+
+Env issues found (document, not code):
+- uid-1000-owned `frontend/node_modules`+`test-results` block installs —
+  renamed aside to `*.bak`; needs `sudo chown -R 1001:1001` or rm to purge.
+- Docker Desktop port forwards went stale → `docker restart chroma minio`
+  + `compose up -d stack-ops` (its bind-mount staging had vanished; a plain
+  `docker restart stack-ops` fails — must recreate).
+- Node 22.22.2 installed at `~/.local/bin` (apt node is v20; undici/vitest
+  require >=22 per engines).
+- Playwright browsers: installed -1248 but tests wanted -1234 → symlinked
+  `chromium{,_headless_shell}-1234 -> -1248` in ~/.cache/ms-playwright.
+- `/api/v1/analytics/overview` takes ~41s cold (over the sweep's 45s budget);
+  `analytics/insights` dropped a conn once under load — watch, not proven bug.
+- media-sources gdrive `invalid_grant` + nextcloud PROPFIND 502 — external
+  creds dead (matches existing human-gate entries).
+- Playwright full e2e running against live stack at end of session; interim
+  smoke 21p/2flaky(authTokens setup timeouts under parallel load).
+
 ## 2026-11-08 — TikTok Creative Center trendwatch + branch consolidation
 
 - [x] `scripts/tiktok_trendwatch.py` + `app/services/tiktok_trends.py` —
