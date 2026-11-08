@@ -61,7 +61,16 @@ gone.
   else `scripts/tiktok_qr_watch.py` watches for the scan.
 - [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
   in Meta Business, then POST /{phone}/register (standard registration —
-  request_code/verify_code are the migration API).
+  request_code/verify_code are the migration API). `WHATSAPP_PHONE_NUMBER_ID`
+  still unset; Meta Business billing/payment is the hard prerequisite.
+- [ ] human: Viber bot — partners.viber.com/webadmin.viber.com RETIRED
+  (verified 2026-11-08, see viber-ops SKILL.md). No bot exists on the
+  phone account; new bots are commercial-only → apply via Rakuten Viber
+  / partner (respond.io docs: cecile.tizon@viber.com). Once a token is
+  issued: `viber_token_fetch.py --token <T>` → `viber_provision.py`.
+- [ ] human: TikTok business verification — needs Greek sole-trader/ΑΑΔΕ
+  tax certificate under the correct doc type (ΓΕΜΗ submissions rejected);
+  unlocks profile website field + full Creative Center rankings.
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
 - [ ] LinkedIn sidecar :9225 browser session dead and stored
@@ -140,12 +149,40 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
+## 2026-11-08 — FB OAuth healed permanently; WhatsApp WABA gone (needs console)
 
-## 2026-11-08 — X OAuth CLOSED (verified)
+- [x] FACEBOOK_PASSWORD → Infisical prod + Windows vault `cloudless-gate:facebook.com`.
+- [x] FB OAuth re-consent completed via debug Chrome CDP (:9222 WSL→172.22.144.1:9229→:9330 bridge; forwarder script /tmp/cdp_fwd.py — recreate if dead).
+- [x] `social_accounts` facebook: user row `9355ed63` (Themistoklis Baltzakis) + page row `ad83c946` (cloudless.gr, id 116436681562585) BOTH `active`, user token `expires_at:0` = never expires, scopes include business_management + whatsapp_business_management/messaging. FB re-auth problem is permanently solved.
+- [ ] WhatsApp `77f17091` still `revoked`: WABA `1073707258453499` + phone_number_id `1334613883061552` DELETED on Meta side (Graph: object does not exist). Business `1558125105019725` has zero WABAs. Needs: Business Manager console → create WABA → add +306977777838 → SMS code (user's phone; SMS path was rate-limited) → register. Then update meta_data.phone_number_id + token.
+- [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
+- [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
 
-- [x] X/Twitter re-auth: user clicked approve; `social_accounts` twitter
-  row flipped `active` @ 02:08 UTC. Token exchange server-side OK.
-- Working ADB lane for future consents: `am start ... -d <url> com.android.chrome`
-  forces Chrome (not the app intent); dismiss onboarding dialogs first;
-  x.com authorize page loads fine in phone Chrome — it only needs the
-  account's X session or password to proceed.
+## 2026-11-08 — omv WAN blips (cloud.cloudless.gr 502s)
+
+Recurring ~1-8 min CGNAT uplink drops on omv kill all 4 cloudflared QUIC
+conns → Cloudflare 502/530 on cloud/office/signal/push.cloudless.gr.
+Events: 11-06 ~03:00Z, 11-07 ~03:00Z + 14:48Z (~8min), 11-08 00:58Z.
+All self-heal. Mitigations live on omv + mirrored via PR #1454:
+metrics on 127.0.0.1:60123 + cloudflared-tunnel-watchdog timer.
+
+- [ ] `human:` ISP ticket if the ~03:00Z pattern persists (looks like
+  provider maintenance/CGNAT session resets).
+- [ ] `decide:` dual-WAN/4G failover on the router — only real fix for
+  WAN loss; replica tunnels don't help (all tailnet hosts share the WAN).
+- [ ] `watch:` monitor `journalctl -t cf-tunnel-watchdog` for restart
+  frequency; if >2/wk, escalate to router failover.
+
+Also fixed this session: k3s `loki-{chunks,results}-cache` STS scaled
+to 0 (helm values disable them; spec was both invalid under LimitRange
+300m and unschedulable at 9.6Gi mem request — was spamming FailedCreate);
+tailscale `kube` ProxyGroup restored (applied upstream authproxy-rbac.yaml
+→ SA + impersonation RBAC, cleared stale state secret `kube-0` → device
+re-registered as kube-0-1, all conditions True). Dead `kube-0` device can
+be deleted from the tailnet admin console (cosmetic).
+
+## 2026-11-08 (cont.) — FB/IG publish enhancements shipped
+
+PR #1472 (auto-merge armed): FB Page Reels (`platform_specific.facebook.format="reel"` → video_reels 3-phase), IG Stories (`platform_specific.instagram.format="story"` → instagrapi story upload), `publish_path` telemetry on every PublishResult → `Post.platform_specific.publish_path`. Deployed live to all 5 backend containers.
+- [ ] Wire scheduler/UI to set `platform_specific.{facebook,instagram}.format` so Reels/Stories get used; currently opt-in flag only.
+- [ ] Watch: first real Reel/Story publish — verify Graph scopes (`pages_manage_posts` covers reels; story via instagrapi session).
