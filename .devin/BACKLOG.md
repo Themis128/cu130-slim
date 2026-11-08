@@ -323,3 +323,23 @@ wsl-safe-bounce schedule, Kakkava week-2 content work.
   evidence upload, CM survey recording (audio+address), Windows sshd
   elevation + ChromeDebug schtasks, Member DP modal retry, TikTok re-
   consent (SOCIAL_ADMIN creds), decision items.
+
+## 2026-11-08 — human-gate automation pass #2 (Devin)
+
+- [x] FB OAuth CONFIRMED closed: `social_accounts` facebook row is
+  `active` (updated 2026-11-08 00:03) — the phone approval let the
+  stored flow complete. instagram+threads rows also active.
+- [x] LinkedIn sidecar :9225 — verified live session (health has_session).
+- [x] TikTok sidecar — verified live session.
+- [~] X OAuth — minted a fresh authorize URL via
+  `GET /api/v1/auth/oauth/twitter/authorize?team_id=<jwt team_id>` (real
+  URL, not the stale /api/v1/oauth/... path — that 404s). Drove it into
+  the debug Chrome :9222 but the tab lands on `chrome-error` and the
+  CDP websocket drops during navigation (WSL↔Windows interop flake).
+  Fix the Chrome network path (or run cdp_click from Windows python —
+  the script header notes `websocket-client` on Windows python) then
+  click Authorize.
+- [ ] Still manual: WABA assignment + Meta evidence (deep console UI),
+  CM recording, Windows sshd elevation, Member DP modal, decisions
+  (garbled LI asset / synigoros / wsl-safe-bounce / Member DP path),
+  issues #793/#795 = literal `approve`/`done` replies.
