@@ -48,6 +48,7 @@ gh pr merge <N> --squash --delete-branch --auto
 - If local history has been cleaned/rewritten, use `git push --force-with-lease` and mention it in the summary.
 - Do not leave the working tree dirty at the end of a session unless the user explicitly asked for uncommitted changes.
 - A pre-commit or post-edit hook may auto-commit staged changes. Always check `git log --oneline -3` before committing to avoid duplicate or empty commits.
+- **On every "commit and push" request, also run the PR merge sweep** (user directive 2026-11-08): after committing+pushing, run `python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py` so all open PRs get update-branch + auto-merge armed toward `master`. Same for "address all PRs/issues" prompts.
 
 ## Test gate before commit/push
 
