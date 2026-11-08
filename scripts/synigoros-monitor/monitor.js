@@ -8,8 +8,17 @@ const CFG = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
 const STATE_FILE = path.join(DIR, 'state.json');
 const LOG = path.join(DIR, 'monitor.log');
 
+const LOG_MAX_BYTES = 512 * 1024;
+
 function log(msg) {
   const line = `[${new Date().toISOString()}] ${msg}`;
+  try {
+    // rotate once the log outgrows 512 KiB — keeps one generation of history
+    if (fs.statSync(LOG).size > LOG_MAX_BYTES) {
+      fs.rmSync(LOG + '.1', { force: true });
+      fs.renameSync(LOG, LOG + '.1');
+    }
+  } catch {}
   try { fs.appendFileSync(LOG, line + '\n'); } catch {}
   console.log(line);
 }
@@ -130,7 +139,9 @@ async function notify(text) {
     await page.locator('#webMail').fill(CFG.email);
     await page.locator('#webCode').fill(CFG.kpa);
     await page.getByText('Ταυτοποίηση', { exact: true }).click({ force: true });
-    await page.waitForFunction(() => document.body.innerText.includes('Κατάσταση'), { timeout: 20000 });
+    // waitForFunction signature is (pageFunction, arg, options) — the
+    // options object must be the THIRD arg, or the timeout is ignored.
+    await page.waitForFunction(() => document.body.innerText.includes('Κατάσταση'), undefined, { timeout: 20000 });
 
     const text = await page.evaluate(() => document.body.innerText);
     const m = [...text.matchAll(/Κατάσταση\s*\n\s*([^\n]+)/g)];
@@ -170,12 +181,30 @@ async function notify(text) {
         log('follow-up sent (3d no news)');
       } catch (e) { log('followup failed: ' + e.message); }
     }
+    // Recovery notice after an alerted outage streak, then clear it.
+    if (prev && prev.errorAlerted) {
+      await notify(`✅ Synigoros monitor recovered after ${prev.errorStreak} failed poll(s).\nΚατάσταση: ${status}`);
+    }
     fs.writeFileSync(STATE_FILE, JSON.stringify({ status: prev ? prev.status : status, candidate: prev && prev.candidate, updates, mailId: prev && prev.mailId,
       lastNews: prev && prev.lastNews, followupSent: prev && prev.followupSent,
+      errorStreak: 0, errorAlerted: false,
       checked: new Date().toISOString() }, null, 2));
   } catch (e) {
     log('ERROR: ' + e.message);
-    await notify(`⚠️ Synigoros monitor error: ${e.message}`);
+    // Debounce: synigoros.gr blips are ~3% of polls and self-heal — alert
+    // only on the 2nd consecutive failure, once per outage.
+    const streak = ((prev && prev.errorStreak) || 0) + 1;
+    const alertNow = streak >= 2 && !(prev && prev.errorAlerted);
+    try {
+      fs.writeFileSync(STATE_FILE, JSON.stringify({
+        status: prev && prev.status, candidate: prev && prev.candidate,
+        updates: prev && prev.updates, mailId: prev && prev.mailId,
+        lastNews: prev && prev.lastNews, followupSent: prev && prev.followupSent,
+        errorStreak: streak, errorAlerted: alertNow || (prev && prev.errorAlerted) || false,
+        lastError: String(e.message).slice(0, 300),
+        checked: new Date().toISOString() }, null, 2));
+    } catch {}
+    if (alertNow) await notify(`⚠️ Synigoros monitor error (x${streak} consecutive): ${e.message}`);
   } finally {
     await browser.close();
   }

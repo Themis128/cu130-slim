@@ -6,13 +6,30 @@ meta_data for the analytics surface.
 """
 
 import logging
+from urllib.parse import quote
 
 import httpx
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 API = "https://api.linkedin.com/v2"
-HEADERS_EXTRA = {"X-Restli-Protocol-Version": "2.0.0"}
+REST = "https://api.linkedin.com/rest"
+HEADERS_EXTRA = {"Linkedin-Version": "202610", "X-Restli-Protocol-Version": "2.0.0"}
+
+
+def _urn(urn_or_id) -> str:
+    """Percent-encode a URN for embedding in a Rest.li finder value.
+
+    LinkedIn rejects literal ``:`` inside finder DSL values
+    (``ILLEGAL_ARGUMENT``) but requires the ``()``/``List()`` syntax to stay
+    unencoded — so encode the URN, keep the DSL literal.
+    """
+    s = str(urn_or_id or "")
+    return s if s.startswith("urn:") else f"urn:li:sponsoredAccount:{s}"
+
+
+def _enc_urn(urn_or_id) -> str:
+    return quote(_urn(urn_or_id), safe="")
 
 
 async def _token(db, team_id=None):
@@ -35,13 +52,22 @@ async def ad_accounts(db, team_id=None) -> list[dict]:
 
 
 async def campaigns(db, account_urn: str) -> list[dict]:
+    """List campaigns under an ad account via the account-scoped path.
+
+    ``adCampaigns?q=search&search=(account:...)`` is rejected (``account`` is
+    not a searchable field); the ``/adAccounts/{id}/adCampaigns`` finder is
+    the documented route and was verified live 2026-11-07.
+    """
     tok = await _token(db)
+    acct_id = str(account_urn).rstrip("}").split(":")[-1]
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(
-            f"{API}/adCampaignsV2?q=search&search=(account:(values:List({account_urn})),status:(values:List(ACTIVE,PAUSED)))",
+            f"{REST}/adAccounts/{acct_id}/adCampaigns?q=search&search=(status:(values:List(ACTIVE,PAUSED)))",
             headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA},
         )
-        r.raise_for_status()
+        if r.status_code != 200:
+            logger.warning("linkedin campaigns fetch failed: %s %s", r.status_code, getattr(r, "text", "")[:200])
+            return []
         return r.json().get("elements", [])
 
 
@@ -79,20 +105,24 @@ async def lead_gen_forms(db, account_urn: str) -> list[dict]:
     tok = await _token(db)
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(
-            f"{API}/leadGenForms?q=owner&owner=(sponsoredAccount:{account_urn})&count=10", headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA}
+            f"{REST}/leadForms?q=owner&owner=(sponsoredAccount:{_enc_urn(account_urn)})&count=10",
+            headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA},
         )
-        r.raise_for_status()
+        if r.status_code != 200:
+            logger.warning("linkedin leadForms fetch failed: %s %s", r.status_code, getattr(r, "text", "")[:200])
+            return []
         return r.json().get("elements", [])
 
 
 async def lead_form_responses(db, account_urn: str) -> list[dict]:
-    """Pull actual lead submissions via leadFormResponses finder."""
+    """Pull actual lead submissions via the owner finder (verified 2026-11-07)."""
     tok = await _token(db)
     async with httpx.AsyncClient(timeout=30) as c:
         r = await c.get(
-            f"{API}/leadFormResponses?q=owner&owner=(sponsoredAccount:{account_urn})&count=50&leadType=(leadType:SPONSORED)",
-            headers={"Authorization": f"Bearer {tok}", "Linkedin-Version": "202610", **HEADERS_EXTRA},
+            f"{REST}/leadFormResponses?q=owner&owner=(sponsoredAccount:{_enc_urn(account_urn)})&count=50&leadType=(leadType:SPONSORED)",
+            headers={"Authorization": f"Bearer {tok}", **HEADERS_EXTRA},
         )
         if r.status_code != 200:
+            logger.warning("linkedin leadFormResponses fetch failed: %s %s", r.status_code, getattr(r, "text", "")[:200])
             return []
         return r.json().get("elements", [])

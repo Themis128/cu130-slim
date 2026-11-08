@@ -35,6 +35,26 @@ def sync_nextcloud_surfaces() -> None:
         logger.warning("nextcloud sync failed: %s", exc)
 
 
+@shared_task(name="app.worker.tasks.nextcloud_sync.sync_nextcloud_extras")
+def sync_nextcloud_extras() -> None:
+    """Extended lanes: CRM→Tables, deploys→Talk/Announce, posts→Calendar,
+    Forms submissions→EspoCRM leads. All best-effort, never fatal."""
+    if not nextcloud_sync.nextcloud_sync_enabled():
+        return
+
+    try:
+        run_async(_run_extras())
+    except Exception as exc:
+        logger.warning("nextcloud extras sync failed: %s", exc)
+
+
+async def _run_extras() -> None:
+    from app.services import nextcloud_extras
+
+    async with get_session_factory()() as db:
+        await nextcloud_extras.sync_extras(db)
+
+
 @shared_task(name="app.worker.tasks.nextcloud_sync.sync_nextcloud_media", bind=True, max_retries=1)
 def sync_nextcloud_media(self, folder: str | None = None) -> dict[str, Any]:
     return run_async(_sync(folder))

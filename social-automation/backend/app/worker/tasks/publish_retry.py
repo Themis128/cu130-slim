@@ -19,9 +19,10 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from celery import shared_task
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.models.content import PostTarget
+from app.models.queue import PublishQueue
 from app.worker._async import run_async, task_session
 
 logger = logging.getLogger(__name__)
@@ -53,27 +54,43 @@ async def _sweep() -> dict:
             if tgt.updated_at and tgt.updated_at > now - timedelta(minutes=_BACKOFF_MIN):
                 skipped += 1
                 continue
-            tgt.status = "pending"
-            tgt.error_message = None
             # Reactivate the actual queue row — the processor picks up
-            # PublishQueue, not PostTarget status.
-            from app.models.queue import PublishQueue
-
+            # PublishQueue, not PostTarget status. Skip when an active row
+            # already exists for this (post, account): ux_publish_queue_active_target
+            # allows only one, and a second pending row would violate it.
+            active = (
+                await db.execute(
+                    select(func.count())
+                    .select_from(PublishQueue)
+                    .where(
+                        PublishQueue.post_id == tgt.post_id,
+                        PublishQueue.social_account_id == tgt.social_account_id,
+                        PublishQueue.status.in_(["pending", "processing"]),
+                    )
+                )
+            ).scalar_one()
+            if active:
+                skipped += 1
+                continue
             qr = (
                 (
                     await db.execute(
-                        __import__("sqlalchemy")
-                        .select(PublishQueue)
-                        .where(PublishQueue.post_id == tgt.post_id, PublishQueue.social_account_id == tgt.social_account_id, PublishQueue.status == "failed")
+                        select(PublishQueue).where(
+                            PublishQueue.post_id == tgt.post_id, PublishQueue.social_account_id == tgt.social_account_id, PublishQueue.status == "failed"
+                        )
                     )
                 )
                 .scalars()
                 .first()
             )
-            if qr:
-                qr.status = "pending"
-                qr.attempts = 0
-                qr.locked_at = None
+            if not qr:
+                skipped += 1
+                continue
+            qr.status = "pending"
+            qr.attempts = 0
+            qr.locked_at = None
+            tgt.status = "pending"
+            tgt.error_message = None
             retried += 1
         await db.commit()
     return {"retried": retried, "skipped": skipped}

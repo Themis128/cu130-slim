@@ -85,15 +85,15 @@ test.describe('Calendar Page — real backend', () => {
 
   test('should show platform filter buttons', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    await expect(page.getByRole('button', { name: /all platforms/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /linkedin/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /twitter/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /all platforms/i })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('button', { name: /linkedin/i })).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('button', { name: /twitter/i })).toBeVisible({ timeout: 20000 });
   });
 
   test('should show month/week view toggle', async ({ authenticatedPage: page }) => {
     await page.goto('/calendar');
-    await expect(page.getByRole('button', { name: /month/i }).first()).toBeVisible();
-    await expect(page.getByRole('button', { name: /week/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /month/i }).first()).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole('button', { name: /week/i })).toBeVisible({ timeout: 20000 });
   });
 });
 

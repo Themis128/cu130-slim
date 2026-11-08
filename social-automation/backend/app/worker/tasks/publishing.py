@@ -858,7 +858,18 @@ async def _process_publish_queue_async() -> None:
                     await _maybe_send_publish_summary(db, post)
 
             except Exception:
+                logger.exception(
+                    "[publishing] queue item %s (post %s, account %s) raised",
+                    item.id,
+                    item.post_id,
+                    item.social_account_id,
+                )
                 await db.rollback()
+                # rollback() expires every ORM attribute; touching item.* below
+                # would lazy-load through the sync driver (MissingGreenlet).
+                _refresh = getattr(db, "refresh", None)
+                if _refresh is not None:
+                    await _refresh(item)
                 item.attempts += 1
                 is_final = item.attempts >= item.max_attempts
                 item.status = QueueStatus.FAILED if is_final else QueueStatus.PENDING

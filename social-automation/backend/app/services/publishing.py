@@ -577,6 +577,132 @@ def validate_media_for_platform(platform: str, media_paths: list[str], expected:
 # ── entry point ───────────────────────────────────────────────────────────────
 
 
+_IMAGE_MEDIA_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
+
+
+def _vision_safe_image_bytes(path: str, max_edge: int = 1024, max_bytes: int = 8 * 1024 * 1024) -> bytes:
+    """Return image bytes sized for the vision model — a compact JPEG
+    (downscaled to ``max_edge``) unless the source is already a small JPEG."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        size = max_bytes + 1
+    if size <= max_bytes and path.lower().endswith((".jpg", ".jpeg")):
+        with open(path, "rb") as fh:
+            return fh.read()
+    from PIL import Image
+
+    with Image.open(path) as im:
+        im = im.convert("RGB")
+        im.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=85)
+        return buf.getvalue()
+
+
+async def _enforce_media_semantics(
+    post: Post,
+    media_paths: list[str],
+    text: str,
+) -> PublishResult | None:
+    """Semantic media-vs-copy gate (owner rule: wrong media must never ship).
+
+    ``validate_media_for_platform`` proves an asset *can* publish; this proves
+    it *should* — the DMR vision model captions each image and judges it
+    against the post copy (``media_ai.verify_media_semantics``). The
+    2026-11-06 LinkedIn incident shipped a generic "LinkedIn marketing" slide
+    on a fixed-price offer post because the n8n image prompt was built from
+    the raw playbook instruction, not the generated copy.
+
+    Verdicts cache on ``post.platform_specific["media_semantic_gate"]`` keyed
+    by content hash + media asset ids, so a post queued for several accounts
+    pays the vision cost once. Fail-open: when vision is unavailable
+    ``verify_media_semantics`` returns ``match=True`` — QA never blocks
+    publishing on infrastructure failure.
+    """
+    settings = get_settings()
+    if not getattr(settings, "PUBLISH_MEDIA_SEMANTIC_QA", True):
+        return None
+    orm_post = getattr(post, "_post", post)  # unwrap the _TaggedLinkPost proxy
+    subject = ((getattr(orm_post, "content_text", None) or "") or text).strip()
+    if not subject:
+        return None  # media_only posts carry no copy to match against
+    images = [p for p in media_paths if p.lower().endswith(_IMAGE_MEDIA_EXTS)]
+    if not images:
+        return None  # video/PDF-only posts — covered by their own QA paths
+
+    media_ids = sorted(str(m) for m in (getattr(orm_post, "media_ids", None) or []))
+    digest = hashlib.sha1(subject.encode()).hexdigest()[:16]
+    sig = hashlib.sha1(",".join(media_ids).encode()).hexdigest()[:16]
+    ps = dict(getattr(orm_post, "platform_specific", None) or {})
+    cached = ps.get("media_semantic_gate") or {}
+    if cached.get("content_hash") == digest and cached.get("media_sig") == sig and "passed" in cached:
+        if cached.get("passed"):
+            return None
+        return _skipped_media_result(str(cached.get("reason") or "media semantic QA mismatch"))
+
+    from app.services.media_ai import verify_media_semantics
+
+    max_images = int(getattr(settings, "PUBLISH_MEDIA_QA_MAX_IMAGES", 3) or 3)
+    on_vision_down = str(getattr(settings, "PUBLISH_MEDIA_QA_ON_VISION_DOWN", "open") or "open").lower()
+    failures: list[str] = []
+    vision_down = False
+    for path in images[:max_images]:
+        try:
+            image_bytes = _vision_safe_image_bytes(path)
+        except Exception as exc:  # noqa: BLE001 — unreadable asset: deterministic check already passed, don't block here
+            logger.warning("[media-qa] could not load %s for semantic check: %s", path, exc)
+            continue
+        try:
+            qa = await asyncio.wait_for(
+                verify_media_semantics(image_bytes, subject[:400], media_type="image"),
+                timeout=float(getattr(settings, "PUBLISH_MEDIA_QA_TIMEOUT_S", 90.0) or 90.0),
+            )
+        except TimeoutError:
+            logger.warning(
+                "[media-qa] semantic check timed out for %s — treating as vision unavailable",
+                os.path.basename(path),
+            )
+            qa = {"match": True, "caption": None, "reason": "vision timeout", "vision": None}
+        if qa.get("vision", "dmr") is None:
+            # Explicit None = no vision backend answered (timeout counts too).
+            # Missing key = legacy/mock result — treat as answered.
+            vision_down = True
+            if on_vision_down == "closed":
+                failures.append(f"{os.path.basename(path)}: vision unavailable — semantic QA required")
+                continue
+        if not qa.get("match"):
+            reason = str(qa.get("reason") or "image does not match post copy")
+            caption = str(qa.get("caption") or "")
+            suffix = f" (vision caption: {caption[:120]})" if caption else ""
+            failures.append(f"{os.path.basename(path)}: {reason}{suffix}")
+
+    passed = not failures
+    reason = ""
+    if failures:
+        if vision_down and all("vision unavailable" in f for f in failures):
+            headline = "Media semantic QA unavailable — no vision backend answered"
+        else:
+            headline = "Media semantic QA failed — image does not match the post copy"
+        reason = (headline + ": " + "; ".join(failures))[:900]
+        logger.warning("[media-qa] post %s blocked: %s", getattr(orm_post, "id", "?"), reason)
+    if not vision_down:
+        # Only cache verdicts a real vision backend produced — a vision-down
+        # outcome (open or closed policy) must re-check on the next attempt
+        # once vision recovers.
+        ps["media_semantic_gate"] = {
+            "content_hash": digest,
+            "media_sig": sig,
+            "passed": passed,
+            "reason": reason,
+            "checked_at": datetime.now(UTC).isoformat(),
+        }
+        orm_post.platform_specific = ps
+    if not passed:
+        return _skipped_media_result(reason)
+    return None
+
+
 async def publish_to_platform(
     account: SocialAccount,
     post: Post,
@@ -667,7 +793,10 @@ async def publish_to_platform(
     campaign = (getattr(post, "meta_data", None) or {}).get("source") or "organic-social"
     content_key = str(getattr(post, "id", None) or "post")
     text = tag_owned_links(text, platform=account.platform, campaign=campaign, content=content_key)
-    raw_link = getattr(post, "link_url", None)
+    raw_link = getattr(post, "link_url", None) or {
+        "facebook": "https://cloudless.gr/contact",
+        "instagram": "https://social.cloudless.gr/pricing",
+    }.get(account.platform)
     if raw_link:
         tagged_link = tracked_url(
             raw_link,
@@ -692,6 +821,13 @@ async def publish_to_platform(
     media_check = validate_media_for_platform(account.platform, media_paths, expected=expected_media)
     if media_check is not None:
         return media_check
+
+    # Semantic media gate: the asset must also MATCH the copy, not just be
+    # publishable — catches AI images generated from the wrong prompt
+    # (instruction envelope instead of post content).
+    media_semantics = await _enforce_media_semantics(post, media_paths, text)
+    if media_semantics is not None:
+        return media_semantics
 
     # If the post has a music asset and a single video, mix the audio in
     music_path = await _resolve_music_path(post, db)
@@ -739,7 +875,9 @@ async def publish_to_platform(
             return _facebook_group_skip_result(blob)
         if _err_has(blob, _TT_OWNERSHIP_MARKERS + _TT_UNAUDITED_MARKERS):
             return PublishResult(success=False, skipped=True, error=_tiktok_clarify_error(blob))
-        return PublishResult(success=False, error=blob)
+        # TimeoutError & friends stringify to "" — fall back to the type name
+        # so the failure is diagnosable instead of an empty error_message.
+        return PublishResult(success=False, error=blob or type(exc).__name__)
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

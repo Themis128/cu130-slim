@@ -71,17 +71,21 @@ async def list_all(
     items: list[dict[str, Any]] = []
     offset = 0
     while len(items) < max_items:
-        search: dict[str, Any] = {
+        # Flat params — this EspoCRM version 400s on the searchParams JSON
+        # blob; where[i][type]/[attribute]/[value] and comma-select work.
+        params: dict[str, Any] = {
             "offset": offset,
             "maxSize": min(_PAGE, max_items - len(items)),
             "orderBy": order_by,
             "order": order,
         }
         if select:
-            search["select"] = select  # EspoCRM searchParams takes a JSON array
+            params["select"] = ",".join(select)
         if where:
-            search["where"] = where
-        data = await espo_get(f"/{entity}", params={"searchParams": json.dumps(search)})
+            for i, clause in enumerate(where):
+                for k, v in clause.items():
+                    params[f"where[{i}][{k}]"] = json.dumps(v) if isinstance(v, list | dict) else v
+        data = await espo_get(f"/{entity}", params=params)
         page = data.get("list") or []
         items.extend(page)
         if len(page) < _PAGE:
@@ -284,6 +288,12 @@ async def link_lead_to_target_list(lead_id: str, list_name: str) -> bool:
         return False
 
 
+# EspoCRM Lead.source is an enum, not free text — an unlisted value fails the
+# whole POST with validationFailure and the lead is dropped. Verified against
+# the live instance 2026-11-07; keep granular detail in `description` instead.
+_LEAD_SOURCE_ENUM = {"Web Site", "Email", "Other", "Partner", "Newsletter", "Social Media", "Referral"}
+
+
 async def upsert_lead(payload: dict[str, Any]) -> str | None:
     """Email-dedup Lead create/update. Returns the Lead id or None.
 
@@ -300,6 +310,11 @@ async def upsert_lead(payload: dict[str, Any]) -> str | None:
     email = str(payload.get("emailAddress") or "").strip().lower()
     if not email or not configured():
         return None
+    payload = dict(payload)
+    src = str(payload.get("source") or "")
+    if src and src not in _LEAD_SOURCE_ENUM:
+        logger.warning("EspoCRM Lead.source %r not in enum — coercing to 'Other'", src)
+        payload["source"] = "Other"
     try:
         found = await espo_get(
             "/Lead",

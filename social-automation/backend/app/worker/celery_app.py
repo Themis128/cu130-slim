@@ -48,6 +48,9 @@ celery_app = Celery(
         "app.worker.tasks.dmr_health",
         "app.worker.tasks.auto_gates",
         "app.worker.tasks.consent_healers",
+        "app.worker.tasks.linkedin_engagement_score",
+        "app.worker.tasks.linkedin_lead_boost",
+        "app.worker.tasks.token_expiry",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -55,6 +58,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
+        "app.worker.tasks.linkedin_intel",
         "app.worker.tasks.notebook_reports",
         "app.worker.tasks.paddle_digest",
         "app.worker.tasks.session_healer",
@@ -72,6 +76,7 @@ celery_app = Celery(
         "app.worker.tasks.nurture",
         "app.worker.tasks.funnel_sync",
         "app.worker.tasks.funnel_score",
+        "app.worker.tasks.funnel_audit",
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
@@ -211,9 +216,26 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 180,
         },
+        "app.worker.tasks.agency.run_agency_proposal_followup_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_won_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
+        "app.worker.tasks.agency.run_agency_post_consult_sweep": {
+            "soft_time_limit": 120,
+            "time_limit": 180,
+        },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
             "time_limit": 600,
+        },
+        # Weekly Ad Library watch — up to ~7 watches × 10 pages × 5s pacing.
+        "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {
+            "soft_time_limit": 1800,
+            "time_limit": 2100,
         },
     },
     # Queue routing: time-sensitive publishing tasks are isolated from
@@ -274,6 +296,8 @@ celery_app.conf.update(
         "app.worker.tasks.auto_gates.post_autoapprove": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_report.send_linkedin_ads_report": {"queue": "default"},
         "app.worker.tasks.linkedin_ads_control.linkedin_ads_control": {"queue": "default"},
+        "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch": {"queue": "default"},
+        "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts": {"queue": "default"},
         "app.worker.tasks.tiktok_inbox_reconcile.reconcile_tiktok_inbox": {"queue": "default"},
         "app.worker.tasks.failure_learning.run_failure_learning_sweep": {"queue": "default"},
         "app.worker.tasks.edit_diff.run_edit_diff_sweep": {"queue": "default"},
@@ -284,11 +308,15 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_proposal_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_pm_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_engineer_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_proposal_followup_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_won_sweep": {"queue": "default"},
+        "app.worker.tasks.agency.run_agency_post_consult_sweep": {"queue": "default"},
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
         "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
         "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
+        "app.worker.tasks.funnel_audit.run_funnel_audit": {"queue": "default"},
         "app.worker.tasks.auto_gates.engagement_autoapprove": {"queue": "default"},
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
@@ -338,6 +366,12 @@ celery_app.conf.update(
             "task": "app.worker.tasks.funnel_sync.run_funnel_sync",
             "schedule": crontab(minute=20),
         },
+        # Weekly funnel stage audit (Tolstova & Silakova) — weakest-link
+        # report to Slack; exit-1 on a broken stage escalates to alerts.
+        "funnel-audit": {
+            "task": "app.worker.tasks.funnel_audit.run_funnel_audit",
+            "schedule": crontab(day_of_week="wed", hour=8, minute=0),
+        },
         # Public-lead nurture sequence — day 3/7/14 touches on
         # newsletter + free-audit leads (idempotent meta_data stamps).
         "nurture-sweep": {
@@ -348,6 +382,12 @@ celery_app.conf.update(
         "newsletter-subs-sync": {
             "task": "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync",
             "schedule": crontab(day_of_week="sun", hour=9, minute=15),
+        },
+        # Weekly LinkedIn Ad Library watch → linkedin_ad_intel + #intel digest.
+        # ~7 watches × up to 10 pages × 5s pacing — runs well inside 30 min.
+        "linkedin-ad-library-watch": {
+            "task": "app.worker.tasks.linkedin_intel.run_linkedin_ad_library_watch",
+            "schedule": crontab(day_of_week="mon", hour=9, minute=0),
         },
         "process-publish-queue": {
             "task": "app.worker.tasks.publishing.process_publish_queue",
@@ -383,6 +423,13 @@ celery_app.conf.update(
         "sync-nextcloud-surfaces": {
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_surfaces",
             "schedule": crontab(minute=25, hour="*/3"),  # every 3h at :25
+        },
+        # Extended Nextcloud lanes — CRM leads → Tables, repo deploys →
+        # Talk/Announce, check-status + failed-publish Talk alerts,
+        # scheduled posts → Calendar, Forms submissions → EspoCRM leads.
+        "sync-nextcloud-extras": {
+            "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_extras",
+            "schedule": crontab(minute="*/30"),
         },
         # Nightly company-brain journal — real publish/follower outcomes →
         # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.
@@ -474,6 +521,32 @@ celery_app.conf.update(
         "agency-engineer-sweep": {
             "task": "app.worker.tasks.agency.run_agency_engineer_sweep",
             "schedule": crontab(hour=9, minute=40),
+        },
+        # Sales follow-up: sent proposals get the day-3/7/14 chase ladder;
+        # replies (crm-engagement matcher) pause it automatically.
+        "agency-proposal-followup-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_proposal_followup_sweep",
+            "schedule": crontab(hour=10, minute=15),
+        },
+        # Closer: EspoCRM Opportunity → Closed Won starts the 14-day
+        # project (kickoff mail + PM loop picks it up). Hourly so a
+        # Stripe/manual close never sits unacknowledged overnight.
+        "agency-won-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_won_sweep",
+            "schedule": crontab(minute=35),
+        },
+        # Front Desk follow-on: consultation day passed → thank-you +
+        # next-steps mail. Every 3h catches next-day sends promptly.
+        "agency-post-consult-sweep": {
+            "task": "app.worker.tasks.agency.run_agency_post_consult_sweep",
+            "schedule": crontab(minute=40, hour="*/3"),
+        },
+        # Token expiry — refresh-ahead sweep; warns inside per-provider
+        # lead times and escalates reauth_required (non-refreshable lanes)
+        # to Slack instead of silently dying on next publish. Hourly.
+        "token-expiry-sweep": {
+            "task": "app.worker.tasks.token_expiry.run_token_expiry_sweep",
+            "schedule": crontab(minute=50),
         },
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
@@ -674,6 +747,18 @@ celery_app.conf.update(
         "consent-healers": {
             "task": "app.worker.tasks.consent_healers.heal_consents",
             "schedule": 3600.0,  # hourly — finish the chain when consent lands
+        },
+        "linkedin-engagement-score": {
+            "task": "app.worker.tasks.linkedin_engagement_score.score_linkedin_posts",
+            "schedule": 3600.0,  # hourly — CM Standard per-post stats → boost flags + commenter candidates
+        },
+        "linkedin-lead-routing": {
+            "task": "app.worker.tasks.linkedin_lead_boost.route_linkedin_leads",
+            "schedule": 1800.0,  # 30m — Lead Sync responses → audit funnel (LINKEDIN_ADVANCED)
+        },
+        "linkedin-boost-winner": {
+            "task": "app.worker.tasks.linkedin_lead_boost.boost_linkedin_winners",
+            "schedule": 3600.0,  # hourly — >2σ posts → promo-credit boost queue
         },
         "media-backfill": {
             "task": "app.worker.tasks.consent_healers.media_backfill",

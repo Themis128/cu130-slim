@@ -23,7 +23,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -381,7 +381,13 @@ async def _post_proposal_alert(proposal: AgencyProposal, audit: AgencyAudit | No
 
         who = proposal.recipient_name or proposal.recipient_email or "lead"
         url = audit.url if audit else "n/a"
-        price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}" if proposal.price_low_eur and proposal.price_high_eur else "n/a"
+        needs_pricing = bool((proposal.meta_data or {}).get("needs_pricing"))
+        if proposal.price_low_eur and proposal.price_high_eur:
+            price = f"€{proposal.price_low_eur}–€{proposal.price_high_eur}"
+        elif needs_pricing:
+            price = "custom scope — needs your price"
+        else:
+            price = "n/a"
         text = f":memo: *Proposal drafted* — {who} ({url}), {price}, {len(proposal.services)} services"
         blocks = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
@@ -417,10 +423,12 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
             has_proposal = (await db.execute(select(AgencyProposal.id).where(AgencyProposal.audit_id == audit.id).limit(1))).first()
             if has_proposal:
                 continue
+            custom_scope = False
             services = [s for s in (audit.recommended_services or []) if s in SERVICES]
             if not services:
                 services = [s for s, _sc, _h in classify_services(audit.action_plan or "")]
             if not services:
+                custom_scope = True
                 services = ["cloud"]
             md = dict(audit.meta_data or {})
             recipient_email: str | None = md.get("lead_email")
@@ -433,6 +441,13 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
 
             subject, body = render_proposal(audit=audit, recipient_name=recipient_name, services=services)
             low, high = price_range(services)
+            if custom_scope:
+                low = high = None
+                body += (
+                    "\n\n---\n\nCustom scope — the audit surfaced work outside the fixed\n"
+                    "catalog. Reply and I'll price it on the call; nothing\n"
+                    "is quoted until the scope is pinned."
+                )
             proposal = AgencyProposal(
                 team_id=audit.team_id,
                 audit_id=audit.id,
@@ -447,13 +462,159 @@ async def proposal_sweep(*, session_factory=None) -> dict[str, Any]:
                 body_md=body,
                 status=AgencyProposalStatus.draft,
             )
+            if custom_scope:
+                proposal.meta_data = {"custom_scope": True, "needs_pricing": True}
             db.add(proposal)
             await db.flush()
             stats["drafted"] += 1
             await _post_proposal_alert(proposal, audit)
         await db.commit()
+
+        if get_settings().AGENCY_PROPOSAL_AUTOSEND:
+            team_id = await _default_team_id(db)
+            if team_id:
+                stats["autosend"] = await _autosend_pass(db, team_id)
     logger.info("agency proposal sweep: %s", stats)
     return stats
+
+
+# ---------------------------------------------------------------------------
+# Guarded autosend — earned-autonomy graduation for the proposal lane.
+# A proposal self-sends only when every deterministic check passes; anything
+# uncertain stays at the Slack approve gate. Daily cap bounds blast radius.
+# ---------------------------------------------------------------------------
+
+
+def _autosend_block_reasons(
+    proposal: AgencyProposal,
+    audit: AgencyAudit | None,
+    lead: Lead | None,
+) -> list[str]:
+    """Deterministic quality gate — any reason keeps the human approve lane."""
+    from app.services.leads import _is_synthetic_email, is_valid_email
+
+    reasons: list[str] = []
+    email = (proposal.recipient_email or "").strip()
+    if not email or not is_valid_email(email):
+        reasons.append("no-valid-recipient")
+    elif _is_synthetic_email(email):
+        reasons.append("synthetic-recipient")
+    if audit is None or audit.status != AgencyAuditStatus.completed:
+        reasons.append("audit-not-completed")
+    if not proposal.services or any(s not in SERVICES for s in proposal.services):
+        reasons.append("services-outside-catalog")
+    if not proposal.price_low_eur or not proposal.price_high_eur:
+        reasons.append("price-missing")
+    elif proposal.price_high_eur > BUNDLE_PRICE_EUR:
+        reasons.append("price-above-bundle")
+    md = proposal.meta_data or {}
+    if md.get("replied") or md.get("unsubscribed"):
+        reasons.append("lead-engaged-or-opted-out")
+    if lead is not None:
+        lmd = lead.meta_data or {}
+        if lmd.get("unsubscribed") or lmd.get("nurture_opted_out"):
+            reasons.append("lead-opted-out")
+    return reasons
+
+
+async def _autosend_pass(db: AsyncSession, team_id: uuid.UUID) -> dict[str, Any]:
+    """Evaluate every draft proposal against the gate; send the clean ones."""
+    stats: dict[str, Any] = {"evaluated": 0, "sent": 0, "held": 0, "errors": 0, "held_reasons": {}}
+    cap = int(getattr(get_settings(), "AGENCY_AUTOSEND_DAILY_CAP", 5) or 5)
+    today = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+    drafts = (
+        (
+            await db.execute(
+                select(AgencyProposal).where(AgencyProposal.status == AgencyProposalStatus.draft).order_by(AgencyProposal.created_at.asc()).limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    already_sent_today = sum(
+        1
+        for p in (
+            await db.execute(
+                select(AgencyProposal).where(
+                    AgencyProposal.status == AgencyProposalStatus.sent,
+                    AgencyProposal.sent_at >= today,
+                )
+            )
+        )
+        .scalars()
+        .all()
+        if (p.meta_data or {}).get("approved_by") == "autosend"
+    )
+    budget = max(0, cap - already_sent_today)
+    for proposal in drafts:
+        stats["evaluated"] += 1
+        audit = (await db.execute(select(AgencyAudit).where(AgencyAudit.id == proposal.audit_id).limit(1))).scalar_one_or_none()
+        lead = (await db.execute(select(Lead).where(Lead.id == proposal.lead_id).limit(1))).scalar_one_or_none() if proposal.lead_id else None
+        reasons = _autosend_block_reasons(proposal, audit, lead)
+        for r in reasons:
+            stats["held_reasons"][r] = stats["held_reasons"].get(r, 0) + 1
+        if reasons:
+            stats["held"] += 1
+            continue
+        if budget <= 0:
+            stats["held_reasons"]["daily-cap"] = stats["held_reasons"].get("daily-cap", 0) + 1
+            stats["held"] += 1
+            continue
+        try:
+            res = await send_proposal(db, proposal, approver="autosend")
+        except Exception as exc:  # noqa: BLE001 — one bad send mustn't stall the pass
+            stats["errors"] += 1
+            logger.warning("autosend failed for proposal %s: %s", proposal.id, exc)
+            continue
+        if res.get("ok"):
+            stats["sent"] += 1
+            budget -= 1
+        else:
+            stats["errors"] += 1
+            logger.warning("autosend rejected for proposal %s: %s", proposal.id, res.get("error"))
+    if stats["sent"]:
+        try:
+            from app.services.slack_notifications import post_alert_to_slack
+
+            await post_alert_to_slack(
+                f":outbox_tray: *Agency autosend* — {stats['sent']} proposal(s) emailed this pass "
+                f"({stats['held']} held at gate, {stats['errors']} errors). Reject lane stays live."
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("autosend slack report failed")
+    return stats
+
+
+async def _agency_payment_url(proposal: AgencyProposal, amount_eur: float) -> str | None:
+    """Mint a Stripe checkout link for the proposal via cloudless.gr.
+
+    Advisory — a failure returns None and the proposal sends without a link.
+    """
+    cfg = get_settings()
+    url = cfg.AGENCY_CHECKOUT_URL
+    if not url or amount_eur < 1:
+        return None
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                url,
+                json={
+                    "amount_eur": amount_eur,
+                    "description": f"Cloudless engagement — {proposal.recipient_name or 'client'}",
+                    "client_email": proposal.recipient_email or "",
+                    "client_name": proposal.recipient_name or "",
+                    "proposal_id": str(proposal.id),
+                },
+                headers={"X-SocialAuto-Webhook-Secret": cfg.CLOUDLESS_LEADS_WEBHOOK_SECRET},
+            )
+        if resp.status_code == 200:
+            return resp.json().get("url")
+        logger.warning("agency checkout mint → %s: %s", resp.status_code, resp.text[:200])
+    except Exception:  # noqa: BLE001
+        logger.exception("agency checkout mint failed")
+    return None
 
 
 async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver: str = "admin") -> dict[str, Any]:
@@ -464,9 +625,18 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
         return {"ok": False, "error": "no recipient email on proposal"}
     from app.services.email_digest import send_email
 
+    body = proposal.body_md
+    pay_url = await _agency_payment_url(proposal, float(proposal.price_low_eur or 0))
+    if pay_url:
+        body = (
+            f"{body}\n\n---\n\nWhen you're ready to start, the secure payment\n"
+            f"link for the fixed price is here:\n{pay_url}\n\n"
+            "Payment kicks off the 14-day clock — the kickoff mail lands\n"
+            "automatically."
+        )
     await send_email(
         subject=proposal.subject,
-        text_body=proposal.body_md,
+        text_body=body,
         to_addrs=[proposal.recipient_email],
         reply_to="tbaltzakis@cloudless.gr",
         from_name="Themistoklis — Cloudless",
@@ -476,6 +646,8 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
     proposal.approved_at = proposal.approved_at or datetime.now(UTC)
     md = dict(proposal.meta_data or {})
     md["approved_by"] = approver
+    if pay_url:
+        md["payment_url"] = pay_url
     proposal.meta_data = md
     await db.commit()
     if proposal.espo_lead_id:
@@ -562,18 +734,132 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             if changed:
                 project.milestones = milestones
 
+            # Intake nudge — the kickoff mail asks for access/brand/scope
+            # items; a client reply stamps meta.intake_received via
+            # crm_engagement. Day 2: one gentle nudge. Day 4: Slack
+            # escalate — the day-1 access milestone is slipping.
+            md = dict(project.meta_data or {})
+            if day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged"):
+                from app.services.email_digest import send_email
+
+                client = (md.get("client_name") or "").strip() or "there"
+                await send_email(
+                    subject=f"Quick one — access for {project.name}",
+                    text_body=(
+                        f"Hi {client},\n\n"
+                        "small nudge on the kickoff mail — to keep the 14-day\n"
+                        "clock honest, I still need:\n\n"
+                        "1. Admin/hosting + DNS access (or a delegated invite)\n"
+                        "2. Brand assets (or 'use what's on the site')\n"
+                        "3. Analytics access if you have it\n"
+                        "4. One-line scope approval\n\n"
+                        "Even a partial reply unblocks the day-1 milestone.\n\n"
+                        "— Themistoklis, Cloudless"
+                    ),
+                    to_addrs=[project.client_email],
+                    reply_to="tbaltzakis@cloudless.gr",
+                    from_name="Themistoklis — Cloudless",
+                )
+                md["intake_nudged"] = now.isoformat()
+                project.meta_data = md
+                stats["intake_nudges"] = stats.get("intake_nudges", 0) + 1
+            if day >= 4 and not md.get("intake_received") and not md.get("intake_escalated"):
+                md["intake_escalated"] = now.isoformat()
+                project.meta_data = md
+                stats["intake_escalations"] = stats.get("intake_escalations", 0) + 1
+
             if day >= DELIVERY_DAYS and not project.handoff_md:
                 project.handoff_md = _render_handoff(project)
                 project.status = AgencyProjectStatus.delivered
                 stats["delivered"] += 1
+                md = dict(project.meta_data or {})
+                md.setdefault("testimonial_due_at", (now + timedelta(days=2)).isoformat())
+                project.meta_data = md
 
             due = project.due_at if project.due_at.tzinfo else project.due_at.replace(tzinfo=UTC)
             if now > due + _OVERDUE_GRACE and project.status == AgencyProjectStatus.active:
                 project.status = AgencyProjectStatus.stalled
                 stats["overdue"] += 1
+
+        # Post-delivery ask — delivered projects get one testimonial request
+        # ~2 days after handoff (stamped so it can never double-send).
+        delivered = (await db.execute(select(AgencyProject).where(AgencyProject.status == AgencyProjectStatus.delivered))).scalars().all()
+        for project in delivered:
+            md = dict(project.meta_data or {})
+            if not project.client_email:
+                continue
+            # Testimonial ask — once per project, ~2 days post-handoff.
+            if not md.get("testimonial_asked"):
+                due_at_raw = md.get("testimonial_due_at")
+                if not due_at_raw:
+                    md["testimonial_due_at"] = (now + timedelta(days=2)).isoformat()
+                    project.meta_data = md
+                    continue
+                try:
+                    due_at = datetime.fromisoformat(due_at_raw)
+                except ValueError:
+                    due_at = now
+                if due_at.tzinfo is None:
+                    due_at = due_at.replace(tzinfo=UTC)
+                if now < due_at:
+                    continue
+                from app.services.email_digest import send_email
+
+                client = (md.get("client_name") or "").strip() or "there"
+                await send_email(
+                    subject=f"How did the {DELIVERY_DAYS} days go? — {project.name}",
+                    text_body=(
+                        f"Hi {client},\n\n"
+                        f"your {DELIVERY_DAYS}-day delivery wrapped up — you should have the\n"
+                        "full handoff package in hand.\n\n"
+                        "One small ask: if the work landed, would you write 2–3\n"
+                        "sentences about it? A short testimonial is the best proof\n"
+                        "I can show the next client — just reply to this mail.\n\n"
+                        "And if anything in the handoff is unclear, tell me — that\n"
+                        "part is on me to fix.\n\n"
+                        "— Themistoklis, Cloudless"
+                    ),
+                    to_addrs=[project.client_email],
+                    reply_to="tbaltzakis@cloudless.gr",
+                    from_name="Themistoklis — Cloudless",
+                )
+                md["testimonial_asked"] = now.isoformat()
+                project.meta_data = md
+                stats["testimonial_asks"] = stats.get("testimonial_asks", 0) + 1
+
+            # ── Delight ladder — the relationship continues after delivery.
+            # +30d check-in, +60d referral ask, +90d upsell nudge — each
+            # meta-stamped so it sends exactly once per project. Anchored on
+            # the testimonial_asked stamp (= delivery date).
+            for step_key, step_day, step_subj, step_body in _DELIGHT_STEPS:
+                stamp = f"delight_{step_key}"
+                if md.get(stamp):
+                    continue
+                try:
+                    asked_at = datetime.fromisoformat(str(md.get("testimonial_asked", "")))
+                except ValueError:
+                    continue
+                if asked_at.tzinfo is None:
+                    asked_at = asked_at.replace(tzinfo=UTC)
+                if now < asked_at + timedelta(days=step_day):
+                    continue
+                from app.services.email_digest import send_email
+
+                client = (md.get("client_name") or "").strip() or "there"
+                await send_email(
+                    subject=step_subj.format(name=project.name, client=client),
+                    text_body=step_body.format(name=project.name, client=client, days=DELIVERY_DAYS),
+                    to_addrs=[project.client_email],
+                    reply_to="tbaltzakis@cloudless.gr",
+                    from_name="Themistoklis — Cloudless",
+                )
+                md[stamp] = now.isoformat()
+                project.meta_data = md
+                stats[stamp] = stats.get(stamp, 0) + 1
         await db.commit()
 
-    if drafts or stats["delivered"] or stats["overdue"]:
+    delight_sent = sum(v for k, v in stats.items() if k.startswith("delight_"))
+    if drafts or stats["delivered"] or stats["overdue"] or stats.get("intake_escalations") or delight_sent:
         try:
             from app.services.slack_notifications import post_alert_to_slack
 
@@ -583,6 +869,10 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 lines.append(f"{stats['delivered']} project(s) hit day 14 — handoff compiled")
             if stats["overdue"]:
                 lines.append(f":warning: {stats['overdue']} project(s) past due — needs a human")
+            if stats.get("intake_escalations"):
+                lines.append(f":rotating_light: {stats['intake_escalations']} project(s) day 4+ with no client intake — access milestone slipping")
+            if delight_sent:
+                lines.append(f":sparkling_heart: {delight_sent} post-delivery check-in(s) sent (30/60/90-day ladder)")
             await post_alert_to_slack("\n".join(lines))
         except Exception:  # noqa: BLE001
             logger.exception("pm sweep slack report failed")
@@ -661,4 +951,356 @@ async def engineer_sweep(*, session_factory=None) -> dict[str, Any]:
         except Exception:  # noqa: BLE001
             logger.exception("engineer sweep slack report failed")
     logger.info("agency engineer sweep: %s", stats)
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Closer — deal-won sweep (Closed Won Opportunity → 14-day project)
+# ---------------------------------------------------------------------------
+
+WON_STAGES: tuple[str, ...] = ("Closed Won", "closedwon")
+CONSULT_STAGE = "appointmentscheduled"
+KICKOFF_MARKER = "Project kickoff:"
+
+# Post-delivery delight ladder — (key, days-after-delivery, subject, body).
+# Plain voice, one point each; stamped delight_<key> in project meta.
+_DELIGHT_STEPS = (
+    (
+        "checkin_30",
+        30,
+        "How is {name} holding up?",
+        (
+            "Hi {client},\n\n"
+            "it's been about a month since the {days}-day delivery wrapped.\n\n"
+            "Quick check-in: is everything still running as expected? If\n"
+            "anything's drifted or a question came up, reply — a fix or a\n"
+            "pointer is part of the package, not an extra.\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    ),
+    (
+        "referral_60",
+        60,
+        "One small favour — {name}",
+        (
+            "Hi {client},\n\n"
+            "glad the delivery is still earning its keep.\n\n"
+            "One small favour: if you know another owner who'd benefit from\n"
+            "the same fixed-scope work, an intro mail is the biggest help\n"
+            "you can give me. Two lines is plenty — I take it from there.\n\n"
+            "Either way, thank you for the trust.\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    ),
+    (
+        "upsell_90",
+        90,
+        "Keep it maintained? — {name}",
+        (
+            "Hi {client},\n\n"
+            "quarterly check on {name}. The system is yours and stays yours —\n"
+            "this is just the option, not a pitch you have to answer.\n\n"
+            "If you'd rather not carry updates, monitoring and small\n"
+            "improvements yourself, I run a light monthly maintenance plan —\n"
+            "fixed price, cancel anytime, you keep everything either way.\n\n"
+            "Reply and I'll send the one-pager.\n\n"
+            "— Themistoklis, Cloudless"
+        ),
+    ),
+)
+POST_CONSULT_MARKER = "Post-consult follow-up:"
+
+
+async def _opportunity_contact_email(opp_id: str, account_id: str | None) -> tuple[str | None, str | None]:
+    """Best-effort client (email, name) for an Opportunity — contacts, then account."""
+    try:
+        rel = await espo.espo_get(
+            f"/Opportunity/{opp_id}/contacts",
+            params={"select": "id,name,emailAddress", "maxSize": 5},
+        )
+        for contact in rel.get("list") or []:
+            email = (contact.get("emailAddress") or "").strip().lower()
+            if email:
+                return email, contact.get("name")
+    except Exception:  # noqa: BLE001
+        logger.exception("agency: contacts read failed for opp %s", opp_id)
+    if account_id:
+        try:
+            acc = await espo.espo_get(f"/Account/{account_id}", params={"select": "name,emailAddress"})
+            email = (acc.get("emailAddress") or "").strip().lower()
+            if email:
+                return email, acc.get("name")
+        except Exception:  # noqa: BLE001
+            logger.exception("agency: account read failed for opp %s", opp_id)
+    return None, None
+
+
+async def _opp_has_note(opp_id: str, marker: str) -> bool:
+    notes = await espo.list_all(
+        "Note",
+        select=["id", "post"],
+        where=[
+            {"type": "equals", "attribute": "parentType", "value": "Opportunity"},
+            {"type": "equals", "attribute": "parentId", "value": opp_id},
+        ],
+        max_items=50,
+    )
+    return any(marker in (n.get("post") or "") for n in notes)
+
+
+def _kickoff_email(client_name: str | None, project_name: str, loa_md: str | None = None) -> tuple[str, str]:
+    client = (client_name or "").strip() or "there"
+    subject = f"Kickoff — {project_name} (day 1 of {DELIVERY_DAYS})"
+    loa_block = f"\n---\n\n{loa_md.strip()}\n" if loa_md else ""
+    body = (
+        f"Hi {client},\n\n"
+        f"thanks for moving ahead — this is day 1 of your {DELIVERY_DAYS}-day delivery.\n\n"
+        "How it runs:\n"
+        "- Day 1 — kickoff, scope locked, access confirmed\n"
+        "- Day 5 — architecture draft for your review\n"
+        "- Day 10 — dashboards & tracking wired\n"
+        f"- Day {DELIVERY_DAYS} — handoff package: your code, your docs, yours to keep\n\n"
+        "To hit the day-1 access milestone, reply to this mail with:\n"
+        "1. Admin/hosting + DNS access (or a delegated invite — whatever's easiest)\n"
+        "2. Brand assets — logo files, fonts, colors (or 'use what's on the site')\n"
+        "3. Analytics access — GA/Search Console invite if you have them\n"
+        "4. One-line approval of the scope we agreed\n\n"
+        "You'll get a short update at each checkpoint — every milestone cites\n"
+        "an artifact you can verify yourself.\n\n"
+        "— Themistoklis, Cloudless"
+        f"{loa_block}"
+    )
+    return subject, body
+
+
+async def _sent_proposal_for_email(db: AsyncSession, team_id: uuid.UUID, email: str | None) -> AgencyProposal | None:
+    if not email:
+        return None
+    return (
+        await db.execute(
+            select(AgencyProposal)
+            .where(
+                AgencyProposal.team_id == team_id,
+                AgencyProposal.recipient_email == email,
+                AgencyProposal.status == AgencyProposalStatus.sent,
+            )
+            .order_by(desc(AgencyProposal.sent_at))
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+
+async def won_sweep(*, session_factory=None) -> dict[str, Any]:
+    """Closed-Won Opportunity → AgencyProject + kickoff mail + CRM audit note.
+
+    Covers every win lineage: Stripe checkout deals, manually closed opps,
+    proposal-accepted deals. Low-value Stripe product checkouts are skipped
+    (a €9 checklist is not a 14-day engagement) via
+    ``AGENCY_STRIPE_PROJECT_MIN_EUR``.
+    """
+    if not get_settings().AGENCY_ENABLED:
+        return {"status": "disabled"}
+    if not espo.configured():
+        return {"status": "skipped", "reason": "espocrm_not_configured"}
+    factory = _factory(session_factory)
+    stats: dict[str, Any] = {"status": "ok", "created": 0, "skipped": 0}
+    min_stripe = int(getattr(get_settings(), "AGENCY_STRIPE_PROJECT_MIN_EUR", 500) or 500)
+    async with factory() as db:
+        team_id = await _default_team_id(db)
+        if not team_id:
+            return {"status": "skipped", "reason": "no_team"}
+        opps: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        # stage spellings differ by writer (site uses HubSpot-style keys,
+        # the UI uses EspoCRM enum labels) — one equals query each.
+        for stage in WON_STAGES:
+            for opp in await espo.list_all(
+                "Opportunity",
+                select=["id", "name", "stage", "amount", "amountCurrency", "closeDate", "createdAt", "accountId", "accountName", "leadSource", "description"],
+                where=[{"type": "equals", "attribute": "stage", "value": stage}],
+                max_items=50,
+            ):
+                if opp.get("id") and opp["id"] not in seen:
+                    seen.add(opp["id"])
+                    opps.append(opp)
+        for opp in opps:
+            oid = opp.get("id") or ""
+            if not oid:
+                continue
+            if (opp.get("leadSource") or "") == "stripe_checkout" and (opp.get("amount") or 0) < min_stripe:
+                stats["skipped"] += 1
+                continue
+            exists = (
+                await db.execute(
+                    select(AgencyProject.id).where(AgencyProject.team_id == team_id, AgencyProject.meta_data["espo_opportunity_id"].astext == oid).limit(1)
+                )
+            ).first()
+            if exists or await _opp_has_note(oid, KICKOFF_MARKER):
+                stats["skipped"] += 1
+                continue
+
+            email, client_name = await _opportunity_contact_email(oid, opp.get("accountId"))
+            now = datetime.now(UTC)
+            proposal = await _sent_proposal_for_email(db, team_id, email)
+            project = AgencyProject(
+                team_id=team_id,
+                proposal_id=proposal.id if proposal else None,
+                lead_id=proposal.lead_id if proposal else None,
+                espo_lead_id=proposal.espo_lead_id if proposal else None,
+                name=str(opp.get("name") or "Client project")[:300],
+                client_email=email,
+                kickoff_at=now,
+                due_at=now + timedelta(days=DELIVERY_DAYS),
+                status=AgencyProjectStatus.active,
+                milestones=project_milestones(),
+                meta_data={
+                    "espo_opportunity_id": oid,
+                    "opp_amount": opp.get("amount"),
+                    "opp_currency": opp.get("amountCurrency"),
+                    "lead_source": opp.get("leadSource"),
+                    "client_name": client_name,
+                },
+            )
+            db.add(project)
+            await db.flush()
+
+            # Auto-draft the Letter of Agreement (Pipeline Toolkit asset) —
+            # markdown lands on the project record; sending stays a human call
+            # after scope is confirmed on the kickoff call.
+            try:
+                from scripts.letter_of_agreement import render_markdown
+
+                project.meta_data = {
+                    **(project.meta_data or {}),
+                    "loa_md": render_markdown(
+                        client=client_name or str(opp.get("accountName") or "Client"),
+                        date=now.strftime("%Y-%m-%d"),
+                        amount=float(opp.get("amount") or 800),
+                        provider="Cloudless",
+                    ),
+                }
+            except Exception:  # noqa: BLE001 — LOA draft is advisory, never blocks the kickoff
+                logger.debug("LOA render failed for project %s", project.id)
+
+            if email:
+                from app.services.email_digest import send_email
+
+                subject, body = _kickoff_email(client_name, project.name, (project.meta_data or {}).get("loa_md"))
+                await send_email(
+                    subject=subject,
+                    text_body=body,
+                    to_addrs=[email],
+                    reply_to="tbaltzakis@cloudless.gr",
+                    from_name="Themistoklis — Cloudless",
+                )
+            await espo.add_lead_note(
+                oid,
+                f"{KICKOFF_MARKER} {DELIVERY_DAYS}-day delivery started {now:%Y-%m-%d}, due {(now + timedelta(days=DELIVERY_DAYS)):%Y-%m-%d}",
+                entity="Opportunity",
+            )
+            stats["created"] += 1
+        await db.commit()
+
+    if stats["created"]:
+        try:
+            from app.services.slack_notifications import post_alert_to_slack
+
+            await post_alert_to_slack(f":rocket: *Agency won sweep* — {stats['created']} project(s) kicked off ({DELIVERY_DAYS}-day plan)")
+        except Exception:  # noqa: BLE001
+            logger.exception("won sweep slack report failed")
+    logger.info("agency won sweep: %s", stats)
+    return stats
+
+
+# ---------------------------------------------------------------------------
+# Front Desk follow-on — post-consultation sweep
+# ---------------------------------------------------------------------------
+
+
+def _post_consult_email(client_name: str | None, opp_name: str) -> tuple[str, str]:
+    client = (client_name or "").strip() or "there"
+    subject = "Following up on our call"
+    body = (
+        f"Hi {client},\n\n"
+        f"thanks for taking the time to talk about {opp_name} — good conversation.\n\n"
+        "Next step on my side: I'll run the deeper audit and put together the\n"
+        "fixed-scope plan we discussed. You'll have it in your inbox shortly —\n"
+        "one fixed price, 14-day delivery, you own everything.\n\n"
+        "If I missed anything on the call, just reply to this mail.\n\n"
+        "— Themistoklis, Cloudless"
+    )
+    return subject, body
+
+
+async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
+    """Follow up consultations whose meeting date has passed.
+
+    ``/api/calendar/book`` creates an Opportunity at stage
+    ``appointmentscheduled`` with ``closeDate`` = meeting day. Once the day
+    is past and the stage hasn't moved, the lead hears nothing — this sweep
+    sends the thank-you/next-steps mail, once, marked by an EspoCRM note.
+    """
+    if not get_settings().AGENCY_ENABLED:
+        return {"status": "disabled"}
+    if not espo.configured():
+        return {"status": "skipped", "reason": "espocrm_not_configured"}
+    factory = _factory(session_factory)
+    today = datetime.now(UTC).date().isoformat()
+    stats: dict[str, Any] = {"status": "ok", "sent": 0, "skipped": 0}
+    sent_lines: list[str] = []
+    async with factory() as db:
+        opps = await espo.list_all(
+            "Opportunity",
+            select=["id", "name", "stage", "closeDate", "accountId", "accountName"],
+            where=[
+                {"type": "equals", "attribute": "stage", "value": CONSULT_STAGE},
+                {"type": "lessThan", "attribute": "closeDate", "value": today},
+            ],
+            max_items=50,
+        )
+        for opp in opps:
+            oid = opp.get("id") or ""
+            if not oid:
+                continue
+            if await _opp_has_note(oid, POST_CONSULT_MARKER):
+                stats["skipped"] += 1
+                continue
+            email, client_name = await _opportunity_contact_email(oid, opp.get("accountId"))
+            if not email:
+                await espo.add_lead_note(
+                    oid,
+                    f"{POST_CONSULT_MARKER} skipped — no contact email on opportunity",
+                    entity="Opportunity",
+                )
+                stats["skipped"] += 1
+                continue
+            from app.services.email_digest import send_email
+
+            subject, body = _post_consult_email(client_name, str(opp.get("name") or ""))
+            await send_email(
+                subject=subject,
+                text_body=body,
+                to_addrs=[email],
+                reply_to="tbaltzakis@cloudless.gr",
+                from_name="Themistoklis — Cloudless",
+            )
+            await espo.add_lead_note(
+                oid,
+                f"{POST_CONSULT_MARKER} sent to {email} ({datetime.now(UTC):%Y-%m-%d %H:%M}Z)",
+                entity="Opportunity",
+            )
+            stats["sent"] += 1
+            sent_lines.append(f"{email}: {opp.get('name', '')[:60]}")
+        await db.commit()
+
+    if sent_lines:
+        try:
+            from app.services.slack_notifications import post_digest_text_to_slack
+
+            lines = [f"*Post-consultation sweep* — {stats['sent']} follow-up(s) sent"]
+            lines += [f"• {line}" for line in sent_lines[:5]]
+            await post_digest_text_to_slack("\n".join(lines))
+        except Exception:  # noqa: BLE001
+            logger.exception("post-consult sweep slack report failed")
+    logger.info("agency post-consult sweep: %s", stats)
     return stats

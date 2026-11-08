@@ -98,12 +98,16 @@ def _poll_inner() -> dict:
                 break
         if failed:
             raise RuntimeError("identify failed — wrong mail/ΚΠΑ pair")
+    # the status block's fields fill asynchronously — a short settle keeps
+    # proto/ΚΠΑ (and occasionally the status itself) from reading empty
+    time.sleep(3)
     out = _ev(
         """(()=>{const t=document.body.innerText;
         const grab=(re)=>{const m=t.match(re);return m?m[1].trim():''};
+        const ms=[...t.matchAll(/Κατάσταση\\s*\\n\\s*([^\\n]+)/g)];
         return JSON.stringify({
-          status: grab(/(Αναμονή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*|Σε εξέλιξη[^\\n]*|Σε επεξεργασία[^\\n]*)/) ||
-                  grab(/Κατάσταση\\s*\\n([^\\n]+)/),
+          status: (ms.length ? ms[ms.length-1][1].trim() : '') ||
+                  grab(/(Αναμονή[^\\n]*|Προς Αποδοχή[^\\n]*|Επεξεργασία[^\\n]*|Ολοκληρώθηκε[^\\n]*|Σε εξέλιξη[^\\n]*|Σε επεξεργασία[^\\n]*)/),
           proto: grab(/Αριθμός Πρωτοκόλλου\\s*\\n?\\s*(\\d+)/),
           kpa:   grab(/Κωδικός Παρακολούθησης Αναφοράς\\s*\\n?\\s*(\\d+)/)
         })})()"""
@@ -126,7 +130,7 @@ async def _run() -> dict:
         logger.warning("synigoros_status: SYNIGOROS_MAIL/SYNIGOROS_KPA unset — skipping poll")
         return {"skipped": "credentials unset"}
     result = await asyncio.to_thread(_poll)
-    status = result.get("status", "")
+    raw_status = result.get("status", "")
     async with task_session() as db:
         last = (
             await db.execute(select(AnalyticsEvent).where(AnalyticsEvent.event_type == EVENT_TYPE).order_by(AnalyticsEvent.occurred_at.desc()).limit(1))
@@ -142,7 +146,20 @@ async def _run() -> dict:
             )
         ).scalar_one()
         team_id = last.team_id if last else acc.team_id
-        changed = bool(status) and (not last or last.meta_data.get("status") != status)
+        # two-read confirmation — same contract as scripts/synigoros-monitor:
+        # the Κατάσταση value oscillates between workflow states across polls
+        # (real transitions + served snapshots), so a new value must repeat in
+        # a second consecutive poll before it counts as the status.
+        meta = last.meta_data if last else {}
+        confirmed = meta.get("status") or raw_status
+        candidate = None
+        changed = bool(raw_status) and not last  # first-ever read arms + notifies
+        if last and raw_status and raw_status != confirmed:
+            if meta.get("candidate") == raw_status:
+                confirmed, changed = raw_status, True  # 2nd consecutive sighting → promote
+            else:
+                candidate = raw_status  # first sighting — confirm on next run
+        result.update({"status": confirmed, "raw_status": raw_status, "candidate": candidate})
         db.add(
             AnalyticsEvent(
                 team_id=team_id,
@@ -155,6 +172,6 @@ async def _run() -> dict:
         if changed:
             enc = acc.meta_data.get("bot_token_enc")
             tok = decrypt_token(enc.encode() if isinstance(enc, str) else enc) if enc else decrypt_token(acc.access_token_enc)
-            await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{status}")
+            await TelegramAPIClient(tok).send_message(TELEGRAM_CHAT, f"📋 Synigoros — status changed:\n{confirmed}")
             result["telegram_notified"] = True
     return result

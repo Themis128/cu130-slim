@@ -219,7 +219,9 @@ async def create_lead_public(
 
     delivery = await deliver_playbook(db, lead, email, already_sent=already_sent, settings=settings)
     await _cf_shadow_call(
-        "FUNNEL_EVENTS_URL", "FUNNEL_EVENTS_TOKEN", "/event",
+        "FUNNEL_EVENTS_URL",
+        "FUNNEL_EVENTS_TOKEN",
+        "/event",
         {"type": "lead.created", "payload": {"lead_id": str(lead.id), "form": meta.get("form")}},
     )
 
@@ -414,7 +416,7 @@ async def create_survey_public(
                 "firstName": first or email.split("@", 1)[0],
                 "lastName": last or "(survey)",
                 "phoneNumber": phone or "",
-                "source": "Website survey",
+                "source": "Web Site",
                 "description": "\n".join([f"{k}: {v}" for k, v in meta["answers"].items()] + ([f"phone: {phone}"] if phone else []))[:2000],
             }
         )

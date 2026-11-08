@@ -25,14 +25,32 @@ REALMS = ("facebook.com", "business.facebook.com", "developers.facebook.com",
           "business.intern.facebook.com")
 
 
+def _cdp_version_url():
+    """Pick a real Chrome CDP endpoint — :9222 is hijacked by Lenovo
+    Vantage's EdgeWebView2 on this box; the debug Chrome binds :9224."""
+    import json as _j
+    import urllib.request
+    for port in (9222, 9224):
+        try:
+            v = _j.load(urllib.request.urlopen(f"http://localhost:{port}/json/version", timeout=8))
+            if "lenovovantage" not in (v.get("userAgent") or "").lower() and v.get("Browser", "").startswith("Chrome/"):
+                return f"http://localhost:{port}/json/version"
+        except Exception:
+            pass
+    return "http://localhost:9224/json/version"
+
+
 def cdp_cookies(_p=None):
     import json as _j
     import urllib.request
     import websocket
-    ver = _j.load(urllib.request.urlopen("http://127.0.0.1:9222/json/version", timeout=10))
-    ws = websocket.create_connection(ver["webSocketDebuggerUrl"], timeout=20)
+    ver = _j.load(urllib.request.urlopen(_cdp_version_url(), timeout=10))
+    ws = websocket.create_connection(ver["webSocketDebuggerUrl"], timeout=20,
+                                     suppress_origin=True)
     try:
-        ws.send(_j.dumps({"id": 1, "method": "Network.getAllCookies"}))
+        # Storage.getCookies — Network.getAllCookies misses CHIPS-partitioned
+        # cookies, which is what FB sets (empty-jar false negative).
+        ws.send(_j.dumps({"id": 1, "method": "Storage.getCookies"}))
         while True:
             m = _j.loads(ws.recv())
             if m.get("id") == 1:

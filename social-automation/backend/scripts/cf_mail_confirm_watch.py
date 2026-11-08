@@ -58,8 +58,7 @@ def _scan(box: imaplib.IMAP4_SSL, target_local: str) -> str | None:
         for mid in reversed(ids[0].split()[-10:]):
             typ, data = box.fetch(mid, "(RFC822)")
             body = data[0][1].decode("utf-8", "replace") if typ == "OK" else ""
-            m = re.search(r"https://[^\"'\s<>]+confirm[^\"'\s<>]+", body) or re.search(
-                r"https://[^\"'\s<>]+verify[^\"'\s<>]+", body)
+            m = re.search(r"https://[^\"'\s<>]+confirm[^\"'\s<>]+", body) or re.search(r"https://[^\"'\s<>]+verify[^\"'\s<>]+", body)
             if m and (target_local in body or target_local == ""):
                 return m.group(0)
     return None

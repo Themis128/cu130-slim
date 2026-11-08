@@ -1343,7 +1343,7 @@ integration.
 |-------|-------|
 | App name | Cloudless |
 | App ID | 7630494700880906241 |
-| Client key | `TIKTOK_CLIENT_KEY` in `.env` (sbawi6c3634oycojy9) |
+| Client key | `TIKTOK_CLIENT_KEY` in `.env` = `awtn8vvhotyxe9oc` (production app). `sbawi6c3634oycojy9` is the **sandbox** app key — do not use it for production OAuth. |
 | Client secret | `TIKTOK_CLIENT_SECRET` in `.env` |
 | Current ownership | Organization `cloudless.gr` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` |

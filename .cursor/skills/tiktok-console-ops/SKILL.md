@@ -297,7 +297,7 @@ Publish video and photo content to TikTok through the SocialAuto backend.
 | Account type | person |
 | Sandbox user | cloudless-dev (target: user3113682023385) |
 | Token lifetime | 24 hours (refreshed daily by beat task) |
-| Granted scopes | `user.info.basic`, `user.info.profile`, `user.info.stats`, `video.list`, `video.publish`, `video.upload` (all 6 granted 2026-09-29 via OAuth reconnect — consent screen grants unlisted scopes; no console approval needed) |
+| Granted scopes | `user.info.basic`, `video.publish`, `video.upload` — the only scopes enabled on the **production** app (verified via devportal `app/detail` 2026-11-07). `user.info.profile`, `user.info.stats`, `video.list` exist in the console catalog but are NOT enabled; requesting them fails authorize with a `scope` error. The sandbox app (`sbawi6c…`) has all 6. Re-add via a new app revision + review. |
 | Client key env | `TIKTOK_CLIENT_KEY` |
 | Redirect URI | `https://social.cloudless.gr/api/v1/auth/oauth/tiktok/callback` (HTTPS required) |
 

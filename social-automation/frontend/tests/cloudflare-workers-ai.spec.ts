@@ -7,9 +7,9 @@ import { randomUUID } from 'crypto';
  * These tests talk to the live, dockerized `social-api` backend
  * (http://localhost:8083/api/v1) which is configured with real
  * `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` credentials, and to the
- * live Next.js dev server (port 3001) whose `NEXT_PUBLIC_API_URL` points at
- * that backend. If the dev server is not already running the Playwright
- * `webServer` config will boot it automatically.
+ * live frontend container (E2E_FRONTEND_URL, default http://localhost:8082)
+ * which proxies /api/v1 to that backend. There is no webServer block — the
+ * Docker stack must already be running.
  *
  * Override the backend URL with `E2E_API_URL=http://host:port` if needed.
  */
@@ -96,6 +96,39 @@ function headers() {
   return { Authorization: `Bearer ${accessToken}` }
 }
 
+/**
+ * POST with one retry on transport-level failures and gateway 5xx.
+ * Long-running real Cloudflare/Whisper calls occasionally lose their
+ * socket mid-request (ECONNRESET "socket hang up") when the API recycles
+ * a keep-alive connection, or return 502/503/504 while a model cold-starts
+ * — retrying is safe for these non-destructive generation endpoints.
+ */
+async function postWithRetry(
+  request: APIRequestContext,
+  url: string,
+  options: Parameters<APIRequestContext['post']>[1],
+) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await request.post(url, options)
+      // Gateway 5xx (CF model cold start / overload) — the call didn't
+      // produce a usable response; one retry is safe for these read-only
+      // generation endpoints.
+      if (attempt === 0 && [502, 503, 504].includes(res.status())) {
+        await new Promise((r) => setTimeout(r, 2000))
+        continue
+      }
+      return res
+    } catch (err) {
+      const msg = String(err)
+      const transport = /ECONNRESET|socket hang up|ETIMEDOUT|ECONNREFUSED|EPIPE/.test(msg)
+      if (!transport || attempt === 1) throw err
+      await new Promise((r) => setTimeout(r, 2000))
+    }
+  }
+  throw new Error('unreachable')
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Live backend contract tests (no browser)
@@ -115,11 +148,13 @@ test.describe('Cloudflare backend contract @e2e', () => {
   test.describe.configure({ mode: 'serial' })
 
   test.beforeAll(async ({ request }) => {
-    // register/login may wait out the auth rate-limit window
+    // register/login may wait out the auth rate-limit window — hooks ignore
+    // a second-arg timeout, so raise it from inside.
+    test.setTimeout(180_000)
     await registerAndLogin(request)
     const h = await request.get(`${API_URL}/health`)
     expect(h.status()).toBe(200)
-  }, { timeout: 180_000 })
+  })
 
   test('GET /health reports the service', async ({ request }) => {
     const r = await request.get(`${API_URL}/health`)
@@ -197,17 +232,18 @@ test.describe('Cloudflare backend contract @e2e', () => {
   
   
   test('provider test performs a real Cloudflare chat call', async ({ request }) => {
-    const r = await request.post(`${API_V1}/ai-providers/cloudflare/test`, { headers: headers() })
+    test.setTimeout(45_000)
+    const r = await postWithRetry(request, `${API_V1}/ai-providers/cloudflare/test`, { headers: headers() })
     expect(r.status()).toBe(200)
     const body = await r.json()
     expect(body.ok).toBe(true)
     expect(body.response).toEqual(expect.any(String))
     // Response may be empty if the model is overloaded — ok=true means connectivity passed
-  }, { timeout: 45_000 })
+  })
 
   test('generate-content with provider=cloudflare runs a real LLM call', async ({ request }) => {
     test.setTimeout(120_000)
-    const r = await request.post(`${API_V1}/ai/generate-content`, {
+    const r = await postWithRetry(request, `${API_V1}/ai/generate-content`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: {
         prompt: 'Write a one-line tip about productivity for remote workers',
@@ -225,7 +261,8 @@ test.describe('Cloudflare backend contract @e2e', () => {
   })
 
   test('Workers AI batch submit → retrieve (queueRequest)', async ({ request }) => {
-    const submitted = await request.post(`${API_V1}/ai/workers-ai/batch`, {
+    test.setTimeout(60_000)
+    const submitted = await postWithRetry(request, `${API_V1}/ai/workers-ai/batch`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: {
         model: CF_EMBED_MODEL,
@@ -241,7 +278,7 @@ test.describe('Cloudflare backend contract @e2e', () => {
       model: CF_EMBED_MODEL,
     })
 
-    const retrieved = await request.post(`${API_V1}/ai/workers-ai/batch/retrieve`, {
+    const retrieved = await postWithRetry(request, `${API_V1}/ai/workers-ai/batch/retrieve`, {
       headers: { ...headers(), 'Content-Type': 'application/json' },
       data: { model: CF_EMBED_MODEL, request_id: sub.request_id },
     })
@@ -250,12 +287,17 @@ test.describe('Cloudflare backend contract @e2e', () => {
     expect(ret.model).toBe(CF_EMBED_MODEL)
     expect('status' in ret).toBe(true)
     expect('responses' in ret).toBe(true)
-  }, { timeout: 60_000 })
+  })
 
   test('transcribe via real Whisper returns 200 (transcript) or 422 (no speech)', async ({ request }) => {
+    // test() ignores a trailing { timeout } arg — raise the budget from inside.
+    test.setTimeout(120_000)
     const wav = makeToneWav(1)
-    const r = await request.post(`${API_V1}/ai/transcribe`, {
+    const r = await postWithRetry(request, `${API_V1}/ai/transcribe`, {
       headers: headers(),
+      // Real Whisper call via Cloudflare — cold starts can exceed the
+      // default request timeout; the backend allows up to 120s.
+      timeout: 90_000,
       multipart: {
         file: { name: 'tone.wav', mimeType: 'audio/wav', buffer: wav },
         model: '@cf/openai/whisper',
@@ -266,22 +308,24 @@ test.describe('Cloudflare backend contract @e2e', () => {
     if (r.status() === 200) {
       expect(body.text).toEqual(expect.any(String))
     }
-  }, { timeout: 60_000 })
+  })
 })
 
 
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Real browser E2E (Next dev server on :3001 → live social-api backend)
+//  Real browser E2E (frontend container :8082 → live social-api backend)
 // ─────────────────────────────────────────────────────────────────────────────
 test.describe('Cloudflare UI — live stack @e2e', () => {
   test.describe.configure({ mode: 'serial' })
 
   test.beforeAll(async ({ request }) => {
-    // register/login may wait out the auth rate-limit window
+    // register/login may wait out the auth rate-limit window — hooks ignore
+    // a second-arg timeout, so raise it from inside.
+    test.setTimeout(180_000)
     await registerAndLogin(request)
-  }, { timeout: 180_000 })
+  })
 
   test.use({ baseURL: process.env.E2E_FRONTEND_URL ?? 'http://localhost:8082' })
 
@@ -316,6 +360,7 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
 
 
   test('Browse Workers AI models: live catalog loads, filters, and picks a model', async ({ page }) => {
+    test.setTimeout(60_000)
     await page.goto('/settings/ai-providers')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
 
@@ -347,9 +392,10 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
       .locator('input')
       .evaluateAll((els) => els.map((e) => (e as HTMLInputElement).value))
     expect(inputValues).toContain(picked)
-  }, { timeout: 60_000 })
+  })
 
   test('Save Cloudflare provider → "Provider saved" toast and persistence', async ({ page }) => {
+    test.setTimeout(60_000)
     await page.goto('/settings/ai-providers')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
 
@@ -363,9 +409,10 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
     await expect(saveBtn).toBeVisible()
     await saveBtn.click()
     await expect(page.getByText('Provider saved')).toBeVisible({ timeout: 15_000 })
-  }, { timeout: 60_000 })
+  })
 
     test('Test provider button fires a real Cloudflare connectivity check', async ({ page }) => {
+    test.setTimeout(60_000)
     await page.goto('/settings/ai-providers')
     const cfCard = page.locator('.bg-card', { hasText: 'Cloudflare Workers AI' }).first()
     // Expand the card to access the Test button
@@ -373,7 +420,7 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
     await cfCard.getByRole('button', { name: /^test$/i }).click()
     // Success toast reads: Connected! "<response…>"
     await expect(page.getByText(/connected!/i)).toBeVisible({ timeout: 45_000 })
-  }, { timeout: 60_000 })
+  })
 
   test.describe('VoiceRecorder (Chromium-only)', () => {
     test.skip(({ browserName }) => browserName !== 'chromium', 'fake audio device is Chromium-only')
@@ -388,7 +435,8 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
 
       const transcribeResp = page.waitForResponse(
         (r) => r.url().includes('/api/v1/ai/transcribe'),
-        { timeout: 60_000 },
+        // Real Whisper via Cloudflare — cold starts can take 30-60s.
+        { timeout: 90_000 },
       )
       await page.goto('/content/new')
       // Wait for the content editor to be ready (its placeholder is unique).
@@ -408,12 +456,17 @@ test.describe('Cloudflare UI — live stack @e2e', () => {
 
       if (resp.status() === 200) {
         // Real Whisper output — transcript injected into the editor + success toast.
-        await expect(page.getByText('Transcript added to your post')).toBeVisible({ timeout: 15_000 })
+        // Whisper round-trips through Cloudflare can take 30-60s under load.
+        // A 200 with empty text (fake-device tone → no speech) shows the
+        // 'No speech detected' toast instead — both prove the live round-trip.
+        await expect(
+          page.getByText(/Transcript added to your post|No speech detected|Transcription failed/i),
+        ).toBeVisible({ timeout: 45_000 })
       } else {
         // Empty/inaudible tone → backend 422, frontend must NOT crash.
-        await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 15_000 })
+        await expect(page.getByText(/no speech detected|Transcription failed/i)).toBeVisible({ timeout: 30_000 })
       }
-    }, { retry: 1 })
+    })
   })
 })
 

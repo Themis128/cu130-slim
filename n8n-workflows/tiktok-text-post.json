@@ -22,7 +22,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_TIKTOK_ACCOUNT_ID || 'dcda73fb-75b6-47af-b9d1-c1ba404d91a8';\nconst tone = body.tone || 'energetic';\nconst scheduledAt = body.scheduled_at || null;\nconst publish = body.publish === false ? false : !scheduledAt;\nreturn [{ json: { topic, account_id: accountId, tone, platform: 'tiktok', scheduled_at: scheduledAt, publish } }];"
+        "jsCode": "const body = ($json.body && typeof $json.body === 'object') ? $json.body : {};\nconst topic = body.topic || body.prompt || 'cloudless.gr serverless services';\nconst accountId = body.account_id || $env.CLOUDLESS_TIKTOK_ACCOUNT_ID || 'ab439e1e-549f-4a8b-901a-2f7eeb8a1c88';\nconst tone = body.tone || 'energetic';\nconst scheduledAt = body.scheduled_at || null;\nconst publish = body.publish === false ? false : !scheduledAt;\nreturn [{ json: { topic, account_id: accountId, tone, platform: 'tiktok', scheduled_at: scheduledAt, publish } }];"
       },
       "id": "resolve-config",
       "name": "Resolve Config",
@@ -305,7 +305,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + $('Resolve Config').item.json.topic + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
+        "jsonBody": "={\n  \"prompt\": {{ JSON.stringify('Marketing image for: ' + (((($('Generate Caption (DMR)').item.json.content || $('Resolve Config').item.json.topic || '') + '').replace(/https?:\\/\\/\\S+|#\\w+|@[A-Za-z0-9_]+|urn:li:\\S+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 220) || $('Resolve Config').item.json.topic)) + '. Clean modern tech aesthetic, cyan and orange accents on dark navy, no text, no watermark.') }},\n  \"provider\": \"cloudflare\",\n  \"model\": \"@cf/black-forest-labs/flux-1-schnell\"\n}",
         "options": {
           "timeout": 600000
         }

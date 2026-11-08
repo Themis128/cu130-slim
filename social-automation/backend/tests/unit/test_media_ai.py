@@ -482,9 +482,69 @@ class TestVerifyMediaSemantics:
     @pytest.mark.asyncio
     async def test_vision_unavailable(self, monkeypatch):
         monkeypatch.setattr(MA, "_call_dmr_vision", AsyncMock(return_value=None))
+        monkeypatch.setattr(MA, "_call_cloudflare_vision", AsyncMock(side_effect=OSError("cf")))
         out = await MA.verify_media_semantics(b"img", "a cat")
         assert out["match"] is True
         assert out["reason"] == "vision unavailable"
+        assert out["vision"] is None
+
+    @pytest.mark.asyncio
+    async def test_cf_fallback_when_dmr_down(self, monkeypatch):
+        monkeypatch.setattr(MA, "_call_dmr_vision", AsyncMock(return_value=None))
+        cf = AsyncMock(
+            side_effect=[
+                {"result": {"caption": "A cat sleeping on a mat"}},
+                {"result": {"response": "YES it is a cat"}},
+            ]
+        )
+        monkeypatch.setattr(MA, "_call_cloudflare_vision", cf)
+        out = await MA.verify_media_semantics(b"img", "a cat")
+        assert out["match"] is True
+        assert out["vision"] == "cf"
+        assert "cat" in out["caption"]
+
+    @pytest.mark.asyncio
+    async def test_cf_fallback_no_match(self, monkeypatch):
+        monkeypatch.setattr(MA, "_call_dmr_vision", AsyncMock(return_value=None))
+        monkeypatch.setattr(
+            MA,
+            "_call_cloudflare_vision",
+            AsyncMock(
+                side_effect=[
+                    {"result": {"caption": "A red sports car"}},
+                    {"result": {"response": "NO it shows a car, not a cat"}},
+                ]
+            ),
+        )
+        out = await MA.verify_media_semantics(b"img", "a cat")
+        assert out["match"] is False
+        assert out["vision"] == "cf"
+
+    @pytest.mark.asyncio
+    async def test_dmr_caption_cf_judge(self, monkeypatch):
+        # DMR captions fine but its judge call fails → CF supplies the verdict.
+        monkeypatch.setattr(
+            MA,
+            "_call_dmr_vision",
+            AsyncMock(side_effect=["A cat on a mat", None]),
+        )
+        monkeypatch.setattr(
+            MA,
+            "_call_cloudflare_vision",
+            AsyncMock(return_value={"result": {"response": "YES matches"}}),
+        )
+        out = await MA.verify_media_semantics(b"img", "a cat")
+        assert out["match"] is True
+        assert out["vision"] == "dmr"
+
+    @pytest.mark.asyncio
+    async def test_captioned_but_unjudgeable_weak_pass(self, monkeypatch):
+        monkeypatch.setattr(MA, "_call_dmr_vision", AsyncMock(side_effect=["A cat", None]))
+        monkeypatch.setattr(MA, "_call_cloudflare_vision", AsyncMock(side_effect=OSError("cf")))
+        out = await MA.verify_media_semantics(b"img", "a cat")
+        assert out["match"] is True
+        assert out["reason"] == "judge unavailable"
+        assert out["vision"] == "dmr"
 
     @pytest.mark.asyncio
     async def test_match_yes(self, monkeypatch):
@@ -504,9 +564,11 @@ class TestVerifyMediaSemantics:
     @pytest.mark.asyncio
     async def test_exception_match_true(self, monkeypatch):
         monkeypatch.setattr(MA, "_call_dmr_vision", AsyncMock(side_effect=OSError("down")))
+        monkeypatch.setattr(MA, "_call_cloudflare_vision", AsyncMock(side_effect=OSError("cf")))
         out = await MA.verify_media_semantics(b"img", "a cat")
         assert out["match"] is True
         assert "qa error" in out["reason"]
+        assert out["vision"] is None
 
 
 @pytest.mark.asyncio

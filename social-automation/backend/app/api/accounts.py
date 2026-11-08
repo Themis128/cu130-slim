@@ -32,7 +32,7 @@ from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.facebook_api import FacebookAPIClient, FacebookAPIError
 from app.services.instagram_api import InstagramAPIClient, InstagramAPIError
-from app.services.linkedin_api import LinkedInAPIError
+from app.services.linkedin_api import LinkedInAPIClient, LinkedInAPIError
 from app.services.threads_api import ThreadsAPIClient, ThreadsAPIError
 from app.services.tiktok_api import TikTokAPIClient, TikTokAPIError
 from app.services.twitter_api import TwitterAPIClient, TwitterAPIError
@@ -265,11 +265,11 @@ async def connect_account_body(
         ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
-        # Official Login Kit + Content Posting + Display scopes.
-        # video.list required for /v2/video/list/ and /v2/video/query/.
-        # user.info.profile → bio/verified/deep-link; user.info.stats →
-        # follower/following/likes/video counts (analytics profile_sync).
-        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
+        # Scopes enabled on the production TikTok app (verified via devportal
+        # app/detail 2026-11-07). user.info.profile/stats + video.list are NOT
+        # enabled — requesting them fails authorize with a `scope` error.
+        # Re-add them here only after enabling them in the console + review.
+        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(data.platform, [])
 
     # Twitter and TikTok OAuth 2.0 require PKCE
@@ -335,11 +335,11 @@ async def connect_account(
         ],
         "instagram": ["instagram_basic", "instagram_content_publish", "pages_show_list"],
         "threads": ["threads_basic", "threads_content_publish", "threads_manage_insights", "threads_manage_replies"],
-        # Official Login Kit + Content Posting + Display scopes.
-        # video.list required for /v2/video/list/ and /v2/video/query/.
-        # user.info.profile → bio/verified/deep-link; user.info.stats →
-        # follower/following/likes/video counts (analytics profile_sync).
-        "tiktok": ["user.info.basic", "user.info.profile", "user.info.stats", "video.publish", "video.upload", "video.list"],
+        # Scopes enabled on the production TikTok app (verified via devportal
+        # app/detail 2026-11-07). user.info.profile/stats + video.list are NOT
+        # enabled — requesting them fails authorize with a `scope` error.
+        # Re-add them here only after enabling them in the console + review.
+        "tiktok": ["user.info.basic", "video.publish", "video.upload"],
     }.get(platform, [])
 
     # TikTok requires client_key and comma-separated scopes in the authorize URL
@@ -1002,13 +1002,45 @@ async def _get_facebook_account(
     return account
 
 
+async def _get_linkedin_org_account(
+    account_id: uuid.UUID,
+    current_user: User,
+    db: AsyncSession,
+) -> SocialAccount:
+    """Fetch a LinkedIn organization account owned by the current user's team."""
+    result = await db.execute(
+        select(SocialAccount)
+        .join(Team)
+        .join(TeamMember)
+        .where(
+            SocialAccount.id == account_id,
+            SocialAccount.platform == "linkedin",
+            TeamMember.user_id == current_user.id,
+        )
+    )
+    account = result.scalar_one_or_none()
+    if not account or account.account_type != "organization":
+        raise HTTPException(status_code=404, detail="LinkedIn organization account not found")
+    return account
+
+
+def _get_linkedin_client(account: SocialAccount) -> "LinkedInAPIClient":
+    from app.core.security import decrypt_token
+    from app.services.linkedin_api import LinkedInAPIClient
+
+    if not account.access_token_enc:
+        raise HTTPException(status_code=400, detail="LinkedIn account has no access token")
+    return LinkedInAPIClient(access_token=decrypt_token(bytes(account.access_token_enc)))
+
+
 class PageProfileUpdate(BaseModel):
-    """Editable Facebook Page profile fields."""
+    """Editable page profile fields (Facebook Page / LinkedIn org text fields)."""
 
     about: str | None = None
     description: str | None = None
     website: str | None = None
     phone: str | None = None
+    tagline: str | None = None
 
 
 @router.get("/{account_id}/page-profile")
@@ -1018,6 +1050,15 @@ async def get_facebook_page_profile(
     db: AsyncSession = Depends(get_db),
 ):
     """Get the current Facebook Page profile metadata (about, description, website, etc.)."""
+    result = await db.execute(select(SocialAccount.platform).where(SocialAccount.id == account_id))
+    if result.scalar_one_or_none() == "linkedin":
+        account = await _get_linkedin_org_account(account_id, current_user, db)
+        client = _get_linkedin_client(account)
+        try:
+            org = await client.get_organization(account.account_id)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        return {"profile": org, "tasks": []}
     account = await _get_facebook_account(account_id, current_user, db, require_page=True)
     client = _get_facebook_page_client(account)
     try:
@@ -1045,7 +1086,27 @@ async def update_facebook_page_profile(
 
     Requires the Page token to have ``pages_manage_metadata`` permission
     and the user to have the ``MANAGE`` task on the Page.
+
+    For LinkedIn organization accounts, writes text fields only
+    (``description`` → localizedDescription, ``website`` → localizedWebsiteUrl,
+    ``tagline``) via ``rw_organization_admin`` — visuals are never touched.
     """
+    result = await db.execute(select(SocialAccount.platform).where(SocialAccount.id == account_id))
+    if result.scalar_one_or_none() == "linkedin":
+        account = await _get_linkedin_org_account(account_id, current_user, db)
+        client = _get_linkedin_client(account)
+        try:
+            success = await client.update_organization_profile(
+                account.account_id,
+                description=updates.description,
+                website=updates.website,
+                tagline=updates.tagline,
+            )
+            return {"success": success}
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=str(e))
     account = await _get_facebook_account(account_id, current_user, db, require_page=True)
     client = _get_facebook_page_client(account)
     try:

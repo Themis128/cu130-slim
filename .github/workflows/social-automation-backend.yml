@@ -108,6 +108,11 @@ jobs:
           cd social-automation/backend
           ruff check .
 
+      - name: Beat schedule → module gate
+        run: |
+          cd social-automation/backend
+          python scripts/check_beat_modules.py
+
       - name: Run type checking
         run: |
           cd social-automation/backend

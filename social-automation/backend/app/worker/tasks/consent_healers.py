@@ -48,6 +48,83 @@ async def _twitter() -> str:
         return await _try_bridge_reauth(str(acc.team_id))
 
 
+LI_CM_PROBE = "https://api.linkedin.com/rest/organizations/108614163?fields=id"
+LI_CM_HEADERS = {"Linkedin-Version": "202610", "X-Restli-Protocol-Version": "2.0.0"}
+
+
+async def _linkedin_token_health() -> str:
+    """Dead-pair detector for the LinkedIn CM org token.
+
+    Probes a cheap /rest endpoint → 401 means the access token is dead →
+    tries the refresh grant → ``invalid_grant`` means the whole pair is dead
+    (LinkedIn refresh tokens are single-use and grants get revoked after
+    rapid successive consents — observed 2026-11-04). On a dead pair it
+    mints a fresh signed authorize URL carrying the FULL scope union and
+    Slacks it — the human gate becomes a one-click link, not an invisible 401.
+    """
+    from app.api.auth import _linkedin_scopes, linkedin_client
+    from app.core.config import get_settings
+    from app.core.security import encrypt_token, sign_oauth_state
+
+    async with task_session() as db:
+        acc = (
+            (
+                await db.execute(
+                    select(SocialAccount).where(
+                        SocialAccount.platform == "linkedin",
+                        SocialAccount.account_type == "organization",
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if not acc or not acc.access_token_enc:
+            return "skip"
+        acc_id, team_id = acc.id, str(acc.team_id)
+        tok = decrypt_token(bytes(acc.access_token_enc))
+        rt = decrypt_token(bytes(acc.refresh_token_enc)) if acc.refresh_token_enc else None
+
+    headers = {"Authorization": f"Bearer {tok}", **LI_CM_HEADERS}
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(LI_CM_PROBE, headers=headers)
+        if r.status_code == 200:
+            return "ok"
+        if r.status_code != 401:
+            return f"probe-{r.status_code}"
+
+    # Access token dead — try the refresh grant before declaring the pair dead.
+    if rt:
+        try:
+            new = await linkedin_client.refresh_token(rt)
+        except Exception:
+            new = None
+        if new and new.get("access_token"):
+            async with task_session() as db:
+                acc2 = await db.get(SocialAccount, acc_id)
+                acc2.access_token_enc = encrypt_token(new["access_token"])
+                if new.get("refresh_token"):
+                    acc2.refresh_token_enc = encrypt_token(new["refresh_token"])
+                await db.commit()
+            return "refreshed"
+
+    settings = get_settings()
+    url = await linkedin_client.get_authorization_url(
+        settings.LINKEDIN_REDIRECT_URI,
+        state=sign_oauth_state({"t": team_id}),
+        scope=_linkedin_scopes(),
+    )
+    msg = f"LinkedIn token pair dead (access 401 + refresh invalid_grant) — re-consent needed, one click: {url}"
+    await post_alert_to_slack(f":rotating_light: {msg}")
+    try:
+        from app.services.slack_notifications import send_telegram_alert
+
+        await send_telegram_alert("critical", msg)
+    except Exception:
+        pass
+    return "dead_pair"
+
+
 async def _linkedin_snapshot() -> str:
     """On portability grant → harvest connections → attach to survey."""
     async with task_session() as db:
@@ -270,6 +347,7 @@ def heal_consents() -> dict:
         return {
             "twitter": await _twitter(),
             "linkedin": await _linkedin_snapshot(),
+            "linkedin_token": await _linkedin_token_health(),
             "whatsapp": await _whatsapp(),
             "bridge": await _bridge_health(),
             "dmr": await _dmr_health(),

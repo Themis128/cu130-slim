@@ -88,3 +88,47 @@ def run_agency_engineer_sweep() -> dict | None:
     except Exception as exc:  # noqa: BLE001
         logger.warning("agency engineer sweep failed: %s", exc)
         return None
+
+
+@shared_task
+def run_agency_proposal_followup_sweep() -> dict | None:
+    """Sales follow-up: day-3/7/14 chase ladder for sent proposals."""
+    from app.core.config import get_settings
+
+    if not get_settings().AGENCY_ENABLED:
+        return None
+    try:
+        from app.services import proposal_followup
+
+        return run_async(proposal_followup.proposal_followup_sweep())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agency proposal followup sweep failed: %s", exc)
+        return None
+
+
+@shared_task
+def run_agency_won_sweep() -> dict | None:
+    """Closer: Closed-Won EspoCRM Opportunity → AgencyProject + kickoff mail."""
+    from app.core.config import get_settings
+
+    if not get_settings().AGENCY_ENABLED:
+        return None
+    try:
+        return run_async(agency_pipeline.won_sweep())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agency won sweep failed: %s", exc)
+        return None
+
+
+@shared_task
+def run_agency_post_consult_sweep() -> dict | None:
+    """Front Desk follow-on: post-consultation thank-you/next-steps mail."""
+    from app.core.config import get_settings
+
+    if not get_settings().AGENCY_ENABLED:
+        return None
+    try:
+        return run_async(agency_pipeline.post_consult_sweep())
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("agency post-consult sweep failed: %s", exc)
+        return None

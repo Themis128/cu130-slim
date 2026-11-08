@@ -1,0 +1,44 @@
+# Always sweep PRs — merge to master, rebase branches
+
+User directive (2026-11-06): **always** address all open PRs and merge all
+branches into the production branch (`master`), rebasing branches onto it.
+
+## When
+
+- At session start, if the task touches PRs or the repo generally.
+- Before ending a session that opened/updated PRs.
+- Whenever asked to "address PRs", "merge everything", or "clean up branches".
+
+## How (one command)
+
+```bash
+cd ~/cu130-slim
+python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py --dry-run   # look first
+python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py             # full sweep
+```
+
+The script chains, in order:
+1. `pr-watch-ops/scripts/pr_watch.py --fix` — approve `action_required` runs,
+   `update-branch` on BEHIND, arm `--squash --auto` on every open PR.
+2. `pr-heal-ops/scripts/pr_rebuild.py --close` on PRs still `DIRTY` —
+   API-only conflict-free rebuild onto master.
+3. Final report — actionable (non-advisory) check failures are listed for
+   log review; exit 1 means human/agent attention needed.
+
+## Judgment calls the script won't make
+
+- Real rebase conflicts needing semantic resolution → worktree rebase per
+  `pr-landing-ops` / `pr-sweep-ops` strategy ladder; never blind
+  `--ours`/`--theirs` (the old `pr-landing-ops/scripts/pr_sweep.py` does
+  this — do not run it unattended).
+- Actionable CI failures → read the job log, fix on the branch, push.
+- PRs authored by other agents mid-review → comment, don't rebuild.
+
+## Facts that make this safe to automate
+
+- `master` is strict-protected: required checks `validate` + `secret-scan`,
+  branches must be up-to-date; auto-merge is enabled repo-wide.
+- Every master merge invalidates other open PRs (the treadmill) — that's
+  why the sweep re-runs `update-branch` + re-arms auto-merge each pass.
+- A parallel merger may be active — re-query `gh pr list` before claiming
+  state; never assume a PR vanished/merged without checking.

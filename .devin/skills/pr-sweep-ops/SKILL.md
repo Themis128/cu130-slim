@@ -1,6 +1,15 @@
 # pr-sweep-ops — sweep all open PRs onto protected master
 
-Use when asked to "merge all PRs", "address all PRs", or clear a PR backlog on cu130-slim.
+Use when asked to "merge all PRs", "address all PRs", or clear a PR backlog on cu130-slim. ALWAYS-ON directive: `.devin/rules/pr-sweep-always.md` (+ `.cursor/rules/pr-sweep-always.mdc`) — run the sweep at session start/end and whenever PRs are mentioned.
+
+## One-command orchestrator
+
+```bash
+python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py --dry-run  # report only
+python3 .devin/skills/pr-sweep-ops/scripts/pr_sweep_all.py            # full sweep
+```
+
+Chains `pr_watch.py --fix` (approve/update-branch/arm auto-merge) → `pr_rebuild.py --close` on DIRTY PRs → final actionable-failure report. Does NOT blind-resolve conflicts — those are reported for the strategy ladder below. `--no-rebuild` skips phase 2.
 
 ## Protection facts (verified 2026-10-27)
 

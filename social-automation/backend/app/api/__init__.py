@@ -11,6 +11,7 @@ from app.api import (
     billing,
     bluesky,
     brand,
+    calcom_webhook,
     cf_db,
     cf_gates,
     coach,
@@ -86,6 +87,7 @@ router.include_router(threads.router, prefix="/threads", tags=["threads"])
 
 router.include_router(tiktok.router, prefix="/tiktok", tags=["tiktok"])
 router.include_router(x_webhook.router, tags=["webhooks"])
+router.include_router(calcom_webhook.router, tags=["webhooks"])
 
 router.include_router(publishing.router, prefix="/publishing", tags=["publishing"])
 

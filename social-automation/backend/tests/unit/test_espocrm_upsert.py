@@ -161,6 +161,29 @@ async def test_upsert_existing_desc_rules_and_rel_failure(cfg, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_upsert_coerces_non_enum_source(cfg, monkeypatch):
+    # EspoCRM Lead.source is an enum — free-text values must become "Other"
+    # or the whole POST fails validationFailure and the lead is dropped.
+    fake = _Fake({"list": []})
+    _install(monkeypatch, fake)
+    out = await E.upsert_lead({"emailAddress": "a@b.c", "source": "LinkedIn Ads"})
+    assert out == "NEW"
+    assert fake.posts[0][1]["source"] == "Other"
+
+    # Valid enum values pass through untouched.
+    fake = _Fake({"list": []})
+    _install(monkeypatch, fake)
+    await E.upsert_lead({"emailAddress": "a@b.c", "source": "Social Media"})
+    assert fake.posts[0][1]["source"] == "Social Media"
+
+    # Missing/empty source adds no key at all.
+    fake = _Fake({"list": []})
+    _install(monkeypatch, fake)
+    await E.upsert_lead({"emailAddress": "a@b.c", "source": ""})
+    assert "source" not in fake.posts[0][1]
+
+
+@pytest.mark.asyncio
 async def test_upsert_failure_returns_none(cfg, monkeypatch):
     async def boom(path, params=None):
         raise RuntimeError("down")

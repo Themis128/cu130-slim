@@ -10,6 +10,7 @@ the authenticated probes; unauthenticated checks run regardless.
 import functools
 import os
 import re
+import time
 from pathlib import Path
 
 import httpx
@@ -70,10 +71,25 @@ def _normalize(doc_path: str) -> str:
     return p.rstrip("/")
 
 
+# /openapi.json regenerates the full ~700KB schema on every request (~5s idle,
+# >15s when the stack is loaded) — give it headroom on live-stack runs.
+OPENAPI_TIMEOUT = 60
+
+
 def _openapi_paths() -> dict:
-    r = httpx.get(f"{API_URL}/openapi.json", timeout=15)
-    r.raise_for_status()
-    return r.json()["paths"]
+    # The live API runs 4 uvicorn workers that occasionally die mid-request
+    # under load ("Child process died" → empty reply). Retry the expensive
+    # schema fetch a few times before giving up.
+    last_exc: Exception | None = None
+    for _ in range(4):
+        try:
+            r = httpx.get(f"{API_URL}/openapi.json", timeout=OPENAPI_TIMEOUT)
+            r.raise_for_status()
+            return r.json()["paths"]
+        except (httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ConnectError) as exc:
+            last_exc = exc
+            time.sleep(2)
+    raise last_exc  # type: ignore[misc]
 
 
 @functools.lru_cache(maxsize=1)

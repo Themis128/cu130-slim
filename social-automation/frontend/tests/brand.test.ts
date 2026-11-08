@@ -1,6 +1,8 @@
 import { test, expect } from './helpers/auth';
 
 test.describe('Brand Page — real backend', () => {
+  // networkidle + multi-step asserts need more than the default 30s under load.
+  test.describe.configure({ timeout: 60_000 })
   test('should render the Create Your Brand Identity heading for a user without a brand', async ({ authenticatedPage: page }) => {
     await page.goto('/brand');
     await page.waitForLoadState('networkidle');

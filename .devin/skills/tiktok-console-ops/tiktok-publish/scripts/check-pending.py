@@ -32,10 +32,11 @@ CANCEL = {CANCEL!r}
 async def main():
     async with async_session_maker() as db:
         acct = (await db.execute(text(
-            "select access_token_enc, account_id from social_accounts "
-            "where platform='tiktok' limit 1"))).first()
+            "select access_token_enc, account_id, id from social_accounts "
+            "where platform='tiktok' and status='active' "
+            "order by updated_at desc limit 1"))).first()
         if not acct:
-            print("no tiktok account")
+            print("no active tiktok account")
             return
         try:
             plain = decrypt_token(acct[0])
@@ -46,8 +47,10 @@ async def main():
             "select t.post_id, t.platform_post_id, t.status, t.published_at "
             "from post_targets t join social_accounts a "
             "on a.id=t.social_account_id "
-            "where a.platform='tiktok' and t.platform_post_id is not null "
-            "order by t.published_at desc nulls last limit 30"))).all()
+            "where a.platform='tiktok' and a.id=:acct_id "
+            "and t.platform_post_id is not null "
+            "order by t.published_at desc nulls last limit 30"),
+            {{"acct_id": str(acct[2])}})).all()
         pending = 0
         for post_id, pid, db_status, pub_at in rows:
             try:

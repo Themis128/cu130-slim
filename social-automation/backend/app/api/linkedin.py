@@ -12,11 +12,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_current_user
-from app.api.deps import TeamId
+from app.api.deps import TeamId, require_team_admin
 from app.core.security import decrypt_token
 from app.db.session import get_db
 from app.models.analytics import PostAnalyticsSnapshot
 from app.models.content import Post
+from app.models.linkedin_intel import LinkedInAdIntel, LinkedInIntelWatch
 from app.models.social_account import SocialAccount
 from app.models.user import Team, TeamMember, User
 from app.services.linkedin_ai import (
@@ -645,3 +646,157 @@ async def linkedin_ads_control(
         raise HTTPException(status_code=400, detail="action must be pause|resume|status")
     task.delay(action=action, response_url=None, user=current_user.email or "admin")
     return {"ok": True, "queued": action}
+
+
+# ── Ad Library intelligence ──────────────────────────────────────────────────
+
+
+def _intel_ad_out(row: LinkedInAdIntel) -> dict:
+    return {
+        "id": str(row.id),
+        "ad_url": row.ad_url,
+        "advertiser": row.advertiser,
+        "ad_payer": row.ad_payer,
+        "advertiser_url": row.advertiser_url,
+        "is_restricted": row.is_restricted,
+        "impressions_from": row.impressions_from,
+        "impressions_to": row.impressions_to,
+        "first_impression_at": row.first_impression_at,
+        "latest_impression_at": row.latest_impression_at,
+        "countries": row.countries,
+        "targeting": row.targeting,
+        "status": row.status,
+        "last_keyword": row.last_keyword,
+        "first_seen_at": row.first_seen_at.isoformat() if row.first_seen_at else None,
+        "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
+        "miss_count": row.miss_count,
+    }
+
+
+@router.get("/intel/ads")
+async def linkedin_intel_ads(
+    status: str | None = Query(default=None, pattern="^(active|ended|all)$"),
+    advertiser: str | None = Query(default=None),
+    keyword: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List stored Ad Library observations (competitive intel)."""
+    stmt = select(LinkedInAdIntel).order_by(LinkedInAdIntel.last_seen_at.desc())
+    if status and status != "all":
+        stmt = stmt.where(LinkedInAdIntel.status == status)
+    if advertiser:
+        stmt = stmt.where(LinkedInAdIntel.advertiser.ilike(f"%{advertiser}%"))
+    if keyword:
+        stmt = stmt.where(LinkedInAdIntel.last_keyword.ilike(f"%{keyword}%"))
+    rows = (await db.execute(stmt.limit(limit).offset(offset))).scalars().all()
+    return {"ads": [_intel_ad_out(r) for r in rows], "count": len(rows)}
+
+
+@router.get("/intel/summary")
+async def linkedin_intel_summary(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Aggregate intel stats: counts by status, top advertisers, recent activity."""
+    total = (await db.execute(select(func.count(LinkedInAdIntel.id)))).scalar_one()
+    active = (await db.execute(select(func.count(LinkedInAdIntel.id)).where(LinkedInAdIntel.status == "active"))).scalar_one()
+    ended = (await db.execute(select(func.count(LinkedInAdIntel.id)).where(LinkedInAdIntel.status == "ended"))).scalar_one()
+    top_advertisers = (
+        await db.execute(
+            select(LinkedInAdIntel.advertiser, func.count(LinkedInAdIntel.id).label("n"))
+            .group_by(LinkedInAdIntel.advertiser)
+            .order_by(func.count(LinkedInAdIntel.id).desc())
+            .limit(10)
+        )
+    ).all()
+    newest = (await db.execute(select(LinkedInAdIntel).order_by(LinkedInAdIntel.first_seen_at.desc()).limit(10))).scalars().all()
+    return {
+        "total": total,
+        "active": active,
+        "ended": ended,
+        "top_advertisers": [{"advertiser": a, "ads": n} for a, n in top_advertisers],
+        "newest": [_intel_ad_out(r) for r in newest],
+    }
+
+
+@router.get("/intel/watchlist")
+async def linkedin_intel_watchlist(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    rows = (await db.execute(select(LinkedInIntelWatch).order_by(LinkedInIntelWatch.created_at))).scalars().all()
+    return {
+        "watches": [
+            {
+                "id": str(w.id),
+                "kind": w.kind,
+                "value": w.value,
+                "country": w.country,
+                "enabled": w.enabled,
+                "last_run_at": w.last_run_at.isoformat() if w.last_run_at else None,
+            }
+            for w in rows
+        ]
+    }
+
+
+class IntelWatchRequest(BaseModel):
+    kind: str  # keyword | advertiser
+    value: str
+    country: str = "GR"
+    enabled: bool = True
+
+
+@router.post("/intel/watchlist")
+async def linkedin_intel_watch_add(
+    body: IntelWatchRequest,
+    current_user: User = Depends(require_team_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    kind = body.kind.strip().lower()
+    value = body.value.strip()
+    if kind not in ("keyword", "advertiser") or not value:
+        raise HTTPException(status_code=400, detail="kind must be keyword|advertiser and value required")
+    dup = (
+        await db.execute(
+            select(LinkedInIntelWatch).where(
+                LinkedInIntelWatch.kind == kind,
+                LinkedInIntelWatch.value == value,
+                LinkedInIntelWatch.country == body.country.strip().upper(),
+            )
+        )
+    ).scalar_one_or_none()
+    if dup:
+        raise HTTPException(status_code=409, detail="watch already exists")
+    w = LinkedInIntelWatch(kind=kind, value=value[:300], country=body.country.strip().upper()[:10], enabled=body.enabled)
+    db.add(w)
+    await db.commit()
+    return {"id": str(w.id), "kind": w.kind, "value": w.value, "country": w.country}
+
+
+@router.delete("/intel/watchlist/{watch_id}")
+async def linkedin_intel_watch_delete(
+    watch_id: uuid.UUID,
+    current_user: User = Depends(require_team_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    w = await db.get(LinkedInIntelWatch, watch_id)
+    if not w:
+        raise HTTPException(status_code=404, detail="watch not found")
+    await db.delete(w)
+    await db.commit()
+    return {"deleted": str(watch_id)}
+
+
+@router.post("/intel/run")
+async def linkedin_intel_run(
+    current_user: User = Depends(require_team_admin),
+):
+    """Enqueue an ad-hoc watch run (same task as the weekly beat)."""
+    from app.worker.tasks.linkedin_intel import run_linkedin_ad_library_watch
+
+    run_linkedin_ad_library_watch.delay()
+    return {"ok": True, "queued": "linkedin-ad-library-watch"}

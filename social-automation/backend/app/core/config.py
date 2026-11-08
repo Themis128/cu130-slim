@@ -124,6 +124,26 @@ class Settings(BaseSettings):
     # Improvement rounds the gate may run before accepting/rejecting.
     PUBLISH_QUALITY_MAX_ITERATIONS: int = 2
 
+    # Publish media-semantics gate — before dispatch, each image asset is
+    # captioned by the DMR vision model and judged against the post copy;
+    # a mismatch skips the target (wrong-media posts like the 2026-11-06
+    # LinkedIn "marketing slide for a pricing post" never ship again).
+    # Fail-open when vision is unavailable. Set to false to disable.
+    PUBLISH_MEDIA_SEMANTIC_QA: bool = True
+    # Max image assets semantically checked per publish (first N in
+    # media_ids order — the lead image carries the topic).
+    PUBLISH_MEDIA_QA_MAX_IMAGES: int = 3
+    # Hard per-image budget for the semantic check. The DMR vision chain
+    # (GPU-idle wait → slot acquire → model load → inference → heal+retry)
+    # can stall ~20min when the runner is wedged — that must never park a
+    # publishing worker. Timeout degrades to "vision unavailable" fail-open.
+    PUBLISH_MEDIA_QA_TIMEOUT_S: float = 90.0
+    # What to do when NO vision backend answers (DMR down and Cloudflare
+    # fallback unavailable): "open" publishes anyway (deterministic checks
+    # remain the floor), "closed" skips the publish until vision recovers.
+    # Vision-down skips are never cached, so recovery unblocks queued posts.
+    PUBLISH_MEDIA_QA_ON_VISION_DOWN: str = "open"
+
     # Self-hosted SearXNG metasearch (deployed on omv — see deploy/omv-workspace).
     # JSON API used by /api/v1/ai/web-search and web-grounded generate-content.
     SEARXNG_URL: str = "http://searxng:8080"
@@ -643,6 +663,17 @@ class Settings(BaseSettings):
     AGENCY_ENABLED: bool = True
     AGENCY_AUDIT_MAX_PER_RUN: int = 5
     AGENCY_PROPOSAL_AUTOSEND: bool = False
+    # Guarded autosend only fires when every deterministic check passes
+    # (completed audit, catalog services, in-band price, valid non-synthetic
+    # recipient, no opt-out/reply signals); this caps sends per UTC day.
+    AGENCY_AUTOSEND_DAILY_CAP: int = 5
+    # Stripe checkouts below this amount never kick off a 14-day project —
+    # a €9 checklist sale is not a consulting engagement.
+    AGENCY_STRIPE_PROJECT_MIN_EUR: int = 500
+    # cloudless.gr /api/checkout/agency minter — proposals embed a Stripe
+    # payment link so checkout.session.completed → Closed Won → won_sweep
+    # closes the money loop without a human invoicing step.
+    AGENCY_CHECKOUT_URL: str = ""
 
     # CRM engagement — IMAP reply write-back; reuses the dovecot mailbox
     # identity (PROMO_SCAN_IMAP_* fallbacks → SMTP_*). Dedupes on the

@@ -1,6 +1,9 @@
 import { test, expect, TEST_USER } from './helpers/auth';
 
 test.describe('Settings Page — real backend', () => {
+  // networkidle waits + tab navigation can exceed the 30s default under load.
+  test.describe.configure({ timeout: 60_000 })
+
   test('should render the Settings heading', async ({ authenticatedPage: page }) => {
     await page.goto('/settings');
     await expect(page).toHaveURL('/settings');

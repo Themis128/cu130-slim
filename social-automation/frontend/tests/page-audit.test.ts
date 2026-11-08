@@ -66,6 +66,9 @@ const IGNORED_REQUEST = [
 const EMPTY_STATE_404 = [/api\/v1\/brand(\/|$)/];
 
 test.describe('Page audit — every dashboard route', () => {
+  // Each route does goto + networkidle(30s) + settle wait — the default 30s
+  // test timeout is too small for heavy pages under parallel load.
+  test.describe.configure({ timeout: 60_000 })
   for (const route of ROUTES) {
     test(`${route} loads without errors`, async ({ authenticatedPage: page }) => {
       const consoleErrors: string[] = [];

@@ -79,3 +79,40 @@ never silently skipped).
   `LEADER` flag is a warrant to *draft*, not to auto-publish.
 - No persistence: signals are ephemeral by design; `--slack` or the report is
   the record. If a signal should be tracked, that's strategy-brief territory.
+
+## TikTok source — scripts/tiktok_trendwatch.py
+
+Same three-tier model, Tier-1 swapped to the TikTok Creative Center
+Trends feed (`app/services/tiktok_trends.py`). The legacy signed
+`creative_radar_api` endpoints died October 2026 — the replacement is an
+unsigned report endpoint on the new Trends app (browser headers only):
+
+```bash
+docker exec social-api python scripts/tiktok_trendwatch.py          # 18-call sweep
+docker exec social-api python scripts/tiktok_trendwatch.py --full   # +organicOnly pass
+docker exec social-api python scripts/tiktok_trendwatch.py --slack
+```
+
+- `GetTopContentsOverview` → `lastWeeklyEndTimestamp`, then
+  `CreativeCenterGetTopContentsList` per
+  `orderByMetric`{1 views,2 engagement,3 six-sec} x `contentLabelIDs`
+  {'' all + 5 categories} x `organicOnly` — **4 videos per call, US-only,
+  page/limit ignored** (login wall), ~30-80 distinct/week.
+- `CALL_PACE_SEC=1.6` — TikTok resets TLS on burst rates.
+- Signals flow through the same `build_matrix` niche filter; scenarios
+  emit `channel:"tiktok"` with the reusable-FORMAT rule (copy the hook
+  structure, not the topic) + video guidance (3s hook, TikTok-SEO
+  on-screen text, sound ON, `is_aigc` flag).
+- Feed favors promoted content — engagement-rate sorting surfaces the
+  small organic-format winners; keep both orderings.
+
+## Generation-path wiring
+
+`app/services/trend_context.top_tiktok_signal()` — 6h-cached top
+niche hook from the LIGHT sweep (3 calls). `trend_line(platform)` now
+prefers it when `platform="tiktok"`, falling back to the Google signal —
+wired into `monetization_executor._generate_copy` already.
+
+Honest limits: US-only feed (no GR data logged-out); hooks are English;
+weekly refresh lags same-day trends — treat as format/velocity input,
+not live news.

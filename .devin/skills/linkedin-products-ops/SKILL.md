@@ -20,8 +20,8 @@ OAuth request that hasn't been probe-verified on that client_id first.
 | App | client_id | Products granted | Grantable scopes |
 |---|---|---|---|
 | `227354605` "Cloudless API App" (PRIMARY — org/CM/ads) | `77tf4oysp8u3fz` | Sign In OIDC, Share, **Community Management Standard Tier** (11-04), Advertising | openid, profile, email, w_member_social, w_organization_social, r_organization_admin, **rw_organization_admin**, r_organization_social, **r_1st_connections_size**, r_ads, **rw_ads**, r_ads_reporting, r_basicprofile, r_events, rw_events |
-| `265077368` "cloudless-gr-member" (member surfaces) | `77fd3pui3m2jwm` | Sign In OIDC (Standard Tier, 11-05), **Share on LinkedIn (Default Tier, 11-05)**, Page verified 11-05 | openid, profile, email, w_member_social |
-| `264925843` "Cloudless Analytics App" (CM-dedicated) | `77j8kzfi1a6jn8` | **Community Management Standard Tier** (11-04), **Events Management Standard Tier** (11-05), Share, Sign In OIDC | **FULL union grantable** — every probed scope incl. *_social_feed, r_member_profileAnalytics, r_member_postAnalytics, r_organization_followers, r_ads(+_reporting), r_events, rw_events, r_dma_portability_self_serve |
+| `265077368` "cloudless-gr-member" (member surfaces) | `77fd3pui3m2jwm` | Sign In OIDC (Standard Tier, 11-05), **Share on LinkedIn (Default Tier, 11-05)**, **LinkedIn Ad Library (Default Tier, CRM:015285039154048, 2026-11-06)**, **Conversions API (Standard Tier, CRM:015285039188354, 2026-11-07)**, **Lead Sync API (Standard Tier, CRM:015285039188594, 2026-11-07)**, Page verified 11-05 | openid, profile, email, w_member_social, rw_conversions, r_marketing_leadgen_automation, r_ads |
+| `264925843` "Cloudless Analytics App" (CM-dedicated, **ACTIVE OAuth client**) | `77j8kzfi1a6jn8` | **Community Management Standard Tier** (11-04), **Events Management Standard Tier** (11-05), **Conversions API Standard Tier** (CRM:015285039188357, 2026-11-07), **Lead Sync API Standard Tier** (CRM:015285039188598, 2026-11-07), **LinkedIn Ad Library Default Tier** (CRM:015285039153886, 2026-11-06), Share, Sign In OIDC | **FULL union grantable + CONSENTED 2026-11-07** — 20 scopes live on stored token (incl. *_social_feed, r_member_*Analytics, r_organization_followers, r_ads, rw_conversions, r_marketing_leadgen_automation, r_events, rw_events). **rw_ads + r_ads_reporting REJECTED on this app** (probe 2026-11-07) — ads write/reporting scopes only exist on 227354605 |
 
 Rejected on `227354605` + `265077368` but **grantable on `264925843`**:
 `*_social_feed` (3 scopes), `r_member_profileAnalytics`,
@@ -43,7 +43,8 @@ member-analytics gap is already solved THERE — a consent on
 | Conversions API | application | rw_conversions, r_ads |
 | Events Management API | self-serve on request | r_events, rw_events |
 | Matched Audiences API | application | rw_dmp_segments |
-| Member Data Portability (Member) | in-portal modal + business-email verify | r_dma_portability_self_serve |
+| Member Data Portability (Member) | in-portal request — ToS agree = instant grant; needs NEW app on the dedicated "Member Data Portability (Member) Default Company" page | r_dma_portability_self_serve |
+| Member Data Portability (3rd Party) | access-request form + LinkedIn review; needs verified company page + business-email verify | r_dma_portability_3rd_party |
 | Pages Data Portability | access form | r_dma_admin_pages_content, r_dma_admin_pages_list |
 | Audience Insights / Media Planning | restricted, qualification survey | app-assigned |
 | Talent / Sales Navigator / Compliance | partner programs / closed | — |
@@ -102,12 +103,21 @@ single unauthenticated GET — client_id is not secret.
 
 ## OAuth config (SocialAuto)
 
-- `.env` `LINKEDIN_CLIENT_ID/SECRET` = app 227354605 — stays primary for
-  org/CM/ads. `LINKEDIN_EXTRA_SCOPES` MUST stay inside the probe-verified
-  set; trimmed 2026-11-05 to `rw_organization_admin r_ads rw_ads
-  r_ads_reporting r_1st_connections_size` (the previous union had 7
-  ungrantable scopes — guaranteed consent failure). api recreate needed
-  after .env change.
+- `.env` `LINKEDIN_CLIENT_ID/SECRET` = app **264925843** (`77j8kzfi1a6jn8`)
+  since 2026-11-07 — the CM-dedicated app carries the full scope union.
+  Consent completed 2026-11-07: stored token (both social_accounts rows)
+  now holds openid/profile/email + w_member_social + w_organization_social
+  + r_organization_admin + r_organization_social + rw_organization_admin +
+  all 3 *_social_feed + r_member_profileAnalytics + r_member_postAnalytics
+  + r_organization_followers + r_1st_connections_size + r_events +
+  rw_events + **rw_conversions + r_marketing_leadgen_automation + r_ads**;
+  expiry 2027-01-06. `LINKEDIN_EXTRA_SCOPES` = `rw_organization_admin
+  r_organization_social_feed w_organization_social_feed
+  w_member_social_feed r_member_profileAnalytics r_member_postAnalytics
+  r_organization_followers r_1st_connections_size r_events rw_events
+  rw_conversions r_marketing_leadgen_automation r_ads` — MUST stay inside
+  the probe-verified set for THIS client (rw_ads/r_ads_reporting are
+  grantable only on 227354605, never add them here).
 - Re-auth when stored token dies (documented recovery):
   `GET /api/v1/auth/oauth/linkedin/authorize?team_id=<uuid>` with admin JWT
   → open URL in any LinkedIn-logged-in browser → silent or consent
@@ -120,8 +130,8 @@ single unauthenticated GET — client_id is not secret.
 
 | Goal | Where | Path |
 |---|---|---|
-| r_member_postAnalytics/profileAnalytics, *_social_feed, r_organization_followers | 264925843 | ALREADY GRANTABLE — switch OAuth client to `77j8kzfi1a6jn8` (secret from portal Auth tab) + consent |
+| r_member_postAnalytics/profileAnalytics, *_social_feed, r_organization_followers, rw_conversions, r_marketing_leadgen_automation, r_ads | 264925843 | **DONE 2026-11-07** — client switched + full-union consent landed; scopes verified on stored token |
 | r_dma_portability_self_serve (own-data snapshot → connections harvest) | 265077368 | in-portal "Member DP (Member)" modal — UNBLOCKED (page verified 11-05) |
-| r_marketing_leadgen_automation (lead forms) | 227354605 | Lead Sync API application (access form) |
+| r_marketing_leadgen_automation (lead forms) | 264925843 + 265077368 | **DONE** — Lead Sync Standard Tier granted both apps (CRM:015285039188598 / ...188594) + scope consented 2026-11-07 |
 | Sign In OIDC + Share on LinkedIn | 265077368 | DONE 2026-11-05 (Standard + Default Tier) |
 | CM Standard-tier survey (227354605) | — | submitted; survey needs ~2min narrated screen recording + registered address — see linkedin-access-forms |

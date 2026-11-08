@@ -208,6 +208,10 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/brand/visual` — GET, PUT
 - `/api/v1/brand/voice` — GET, PUT
 
+## `calcom`
+
+- `/api/v1/webhooks/calcom` — POST
+
 ## `cf-db`
 
 - `/api/v1/cf-db/health` — GET
@@ -325,6 +329,11 @@ asserts every live route appears here — regenerate this file when adding route
 - `/api/v1/linkedin/generate-hashtags` — POST
 - `/api/v1/linkedin/generate-post` — POST
 - `/api/v1/linkedin/improve-post` — POST
+- `/api/v1/linkedin/intel/ads` — GET
+- `/api/v1/linkedin/intel/run` — POST
+- `/api/v1/linkedin/intel/summary` — GET
+- `/api/v1/linkedin/intel/watchlist` — GET, POST
+- `/api/v1/linkedin/intel/watchlist/{watch_id}` — DELETE
 - `/api/v1/linkedin/publish` — POST
 - `/api/v1/linkedin/{account_id}/dm/auto-reply` — GET, PUT
 - `/api/v1/linkedin/{account_id}/dm/conversations` — GET
