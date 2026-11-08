@@ -942,3 +942,35 @@ def test_export_async_nextcloud_mirror_upload_failure(monkeypatch):
     out = _run(de._export_async())
     nc = out["nextcloud"]
     assert nc["enabled"] is False and "nc config corrupt" in nc["error"]
+
+
+def test_export_devapps_snapshots_and_channel_actions():
+    """_latest_devapp_snapshots → per-account rollup + action rows."""
+    from app.worker.tasks import datalake_export as de
+
+    snap = {
+        "platform": "facebook",
+        "ok": True,
+        "health": {"token_valid": True},
+        "insights": {"followers": 5},
+    }
+
+    class _Rows:
+        def __init__(self, rows):
+            self._rows = rows
+
+        def mappings(self):
+            return self
+
+        def all(self):
+            return self._rows
+
+    class _DB:
+        async def execute(self, q, p=None):
+            return _Rows([{"meta_data": snap}, {"meta_data": None}])
+
+    rows = _run(de._export_devapps(_DB()))
+    assert rows == [snap, {}]
+    actions = _run(de._export_channel_actions(_DB()))
+    assert len(actions) == 2
+    assert {a["type"] for a in actions} == {"channel_action"}

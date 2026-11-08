@@ -205,3 +205,39 @@ class TestPrivateHelpers:
         assert len(out) == 1
         assert out[0]["platform"] == "linkedin"
         assert "5 followers" in out[0]["instruction"]
+
+
+class TestDevappSignalEdges:
+    def test_followers_skips_non_dict_containers(self):
+        from app.services.datalake_insights import _devapp_followers
+
+        p = {"insights": {"profile": "not-a-dict", "creator_info": {"follower_count": 3}}}
+        assert _devapp_followers(p) == 3.0
+        assert _devapp_followers({"insights": {"profile": "x"}}) is None
+
+    def test_expiry_naive_and_invalid_strings(self):
+        rows = [
+            _payload(token_expires_at="2026-11-10T00:00:00"),  # naive → UTC assumed
+            _payload(platform="x", token_expires_at="garbage"),  # ValueError → None
+        ]
+        sig = compute_devapp_signals(rows)
+        ch = {c["platform"]: c for c in sig["devapp_channels"]}
+        assert ch["linkedin"]["days_to_expiry"] is not None
+        assert ch["x"]["days_to_expiry"] is None
+
+    def test_render_slack_lines_devapp_blocks(self):
+        from app.services.datalake_insights import render_slack_lines
+
+        lines = render_slack_lines(
+            {
+                "responses": 0,
+                "lead_volume_30d": 0,
+                "devapp_unhealthy": [
+                    {"platform": "twitter", "username": "tb", "error": "401 dead", "quota_exhausted": False}
+                ],
+                "devapp_expiring": [{"platform": "tiktok", "username": "tt", "days_to_expiry": 2.5}],
+            }
+        )
+        blob = "\n".join(lines)
+        assert "devapp twitter/@tb: 401 dead" in blob
+        assert "devapp tiktok/@tt: token expires in 2.5d" in blob
