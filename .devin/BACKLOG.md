@@ -226,3 +226,42 @@ Leftovers:
   per channel and dedup holds on the 2nd/3rd/4th daily sweep.
 - [ ] X quota: `me_metrics` 402 → `quota_exhausted` → `wait_for_quota_reset`
   health action; verify it doesn't spam channel_health alerts daily.
+
+### Slack transport outage — root-caused + automated (2026-11-08)
+
+- Symptom: ALL SocialAuto Slack output dead ~19 days — www.cloudless.gr
+  #socialauto digests/ops-alerts silent since 10-20, SocialAuto-ws
+  #socialauto-publishing since 11-03, #socialauto-alerts since 11-03.
+- Root cause: TWO Slack workspaces connected via mcp-remote
+  (SocialAuto T0C18DXH8P7 + www.cloudless.gr T09AF5VTK4G); the sync script
+  picked files[0] by expiry → SLACK_BOT_TOKEN flipped workspaces → every
+  post failed channel_not_found. Plus NO refresh cron was installed and
+  the host currently cannot reach slack.com (github OK, slack/google TCP
+  timeouts) so _refresh needs the Windows-side mcp-remote to stay alive.
+- Fixed live: SLACK_BOT_TOKEN re-synced to SocialAuto token, all 6
+  consumers + n8n recreated, chat.postMessage verified, 2h cron installed.
+- Code fix: PR #1529 (workspace-aware token picker + refresh-all +
+  offline _team_map.json/SLACK_TEAM_ID fallback; SLACK_TEAM_ID=T0C18DXH8P7
+  added to .env).
+- [ ] N8N_API_KEY in .env is STALE (401→500; DB key is encrypted, owner
+  password in .env also rejected). n8n public API unusable until a fresh
+  key is minted via n8n UI (Settings→API) or valid owner creds. Affects:
+  slack_token_sync n8n-busy probe (defers n8n recreate forever),
+  n8n-cloudless skill tooling, Nextcloud-_drop workflow debugging.
+- [ ] slack-remote MCP server fails to connect in Devin sessions —
+  .devin/mcp_config.json + .cursor/mcp.json both bind mcp-remote callback
+  to port 3118 for `slack` AND `slack-cloudless` (collision); also the
+  .devin config uses Windows paths (C:\…) that don't resolve in WSL.
+- [ ] #socialauto-leads noise: CI/test leads (ci-test+*, verify-*,
+  platform-test*, devin-test*) flood the channel — add a test-lead filter
+  to the lead-notify path.
+- [ ] #engagement-gate stale manual-review items (2 IG reposts since
+  10-26, scores 8.5/7.0) — decide auto-expiry or surface in digest.
+- [ ] www.cloudless.gr workspace digests (#socialauto, #ops-alerts,
+  #orders/Polar) stopped 10-20 — different poster (site/n8n?), not the
+  backend token path fixed above. Identify the sender and restore.
+- [ ] 14 posts/14d marked failed with "All targets were skipped
+  (unsupported for publishing)" — actually dedup/QA guardrails
+  (identical-media 30d, duplicate content, media semantic QA). Working
+  as intended but status=failed is misleading; consider a 'suppressed'
+  status so failure metrics stay honest.
