@@ -244,3 +244,21 @@ Env issues found (document, not code):
   bare string, not JSON (`JSONDecodeError` during the PR sweep).
 - [ ] PR queue: #1430/#1432/#1433 DIRTY (real-delta branches from the
   consolidation worklist) — need worktree rebase or pr_rebuild.
+
+## 2026-11-08 — cloud.cloudless.gr 502 (RESOLVED, transient)
+
+- User-reported Cloudflare 502 at 23:41 UTC. Root cause: the four
+  tunnel-fronted workspace containers (`nextcloud`, `collabora`,
+  `nextcloud-talk-hpb`, `nextcloud-notify-push`) were recreated/restarted
+  on omv at ~01:48 EET — journal shows them re-joining `workspace_default`.
+  While down, `cloudflared-omv` had no origin → CF 502. Self-healed ~7min.
+- Trigger: a compose redeploy/recreate (OMV plugin op or external agent);
+  not a crash (RestartCount=0, no OOM, no Apache segfaults this time).
+- Verified healthy after: status.php 200, dav 401, signal /api/v1/welcome
+  200, office 200, occ installed/35.0.2/no-maintenance. push root 404 and
+  signal root 404 are NORMAL for those Go services.
+- [ ] Residual watch: docker-ce 29.9.3 DOCKER-chain FORWARD ACCEPTs for
+  11000/8090 didn't show in `iptables -L DOCKER` post-restart, yet LAN
+  probes to :11000 succeed — if LAN→published-port access breaks, re-check.
+- [ ] `nas-docker-health` cron (10min) IS alive — log file grows; earlier
+  "PERSISTENT unhealthy: nextcloud-talk-hpb" lines were Nov 1 leftovers.
