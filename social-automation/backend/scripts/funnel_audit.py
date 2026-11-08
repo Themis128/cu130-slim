@@ -86,10 +86,49 @@ async def _drip_sends() -> int:
         return (await db.execute(text("SELECT count(*) FROM email_recipients WHERE status = 'sent'"))).scalar() or 0
 
 
+async def _winback_stats() -> dict[str, int]:
+    """Win-back engine activity from Redis — signals detected, sequences
+    paused by engagement, sequences run to the breakup email."""
+    out = {"winback_signals": 0, "winback_engaged": 0, "winback_exhausted": 0}
+    try:
+        import os
+
+        import redis.asyncio as aioredis
+
+        from app.core.config import get_settings
+
+        url = os.environ.get("REDIS_URL") or get_settings().REDIS_URL
+        if not url:
+            return out
+        r = aioredis.from_url(url, decode_responses=True)
+        try:
+            async for key in r.scan_iter(match="wb:noted:*"):
+                out["winback_signals"] += 1
+            async for key in r.scan_iter(match="wb:seq:*"):
+                raw = await r.get(key)
+                if not raw:
+                    continue
+                try:
+                    status = json.loads(raw).get("status")
+                except Exception:
+                    continue
+                if status == "engaged":
+                    out["winback_engaged"] += 1
+                elif status == "exhausted":
+                    out["winback_exhausted"] += 1
+        finally:
+            await r.aclose()
+    except Exception:
+        pass
+    return out
+
+
 async def audit() -> dict:
     from app.services import espocrm_client as espo
 
-    (reach, reach_30d_ago), engaged, drip_sends = await asyncio.gather(_social_reach(), _engaged_30d(), _drip_sends())
+    (reach, reach_30d_ago), engaged, drip_sends, winback = await asyncio.gather(
+        _social_reach(), _engaged_30d(), _drip_sends(), _winback_stats()
+    )
 
     # espo.list_all caps at max_items; a truncated pull would show partial
     # stage totals as complete — surface it in the note instead of hiding it.
@@ -148,6 +187,7 @@ async def audit() -> dict:
         "stages": stages,
         "weakest_transition": weakest_transition,
         "auction_warning": bool(reach_growing and lead_conv_vs_audience < 0.5),
+        "winback": winback,
     }
 
 
@@ -175,6 +215,14 @@ def render(r: dict) -> str:
         )
     src = ", ".join(f"{k}={v}" for k, v in sorted(r["lead_sources"].items(), key=lambda kv: -kv[1]))
     lines.append(f"lead sources: {src}")
+    wb = r.get("winback") or {}
+    if wb:
+        lines.append(
+            "win-back engine: "
+            f"{wb.get('winback_signals', 0)} re-engagement signals → Espo notes, "
+            f"{wb.get('winback_engaged', 0)} sequences paused (engaged), "
+            f"{wb.get('winback_exhausted', 0)} ran to breakup"
+        )
     return "\n".join(lines)
 
 

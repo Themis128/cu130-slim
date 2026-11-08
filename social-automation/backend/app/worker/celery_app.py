@@ -21,6 +21,7 @@ celery_app = Celery(
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
         "app.worker.tasks.crm_engagement",
+        "app.worker.tasks.mautic_winback",
         "app.worker.tasks.engagement",
         "app.worker.tasks.email_drip",
         "app.worker.tasks.lead_research",
@@ -319,6 +320,7 @@ celery_app.conf.update(
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
+        "app.worker.tasks.mautic_winback.run_mautic_winback_sweep": {"queue": "default"},
         "app.worker.tasks.funnel_sync.run_funnel_sync": {"queue": "default"},
         "app.worker.tasks.funnel_score.run_funnel_score": {"queue": "default"},
         "app.worker.tasks.funnel_audit.run_funnel_audit": {"queue": "default"},
@@ -382,6 +384,13 @@ celery_app.conf.update(
         "nurture-sweep": {
             "task": "app.worker.tasks.nurture.run_nurture_sweep",
             "schedule": crontab(hour=11, minute=0),
+        },
+        # Mautic win-back — cold EspoCRM leads get the Day 0 / +5 / +14
+        # re-engagement sequence (value drop → proof → breakup). Runs before
+        # nurture-sweep; engagement pauses the sequence via lastActive.
+        "mautic-winback": {
+            "task": "app.worker.tasks.mautic_winback.run_mautic_winback_sweep",
+            "schedule": crontab(hour=10, minute=45),
         },
         # Weekly LinkedIn newsletter subscribers → EspoCRM (sidecar voyager call).
         "newsletter-subs-sync": {

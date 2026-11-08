@@ -64,6 +64,19 @@ async def mautic_get(path: str, params: dict[str, Any] | None = None) -> dict[st
         return {"_status": r.status_code, "_body": r.text[:400]}
 
 
+async def mautic_delete(path: str) -> dict[str, Any]:
+    """DELETE ``{base}/api{path}`` — basic-auth."""
+    base, user, pw, _ = _cfg()
+    if not base or not user or not pw:
+        raise RuntimeError("Mautic not configured (MAUTIC_BASE_URL/MAUTIC_USERNAME/MAUTIC_PASSWORD)")
+    async with httpx.AsyncClient(timeout=_TIMEOUT, auth=(user, pw), headers=_headers()) as c:
+        r = await c.delete(f"{base}/api{path}")
+    try:
+        return r.json()
+    except Exception:
+        return {"_status": r.status_code, "_body": r.text[:400]}
+
+
 async def mautic_post(path: str, payload: dict[str, Any]) -> dict[str, Any]:
     """POST ``{base}/api{path}`` — basic-auth, form-encoded (Mautic's API
     rejects JSON bodies on create routes)."""
@@ -105,6 +118,23 @@ async def list_contacts(email_contains: str | None = None, limit: int = _PAGE) -
 async def add_to_segment(contact_id: int, segment_id: int) -> dict[str, Any]:
     """Put a contact into a Mautic segment (the funnel list container)."""
     return await mautic_post(f"/segments/{segment_id}/contact/{contact_id}/add", {})
+
+
+async def remove_from_segment(contact_id: int, segment_id: int) -> dict[str, Any]:
+    """Remove a contact from a Mautic segment — required for tier churn:
+    without it a lead that warms up stays in ``crm-cold`` forever."""
+    return await mautic_delete(f"/segments/{segment_id}/contact/{contact_id}/remove")
+
+
+async def list_recently_active_contacts(limit: int = 100) -> list[dict[str, Any]]:
+    """Contacts ordered by ``lastActive`` desc — the win-back engagement feed.
+    ``minimal=true`` skips heavy fields; ``lastActive`` is always included."""
+    data = await mautic_get(
+        "/contacts",
+        params={"limit": limit, "minimal": "false", "orderBy": "lastActive", "orderByDir": "DESC"},
+    )
+    contacts = data.get("contacts") or {}
+    return list(contacts.values()) if isinstance(contacts, dict) else contacts
 
 
 # ── Funnel surface ─────────────────────────────────────────────────────────

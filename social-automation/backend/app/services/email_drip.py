@@ -62,7 +62,7 @@ DRIP_AIE_STEPS = ("aie_course_1", "aie_course_2", "aie_course_3", "aie_course_4"
 
 # Same test-probe markers as crm_hygiene — a CI lead must never get mail even
 # if it slips past quarantine between sweeps.
-_TEST_MARKERS = ("ci-test+", "@example.invalid", "@example.com", "test@test")
+_TEST_MARKERS = ("ci-test+", "@example.invalid", "@example.com", "test@test", "@test.dev", "@test.local")
 
 
 def email_drip_enabled() -> bool:

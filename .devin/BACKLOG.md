@@ -304,3 +304,5 @@ Leftovers:
   docs). Verified live: attempts 1-2 failed, 3 succeeded → 82 files,
   364 memories, index note restored. NOTE: manifest state lives at
   /root/.local/state/kakkava-brain-sync/ (cron runs as root).
+
+- [x] gov-portal-watch + gsis-login-ops skills (PR #1540): config-driven authenticated gov-portal watcher engine (CDP :9229, extract_js diff, Telegram, GSIS+AMKA auto re-login) + doctor.py/run-all-watches.py ops tooling. Live `C:/Users/tbaltzakis/idika-watch/` refactored onto engine.py via portal.json + thin wrappers; schtasks IdikaWatch/IdikaKeepalive/IdikaMorningRelogin unchanged; doctor 7/7 PASS.
