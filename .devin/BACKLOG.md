@@ -61,16 +61,7 @@ gone.
   else `scripts/tiktok_qr_watch.py` watches for the scan.
 - [ ] human: WhatsApp `Themistoklis Baltzakis` revoked → WABA assignment
   in Meta Business, then POST /{phone}/register (standard registration —
-  request_code/verify_code are the migration API). `WHATSAPP_PHONE_NUMBER_ID`
-  still unset; Meta Business billing/payment is the hard prerequisite.
-- [ ] human: Viber bot — partners.viber.com/webadmin.viber.com RETIRED
-  (verified 2026-11-08, see viber-ops SKILL.md). No bot exists on the
-  phone account; new bots are commercial-only → apply via Rakuten Viber
-  / partner (respond.io docs: cecile.tizon@viber.com). Once a token is
-  issued: `viber_token_fetch.py --token <T>` → `viber_provision.py`.
-- [ ] human: TikTok business verification — needs Greek sole-trader/ΑΑΔΕ
-  tax certificate under the correct doc type (ΓΕΜΗ submissions rejected);
-  unlocks profile website field + full Creative Center rankings.
+  request_code/verify_code are the migration API).
 - [ ] human: Gmail `GMAIL_REFRESH_TOKEN` 401s on exchange → one
   `gmail.py login` re-consent click.
 - [ ] LinkedIn sidecar :9225 browser session dead and stored
@@ -149,17 +140,12 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
-## 2026-11-08 — FB OAuth healed permanently; WhatsApp WABA gone (needs console)
 
-- [x] FACEBOOK_PASSWORD → Infisical prod + Windows vault `cloudless-gate:facebook.com`.
-- [x] FB OAuth re-consent completed via debug Chrome CDP (:9222 WSL→172.22.144.1:9229→:9330 bridge; forwarder script /tmp/cdp_fwd.py — recreate if dead).
-- [x] `social_accounts` facebook: user row `9355ed63` (Themistoklis Baltzakis) + page row `ad83c946` (cloudless.gr, id 116436681562585) BOTH `active`, user token `expires_at:0` = never expires, scopes include business_management + whatsapp_business_management/messaging. FB re-auth problem is permanently solved.
-- [ ] WhatsApp `77f17091` still `revoked`: WABA `1073707258453499` + phone_number_id `1334613883061552` DELETED on Meta side (Graph: object does not exist). Business `1558125105019725` has zero WABAs. Needs: Business Manager console → create WABA → add +306977777838 → SMS code (user's phone; SMS path was rate-limited) → register. Then update meta_data.phone_number_id + token.
-- [ ] System-user token mint BLOCKED: app `1936126137016578` lacks capability — `POST /{bid}/system_users` → (#100) "apps with the capability". Enable Business Management/system-user access in App Dashboard → Advanced Access, then rerun mint (scopes incl. whatsapp_*).
-- [ ] TikTok `cloudless.gr` (open_id -0008cAv…) re-consented + live-verified 200; `dcda73fb` old-app row is stale orphan — cleanup candidate alongside tiktok dup rows `ab439e1e`/`7c33ed15`.
+## 2026-11-08 — X OAuth CLOSED (verified)
 
-## 2026-11-08 — WABA creation: 90% automated, display-name gate remains
-
-- [~] Business Manager WhatsApp wizard driven via CDP (:9222 bridge → debug Chrome, FB session live). Reached Details step: messaging account "cloudless.gr" + "Create a WhatsApp account". Blocker: display-name combobox — "cloudless.gr" violates no-URL rule; "Cloudless"/"Cloudless Cloud" fill React state but Continue stays aria-disabled (likely needs real keystroke cadence / suggestion pick that synthetic events can't reproduce). API path dead: POST /{bid}/whatsapp_business_accounts → (#3) app lacks capability; system_users POST → (#100) same.
-- [ ] HUMAN (~90s, normal browser): business.facebook.com → cloudless.gr portfolio → Accounts → WhatsApp accounts → Add → "Create a WhatsApp account" → display name "Cloudless Cloud", category Professional Services → phone +306977777838 → SMS code. ADB lane (wa_verify.py / phone RFCTA0AEKZP) reads the code automatically once sent.
-- [ ] After WABA exists: add phone_number_id to whatsapp row meta_data + mint system-user token (needs app capability enabled in App Dashboard → Advanced Access for business_management/whatsapp_*)
+- [x] X/Twitter re-auth: user clicked approve; `social_accounts` twitter
+  row flipped `active` @ 02:08 UTC. Token exchange server-side OK.
+- Working ADB lane for future consents: `am start ... -d <url> com.android.chrome`
+  forces Chrome (not the app intent); dismiss onboarding dialogs first;
+  x.com authorize page loads fine in phone Chrome — it only needs the
+  account's X session or password to proceed.
