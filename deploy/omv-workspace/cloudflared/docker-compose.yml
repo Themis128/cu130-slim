@@ -19,7 +19,11 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: cloudflared-omv
     restart: unless-stopped
-    command: tunnel --no-autoupdate run
+    ports:
+      # Metrics endpoint for cloudflared-tunnel-watchdog — localhost only.
+      # /ready returns 200 while the tunnel has registered edge conns.
+      - "127.0.0.1:60123:60123"
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:60123 run
     environment:
       # TUNNEL_TOKEN comes from .env (0600) — token for tunnel
       # `omv-cloudless` (a474360d-b7a5-4677-9c33-788adaf1f2ed).

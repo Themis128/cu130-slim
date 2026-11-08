@@ -140,3 +140,12 @@ gone.
 - [ ] watch: stack-watchers `/status` on :9099 is not published to the
   host — add `ports:` in compose if host access is wanted; degraded
   CDP/docker.sock/ssh reports are tolerated by design.
+
+## 2026-11-08 — X OAuth CLOSED (verified)
+
+- [x] X/Twitter re-auth: user clicked approve; `social_accounts` twitter
+  row flipped `active` @ 02:08 UTC. Token exchange server-side OK.
+- Working ADB lane for future consents: `am start ... -d <url> com.android.chrome`
+  forces Chrome (not the app intent); dismiss onboarding dialogs first;
+  x.com authorize page loads fine in phone Chrome — it only needs the
+  account's X session or password to proceed.
