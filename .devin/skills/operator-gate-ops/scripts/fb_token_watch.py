@@ -38,20 +38,23 @@ def cdp_live() -> bool:
 
 
 def fb_expired() -> bool:
-    """social-api /health-adjacent probe — account-status endpoint."""
-    try:
-        with urllib.request.urlopen(
-            f"{SOCIAL_API}/api/v1/accounts?platform=facebook", timeout=8
-        ) as r:
-            import json
+    """Probe Postgres directly — the accounts API needs auth the watcher
+    doesn't have. docker exec keeps it credential-free."""
+    import subprocess
 
-            accts = json.loads(r.read())
+    try:
+        out = subprocess.run(
+            [
+                "docker", "exec", "social-postgres", "psql",
+                "-U", "social_user", "-d", "social_automation", "-tAc",
+                "SELECT count(*) FROM social_accounts "
+                "WHERE platform='facebook' AND status='expired'",
+            ],
+            capture_output=True, text=True, timeout=15,
+        )
+        return out.stdout.strip() not in ("", "0")
     except Exception:
-        return False
-    return any(
-        a.get("platform") == "facebook" and a.get("status") == "expired"
-        for a in (accts if isinstance(accts, list) else accts.get("accounts", []))
-    )
+        return False  # can't prove expired → don't fire a consent gate blindly
 
 
 def oauth_url() -> str:

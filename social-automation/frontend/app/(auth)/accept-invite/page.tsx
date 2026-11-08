@@ -16,7 +16,7 @@ export default function AcceptInvitePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { isAuthenticated, refreshUser } = useAuth()
-  const token = searchParams.get('token')
+  const token = searchParams?.get('token')
   const [isLoading, setIsLoading] = useState(false)
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteTeam, setInviteTeam] = useState('')

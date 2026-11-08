@@ -6,9 +6,28 @@ start with start-chrome-debug.bat). Finds the first button/link/input whose
 visible text or value matches the regex and clicks it.
 """
 import json
+import os
+import subprocess
 import sys
 import time
 import urllib.request
+
+# WSL↔Windows interop: the CDP websocket drops mid-navigation when the
+# client runs under WSL python (known vsock flake). Re-exec under Windows
+# python — same script, one process, keeps the ws on the Windows side.
+if sys.platform.startswith("linux") and os.environ.get("CDP_WIN_REEXEC") != "1":
+    import shutil
+    wsl = shutil.which("wslpath") and shutil.which("powershell.exe")
+    if wsl:
+        win_script = subprocess.run(
+            ["wslpath", "-w", os.path.abspath(__file__)],
+            capture_output=True, text=True).stdout.strip()
+        args = [f'"{win_script}"'] + [f'"{a}"' for a in sys.argv[1:]]
+        rc = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-Command",
+             "python " + " ".join(args)],
+            env={**os.environ, "CDP_WIN_REEXEC": "1"})
+        sys.exit(rc.returncode)
 
 CDP = "http://localhost:9222"
 
