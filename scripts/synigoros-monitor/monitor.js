@@ -142,6 +142,10 @@ async function notify(text) {
     // waitForFunction signature is (pageFunction, arg, options) — the
     // options object must be the THIRD arg, or the timeout is ignored.
     await page.waitForFunction(() => document.body.innerText.includes('Κατάσταση'), undefined, { timeout: 20000 });
+    // The info panel renders a template placeholder status first
+    // («Αναμονή Επιβεβαίωσης Από Συνήγορο») and swaps in the real value
+    // ~1s later — reading immediately captures the placeholder.
+    await page.waitForTimeout(1500);
 
     const text = await page.evaluate(() => document.body.innerText);
     const m = [...text.matchAll(/Κατάσταση\s*\n\s*([^\n]+)/g)];
@@ -153,6 +157,9 @@ async function notify(text) {
     // Alert only when the same new value repeats in consecutive polls.
     const confirmed = prev ? prev.status : status;
     if (!prev) {
+      // Arm with a news baseline, otherwise the 3-day follow-up rule
+      // (which keys off lastNews) can never fire on a fresh monitor.
+      prev = { status, lastNews: new Date().toISOString() };
       await notify(`📋 Synigoros monitor armed.\nΚατάσταση: ${status}\nΠρωτόκολλο: ${CFG.kpa}`);
       log(`armed, status: ${status}`);
     } else if (status !== confirmed) {
