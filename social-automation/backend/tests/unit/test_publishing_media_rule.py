@@ -164,6 +164,7 @@ def _fb_video_setup(monkeypatch, tmp_path, *, video_result=None, url="https://pu
     monkeypatch.setattr(P, "_media_public_url", lambda sp, **kw: seen_urls.append(sp) or url)
     client = SimpleNamespace(
         create_video_post=AsyncMock(return_value=video_result if video_result is not None else {"id": "vid9"}),
+        create_reel_post=AsyncMock(return_value=video_result if video_result is not None else {"id": "reel9"}),
         create_post=AsyncMock(),
     )
     built = []
@@ -177,14 +178,30 @@ def _fb_video_setup(monkeypatch, tmp_path, *, video_result=None, url="https://pu
 async def test_fb_single_video_uses_videos_endpoint(monkeypatch, tmp_path):
     clip, client, built, seen = _fb_video_setup(monkeypatch, tmp_path)
     acc = _account("facebook", account_id="1234567890")
-    r = await P._publish_facebook("t", "watch this", acc, _post(), [clip], ["up/clip.mp4"])
+    post = _post(platform_specific={"facebook": {"format": "video"}})
+    r = await P._publish_facebook("t", "watch this", acc, post, [clip], ["up/clip.mp4"])
     assert r.success and r.platform_post_id == "vid9"
     assert r.platform_url == "https://www.facebook.com/1234567890/videos/vid9"
     client.create_video_post.assert_awaited_once_with(video_url="https://pub/v.mp4", description="watch this")
     assert seen == ["up/clip.mp4"]
     assert built == [{"access_token": "ptok", "page_id": "1234567890"}]
     assert _FBHttp.posts == []  # never sent to /photos or /feed
+    client.create_reel_post.assert_not_awaited()
     client.create_post.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fb_single_video_defaults_to_reel(monkeypatch, tmp_path):
+    clip, client, _, _ = _fb_video_setup(monkeypatch, tmp_path)
+    acc = _account("facebook", account_id="1234567890")
+    r = await P._publish_facebook("t", "watch this", acc, _post(), [clip], ["up/clip.mp4"])
+    assert r.success and r.platform_post_id == "reel9"
+    assert r.platform_url == "https://www.facebook.com/reel/reel9"
+    assert (r.platform_meta or {}).get("publish_path") == "graph_reels"
+    client.create_reel_post.assert_awaited_once_with(video_url="https://pub/v.mp4", description="watch this")
+    client.create_video_post.assert_not_awaited()
+    client.create_post.assert_not_awaited()
+    assert _FBHttp.posts == []
 
 
 @pytest.mark.asyncio
@@ -194,6 +211,7 @@ async def test_fb_video_without_public_url_is_skipped_not_retried(monkeypatch, t
     r = await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), _post(), [clip], storage)
     assert not r.success and r.skipped and "no public URL" in r.error
     client.create_video_post.assert_not_awaited()
+    client.create_reel_post.assert_not_awaited()
     client.create_post.assert_not_awaited()
     assert _FBHttp.posts == []
 
@@ -201,16 +219,29 @@ async def test_fb_video_without_public_url_is_skipped_not_retried(monkeypatch, t
 @pytest.mark.asyncio
 async def test_fb_video_without_returned_id_is_not_success(monkeypatch, tmp_path):
     clip, _, _, _ = _fb_video_setup(monkeypatch, tmp_path, video_result={})
-    r = await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), _post(), [clip], ["up/clip.mp4"])
+    post = _post(platform_specific={"facebook": {"format": "video"}})
+    r = await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), post, [clip], ["up/clip.mp4"])
     assert not r.success and not r.skipped and "no video id" in r.error
+
+
+@pytest.mark.asyncio
+async def test_fb_reel_without_returned_id_is_not_success(monkeypatch, tmp_path):
+    clip, _, _, _ = _fb_video_setup(monkeypatch, tmp_path, video_result={})
+    r = await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), _post(), [clip], ["up/clip.mp4"])
+    assert not r.success and not r.skipped and "no reel id" in r.error
 
 
 @pytest.mark.asyncio
 async def test_fb_video_graph_error_propagates_for_retry(monkeypatch, tmp_path):
     clip, client, _, _ = _fb_video_setup(monkeypatch, tmp_path)
-    client.create_video_post.side_effect = RuntimeError("Graph 500 transient")
+    acc = _account("facebook", account_id="1234567890")
+    client.create_reel_post.side_effect = RuntimeError("Graph 500 transient")
     with pytest.raises(RuntimeError, match="transient"):
-        await P._publish_facebook("t", "x", _account("facebook", account_id="1234567890"), _post(), [clip], ["up/clip.mp4"])
+        await P._publish_facebook("t", "x", acc, _post(), [clip], ["up/clip.mp4"])
+    client.create_video_post.side_effect = RuntimeError("Graph 500 transient")
+    post = _post(platform_specific={"facebook": {"format": "video"}})
+    with pytest.raises(RuntimeError, match="transient"):
+        await P._publish_facebook("t", "x", acc, post, [clip], ["up/clip.mp4"])
 
 
 def test_fb_video_preflight_accepts_single_video():
