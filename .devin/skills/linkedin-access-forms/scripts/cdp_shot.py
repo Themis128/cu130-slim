@@ -26,9 +26,8 @@ except ImportError:
     import websocket
 
 URL_PART = sys.argv[1]
-CDP = sys.argv[2] if len(sys.argv) > 2 else "http://localhost:9229"
 tabs = json.loads(urllib.request.urlopen(
-    CDP + "/json/list", timeout=10).read())
+    "http://localhost:9222/json/list", timeout=10).read())
 tab = next((t for t in tabs if t.get("type") == "page"
             and URL_PART in t.get("url", "")), None)
 if not tab:
@@ -65,7 +64,6 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url-contains", required=True)
     ap.add_argument("--out", required=True)
-    ap.add_argument("--cdp", default="http://localhost:9229")
     a = ap.parse_args()
 
     b64 = base64.b64encode(WIN_SCRIPT.encode()).decode()
@@ -73,8 +71,7 @@ def main() -> None:
         "powershell -c \"[IO.File]::WriteAllText('C:\\\\tmp\\\\cdp_shot_win.py',"
         f" [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{b64}')))\"")
 
-    out = _agent(
-        f'python C:\\\\tmp\\\\cdp_shot_win.py "{a.url_contains}" "{a.cdp}"')
+    out = _agent(f'python C:\\\\tmp\\\\cdp_shot_win.py "{a.url_contains}"')
     res = json.loads(out.get("out", "{}").strip() or "{}")
     if not res.get("ok"):
         print(json.dumps(res))
