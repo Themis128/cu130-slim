@@ -185,3 +185,11 @@ gone.
 - [~] sshd :2222 running; OmVPull already bypasses the inbound-SSH
   need. Optional full expose still via `sudo tailscale set
   --operator=$USER` + serve, or mirrored .wslconfig.
+
+### TikTok bio updated via ADB (2026-11-08 ~06:10)
+
+- Lane: `adb -s 100.84.31.85:5555` (S22+ tailnet) → `monkey -p com.zhiliaoapp.musically 1` → Profile → pencil → Bio. `input text` needs `%s` for spaces (NOT `%20` — types literally); `keyevent 66` for newlines, 67 for DEL. Save at ~(985,149). uiautomator dump verifies text.
+- New bio: "Managed cloud and AI automation for SMBs. / Real builds. Real numbers. No lock-in. / Free 30-min audit -> cloudless.gr" — verified live on @cloudless.gr profile.
+- Remaining TikTok gaps: website link gated by 1k followers OR business verify (user files papers later); only 4 followers — growth = posting cadence.
+- myAADE: login works (TAXISNET creds in .env, do not echo); Βεβαιώσεις Μητρώου page reachable via `#!/vevaiwseismhtrwou`; Οντότητας/Επιχείρησης tiles HIDDEN because company isn't active yet — person certs only until Έναρξη filed.
+- Windows App privacy dialog can hijack ADB taps — verify screen state before/after every tap.
