@@ -53,6 +53,5 @@ const CM_FORM = {
   },
 };
 
-// Usage in an eval context (playwright MCP browser_evaluate / cdp_eval):
-// load this file as the page script, then call:  eval(FILLER)(CM_FORM)
-// `module.exports` is intentionally absent — it throws in a browser eval.
+// export for playwright eval: run CM_FORM then FILLER sequentially
+module.exports = { FILLER, CM_FORM };
