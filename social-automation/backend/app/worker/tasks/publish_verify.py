@@ -128,8 +128,7 @@ async def _run() -> dict:
             if verdict == "failed":
                 await send_telegram_alert(
                     "P2",
-                    f"Publish verification FAILED: {path} {platform} post {pid[:8]} "
-                    f"not found live (platform id {platform_post_id})",
+                    f"Publish verification FAILED: {path} {platform} post {pid[:8]} not found live (platform id {platform_post_id})",
                 )
         await session.commit()
     return summary

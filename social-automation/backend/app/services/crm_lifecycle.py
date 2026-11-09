@@ -186,11 +186,7 @@ def score_lead(lead: dict[str, Any], notes: list[dict[str, Any]]) -> tuple[int, 
         pts += 10
         reasons.append(f"business email domain: {domain} (+10)")
 
-    engagement_ages = [
-        age if (age := _note_age_days(n)) is not None else 0.0
-        for n in notes
-        if any(m in str(n.get("post") or "") for m in ENGAGEMENT_MARKERS)
-    ]
+    engagement_ages = [age if (age := _note_age_days(n)) is not None else 0.0 for n in notes if any(m in str(n.get("post") or "") for m in ENGAGEMENT_MARKERS)]
     freshest_engagement = min(engagement_ages) if engagement_ages else None
     if freshest_engagement is not None and freshest_engagement <= REPLY_FRESH_DAYS:
         pts += 25

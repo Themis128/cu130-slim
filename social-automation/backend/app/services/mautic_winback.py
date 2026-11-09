@@ -46,9 +46,18 @@ _EMAIL_NAMES = (
 # sending domain; the owner mailboxes must never enter production sequences
 # (same protection as email_drip's _TEST_MARKERS).
 _JUNK = (
-    "example.com", "example.invalid", "test.dev", "test.local", ".local",
-    "probe@", "platform-test", "ci-test", "@cloudless.gr",
-    "themis.baltzakis", "baltzakis.themis", "tbaltzakis@",
+    "example.com",
+    "example.invalid",
+    "test.dev",
+    "test.local",
+    ".local",
+    "probe@",
+    "platform-test",
+    "ci-test",
+    "@cloudless.gr",
+    "themis.baltzakis",
+    "baltzakis.themis",
+    "tbaltzakis@",
 )
 
 
@@ -121,9 +130,7 @@ def _tier(lead: dict, email: str, hot_emails: set[str], bands: dict[str, str]) -
         return band
     if email in hot_emails:
         return "hot"
-    return {"converted": "hot", "in process": "hot", "assigned": "warm", "new": "warm"}.get(
-        (lead.get("status") or "").strip().lower(), "cold"
-    )
+    return {"converted": "hot", "in process": "hot", "assigned": "warm", "new": "warm"}.get((lead.get("status") or "").strip().lower(), "cold")
 
 
 async def _email_ids() -> dict[str, int]:
@@ -178,8 +185,16 @@ async def _mautic_last_active(contact_id: int) -> datetime | None:
 
 async def run_mautic_winback_sweep(*, dry_run: bool = False, limit: int = 1000) -> dict[str, Any]:
     """Advance every cold lead's win-back sequence by at most one step."""
-    stats: dict[str, Any] = {"scanned": 0, "sent": 0, "skipped_tier": 0, "skipped_state": 0,
-                             "skipped_engaged": 0, "skipped_no_contact": 0, "errors": 0, "dry_run": dry_run}
+    stats: dict[str, Any] = {
+        "scanned": 0,
+        "sent": 0,
+        "skipped_tier": 0,
+        "skipped_state": 0,
+        "skipped_engaged": 0,
+        "skipped_no_contact": 0,
+        "errors": 0,
+        "dry_run": dry_run,
+    }
     leads = await espocrm_client.list_all(
         "Lead",
         select=["id", "emailAddress", "status", "source", "firstName", "lastName"],
