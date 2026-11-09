@@ -69,6 +69,7 @@ queue is healthy, not absent. Don't flag a worker for having no work to do.
 | datalake-export | export_datalake | 6h | R2 lake/ |
 | nextcloud-sync | sync_nextcloud_surfaces | 3h | Tables/Deck rows |
 | strategy/monetization/ops-health | run_notebook_report | daily | emailed notebook |
+| central-brain | run_central_brain | daily 06:30 | posts.meta_data.central_brain_action + company_brain journal |
 | dmr-keepwarm | keep_warm_dmr_models | 90s | (no artifact — stats only) |
 
 ## Onboarding a new digital worker (the contract)
