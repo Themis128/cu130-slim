@@ -92,8 +92,9 @@ def test_state_key():
 
 def test_redis_helper(monkeypatch):
     """Real _redis(): env REDIS_URL wins, else settings, else None."""
-    import redis.asyncio as aioredis
     from types import SimpleNamespace
+
+    import redis.asyncio as aioredis
 
     monkeypatch.setattr(aioredis, "from_url", lambda url, decode_responses=True: ("R", url))
     monkeypatch.setattr(mw, "get_settings", lambda: SimpleNamespace(REDIS_URL=""))
