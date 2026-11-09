@@ -59,11 +59,31 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# docker cp handles the recursive copy itself — tar over /mnt/c (DrvFs)
-# intermittently fails with "Cannot savedir: Cannot allocate memory".
+# Copy via docker cp with retry+verify: reads under /mnt/c (DrvFs) flake
+# intermittently with ENOMEM ("cannot allocate memory") — same class as
+# the tar failure. A partial copy must NOT be ingested, so verify the
+# file count inside the container matches the host before proceeding.
 echo "$LOG_PREFIX manifest changed — copying $SRC into social-api"
-docker exec -u root social-api rm -rf /tmp/kakkava-sofia
-docker cp "$SRC" social-api:/tmp/kakkava-sofia
+HOST_COUNT=$(find "$SRC" -type f | wc -l)
+OK=0
+for attempt in 1 2 3; do
+    docker exec -u root social-api rm -rf /tmp/kakkava-sofia
+    if docker cp "$SRC" social-api:/tmp/kakkava-sofia 2>/dev/null; then
+        CONT_COUNT=$(docker exec social-api find /tmp/kakkava-sofia -type f 2>/dev/null | wc -l)
+        if [ "$CONT_COUNT" = "$HOST_COUNT" ]; then
+            OK=1
+            break
+        fi
+        echo "$LOG_PREFIX attempt $attempt: count mismatch host=$HOST_COUNT container=$CONT_COUNT" >&2
+    else
+        echo "$LOG_PREFIX attempt $attempt: docker cp failed (DrvFs ENOMEM flake)" >&2
+    fi
+    sleep 5
+done
+if [ "$OK" != 1 ]; then
+    echo "$LOG_PREFIX copy failed after 3 attempts — aborting ingest" >&2
+    exit 1
+fi
 docker cp "$INGEST_PY" social-api:/tmp/kakkava_brain_ingest.py
 
 echo "$LOG_PREFIX ingesting into team $TEAM_ID"
