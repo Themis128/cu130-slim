@@ -1,6 +1,9 @@
 ARG SIDECAR_BASE=ghcr.io/themis128/cu130-slim:social-sidecar-base-latest
 FROM ${SIDECAR_BASE}
 
+# sidecar-base ends with USER app — system package installs need root
+USER root
+
 # ── System deps: Xvfb (virtual display), x11vnc, Fluxbox, noVNC, websockify,
 #    PulseAudio + GStreamer (audio forwarding via WebSocket) ──
 RUN apt-get update && apt-get install -y --no-install-recommends \
