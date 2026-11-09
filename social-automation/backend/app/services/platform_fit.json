@@ -1,0 +1,49 @@
+{
+  "_doc": "Canonical per-platform audience/algorithm content-fit reference. Single source of truth consumed by (1) content_guides.py PLATFORM_GUIDES 'Audience fit:' lines, (2) the marked <!-- PLATFORM-FIT --> blocks in every *-content-ops SKILL.md (.devin + .cursor), (3) the company-brain 'Platform Content Fit' doc via platform-fit-ops/scripts/platform_fit_sync.py. Edit here, then run the sync script — never hand-edit the generated blocks.",
+  "linkedin": {
+    "guide_line": "thought leadership and industry insights, educational/how-to content (PDF uploads become swipeable carousels), personal stories with a business lesson, contrarian takes, short hook-driven text or sub-30s vertical video; roughly 4 educational posts per 1 soft promo and 1 hard promo; optimize for dwell time and meaningful comments",
+    "skill_title": "What the LinkedIn audience/algorithm favors",
+    "bullets": [
+      "Thought leadership & industry insights; educational/how-to content — PDF document uploads render as swipeable carousels and perform strongly.",
+      "Personal stories with a business lesson; contrarian takes that spark constructive comments; short hook-driven text or sub-30s vertical video.",
+      "Optimize for dwell time + meaningful comments. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo."
+    ]
+  },
+  "twitter": {
+    "guide_line": "the real-time conversational feed — serialized text threads for complex topics, live commentary on breaking news, and sharp shareable takes; immediacy and wit beat polish",
+    "skill_title": "What the X audience/algorithm favors",
+    "bullets": [
+      "Real-time conversational feed: serialized text threads for complex topics, live commentary on breaking news/industry events, and sharp shareable takes/memes. Immediacy and wit beat polish."
+    ]
+  },
+  "instagram": {
+    "guide_line": "aesthetics and lifestyle curation — Reels get the strongest algorithmic distribution (trending audio, fast hook), carousels suit step-by-step guides and before/after transformations, Stories are the casual daily-engagement lane; visual quality first",
+    "skill_title": "What the Instagram audience/algorithm favors",
+    "bullets": [
+      "Aesthetics/lifestyle curation: **Reels** get the strongest distribution (vertical video, trending audio, hook in the first second); **carousels** (≤10 slides) suit step-by-step guides and before/after transformations; **Stories** are the casual daily-engagement lane.",
+      "Prioritize visual quality — the caption supports the media."
+    ]
+  },
+  "facebook": {
+    "guide_line": "an older, community-oriented demographic — external link shares and news articles outperform here vs LinkedIn/IG, group-style discussion and recommendations resonate, and long-form video or live streams get strong reach",
+    "skill_title": "What the Facebook audience/algorithm favors",
+    "bullets": [
+      "Older, community-oriented demographic: external link shares + news articles outperform here vs LinkedIn/IG; group-style discussion, recommendations, and long-form video or live streams get strong reach.",
+      "Both surfaces below already fit this — personal build-log = community content; page link/news posts = the link-share lane."
+    ]
+  },
+  "threads": {
+    "guide_line": "conversational micro-blogging — short authentic takes, opinion hooks, and reply-style conversation outperform polished brand copy",
+    "skill_title": "What the Threads audience/algorithm favors",
+    "bullets": [
+      "Conversational micro-updates and authentic takes — short opinion hooks and human-sounding posts beat polished brand copy; reply-style conversation drives distribution."
+    ]
+  },
+  "tiktok": {
+    "guide_line": "the For You Page prioritizes watch-time and engagement over production quality — raw, authentic, or humorous vertical video beats slick ads; trending audio, challenges, and educational micro-content all travel; hook in the first second",
+    "skill_title": "What the TikTok audience/algorithm (FYP) favors",
+    "bullets": [
+      "Watch-time + engagement over production quality: raw, authentic, or humorous vertical video beats slick ads; trending audio/challenges and educational micro-content (life hacks, niche explainers like #TechTok) all travel. Hook in the first second — the caption supports the video."
+    ]
+  }
+}

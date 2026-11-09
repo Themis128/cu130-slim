@@ -26,6 +26,13 @@ Read `social-content-core` first.
 
 ## Content rules
 
+<!-- PLATFORM-FIT:BEGIN instagram -->
+### What the Instagram audience/algorithm favors
+- Aesthetics/lifestyle curation: **Reels** get the strongest distribution (vertical video, trending audio, hook in the first second); **carousels** (≤10 slides) suit step-by-step guides and before/after transformations; **Stories** are the casual daily-engagement lane.
+- Prioritize visual quality — the caption supports the media.
+
+<!-- PLATFORM-FIT:END -->
+
 - **Media is mandatory** — IG has no text-only posts on any path
   (`required: True` in `_PLATFORM_MEDIA_RULES`). A post with zero resolved
   media is skipped, never published bare.
