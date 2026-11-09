@@ -17,7 +17,9 @@ celery_app = Celery(
         "app.worker.tasks.media_enhance",
         "app.worker.tasks.nextcloud",
         "app.worker.tasks.nextcloud_sync",
+        "app.worker.tasks.nextcloud_docs",
         "app.worker.tasks.company_brain",
+        "app.worker.tasks.slack_ops_journal",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
         "app.worker.tasks.crm_engagement",
@@ -293,6 +295,7 @@ celery_app.conf.update(
         "app.worker.tasks.datalake_insights.datalake_insights_sweep": {"queue": "default"},
         "app.worker.tasks.devapp_channel_actions.run_channel_actions": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
+        "app.worker.tasks.slack_ops_journal.slack_ops_journal_task": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
@@ -455,6 +458,15 @@ celery_app.conf.update(
             "task": "app.worker.tasks.nextcloud_sync.sync_nextcloud_extras",
             "schedule": crontab(minute="*/30"),
         },
+        # Mirror repo documentation/architecture (AGENTS.md, docs/, deploy/,
+        # .devin/) into Nextcloud Files at SocialAuto/docs/repo/ — manifest is
+        # read from GitHub master so it always reflects merged docs; per-file
+        # blob SHAs in Redis mean only changed files are re-uploaded.
+        # (Restored 2026-11-08 — wiring was dropped by the #1526 squash.)
+        "sync-nextcloud-docs": {
+            "task": "app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task",
+            "schedule": crontab(minute=45, hour="*/6"),  # every 6h at :45
+        },
         # Nightly company-brain journal — real publish/follower outcomes →
         # Chroma team_<id>_brain (semantic recall) + Nextcloud Notes entry.
         # Runs after the day's work settles so the morning strategy brief
@@ -464,6 +476,18 @@ celery_app.conf.update(
             "schedule": crontab(
                 hour=settings.COMPANY_BRAIN_HOUR,
                 minute=settings.COMPANY_BRAIN_MINUTE,
+            ),
+        },
+        # Morning Slack ops journal — scans the SocialAuto workspace alert
+        # channels (alerts, engagement-gate, publishing, approvals, leads,
+        # #socialauto) for the last 24h, classifies incidents/warnings, and
+        # writes a Nextcloud Note "Slack Ops — YYYY-MM-DD" (category Ops)
+        # plus a company-brain memory line per team.
+        "slack-ops-journal": {
+            "task": "app.worker.tasks.slack_ops_journal.slack_ops_journal_task",
+            "schedule": crontab(
+                hour=settings.SLACK_OPS_JOURNAL_HOUR,
+                minute=settings.SLACK_OPS_JOURNAL_MINUTE,
             ),
         },
         # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine

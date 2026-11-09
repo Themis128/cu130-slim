@@ -779,6 +779,32 @@ WORKFORCE = [
             )
         ],
     ),
+    Worker(
+        "nextcloud-docs",
+        "app.worker.tasks.nextcloud_docs.sync_nextcloud_docs_task",
+        "default",
+        6 * 3600,
+        goal="Keep Nextcloud Files carrying the latest merged documentation/architecture",
+        guardrails=(
+            "reads the manifest from GitHub master only — never the dirty checkout",
+            "per-file blob SHA dedupe — only changed docs re-upload",
+            "512KB/file cap and 500-file ceiling — fail loud, never partial-forever",
+        ),
+        fallback="per-file upload errors logged; _manifest.json still written; next run retries diffs",
+    ),
+    Worker(
+        "slack-ops-journal",
+        "app.worker.tasks.slack_ops_journal.slack_ops_journal_task",
+        "default",
+        DAY,
+        goal="Journal the last 24h of Slack alert/ops channels into Nextcloud Notes + company brain",
+        guardrails=(
+            "read-only on Slack — conversations.history only, never posts",
+            "one dead channel degrades to an empty section, never sinks the journal",
+            "note write is create-or-update by title — idempotent per day",
+        ),
+        fallback="note/memory failures logged per-surface; task failure → celery retry",
+    ),
 ]
 
 
