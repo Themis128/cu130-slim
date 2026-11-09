@@ -405,9 +405,7 @@ async def test_stale_human_gate_items_expire(monkeypatch):
     stale = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
     fresh_gate = _row_action(platform="linkedin", action="comment", status="pending_human_gate", target_post_id="p9")
     db = _use_db(monkeypatch, _DB([[], [stale], [], [fresh_gate], [_row_cand(platform="linkedin", post_id="p9")], []]))
-    monkeypatch.setattr(
-        "app.services.dmr.call_dmr_chat", AsyncMock(return_value={"text": "draft"})
-    )
+    monkeypatch.setattr("app.services.dmr.call_dmr_chat", AsyncMock(return_value={"text": "draft"}))
     await ENG._run(5)
     assert stale.status == "expired"
     assert fresh_gate.status == "pending_human_gate"

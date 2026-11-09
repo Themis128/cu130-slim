@@ -313,11 +313,7 @@ def _norm(v: float, cap: float) -> float:
 def _channel_score(state: ChannelState, trend_boost: float) -> float:
     followers_term = _norm(math.log10(max(state.followers or 0, 1) + 1) / 5.0, 1.0)
     er_term = _norm(state.engagement_rate_7d / 10.0, 1.0)
-    return (
-        _W_FOLLOWERS * followers_term
-        + _W_ENGAGEMENT * er_term
-        + _W_TREND * trend_boost
-    )
+    return _W_FOLLOWERS * followers_term + _W_ENGAGEMENT * er_term + _W_TREND * trend_boost
 
 
 def _top_trends(trends: list[dict], n: int) -> list[dict]:
@@ -453,10 +449,7 @@ async def run_for_team(db: AsyncSession, team: Team, now: datetime | None = None
     await _journal_plan(db, team, snapshot, decisions)
 
     post_decisions = [d for d in decisions if d.kind == "post"][:MAX_POST_ACTIONS]
-    decision_rows = [
-        {"platform": d.platform, "kind": d.kind, "priority": d.priority, "reason": d.reason}
-        for d in decisions
-    ]
+    decision_rows = [{"platform": d.platform, "kind": d.kind, "priority": d.priority, "reason": d.reason} for d in decisions]
     if not post_decisions:
         return {
             "team_id": str(team.id),

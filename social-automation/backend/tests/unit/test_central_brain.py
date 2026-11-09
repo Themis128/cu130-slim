@@ -98,10 +98,7 @@ class TestDecide:
         assert posts[0].platform == "linkedin"
 
     def test_post_cap_respected(self):
-        channels = {
-            f"plat{i}": _state(f"plat{i}", followers=100 * i, engagement_rate_7d=1.0)
-            for i in range(MAX_POST_ACTIONS + 4)
-        }
+        channels = {f"plat{i}": _state(f"plat{i}", followers=100 * i, engagement_rate_7d=1.0) for i in range(MAX_POST_ACTIONS + 4)}
         posts = [d for d in decide(_snap(channels)) if d.kind == "post"]
         assert len(posts) == MAX_POST_ACTIONS
 
@@ -142,14 +139,8 @@ class TestDecide:
         assert posts[0].trend_query == "agentic ai"
 
     def test_trend_rotation_caps_at_max_trend_actions(self):
-        trends = [
-            {"query": f"trend{i}", "classification": "early_window", "traffic": 100 - i}
-            for i in range(MAX_TREND_ACTIONS + 2)
-        ]
-        channels = {
-            f"plat{i}": _state(f"plat{i}", followers=100 + i, engagement_rate_7d=1.0)
-            for i in range(MAX_POST_ACTIONS)
-        }
+        trends = [{"query": f"trend{i}", "classification": "early_window", "traffic": 100 - i} for i in range(MAX_TREND_ACTIONS + 2)]
+        channels = {f"plat{i}": _state(f"plat{i}", followers=100 + i, engagement_rate_7d=1.0) for i in range(MAX_POST_ACTIONS)}
         posts = [d for d in decide(_snap(channels, trends)) if d.kind == "post"]
         trend_posts = [d for d in posts if d.trend_query]
         assert len(trend_posts) == MAX_TREND_ACTIONS
@@ -233,27 +224,28 @@ class TestCollectSnapshot:
     async def test_merges_devapp_engagement_outcomes_followers_trends(self):
         team = SimpleNamespace(id=uuid.uuid4())
         devapps = [
-            _devapp("LinkedIn", "acc-li", username="cloudless", ok=True,
-                    insights={"followers": 1200}),
+            _devapp("LinkedIn", "acc-li", username="cloudless", ok=True, insights={"followers": 1200}),
             _devapp("instagram", "acc-ig", ok=False, error="token revoked"),
         ]
         engagement = [("LinkedIn", 4.5, 12), ("threads", 1.0, 3)]
         posts = [
-            SimpleNamespace(status=PostStatus.PUBLISHED, targets=[
-                SimpleNamespace(social_account=SimpleNamespace(platform="LinkedIn")),
-                SimpleNamespace(social_account=SimpleNamespace(platform="facebook")),
-            ]),
-            SimpleNamespace(status=PostStatus.FAILED, targets=[
-                SimpleNamespace(social_account=SimpleNamespace(platform="facebook")),
-            ]),
+            SimpleNamespace(
+                status=PostStatus.PUBLISHED,
+                targets=[
+                    SimpleNamespace(social_account=SimpleNamespace(platform="LinkedIn")),
+                    SimpleNamespace(social_account=SimpleNamespace(platform="facebook")),
+                ],
+            ),
+            SimpleNamespace(
+                status=PostStatus.FAILED,
+                targets=[
+                    SimpleNamespace(social_account=SimpleNamespace(platform="facebook")),
+                ],
+            ),
         ]
         followers = [("linkedin", 5000), ("tiktok", 800)]
-        trends = [SimpleNamespace(query="ai agents", source="gtrends", geo="GR",
-                                  classification="opportunity", traffic=95,
-                                  period_key="2026-11-08")]
-        snap = await collect_snapshot(
-            _DB(devapps, engagement, posts, followers, trends), team, now=NOW
-        )
+        trends = [SimpleNamespace(query="ai agents", source="gtrends", geo="GR", classification="opportunity", traffic=95, period_key="2026-11-08")]
+        snap = await collect_snapshot(_DB(devapps, engagement, posts, followers, trends), team, now=NOW)
 
         li = snap.channels["linkedin"]
         assert li.username == "cloudless"
@@ -281,7 +273,10 @@ class TestRunForTeam:
     def _db_with_healthy_channel(self):
         return _DB(
             [_devapp("linkedin", "acc-1", ok=True, insights={"followers": 900})],
-            [], [], [], [],
+            [],
+            [],
+            [],
+            [],
         )
 
     @pytest.mark.asyncio
@@ -297,9 +292,7 @@ class TestRunForTeam:
         async def fake_remember(*a, **k):
             remembered.append((a, k))
 
-        monkeypatch.setattr(
-            "app.services.monetization_executor.schedule_report_actions", fake_schedule
-        )
+        monkeypatch.setattr("app.services.monetization_executor.schedule_report_actions", fake_schedule)
         monkeypatch.setattr("app.services.company_brain.remember", fake_remember)
 
         team = SimpleNamespace(id=uuid.uuid4())
@@ -318,13 +311,14 @@ class TestRunForTeam:
         async def fail_schedule(*a, **k):
             raise AssertionError("schedule_report_actions must not be called")
 
-        monkeypatch.setattr(
-            "app.services.monetization_executor.schedule_report_actions", fail_schedule
-        )
+        monkeypatch.setattr("app.services.monetization_executor.schedule_report_actions", fail_schedule)
         # instagram ok=False → health decision only, no post actions
         db = _DB(
             [_devapp("instagram", "acc-1", ok=False, error="banned")],
-            [], [], [], [],
+            [],
+            [],
+            [],
+            [],
         )
         team = SimpleNamespace(id=uuid.uuid4())
         result = await run_for_team(db, team, now=NOW)

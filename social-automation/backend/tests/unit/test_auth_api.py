@@ -1376,9 +1376,7 @@ class TestTikTokOAuth:
         payload = {"error": "invalid_grant", "error_description": "refresh token expired"}
 
         async def fake_send(c, request, auth=None, exc_class=None):
-            return type(
-                "R", (), {"json": lambda s: payload, "text": "{}", "status_code": 200, "headers": {}}
-            )()
+            return type("R", (), {"json": lambda s: payload, "text": "{}", "status_code": 200, "headers": {}})()
 
         monkeypatch.setattr(client, "get_httpx_client", fake_httpx)
         monkeypatch.setattr(client, "send_request", fake_send)

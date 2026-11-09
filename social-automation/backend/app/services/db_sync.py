@@ -793,4 +793,3 @@ async def sync_after_worker_task(tables: list[str]) -> dict[str, dict[str, int]]
     except Exception as exc:
         logger.warning("sync_after_worker_task failed for %s: %s", tables, exc)
         return {}
-
