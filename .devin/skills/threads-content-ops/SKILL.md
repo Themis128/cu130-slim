@@ -25,6 +25,12 @@ Read `social-content-core` first.
 
 ## Content rules
 
+<!-- PLATFORM-FIT:BEGIN threads -->
+### What the Threads audience/algorithm favors
+- Conversational micro-updates and authentic takes — short opinion hooks and human-sounding posts beat polished brand copy; reply-style conversation drives distribution.
+
+<!-- PLATFORM-FIT:END -->
+
 - Conversational, shorter-form brand voice — hot takes on self-hosting,
   cloud costs, dev-infra wins. More casual than LinkedIn, more polished than
   the FB build log.

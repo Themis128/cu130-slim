@@ -26,6 +26,12 @@ Read `social-content-core` first.
 
 ## Content rules
 
+<!-- PLATFORM-FIT:BEGIN twitter -->
+### What the X audience/algorithm favors
+- Real-time conversational feed: serialized text threads for complex topics, live commentary on breaking news/industry events, and sharp shareable takes/memes. Immediacy and wit beat polish.
+
+<!-- PLATFORM-FIT:END -->
+
 - **Developer value angle**: raw code improvements, p95 latencies,
   implementation wins — real numbers only, never invented metrics.
 - Personal account → personal funnel: can soft-point to
