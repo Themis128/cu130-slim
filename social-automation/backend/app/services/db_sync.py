@@ -388,8 +388,11 @@ class SyncService:
             # strands the failed rows. Grow the mirror up front. An empty
             # PRAGMA means the table itself is missing — the PK check
             # already refused that case; leave it to the upsert error.
+            d1_notnull: set[str] = set()
             try:
-                d1_cols = {c["name"] for c in await d1_client.query_all(f"PRAGMA table_info({table})")}
+                d1_col_info = await d1_client.query_all(f"PRAGMA table_info({table})")
+                d1_cols = {c["name"] for c in d1_col_info}
+                d1_notnull = {c["name"] for c in d1_col_info if c.get("notnull")}
                 if d1_cols:
                     for col in columns:
                         if col not in d1_cols:
@@ -399,6 +402,41 @@ class SyncService:
                 logger.error("D1 column heal failed for %s: %s", table, exc)
                 stats["errors"] += 1
                 return stats
+
+            # Postgres can hold NULL in columns the D1 mirror declares
+            # NOT NULL (schema drifted nullable after the mirror was
+            # created). One such row used to fail the upsert and hold
+            # the watermark forever. Substitute the empty value matching
+            # the column's JSON shape, sampled from a non-null sibling.
+            _col_empty: dict[str, Any] = {}
+            _nn_cols = d1_notnull & set(columns)
+            if _nn_cols:
+                _samples: dict[str, Any] = {}
+                for r in rows:
+                    rd = dict(zip(columns, r, strict=False))
+                    for col in _nn_cols:
+                        if col not in _samples and rd.get(col) is not None:
+                            _samples[col] = rd[col]
+                    if len(_samples) == len(_nn_cols):
+                        break
+                for col in _nn_cols:
+                    sample = _samples.get(col)
+                    if isinstance(sample, list):
+                        _col_empty[col] = "[]"
+                    elif isinstance(sample, dict):
+                        _col_empty[col] = "{}"
+                    elif isinstance(sample, bool | int | float):
+                        _col_empty[col] = 0
+                    elif isinstance(sample, datetime):
+                        _col_empty[col] = ""
+                    else:
+                        _col_empty[col] = ""
+                if any(c not in _samples for c in _nn_cols):
+                    logger.warning(
+                        "D1 %s: NOT NULL columns %s have no non-null sample — using '' fallback",
+                        table,
+                        sorted(c for c in _nn_cols if c not in _samples),
+                    )
 
             # Build INSERT OR REPLACE statement (SQLite/D1 syntax)
             col_str = ", ".join(columns)
@@ -417,7 +455,7 @@ class SyncService:
                     elif isinstance(val, datetime):
                         val = val.isoformat()
                     elif val is None:
-                        val = None
+                        val = _col_empty.get(col)
                     else:
                         val = str(val) if not isinstance(val, int | float | str) else val
                     values.append(val)

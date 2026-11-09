@@ -700,3 +700,38 @@ async def test_sync_to_d1_reconcile_gate_failure(monkeypatch):
     _patch_engine(monkeypatch, rows=[(1, None, "alice")])
     out = await svc.sync_table_to_d1("users", debounce=False)
     assert out["synced"] == 1
+
+
+@pytest.mark.asyncio
+async def test_sync_to_d1_notnull_columns_get_empty_json(monkeypatch):
+    """D1 NOT NULL columns arriving NULL from Postgres get a shape-correct
+    empty value ('{}' for dicts, '[]' for lists) sampled from siblings —
+    instead of failing the upsert and holding the watermark."""
+
+    svc = _svc()
+    d1 = _patch_d1(monkeypatch)
+    d1.query_all = AsyncMock(
+        return_value=[
+            {"name": "id", "type": "TEXT", "notnull": 1},
+            {"name": "ps", "type": "TEXT", "notnull": 1},
+            {"name": "tags", "type": "TEXT", "notnull": 1},
+            {"name": "opt", "type": "TEXT", "notnull": 0},
+        ]
+    )
+    monkeypatch.setattr(S, "_sync_redis", AsyncMock(side_effect=RuntimeError("no redis")))
+    monkeypatch.setattr(S.SyncService, "_d1_table_has_pk", AsyncMock(return_value=True))
+    _patch_engine(
+        monkeypatch,
+        has_updated_at=True,
+        keys=["id", "ps", "tags", "opt"],
+        rows=[
+            (1, {"a": 1}, ["x"], "keep"),
+            (2, None, None, None),
+        ],
+    )
+    out = await svc.sync_table_to_d1("users", debounce=False)
+    assert out["synced"] == 2 and out["errors"] == 0
+    calls = [c.args[1] for c in d1.execute.await_args_list if c.args and isinstance(c.args[1], list)]
+    assert calls[0][1] == '{"a": 1}' and calls[0][2] == '["x"]'
+    # row 2: NOT NULL ps/tags substituted, nullable opt stays None
+    assert calls[1][1] == "{}" and calls[1][2] == "[]" and calls[1][3] is None
