@@ -190,9 +190,12 @@ async def test_crm_pipeline_inserts_new_leads(monkeypatch, nc_settings, redis_st
             return httpx.Response(
                 200,
                 json=[
-                    {"id": 1, "title": "LeadId"}, {"id": 2, "title": "Name"},
-                    {"id": 3, "title": "Email"}, {"id": 4, "title": "Status"},
-                    {"id": 5, "title": "Source"}, {"id": 6, "title": "Created"},
+                    {"id": 1, "title": "LeadId"},
+                    {"id": 2, "title": "Name"},
+                    {"id": 3, "title": "Email"},
+                    {"id": 4, "title": "Status"},
+                    {"id": 5, "title": "Source"},
+                    {"id": 6, "title": "Created"},
                 ],
             )
         if request.url.path.endswith("/rows") and request.method == "GET":
@@ -440,7 +443,7 @@ async def test_calendar_posts_writes_events(monkeypatch, nc_settings):
         if request.method == "PROPFIND":
             return httpx.Response(
                 207,
-                text='<d:response><d:href>/remote.php/dav/calendars/tester/personal/</d:href></d:response>',
+                text="<d:response><d:href>/remote.php/dav/calendars/tester/personal/</d:href></d:response>",
             )
         if request.method == "PUT":
             puts.append(request.url.path)

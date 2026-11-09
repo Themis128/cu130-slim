@@ -126,9 +126,7 @@ async def _winback_stats() -> dict[str, int]:
 async def audit() -> dict:
     from app.services import espocrm_client as espo
 
-    (reach, reach_30d_ago), engaged, drip_sends, winback = await asyncio.gather(
-        _social_reach(), _engaged_30d(), _drip_sends(), _winback_stats()
-    )
+    (reach, reach_30d_ago), engaged, drip_sends, winback = await asyncio.gather(_social_reach(), _engaged_30d(), _drip_sends(), _winback_stats())
 
     # espo.list_all caps at max_items; a truncated pull would show partial
     # stage totals as complete — surface it in the note instead of hiding it.
