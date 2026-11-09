@@ -703,3 +703,18 @@ Leftovers:
   both dead) — watchdog should self-heal; if not, `wsl --shutdown` durable
   fix still deferred per earlier note.
 - home-ops arch-doc prose refresh committed + pushed (beb46bb).
+
+## 2026-11-10 — leftovers sweep (Devin, PR #1573)
+
+- CI `test` job failed on line-coverage gate (98.80% < 99.0%): expanded
+  `test_ops_agent.py` 4→24 tests covering sweep/verdict/alert/dispatch
+  paths — ops_agent.py now ~99% line coverage; ruff clean; pushed.
+- PR #1570 (`ops-agent-incidents`) was a parallel duplicate of the same
+  ops-agent suite. Core app files were byte-identical to #1573; its unique
+  host-side pieces (ops_incident.py CLI, ops_incident_host.sh psql
+  fallback, compose-watchdog ALERT→incident + ops-agent dead-man check)
+  were folded into #1573 and #1570 closed as superseded.
+- Alembic graph verified: single head `t1u2v3w4x5y6` on branch,
+  down_revision = master head `s9p9r8s7t6u5` — merge stays linear.
+- pr-ci-fix-watch.py (home-ops cron, */15) now auto-fixes ruff + alembic
+  multi-head/can't-locate failures and Telegram-alerts #ops on the rest.
