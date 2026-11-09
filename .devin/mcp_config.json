@@ -129,9 +129,9 @@
       ]
     },
     "slack": {
-      "command": "node",
+      "command": "/home/tbaltzakis/.local/bin/node",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
+        "/mnt/c/Users/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
         "https://mcp.slack.com/mcp",
         "3118",
         "--host",
@@ -143,17 +143,17 @@
       ]
     },
     "slack-cloudless": {
-      "command": "node",
+      "command": "/home/tbaltzakis/.local/bin/node",
       "args": [
-        "C:\\Users\\tbaltzakis\\.local\\lib\\mcp-remote\\node_modules\\mcp-remote\\dist\\proxy.js",
+        "/mnt/c/Users/tbaltzakis/.local/lib/mcp-remote/node_modules/mcp-remote/dist/proxy.js",
         "https://mcp.slack.com/mcp?workspace=wwwcloudlessgr",
-        "3118",
+        "3119",
         "--host",
         "localhost",
         "--callback-path",
         "/callback",
         "--static-oauth-client-info",
-        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3118/callback\",\"http://127.0.0.1:3118/callback\"]}"
+        "{\"client_id\":\"1601185624273.8899143856786\",\"redirect_uris\":[\"http://localhost:3119/callback\",\"http://127.0.0.1:3119/callback\"]}"
       ]
     },
     "metabase": {

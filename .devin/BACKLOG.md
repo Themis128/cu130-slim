@@ -25,8 +25,9 @@ gone.
   live via CDP :9229, 2026-11-07) — fill via `li_devapp_ops.py fill-form
   <Q_DL>` with a fresh app-bound Q_DL link from the products page
   (qualtrics-ops). All other products still REQ.
-- [ ] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
-  — was blocked on root-owned dir; ownership fixed 2026-11-07, now unblocked.
+- [x] `linkedin-access-forms` SKILL.md update (app creds + probe pointer)
+  — verified 2026-11-09: SKILL.md already carries the confirmed app creds
+  table + li_scope_probe/li_products_matrix/li_consent_trim pointers.
 - [ ] LinkedIn Verify-PIN modal inert under all automation (CDP/keyboard/
   OS-click/patchright) — retest now that the 48h fresh-app window passed;
   if still inert it is a fresh-app artifact, not anti-bot.
@@ -243,28 +244,44 @@ Leftovers:
 - Code fix: PR #1529 (workspace-aware token picker + refresh-all +
   offline _team_map.json/SLACK_TEAM_ID fallback; SLACK_TEAM_ID=T0C18DXH8P7
   added to .env).
-- [ ] N8N_API_KEY in .env is STALE (401→500; DB key is encrypted, owner
-  password in .env also rejected). n8n public API unusable until a fresh
-  key is minted via n8n UI (Settings→API) or valid owner creds. Affects:
-  slack_token_sync n8n-busy probe (defers n8n recreate forever),
-  n8n-cloudless skill tooling, Nextcloud-_drop workflow debugging.
-- [ ] slack-remote MCP server fails to connect in Devin sessions —
-  .devin/mcp_config.json + .cursor/mcp.json both bind mcp-remote callback
-  to port 3118 for `slack` AND `slack-cloudless` (collision); also the
-  .devin config uses Windows paths (C:\…) that don't resolve in WSL.
-- [ ] #socialauto-leads noise: CI/test leads (ci-test+*, verify-*,
-  platform-test*, devin-test*) flood the channel — add a test-lead filter
-  to the lead-notify path.
-- [ ] #engagement-gate stale manual-review items (2 IG reposts since
-  10-26, scores 8.5/7.0) — decide auto-expiry or surface in digest.
+- [x] N8N_API_KEY in .env was STALE — resolved 2026-11-09 WITHOUT a UI
+  mint: the `user_api_keys` row `devin-sync-20261108` (created 11-08) is a
+  valid JWT; verified `GET /api/v1/workflows` → 200, wrote it to `.env`
+  and PATCHed Infisical prod (survives the 05:30 pull). n8n public API
+  usable again for slack_token_sync probe / n8n-cloudless tooling.
+- [x] slack-remote MCP port collision — fixed in PR #1556: `slack` stays
+  on 3118, `slack-cloudless` moved to 3119 (incl. redirect_uris), and
+  mcp-remote paths corrected to the real WSL locations
+  (/home/tbaltzakis/.local/bin/node + /mnt/c/.../proxy.js). NOTE: port
+  fix ≠ auth — the xoxe tokens are still expired (see Slack section).
+- [x] #socialauto-leads noise — test-lead filter added in PR #1556:
+  `_is_test_notify_lead` skips Slack + digest email for ci-test/verify-/
+  platform-test/devin-test/@example.*/@test.* leads; machine webhook
+  still fires. Unit-tested (27 pass).
+- [x] #engagement-gate stale manual-review items — auto-expiry added in
+  PR #1556: `pending_human_gate` rows older than 7d are marked `expired`
+  each engagement sweep (dead drafts can't be actioned anyway).
 - [ ] www.cloudless.gr workspace digests (#socialauto, #ops-alerts,
   #orders/Polar) stopped 10-20 — different poster (site/n8n?), not the
   backend token path fixed above. Identify the sender and restore.
-- [ ] 14 posts/14d marked failed with "All targets were skipped
-  (unsupported for publishing)" — actually dedup/QA guardrails
-  (identical-media 30d, duplicate content, media semantic QA). Working
-  as intended but status=failed is misleading; consider a 'suppressed'
-  status so failure metrics stay honest.
+- [x] "All targets were skipped" posts — resolved in PR #1556:
+  `PostStatus.SUPPRESSED` + rollup change (guardrail skips ≠ failures),
+  Alembic `s9p9r8s7t6u5` adds the enum value (verified single head, DB
+  already migrated).
+- [x] devapp-channel-actions dedup verified 2026-11-09: hash =
+  sha256(date|platform|instruction) checked against posts.meta_data —
+  4x/day sweeps only materialise the first run's posts. X-quota spam
+  fixed in PR #1556: `devapp_health` alerts now dedup per
+  platform+reason for 24h via the analytics_events ledger (was: alert
+  on EVERY datalake-insights sweep while quota stayed exhausted).
+- [ ] Rotate POSTGRES_PASSWORD + Infisical UA client secret — both were
+  printed in transcripts. Needs a maintenance window: ALTER USER inside
+  social-postgres, update .env + Infisical prod, recreate all
+  DB-connected services. Not done — high blast radius.
+- [ ] compose-watchdog critical list — verified already covered:
+  `social-stack-watchdog.sh` (5-min cron) owns infisical + postgres
+  restarts and /api/status health; compose-watchdog CORE already
+  includes social-postgres + redis. No change needed.
 
 ### Synigoros (Ombudsman) complaint ops — monitor repaired (2026-11-08)
 

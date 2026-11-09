@@ -515,3 +515,57 @@ class TestNotify:
 
         monkeypatch.setattr(L.httpx, "AsyncClient", lambda **kw: _C())
         await L.notify_lead_created(_lead(notes="n"))  # no raise
+
+    @pytest.mark.asyncio
+    async def test_test_lead_skips_slack_and_email_but_keeps_webhook(self, monkeypatch):
+        monkeypatch.setattr(
+            L,
+            "get_settings",
+            lambda: self._settings(
+                SLACK_LEADS_WEBHOOK_URL="http://sl",
+                DIGEST_EMAIL_TO="ops@x.co",
+                LEAD_CREATED_WEBHOOK_URL="http://wh",
+            ),
+        )
+        post_slack = AsyncMock()
+        import app.services.slack_notifications as sn
+
+        monkeypatch.setattr(sn, "_post_slack_text", post_slack)
+        send_email = AsyncMock()
+        import app.services.email_digest as ed
+
+        monkeypatch.setattr(ed, "send_email", send_email)
+        posts = []
+
+        class _C:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            async def post(self, url, **kw):
+                posts.append(url)
+
+        monkeypatch.setattr(L.httpx, "AsyncClient", lambda **kw: _C())
+        await L.notify_lead_created(_lead(email="ci-test+run42@example.com", name="CI Test"))
+        post_slack.assert_not_awaited()
+        send_email.assert_not_awaited()
+        assert posts == ["http://wh"]  # machine webhook still fires
+
+    @pytest.mark.asyncio
+    async def test_real_lead_still_notifies(self, monkeypatch):
+        monkeypatch.setattr(
+            L, "get_settings", lambda: self._settings(SLACK_LEADS_WEBHOOK_URL="http://sl", DIGEST_EMAIL_TO="ops@x.co")
+        )
+        post_slack = AsyncMock()
+        import app.services.slack_notifications as sn
+
+        monkeypatch.setattr(sn, "_post_slack_text", post_slack)
+        send_email = AsyncMock()
+        import app.services.email_digest as ed
+
+        monkeypatch.setattr(ed, "send_email", send_email)
+        await L.notify_lead_created(_lead(email="owner@realbiz.gr", name="Real Owner"))
+        post_slack.assert_awaited_once()
+        send_email.assert_awaited_once()
