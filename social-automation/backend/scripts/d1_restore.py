@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import sys
 
-from app.services.db_sync import SYNC_TABLES, SyncService, POSTGRES_WRITE_OWNED
+from app.services.db_sync import POSTGRES_WRITE_OWNED, SYNC_TABLES, SyncService
 
 
 async def restore_write_owned(svc: SyncService) -> None:
