@@ -555,9 +555,7 @@ class TestNotify:
 
     @pytest.mark.asyncio
     async def test_real_lead_still_notifies(self, monkeypatch):
-        monkeypatch.setattr(
-            L, "get_settings", lambda: self._settings(SLACK_LEADS_WEBHOOK_URL="http://sl", DIGEST_EMAIL_TO="ops@x.co")
-        )
+        monkeypatch.setattr(L, "get_settings", lambda: self._settings(SLACK_LEADS_WEBHOOK_URL="http://sl", DIGEST_EMAIL_TO="ops@x.co"))
         post_slack = AsyncMock()
         import app.services.slack_notifications as sn
 

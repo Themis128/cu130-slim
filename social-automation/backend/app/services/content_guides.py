@@ -26,11 +26,7 @@ def _platform_fit_lines() -> dict[str, str]:
         data = json.loads((Path(__file__).with_name("platform_fit.json")).read_text())
     except Exception:
         return {}
-    return {
-        k: v["guide_line"]
-        for k, v in data.items()
-        if isinstance(v, dict) and v.get("guide_line")
-    }
+    return {k: v["guide_line"] for k, v in data.items() if isinstance(v, dict) and v.get("guide_line")}
 
 
 _FIT = _platform_fit_lines()
@@ -114,10 +110,7 @@ PLATFORM_GUIDES: dict[str, str] = {
 # Append the canonical audience-fit line (platform_fit.json) to every guide
 # that has one — keeps generation prompts aligned with what each platform's
 # audience/algorithm actually rewards. Edit the JSON, not these strings.
-PLATFORM_GUIDES = {
-    k: v + (f" Audience fit: {_FIT[k]}." if k in _FIT else "")
-    for k, v in PLATFORM_GUIDES.items()
-}
+PLATFORM_GUIDES = {k: v + (f" Audience fit: {_FIT[k]}." if k in _FIT else "") for k, v in PLATFORM_GUIDES.items()}
 
 HASHTAG_RULES = """\
 HASHTAG RULES (critical for 2026 platform algorithms):

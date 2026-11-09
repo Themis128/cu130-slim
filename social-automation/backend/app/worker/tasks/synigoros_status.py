@@ -63,13 +63,15 @@ def _gmail_access_token() -> str:
     csec = env.get("GMAIL_OAUTH_CLIENT_SECRET", "")
     if not (rt and cid and csec):
         raise RuntimeError("gmail oauth creds missing in /app/.env")
-    data = urllib.parse.urlencode({
-        "client_id": cid, "client_secret": csec,
-        "refresh_token": rt, "grant_type": "refresh_token",
-    }).encode()
-    r = urllib.request.urlopen(
-        urllib.request.Request("https://oauth2.googleapis.com/token", data=data), timeout=20
-    )
+    data = urllib.parse.urlencode(
+        {
+            "client_id": cid,
+            "client_secret": csec,
+            "refresh_token": rt,
+            "grant_type": "refresh_token",
+        }
+    ).encode()
+    r = urllib.request.urlopen(urllib.request.Request("https://oauth2.googleapis.com/token", data=data), timeout=20)
     return json.load(r)["access_token"]
 
 
@@ -103,8 +105,7 @@ def _gmail_otp(since_epoch: float, wait_s: int = 100) -> str | None:
                 continue
             try:
                 req = urllib.request.Request(
-                    f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}"
-                    "?format=metadata&metadataHeaders=Subject",
+                    f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}?format=metadata&metadataHeaders=Subject",
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 full = json.load(urllib.request.urlopen(req, timeout=20))
