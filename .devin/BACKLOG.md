@@ -427,3 +427,35 @@ Leftovers:
   keep their own dark campaign renderer — not migrated (broadcast campaigns,
   user-authored HTML). Decide if they should move to the funnel layout.
 - [ ] BOOKING_DM_STEPS (nurture_sequence) are DMs, not email — out of scope.
+
+## 2026-11-09 — Docker data-disk loss → full stack recovery
+
+- Docker Desktop data disk (`docker_data.vhdx`) lost container/volume/image
+  metadata ~13:54; VHDX itself intact (~20GB) but engine state was empty.
+- Recovered all 24 named volumes from the 2026-11-09 nightly NAS backup
+  (`devoptimizer-backups/nightly`, pgdumpall + vol-*.tar.gz) via
+  `/home/tbaltzakis/docker-restore/restore-volumes.sh` — Postgres ~395MB,
+  Redis, Mautic, MinIO, browser/session volumes all verified.
+- `docker compose pull` hit Docker Hub 429s; retried after cooldown.
+  Local-only images (`local/promtail-healthcheck`, `cu130-slim-browser-novnc`,
+  `portainer/portainer-ce:2.39.6-healthcheck`) are compose `build:` targets.
+- Two latent build breaks fixed (PR #1567): `Dockerfile.portainer-healthcheck`
+  was never committed (recreated: portainer-ce + static busybox for the
+  `/busybox wget` healthcheck); `browser-novnc/Dockerfile` ran apt-get before
+  `USER root` while sidecar-base now ends `USER app` — fresh builds failed on
+  the apt lock.
+- flower crash-loop: `mher/flower:2.2.0` ships Python 3.15 without `packaging`
+  → kombu ImportError. Patched local tag via derived image
+  (`python -m ensurepip && pip install packaging`, tagged over 2.2.0) — now
+  healthy. Durable fix still needed: pin/bump flower or add packaging to a
+  derived image in compose (local tag survives until next pull_policy refresh).
+- Post-recovery verified: `/health` ok, 4/4 celery nodes, alembic head
+  `s9p9r8s7t6u5` on restored DB (44 leads / 374 posts / 13 accounts), n8n 200,
+  Mautic 200, `social.cloudless.gr/pricing` 200 via cloudflared.
+- Synigoros monitor OTP gate fixed same day (PRs #1561/#1563/#1564) — see
+  Synigoros section above.
+- [ ] Take a fresh post-recovery NAS backup once stack is confirmed stable
+  (nightly job should do it; verify tomorrow's run).
+- [ ] `docker model`/DMR + GPU services (`social-media-comfyui-gpu`,
+  `instagram-private-api`, sidecars) are stack-ops sleep-managed Exited —
+  expected idle state, not a fault. Wake on demand via stackctl.

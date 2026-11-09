@@ -1,0 +1,6 @@
+# Portainer CE + a static busybox binary so the compose healthcheck
+# (`/busybox wget -q -O /dev/null http://127.0.0.1:9000/api/status`)
+# works — the upstream image ships no shell or wget.
+FROM busybox:1.36.1-musl AS busybox
+FROM portainer/portainer-ce:2.39.6
+COPY --from=busybox /bin/busybox /busybox
