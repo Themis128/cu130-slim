@@ -232,9 +232,11 @@ async function notify(text) {
   try { prev = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8')); } catch {}
   try {
     const g = await checkGmail(prev && prev.mailId);
+    // Gmail lane is bookkeeping only (mailId dedupe + lastNews for the 3-day
+    // follow-up rule) — notify ONLY on real status changes (2026-11-09):
+    // OTP/form emails are noise, the 🔔 two-read confirmation covers changes.
     if (g && g.newSubjects.length) {
-      await notify(`📨 Νέο email από Συνήγορο του Πολίτη!\n${g.newSubjects.map(s => '• ' + s).join('\n')}\n\nΗ κατάσταση της αναφοράς πιθανόν άλλαξε — έλεγξε το Gmail.`);
-      log(`NEW MAIL: ${g.newSubjects.join(' | ')}`);
+      log(`NEW MAIL (no notify): ${g.newSubjects.join(' | ')}`);
       prev = { ...(prev || {}), lastNews: new Date().toISOString() };
     }
     if (g) prev = { ...(prev || {}), mailId: g.mailId };
