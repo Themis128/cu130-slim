@@ -370,3 +370,16 @@ Leftovers:
   unguarded `Log` calls inside `Get-SlackToken`/`Send-Slack` polluted
   their return values (array instead of bool/token, truthy-on-failure).
   All Log calls inside value-returning functions now use `$null = Log`.
+
+### platform-fit reland (2026-11-09)
+
+- #1543 was auto-closed MERGED with an EMPTY diff — sweep/rebuild tooling
+  reset platform-content-fit-brain onto master and the feature commits
+  only survived on local `pcfit-merge`. Relanded file-for-file as
+  platform-fit-reland → PR #1552. If a PR shows MERGED with nfiles:0,
+  suspect a rebuild wipe — check `git ls-tree origin/<branch>` before
+  trusting the merge.
+- infisical-sync root cause found: daily 05:30 pull rewrote .env as
+  root:root 600 → whole-stack EACCES crash-loop. Fixed at source:
+  `pull --owner 1001:1001` added to infisical-sync.py + cron line
+  (home-ops f1b391d). mount-check cron also self-heals unreadable .env.

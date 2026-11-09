@@ -31,6 +31,13 @@ Read `social-content-core` first.
 
 ## Content rules
 
+<!-- PLATFORM-FIT:BEGIN facebook -->
+### What the Facebook audience/algorithm favors
+- Older, community-oriented demographic: external link shares + news articles outperform here vs LinkedIn/IG; group-style discussion, recommendations, and long-form video or live streams get strong reach.
+- Both surfaces below already fit this — personal build-log = community content; page link/news posts = the link-share lane.
+
+<!-- PLATFORM-FIT:END -->
+
 ### Personal profile (`9355ed63`) — the messy middle
 - Raw build-in-public: Pi cluster experiments, Cloudflare tricks, the
   automation pipeline, failures, real costs. **Do NOT polish into corporate
