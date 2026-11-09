@@ -96,7 +96,8 @@ class TestVerifyStory:
     @pytest.mark.asyncio
     async def test_live_when_story_present(self, monkeypatch):
         monkeypatch.setattr(
-            pv, "InstagrapiClient",
+            pv,
+            "InstagrapiClient",
             lambda **kw: _StoriesClient(stories=[{"pk": 111}, {"id": "story-9"}]),
         )
         assert await pv._verify_story("story-9", datetime.now(UTC), None) == "live"
@@ -105,7 +106,8 @@ class TestVerifyStory:
     @pytest.mark.asyncio
     async def test_client_error_is_unknown(self, monkeypatch):
         monkeypatch.setattr(
-            pv, "InstagrapiClient",
+            pv,
+            "InstagrapiClient",
             lambda **kw: _StoriesClient(exc=InstagrapiError("login wall")),
         )
         assert await pv._verify_story("s1", datetime.now(UTC), None) == "unknown"

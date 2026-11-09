@@ -3031,7 +3031,13 @@ async def _publish_instagram(
         graph_token = await _resolve_ig_user_token(access_token, account, db)
         return _with_publish_path(
             await _publish_instagram_via_graph(
-                graph_token, text, account, post, media_paths, storage_paths, db,
+                graph_token,
+                text,
+                account,
+                post,
+                media_paths,
+                storage_paths,
+                db,
             ),
             "graph_fb",
         )
@@ -3040,7 +3046,13 @@ async def _publish_instagram(
     graph_token = await _resolve_ig_user_token(access_token, account, db)
     return _with_publish_path(
         await _publish_instagram_via_graph(
-            graph_token, text, account, post, media_paths, storage_paths, db,
+            graph_token,
+            text,
+            account,
+            post,
+            media_paths,
+            storage_paths,
+            db,
         ),
         "graph_fb",
     )

@@ -120,12 +120,14 @@ def test_tier_resolution():
 
 @pytest.mark.asyncio
 async def test_lifecycle_bands(monkeypatch):
-    fake = FakeRedis({
-        "espo:leadscore:l1": json.dumps({"band": "COLD"}),
-        "espo:leadscore:l2": "{bad json",
-        "espo:leadscore:l3": json.dumps({"band": "weird"}),
-        "espo:leadscore:l4": json.dumps({"band": "hot"}),
-    })
+    fake = FakeRedis(
+        {
+            "espo:leadscore:l1": json.dumps({"band": "COLD"}),
+            "espo:leadscore:l2": "{bad json",
+            "espo:leadscore:l3": json.dumps({"band": "weird"}),
+            "espo:leadscore:l4": json.dumps({"band": "hot"}),
+        }
+    )
     monkeypatch.setattr(mw, "_redis", AsyncMock(return_value=fake))
     out = await mw._lifecycle_bands(["l1", "l2", "l3", "l4"])
     assert out == {"l1": "cold", "l4": "hot"}
@@ -172,12 +174,14 @@ async def test_email_ids_cached(redis, mautic):
 @pytest.mark.asyncio
 async def test_email_ids_fetch_and_cache(redis, mautic):
     get, _ = mautic
-    get.return_value = {"emails": [
-        {"id": 5, "name": "Win-back 1: the 30-minute audit"},
-        {"id": 6, "name": "Win-back 2: what the funnel data actually shows (v2)"},
-        {"id": 7, "name": "Win-back 3: should I close your file"},
-        {"id": 9, "name": "unrelated"},
-    ]}
+    get.return_value = {
+        "emails": [
+            {"id": 5, "name": "Win-back 1: the 30-minute audit"},
+            {"id": 6, "name": "Win-back 2: what the funnel data actually shows (v2)"},
+            {"id": 7, "name": "Win-back 3: should I close your file"},
+            {"id": 9, "name": "unrelated"},
+        ]
+    }
     ids = await mw._email_ids()
     assert ids == {"0": 5, "1": 6, "2": 7}  # prefix match for slot 1
     assert json.loads(redis.store["wb:email_ids"]) == {"0": 5, "1": 6, "2": 7}
@@ -186,10 +190,12 @@ async def test_email_ids_fetch_and_cache(redis, mautic):
 @pytest.mark.asyncio
 async def test_email_ids_partial_match_not_cached(redis, mautic):
     get, _ = mautic
-    get.return_value = {"emails": [
-        {"id": 1, "name": "Win-back 1: the 30-minute audit"},
-        {"id": 9, "name": "unrelated"},
-    ]}
+    get.return_value = {
+        "emails": [
+            {"id": 1, "name": "Win-back 1: the 30-minute audit"},
+            {"id": 9, "name": "unrelated"},
+        ]
+    }
     ids = await mw._email_ids()
     assert ids == {"0": 1}  # partial result returned but not cached
     assert "wb:email_ids" not in redis.store
@@ -242,14 +248,14 @@ async def test_sweep_junk_and_tier_skips(redis, mautic, leads):
     get, _ = mautic
     await _seed_ids(redis)
     leads.return_value = [
-        _lead(id_="j1", email="probe@test.dev"),                 # junk
-        _lead(id_="j2", email="me@cloudless.gr"),               # own domain junk
+        _lead(id_="j1", email="probe@test.dev"),  # junk
+        _lead(id_="j2", email="me@cloudless.gr"),  # own domain junk
         _lead(id_="w1", email="warm@acme.gr", status="Assigned"),  # warm tier
         _lead(id_="c1", email="cold@acme.gr", status="Dead"),
     ]
     get.side_effect = [
         {"contacts": {"9": {"id": 42, "email": "cold@acme.gr"}}},  # contact search
-        {"contact": {"lastActive": ""}},                            # lastActive
+        {"contact": {"lastActive": ""}},  # lastActive
     ]
     out = await mw.run_mautic_winback_sweep(dry_run=True)
     assert out["scanned"] == 4
@@ -276,20 +282,32 @@ async def test_sweep_engagement_pauses(redis, mautic, leads):
     leads.return_value = [_lead(id_="c1", email="cold@acme.gr", status="Dead")]
 
     # step 0 sent just now → next step (+5d) not due → skipped_state
-    await redis.set(mw._state_key("cold@acme.gr"), json.dumps({
-        "step": 0, "started_at": _now(), "last_sent": _now(),
-        "next_at": (datetime.now(UTC) + timedelta(days=5)).isoformat(),
-    }))
+    await redis.set(
+        mw._state_key("cold@acme.gr"),
+        json.dumps(
+            {
+                "step": 0,
+                "started_at": _now(),
+                "last_sent": _now(),
+                "next_at": (datetime.now(UTC) + timedelta(days=5)).isoformat(),
+            }
+        ),
+    )
     out = await mw.run_mautic_winback_sweep(dry_run=True)
     assert out["sent"] == 0
 
     # lastActive newer than last_sent → engaged terminal state
-    await redis.set(mw._state_key("cold@acme.gr"), json.dumps({
-        "step": 0,
-        "started_at": (datetime.now(UTC) - timedelta(days=6)).isoformat(),
-        "last_sent": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
-        "next_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
-    }))
+    await redis.set(
+        mw._state_key("cold@acme.gr"),
+        json.dumps(
+            {
+                "step": 0,
+                "started_at": (datetime.now(UTC) - timedelta(days=6)).isoformat(),
+                "last_sent": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+                "next_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+            }
+        ),
+    )
     get.side_effect = [
         {"contacts": {"9": {"id": 42, "email": "cold@acme.gr"}}},
         {"contact": {"lastActive": _now()}},  # active AFTER last_sent
@@ -327,7 +345,7 @@ async def test_sweep_send_failure_and_no_contact(redis, mautic, leads):
         _lead(id_="c2", email="fail@acme.gr", status="Dead"),
     ]
     get.side_effect = [
-        {"contacts": {}},                                             # gone@ → no contact
+        {"contacts": {}},  # gone@ → no contact
         {"contacts": {"8": {"id": 43, "email": "fail@acme.gr"}}},
         {"contact": {"lastActive": ""}},
     ]
@@ -344,10 +362,17 @@ async def test_sweep_step_progression_to_exhausted(redis, mautic, leads):
     await _seed_ids(redis)
     leads.return_value = [_lead(id_="c1", email="cold@acme.gr", status="Dead")]
     old = (datetime.now(UTC) - timedelta(days=20)).isoformat()
-    await redis.set(mw._state_key("cold@acme.gr"), json.dumps({
-        "step": 1, "started_at": old, "last_sent": old,
-        "next_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
-    }))
+    await redis.set(
+        mw._state_key("cold@acme.gr"),
+        json.dumps(
+            {
+                "step": 1,
+                "started_at": old,
+                "last_sent": old,
+                "next_at": (datetime.now(UTC) - timedelta(days=1)).isoformat(),
+            }
+        ),
+    )
     get.side_effect = [
         {"contacts": {"9": {"id": 42, "email": "cold@acme.gr"}}},
         {"contact": {"lastActive": ""}},

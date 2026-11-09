@@ -142,9 +142,7 @@ def collect_window() -> dict[str, list[dict]]:
     oldest = f"{time.time() - _WINDOW_S:.6f}"
     out: dict[str, list[dict]] = {}
     for name, cid in _channels().items():
-        resp = _slack_api(
-            "conversations.history", channel=cid, oldest=oldest, limit=200
-        )
+        resp = _slack_api("conversations.history", channel=cid, oldest=oldest, limit=200)
         msgs = resp.get("messages") or []
         if not resp.get("ok"):
             logger.info("slack ops journal: %s history failed: %s", name, resp.get("error"))
@@ -244,11 +242,7 @@ async def run_journal() -> dict:
     note_ok = await _write_note(title, md)
 
     memory_ok = False
-    summary = (
-        f"Slack ops {day}: {stats['messages']} msgs/24h, "
-        f"{stats['incident']} incidents, {stats['warning']} warnings "
-        f"across {stats['channels']} channels."
-    )
+    summary = f"Slack ops {day}: {stats['messages']} msgs/24h, {stats['incident']} incidents, {stats['warning']} warnings across {stats['channels']} channels."
     for team_id in await _team_ids():
         memory_ok = (
             await company_brain.remember(
