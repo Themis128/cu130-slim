@@ -219,6 +219,7 @@ async def test_dispatch_full_sweep(monkeypatch):
         _DB(
             [
                 [fresh],
+                [],  # stale human-gate expiry query (none in this fixture)
                 [],  # hi-score repost query (none in this fixture)
                 [drafted, long_draft, no_cand, empty],
                 [cand_li],
@@ -307,7 +308,7 @@ async def test_dispatch_alert_failure_is_swallowed(monkeypatch):
     import app.services.slack_notifications as SN
 
     a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
-    _use_db(monkeypatch, _DB([[], [], [a], [_row_cand(platform="linkedin")], []]))
+    _use_db(monkeypatch, _DB([[], [], [], [a], [_row_cand(platform="linkedin")], []]))
     monkeypatch.setattr(DMR, "call_dmr_chat", AsyncMock(return_value={"text": "draft"}))
     monkeypatch.setattr(SN, "_post_slack_text", AsyncMock(side_effect=RuntimeError("slack down")))
     monkeypatch.delenv("SLACK_ENGAGEMENT_WEBHOOK_URL", raising=False)
@@ -352,16 +353,16 @@ async def test_gate_ping_sent_once_not_on_every_sweep(monkeypatch):
     _patch_actors(monkeypatch, {})
     a = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
 
-    _use_db(monkeypatch, _DB([[], [], [a], [_row_cand(platform="linkedin")], []]))
+    _use_db(monkeypatch, _DB([[], [], [], [a], [_row_cand(platform="linkedin")], []]))
     await ENG._run(5)
     assert slack.await_count == 1
     assert "<!channel>" in slack.await_args.kwargs["text"]
 
     # next beat tick: same row still pending_human_gate, but already drafted
-    db2 = _use_db(monkeypatch, _CountingDB([[], [], [], []]))
+    db2 = _use_db(monkeypatch, _CountingDB([[], [], [], [], []]))
     out = await ENG._run(5)
     assert slack.await_count == 1  # no re-ping
-    assert db2.queries == 4  # score, drafts_needed, dispatch — no 2h gate re-query
+    assert db2.queries == 5  # score, expiry, drafts_needed, dispatch — no 2h gate re-query
     assert out == {"scored": 0, "drafted": 0, "dispatched": [], "failed": []}
 
 
@@ -380,6 +381,7 @@ async def test_gate_ping_skips_undrafted_and_truncates(monkeypatch):
         _DB(
             [
                 [],
+                [],  # stale human-gate expiry query
                 [],  # hi-score repost query
                 [exact, blank],
                 [_row_cand(platform="linkedin", post_id="p1")],
@@ -393,6 +395,23 @@ async def test_gate_ping_skips_undrafted_and_truncates(monkeypatch):
     assert slack.await_count == 1  # blank draft → no ping
     text = slack.await_args.kwargs["text"]
     assert "z" * 140 in text and "…" not in text  # exactly 140 → not truncated
+
+
+@pytest.mark.asyncio
+async def test_stale_human_gate_items_expire(monkeypatch):
+    """pending_human_gate rows older than 7d are marked expired each sweep so
+    the review queue doesn't accumulate dead drafts."""
+    _patch_actors(monkeypatch, {})
+    stale = _row_action(platform="linkedin", action="comment", status="pending_human_gate")
+    fresh_gate = _row_action(platform="linkedin", action="comment", status="pending_human_gate", target_post_id="p9")
+    db = _use_db(monkeypatch, _DB([[], [stale], [], [fresh_gate], [_row_cand(platform="linkedin", post_id="p9")], []]))
+    monkeypatch.setattr(
+        "app.services.dmr.call_dmr_chat", AsyncMock(return_value={"text": "draft"})
+    )
+    await ENG._run(5)
+    assert stale.status == "expired"
+    assert fresh_gate.status == "pending_human_gate"
+    assert db.commits >= 1
 
 
 @pytest.mark.asyncio

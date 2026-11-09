@@ -465,15 +465,34 @@ async def create_lead(
     return lead
 
 
+_TEST_NOTIFY_MARKERS = (
+    "ci-test",
+    "verify-",
+    "platform-test",
+    "devin-test",
+    "@example.com",
+    "@example.invalid",
+    "@test.dev",
+    "@test.local",
+)
+
+
+def _is_test_notify_lead(lead: Lead) -> bool:
+    """CI/synthetic leads flood #socialauto-leads — keep them out of Slack/email."""
+    haystack = f"{lead.email or ''} {lead.name or ''}".lower()
+    return any(marker in haystack for marker in _TEST_NOTIFY_MARKERS)
+
+
 async def notify_lead_created(lead: Lead) -> None:
     settings = get_settings()
+    is_test = _is_test_notify_lead(lead)
 
     # 1) Slack (optional) — prefer dedicated lead webhook, fallback to digest webhook.
     slack_webhook = (getattr(settings, "SLACK_LEADS_WEBHOOK_URL", "") or "").strip() or (settings.SLACK_WEBHOOK_URL or "").strip()
     slack_token = (settings.SLACK_BOT_TOKEN or "").strip() or (settings.SLACK_ACCESS_TOKEN or "").strip()
     slack_channel = (getattr(settings, "SLACK_LEADS_CHANNEL_ID", "") or "").strip() or (settings.SLACK_CHANNEL_ID or "").strip()
 
-    if slack_webhook or slack_token:
+    if (slack_webhook or slack_token) and not is_test:
         try:
             from app.services.slack_notifications import _post_slack_text
 
@@ -501,7 +520,7 @@ async def notify_lead_created(lead: Lead) -> None:
             logger.debug("Slack lead notify failed (non-fatal)", exc_info=True)
 
     # 1b) Email (optional) — same alert to the digest mailbox via SMTP.
-    if (settings.DIGEST_EMAIL_TO or "").strip():
+    if (settings.DIGEST_EMAIL_TO or "").strip() and not is_test:
         try:
             from app.services.email_digest import send_email
 
