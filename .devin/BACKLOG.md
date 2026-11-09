@@ -298,3 +298,9 @@ Leftovers:
 - [ ] Monitor followup fires ~2026-11-11 if status stays «Προς Αποδοχή»
   (lastNews seeded 08/11); verify followup.js SMTP/MAIL_OUTBOUND path works
   on first real send (httpSend → mail-outbound worker preferred).
+- kakkava-brain-sync hardening (PR #1549): docker cp from /mnt/c flakes
+  ENOMEM inside its internal tar — retry x3 + container file-count must
+  equal host count before ingest (partial copies would silently drop
+  docs). Verified live: attempts 1-2 failed, 3 succeeded → 82 files,
+  364 memories, index note restored. NOTE: manifest state lives at
+  /root/.local/state/kakkava-brain-sync/ (cron runs as root).
