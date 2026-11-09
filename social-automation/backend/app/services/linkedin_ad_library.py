@@ -200,7 +200,7 @@ async def run_watch(db: AsyncSession | None = None) -> dict:
             continue
         w.last_run_at = now
         if "error" in result:
-            errors.append(f"{w.kind}:{w.value}: HTTP {result['error']}")
+            errors.append(f"{w.kind}:{w.value}: HTTP {result['error']} {str(result.get('body', ''))[:160]}")
             continue
         for row in result.get("ads", []):
             seen_urls.add(row["ad_url"])
