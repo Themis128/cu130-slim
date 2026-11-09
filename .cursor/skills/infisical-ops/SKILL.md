@@ -26,7 +26,37 @@ Login: `POST /api/v1/auth/universal-auth/login {clientId,clientSecret}` -> `acce
 
 ## Tools
 
-`scripts/push-secret.sh <NAME> <value-file|->` — logs in via universal-auth (creds from `~/.config/secrets/infisical`), pushes to `cloudless-infra`/prod, masks value in output.
+`scripts/push-secret.sh <NAME> <value-file|->` — logs in via universal-auth (creds from `/root/.config/secrets/infisical` — note: root's home, not `/home/tbaltzakis`), pushes to `cloudless-infra`/prod, masks value in output.
+
+## Bulk sync (added 2026-11-09)
+
+`/home/tbaltzakis/home-ops/scripts/infisical-sync.py` (home-ops repo) is the
+canonical bulk tool — `.env` is now a generated cache, Infisical prod is the
+source of truth:
+
+- `push <envfile>` — upsert every real KEY=VALUE (skips comments/empties/
+  placeholders). Creates missing; `--overwrite` updates existing. Prints key
+  names + status only, never values. Verified: all 219 live `.env` keys are in
+  prod (252 total incl. 33 Infisical-only).
+- `pull --out <file>` — write Infisical secrets as dotenv. Merge mode:
+  Infisical wins conflicts, local-only keys preserved, timestamped `.bak-*`
+  backup, mode 600. `--force` writes Infisical-only.
+- `status <envfile>` — name/count diff between file and Infisical.
+
+Cron `/etc/cron.d/infisical-sync` pulls prod → `.env` daily 05:30
+(`~/logs/infisical-sync.log`). Env changes still need `docker compose up -d`.
+New secrets: add to Infisical (UI/`push-secret.sh`/`infisical-sync.py push`),
+never hand-edit `.env` long-term.
+
+Gotchas learned the hard way:
+- `GET /api/v3/secrets/raw` PAGINATES — always pass `limit=1000` or ~26% of
+  keys silently go missing (bit us: 66 keys invisible → false "missing").
+- Error bodies are HTTP 4xx + `{"statusCode":400,"message":"Secret already exist"}`
+  — check statusCode, don't count any JSON as success.
+- Helper `/root/.local/bin/infisical-api.sh` curls INSIDE the `infisical`
+  container (no published-port dependency) with a cached UA token.
+- Multiline secret values are written as literal `\n` in `.env` — fine for
+  current consumers; revisit if a consumer needs real newlines.
 
 ## Gotchas
 
