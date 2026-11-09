@@ -308,3 +308,48 @@ async def test_slack_report_import_failure_returns(monkeypatch):
     await crm_lifecycle._slack_report(
         {"scored": 1, "rescored": 0, "converted": 0, "errors": 0, "dry_run": False, "details": [{"name": "x", "score": 1, "band": "cold"}]}
     )
+
+
+# ── engagement decay + score mirror ──────────────────────────────────────────
+
+
+def _aged_note(post: str, days: float):
+    from datetime import UTC, datetime, timedelta
+
+    return {"id": "n1", "post": post, "createdAt": (datetime.now(UTC) - timedelta(days=days)).isoformat()}
+
+
+def test_engagement_decay_bands():
+    lead = _lead(email="x@gmail.com")
+    base = crm_lifecycle.score_lead(lead, [])
+    fresh = crm_lifecycle.score_lead(lead, [_aged_note("Reply received: hi", 10)])
+    stale = crm_lifecycle.score_lead(lead, [_aged_note("Reply received: hi", 120)])
+    ancient = crm_lifecycle.score_lead(lead, [_aged_note("Reply received: hi", 200)])
+    assert fresh[0] - base[0] == 25
+    assert stale[0] - base[0] == 10
+    assert any("decayed" in r for r in stale[2])
+    assert ancient[0] == base[0]  # >180d engagement no longer counts
+
+
+def test_engagement_winback_marker_counts():
+    lead = _lead(email="x@gmail.com")
+    out = crm_lifecycle.score_lead(lead, [_aged_note("Win-back engagement: clicked audit link", 5)])
+    assert any("replied to outreach" in r for r in out[2])
+
+
+def test_note_age_days_edges():
+    assert crm_lifecycle._note_age_days({}) is None
+    assert crm_lifecycle._note_age_days({"createdAt": "not-a-date"}) is None
+    naive = crm_lifecycle._note_age_days({"createdAt": "2026-01-01T00:00:00"})
+    assert naive is not None and naive > 300
+
+
+@pytest.mark.asyncio
+async def test_store_score_failure_swallowed(monkeypatch):
+    import redis.asyncio as aioredis
+
+    def _boom(*a, **k):
+        raise RuntimeError("redis down")
+
+    monkeypatch.setattr(aioredis, "from_url", _boom)
+    await crm_lifecycle._store_score("l1", 50, "warm")  # must not raise

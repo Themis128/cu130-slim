@@ -48,6 +48,10 @@ class _Client:
         _Client.calls.append(("POST", url, data))
         return _Client.resp
 
+    async def delete(self, url):
+        _Client.calls.append(("DELETE", url, None))
+        return _Client.resp
+
 
 @pytest.fixture
 def http(monkeypatch):
@@ -153,6 +157,43 @@ async def test_create_segment_new_and_existing(monkeypatch):
 
     monkeypatch.setattr(mc, "list_segments", AsyncMock(return_value=[]))
     assert await mc.create_segment("Hot", "hot") == {"errors": [{"code": 400}]}
+
+
+@pytest.mark.asyncio
+async def test_mautic_delete(http):
+    http.resp = _Resp({"success": 1})
+    assert await mc.mautic_delete("/segments/3/contact/7/remove") == {"success": 1}
+    assert http.calls[-1] == ("DELETE", "http://mautic:80/api/segments/3/contact/7/remove", None)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(mc, "get_settings", lambda: _settings(MAUTIC_BASE_URL=""))
+    with pytest.raises(RuntimeError):
+        await mc.mautic_delete("/x")
+    monkeypatch.undo()
+    http.resp = _Resp(status=500, text="boom", bad_json=True)
+    out = await mc.mautic_delete("/x")
+    assert out["_status"] == 500
+
+
+@pytest.mark.asyncio
+async def test_remove_from_segment(monkeypatch):
+    delete = AsyncMock(return_value={"success": 1})
+    monkeypatch.setattr(mc, "mautic_delete", delete)
+    assert await mc.remove_from_segment(7, 3) == {"success": 1}
+    assert delete.await_args.args == ("/segments/3/contact/7/remove",)
+
+
+@pytest.mark.asyncio
+async def test_list_recently_active_contacts(monkeypatch):
+    get = AsyncMock(return_value={"contacts": {"1": {"id": 1, "lastActive": "x"}}})
+    monkeypatch.setattr(mc, "mautic_get", get)
+    out = await mc.list_recently_active_contacts(50)
+    assert out == [{"id": 1, "lastActive": "x"}]
+    params = get.await_args.kwargs["params"]
+    assert params["orderBy"] == "lastActive" and params["orderByDir"] == "DESC"
+    get.return_value = {"contacts": [{"id": 2}]}
+    assert await mc.list_recently_active_contacts() == [{"id": 2}]
+    get.return_value = {}
+    assert await mc.list_recently_active_contacts() == []
 
 
 @pytest.mark.asyncio
