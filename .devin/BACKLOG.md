@@ -301,6 +301,15 @@ Leftovers:
   1500ms settle before extraction; (b) fresh arm left lastNews=null so the
   3-day auto-followup (followup.js → press@synigoros.gr) could never fire —
   arm now seeds lastNews=now.
+- [x] 2026-11-09: Synigoros added an email OTP gate on identify — monitor
+  failed 24 consecutive polls, each attempt emailing a 6-digit code.
+  monitor.js now detects the OTP prompt, fetches the newest code from Gmail
+  (subject decode + stripped HTML body + ~4.5min freshness; sends are
+  throttled so a re-identify may reuse a still-valid code), submits, retries
+  ≤3× requiring a newer email per retry. gmailAccessToken falls back to
+  .env GMAIL_OAUTH_CLIENT_ID/SECRET (gcp-oauth.keys.json absent on host).
+  Verified live 3×: fresh code → «Προς Αποδοχή» rendered, CHANGE alert sent,
+  errorStreak 24→0. PR #1563.
 - [ ] WSL repo `/home/tbaltzakis/cu130-slim` is the compose project working_dir
   but has NO `.env` — since the 2026-11-04 move off Windows, `${VAR}`
   interpolation resolves empty/default for everything except the 8 vars just
