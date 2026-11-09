@@ -183,3 +183,207 @@ class TestDecideShape:
             assert isinstance(d, BrainDecision)
             assert d.platform
             assert d.kind in {"post", "health"}
+
+
+# ── DB layer: collect_snapshot / run_for_team ─────────────────────────
+
+import uuid as _uuid
+from types import SimpleNamespace
+
+import pytest
+
+from app.models.content import PostStatus
+from app.services.central_brain import collect_snapshot, run_for_team
+
+
+class _Exec:
+    """Result stand-in — supports scalars()/unique()/all() chains."""
+
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return self
+
+    def unique(self):
+        return self
+
+    def all(self):
+        return self._rows
+
+
+class _DB:
+    """AsyncSession stand-in — execute() pops preset rows in call order."""
+
+    def __init__(self, *result_sets):
+        self._results = list(result_sets)
+
+    async def execute(self, *a, **k):
+        return _Exec(self._results.pop(0))
+
+
+def _devapp(platform, account_id, **payload):
+    return SimpleNamespace(
+        social_account_id=account_id,
+        meta_data={"platform": platform, **payload},
+    )
+
+
+class TestCollectSnapshot:
+    @pytest.mark.asyncio
+    async def test_merges_devapp_engagement_outcomes_followers_trends(self):
+        team = SimpleNamespace(id=_uuid.uuid4())
+        devapps = [
+            _devapp("LinkedIn", "acc-li", username="cloudless", ok=True,
+                    insights={"followers": 1200}),
+            _devapp("instagram", "acc-ig", ok=False, error="token revoked"),
+        ]
+        engagement = [("LinkedIn", 4.5, 12), ("threads", 1.0, 3)]
+        posts = [
+            SimpleNamespace(status=PostStatus.PUBLISHED, targets=[
+                SimpleNamespace(social_account=SimpleNamespace(platform="LinkedIn")),
+                SimpleNamespace(social_account=SimpleNamespace(platform="facebook")),
+            ]),
+            SimpleNamespace(status=PostStatus.FAILED, targets=[
+                SimpleNamespace(social_account=SimpleNamespace(platform="facebook")),
+            ]),
+        ]
+        followers = [("linkedin", 5000), ("tiktok", 800)]
+        trends = [SimpleNamespace(query="ai agents", source="gtrends", geo="GR",
+                                  classification="opportunity", traffic=95,
+                                  period_key="2026-11-08")]
+        snap = await collect_snapshot(
+            _DB(devapps, engagement, posts, followers, trends), team, now=NOW
+        )
+
+        li = snap.channels["linkedin"]
+        assert li.username == "cloudless"
+        assert li.followers == 1200  # devapp insights beat the follower snapshot
+        assert li.engagement_rate_7d == 4.5
+        assert li.posts_7d == 12
+        assert li.published_7d == 1 and li.failed_7d == 0
+
+        fb = snap.channels["facebook"]
+        assert fb.published_7d == 1 and fb.failed_7d == 1
+        assert snap.channels["instagram"].healthy is False
+        assert snap.channels["instagram"].health_reason == "token revoked"
+        assert snap.channels["tiktok"].followers == 800
+        assert snap.trends[0]["query"] == "ai agents"
+
+    @pytest.mark.asyncio
+    async def test_empty_sources_produce_empty_snapshot(self):
+        team = SimpleNamespace(id=_uuid.uuid4())
+        snap = await collect_snapshot(_DB([], [], [], [], []), team, now=NOW)
+        assert snap.channels == {}
+        assert snap.trends == []
+
+
+class TestRunForTeam:
+    def _db_with_healthy_channel(self):
+        return _DB(
+            [_devapp("linkedin", "acc-1", ok=True, insights={"followers": 900})],
+            [], [], [], [],
+        )
+
+    @pytest.mark.asyncio
+    async def test_dispatches_post_decisions_and_journals(self, monkeypatch):
+        scheduled_calls = []
+
+        async def fake_schedule(db, team, actions, **kw):
+            scheduled_calls.append((actions, kw))
+            return [{"platform": a.platform, "status": "scheduled"} for a in actions]
+
+        remembered = []
+
+        async def fake_remember(*a, **k):
+            remembered.append((a, k))
+
+        monkeypatch.setattr(
+            "app.services.monetization_executor.schedule_report_actions", fake_schedule
+        )
+        monkeypatch.setattr("app.services.company_brain.remember", fake_remember)
+
+        team = SimpleNamespace(id=_uuid.uuid4())
+        result = await run_for_team(self._db_with_healthy_channel(), team, now=NOW)
+
+        assert result["posts_dispatched"] >= 1
+        assert result["scheduled"]
+        actions, kw = scheduled_calls[0]
+        assert kw["source"] == "central-brain"
+        assert kw["dedup_field"] == "central_brain_action"
+        assert any(a.platform == "linkedin" for a in actions)
+        assert remembered  # plan journaled to company_brain
+
+    @pytest.mark.asyncio
+    async def test_no_post_decisions_skips_dispatch(self, monkeypatch):
+        async def fail_schedule(*a, **k):
+            raise AssertionError("schedule_report_actions must not be called")
+
+        monkeypatch.setattr(
+            "app.services.monetization_executor.schedule_report_actions", fail_schedule
+        )
+        # instagram ok=False → health decision only, no post actions
+        db = _DB(
+            [_devapp("instagram", "acc-1", ok=False, error="banned")],
+            [], [], [], [],
+        )
+        team = SimpleNamespace(id=_uuid.uuid4())
+        result = await run_for_team(db, team, now=NOW)
+        assert result["posts_dispatched"] == 0
+        assert result["decisions"][0]["kind"] == "health"
+
+
+# ── celery task wrapper ───────────────────────────────────────────────
+
+from app.worker.tasks import central_brain as cb_task
+
+
+class _SessionCM:
+    def __init__(self, db):
+        self._db = db
+
+    async def __aenter__(self):
+        return self._db
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _CommitDB(_DB):
+    def __init__(self, *result_sets):
+        super().__init__(*result_sets)
+        self.committed = False
+
+    async def commit(self):
+        self.committed = True
+
+
+class TestCentralBrainTask:
+    def test_entrypoint_delegates_to_run_async(self, monkeypatch):
+        sentinel = {"ok": True}
+
+        def fake_run_async(coro):
+            coro.close()
+            return sentinel
+
+        monkeypatch.setattr(cb_task, "run_async", fake_run_async)
+        assert cb_task.run_central_brain() is sentinel
+
+    @pytest.mark.asyncio
+    async def test_run_isolates_per_team_failures(self, monkeypatch):
+        good, bad = _uuid.uuid4(), _uuid.uuid4()
+        db = _CommitDB([SimpleNamespace(id=good), SimpleNamespace(id=bad)])
+
+        async def fake_run_for_team(db_, team, now=None):
+            if team.id == bad:
+                raise RuntimeError("boom")
+            return {"team_id": str(team.id), "posts_dispatched": 1}
+
+        monkeypatch.setattr(cb_task, "run_for_team", fake_run_for_team)
+        monkeypatch.setattr(cb_task, "task_session", lambda: _SessionCM(db))
+
+        out = await cb_task._run()
+        assert out["teams"] == 2
+        assert out["results"][0]["posts_dispatched"] == 1
+        assert out["results"][1]["status"] == "failed"
+        assert db.committed
