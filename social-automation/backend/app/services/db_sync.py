@@ -412,8 +412,8 @@ class SyncService:
             _nn_cols = d1_notnull & set(columns)
             if _nn_cols:
                 _samples: dict[str, Any] = {}
-                for r in rows:
-                    rd = dict(zip(columns, r, strict=False))
+                for sample_row in rows:
+                    rd = dict(zip(columns, sample_row, strict=False))
                     for col in _nn_cols:
                         if col not in _samples and rd.get(col) is not None:
                             _samples[col] = rd[col]
@@ -793,3 +793,4 @@ async def sync_after_worker_task(tables: list[str]) -> dict[str, dict[str, int]]
     except Exception as exc:
         logger.warning("sync_after_worker_task failed for %s: %s", tables, exc)
         return {}
+
