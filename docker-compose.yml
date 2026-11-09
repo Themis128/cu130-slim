@@ -1850,7 +1850,11 @@ services:
     networks:
       - backend
     ports:
-      - 127.0.0.1:9229:9229
+      # Host :9229 is the Chrome CDP debug lane (chrome-debug-profile) used by
+      # linkedin-devapp/gsis/idika/qualtrics ops — publishing airbyte health
+      # there makes Docker's port-forward fail with a 500. MCP clients reach
+      # this service on :9228 via the backend network; 9329 is health-only.
+      - 127.0.0.1:9329:9229
     environment:
       - AIRBYTE_MCP_PORT=9228
       - AIRBYTE_MCP_HEALTH_PORT=9229
