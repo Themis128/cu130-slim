@@ -474,10 +474,28 @@ async def schedule_report_actions(
             results.append(entry)
             continue
 
-        video_only = action.format == "video" or platform in _VIDEO_ONLY
+        video_only = action.format in {"video", "reel"} or platform in _VIDEO_ONLY
         media_id = None
+        pending_video_task: str | None = None
         if video_only:
-            entry["reason"] = "video format — media pipeline produces images; left as draft"
+            # Dispatch the real video pipeline (ComfyUI Wan2.2) — the
+            # materialize_report_videos beat attaches the asset + schedules
+            # once the render lands (~15-35 min on the 8GB card).
+            try:
+                from app.worker.tasks.media import generate_video_asset_task
+
+                prompt = _media_subject(content) or action.instruction
+                res = generate_video_asset_task.delay(
+                    str(team.id),
+                    str(owner.id) if owner else "",
+                    prompt,
+                    {"model": "wan22"},
+                )
+                pending_video_task = res.id
+                entry["reason"] = "video render dispatched — schedules when the asset lands"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("video dispatch failed for %s: %s", platform, str(exc)[:120])
+                entry["reason"] = f"video dispatch failed: {str(exc)[:80]} — left as draft"
         else:
             media_id = await _generate_media(db, team, owner.id if owner else None, action, content=content)
             if not media_id:
@@ -500,12 +518,19 @@ async def schedule_report_actions(
             except Exception as exc:  # noqa: BLE001
                 logger.info("compliance scoring skipped: %s", str(exc)[:120])
 
+        platform_specific: dict[str, Any] = {}
+        if action.format == "story" and platform == "instagram":
+            platform_specific["instagram"] = {"format": "story"}
+        elif action.format == "reel" and platform == "facebook":
+            platform_specific["facebook"] = {"format": "reel"}
+
         post = Post(
             team_id=team.id,
             user_id=owner.id if owner else None,
             content_text=sanitize_post_text(content),
             hashtags=hashtags,
             media_ids=[media_id] if media_id else [],
+            platform_specific=platform_specific or None,
             status=status,
             scheduled_at=when if status == PostStatus.SCHEDULED else None,
             meta_data={
@@ -514,6 +539,7 @@ async def schedule_report_actions(
                 "report_date": report_date,
                 "instruction": action.instruction,
                 "seo_score": seo,
+                **({"pending_video_task": pending_video_task} if pending_video_task else {}),
             },
         )
         db.add(post)
