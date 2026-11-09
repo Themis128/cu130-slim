@@ -1350,6 +1350,75 @@ class TestTikTokOAuth:
         assert captured["data"]["grant_type"] == "authorization_code"
         assert token["access_token"] == "at"
 
+    async def test_refresh_token_raises_on_error_envelope(self, monkeypatch):
+        """TikTok returns HTTP 200 + {"error": ...} with no access_token —
+        refresh_token must raise with the real reason, not return a
+        token dict that downstream code misreads as 'no access_token'."""
+        from contextlib import asynccontextmanager
+
+        class FakeHTTPX:
+            def build_request(self, method, url, data=None, headers=None):
+                return ("req", url)
+
+        client = auth.TikTokOAuth2(
+            "tt_key",
+            "tt_secret",
+            authorize_endpoint="https://auth",
+            access_token_endpoint="https://token",
+            refresh_token_endpoint="https://token",
+            name="tiktok",
+        )
+
+        @asynccontextmanager
+        async def fake_httpx():
+            yield FakeHTTPX()
+
+        payload = {"error": "invalid_grant", "error_description": "refresh token expired"}
+
+        async def fake_send(c, request, auth=None, exc_class=None):
+            return type(
+                "R", (), {"json": lambda s: payload, "text": "{}", "status_code": 200, "headers": {}}
+            )()
+
+        monkeypatch.setattr(client, "get_httpx_client", fake_httpx)
+        monkeypatch.setattr(client, "send_request", fake_send)
+        monkeypatch.setattr(client, "get_json", lambda resp, exc_class=None: resp.json())
+        with pytest.raises(Exception, match="refresh token expired"):
+            await client.refresh_token("rt")
+
+    async def test_refresh_token_returns_token_on_success(self, monkeypatch):
+        from contextlib import asynccontextmanager
+
+        class FakeHTTPX:
+            def build_request(self, method, url, data=None, headers=None):
+                return ("req", url)
+
+        client = auth.TikTokOAuth2(
+            "tt_key",
+            "tt_secret",
+            authorize_endpoint="https://auth",
+            access_token_endpoint="https://token",
+            refresh_token_endpoint="https://token",
+            name="tiktok",
+        )
+
+        @asynccontextmanager
+        async def fake_httpx():
+            yield FakeHTTPX()
+
+        async def fake_send(c, request, auth=None, exc_class=None):
+            return type(
+                "R",
+                (),
+                {"json": lambda s: {"access_token": "at2", "refresh_token": "rt2"}, "text": "{}", "status_code": 200, "headers": {}},
+            )()
+
+        monkeypatch.setattr(client, "get_httpx_client", fake_httpx)
+        monkeypatch.setattr(client, "send_request", fake_send)
+        monkeypatch.setattr(client, "get_json", lambda resp, exc_class=None: resp.json())
+        token = await client.refresh_token("rt")
+        assert token["access_token"] == "at2"
+
 
 class TestOAuthCallbackMorePlatforms:
     pytestmark = pytest.mark.asyncio
