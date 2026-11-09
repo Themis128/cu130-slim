@@ -685,3 +685,21 @@ Leftovers:
   (ollama serve panicked "$HOME is not defined" under systemd).
 - ollama serve + PAIR TUI survive WSL reboot via nvpair-tui.service +
   tmux sessions `pair`/`ollama` (verified after the 18:43 restart).
+
+## 2026-11-10 — WIP salvage session (Devin)
+
+- cu130-slim dirty tree (57 files on stale `fix/linkedin-sidecar-dockerfile`)
+  triaged vs origin/master: 29 files already landed via merged PRs, 11 were
+  cosmetic-only drift (resolved to master), real WIP = ops-agent suite +
+  d1_restore → PR #1573 (`feat/ops-agent-suite`, auto-merge armed).
+- ops_agent was never wired: added celery include/route/beat (*/5, default
+  queue) + alembic `t1u2v3w4x5y6` for `ops_incidents` (has_table guard).
+- Post-merge verify: alembic head, `ops_agent:last_sweep` heartbeat in Redis,
+  first sweep stats in worker-default logs.
+- Main checkout realigned: now on `master` @ origin/master, clean tree.
+  Stale branch `fix/linkedin-sidecar-dockerfile` kept (13 local commits,
+  content superseded — safe to delete after #1573 merges).
+- Docker Desktop was DOWN mid-session (docker.sock + desktop-linux context
+  both dead) — watchdog should self-heal; if not, `wsl --shutdown` durable
+  fix still deferred per earlier note.
+- home-ops arch-doc prose refresh committed + pushed (beb46bb).
