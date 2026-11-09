@@ -2861,43 +2861,43 @@ def _with_publish_path(result: PublishResult, path: str) -> PublishResult:
 
 
 async def _publish_instagram_story(
+    account: SocialAccount,
     post: Post,
     media_paths: list[str],
 ) -> PublishResult:
-    """Publish an Instagram Story via instagrapi.
+    """Publish an Instagram Story via the aiograpi-rest sidecar.
 
     Selected by ``platform_specific.instagram.format == "story"``. Stories
     take exactly one image or short video and are ephemeral — the feed
-    publish-path fallback ladder does not apply.
+    publish-path fallback ladder does not apply. Uses the sidecar (not
+    instagrapi) because IG blocks instagrapi 2.6.9 password logins
+    ("app out of date"); the sidecar session is the live auth.
     """
     if len(media_paths) != 1:
         return PublishResult(
             success=False,
             error="Instagram Story requires exactly one media item.",
         )
-    username = (_settings.INSTAGRAM_USERNAME or "").strip()
-    password = (_settings.INSTAGRAM_PASSWORD or "").strip()
-    if not username or not password:
+    meta = account.meta_data or {}
+    session_id = decrypt_field(meta.get("private_api_session_id"))
+    if not session_id:
         return PublishResult(
             success=False,
-            error="INSTAGRAM_USERNAME and INSTAGRAM_PASSWORD are not set — Stories publish via instagrapi only.",
+            error="Instagram private API session not found — Stories publish via the aiograpi sidecar only.",
         )
-    proxy = (_settings.INSTAGRAM_PROXY or "").strip() or None
-    client = InstagrapiClient(username=username, password=password, proxy=proxy)
+    client = InstagramPrivateAPIClient(_settings.INSTAGRAM_PRIVATE_API_URL)
     fp = media_paths[0]
+    is_video = fp.lower().endswith((".mp4", ".mov", ".webm", ".avi"))
     try:
-        if fp.lower().endswith((".mp4", ".mov", ".webm", ".avi")):
-            result = await client.upload_video_to_story(fp)
-        else:
-            result = await client.upload_photo_to_story(fp)
-    except InstagrapiError as exc:
-        return PublishResult(success=False, error=f"Instagram Story (instagrapi) publish failed: {exc}")
+        result = await client.upload_story(session_id, fp, as_video=is_video)
+    except Exception as exc:
+        return PublishResult(success=False, error=f"Instagram Story (sidecar) publish failed: {exc}")
 
     media_id = str(result.get("id") or result.get("pk") or "")
     return PublishResult(
         success=True,
         platform_post_id=media_id,
-        platform_meta={"publish_path": "instagrapi_story"},
+        platform_meta={"publish_path": "sidecar_story"},
     )
 
 
@@ -2933,7 +2933,7 @@ async def _publish_instagram(
     ig_opts = (post.platform_specific or {}).get("instagram", {}) or {}
     ig_fmt = str(ig_opts.get("format", "")).lower()
     if ig_fmt == "story" or (ig_fmt == "auto" and len(media_paths) == 1):
-        return await _publish_instagram_story(post, media_paths)
+        return await _publish_instagram_story(account, post, media_paths)
 
     # Content rule: Instagram has no text-only feed posts (Graph / private / web).
     if not media_paths:

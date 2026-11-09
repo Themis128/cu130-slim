@@ -18,6 +18,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 from sqlalchemy import text as sa_text
 
+from app.core.security import decrypt_token
 from app.services.instagrapi_client import InstagrapiClient, InstagrapiError
 from app.services.slack_notifications import send_telegram_alert
 from app.worker._async import run_async, task_session
@@ -25,50 +26,50 @@ from app.worker.celery_app import celery_app
 
 logger = logging.getLogger(__name__)
 
-VERIFY_PATHS = ("graph_reels", "instagrapi_story")
+# publish_path values written by app/services/publishing.py onto
+# post.platform_specific via PublishResult.platform_meta.
+VERIFY_PATHS = ("graph_reels", "sidecar_story")
 WINDOW_HOURS = 48
+GRAPH_VERSION = os.environ.get("FACEBOOK_GRAPH_VERSION", "v21.0")
 
 
-async def _verify_reel(post_id: str, session) -> str:
-    """Check a Page Reel exists via Graph /{video_id}."""
-    row = (
-        await session.execute(
-            sa_text(
-                """
-                select s.access_token
-                from post_targets t
-                join social_accounts s on s.id = t.account_id
-                where t.post_id = cast(:pid as uuid) and t.platform = 'facebook'
-                limit 1
-                """
-            ),
-            {"pid": post_id},
-        )
-    ).first()
-    if not row or not row[0]:
+async def _verify_reel(platform_post_id: str, access_token_enc, session) -> str:
+    """Check a Page Reel exists via Graph GET /{video_id}?fields=id.
+
+    ``platform_post_id`` is the facebook post_target's id (the reel
+    video_id). ``access_token_enc`` is that target account's encrypted
+    page token — tokens are per-account, never env.
+    """
+    if not platform_post_id or not access_token_enc:
         return "unknown"
-    video_id = row[0]
+    try:
+        token = decrypt_token(access_token_enc)
+    except Exception:
+        return "unknown"
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.get(
-            f"https://graph.facebook.com/v21.0/{video_id}",
-            params={"fields": "id", "access_token": os.environ.get("FB_PAGE_TOKEN", "")},
+            f"https://graph.facebook.com/{GRAPH_VERSION}/{platform_post_id}",
+            params={"fields": "id", "access_token": token},
         )
-    return "live" if r.status_code == 200 else "failed"
+    if r.status_code == 200:
+        return "live"
+    if r.status_code in (400, 404):
+        return "failed"
+    return "unknown"
 
 
-async def _verify_story(post: dict, session) -> str:
+async def _verify_story(platform_post_id: str, published_at, session) -> str:
     """Check an IG Story exists via instagrapi story list (<=24h only)."""
-    published_at = post.get("published_at")
     if published_at and datetime.now(UTC) - published_at > timedelta(hours=23):
         return "unknown"  # expired by design; can't prove or disprove
     user = os.environ.get("INSTAGRAM_USERNAME", "").strip()
     pwd = os.environ.get("INSTAGRAM_PASSWORD", "").strip()
-    if not user or not pwd:
+    if not user or not pwd or not platform_post_id:
         return "unknown"
     try:
         client = InstagrapiClient(username=user, password=pwd, proxy=(os.environ.get("INSTAGRAM_PROXY") or None))
         stories = await client.get_own_stories()
-        wanted = str(post.get("platform_post_id") or "")
+        wanted = str(platform_post_id)
         return "live" if any(str(s.get("pk") or s.get("id")) == wanted or wanted in str(s.get("id", "")) for s in stories) else "failed"
     except InstagrapiError:
         return "unknown"
@@ -77,18 +78,27 @@ async def _verify_story(post: dict, session) -> str:
 async def _run() -> dict:
     summary = {"checked": 0, "live": 0, "failed": 0, "unknown": 0}
     async with task_session() as session:
+        # One row per post_target (per account). platform_specific.
+        # publish_path is per-post, so a multi-platform post can surface
+        # twice — each row is verified against ITS platform's target id.
         rows = (
             await session.execute(
                 sa_text(
                     """
-                    select p.id::text as pid, p.platform_specific as ps,
+                    select distinct on (p.id, s.platform)
+                           p.id::text as pid, p.platform_specific as ps,
                            p.published_at,
-                           t.platform_post_id as platform_post_id
+                           s.platform as platform,
+                           t.platform_post_id as platform_post_id,
+                           s.access_token_enc as access_token_enc
                     from posts p
                     join post_targets t on t.post_id = p.id
+                    join social_accounts s on s.id = t.social_account_id
                     where p.platform_specific->>'publish_path' = any(:paths)
                       and coalesce(p.platform_specific->>'publish_verified','') = ''
                       and p.published_at > now() - interval :win
+                      and t.status = 'published'
+                    order by p.id, s.platform
                     limit 25
                     """
                 ),
@@ -96,26 +106,29 @@ async def _run() -> dict:
             )
         ).all()
 
-        for pid, ps, published_at, platform_post_id in rows:
+        for pid, ps, published_at, platform, platform_post_id, token_enc in rows:
             summary["checked"] += 1
-            post = {"published_at": published_at, "platform_post_id": platform_post_id}
             path = (ps or {}).get("publish_path", "")
-            if path == "graph_reels":
-                verdict = await _verify_reel(platform_post_id, session)
+            if path == "graph_reels" and platform == "facebook":
+                verdict = await _verify_reel(str(platform_post_id or ""), token_enc, session)
+            elif path == "sidecar_story" and platform == "instagram":
+                verdict = await _verify_story(str(platform_post_id or ""), published_at, session)
             else:
-                verdict = await _verify_story(post, session)
+                verdict = "unknown"
             summary[verdict] += 1
 
-            new_ps = {**(ps or {}), "publish_verified": verdict}
-            await session.execute(
-                sa_text("update posts set platform_specific = cast(:ps as jsonb) where id = cast(:pid as uuid)"),
-                {"ps": json.dumps(new_ps), "pid": pid},
-            )
+            # Only stamp the verdict once — a post verified via its first
+            # matching target shouldn't be re-checked by sibling targets.
+            if verdict != "unknown":
+                new_ps = {**(ps or {}), "publish_verified": verdict}
+                await session.execute(
+                    sa_text("update posts set platform_specific = cast(:ps as jsonb) where id = cast(:pid as uuid)"),
+                    {"ps": json.dumps(new_ps), "pid": pid},
+                )
             if verdict == "failed":
                 await send_telegram_alert(
                     "P2",
-                    f"Publish verification FAILED: {path} post {pid[:8]} "
-                    f"not found live (platform id {platform_post_id})",
+                    f"Publish verification FAILED: {path} {platform} post {pid[:8]} not found live (platform id {platform_post_id})",
                 )
         await session.commit()
     return summary
