@@ -170,6 +170,16 @@ N=$(docker compose exec -T social-worker-publishing celery -A app.worker.celery_
 if [ "$N" -lt 4 ]; then
   ALERT "celery-nodes" ":warning: only $N/4 celery nodes answering — check workers"
 fi
+# 3b. ops-agent dead-man — the sweep heartbeats ops_agent:last_sweep every
+#     5 min; >20 min stale means triage is silently dead. Missing key =
+#     feature not yet deployed, skip (celery-nodes check covers beat).
+if [ -n "${P:-}" ]; then
+  LS=$(docker exec redis redis-cli -a "$P" get ops_agent:last_sweep 2>/dev/null || echo "")
+  case "$LS" in
+    ''|*[!0-9]*) : ;;
+    *) [ $(( $(now) - LS )) -gt 1200 ] && ALERT "ops-agent-deadman" ":warning: ops-agent sweep stale >20min (last $(date -u -d "@$LS" +%H:%M)Z) — triage is dead, check celery-beat/worker-default";;
+  esac
+fi
 # 4. LinkedIn sidecar session — warn if it dropped
 LI=$(docker compose exec -T social-api python -c "
 import asyncio

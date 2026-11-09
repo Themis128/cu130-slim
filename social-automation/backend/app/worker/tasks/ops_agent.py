@@ -6,6 +6,7 @@ severity-routed Telegram channels. Registered in celery_app.py.
 """
 
 import logging
+from datetime import UTC, datetime
 
 from app.worker._async import run_async, task_session
 from app.worker.celery_app import celery_app
@@ -24,6 +25,23 @@ def ops_agent_sweep(self):
     try:
         stats = run_async(_run())
         logger.info("ops-agent sweep: %s", stats)
+        # dead-man heartbeat — compose-watchdog alerts if this goes stale;
+        # a redis hiccup must not fail the sweep itself
+        try:
+            async def _heartbeat():
+                import redis.asyncio as aioredis
+
+                from app.core.config import get_settings
+
+                r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+                try:
+                    await r.set("ops_agent:last_sweep", str(int(datetime.now(UTC).timestamp())))
+                finally:
+                    await r.aclose()
+
+            run_async(_heartbeat())
+        except Exception:
+            logger.warning("ops-agent heartbeat write failed", exc_info=True)
         return stats
     except Exception as exc:
         logger.exception("ops-agent sweep failed")
