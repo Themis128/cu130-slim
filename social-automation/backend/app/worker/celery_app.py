@@ -33,6 +33,7 @@ celery_app = Celery(
         "app.worker.tasks.facebook_token_check",
         "app.worker.tasks.account_status_reconcile",
         "app.worker.tasks.publish_verify",
+        "app.worker.tasks.report_videos",
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.personal_messenger",
         "app.worker.tasks.linkedin_messenger",
@@ -288,6 +289,7 @@ celery_app.conf.update(
         "app.worker.tasks.facebook_token_check.check_facebook_tokens": {"queue": "default"},
         "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.publish_verify.verify_publish_paths": {"queue": "default"},
+        "app.worker.tasks.report_videos.materialize_report_videos": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
@@ -415,6 +417,11 @@ celery_app.conf.update(
         "publish-verify": {
             "task": "app.worker.tasks.publish_verify.verify_publish_paths",
             "schedule": crontab(minute=45, hour="*/2"),
+        },
+        # Attach finished ComfyUI video renders to report-dispatched posts.
+        "materialize-report-videos": {
+            "task": "app.worker.tasks.report_videos.materialize_report_videos",
+            "schedule": crontab(minute="*/20"),
         },
         "publish-retry-sweep": {
             "task": "app.worker.tasks.publish_retry.run_publish_retry_sweep",
