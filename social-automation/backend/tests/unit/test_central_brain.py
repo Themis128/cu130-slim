@@ -7,7 +7,11 @@ touching the DB or the publish executor.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
+import pytest
+
+from app.models.content import PostStatus
 from app.services.central_brain import (
     MAX_POST_ACTIONS,
     MAX_TREND_ACTIONS,
@@ -15,8 +19,11 @@ from app.services.central_brain import (
     BrainSnapshot,
     ChannelState,
     _snapshot_health,
+    collect_snapshot,
     decide,
+    run_for_team,
 )
+from app.worker.tasks import central_brain as cb_task
 
 NOW = datetime(2026, 11, 8, 6, 30, tzinfo=UTC)
 
@@ -187,14 +194,6 @@ class TestDecideShape:
 
 # ── DB layer: collect_snapshot / run_for_team ─────────────────────────
 
-import uuid as _uuid
-from types import SimpleNamespace
-
-import pytest
-
-from app.models.content import PostStatus
-from app.services.central_brain import collect_snapshot, run_for_team
-
 
 class _Exec:
     """Result stand-in — supports scalars()/unique()/all() chains."""
@@ -232,7 +231,7 @@ def _devapp(platform, account_id, **payload):
 class TestCollectSnapshot:
     @pytest.mark.asyncio
     async def test_merges_devapp_engagement_outcomes_followers_trends(self):
-        team = SimpleNamespace(id=_uuid.uuid4())
+        team = SimpleNamespace(id=uuid.uuid4())
         devapps = [
             _devapp("LinkedIn", "acc-li", username="cloudless", ok=True,
                     insights={"followers": 1200}),
@@ -272,7 +271,7 @@ class TestCollectSnapshot:
 
     @pytest.mark.asyncio
     async def test_empty_sources_produce_empty_snapshot(self):
-        team = SimpleNamespace(id=_uuid.uuid4())
+        team = SimpleNamespace(id=uuid.uuid4())
         snap = await collect_snapshot(_DB([], [], [], [], []), team, now=NOW)
         assert snap.channels == {}
         assert snap.trends == []
@@ -303,7 +302,7 @@ class TestRunForTeam:
         )
         monkeypatch.setattr("app.services.company_brain.remember", fake_remember)
 
-        team = SimpleNamespace(id=_uuid.uuid4())
+        team = SimpleNamespace(id=uuid.uuid4())
         result = await run_for_team(self._db_with_healthy_channel(), team, now=NOW)
 
         assert result["posts_dispatched"] >= 1
@@ -327,15 +326,13 @@ class TestRunForTeam:
             [_devapp("instagram", "acc-1", ok=False, error="banned")],
             [], [], [], [],
         )
-        team = SimpleNamespace(id=_uuid.uuid4())
+        team = SimpleNamespace(id=uuid.uuid4())
         result = await run_for_team(db, team, now=NOW)
         assert result["posts_dispatched"] == 0
         assert result["decisions"][0]["kind"] == "health"
 
 
 # ── celery task wrapper ───────────────────────────────────────────────
-
-from app.worker.tasks import central_brain as cb_task
 
 
 class _SessionCM:
@@ -371,7 +368,7 @@ class TestCentralBrainTask:
 
     @pytest.mark.asyncio
     async def test_run_isolates_per_team_failures(self, monkeypatch):
-        good, bad = _uuid.uuid4(), _uuid.uuid4()
+        good, bad = uuid.uuid4(), uuid.uuid4()
         db = _CommitDB([SimpleNamespace(id=good), SimpleNamespace(id=bad)])
 
         async def fake_run_for_team(db_, team, now=None):
