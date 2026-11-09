@@ -171,7 +171,20 @@ class TikTokOAuth2(BaseOAuth2):
                 headers=self.request_headers,
             )
             response = await self.send_request(client, request, auth=None, exc_class=GetAccessTokenError)
-            return OAuth2Token(self.get_json(response, exc_class=GetAccessTokenError))
+            data = self.get_json(response, exc_class=GetAccessTokenError)
+            # TikTok returns HTTP 200 with an error envelope
+            # ({"error": "invalid_grant", ...}) instead of raising — surface
+            # the real reason instead of a downstream "no access_token".
+            if "access_token" not in data:
+                err = data.get("error")
+                if isinstance(err, dict):
+                    desc = err.get("description") or err.get("message") or "no access_token in response"
+                elif isinstance(err, str):
+                    desc = data.get("error_description") or err
+                else:
+                    desc = data.get("error_description") or "no access_token in response"
+                raise GetAccessTokenError(f"tiktok refresh failed: {desc}", response=response)
+            return OAuth2Token(data)
 
 
 linkedin_client = LinkedInOAuth2(settings.LINKEDIN_CLIENT_ID, settings.LINKEDIN_CLIENT_SECRET)
