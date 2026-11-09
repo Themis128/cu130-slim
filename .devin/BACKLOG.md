@@ -472,10 +472,12 @@ Leftovers:
   (`docker exec social-api python3 /app/scripts/ops_incident.py report|list|resolve|sweep`)
   as the detector ingestion point.
 - [~] Wire detectors: `compose-watchdog.sh` ALERT() and
-  `social-stack-watchdog.sh` (home-ops aab26bc) now report incidents —
+  `social-stack-watchdog.sh` (home-ops) report incidents, with psql
+  fallback `scripts/ops_incident_host.sh` when social-api is down —
   remaining: `heal_supervisor.py`, session healers, dmr-watchdog.
-- [ ] Dead-man check for ops-agent itself (watchdog alerts if sweep misses
-  >15 min — check celery beat logs / `ops_incidents` freshness).
+- [x] Dead-man: sweep writes `ops_agent:last_sweep` to Redis; compose-watchdog
+  alerts when >20min stale.
+- [x] Dead-man check landed with the heartbeat above.
 - [ ] Learning hook: feed resolved/escalated incidents into
   `failure_learning` / `company_brain` recall for next RCA.
 - [ ] Verify first live sweep post-deploy; confirm telegram alert dedup
