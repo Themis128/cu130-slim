@@ -38,6 +38,14 @@ failure signatures, and the verified bridge fallback path in the
 
 ## Content rules
 
+<!-- PLATFORM-FIT:BEGIN linkedin -->
+### What the LinkedIn audience/algorithm favors
+- Thought leadership & industry insights; educational/how-to content — PDF document uploads render as swipeable carousels and perform strongly.
+- Personal stories with a business lesson; contrarian takes that spark constructive comments; short hook-driven text or sub-30s vertical video.
+- Optimize for dwell time + meaningful comments. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo.
+
+<!-- PLATFORM-FIT:END -->
+
 ### Personal (`18d5cd59`)
 - **Finished stories only.** Polished outcome posts: what shipped, real
   numbers, the lesson. Never the messy middle — that goes to personal Facebook.

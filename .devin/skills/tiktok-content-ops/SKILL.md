@@ -26,6 +26,12 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 
 ## Content rules
 
+<!-- PLATFORM-FIT:BEGIN tiktok -->
+### What the TikTok audience/algorithm (FYP) favors
+- Watch-time + engagement over production quality: raw, authentic, or humorous vertical video beats slick ads; trending audio/challenges and educational micro-content (life hacks, niche explainers like #TechTok) all travel. Hook in the first second — the caption supports the video.
+
+<!-- PLATFORM-FIT:END -->
+
 - **Media required** — video or photo posts; no text-only.
 - Best content: short vertical clips — infra timelapses, automation runs,
   generated video (ComfyUI Wan2.2 TI2V-5B GGUF via `media_gpu_lock`),
