@@ -2493,7 +2493,10 @@ services:
       - db
     ports:
       - "127.0.0.1:8090:8080"
-      - "100.86.188.43:8090:8080"
+      # Tailnet-only API bind for omv/GitHub-runner access. The host's
+      # Tailscale IP changes on node re-registration — override via
+      # INFISICAL_TAILNET_IP in .env when it does.
+      - "${INFISICAL_TAILNET_IP:-100.83.120.93}:8090:8080"
     depends_on:
       postgres:
         condition: service_healthy
