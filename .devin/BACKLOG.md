@@ -477,7 +477,6 @@ Leftovers:
   remaining: `heal_supervisor.py`, session healers, dmr-watchdog.
 - [x] Dead-man: sweep writes `ops_agent:last_sweep` to Redis; compose-watchdog
   alerts when >20min stale.
-- [x] Dead-man check landed with the heartbeat above.
 - [ ] Learning hook: feed resolved/escalated incidents into
   `failure_learning` / `company_brain` recall for next RCA.
 - [ ] Verify first live sweep post-deploy; confirm telegram alert dedup
