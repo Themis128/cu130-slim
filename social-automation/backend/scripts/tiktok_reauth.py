@@ -91,7 +91,7 @@ def needs_reauth() -> bool:
 
 
 def _needs_reauth_api() -> bool:
-    from datetime import datetime, timedelta, timezone
+    from datetime import UTC, datetime, timedelta
     tok = _admin_token()
     teams = _get(f"{API}/api/v1/teams",
                  headers={"Authorization": f"Bearer {tok}"})
@@ -100,7 +100,7 @@ def _needs_reauth_api() -> bool:
     accs = _get(f"{API}/api/v1/accounts?team_id={team_id}",
                 headers={"Authorization": f"Bearer {tok}"})
     items = accs if isinstance(accs, list) else accs.get("items", [])
-    soon = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    soon = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
     for a in items:
         if a.get("platform") != "tiktok":
             continue
@@ -206,20 +206,15 @@ def main() -> int:
     })()
     """
     deadline = time.time() + 120
-    clicked = False
     while time.time() < deadline:
         cur = _page_url()
         if CALLBACK_MARK in cur:
-            clicked = True
             break
         if "/login" in cur or "passport" in cur:
             print(f"login wall at {cur[:120]} — human gate")
             _mark(False)
             return 3
-        r = _eval(click_js, timeout=30)
-        res = str(r.get("result") or "")
-        if res.startswith("clicked"):
-            clicked = True
+        _eval(click_js, timeout=30)
         time.sleep(4)
 
     # wait for the backend callback to complete the code exchange
