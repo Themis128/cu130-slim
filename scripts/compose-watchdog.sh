@@ -82,7 +82,8 @@ fi
 INCIDENT() {  # INCIDENT <kind> <severity> <title>
   docker exec social-api python3 /app/scripts/ops_incident.py report \
     --source compose-watchdog --kind "$1" --severity "$2" \
-    --title "$3" --detail "{\"watchdog_key\":\"$1\"}" >/dev/null 2>&1 || true
+    --title "$3" --detail "{\"watchdog_key\":\"$1\"}" >/dev/null 2>&1 \
+  || "$REPO_DIR/scripts/ops_incident_host.sh" compose-watchdog "$1" "$2" "$3" >/dev/null 2>&1 || true
 }
 ALERT() {  # post to the ops Slack channel, throttled to once/30min per key
   local key="$1" msg="$2"

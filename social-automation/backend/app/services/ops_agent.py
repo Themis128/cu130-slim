@@ -21,10 +21,12 @@ import hashlib
 import json
 import logging
 import os
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import case, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.ops_incident import IncidentSeverity, IncidentStatus, OpsIncident
@@ -59,46 +61,67 @@ async def report_incident(
     severity: str = "ops",
     detail: dict | None = None,
 ) -> OpsIncident:
-    """Upsert an incident report. Dedupes on fingerprint; recurrence after
-    resolve reopens and bumps recurrence_count."""
+    """Atomic upsert on the fingerprint unique key.
+
+    A report against a resolved incident reopens it and bumps
+    ``recurrence_count`` (>=2 forces critical); a report against a live
+    incident refreshes ``last_seen``/``detail``. The ON CONFLICT clause
+    mirrors scripts/ops_incident_host.sh — keep them in sync.
+    """
     fp = fingerprint(source, kind, target)
     now = datetime.now(UTC)
-    inc = (
-        await db.execute(select(OpsIncident).where(OpsIncident.fingerprint == fp, OpsIncident.status != IncidentStatus.RESOLVED))
-    ).scalar_one_or_none()
-    if inc is None:
-        # check most recent resolved row for recurrence counting
-        prev = (
-            await db.execute(
-                select(OpsIncident)
-                .where(OpsIncident.fingerprint == fp, OpsIncident.status == IncidentStatus.RESOLVED)
-                .order_by(OpsIncident.resolved_at.desc())
-                .limit(1)
-            )
-        ).scalar_one_or_none()
-        inc = OpsIncident(
-            fingerprint=fp,
-            source=source,
-            kind=kind,
-            target=target,
-            severity=IncidentSeverity(severity) if severity in IncidentSeverity._value2member_map_ else IncidentSeverity.OPS,
-            title=title[:500],
-            detail=detail or {},
-            status=IncidentStatus.OPEN,
-            recurrence_count=(prev.recurrence_count + 1) if prev else 0,
-            first_seen=now,
-            last_seen=now,
-        )
-        if inc.recurrence_count >= 2:
-            inc.severity = IncidentSeverity.CRITICAL
-            inc.status = IncidentStatus.OPEN
-        db.add(inc)
-    else:
-        inc.last_seen = now
-        if detail:
-            inc.detail = {**(inc.detail or {}), **detail}
-        if severity == "critical":
-            inc.severity = IncidentSeverity.CRITICAL
+    sev = (
+        IncidentSeverity(severity)
+        if severity in IncidentSeverity._value2member_map_
+        else IncidentSeverity.OPS
+    )
+    new_recur = case(
+        (OpsIncident.status == IncidentStatus.RESOLVED, OpsIncident.recurrence_count + 1),
+        else_=OpsIncident.recurrence_count,
+    )
+    stmt = pg_insert(OpsIncident).values(
+        id=uuid.uuid4(),
+        fingerprint=fp,
+        source=source,
+        kind=kind,
+        target=target,
+        severity=sev,
+        title=title[:500],
+        detail=detail or {},
+        status=IncidentStatus.OPEN,
+        recurrence_count=0,
+        agent_attempts=0,
+        first_seen=now,
+        last_seen=now,
+        created_at=now,
+        updated_at=now,
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["fingerprint"],
+        set_={
+            "last_seen": now,
+            "updated_at": now,
+            "title": stmt.excluded.title,
+            "detail": OpsIncident.detail.op("||")(stmt.excluded.detail),
+            "recurrence_count": new_recur,
+            "status": case(
+                (OpsIncident.status == IncidentStatus.RESOLVED, IncidentStatus.OPEN),
+                else_=OpsIncident.status,
+            ),
+            "resolved_at": case(
+                (OpsIncident.status == IncidentStatus.RESOLVED, None),
+                else_=OpsIncident.resolved_at,
+            ),
+            "severity": case(
+                (stmt.excluded.severity == "critical", IncidentSeverity.CRITICAL),
+                (OpsIncident.severity == IncidentSeverity.CRITICAL, IncidentSeverity.CRITICAL),
+                (new_recur >= 2, IncidentSeverity.CRITICAL),
+                else_=OpsIncident.severity,
+            ),
+        },
+    )
+    await db.execute(stmt)
+    inc = (await db.execute(select(OpsIncident).where(OpsIncident.fingerprint == fp))).scalar_one()
     await db.flush()
     return inc
 

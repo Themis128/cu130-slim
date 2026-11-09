@@ -25,6 +25,7 @@ def upgrade() -> None:
         "ops_incidents",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
         sa.Column("fingerprint", sa.String(64), nullable=False),
+        sa.UniqueConstraint("fingerprint", name="uq_ops_incidents_fingerprint"),
         sa.Column("source", sa.String(100), nullable=False),
         sa.Column("kind", sa.String(100), nullable=False),
         sa.Column("target", sa.String(300), nullable=False, server_default=""),
@@ -44,7 +45,6 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
-    op.create_index("ix_ops_incidents_fingerprint", "ops_incidents", ["fingerprint"])
     op.create_index("ix_ops_incidents_status", "ops_incidents", ["status"])
     op.create_index("ix_ops_incidents_last_seen", "ops_incidents", ["last_seen"])
     op.create_index("ix_ops_incidents_status_fingerprint", "ops_incidents", ["status", "fingerprint"])

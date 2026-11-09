@@ -37,13 +37,15 @@ class IncidentSeverity(enum.StrEnum):
 class OpsIncident(Base):
     __tablename__ = "ops_incidents"
     __table_args__ = (
+        # fingerprint is UNIQUE — report_incident upserts ON CONFLICT, and the
+        # host-side psql fallback (scripts/ops_incident_host.sh) relies on it.
         Index("ix_ops_incidents_status_fingerprint", "status", "fingerprint"),
         Index("ix_ops_incidents_status_last_seen", "status", "last_seen"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # sha256(source|kind|target) — dedup key; recurrence after resolve reopens.
-    fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    # sha256(source|kind|target)[:32] — dedup key; recurrence after resolve reopens.
+    fingerprint: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     kind: Mapped[str] = mapped_column(String(100), nullable=False)
     # Free-form target: container name, host, URL, account id, ...
