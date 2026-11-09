@@ -35,13 +35,17 @@ def materialize_report_videos() -> dict:
 
         async with task_session() as db:
             rows = (
-                await db.execute(
-                    select(Post).where(
-                        Post.status == PostStatus.DRAFT,
-                        Post.meta_data["pending_video_task"].astext.isnot(None),
+                (
+                    await db.execute(
+                        select(Post).where(
+                            Post.status == PostStatus.DRAFT,
+                            Post.meta_data["pending_video_task"].astext.isnot(None),
+                        )
                     )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
 
         attached = failed = pending = 0
         for post in rows:
