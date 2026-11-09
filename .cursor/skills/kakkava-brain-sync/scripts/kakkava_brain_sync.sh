@@ -54,7 +54,7 @@ fi
 INGEST_PY="$REPO/.devin/skills/kakkava-brain-sync/scripts/kakkava_brain_ingest.py"
 
 cleanup() {
-    docker exec social-api rm -rf /tmp/kakkava-sofia \
+    docker exec -u root social-api rm -rf /tmp/kakkava-sofia \
         /tmp/kakkava_brain_ingest.py 2>/dev/null || true
 }
 trap cleanup EXIT
@@ -62,7 +62,7 @@ trap cleanup EXIT
 # docker cp handles the recursive copy itself — tar over /mnt/c (DrvFs)
 # intermittently fails with "Cannot savedir: Cannot allocate memory".
 echo "$LOG_PREFIX manifest changed — copying $SRC into social-api"
-docker exec social-api rm -rf /tmp/kakkava-sofia
+docker exec -u root social-api rm -rf /tmp/kakkava-sofia
 docker cp "$SRC" social-api:/tmp/kakkava-sofia
 docker cp "$INGEST_PY" social-api:/tmp/kakkava_brain_ingest.py
 
