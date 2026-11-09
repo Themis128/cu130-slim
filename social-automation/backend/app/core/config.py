@@ -492,6 +492,11 @@ class Settings(BaseSettings):
     # posts) — runs before the strategy brief so actions land on the calendar.
     MONETIZATION_REPORT_HOUR: int = 8  # Europe/Athens via Celery timezone
     MONETIZATION_REPORT_MINUTE: int = 30  # Europe/Athens via Celery timezone
+    # Central brain — daily snapshot → decide → journal → dispatch sweep.
+    # Runs before the monetization report so its scheduled posts are on the
+    # calendar when the briefs generate.
+    CENTRAL_BRAIN_HOUR: int = 6  # Europe/Athens via Celery timezone
+    CENTRAL_BRAIN_MINUTE: int = 30  # Europe/Athens via Celery timezone
 
     # Slack alerts (#socialauto-alerts) — warnings/errors and operational failures.
     # Prefer Incoming Webhook URL to the alerts channel; alternatively reuse

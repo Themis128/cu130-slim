@@ -19,6 +19,7 @@ celery_app = Celery(
         "app.worker.tasks.nextcloud_sync",
         "app.worker.tasks.nextcloud_docs",
         "app.worker.tasks.company_brain",
+        "app.worker.tasks.central_brain",
         "app.worker.tasks.slack_ops_journal",
         "app.worker.tasks.crm_hygiene",
         "app.worker.tasks.crm_lifecycle",
@@ -299,6 +300,7 @@ celery_app.conf.update(
         "app.worker.tasks.devapp_channel_actions.run_channel_actions": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.slack_ops_journal.slack_ops_journal_task": {"queue": "default"},
+        "app.worker.tasks.central_brain.run_central_brain": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
         "app.worker.tasks.lead_emails.send_playbook_email": {"queue": "default"},
@@ -492,6 +494,16 @@ celery_app.conf.update(
             "schedule": crontab(
                 hour=settings.COMPANY_BRAIN_HOUR,
                 minute=settings.COMPANY_BRAIN_MINUTE,
+            ),
+        },
+        # Central brain — daily snapshot → decide → journal → dispatch.
+        # 06:30 Athens, before the monetization report so its scheduled
+        # posts are already on the calendar when briefs generate.
+        "central-brain-daily": {
+            "task": "app.worker.tasks.central_brain.run_central_brain",
+            "schedule": crontab(
+                hour=settings.CENTRAL_BRAIN_HOUR,
+                minute=settings.CENTRAL_BRAIN_MINUTE,
             ),
         },
         # Morning Slack ops journal — scans the SocialAuto workspace alert

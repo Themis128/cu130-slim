@@ -565,6 +565,16 @@ app/services/
 │   │                           _member_post_analytics_scope_missing when the
 │   │                           recorded scopes prove it absent; follower
 │   │                           writes guarded by _plausible_follower_count
+│   ├── central_brain.py      — Daily decision layer: collect_snapshot
+│   │                           (devapp_snapshot health, 7d engagement +
+│   │                           publish outcomes, follower snapshots, hot
+│   │                           trend_signals) → pure decide() scoring
+│   │                           (followers + engagement + market-trend
+│   │                           boost) → company_brain journal →
+│   │                           schedule_report_actions dispatch
+│   │                           (source="central-brain"). Unhealthy or
+│   │                           majority-failure channels emit health
+│   │                           decisions only — never posts.
 │   ├── cf_analytics.py       — Cloudflare analytics client
 │   ├── web_analytics.py      — Web analytics aggregation
 │   ├── support_report.py     — Support report builder
@@ -685,6 +695,10 @@ app/worker/tasks/
 │                             follower_snapshots→Tables (3h)
 ├── company_brain.py        — write_company_brain_journal: daily ops journal →
 │                             Notes/Collectives surfaces (23:45)
+├── central_brain.py        — run_central_brain: daily 06:30 decision sweep —
+│                             snapshot all signals → score channels vs market
+│                             trends → journal plan → dispatch post actions
+│                             via schedule_report_actions (full-auto)
 ├── lead_emails.py          — send_playbook_email (lead-magnet drip)
 ├── crm_hygiene.py          — run_crm_hygiene: weekly dedupe/quarantine —
 │                             duplicate losers marked Dead + audit note on the
@@ -811,6 +825,10 @@ Beat Schedule:
 │ sync-nextcloud-surfaces  │ nextcloud_sync.sync_nextcloud_  │ 3h :25   │
 │                          │  surfaces (posts→Deck,          │          │
 │                          │  followers→Tables)              │          │
+│ central-brain-daily       │ central_brain.run_central_brain │ daily    │
+│                          │  (snapshot→decide→journal→       │ 06:30    │
+│                          │   dispatch; before monetization │          │
+│                          │   report + strategy brief)       │          │
 │ company-brain-journal    │ company_brain.write_company_    │ daily    │
 │                          │  brain_journal                  │ 23:45    │
 │ daily-promo-scan         │ promo_scan.run_promo_scan       │ daily    │
@@ -1116,6 +1134,29 @@ gated `/metrics`, fresh registry per scrape so failures only export
   (`human-gate-watch`, every 30 min — sidecar checkpoint polling for
   LinkedIn 2FA / Meta restriction, Slack nudges deduped 6h per gate in
   Redis). Both registered in `workforce_audit.py`.
+
+**Central brain — the daily decision layer** — `central-brain-daily`
+(06:30 EEST, before the monetization report and strategy brief) runs
+`services/central_brain.py` once per team. `collect_snapshot` unions every
+signal surface into a `BrainSnapshot`: latest `devapp_snapshot`
+`analytics_events` per account (token health, scopes, expiry, insights —
+written by the `devapps-sync` lane), 7-day `post_analytics_snapshots`
+engagement rate + published/failed outcomes, latest `follower_snapshots`,
+and hot `trend_signals` rows (`opportunity`/`early_window` only — `noise`
+is filtered at query time). The pure `decide()` scores each channel
+(45% log-reach + 35% engagement rate + 20% market-trend boost) and emits
+`BrainDecision`s: top channels get `post` actions whose instructions are
+shaped by the day's strongest trend signals (trend-jack angle, capped at
+2), while unhealthy tokens and majority-failure channels get `health`
+decisions only — they can never generate posts. The plan is journaled to
+`company_brain` (doc_id `central-brain-YYYY-MM-DD`) so the strategist's
+`recall()` and future cycles can cite it, then `post` decisions dispatch
+through `schedule_report_actions(source="central-brain",
+ dedup_field="central_brain_action")` — the same brand-copy → NLP →
+quality → media → compliance → scheduled/draft chain every report lane
+uses, capped at 5 posts/team/day and idempotent per day. Governed in
+`workforce_audit.py` (autonomy=auto) with an escalation on `ok=false`
+devapp snapshots.
 
 **Growth initiatives & ad-campaign analytics** — off-platform growth
 pushes (e.g. LinkedIn's monthly Page invitation credits) are recorded as
