@@ -41,8 +41,18 @@ function gmailAccessToken() {
     try {
       const dir = path.join(process.env.APPDATA || '', 'devin', 'secrets');
       const tok = JSON.parse(fs.readFileSync(path.join(dir, 'gmail-token.json'), 'utf8'));
-      const keys = JSON.parse(fs.readFileSync(path.join(dir, 'gcp-oauth.keys.json'), 'utf8'));
-      const c = keys.installed || keys.web || {};
+      let c = {};
+      try {
+        const keys = JSON.parse(fs.readFileSync(path.join(dir, 'gcp-oauth.keys.json'), 'utf8'));
+        c = keys.installed || keys.web || {};
+      } catch {}
+      if (!c.client_id) {
+        // fallback: OAuth client creds live in the repo .env
+        const env = fs.readFileSync(path.join(DIR, '..', '..', '.env'), 'utf8');
+        const pick = (k) => (env.match(new RegExp('^' + k + '=(.+)$', 'm')) || [])[1];
+        c = { client_id: (pick('GMAIL_OAUTH_CLIENT_ID') || '').trim().replace(/^["']|["']$/g, ''),
+              client_secret: (pick('GMAIL_OAUTH_CLIENT_SECRET') || '').trim().replace(/^["']|["']$/g, '') };
+      }
       const body = `client_id=${encodeURIComponent(c.client_id)}&client_secret=${encodeURIComponent(c.client_secret)}&refresh_token=${encodeURIComponent(tok.refresh_token)}&grant_type=refresh_token`;
       const req = https.request({ hostname: 'oauth2.googleapis.com', path: '/token', method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Content-Length': Buffer.byteLength(body) } },
@@ -82,6 +92,106 @@ async function checkGmail(prevMailId) {
     }
   }
   return { mailId, newSubjects };
+}
+
+// ── OTP lane: Synigoros emails a 6-digit login code after identify ────
+// Each identify attempt sends a fresh code (5-min validity) — fetch the
+// newest one from Gmail and feed it back into the page.
+function b64urlDecode(s) {
+  s = s.replace(/-/g, '+').replace(/_/g, '/');
+  while (s.length % 4) s += '=';
+  return Buffer.from(s, 'base64').toString('utf8');
+}
+
+function extractPlainBody(payload) {
+  if (!payload) return '';
+  const decode = (p) => p.body && p.body.data
+    ? b64urlDecode(p.body.data) : '';
+  // Synigoros mails are single-part text/html — collect plain first,
+  // then html (tags stripped) so the OTP digits are still reachable.
+  let html = '';
+  const walk = (p) => {
+    if (!p) return;
+    if (p.mimeType === 'text/plain' && p.body && p.body.data)
+      return decode(p);
+    for (const c of p.parts || []) {
+      const t = walk(c);
+      if (t) return t;
+    }
+    if (p.mimeType === 'text/html' && p.body && p.body.data && !html)
+      html = decode(p);
+    return '';
+  };
+  const plain = walk(payload);
+  if (plain) return plain;
+  return html ? html.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ') : '';
+}
+
+// Poll Gmail for the newest synigoros OTP; returns the 6-digit code or
+// null. Synigoros throttles OTP sends — a rapid re-identify often gets NO
+// new email, but the previous code is still valid for its 5-minute window,
+// so accept anything younger than ~4.5 min rather than strictly post-attempt.
+async function fetchSynigorosOtp(sinceMs, timeoutMs = 90000, notBeforeMs = 0) {
+  const deadline = Date.now() + timeoutMs;
+  const minInternal = () => Math.max(notBeforeMs, Math.min(sinceMs - 10000, Date.now() - 270000));
+  while (Date.now() < deadline) {
+    const at = await gmailAccessToken();
+    if (!at) return null;
+    const list = await gmailGet(at, '/gmail/v1/users/me/messages?q=' +
+      encodeURIComponent('from:synigoros.gr newer_than:1h') + '&maxResults=5');
+    for (const m of list.messages || []) {
+      const d = await gmailGet(at, `/gmail/v1/users/me/messages/${m.id}?format=full`);
+      // list items carry no internalDate — the full fetch does.
+      if (d.internalDate && Number(d.internalDate) < minInternal()) continue;
+      const headers = ((d.payload || {}).headers) || [];
+      let subj = (headers.find(h => h.name === 'Subject') || {}).value || '';
+      // Gmail returns UTF-8 subjects as encoded-words =?UTF-8?B?...?= —
+      // decode before matching or the Greek subject never matches.
+      subj = subj.replace(/=\?UTF-8\?B\?([^?]+)\?=/gi,
+        (_, b) => Buffer.from(b, 'base64').toString('utf8'));
+      const body = extractPlainBody(d.payload);
+      const looksOtp = /Κωδικός|Επιβεβαίωσης|OTP/i.test(subj) ||
+                       /κωδικός|επιβεβαίωσης/i.test(body);
+      if (!looksOtp) continue;
+      // prefer the digits right after «είναι:»/«κωδικός» — the boilerplate
+      // footer carries other numbers (GDPR art. etc.)
+      const code = (body.match(/(?:κωδικός|είναι)[^\d]{0,120}\b(\d{6})\b/i) ||
+                    body.match(/^\s*(\d{6})\s*$/m) ||
+                    body.match(/\b(\d{6})\b/))?.[1];
+      if (code) return code;
+    }
+    await new Promise(r => setTimeout(r, 5000));
+  }
+  return null;
+}
+
+// Find a visible OTP input on the page (anything that isn't the identify
+// form's webMail/webCode) and return a playwright selector for it.
+async function findOtpSelector(page) {
+  return page.evaluate(() => {
+    const ins = [...document.querySelectorAll('input')].filter(i =>
+      i.offsetParent !== null && i.id !== 'webMail' && i.id !== 'webCode' &&
+      !i.disabled && (i.type === 'text' || i.type === 'tel' || i.type === 'number' || !i.type));
+    if (!ins.length) return null;
+    const i = ins[0];
+    if (i.id) return '#' + CSS.escape(i.id);
+    if (i.name) return `input[name="${CSS.escape(i.name)}"]`;
+    return null;
+  });
+}
+
+async function submitOtp(page) {
+  // Enter usually submits OTP forms; fall back to a visible submit button.
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(800);
+  const clicked = await page.evaluate(() => {
+    const btn = [...document.querySelectorAll('button,input[type=submit]')]
+      .find(b => b.offsetParent !== null &&
+        /επιβεβα|συνέχεια|αποστολ|ok|επαλήθευ/i.test(b.innerText || b.value || ''));
+    if (btn) { btn.click(); return true; }
+    return false;
+  });
+  return clicked;
 }
 
 function botToken() {
@@ -139,9 +249,29 @@ async function notify(text) {
     await page.locator('#webMail').fill(CFG.email);
     await page.locator('#webCode').fill(CFG.kpa);
     await page.getByText('Ταυτοποίηση', { exact: true }).click({ force: true });
-    // waitForFunction signature is (pageFunction, arg, options) — the
-    // options object must be the THIRD arg, or the timeout is ignored.
-    await page.waitForFunction(() => document.body.innerText.includes('Κατάσταση'), undefined, { timeout: 20000 });
+    // Synigoros now gates identify behind an emailed 6-digit OTP — the
+    // status never renders until it's submitted. Poll for either outcome;
+    // on an OTP prompt, fetch the fresh code from Gmail and feed it back.
+    const identifyAt = Date.now();
+    let otpAttempts = 0, lastOtpAt = -10, lastSubmitAt = 0;
+    for (let i = 0; i < 40; i++) {
+      await page.waitForTimeout(2000);
+      const hasStatus = await page.evaluate(() => document.body.innerText.includes('Κατάσταση'));
+      if (hasStatus) break;
+      const otpSel = await findOtpSelector(page);
+      // Retry the OTP up to 3×, ~20s apart — a rejected/stale code leaves
+      // the prompt up; retries demand a NEWER email than the last submit.
+      if (otpSel && otpAttempts < 3 && i - lastOtpAt >= 10) {
+        otpAttempts++; lastOtpAt = i;
+        log(`OTP prompt detected (attempt ${otpAttempts}) — fetching code`);
+        const code = await fetchSynigorosOtp(identifyAt, 90000, lastSubmitAt);
+        if (!code) { log('OTP fetch failed/timed out'); continue; }
+        log('OTP acquired — submitting');
+        await page.fill(otpSel, code);
+        await submitOtp(page);
+        lastSubmitAt = Date.now();
+      }
+    }
     // The info panel renders a template placeholder status first
     // («Αναμονή Επιβεβαίωσης Από Συνήγορο») and swaps in the real value
     // ~1s later — reading immediately captures the placeholder.
