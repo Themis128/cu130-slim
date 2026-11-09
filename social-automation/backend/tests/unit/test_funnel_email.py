@@ -144,6 +144,15 @@ def test_inline_fragment_buttons_and_styles():
     assert not re.search(r"<(p|h1|ul|ol|li|code)>", out)
     assert '<a style="color:#2563eb;text-decoration:underline;" href="https://l.test">' in out
     assert fe.inline_fragment("<p>no button</p>")[1] is None
+    for a in re.findall(r"<a [^>]*>", out):
+        assert a.count("style=") == 1
+    assert "color:#ffffff" in re.search(r'<a [^>]*href="https://a.test[^>]*>', out).group(0)
+
+
+def test_markdown_link_cta_is_consumed_whole():
+    inner = fe.text_to_html(f"Book [a call]({URL}) today", ctas=[Cta("Book", URL)])
+    assert "[a call](" not in inner and ")" not in inner.split(">Book</a>")[1].split("today")[0]
+    assert ">Book</a>" in inner and "today" in inner
 
 
 def test_render_layout_footer_note_with_fallback():

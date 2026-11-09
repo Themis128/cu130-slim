@@ -178,8 +178,8 @@ class _Renderer:
         text = text.strip()
         if not text:
             return
-        for m in _URL_RE.finditer(text):
-            url, tail = _split_url(m.group(0))
+        for m in _LINK_RE.finditer(text):
+            url, tail = _split_url(m.group(3)) if m.group(3) else (m.group(2), "")
             idx = self._cta_index(url)
             if idx is None:
                 continue
@@ -343,7 +343,7 @@ _TAG_STYLES = {
     "code": "font-family:Consolas,Menlo,monospace;font-size:14px;background-color:#f3f4f6;padding:1px 4px;border-radius:3px;",
 }
 _BARE_TAG_RE = re.compile(r"<(p|h1|ul|ol|li|code)>")
-_PLAIN_LINK_RE = re.compile(r"<a href=")
+_PLAIN_LINK_RE = re.compile(r'<a href=(?="[^"]*"(?! class="btn"))')
 
 
 def inline_fragment(fragment: str) -> tuple[str, str | None]:
@@ -359,9 +359,9 @@ def inline_fragment(fragment: str) -> tuple[str, str | None]:
         urls.append(url)
         return button(Cta(html.unescape(m.group(2)).strip(), url), primary=len(urls) == 1)
 
-    out = _BTN_RE.sub(_btn, fragment)
+    out = _PLAIN_LINK_RE.sub(f'<a style="color:{_ACCENT};text-decoration:underline;" href=', fragment)
+    out = _BTN_RE.sub(_btn, out)
     out = _BARE_TAG_RE.sub(lambda m: f'<{m.group(1)} style="{_TAG_STYLES[m.group(1)]}">', out)
-    out = _PLAIN_LINK_RE.sub(f'<a style="color:{_ACCENT};text-decoration:underline;" href=', out)
     return out, (urls[0] if urls else None)
 
 
