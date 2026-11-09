@@ -21,6 +21,7 @@ import argparse
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 
 REPO = "Themis128/cu130-slim"
 MASTER = "master"
@@ -139,6 +140,25 @@ def main() -> int:
             notes.append(f"#{n}: armed auto-merge")
 
     print()
+
+    # Suspicious empty merges: a PR closed as MERGED with zero changed files
+    # usually means the head branch was rebuilt onto the base and the real
+    # commits were silently dropped (seen 2026-11-09 with #1543). Flag any
+    # such merge from the last 48h so it can't pass unnoticed.
+    merged = gh_json(
+        "pr", "list", "--repo", args.repo, "--state", "merged", "--limit", "30",
+        "--json", "number,title,additions,deletions,changedFiles,mergedAt",
+    )
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=48)
+    for m in merged:
+        try:
+            when = datetime.fromisoformat(m["mergedAt"].replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if m.get("changedFiles") == 0 and when >= cutoff:
+            print(f"EMPTY-MERGE #{m['number']} {m['title'][:60]} — verify the work actually landed")
+            actionable.append(f"#{m['number']} merged with 0 changed files (possible rebuild wipe)")
+
     if notes:
         print("actions taken:")
         for note in notes:
