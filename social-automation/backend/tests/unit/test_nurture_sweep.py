@@ -37,6 +37,8 @@ async def test_sweep_sends(monkeypatch):
     assert lead.meta_data["nurture_step"] == 2
     send.assert_awaited_once()
     assert send.call_args.kwargs["text_body"] == "hi Ana"
+    html = send.call_args.kwargs["html_body"]
+    assert "hi Ana" in html and "max-width:600px" in html and "Button not working" not in html
 
 
 @pytest.mark.asyncio

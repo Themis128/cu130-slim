@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.models.lead import Lead
+from app.services.funnel_email import render_funnel_html
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,7 @@ STEPS: tuple[dict[str, Any], ...] = (
     {
         "day": 2,
         "key": "leak_lesson",
+        "cta": "Book your free tech checkup",
         "subject": "Is hidden software eating your profits?",
         "body": (
             "Hi {name},\n\n"
@@ -68,6 +70,7 @@ STEPS: tuple[dict[str, Any], ...] = (
     {
         "day": 4,
         "key": "fourteen_day_clock",
+        "cta": "Grab a free 30-minute slot",
         "subject": "Fix your tech headaches in 2 weeks flat",
         "body": (
             "Hi {name},\n\n"
@@ -105,6 +108,7 @@ QUIET_STEPS: tuple[dict[str, Any], ...] = (
     {
         "day": 1,
         "key": "nudge",
+        "cta": "See available slots",
         "subject": "Still up for your free tech checkup, {name}?",
         "body": (
             "Hi {name},\n\n"
@@ -118,6 +122,7 @@ QUIET_STEPS: tuple[dict[str, Any], ...] = (
     {
         "day": 3,
         "key": "pain",
+        "cta": "Pick a time",
         "subject": "Found a couple of cost leaks on your site, {name}",
         "body": (
             "Hi {name},\n\n"
@@ -132,6 +137,7 @@ QUIET_STEPS: tuple[dict[str, Any], ...] = (
     {
         "day": 7,
         "key": "clean_break",
+        "cta": "Visit cloudless.gr",
         "subject": "Closing the loop, {name}",
         "body": (
             "Hi {name},\n\n"
@@ -346,9 +352,12 @@ async def nurture_sweep(db: AsyncSession, team_id: uuid.UUID) -> dict[str, int]:
         name = (lead.name or "there").split()[0]
         company = meta.get("company") or "your team"
         try:
+            subject = step["subject"].format(name=name, company=company)
+            body = step["body"].format(name=name, company=company)
             await send_email(
-                subject=step["subject"].format(name=name, company=company),
-                text_body=step["body"].format(name=name, company=company),
+                subject=subject,
+                text_body=body,
+                html_body=render_funnel_html(body, subject=subject, cta_label=step.get("cta")),
                 to_addrs=[lead.email],
             )
             stamp = "quiet_step" if quiet else "nurture_step"

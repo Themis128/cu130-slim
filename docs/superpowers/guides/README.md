@@ -28,6 +28,8 @@ Step-by-step guides for everyday SocialAuto workflows.
 22. [Lead-gen readiness audit](22-leadgen-audit.md) — capture surfaces, DM lead lanes, UTM discipline, and 30d lead volume checked live.
 23. [Synigoros complaint status](23-synigoros-complaint-status.md) — poll the Ombudsman tracking page via the adhoc bridge; failure states and change alerts.
 
+- [Funnel email layout](24-funnel-email-layout.md) — shared branded HTML layout for every funnel/lifecycle email (text + HTML, CTA button)
+
 ## Product plans
 
 - [AI Branding expansion plan](../plans/ai-branding-expansion-plan.md) — full roadmap for brand identity, voice, visual, compliance, monitoring, and autonomous content.

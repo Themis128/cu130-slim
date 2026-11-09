@@ -532,7 +532,10 @@ app/services/
 ├── ── Infrastructure ───────────────────────────────────────
 │   ├── rate_limiter.py       — Rate limiting
 │   ├── usage_tracker.py      — Usage tracking
-│   ├── email_templates.py    — Transactional email
+│   ├── funnel_email.py       — Shared branded HTML layout (tables, inline CSS,
+│   │                           600px) rendered from each funnel mail's plain
+│   │                           text; text/plain + text/html via send_email
+│   ├── email_templates.py    — Transactional email (wraps via funnel_email)
 │   ├── email_digest.py       — Email digest
 │   ├── slack_digest.py       — Slack digest
 │   ├── slack_notifications.py — Slack event notifications
