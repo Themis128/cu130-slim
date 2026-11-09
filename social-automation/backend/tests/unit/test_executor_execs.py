@@ -47,3 +47,22 @@ async def test_content_topic_defaults_platform(monkeypatch):
     db = _db(executed=None, user_id="u1")
     out = await M._exec_content_topic(db, "t1", {"topic": "x"})
     assert out["platform"] == "linkedin"
+
+
+@pytest.mark.asyncio
+async def test_devapp_health_dedups_within_24h(monkeypatch):
+    from app.worker.tasks import datalake_executor as M
+
+    slack = AsyncMock()
+    monkeypatch.setattr("app.services.slack_notifications.post_alert_to_slack", slack)
+    action = {"type": "devapp_health", "platform": "twitter", "username": "me", "reason": "quota exhausted"}
+
+    db = _db(executed=None)
+    out = await M._exec_devapp_health(db, "t1", action)
+    assert out["alerted"] == "twitter/@me"
+    slack.assert_awaited_once()
+
+    db2 = _db(executed=MagicMock())  # prior event exists → dedup hit
+    out2 = await M._exec_devapp_health(db2, "t1", action)
+    assert out2["skipped"].startswith("already")
+    assert slack.await_count == 1  # no second alert
