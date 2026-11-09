@@ -52,7 +52,7 @@ class MonetizationAction:
     platform: str
     instruction: str
     time_athens: str = ""  # "HH:MM" local
-    format: str = ""  # text | image | carousel | video
+    format: str = ""  # text | image | carousel | video | story | reel
 
 
 @dataclass
@@ -403,7 +403,8 @@ RULES:
 - At most {_MAX_ACTIONS} actions — concrete posts SocialAuto can auto-schedule
   TOMORROW. Prefer platforms/formats that won in the last 30d.
 - Each action: platform, time_local (HH:MM Europe/Athens, 07:00–23:00 only),
-  format (text|image|carousel|video), instruction (what to post — specific
+  format (text|image|carousel|video|story|reel — story = IG Story single
+  image, reel = FB Page Reel / IG Reel), instruction (what to post — specific
   topic + angle, not a generic theme).
 - Funnel CTAs only where earned by the content; ~1 in 3 actions max may carry
   the free-audit/Polar CTA.
@@ -468,7 +469,7 @@ Return ONLY a JSON object in EXACTLY this shape:
         if platform == "x":
             platform = "twitter"
         fmt = str(a.get("format") or "").lower().strip()
-        if fmt not in {"text", "image", "carousel", "video"}:
+        if fmt not in {"text", "image", "carousel", "video", "story", "reel"}:
             fmt = ""
         t = str(a.get("time_local") or "")
         m = re.match(r"^([01]?\d|2[0-3]):([0-5]\d)$", t)
