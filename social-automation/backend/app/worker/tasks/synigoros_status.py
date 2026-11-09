@@ -4,6 +4,11 @@ Navigates the tracking page on browser-novnc-adhoc, identifies with
 email+ΚΠΑ, extracts Κατάσταση, persists it as an AnalyticsEvent, and pings
 the Cloudless — Automation HQ Telegram channel when the status changes.
 
+OTP step (added 2026-11-09): cold sessions get an otpCode screen after
+Ταυτοποίηση; the 6-digit code is fetched from Gmail via the OAuth
+refresh-token chain (GMAIL_REFRESH_TOKEN + GMAIL_OAUTH_CLIENT_ID/SECRET
+read from /app/.env — no extra deps, stdlib urllib).
+
 Skill doc: .devin/skills/synigoros-ops/SKILL.md
 """
 
@@ -11,7 +16,10 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
+import urllib.parse
+import urllib.request
 from datetime import UTC, datetime
 
 import httpx
@@ -32,6 +40,89 @@ KPA = os.environ.get("SYNIGOROS_KPA", "")
 TELEGRAM_CHAT = "-1004436942504"  # Cloudless — Automation HQ
 EVENT_TYPE = "synigoros_status"
 PLATFORM = "synigoros"
+ENV_FILE = "/app/.env"
+
+
+def _env_file() -> dict:
+    out = {}
+    try:
+        with open(ENV_FILE, encoding="utf-8", errors="replace") as f:
+            for line in f:
+                m = re.match(r"^([A-Z_]+)=(.*)$", line.strip())
+                if m:
+                    out[m.group(1)] = m.group(2).strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def _gmail_access_token() -> str:
+    env = _env_file()
+    rt = env.get("GMAIL_REFRESH_TOKEN", "")
+    cid = env.get("GMAIL_OAUTH_CLIENT_ID", "")
+    csec = env.get("GMAIL_OAUTH_CLIENT_SECRET", "")
+    if not (rt and cid and csec):
+        raise RuntimeError("gmail oauth creds missing in /app/.env")
+    data = urllib.parse.urlencode({
+        "client_id": cid, "client_secret": csec,
+        "refresh_token": rt, "grant_type": "refresh_token",
+    }).encode()
+    r = urllib.request.urlopen(
+        urllib.request.Request("https://oauth2.googleapis.com/token", data=data), timeout=20
+    )
+    return json.load(r)["access_token"]
+
+
+def _gmail_otp(since_epoch: float, wait_s: int = 100) -> str | None:
+    """Newest 6-digit OTP from noreply@synigoros.gr received after since_epoch."""
+    deadline = time.time() + wait_s
+    token = None
+    while time.time() < deadline:
+        if token is None:
+            try:
+                token = _gmail_access_token()
+            except Exception as e:
+                logger.warning("synigoros otp: token refresh failed: %s", e)
+                time.sleep(10)
+                continue
+        try:
+            q = urllib.parse.quote("from:synigoros.gr newer_than:30m")
+            req = urllib.request.Request(
+                f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={q}&maxResults=5",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            msgs = json.load(urllib.request.urlopen(req, timeout=20)).get("messages", [])
+        except Exception as e:
+            logger.warning("synigoros otp: gmail list failed: %s", e)
+            token = None
+            time.sleep(10)
+            continue
+        for m in msgs:
+            mid = m.get("id")
+            if not mid:
+                continue
+            try:
+                req = urllib.request.Request(
+                    f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{mid}"
+                    "?format=metadata&metadataHeaders=Subject",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                full = json.load(urllib.request.urlopen(req, timeout=20))
+            except Exception as e:
+                logger.warning("synigoros otp: gmail get %s failed: %s", mid, e)
+                continue
+            try:
+                internal = int(full.get("internalDate", "0")) / 1000
+            except (TypeError, ValueError):
+                continue
+            if internal < since_epoch - 60:
+                continue
+            snip = full.get("snippet", "")
+            mm = re.search(r"(\d{6})", snip)
+            if mm:
+                return mm.group(1)
+        time.sleep(10)
+    return None
 
 
 def _bridge(path: str, data: dict, tries: int = 3) -> dict:
@@ -79,6 +170,7 @@ def _poll_inner() -> dict:
     else:
         raise RuntimeError("tracking page never rendered")
     if _ev("!!document.getElementById('webMail')"):
+        identify_at = time.time()
         _ev(
             f"(()=>{{const m=document.getElementById('webMail');m.value={json.dumps(MAIL)};"
             "m.dispatchEvent(new Event('input',{bubbles:true}));"
@@ -86,16 +178,28 @@ def _poll_inner() -> dict:
             "c.dispatchEvent(new Event('input',{bubbles:true}));return 1})()"
         )
         _bridge("/session/click", {"selector": "button", "text": "Ταυτοποίηση"})
-        # bounded poll for the status view or the explicit failure text —
-        # a fixed sleep extracts empty fields on slow identification
+        # OTP step: the site emails a 6-digit code; fetch the newest one
+        # from Gmail and submit it, then keep polling for the status view.
+        otp_done = False
         failed = False
-        for _ in range(10):
+        for _ in range(30):
             time.sleep(3)
             if _ev("document.body.innerText.includes('Κατάσταση')"):
                 break
             if _ev("document.body.innerText.includes('Δεν έγινε ταυτοποίηση')"):
                 failed = True
                 break
+            if not otp_done and _ev("!!document.getElementById('otpCode')"):
+                otp = _gmail_otp(identify_at)
+                if not otp:
+                    raise RuntimeError("OTP screen shown but no fresh Gmail code")
+                _ev(
+                    f"(()=>{{const o=document.getElementById('otpCode');o.value='{otp}';"
+                    "o.dispatchEvent(new Event('input',{bubbles:true}));"
+                    "o.dispatchEvent(new Event('change',{bubbles:true}));return 1})()"
+                )
+                _bridge("/session/click", {"selector": "button", "text": "Ταυτοποίηση"})
+                otp_done = True
         if failed:
             raise RuntimeError("identify failed — wrong mail/ΚΠΑ pair")
     # the status block's fields fill asynchronously — a short settle keeps
