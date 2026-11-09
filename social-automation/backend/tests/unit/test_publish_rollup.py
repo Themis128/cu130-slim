@@ -35,12 +35,12 @@ def test_rollup_all_failed_fails_post_with_reason():
     assert "bad request" in (reason or "").lower()
 
 
-def test_rollup_all_skipped_fails_post():
+def test_rollup_all_skipped_suppresses_post():
     status, partial, reason = _compute_post_rollup(
         target_statuses=["skipped"],
         in_flight=False,
         failure_reason=None,
     )
-    assert status == PostStatus.FAILED
+    assert status == PostStatus.SUPPRESSED
     assert partial is False
-    assert "skipped" in (reason or "").lower()
+    assert "suppressed" in (reason or "").lower()
