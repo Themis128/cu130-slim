@@ -106,9 +106,15 @@ def _exec_platform_focus(action) -> dict:
 
 async def _exec_devapp_health(db, team_id, action) -> dict:
     """devapp_health → Slack alert; the heal lanes (token-refresh,
-    session-healer, consent_healers) own the actual remediation."""
+    session-healer, consent_healers) own the actual remediation.
+
+    Deduped per platform+reason for 24h — a persistent condition like an
+    exhausted X quota must not re-alert on every insights sweep."""
     from app.services.slack_notifications import post_alert_to_slack
 
+    key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
+    if await _already_executed(db, "devapp_health", key):
+        return {"skipped": "already alerted <24h"}
     label = f"{action.get('platform')}/@{action.get('username')}" if action.get("username") else str(action.get("platform"))
     await post_alert_to_slack(f"⚠️ devapp health — {label}: {action.get('reason', 'unknown')}")
     return {"alerted": label}
@@ -140,6 +146,9 @@ async def _run() -> dict:
             if not fn:
                 continue
             key = str(action.get("topic") or action.get("platform") or action.get("type"))[:200]
+            if action.get("type") == "devapp_health":
+                # match the dedup key _exec_devapp_health checks against
+                key = f"{action.get('platform')}:{action.get('reason', '')}"[:200]
             try:
                 out = await fn(db, team_id, action) if asyncio.iscoroutinefunction(fn) else fn(action)
             except Exception as e:

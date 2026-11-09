@@ -21,6 +21,12 @@ dependencies = [
     "deltalake>=0.20",
     "duckdb>=1.1",
     "dbt-duckdb>=1.8",
+    # dbt-core 1.12+ hard-requires dbt-core-experimental-parser, whose only
+    # manylinux wheel lives on a GitHub release asset (PyPI ships sdist only).
+    # That asset is currently 504ing at the CDN edge and 504s every CI
+    # pip install. Hold dbt-core on the 1.11 line (no parser dep) until the
+    # asset recovers; dbt-duckdb 1.11.x is the matched adapter.
+    "dbt-core>=1.11,<1.12",
     # mlflow-skinny: tracking client only (no server/UI). >=3.17.2 clears
     # the mlflow 2.x CVEs flagged by pip-audit/Trivy (path traversal, SSRF, RCE).
     "mlflow-skinny>=3.17.2,<4",

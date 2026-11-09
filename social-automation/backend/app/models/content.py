@@ -18,6 +18,7 @@ class PostStatus(enum.StrEnum):
     PUBLISHING = "publishing"
     PUBLISHED = "published"
     FAILED = "failed"
+    SUPPRESSED = "suppressed"
     ARCHIVED = "archived"
 
 

@@ -176,7 +176,9 @@ def _compute_post_rollup(
 
     # No publish succeeded → overall failure.
     if skipped == total:
-        return (PostStatus.FAILED, False, "All targets were skipped (unsupported for publishing)")
+        # Guardrail skips (dedup/QA/unsupported) are intentional suppression,
+        # not failures — keep them out of failure metrics.
+        return (PostStatus.SUPPRESSED, False, "All targets suppressed by publish guardrails")
 
     return (PostStatus.FAILED, False, failure_reason or "No targets published successfully")
 
