@@ -164,10 +164,7 @@ async def _winback_bridge(leads: list[dict], stats: dict[str, int]) -> None:
                 continue
             if ts < cutoff:
                 continue
-            note = (
-                f"{WINBACK_MARKER}: Mautic activity {last_active} "
-                f"(campaign/segment engagement detected by funnel-sync)"
-            )
+            note = f"{WINBACK_MARKER}: Mautic activity {last_active} (campaign/segment engagement detected by funnel-sync)"
             try:
                 from app.services import espocrm_client as espo
 
@@ -216,9 +213,18 @@ async def sync(apply: bool = False) -> None:
     hot_emails = await _socialauto_hot_emails()
     bands = await _lifecycle_bands([str(c.get("id")) for c in contacts])
     junk = (
-        "example.com", "example.invalid", "test.dev", "test.local", ".local",
-        "probe@", "platform-test", "ci-test", "@cloudless.gr",
-        "themis.baltzakis", "baltzakis.themis", "tbaltzakis@",
+        "example.com",
+        "example.invalid",
+        "test.dev",
+        "test.local",
+        ".local",
+        "probe@",
+        "platform-test",
+        "ci-test",
+        "@cloudless.gr",
+        "themis.baltzakis",
+        "baltzakis.themis",
+        "tbaltzakis@",
     )
     r = await _redis()
     try:
