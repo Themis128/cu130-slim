@@ -21,7 +21,6 @@ import hashlib
 import json
 import logging
 import os
-import uuid
 from datetime import UTC, datetime, timedelta
 
 import httpx

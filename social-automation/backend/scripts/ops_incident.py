@@ -34,8 +34,6 @@ from app.models.ops_incident import IncidentSeverity, IncidentStatus, OpsInciden
 
 
 async def _report(args) -> None:
-    from sqlalchemy import select
-
     from app.services.ops_agent import report_incident
 
     async with async_session_maker() as db:
@@ -109,10 +107,10 @@ def main() -> None:
     r.add_argument("--detail", default="", help="JSON object")
     r.set_defaults(fn=_report)
 
-    l = sub.add_parser("list", help="list incidents")
-    l.add_argument("--status", default="open", choices=["open", "triaged", "actioned", "resolved", "escalated", "all"])
-    l.add_argument("--limit", type=int, default=20)
-    l.set_defaults(fn=_list)
+    ls = sub.add_parser("list", help="list incidents")
+    ls.add_argument("--status", default="open", choices=["open", "triaged", "actioned", "resolved", "escalated", "all"])
+    ls.add_argument("--limit", type=int, default=20)
+    ls.set_defaults(fn=_list)
 
     rs = sub.add_parser("resolve", help="resolve matching open incidents")
     rs.add_argument("id_or_fp", nargs="?", default="")
