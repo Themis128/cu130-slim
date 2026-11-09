@@ -320,6 +320,46 @@ class FacebookAPIClient:
             self._raise_for_status(resp, url)
             return resp.json()
 
+    async def create_reel_post(self, video_url: str, description: str = "") -> dict:
+        """Publish a Reel to the Page via the video_reels 3-phase upload.
+
+        ``POST /{page_id}/video_reels?upload_phase=start`` -> {video_id, upload_url};
+        ``POST upload_url`` with ``file_url`` so Meta's servers fetch the video
+        from our public media URL (no binary upload needed);
+        ``POST /{page_id}/video_reels?upload_phase=finish`` with
+        ``video_state=PUBLISHED``. Returns the final Graph response.
+        """
+        if not video_url:
+            raise ValueError("video_url is required for a Facebook reel")
+
+        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as client:
+            start = self._url(f"{self.page_id}/video_reels")
+            resp = await client.post(start, params=self._params(), data={"upload_phase": "start"})
+            self._raise_for_status(resp, start)
+            started = resp.json()
+            video_id = str(started.get("video_id") or "")
+            upload_url = started.get("upload_url") or ""
+            if not video_id or not upload_url:
+                raise RuntimeError(f"video_reels start phase returned no video_id/upload_url: {started}")
+
+            resp = await client.post(
+                upload_url,
+                headers={"Authorization": f"OAuth {self.access_token}", "file_url": video_url},
+            )
+            self._raise_for_status(resp, upload_url)
+
+            finish = self._url(f"{self.page_id}/video_reels")
+            payload: dict[str, Any] = {
+                "upload_phase": "finish",
+                "video_id": video_id,
+                "video_state": "PUBLISHED",
+            }
+            if description:
+                payload["description"] = description
+            resp = await client.post(finish, params=self._params(), data=payload)
+            self._raise_for_status(resp, finish)
+            return {**resp.json(), "id": video_id}
+
     async def create_multi_photo_post(
         self,
         image_urls: list[str],
