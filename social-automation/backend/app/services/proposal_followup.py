@@ -57,6 +57,7 @@ def _steps(proposal: AgencyProposal) -> tuple[dict[str, Any], ...]:
         {
             "day": 3,
             "key": "bump",
+            "cta": "Grab a free 30-minute slot",
             "subject": f"Re: {proposal.subject}",
             "body": (
                 f"Hi {name},\n\n"
@@ -150,10 +151,12 @@ async def proposal_followup_sweep(*, session_factory=None) -> dict[str, Any]:
                 continue
 
             from app.services.email_digest import send_email
+            from app.services.funnel_email import render_funnel_html
 
             await send_email(
                 subject=due["subject"],
                 text_body=due["body"],
+                html_body=render_funnel_html(due["body"], subject=due["subject"], cta_label=due.get("cta")),
                 to_addrs=[proposal.recipient_email],
                 reply_to=REPLY_TO,
                 from_name=FROM_NAME,

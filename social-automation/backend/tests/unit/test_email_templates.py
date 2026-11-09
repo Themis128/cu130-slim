@@ -64,8 +64,8 @@ class TestLogEmail:
 class TestHelpers:
     def test_wrapper(self):
         html = E._html_wrapper("Title", "<p>body</p>")
-        assert "<h1>Title</h1>" in html
-        assert "<p>body</p>" in html
+        assert ">Title</h1>" in html and "max-width:600px" in html
+        assert '<p style="margin:0 0 16px;">body</p>' in html
         assert "SocialAuto" in html
 
     def test_user_email(self):

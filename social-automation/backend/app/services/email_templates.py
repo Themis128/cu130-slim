@@ -18,6 +18,7 @@ and ``publishing.py`` for the preference gates:
 from __future__ import annotations
 
 import logging
+from html import escape as _escape
 from typing import TYPE_CHECKING
 
 from app.services.email_digest import send_email
@@ -63,41 +64,17 @@ async def _log_email(
 
 
 def _html_wrapper(title: str, body_html: str) -> str:
-    """Wrap content in a simple responsive HTML email template."""
-    return f"""\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<style>
-  body {{ margin:0; padding:0; background:#0f172a; font-family:Inter,sans-serif; color:#e2e8f0; }}
-  .container {{ max-width:600px; margin:0 auto; padding:32px 24px; }}
-  .header {{ text-align:center; margin-bottom:32px; }}
-  .logo {{ font-size:24px; font-weight:700; color:#38bdf8; }}
-  .card {{ background:#1e293b; border-radius:12px; padding:32px; margin-bottom:24px; }}
-  .btn {{ display:inline-block; background:#38bdf8; color:#0f172a; font-weight:600;
-          padding:12px 32px; border-radius:8px; text-decoration:none; margin:16px 0; }}
-  .footer {{ text-align:center; font-size:13px; color:#64748b; margin-top:24px; }}
-  h1 {{ font-size:22px; margin:0 0 16px; }}
-  p {{ line-height:1.6; margin:0 0 12px; }}
-  ul {{ line-height:1.8; }}
-</style>
-</head>
-<body>
-<div class="container">
-  <div class="header"><div class="logo">SocialAuto</div></div>
-  <div class="card">
-    <h1>{title}</h1>
-    {body_html}
-  </div>
-  <div class="footer">
-    <p>SocialAuto — Social Media Automation Platform</p>
-    <p>cloudless.gr</p>
-  </div>
-</div>
-</body>
-</html>"""
+    """Wrap content in the shared branded email layout (``funnel_email``)."""
+    from app.services.funnel_email import inline_fragment, render_layout
+
+    inner, button_url = inline_fragment(f"<h1>{_escape(title)}</h1>\n{body_html}")
+    return render_layout(
+        inner,
+        title=title,
+        fallback_url=button_url,
+        footer_note="SocialAuto — Social Media Automation Platform · https://cloudless.gr",
+        brand="SocialAuto",
+    )
 
 
 def _user_email(user: User) -> str:
