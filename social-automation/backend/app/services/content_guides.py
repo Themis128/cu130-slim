@@ -8,6 +8,33 @@ cap) lands in one place for every generation path.
 
 from __future__ import annotations
 
+import json
+from functools import lru_cache
+from pathlib import Path
+
+
+@lru_cache(maxsize=1)
+def _platform_fit_lines() -> dict[str, str]:
+    """Per-platform audience-fit sentences, sourced from platform_fit.json.
+
+    The JSON is the single source of truth — edited via the
+    ``platform-fit-ops`` skill, which also regenerates the channel-skill
+    blocks and the company-brain reference doc. Missing/unreadable file
+    degrades to no fit lines (guides stay usable).
+    """
+    try:
+        data = json.loads((Path(__file__).with_name("platform_fit.json")).read_text())
+    except Exception:
+        return {}
+    return {
+        k: v["guide_line"]
+        for k, v in data.items()
+        if isinstance(v, dict) and v.get("guide_line")
+    }
+
+
+_FIT = _platform_fit_lines()
+
 PLATFORM_GUIDES: dict[str, str] = {
     "linkedin": (
         "Professional, thought-leadership style for LinkedIn. 3000 char limit. "
@@ -82,6 +109,14 @@ PLATFORM_GUIDES: dict[str, str] = {
         "one in the body. The unsubscribe footer is added automatically — never "
         "write one. Plain everyday English."
     ),
+}
+
+# Append the canonical audience-fit line (platform_fit.json) to every guide
+# that has one — keeps generation prompts aligned with what each platform's
+# audience/algorithm actually rewards. Edit the JSON, not these strings.
+PLATFORM_GUIDES = {
+    k: v + (f" Audience fit: {_FIT[k]}." if k in _FIT else "")
+    for k, v in PLATFORM_GUIDES.items()
 }
 
 HASHTAG_RULES = """\
