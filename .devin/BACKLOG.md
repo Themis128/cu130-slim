@@ -459,3 +459,24 @@ Leftovers:
 - [ ] `docker model`/DMR + GPU services (`social-media-comfyui-gpu`,
   `instagram-private-api`, sidecars) are stack-ops sleep-managed Exited —
   expected idle state, not a fault. Wake on demand via stackctl.
+
+## AgentOps / ops-agent (2026-11-09)
+
+- [x] MVP AgentOps loop landed on branch `ops-agent-incidents`:
+  `ops_incidents` table + model (migration `f1a2b3c4d5e6`, down_revision
+  `s9p9r8s7t6u5` — single alembic head), `app/services/ops_agent.py`
+  (report_incident dedup/fingerprint, docker-socket-proxy evidence,
+  LLM RCA via DMR→CF `call_inference`, policy gate, whitelisted task
+  reruns, severity-routed Telegram alert), `ops_agent_sweep` Celery task
+  every 300s on `default` queue, `scripts/ops_incident.py` CLI
+  (`docker exec social-api python3 /app/scripts/ops_incident.py report|list|resolve|sweep`)
+  as the detector ingestion point.
+- [ ] Wire detectors: add `ops_incident.py report` calls to
+  `social-stack-watchdog.sh`, `compose-watchdog.sh`, `heal_supervisor.py`,
+  session healers, dmr-watchdog — one report line per failure signature.
+- [ ] Dead-man check for ops-agent itself (watchdog alerts if sweep misses
+  >15 min — check celery beat logs / `ops_incidents` freshness).
+- [ ] Learning hook: feed resolved/escalated incidents into
+  `failure_learning` / `company_brain` recall for next RCA.
+- [ ] Verify first live sweep post-deploy; confirm telegram alert dedup
+  (6h) doesn't hide recurrence escalations.

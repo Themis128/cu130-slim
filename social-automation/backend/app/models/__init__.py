@@ -25,6 +25,7 @@ from app.models.email_campaign import (
 from app.models.lead import Lead, LeadCompanySize, LeadInterest, LeadSource
 from app.models.linkedin_ads import AdCampaignSnapshot
 from app.models.linkedin_intel import LinkedInAdIntel, LinkedInIntelWatch
+from app.models.ops_incident import IncidentSeverity, IncidentStatus, OpsIncident
 from app.models.queue import PublishQueue
 from app.models.social_account import SocialAccount
 from app.models.social_secret import SocialSecret
@@ -90,4 +91,7 @@ __all__ = [
     "AgencyProposalStatus",
     "AgencyProject",
     "AgencyProjectStatus",
+    "OpsIncident",
+    "IncidentStatus",
+    "IncidentSeverity",
 ]

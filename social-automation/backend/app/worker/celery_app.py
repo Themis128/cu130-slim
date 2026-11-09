@@ -52,6 +52,7 @@ celery_app = Celery(
         "app.worker.tasks.datalake_executor",
         "app.worker.tasks.telegram_agent",
         "app.worker.tasks.dmr_health",
+        "app.worker.tasks.ops_agent",
         "app.worker.tasks.auto_gates",
         "app.worker.tasks.consent_healers",
         "app.worker.tasks.linkedin_engagement_score",
@@ -269,6 +270,7 @@ celery_app.conf.update(
         # default/celery queue tasks (observed 2026-10-27: llen=20 stuck).
         "app.worker.tasks.dmr_health.keep_warm_dmr_models": {"queue": "media"},
         "app.worker.tasks.dmr_health.check_dmr_health": {"queue": "media"},
+        "app.worker.tasks.ops_agent.ops_agent_sweep": {"queue": "default"},
         # ── default queue: analytics, workflows, digests, everything else ──
         "app.worker.tasks.analytics.sync_all_analytics": {"queue": "default"},
         "app.worker.tasks.analytics.sync_team_analytics_task": {"queue": "default"},
@@ -627,6 +629,12 @@ celery_app.conf.update(
         "check-scheduled-posts": {
             "task": "app.worker.tasks.publishing.check_scheduled_posts",
             "schedule": 60.0,
+        },
+        # AgentOps loop — triage open ops_incidents (LLM RCA + policy gate +
+        # whitelisted reruns + Telegram escalation). Every 5 min on default.
+        "ops-agent-sweep": {
+            "task": "app.worker.tasks.ops_agent.ops_agent_sweep",
+            "schedule": 300.0,
         },
         # Failure-trajectory learning — classify failed post_targets into
         # the signature taxonomy; signatures recurring >=3x in 7d escalate
