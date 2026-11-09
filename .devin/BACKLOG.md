@@ -304,3 +304,69 @@ Leftovers:
   docs). Verified live: attempts 1-2 failed, 3 succeeded → 82 files,
   364 memories, index note restored. NOTE: manifest state lives at
   /root/.local/state/kakkava-brain-sync/ (cron runs as root).
+
+- [x] gov-portal-watch + gsis-login-ops skills (PR #1540): config-driven authenticated gov-portal watcher engine (CDP :9229, extract_js diff, Telegram, GSIS+AMKA auto re-login) + doctor.py/run-all-watches.py ops tooling. Live `C:/Users/tbaltzakis/idika-watch/` refactored onto engine.py via portal.json + thin wrappers; schtasks IdikaWatch/IdikaKeepalive/IdikaMorningRelogin unchanged; doctor 7/7 PASS.
+- [~] Warm-back Engine (PR #1542): auto-merge armed, checks cycling. Residuals resolved 2026-11-09: (a) ~~CF `mail-outbound` token perms~~ — NOT needed: `CLOUDFLARE_WORKERS_DEPLOY_TOKEN` set `MAIL_OUTBOUND_TOKEN` secret via Workers secrets API; `/verify` self-test sent; backend `send_email` smoke test delivered through the worker lane end-to-end. `CF_EMAIL_ENABLED` was missing from compose env — fixed locally + PR #1544. SMTP fallback still works. (b) ~~LinkedIn partner ID~~ — extracted `9535068` from Campaign Manager → Measure → Signals manager → Insight Tag via linkedin sidecar; `NEXT_PUBLIC_LINKEDIN_PARTNER_ID` secret set on cloudless.gr; deploy-pi rerun 42523188497 triggered to bake it into the image. cloudless.gr#2389 stays closed (main's consent-gated tag is correct). (c) Mautic win-back beat fires daily 10:45 — verify first real sends once eligible cold contacts exist (dry-run scanned=21, 0 sends — most Espo leads lack usable email).
+
+## 2026-11-09 — WSL self-maintenance automation + Devin popup fix
+
+- WSL Ubuntu-24.04 is now fully self-maintaining: unattended-upgrades covers
+  all 8 origins incl. noble-proposed + phased updates forced; needrestart
+  auto mode via apt hook; weekly `/etc/cron.weekly/apt-clean` +
+  `scripts/system-hygiene.sh` (journal/docker/snap/logs, TG #digest);
+  `WSL-Weekly-Bounce` scheduled task Sundays 05:00 (deploy-lock guarded,
+  TG-reported, first live run 2026-11-15); tmux-resurrect/continuum
+  configured at /root/.tmux for session restore.
+- [x] tmux-resurrect verified 2026-11-09 (isolated HOME+TMUX_TMPDIR):
+  save→kill→auto-restore works — sessions/windows/cwds come back via
+  continuum-restore 'on'. Caveats found: resurrect dir is XDG
+  `$HOME/.local/share/tmux/resurrect` (not ~/.tmux/resurrect); pane
+  process respawn needs an attached client (detached `-d` restore skips
+  it — fine in real usage); a stale `tmux new-session` client process
+  trips continuum's another-server guard and silently blocks restore —
+  kill stray `tmux` clients if restore ever seems dead.
+- [ ] Proposed-pocket auto-updates carry regression risk; revert = remove
+  `-proposed` origin in `/etc/apt/apt.conf.d/52auto-updates` + suite in
+  `ubuntu.sources`, then `apt-get update`.
+- Devin "missing file" popup root-caused: stale untitled editor tabs
+  `d:\DevOptimizer\{status,doctor,explore}` (files don't exist) make
+  helm-intellisense statSync ENOENT every lint pass → notification.
+  Fix = close those tabs; if they respawn, trace the creator.
+- [ ] Synigoros followups: added tgOnly reminder events (call-ombudsman-1
+  11-25, call-sepe-1 12-08, dypa-written-demand 12-04) + tgOnly support in
+  admin-followups.js — committed on feat/synigoros-tg-reminders.
+
+### WSL-Weekly-Bounce Slack failover (2026-11-09)
+
+- `C:\Users\tbaltzakis\scripts\wsl-weekly-bounce.ps1` now fails over to
+  Slack `chat.postMessage` when `Send-Tg` exhausts its 3 retries — covers
+  all 4 outcomes (deploy-lock skip, success, docker-degraded, fatal).
+  Slack path is pure Windows-side HTTP (no WSL), so it still fires while
+  the VM is down. Severity rides in the text as `digest|…` / `ops|…`.
+- Token resolution (`Get-SlackToken`): scans
+  `%USERPROFILE%\.mcp-auth\mcp-remote-v1\*_tokens.json` for
+  `chat:write`-scoped tokens, uses a live one or refreshes via
+  `oauth.v2.user.access` (public client, client_id only) and writes the
+  rotation back — same contract as `slack_token_sync.py`.
+- Workspace guard (`Test-SlackToken` → `auth.test`): two Slack
+  workspaces share the token store (SocialAuto T0C18DXH8P7 +
+  www.cloudless.gr T09AF5VTK4G); only team_id T0C18DXH8P7 tokens are used,
+  preventing the 2026-11-08 channel_not_found flip-flop. Wrong-workspace
+  refreshes are still written back (rotation chain stays alive) but not
+  used for posting.
+- Channel: `SLACK_CHANNEL_ID` from `%USERPROFILE%\scripts\.slack-alerts.env`
+  (currently C0C1F1…); static `SLACK_BOT_TOKEN` there is last-resort only.
+- BLOCKED — no live Slack credential on the host: both mcp-remote
+  `xoxe` tokens are expired AND their refresh_tokens return
+  `invalid_grant` (Slack MCP session dead — consistent with the
+  slack-remote port-3118 collision above); no `xoxb` bot token exists
+  (app reinstall still pending); all incoming webhooks 404. Failover
+  code is verified parse-clean + fail-soft, and self-heals the moment a
+  valid chat:write token lands in the token store — i.e. after Slack MCP
+  re-auth in Devin or the app reinstall. Until then Slack attempts log
+  `slack failover api error: invalid_auth` to bounce.log and Telegram
+  remains the only working lane.
+- Gotcha fixed during testing: `Log` (Tee-Object) emits to the pipeline —
+  unguarded `Log` calls inside `Get-SlackToken`/`Send-Slack` polluted
+  their return values (array instead of bool/token, truthy-on-failure).
+  All Log calls inside value-returning functions now use `$null = Log`.

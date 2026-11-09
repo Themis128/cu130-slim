@@ -468,3 +468,47 @@ async def test_slack_report_import_failure_returns(monkeypatch):
 
     monkeypatch.setitem(sys.modules, "app.services.slack_notifications", SimpleNamespace())
     await E._slack_report({"details": [{"email": "x"}], "errors": 0, "matched": 1, "noted": 1, "status_bumped": 0})
+
+
+def test_task_triggers_lifecycle_on_match(monkeypatch):
+    """matched>0 + not dry_run → enqueues the lifecycle sweep for fast rescoring."""
+    from app.worker.tasks import crm_lifecycle as lifecycle_task
+
+    async def _fake(*, dry_run: bool = False):
+        return {"matched": 3, "notes": 3}
+
+    fired = []
+    monkeypatch.setattr(task.crm_engagement, "run_crm_engagement_sweep", _fake)
+    monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(lifecycle_task.run_crm_lifecycle_sweep, "delay", lambda *a, **k: fired.append(1))
+
+    out = task.run_crm_engagement_sweep(dry_run=False)
+    assert out == {"matched": 3, "notes": 3}
+    assert fired == [1]
+
+    # dry_run never triggers
+    task.run_crm_engagement_sweep(dry_run=True)
+    assert fired == [1]
+
+    async def _none(*, dry_run: bool = False):
+        return {"matched": 0}
+
+    monkeypatch.setattr(task.crm_engagement, "run_crm_engagement_sweep", _none)
+    task.run_crm_engagement_sweep(dry_run=False)
+    assert fired == [1]
+
+
+def test_task_trigger_failure_swallowed(monkeypatch):
+    """A broker failure on the lifecycle trigger must not break the sweep."""
+    from app.worker.tasks import crm_lifecycle as lifecycle_task
+
+    async def _fake(*, dry_run: bool = False):
+        return {"matched": 1}
+
+    def _boom(*a, **k):
+        raise RuntimeError("broker down")
+
+    monkeypatch.setattr(task.crm_engagement, "run_crm_engagement_sweep", _fake)
+    monkeypatch.setattr(task, "run_async", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(lifecycle_task.run_crm_lifecycle_sweep, "delay", _boom)
+    assert task.run_crm_engagement_sweep(dry_run=False) == {"matched": 1}

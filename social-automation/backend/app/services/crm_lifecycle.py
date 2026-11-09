@@ -18,8 +18,10 @@ Closes the two dead stages in the capture→clean→score→route→lifecycle lo
 
 from __future__ import annotations
 
+import json
 import logging
 import re
+from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import get_settings
@@ -30,6 +32,15 @@ logger = logging.getLogger(__name__)
 SCORE_MARKER = "Lead score:"
 REPLY_MARKER = "Reply received"
 DRIP_MARKER = "Email drip"
+WINBACK_MARKER = "Win-back engagement"
+ENGAGEMENT_MARKERS = (REPLY_MARKER, WINBACK_MARKER)
+
+# Engagement decays: a reply is strong intent for ~90 days, then fades to a
+# weak signal; beyond ~180 days it no longer counts (lead-scoring best
+# practice — stale opens/replies must not mint fake-hot leads).
+REPLY_FRESH_DAYS = 90
+REPLY_STALE_DAYS = 180
+SCORE_REDIS_TTL = 30 * 24 * 3600
 
 HOT_THRESHOLD = 65  # same band cut-offs as cloudless.gr lead-scoring.ts
 WARM_THRESHOLD = 35
@@ -50,8 +61,8 @@ _FREE_MAIL_DOMAINS = {
     "gmx.com",
     "yandex.com",
 }
-_SYNTHETIC_DOMAINS = {"messenger.local", "cloudless.gr", "example.com", "example.invalid"}
-_TEST_MARKERS = ("ci-test+", "test@test", "@example.invalid", "@example.com")
+_SYNTHETIC_DOMAINS = {"messenger.local", "cloudless.gr", "example.com", "example.invalid", "test.dev", "test.local"}
+_TEST_MARKERS = ("ci-test+", "test@test", "@example.invalid", "@example.com", "@test.dev", "@test.local")
 
 _PROJECT_SIGNAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b(budget|invest|spend)\b", re.I), "mentions budget"),
@@ -101,6 +112,19 @@ def _is_synthetic(lead: dict[str, Any]) -> bool:
 def _utm(description: str, key: str) -> str:
     m = re.search(rf"(?im)^{re.escape(key)}:\s*(.+)$", description)
     return m.group(1).strip() if m else ""
+
+
+def _note_age_days(note: dict[str, Any]) -> float | None:
+    raw = str(note.get("createdAt") or "")
+    if not raw:
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - dt).total_seconds() / 86400
 
 
 def score_lead(lead: dict[str, Any], notes: list[dict[str, Any]]) -> tuple[int, str, list[str]]:
@@ -162,9 +186,18 @@ def score_lead(lead: dict[str, Any], notes: list[dict[str, Any]]) -> tuple[int, 
         pts += 10
         reasons.append(f"business email domain: {domain} (+10)")
 
-    if any(REPLY_MARKER in p for p in note_posts):
+    engagement_ages = [
+        age if (age := _note_age_days(n)) is not None else 0.0
+        for n in notes
+        if any(m in str(n.get("post") or "") for m in ENGAGEMENT_MARKERS)
+    ]
+    freshest_engagement = min(engagement_ages) if engagement_ages else None
+    if freshest_engagement is not None and freshest_engagement <= REPLY_FRESH_DAYS:
         pts += 25
         reasons.append("replied to outreach (+25)")
+    elif freshest_engagement is not None and freshest_engagement <= REPLY_STALE_DAYS:
+        pts += 10
+        reasons.append("engaged 90-180d ago, decayed (+10)")
     elif sum(1 for p in note_posts if DRIP_MARKER in p) >= 2:
         pts += 5
         reasons.append("nurture sequence engaged (+5)")
@@ -192,7 +225,7 @@ def _needs_score(notes: list[dict[str, Any]]) -> bool:
     if not scored:
         return True
     last_score = max(str(n.get("createdAt") or "") for n in scored)
-    replies = [n for n in notes if REPLY_MARKER in (n.get("post") or "")]
+    replies = [n for n in notes if any(m in (n.get("post") or "") for m in ENGAGEMENT_MARKERS)]
     return any(str(n.get("createdAt") or "") > last_score for n in replies)
 
 
@@ -200,6 +233,25 @@ def _score_note(lead: dict[str, Any], score: int, band: str, reasons: list[str])
     head = f"{SCORE_MARKER} {score}/100 ({band})"
     detail = " · ".join(reasons) if reasons else "no signals"
     return f"{head}\n{detail}"
+
+
+async def _store_score(lead_id: str, score: int, band: str) -> None:
+    """Publish the latest score to Redis so ``mautic_sync`` can tier contacts
+    on the lifecycle band instead of the coarse Espo status."""
+    try:
+        import redis.asyncio as aioredis
+
+        r = aioredis.from_url(get_settings().REDIS_URL, decode_responses=True)
+        try:
+            await r.set(
+                f"espo:leadscore:{lead_id}",
+                json.dumps({"score": score, "band": band, "at": datetime.now(UTC).isoformat()}),
+                ex=SCORE_REDIS_TTL,
+            )
+        finally:
+            await r.aclose()
+    except Exception:  # noqa: BLE001 — score mirror is best-effort
+        logger.debug("crm lifecycle: score mirror failed for %s", lead_id)
 
 
 async def _convert(lead: dict[str, Any]) -> dict[str, Any]:
@@ -259,6 +311,14 @@ async def run_crm_lifecycle_sweep(*, dry_run: bool = False) -> dict[str, Any]:
         try:
             notes = await _lead_notes(lid)
             if not _needs_score(notes):
+                # Mirror the last recorded score to Redis so mautic_sync can
+                # tier on the lifecycle band even for leads scored earlier.
+                scored_notes = [n for n in notes if SCORE_MARKER in (n.get("post") or "")]
+                if scored_notes and not dry_run:
+                    latest = max(scored_notes, key=lambda n: str(n.get("createdAt") or ""))
+                    m = re.search(r"Lead score:\s*(\d+)/100\s*\((\w+)\)", str(latest.get("post") or ""))
+                    if m:
+                        await _store_score(lid, int(m.group(1)), m.group(2))
                 continue
             score, band, reasons = score_lead(lead, notes)
             first_score = not any(SCORE_MARKER in (n.get("post") or "") for n in notes)
@@ -271,6 +331,7 @@ async def run_crm_lifecycle_sweep(*, dry_run: bool = False) -> dict[str, Any]:
             }
             if not dry_run:
                 await espo.add_lead_note(lid, _score_note(lead, score, band, reasons))
+                await _store_score(lid, score, band)
             stats["scored" if first_score else "rescored"] += 1
 
             convertible = band == "hot" and convert_on and not _is_synthetic(lead) and lead.get("assignedUserId")
