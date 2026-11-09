@@ -457,6 +457,11 @@ class Settings(BaseSettings):
     COMPANY_BRAIN_HOUR: int = 23  # Europe/Athens via Celery timezone
     COMPANY_BRAIN_MINUTE: int = 45  # Europe/Athens via Celery timezone
 
+    # Slack ops journal — daily scan of the SocialAuto workspace alert
+    # channels → Nextcloud Note + company-brain memory line.
+    SLACK_OPS_JOURNAL_HOUR: int = 7  # Europe/Athens via Celery timezone
+    SLACK_OPS_JOURNAL_MINUTE: int = 0
+
     # Kakkava corpus — the Visibility Era source folder (PDFs/md/html)
     # bind-mounted read-only from the host OneDrive path. Ingested into
     # Chroma team_<id>_doctrine for semantic recall during generation.
