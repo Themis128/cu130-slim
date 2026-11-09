@@ -634,9 +634,13 @@ async def send_proposal(db: AsyncSession, proposal: AgencyProposal, *, approver:
             "Payment kicks off the 14-day clock — the kickoff mail lands\n"
             "automatically."
         )
+    from app.services.funnel_email import Cta, render_funnel_html
+
+    ctas = [Cta("Open the secure payment link", pay_url)] if pay_url else [Cta("Book a free 30-minute call", AUDIT_CTA_URL)]
     await send_email(
         subject=proposal.subject,
         text_body=body,
+        html_body=render_funnel_html(body, subject=proposal.subject, ctas=ctas),
         to_addrs=[proposal.recipient_email],
         reply_to="tbaltzakis@cloudless.gr",
         from_name="Themistoklis — Cloudless",
@@ -741,21 +745,25 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
             md = dict(project.meta_data or {})
             if day >= 2 and project.client_email and not md.get("intake_received") and not md.get("intake_nudged"):
                 from app.services.email_digest import send_email
+                from app.services.funnel_email import render_funnel_html
 
                 client = (md.get("client_name") or "").strip() or "there"
+                subject = f"Quick one — access for {project.name}"
+                body = (
+                    f"Hi {client},\n\n"
+                    "small nudge on the kickoff mail — to keep the 14-day\n"
+                    "clock honest, I still need:\n\n"
+                    "1. Admin/hosting + DNS access (or a delegated invite)\n"
+                    "2. Brand assets (or 'use what's on the site')\n"
+                    "3. Analytics access if you have it\n"
+                    "4. One-line scope approval\n\n"
+                    "Even a partial reply unblocks the day-1 milestone.\n\n"
+                    "— Themistoklis, Cloudless"
+                )
                 await send_email(
-                    subject=f"Quick one — access for {project.name}",
-                    text_body=(
-                        f"Hi {client},\n\n"
-                        "small nudge on the kickoff mail — to keep the 14-day\n"
-                        "clock honest, I still need:\n\n"
-                        "1. Admin/hosting + DNS access (or a delegated invite)\n"
-                        "2. Brand assets (or 'use what's on the site')\n"
-                        "3. Analytics access if you have it\n"
-                        "4. One-line scope approval\n\n"
-                        "Even a partial reply unblocks the day-1 milestone.\n\n"
-                        "— Themistoklis, Cloudless"
-                    ),
+                    subject=subject,
+                    text_body=body,
+                    html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[project.client_email],
                     reply_to="tbaltzakis@cloudless.gr",
                     from_name="Themistoklis — Cloudless",
@@ -804,21 +812,25 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 if now < due_at:
                     continue
                 from app.services.email_digest import send_email
+                from app.services.funnel_email import render_funnel_html
 
                 client = (md.get("client_name") or "").strip() or "there"
+                subject = f"How did the {DELIVERY_DAYS} days go? — {project.name}"
+                body = (
+                    f"Hi {client},\n\n"
+                    f"your {DELIVERY_DAYS}-day delivery wrapped up — you should have the\n"
+                    "full handoff package in hand.\n\n"
+                    "One small ask: if the work landed, would you write 2–3\n"
+                    "sentences about it? A short testimonial is the best proof\n"
+                    "I can show the next client — just reply to this mail.\n\n"
+                    "And if anything in the handoff is unclear, tell me — that\n"
+                    "part is on me to fix.\n\n"
+                    "— Themistoklis, Cloudless"
+                )
                 await send_email(
-                    subject=f"How did the {DELIVERY_DAYS} days go? — {project.name}",
-                    text_body=(
-                        f"Hi {client},\n\n"
-                        f"your {DELIVERY_DAYS}-day delivery wrapped up — you should have the\n"
-                        "full handoff package in hand.\n\n"
-                        "One small ask: if the work landed, would you write 2–3\n"
-                        "sentences about it? A short testimonial is the best proof\n"
-                        "I can show the next client — just reply to this mail.\n\n"
-                        "And if anything in the handoff is unclear, tell me — that\n"
-                        "part is on me to fix.\n\n"
-                        "— Themistoklis, Cloudless"
-                    ),
+                    subject=subject,
+                    text_body=body,
+                    html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[project.client_email],
                     reply_to="tbaltzakis@cloudless.gr",
                     from_name="Themistoklis — Cloudless",
@@ -844,11 +856,15 @@ async def pm_sweep(*, session_factory=None) -> dict[str, Any]:
                 if now < asked_at + timedelta(days=step_day):
                     continue
                 from app.services.email_digest import send_email
+                from app.services.funnel_email import render_funnel_html
 
                 client = (md.get("client_name") or "").strip() or "there"
+                subject = step_subj.format(name=project.name, client=client)
+                body = step_body.format(name=project.name, client=client, days=DELIVERY_DAYS)
                 await send_email(
-                    subject=step_subj.format(name=project.name, client=client),
-                    text_body=step_body.format(name=project.name, client=client, days=DELIVERY_DAYS),
+                    subject=subject,
+                    text_body=body,
+                    html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[project.client_email],
                     reply_to="tbaltzakis@cloudless.gr",
                     from_name="Themistoklis — Cloudless",
@@ -1184,11 +1200,13 @@ async def won_sweep(*, session_factory=None) -> dict[str, Any]:
 
             if email:
                 from app.services.email_digest import send_email
+                from app.services.funnel_email import render_funnel_html
 
                 subject, body = _kickoff_email(client_name, project.name, (project.meta_data or {}).get("loa_md"))
                 await send_email(
                     subject=subject,
                     text_body=body,
+                    html_body=render_funnel_html(body, subject=subject),
                     to_addrs=[email],
                     reply_to="tbaltzakis@cloudless.gr",
                     from_name="Themistoklis — Cloudless",
@@ -1275,11 +1293,13 @@ async def post_consult_sweep(*, session_factory=None) -> dict[str, Any]:
                 stats["skipped"] += 1
                 continue
             from app.services.email_digest import send_email
+            from app.services.funnel_email import render_funnel_html
 
             subject, body = _post_consult_email(client_name, str(opp.get("name") or ""))
             await send_email(
                 subject=subject,
                 text_body=body,
+                html_body=render_funnel_html(body, subject=subject),
                 to_addrs=[email],
                 reply_to="tbaltzakis@cloudless.gr",
                 from_name="Themistoklis — Cloudless",

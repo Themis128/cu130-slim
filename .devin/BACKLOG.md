@@ -400,3 +400,21 @@ Leftovers:
   root:root 600 → whole-stack EACCES crash-loop. Fixed at source:
   `pull --owner 1001:1001` added to infisical-sync.py + cron line
   (home-ops f1b391d). mount-check cron also self-heals unreadable .env.
+
+## 2026-11-09 — funnel emails → shared branded HTML layout
+
+- [x] `app/services/funnel_email.py` — one email-safe layout (tables, inline CSS,
+  600px, no JS) matching the approved checkup-followup reference; plain text
+  stays the source of truth (text/plain part) and is rendered to the HTML part.
+  Wired into: nurture (STEPS + QUIET_STEPS), playbook delivery, proposal send +
+  proposal follow-ups, agency kickoff / intake nudge / post-consult /
+  testimonial / delight ladder, billing owner mails, transactional
+  `email_templates._html_wrapper` (welcome etc.), Mautic win-back setup bodies.
+- [ ] Mautic win-back templates already created in Mautic keep their old HTML —
+  `scripts/mautic_winback_setup.py` only creates missing ones (idempotent by
+  name). Re-create/update the 3 `winback-*` emails in Mautic (owner action,
+  no real sends from agents) to pick up the branded `customHtml`.
+- [ ] Email campaigns/drips (`email_campaigns.build_bodies` → `email_brand`)
+  keep their own dark campaign renderer — not migrated (broadcast campaigns,
+  user-authored HTML). Decide if they should move to the funnel layout.
+- [ ] BOOKING_DM_STEPS (nurture_sequence) are DMs, not email — out of scope.

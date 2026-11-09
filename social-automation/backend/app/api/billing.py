@@ -582,8 +582,14 @@ async def _notify_team_owner(db: AsyncSession, team: Team, subject: str, text: s
         if not owner:
             return
         from app.services.email_digest import send_email
+        from app.services.funnel_email import render_funnel_html
 
-        await send_email(subject=subject, text_body=text, to_addrs=[owner.email])
+        await send_email(
+            subject=subject,
+            text_body=text,
+            html_body=render_funnel_html(text, subject=subject, brand="SocialAuto"),
+            to_addrs=[owner.email],
+        )
     except Exception as exc:  # noqa: BLE001
         logger.warning("billing email '%s' failed for team %s: %s", _logsafe(template), team.id, exc)
 

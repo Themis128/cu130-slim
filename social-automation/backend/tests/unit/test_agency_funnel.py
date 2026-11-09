@@ -541,6 +541,8 @@ async def test_send_proposal_embeds_payment_link(monkeypatch):
     r = await P.send_proposal(db, prop)
     assert r["ok"] is True
     assert "checkout.stripe.com/pay/xyz" in sent[0]["text_body"]
+    assert ">Open the secure payment link</a>" in sent[0]["html_body"]
+    assert 'href="https://checkout.stripe.com/pay/xyz"' in sent[0]["html_body"]
     assert prop.meta_data["payment_url"] == "https://checkout.stripe.com/pay/xyz"
 
 

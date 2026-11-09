@@ -17,16 +17,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from app.core.config import get_settings
-from app.services.email_digest import _html_escape, send_email
+from app.services.email_digest import send_email
+from app.services.funnel_email import Cta, render_funnel_html
 
 logger = logging.getLogger(__name__)
 
 PLAYBOOK_TITLE = "The Cloud Migration Playbook"
 PLAYBOOK_TASK_NAME = "app.worker.tasks.lead_emails.send_playbook_email"
-_BUTTON_STYLE = "display:inline-block;background:#0891b2;color:#fff;padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:600"
-_OUTLINE_BUTTON_STYLE = (
-    "display:inline-block;background:#fff;color:#0891b2;padding:10px 18px;border:2px solid #0891b2;border-radius:6px;text-decoration:none;font-weight:600"
-)
 
 
 PLAYBOOK_PATH = "/playbooks/cloud-migration-playbook.pdf"
@@ -103,31 +100,16 @@ def build_playbook_email(url: str, name: str | None = None) -> tuple[str, str, s
         "form on social.cloudless.gr. If that wasn't you, ignore this email; "
         "reply to be removed from the list.\n"
     )
-    u = _html_escape(download_url)
-    au = _html_escape(audit_url)
-    preheader = _html_escape("Your Cloud Migration Playbook is attached — plus a free 30-minute audit offer.")
-    html = f"""<!DOCTYPE html>
-<html><body style="font-family:system-ui,-apple-system,sans-serif;line-height:1.5;color:#111;max-width:560px">
-  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all">{preheader}</div>
-  <p>{_html_escape(greeting)}</p>
-  <p>Thanks for signing up. Here is your copy of <strong>{_html_escape(PLAYBOOK_TITLE)}</strong>:</p>
-  <p><a href="{u}" style="{_BUTTON_STYLE}">Download the playbook (PDF)</a></p>
-  <p style="font-size:13px;color:#555">Or open this link: <a href="{u}">{u}</a></p>
-  <p>It walks through the framework we use with clients: decide whether to migrate,
-  inventory what runs, measure a baseline, classify each workload, choose the target
-  architecture, plan a reversible cutover, and put cost, security and operations
-  guardrails in place. The appendix has inventory and baseline worksheets.</p>
-  <p><strong>Want a second pair of eyes?</strong> Book a free 30-minute audit — we review
-  your inventory and baseline (Steps 1 and 2 of the playbook), tell you which of the
-  five paths each workload should take, and hand you a written action plan, whether
-  or not you ever hire us. Fill in the worksheets and bring them.</p>
-  <p><a href="{au}" style="{_OUTLINE_BUTTON_STYLE}">Book the free audit</a></p>
-  <p>Themistoklis Baltzakis<br>cloudless.gr</p>
-  <p style="font-size:12px;color:#777">You received this because this address was entered in the
-  playbook form on social.cloudless.gr. If that wasn't you, ignore this email;
-  reply to be removed from the list.</p>
-</body></html>
-"""
+    body, _, footer = text.partition("You received this")
+    body = body.replace("Themistoklis Baltzakis\ncloudless.gr", "— Themistoklis Baltzakis, cloudless.gr")
+    html = render_funnel_html(
+        body,
+        subject=subject,
+        ctas=[Cta("Download the playbook (PDF)", download_url), Cta("Book the free audit", audit_url)],
+        preheader="Your Cloud Migration Playbook is attached — plus a free 30-minute audit offer.",
+        footer_note="You received this" + footer,
+        highlight=(PLAYBOOK_TITLE, "Want a second pair of eyes?"),
+    )
     return subject, text, html
 
 

@@ -79,6 +79,9 @@ async def test_sweep_routes_quiet_lane_and_stamps(monkeypatch):
     assert "nurture_step" not in lead.meta_data
     body = send.call_args.kwargs["text_body"]
     assert "Nikos" in body
+    html = send.call_args.kwargs["html_body"]
+    assert ">See available slots</a>" in html and "Nikos" in html
+    assert 'Copy this link: <a href="https://cloudless.gr/en/consultation"' in html
 
 
 @pytest.mark.asyncio
