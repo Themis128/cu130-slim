@@ -184,7 +184,7 @@ async def send_post_published_email(user: User, post: Post, platform: str | None
         f"""
         <p>Your post has been successfully published to <strong>{platforms}</strong>.</p>
         <p><strong>Post preview:</strong></p>
-        <p style="background:#0f172a;padding:16px;border-radius:8px;border-left:3px solid #38bdf8;">{snippet}</p>
+        <p style="background-color:#f3f4f6;color:#1f2937;padding:16px;border-radius:8px;border-left:3px solid #2563eb;">{snippet}</p>
         <a href="https://social.cloudless.gr/analytics" class="btn">View Analytics</a>
         """,
     )
@@ -249,8 +249,8 @@ async def send_quota_warning_email(
         f"{pct}% of limit used",
         f"""
         <p>You've used <strong>{used}</strong> out of <strong>{limit}</strong> {resource.replace("_", " ")} this month.</p>
-        <div style="background:#0f172a;border-radius:8px;padding:4px;margin:16px 0;">
-          <div style="background:#38bdf8;height:8px;border-radius:4px;width:{pct}%;"></div>
+        <div style="background-color:#e5e7eb;border-radius:8px;padding:4px;margin:16px 0;">
+          <div style="background-color:#2563eb;height:8px;border-radius:4px;width:{pct}%;"></div>
         </div>
         <p>To avoid interruptions, consider upgrading your plan.</p>
         <a href="https://social.cloudless.gr/pricing" class="btn">View Plans</a>
