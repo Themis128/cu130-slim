@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY package.json ./
 RUN npm install --production --no-cache && npx patchright install chromium
 
-COPY server.js ./
+COPY server.js session-recovery.js ./
 
 EXPOSE 9225
 
