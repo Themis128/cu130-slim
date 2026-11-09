@@ -196,7 +196,7 @@ def _parse_playbook_item(action: str) -> PlaybookItem:
         # of the first dash/comma-separated segments after the platform.
         for seg in re.split(r"[-–—,]", low)[1:3]:
             tok = seg.strip().split(" ")[0]
-            if tok in {"carousel", "video", "reel", "image", "photo", "text"}:
+            if tok in {"carousel", "video", "reel", "image", "photo", "text", "story"}:
                 fmt = {"reel": "video", "photo": "image"}.get(tok, tok)
                 break
     if not fmt and "carousel" in low:
@@ -212,7 +212,7 @@ def _parse_playbook_item(action: str) -> PlaybookItem:
         platform=platform,
         time_athens=time_athens,
         format=fmt,
-        media_required=fmt in {"image", "carousel", "video"},
+        media_required=fmt in {"image", "carousel", "video", "story"},
     )
 
 

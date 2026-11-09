@@ -33,6 +33,7 @@ celery_app = Celery(
         "app.worker.tasks.facebook_token_check",
         "app.worker.tasks.account_status_reconcile",
         "app.worker.tasks.publish_verify",
+        "app.worker.tasks.report_videos",
         "app.worker.tasks.linkedin_session_check",
         "app.worker.tasks.personal_messenger",
         "app.worker.tasks.linkedin_messenger",
@@ -59,8 +60,6 @@ celery_app = Celery(
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
         "app.worker.tasks.datalake_insights",
-        "app.worker.tasks.devapps_sync",
-        "app.worker.tasks.devapp_channel_actions",
         "app.worker.tasks.linkedin_invites",
         "app.worker.tasks.linkedin_ads_report",
         "app.worker.tasks.linkedin_ads_control",
@@ -288,13 +287,13 @@ celery_app.conf.update(
         "app.worker.tasks.facebook_token_check.check_facebook_tokens": {"queue": "default"},
         "app.worker.tasks.account_status_reconcile.reconcile_account_status": {"queue": "default"},
         "app.worker.tasks.publish_verify.verify_publish_paths": {"queue": "default"},
+        "app.worker.tasks.report_videos.materialize_report_videos": {"queue": "default"},
         "app.worker.tasks.linkedin_session_check.check_linkedin_sessions": {"queue": "default"},
         "app.worker.tasks.session_healer.heal_sessions": {"queue": "default"},
         "app.worker.tasks.dodo_live_check.check_dodo_live": {"queue": "default"},
         "app.worker.tasks.skool_watch.watch_skool_vec": {"queue": "default"},
         "app.worker.tasks.datalake_export.export_datalake": {"queue": "default"},
         "app.worker.tasks.datalake_insights.datalake_insights_sweep": {"queue": "default"},
-        "app.worker.tasks.devapp_channel_actions.run_channel_actions": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.slack_ops_journal.slack_ops_journal_task": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
@@ -416,6 +415,11 @@ celery_app.conf.update(
             "task": "app.worker.tasks.publish_verify.verify_publish_paths",
             "schedule": crontab(minute=45, hour="*/2"),
         },
+        # Attach finished ComfyUI video renders to report-dispatched posts.
+        "materialize-report-videos": {
+            "task": "app.worker.tasks.report_videos.materialize_report_videos",
+            "schedule": crontab(minute="*/20"),
+        },
         "publish-retry-sweep": {
             "task": "app.worker.tasks.publish_retry.run_publish_retry_sweep",
             "schedule": crontab(minute="*/15"),
@@ -437,21 +441,6 @@ celery_app.conf.update(
         "datalake-insights-sweep": {
             "task": "app.worker.tasks.datalake_insights.datalake_insights_sweep",
             "schedule": crontab(minute=20, hour="*/6"),  # every 6h at :20
-        },
-        # Developer-app ingest — live health/insights/demographics/quota per
-        # connected account, 5min before the export so the same pass lands
-        # the fresh devapp_snapshot events in the lake.
-        "devapps-sync": {
-            "task": "app.worker.tasks.devapps_sync.sync_devapps",
-            "schedule": crontab(minute=5, hour="*/6"),  # every 6h at :05
-        },
-        # Report → publish hop: latest devapp snapshots → channel actions →
-        # schedule_report_actions per team (copy → quality → media →
-        # compliance → scheduled/draft). Deduped per day, so only the
-        # first run of the day materialises posts.
-        "devapp-channel-actions": {
-            "task": "app.worker.tasks.devapp_channel_actions.run_channel_actions",
-            "schedule": crontab(minute=30, hour="*/6"),  # every 6h at :30
         },
         # Push real follower metrics → Nextcloud Tables and mirror the
         # post pipeline → Deck board (idempotent, deduped by post:<uuid>

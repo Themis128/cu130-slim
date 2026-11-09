@@ -108,7 +108,7 @@ def account():
 
 @pytest.fixture
 def post():
-    return SimpleNamespace()
+    return SimpleNamespace(platform_specific={})
 
 
 @pytest.mark.asyncio
@@ -1083,7 +1083,6 @@ async def test_publish_facebook_group_soft_skipped(account, post):
 @pytest.mark.asyncio
 async def test_publish_instagram_text_only_soft_skipped(account, post, monkeypatch):
     account.platform = "instagram"
-    post.platform_specific = {}
     result = await pub._publish_instagram("tok", "caption only", account, post, [], [], None)
     assert result.success is False
     assert result.skipped is True
