@@ -52,22 +52,19 @@ if [ -z "$TEAM_ID" ]; then
 fi
 
 INGEST_PY="$REPO/.devin/skills/kakkava-brain-sync/scripts/kakkava_brain_ingest.py"
-TARBALL="${TMPDIR:-/tmp}/kakkava-sofia.tar.gz"
 
 cleanup() {
-    docker exec social-api rm -rf /tmp/kakkava-sofia /tmp/kakkava-sofia.tar.gz \
+    docker exec social-api rm -rf /tmp/kakkava-sofia \
         /tmp/kakkava_brain_ingest.py 2>/dev/null || true
-    rm -f "$TARBALL"
 }
 trap cleanup EXIT
 
-echo "$LOG_PREFIX manifest changed — tarring $SRC"
-( cd "$SRC" && tar czf "$TARBALL" --warning=no-file-changed . )
-
-docker cp "$TARBALL" social-api:/tmp/kakkava-sofia.tar.gz
+# docker cp handles the recursive copy itself — tar over /mnt/c (DrvFs)
+# intermittently fails with "Cannot savedir: Cannot allocate memory".
+echo "$LOG_PREFIX manifest changed — copying $SRC into social-api"
+docker exec social-api rm -rf /tmp/kakkava-sofia
+docker cp "$SRC" social-api:/tmp/kakkava-sofia
 docker cp "$INGEST_PY" social-api:/tmp/kakkava_brain_ingest.py
-docker exec social-api sh -c \
-    'mkdir -p /tmp/kakkava-sofia && tar xzf /tmp/kakkava-sofia.tar.gz -C /tmp/kakkava-sofia'
 
 echo "$LOG_PREFIX ingesting into team $TEAM_ID"
 docker exec -e SOCIALAUTO_TEAM_ID="$TEAM_ID" -e KAKKAVA_ROOT=/tmp/kakkava-sofia \
