@@ -88,6 +88,7 @@ celery_app = Celery(
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
         "app.worker.tasks.newsletter_subs",
+        "app.worker.tasks.ops_agent",
     ],
 )
 
@@ -300,6 +301,7 @@ celery_app.conf.update(
         "app.worker.tasks.devapp_channel_actions.run_channel_actions": {"queue": "default"},
         "app.worker.tasks.company_brain.write_company_brain_journal": {"queue": "default"},
         "app.worker.tasks.slack_ops_journal.slack_ops_journal_task": {"queue": "default"},
+        "app.worker.tasks.ops_agent.ops_agent_sweep": {"queue": "default"},
         "app.worker.tasks.central_brain.run_central_brain": {"queue": "default"},
         "app.worker.tasks.crm_hygiene.run_crm_hygiene": {"queue": "default"},
         "app.worker.tasks.linkedin_invites.send_linkedin_invites": {"queue": "default"},
@@ -517,6 +519,13 @@ celery_app.conf.update(
                 hour=settings.SLACK_OPS_JOURNAL_HOUR,
                 minute=settings.SLACK_OPS_JOURNAL_MINUTE,
             ),
+        },
+        # Ops-agent sweep — triages open ops_incidents (LLM RCA + whitelisted
+        # task reruns + severity-routed Telegram escalation). Cheap when the
+        # table is empty; the LLM pass only runs per open incident.
+        "ops-agent-sweep": {
+            "task": "app.worker.tasks.ops_agent.ops_agent_sweep",
+            "schedule": crontab(minute="*/5"),
         },
         # Weekly EspoCRM hygiene (Monday 07:30) — dedupe leads, quarantine
         # CI/test probes, surface stale New leads past the follow-up SLA.
