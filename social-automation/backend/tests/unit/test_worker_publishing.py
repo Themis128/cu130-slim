@@ -194,7 +194,7 @@ def test_compute_post_rollup():
     assert F(target_statuses=["pending"], in_flight=False, failure_reason=None)[0] == PostStatus.PUBLISHING
     assert F(target_statuses=["published"], in_flight=True, failure_reason=None)[0] == PostStatus.PUBLISHING
     st, _, reason = F(target_statuses=["skipped", "skipped"], in_flight=False, failure_reason=None)
-    assert st == PostStatus.FAILED and "skipped" in reason
+    assert st == PostStatus.SUPPRESSED and "suppressed" in reason
     st, _, reason = F(target_statuses=["failed"], in_flight=False, failure_reason="boom")
     assert st == PostStatus.FAILED and reason == "boom"
 

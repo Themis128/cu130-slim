@@ -56,6 +56,28 @@ async def _run(limit: int):
             c.scored = True
         await db.commit()
 
+        # expire stale human-gate items — a draft older than 7d is dead
+        # content; the post it commented on is no longer fresh anyway.
+        from datetime import timedelta
+
+        stale_cutoff = datetime.now(UTC) - timedelta(days=7)
+        stale = (
+            (
+                await db.execute(
+                    select(EngagementAction).where(
+                        EngagementAction.status == "pending_human_gate",
+                        EngagementAction.created_at < stale_cutoff,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for a in stale:
+            a.status = "expired"
+        if stale:
+            await db.commit()
+
         # auto-approve repost actions scoring >= the gate threshold — high-
         # confidence reposts skip the human review queue (post_autoapprove pattern)
         hi = (
