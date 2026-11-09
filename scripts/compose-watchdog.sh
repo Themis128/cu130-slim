@@ -76,11 +76,20 @@ if ! docker info >/dev/null 2>&1; then
   exit 0
 fi
 
+# Feed every alert into the ops-agent incident table (ops_incidents) so the
+# AgentOps sweep can RCA/escalate it. Best-effort: pre-merge the CLI doesn't
+# exist in the container yet, and a down api can't take reports anyway.
+INCIDENT() {  # INCIDENT <kind> <severity> <title>
+  docker exec social-api python3 /app/scripts/ops_incident.py report \
+    --source compose-watchdog --kind "$1" --severity "$2" \
+    --title "$3" --detail "{\"watchdog_key\":\"$1\"}" >/dev/null 2>&1 || true
+}
 ALERT() {  # post to the ops Slack channel, throttled to once/30min per key
   local key="$1" msg="$2"
   local f
   f="$WD_STATE_DIR/alert-$(echo "$key" | md5sum | cut -c1-8)"
   log "ALERT[$key] $msg"
+  case "$msg" in *rotating_light*) INCIDENT "$key" critical "$msg" ;; *) INCIDENT "$key" ops "$msg" ;; esac
   [ -f "$f" ] && [ $(( $(date +%s) - $(stat -c %Y "$f") )) -lt 1800 ] && return
   docker compose exec -T social-api python -c "
 import asyncio
