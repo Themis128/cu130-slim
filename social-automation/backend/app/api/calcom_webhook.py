@@ -96,18 +96,13 @@ async def _provision_talk_room(payload: dict) -> str | None:
         room_name = f"Consultation — {name or email or 'guest'}" + (f" — {start}" if start else "")
         token = await talk.create_room(
             room_name[:180],
-            description=(
-                "Cloudless consultation call.\n"
-                f"Booked via Cal.com — {email or 'guest'}.\n"
-                "Recording enabled for internal meeting notes."
-            ),
+            description=(f"Cloudless consultation call.\nBooked via Cal.com — {email or 'guest'}.\nRecording enabled for internal meeting notes."),
         )
         if not token:
             return None
         await talk.post_to_room(
             token,
-            "👋 Consultation room — join with the video button. "
-            "The call may be recorded for internal meeting notes.",
+            "👋 Consultation room — join with the video button. The call may be recorded for internal meeting notes.",
         )
         link = talk.room_url(token)
         # Marker on the Lead — the meeting-notes sweep resolves

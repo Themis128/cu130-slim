@@ -365,9 +365,7 @@ async def test_process_full_pipeline_writes_minutes():
         notes.append(note)
         return True
 
-    messages = [
-        {"id": 5, "messageParameters": {"file": {"id": 77, "name": "recording.mp4"}}}
-    ]
+    messages = [{"id": 5, "messageParameters": {"file": {"id": 77, "name": "recording.mp4"}}}]
     with (
         patch.object(MN, "_enabled", return_value=True),
         patch.object(MN.espo, "list_all", new=AsyncMock(return_value=[_opp(closeDate="2020-01-01")])),
@@ -441,9 +439,7 @@ def test_token_from_notes():
 @pytest.mark.asyncio
 async def test_lead_id_for_email_paths():
     assert await MN._lead_id_for_email("") is None
-    with patch.object(
-        MN.espo, "espo_get", new=AsyncMock(return_value={"list": [{"id": "lead-9"}]})
-    ):
+    with patch.object(MN.espo, "espo_get", new=AsyncMock(return_value={"list": [{"id": "lead-9"}]})):
         assert await MN._lead_id_for_email("a@b.co") == "lead-9"
     with patch.object(MN.espo, "espo_get", new=AsyncMock(side_effect=RuntimeError("boom"))):
         assert await MN._lead_id_for_email("a@b.co") is None
@@ -458,6 +454,7 @@ async def test_contact_email_for_opp_paths():
         new=AsyncMock(return_value={"list": [{"emailAddress": "  Lead@Acme.com "}]}),
     ):
         assert await MN._contact_email_for_opp(opp) == "lead@acme.com"
+
     # contacts empty → account fallback
     async def _get(path, params=None):
         if path.startswith("/Opportunity"):
@@ -474,6 +471,7 @@ async def test_contact_email_for_opp_paths():
 @pytest.mark.asyncio
 async def test_find_room_token_lead_fallback():
     opp = _opp()
+
     # opp notes have no marker → resolve via contact email → lead notes
     async def _notes(oid):
         return [{"post": "unrelated"}]
@@ -840,9 +838,7 @@ def test_find_recording_file_non_dict_params():
 @pytest.mark.asyncio
 async def test_find_room_token_opp_notes_hit():
     opp = _opp()
-    with patch.object(
-        MN, "_opp_notes", new=AsyncMock(return_value=[{"post": "talk_room:opp77777 — x"}])
-    ):
+    with patch.object(MN, "_opp_notes", new=AsyncMock(return_value=[{"post": "talk_room:opp77777 — x"}])):
         assert await MN._find_room_token(opp) == "opp77777"
 
 

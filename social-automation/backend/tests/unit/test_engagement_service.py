@@ -280,8 +280,6 @@ async def test_queue_post_gate_ignores_nlp(monkeypatch):
         "#serverless #cloudflare #webdev #indiehacker #buildinpublic"
     )
     db = _DB(counts=[0])
-    out = await E.queue_engagement(
-        _cand(post_text=good_post, is_followed=True, is_connection=True, posted_seconds_ago=3600), db
-    )
+    out = await E.queue_engagement(_cand(post_text=good_post, is_followed=True, is_connection=True, posted_seconds_ago=3600), db)
     assert "quality gate" not in str(out.get("skipped", ""))
     assert out.get("queued") in ("like", "repost", "comment")

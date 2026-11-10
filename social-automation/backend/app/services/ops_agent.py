@@ -70,11 +70,7 @@ async def report_incident(
     """
     fp = fingerprint(source, kind, target)
     now = datetime.now(UTC)
-    sev = (
-        IncidentSeverity(severity)
-        if severity in IncidentSeverity._value2member_map_
-        else IncidentSeverity.OPS
-    )
+    sev = IncidentSeverity(severity) if severity in IncidentSeverity._value2member_map_ else IncidentSeverity.OPS
     new_recur = case(
         (OpsIncident.status == IncidentStatus.RESOLVED, OpsIncident.recurrence_count + 1),
         else_=OpsIncident.recurrence_count,
@@ -229,15 +225,17 @@ async def sweep(db: AsyncSession) -> dict:
 
     # 1) auto-resolve incidents with no new reports within RESOLVE_AFTER
     stale = (
-        await db.execute(
-            select(OpsIncident).where(
-                OpsIncident.status.in_(
-                    [IncidentStatus.OPEN, IncidentStatus.TRIAGED, IncidentStatus.ACTIONED, IncidentStatus.ESCALATED]
-                ),
-                OpsIncident.last_seen < now - RESOLVE_AFTER,
+        (
+            await db.execute(
+                select(OpsIncident).where(
+                    OpsIncident.status.in_([IncidentStatus.OPEN, IncidentStatus.TRIAGED, IncidentStatus.ACTIONED, IncidentStatus.ESCALATED]),
+                    OpsIncident.last_seen < now - RESOLVE_AFTER,
+                )
             )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     for inc in stale:
         inc.status = IncidentStatus.RESOLVED
         inc.resolved_at = now
@@ -246,13 +244,17 @@ async def sweep(db: AsyncSession) -> dict:
 
     # 2) triage open incidents, oldest first, capped per sweep
     open_incs = (
-        await db.execute(
-            select(OpsIncident)
-            .where(OpsIncident.status.in_([IncidentStatus.OPEN, IncidentStatus.TRIAGED]))
-            .order_by(OpsIncident.first_seen)
-            .limit(MAX_OPEN_PER_SWEEP)
+        (
+            await db.execute(
+                select(OpsIncident)
+                .where(OpsIncident.status.in_([IncidentStatus.OPEN, IncidentStatus.TRIAGED]))
+                .order_by(OpsIncident.first_seen)
+                .limit(MAX_OPEN_PER_SWEEP)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not open_incs:
         await db.commit()
         return stats
@@ -320,8 +322,7 @@ async def _alert(inc: OpsIncident, severity: str) -> None:
             f"sev={inc.severity.value} seen={inc.first_seen:%Y-%m-%d %H:%M}Z "
             f"recur={inc.recurrence_count}\n"
             f"rca: {inc.rca[:600] or '(pending)'}\n"
-            f"action: {inc.proposed_action or inc.action_taken or 'none'}"
-            + (f" → {inc.action_result[:300]}" if inc.action_result else "")
+            f"action: {inc.proposed_action or inc.action_taken or 'none'}" + (f" → {inc.action_result[:300]}" if inc.action_result else "")
         )
         await send_telegram_alert(severity, text)
     except Exception as exc:
