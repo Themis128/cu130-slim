@@ -1169,3 +1169,31 @@ Leftovers:
   before compose mutations in test contexts. Also: agents working
   directly in `~/cu130-slim` (not worktrees) create the dirty-checkout
   stalls this whole lane exists to absorb — prefer `~/.worktrees/*`.
+
+## 2026-11-11 (night) — human gates → automation pass (Devin)
+
+- **IG re-auth login_wall/2FA now automated**: PR #1677 adds
+  `.devin/skills/instagram-ops/scripts/ig_fb_session_heal.py` — probes
+  facebook-browser-sidecar /session/validate every 30min (cron, user
+  crontab, file-exists guard until merge+checkout), auto /login with
+  FACEBOOK_USERNAME/PASSWORD, 2FA code via phone-2fa-ops fb_code.py
+  (adb.exe interop path resolved), checkpoint clicks URL-guarded to
+  checkpoint/login pages only, 30min attempt throttle, TG #ops alert
+  after 2 failures. Verified: healthy-session probe exits 0, eval +
+  click-guard plumbing live-tested. CAVEAT: phone ADB was offline at
+  install time (adb connect 192.168.1.77:5555 refused) — 2FA lane
+  needs wireless debugging back on; login_wall without 2FA still heals.
+- **WA system-user pipeline already fully automated**: wa_sysuser_auto.py
+  (Graph API chain → sidecar UI fallback) + wa_portfolio_watch.py were
+  running as 72h daemons; added */15min pgrep keepalive crons so they
+  relaunch if the host/WSL restarts. Meta docs confirm the API chain
+  (owned_apps→system_users→applications→assigned_users→access_tokens)
+  is the right path once the app lands in the portfolio.
+- **platform-fit cron** already automated (Sun 07:00 UTC, review-gated
+  PR by design).
+- **WSL/Docker instability**: NOT auto-shutdown — a nightly
+  `wsl --shutdown` would kill cron itself (crons live inside WSL) and
+  nothing would restart the engine; needs a Windows-side scheduled task
+  + watchdog pairing. Deferred — see wsl-docker-doctor skill.
+- PR #1677 auto-merge armed; script activates once merged AND the main
+  checkout returns to master (cron guards on file existence).
