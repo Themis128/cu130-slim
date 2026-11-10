@@ -100,7 +100,7 @@ asyncio.run(post_alert_to_slack('$msg'))" >/dev/null 2>&1 && touch "$f" || {
   [ -n "${SLACK_ALERTS_WEBHOOK_URL:-}" ] && curl -sf -X POST "$SLACK_ALERTS_WEBHOOK_URL" -H 'Content-Type: application/json' -d "{\"text\":\"$msg\"}" >/dev/null 2>&1 && touch "$f" || true
 }
 }
-CORE="social-api social-worker-default social-worker-publishing social-worker-media social-worker-messenger celery-beat redis social-postgres"
+CORE="social-api social-worker-default social-worker-publishing social-worker-media social-worker-messenger celery-beat redis social-postgres social-cloudflared"
 [ "${STALE_LOCK:-0}" = 1 ] && ALERT "stale-lock" ":warning: stale deploy lock $DEPLOY_LOCK — watchdog resumed; remove it if the deploy is finished"
 
 # Migration / schema crash? Restarting can never fix it and a loop hides
@@ -143,6 +143,20 @@ safe_restart() {
   log "restarting $c ($why) — attempt $((n+1))/$WD_MAX_RESTARTS this hour"
   docker start "$c" >/dev/null 2>&1 || docker restart "$c" >/dev/null 2>&1
 }
+# Mount-broken containers (exit 127, "error mounting" on bind-mounted
+# files — Docker Desktop bind-mount cache drift) can never be fixed by
+# start/restart; they need a compose force-recreate (seen 2026-11-10 on
+# social-cloudflared → Cloudflare Tunnel 1033 → all OAuth callbacks dead ~2h).
+is_mount_broken() {
+  docker logs --tail 30 "$1" 2>&1 | grep -qiE "error mounting|not a directory.*(mount|bind)|failed to create shim task"
+}
+recreate_container() {
+  local c="$1" svc
+  svc=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.service"}}' "$c" 2>/dev/null || true)
+  case "$svc" in ""|*" "*) log "$c: no compose service label — cannot recreate"; return 1;; esac
+  log "recreating $c (compose service $svc — mount-broken)"
+  docker compose up -d --no-deps --force-recreate "$svc" >/dev/null 2>&1
+}
 # 1. containers stuck in Created / Restarting, or OOM-killed and stopped
 for c in $CORE; do
   st=$(docker inspect -f '{{.State.Status}} {{.State.OOMKilled}}' "$c" 2>/dev/null || echo "missing false")
@@ -150,6 +164,12 @@ for c in $CORE; do
   oom=${st##* }
   case "$status" in
     created|restarting|exited|dead)
+      if [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
+        if is_mount_broken "$c"; then
+          recreate_container "$c" && ALERT "remount-$c" ":warning: $c exited on a broken bind-mount — force-recreated"
+          continue
+        fi
+      fi
       safe_restart "$c" "$status" && ALERT "stuck-$c" ":warning: $c was $status — restarted";;
   esac
   if [ "$oom" = "true" ] && [ "$status" != "running" ]; then
@@ -203,7 +223,6 @@ if [ -n "${P:-}" ]; then
     rm -f "$LKF"
   fi
 fi
-exit 0
 
 # 9. env-drift creds check — OAuth client secrets/IDs get wiped from .env
 #    during rotations (seen 2026-10-28: LINKEDIN_CLIENT_ID empty → 400s).
@@ -217,7 +236,6 @@ print(",".join(bad))
 PY
 )
 [ -n "$D" ] && ALERT "env-drift" ":warning: empty creds in container env: $D — check .env vs secondary checkout"
-exit 0
 
 # 10. gateway upstream — when social-api recreates, its IP changes and the
 #     nginx gateway keeps proxying to the stale one (8083 dead while API
