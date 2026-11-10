@@ -65,6 +65,7 @@ celery_app = Celery(
         "app.worker.tasks.linkedin_lead_boost",
         "app.worker.tasks.token_expiry",
         "app.worker.tasks.tiktok_reauth",
+        "app.worker.tasks.threads_reauth",
         "app.worker.tasks.log_intel",
         "app.worker.tasks.dodo_live_check",
         "app.worker.tasks.datalake_export",
@@ -717,6 +718,15 @@ celery_app.conf.update(
         "tiktok-reauth": {
             "task": "app.worker.tasks.tiktok_reauth.run_tiktok_reauth",
             "schedule": crontab(minute=55),
+            "options": {"queue": "default"},
+        },
+        # Threads OAuth re-auth — drives the shared browser bridge
+        # (browser-novnc:9223) through the threads.net authorize flow when
+        # an account is expired/revoked/near expiry. Self-throttles
+        # (1/hr, 3 fails → daily).
+        "threads-reauth": {
+            "task": "app.worker.tasks.threads_reauth.run_threads_reauth",
+            "schedule": crontab(minute=51),
             "options": {"queue": "default"},
         },
         "check-scheduled-posts": {
