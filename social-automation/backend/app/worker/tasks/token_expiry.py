@@ -66,7 +66,7 @@ async def _sweep() -> dict:
                         exp = exp.replace(tzinfo=UTC)
                 except ValueError:
                     exp = None
-            dead = acc.status in ("expired", "revoked")
+            dead = (getattr(acc, "status", None) or "active") in ("expired", "revoked")
             lead = _LEAD.get(plat)
             if plat in _NON_REFRESHABLE:
                 if dead or (exp and exp <= now):
