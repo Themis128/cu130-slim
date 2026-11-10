@@ -97,6 +97,7 @@ celery_app = Celery(
         "app.worker.tasks.funnel_audit",
         "app.worker.tasks.gate_sweep",
         "app.worker.tasks.publish_retry",
+        "app.worker.tasks.media_heal",
         "app.worker.tasks.newsletter_subs",
         "app.worker.tasks.ops_agent",
         "app.worker.tasks.workforce_audit",
@@ -365,6 +366,7 @@ celery_app.conf.update(
         "app.worker.tasks.gate_sweep.run_gate_sweep": {"queue": "default"},
         "app.worker.tasks.newsletter_subs.run_newsletter_subscriber_sync": {"queue": "default"},
         "app.worker.tasks.publish_retry.run_publish_retry_sweep": {"queue": "publishing"},
+        "app.worker.tasks.media_heal.run_media_heal_sweep": {"queue": "publishing"},
         "app.worker.tasks.personal_messenger.poll_personal_messenger": {"queue": "messenger"},
         "app.worker.tasks.linkedin_messenger.poll_linkedin_messenger": {"queue": "messenger"},
         "app.worker.tasks.threads_messenger.poll_threads_messenger": {"queue": "messenger"},
@@ -458,6 +460,15 @@ celery_app.conf.update(
         "publish-retry-sweep": {
             "task": "app.worker.tasks.publish_retry.run_publish_retry_sweep",
             "schedule": crontab(minute="*/15"),
+        },
+        # Media-heal sweep (every 6h) — posts whose targets skipped/failed on
+        # media grounds get a fresh branded slide built from their own copy,
+        # then requeue via publish_post_now. Capped at 2 heals/post, then a
+        # one-time Slack alert. Complements publish_retry (which only touches
+        # status='failed' targets and skips TERMINAL media errors by design).
+        "media-heal-sweep": {
+            "task": "app.worker.tasks.media_heal.run_media_heal_sweep",
+            "schedule": crontab(minute=55, hour="*/6"),
         },
         "sync-analytics": {
             "task": "app.worker.tasks.analytics.sync_all_analytics",
