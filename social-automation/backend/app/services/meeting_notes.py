@@ -475,7 +475,9 @@ async def process_meeting_notes(*, session_factory=None) -> dict[str, Any]:
                         entity="Opportunity",
                     )
                     continue
-                got = await talk.download_talk_file(int(rec["file_id"]))
+                got = await talk.download_talk_file(
+                    int(rec["file_id"]), path=rec.get("path")
+                )
                 if not got or len(got[0]) > _MAX_RECORDING_BYTES:
                     stats["errors"] += 1
                     continue
