@@ -1,49 +1,55 @@
 {
   "_doc": "Canonical per-platform audience/algorithm content-fit reference. Single source of truth consumed by (1) content_guides.py PLATFORM_GUIDES 'Audience fit:' lines, (2) the marked <!-- PLATFORM-FIT --> blocks in every *-content-ops SKILL.md (.devin + .cursor), (3) the company-brain 'Platform Content Fit' doc via platform-fit-ops/scripts/platform_fit_sync.py. Edit here, then run the sync script — never hand-edit the generated blocks.",
   "linkedin": {
-    "guide_line": "thought leadership and industry insights, educational/how-to content (PDF uploads become swipeable carousels), personal stories with a business lesson, contrarian takes, short hook-driven text or sub-30s vertical video; roughly 4 educational posts per 1 soft promo and 1 hard promo; optimize for dwell time and meaningful comments",
+    "guide_line": "thought leadership and industry insights, educational/how-to content (PDF uploads become swipeable carousels), personal stories with a business lesson, contrarian takes, short hook-driven text or sub-30s vertical video; roughly 4 educational posts per 1 soft promo and 1 hard promo; the 2026 feed uses LLM-embedding retrieval beyond your network plus a generative ranker — original specific posts beat recycled thought-leadership and engagement bait, and meaningful comments in the first hour decide distribution",
     "skill_title": "What the LinkedIn audience/algorithm favors",
     "bullets": [
       "Thought leadership & industry insights; educational/how-to content — PDF document uploads render as swipeable carousels and perform strongly.",
       "Personal stories with a business lesson; contrarian takes that spark constructive comments; short hook-driven text or sub-30s vertical video.",
-      "Optimize for dwell time + meaningful comments. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo."
+      "2026 feed: LLM-embedding retrieval ('Profile Relevance') surfaces relevant posts beyond your network; a Generative Recommender scores predicted click/read/like/comment/share. It actively downranks engagement bait and recycled thought-leadership — original, specific, expert content wins.",
+      "Optimize for dwell time + meaningful comments in the first hour. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo."
     ]
   },
   "twitter": {
-    "guide_line": "the real-time conversational feed — serialized text threads for complex topics, live commentary on breaking news, and sharp shareable takes; immediacy and wit beat polish",
+    "guide_line": "the real-time conversational feed — serialized text threads for complex topics, live commentary on breaking news, and sharp shareable takes; immediacy and wit beat polish; the 2026 ranker is the open-sourced Grok-based model weighting dwell/read-through, replies and quotes over raw likes",
     "skill_title": "What the X audience/algorithm favors",
     "bullets": [
-      "Real-time conversational feed: serialized text threads for complex topics, live commentary on breaking news/industry events, and sharp shareable takes/memes. Immediacy and wit beat polish."
+      "Real-time conversational feed: serialized text threads for complex topics, live commentary on breaking news/industry events, and sharp shareable takes/memes. Immediacy and wit beat polish.",
+      "2026: X open-sourced its Grok-based ranking model (Aug 2026) — it weighs time-spent, read-through, replies and quotes heavily; posts that hold attention past the fold travel further than like-bait."
     ]
   },
   "instagram": {
-    "guide_line": "aesthetics and lifestyle curation — Reels get the strongest algorithmic distribution (trending audio, fast hook), carousels suit step-by-step guides and before/after transformations, Stories are the casual daily-engagement lane; visual quality first",
+    "guide_line": "aesthetics and lifestyle curation — Reels get the strongest algorithmic distribution (trending audio, fast hook), carousels suit step-by-step guides and before/after transformations, Stories are the casual daily-engagement lane; watch time, sends and shares now outrank likes — make content people forward to a friend",
     "skill_title": "What the Instagram audience/algorithm favors",
     "bullets": [
       "Aesthetics/lifestyle curation: **Reels** get the strongest distribution (vertical video, trending audio, hook in the first second); **carousels** (≤10 slides) suit step-by-step guides and before/after transformations; **Stories** are the casual daily-engagement lane.",
+      "2026 signals: watch time, **sends** and shares are the top ranking inputs (per Instagram's head) — content engineered to be sent to a friend outperforms content engineered to be liked.",
       "Prioritize visual quality — the caption supports the media."
     ]
   },
   "facebook": {
-    "guide_line": "an older, community-oriented demographic — external link shares and news articles outperform here vs LinkedIn/IG, group-style discussion and recommendations resonate, and long-form video or live streams get strong reach",
+    "guide_line": "an older, community-oriented demographic — external link shares and news articles outperform here vs LinkedIn/IG, group-style discussion and recommendations resonate, and long-form video or live streams get strong reach; predicted engagement and time-spent drive ranking",
     "skill_title": "What the Facebook audience/algorithm favors",
     "bullets": [
       "Older, community-oriented demographic: external link shares + news articles outperform here vs LinkedIn/IG; group-style discussion, recommendations, and long-form video or live streams get strong reach.",
+      "2026 signals: predicted engagement and time spent on content outrank clicks — earn attention, not just link taps.",
       "Both surfaces below already fit this — personal build-log = community content; page link/news posts = the link-share lane."
     ]
   },
   "threads": {
-    "guide_line": "conversational micro-blogging — short authentic takes, opinion hooks, and reply-style conversation outperform polished brand copy",
+    "guide_line": "conversational micro-blogging — short authentic takes, opinion hooks, and reply-style conversation outperform polished brand copy; predicted engagement and view time drive the feed, and questions that invite replies travel furthest",
     "skill_title": "What the Threads audience/algorithm favors",
     "bullets": [
-      "Conversational micro-updates and authentic takes — short opinion hooks and human-sounding posts beat polished brand copy; reply-style conversation drives distribution."
+      "Conversational micro-updates and authentic takes — short opinion hooks and human-sounding posts beat polished brand copy; reply-style conversation drives distribution.",
+      "2026 signals: predicted engagement + view time; posts ending in a genuine question tend to earn the replies that feed distribution."
     ]
   },
   "tiktok": {
-    "guide_line": "the For You Page prioritizes watch-time and engagement over production quality — raw, authentic, or humorous vertical video beats slick ads; trending audio, challenges, and educational micro-content all travel; hook in the first second",
+    "guide_line": "the For You Page prioritizes watch-time and engagement over production quality and largely ignores follower count — raw, authentic, or humorous vertical video beats slick ads; trending audio, challenges, and educational micro-content all travel; hook in the first three seconds",
     "skill_title": "What the TikTok audience/algorithm (FYP) favors",
     "bullets": [
-      "Watch-time + engagement over production quality: raw, authentic, or humorous vertical video beats slick ads; trending audio/challenges and educational micro-content (life hacks, niche explainers like #TechTok) all travel. Hook in the first second — the caption supports the video."
+      "Watch-time + engagement over production quality: raw, authentic, or humorous vertical video beats slick ads; trending audio/challenges and educational micro-content (life hacks, niche explainers like #TechTok) all travel. Hook in the first second — the caption supports the video.",
+      "2026 signals: the FYP is interest-graph driven — follower count is not a direct ranking factor, so a small account's great post can out-reach a big account's weak one."
     ]
   }
 }
