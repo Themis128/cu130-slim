@@ -28,7 +28,12 @@ from celery import shared_task
 from sqlalchemy import select
 
 from app.models.content import Post, PostStatus, PostTarget
-from app.services.carousel_pipeline import compose_branded_slide
+from app.services.carousel_pipeline import (
+    _cf_generate_background,
+    _qa_generated_background,
+    compose_branded_slide,
+)
+from app.services.cf_models import CF_TXT2IMG_FREE
 from app.services.media_storage import persist_generated_image
 from app.services.slack_notifications import post_alert_to_slack
 from app.worker._async import run_async, task_session
@@ -140,8 +145,25 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
                 title, body = _split_copy(post.content_text or "")
                 if not title:
                     continue
+                attempts_done = int((post.meta_data or {}).get("media_heal_attempts", 0) or 0)
+                bg_img = None
+                if attempts_done + 1 >= _MAX_HEAL_ATTEMPTS:
+                    # Final attempt: plain brand slides already failed QA —
+                    # generate an on-topic FLUX background (CF-first,
+                    # ComfyUI fallback, garbled-text pixel QA) blended under
+                    # the brand canvas so the image depicts the copy.
+                    image_prompt = f"{title}, professional business photography concept"
+                    try:
+                        bg_img = await _cf_generate_background(image_prompt, CF_TXT2IMG_FREE[0])
+                        if bg_img is not None:
+                            bg_img = await _qa_generated_background(
+                                bg_img, image_prompt, CF_TXT2IMG_FREE[0], "media-heal"
+                            )
+                    except Exception as exc:
+                        logger.info("media-heal bg generation skipped for %s: %s", post.id, exc)
+                        bg_img = None
                 img = compose_branded_slide(
-                    None,
+                    bg_img,
                     index=1,
                     total=1,
                     slide_type="content",

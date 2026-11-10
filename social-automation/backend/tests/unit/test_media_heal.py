@@ -87,10 +87,12 @@ def _target(post_id, status="skipped", error="Media semantic QA failed — image
     )
 
 
-def _wire(monkeypatch, db, *, publish=None, alert=None):
+def _wire(monkeypatch, db, *, publish=None, alert=None, bg=None):
     monkeypatch.setattr(M, "run_async", _drive)
     monkeypatch.setattr(M, "task_session", lambda: _Session(db))
     monkeypatch.setattr(M, "compose_branded_slide", Mock(return_value=_Img()))
+    monkeypatch.setattr(M, "_cf_generate_background", AsyncMock(return_value=bg if bg is not None else object()))
+    monkeypatch.setattr(M, "_qa_generated_background", AsyncMock(side_effect=lambda img, *a, **k: img))
     monkeypatch.setattr(
         M,
         "persist_generated_image",
@@ -329,6 +331,132 @@ def test_sweep_alert_and_sync_failures_swallowed(monkeypatch):
 
     out = M.run_media_heal_sweep()
     assert out["exhausted"] == [str(pid)]
+
+
+def test_sweep_final_attempt_uses_on_topic_background(monkeypatch):
+    """attempts=1 -> this heal is the last allowed -> FLUX bg path."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": 1})
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([tgt]),
+        ]
+    )
+    bg_obj = object()
+    compose = Mock(return_value=_Img())
+    _wire(monkeypatch, db)
+    monkeypatch.setattr(M, "compose_branded_slide", compose)
+    cf_bg = AsyncMock(return_value=bg_obj)
+    qa_bg = AsyncMock(side_effect=lambda img, *a, **k: img)
+    monkeypatch.setattr(M, "_cf_generate_background", cf_bg)
+    monkeypatch.setattr(M, "_qa_generated_background", qa_bg)
+    publish = Mock(return_value={"success": True, "results": []})
+    monkeypatch.setattr(M, "publish_post_now", publish)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 1
+    cf_bg.assert_called_once()
+    assert "professional business photography concept" in cf_bg.call_args[0][0]
+    qa_bg.assert_called_once()
+    # compose_branded_slide receives the QA'd background as first arg
+    assert compose.call_args[0][0] is bg_obj
+
+
+def test_sweep_final_attempt_bg_failure_falls_back(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": 1})
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([tgt]),
+        ]
+    )
+    compose = Mock(return_value=_Img())
+    _wire(monkeypatch, db)
+    monkeypatch.setattr(M, "compose_branded_slide", compose)
+    monkeypatch.setattr(M, "_cf_generate_background", AsyncMock(return_value=None))
+    monkeypatch.setattr(M, "publish_post_now", Mock(return_value={"success": True, "results": []}))
+
+    out = M.run_media_heal_sweep()
+    assert out["healed"] == 1
+    assert compose.call_args[0][0] is None  # brand canvas only
+
+
+def test_sweep_skips_post_with_published_target(monkeypatch):
+    """A post that already shipped on one platform keeps its targets —
+    the media-failed sibling target alone doesn't qualify it."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid)
+    tgt_bad = _target(pid)
+    tgt_pub = _target(pid, status="published", error=None)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt_bad, tgt_pub]),
+        ]
+    )
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+    assert out["healed"] == 0
+    publish.assert_not_called()
+
+
+def test_sweep_bg_exception_falls_back_to_canvas(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": 1})
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([tgt]),
+        ]
+    )
+    compose = Mock(return_value=_Img())
+    _wire(monkeypatch, db)
+    monkeypatch.setattr(M, "compose_branded_slide", compose)
+    monkeypatch.setattr(
+        M, "_cf_generate_background", AsyncMock(side_effect=RuntimeError("cf down"))
+    )
+    monkeypatch.setattr(M, "publish_post_now", Mock(return_value={"success": True, "results": []}))
+
+    out = M.run_media_heal_sweep()
+    assert out["healed"] == 1
+    assert compose.call_args[0][0] is None
+
+
+def test_sweep_first_attempt_skips_bg_generation(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid)  # attempts=0 -> plain slide, no FLUX call
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([tgt]),
+        ]
+    )
+    cf_bg = AsyncMock(return_value=object())
+    _wire(monkeypatch, db)
+    monkeypatch.setattr(M, "_cf_generate_background", cf_bg)
+    monkeypatch.setattr(M, "publish_post_now", Mock(return_value={"success": True, "results": []}))
+
+    out = M.run_media_heal_sweep()
+    assert out["healed"] == 1
+    cf_bg.assert_not_called()
 
 
 def test_sweep_empty_queue(monkeypatch):
