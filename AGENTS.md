@@ -54,7 +54,7 @@ gh pr merge <N> --squash --delete-branch --auto
 Run these for any feature that touches backend, frontend, compose, or n8n:
 
 - **Pre-commit hook** (`.githooks/pre-commit`, enabled via `git config core.hooksPath .githooks`) automatically runs `ruff check` + `mypy` on staged backend files inside the `social-api` container — same checks as the first two CI steps. It fails open when the container is down. Bypass with `--no-verify` only intentionally.
-- Container file drift: after committing tests/code, sync changed files into `social-api` + worker containers with `docker compose cp` — stale files in the container make the local gate diverge from CI.
+- Container file drift: `/app/app`, `/app/alembic`, `/app/scripts`, `/app/tests` are **bind-mounted from this checkout** (verified 2026-11-10) — a `git pull`/checkout IS the file sync; only a service restart is needed to reload modules. Do NOT `docker compose cp` into these mounts: it writes through to the host working tree and creates phantom dirty files. `docker cp` remains the fallback only when `docker inspect` shows the mount missing/stale.
 
 1. `pytest tests/unit -q` inside `social-api` — must pass for the **touched modules only** (e.g. `pytest tests/unit/test_<module>.py`). Do NOT run the whole ~7k suite inside `social-api`: the container's `mem_limit` is 1 GiB (steady-state ~600 MiB) and a full-suite run OOM-kills the production API (observed 2026-10-27). The full suite is CI's gate (`pytest tests/unit -v --tb=short` in `social-automation-backend.yml`); locally run it via the `.venv` on the host (`. .venv/bin/activate && python -m pytest tests/unit -q -m "not integration"`) or accept CI. If a containerized run is unavoidable, use `pytest --timeout=90 -v` so a hang fails fast instead of stalling silently, and `pkill -f pytest` stale runners first — orphaned runs compound memory pressure.
 2. `pytest tests/integration -q` against a dedicated `social_automation_test` DB — must pass when media, AI, auth, or storage behavior changes.
@@ -113,8 +113,8 @@ rm -f .deploy.lock                                                 # release
 
 ## Container restart rules
 
-- `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Copy changed files into the container with `docker compose cp` before restarting, or rebuild the image.
-- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Copy changed files into all worker containers and `social-api`. The four queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
+- `social-api` — restart after any `app/api/*.py`, `app/services/*.py`, `app/models/*.py`, or Alembic change. Files are bind-mounted — pull/checkout then restart; no cp needed.
+- `social-worker-publishing`, `social-worker-media`, `social-worker-default`, `social-worker-messenger` — restart after `app/services/publishing.py`, `app/services/linkedin_api.py`, Celery tasks (`app/worker/tasks/*.py`), `app/worker/celery_app.py` (queue routing), or compose env changes. Files are bind-mounted — pull/checkout then restart all four + `social-api`. The four queue-dedicated workers share the same image and env (via `x-worker-env` YAML anchor).
 - `celery-beat` — restart after `app/worker/celery_app.py` beat_schedule or queue routing changes. Single instance only (never scale beat).
 - **Worker async model** — every Celery task runs its coroutines on ONE persistent asyncio loop per prefork child (`app/worker/_async.py`, started by `worker_process_init`). Use `run_async(coro)` instead of `asyncio.run()` and `task_session()` / `get_session_factory()` instead of `async_session_maker()` or a per-task engine. Combining `asyncio.run()` with the shared session pool is the 'Future attached to a different loop' crash — eliminated by construction here. `docker cp` does NOT reload modules in a running worker — always restart after hot-syncing.
 - `comfyui` — restart after CLI args or env changes.
@@ -161,8 +161,9 @@ curl http://localhost:8083/api/v1/cf-db/tables
 # frontend typecheck (run on host, not in container)
 cd social-automation/frontend && ./node_modules/.bin/tsc --noEmit --incremental false
 
-# copy a changed backend file into the running container
-docker compose cp social-automation/backend/app/services/foo.py social-api:/app/app/services/foo.py
+# NOTE: backend code dirs are bind-mounted — sync = git pull + restart, not cp.
+# docker compose cp only if `docker inspect` shows the mount missing/stale
+# (it writes through to the host checkout and dirties git).
 
 # check all 4 Celery worker nodes are online
 docker compose exec -T social-worker-publishing celery -A app.worker.celery_app inspect ping
