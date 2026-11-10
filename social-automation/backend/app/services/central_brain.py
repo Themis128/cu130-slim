@@ -27,8 +27,11 @@ the daily dispatch.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import math
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -37,6 +40,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import get_settings
 from app.models.analytics import (
     AnalyticsEvent,
     FollowerSnapshot,
@@ -47,6 +51,8 @@ from app.models.trends import TrendSignal
 from app.models.user import Team
 
 logger = logging.getLogger(__name__)
+
+settings = get_settings()
 
 DEVAPP_EVENT_TYPE = "devapp_snapshot"
 LOOKBACK_DAYS = 7
@@ -413,6 +419,199 @@ def decide(snapshot: BrainSnapshot) -> list[BrainDecision]:
     return decisions
 
 
+# ── LLM refinement ────────────────────────────────────────────────────
+#
+# The rule scorer above is the floor, not the ceiling: when
+# CENTRAL_BRAIN_LLM_ENABLED is on, the post decisions are rewritten by the
+# inference chain (DMR → Cloudflare fallback) using three knowledge
+# surfaces the rules can't see — company-brain recall of what actually
+# happened, the Kakkava doctrine is left to generation, and the canonical
+# per-platform audience-fit lines. Health decisions are never touched and
+# any failure returns None so the rule plan dispatches unchanged.
+
+_LLM_DECISION_TIMEOUT = 90.0
+
+_LLM_PROMPT = """You are the central brain of Cloudless's multi-platform social operation
+(cloudless.gr — managed cloud hosting, Cloudflare, fast websites). Below is
+today's channel snapshot, live trend signals, recent verified outcomes from
+the company journal, per-platform audience-fit notes, and a rule-based
+draft plan.
+
+Refine the draft plan into the final post instructions for today's content generator.
+
+Rules:
+- Only use platforms present in CANDIDATES — never add one, you may drop one.
+- instruction: one concrete directive — what to post, what angle, which real Cloudless build outcome or number to cite. Real outcomes only, no hype.
+- priority: integer 1-100 ranking expected impact.
+- Output STRICT JSON only, no prose: {"posts":[{"platform":"...","instruction":"...","priority":N}]}
+- At most {max_posts} posts.
+
+CHANNELS (7d outcomes):
+{channels}
+
+HOT TRENDS:
+{trends}
+
+COMPANY JOURNAL (recent verified outcomes — build on what grew, avoid what failed):
+{learnings}
+
+PLATFORM AUDIENCE FIT:
+{fit}
+
+CANDIDATE PLAN (rule-based):
+{candidates}"""
+
+
+def _fit_line(platform: str) -> str:
+    """The 'Audience fit:' tail of a platform's PLATFORM_GUIDES entry."""
+    try:
+        from app.services.content_guides import PLATFORM_GUIDES
+
+        guide = PLATFORM_GUIDES.get(platform, "")
+        idx = guide.find("Audience fit:")
+        if idx < 0:
+            return ""
+        return guide[idx + len("Audience fit:") :].strip().rstrip(".")
+    except Exception:  # noqa: BLE001 — fit lines are advisory
+        return ""
+
+
+def _parse_llm_decisions(text: str, candidates: list[BrainDecision]) -> list[BrainDecision] | None:
+    """Extract and validate the LLM's post decisions. Pure — no I/O.
+
+    A decision survives only if its platform was a rule-approved candidate
+    (unhealthy/majority-failure channels can never be re-added), its
+    instruction is non-empty, and it isn't a duplicate platform. Anything
+    unparseable returns None so callers fall back to the rule plan.
+    """
+    match = re.search(r"\{.*\}", text or "", re.DOTALL)
+    if not match:
+        return None
+    try:
+        payload = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    posts = payload.get("posts") if isinstance(payload, dict) else None
+    if not isinstance(posts, list):
+        return None
+
+    by_platform = {d.platform: d for d in candidates}
+    out: list[BrainDecision] = []
+    seen: set[str] = set()
+    for item in posts:
+        if not isinstance(item, dict):
+            continue
+        platform = str(item.get("platform") or "").lower()
+        instruction = str(item.get("instruction") or "").strip()
+        if platform not in by_platform or platform in seen or not instruction:
+            continue
+        base = by_platform[platform]
+        try:
+            priority = int(item.get("priority", base.priority))
+        except (TypeError, ValueError):
+            priority = base.priority
+        out.append(
+            BrainDecision(
+                platform=platform,
+                kind="post",
+                instruction=instruction[:1500],
+                format=base.format,
+                priority=max(1, min(100, priority)),
+                reason=f"llm-refined | rule={base.reason}"[:300],
+                trend_query=base.trend_query,
+            )
+        )
+        seen.add(platform)
+        if len(out) >= MAX_POST_ACTIONS:
+            break
+    return out or None
+
+
+async def _llm_adjust(
+    db: AsyncSession,
+    team: Team,
+    snapshot: BrainSnapshot,
+    candidates: list[BrainDecision],
+) -> list[BrainDecision] | None:
+    """Rewrite candidate post decisions via the inference chain.
+
+    Returns None on any failure — the rule plan is the guaranteed floor.
+    """
+    if not settings.CENTRAL_BRAIN_LLM_ENABLED or not candidates:
+        return None
+    try:
+        from app.services.company_brain import recall_cited
+        from app.services.inference import call_inference
+
+        recalled = await recall_cited(
+            team.id,
+            "publish outcomes failures engagement follower growth",
+            n_results=3,
+        )
+        learnings = "\n".join(f"- {h['text'][:300]}" for h in recalled.get("hits", [])) or "(no journal history yet)"
+
+        channel_lines = []
+        for plat in sorted({d.platform for d in candidates}):
+            state = snapshot.channels.get(plat)
+            if not state:
+                continue
+            channel_lines.append(
+                f"- {plat}: followers={state.followers or '?'} "
+                f"er7d={state.engagement_rate_7d:.1f} posts7d={state.posts_7d} "
+                f"published7d={state.published_7d} failed7d={state.failed_7d}"
+            )
+        trend_lines = "\n".join(
+            f"- {t.get('query')} ({t.get('classification')}, traffic={t.get('traffic')})"
+            for t in snapshot.trends[:5]
+        ) or "(none)"
+        fit_lines = "\n".join(
+            f"- {plat}: {_fit_line(plat) or 'no fit data'}"
+            for plat in sorted({d.platform for d in candidates})
+        )
+        candidate_lines = "\n".join(
+            f"- {d.platform} p{d.priority}: {d.instruction[:200]}"
+            for d in candidates
+        )
+
+        prompt = _LLM_PROMPT.format(
+            max_posts=MAX_POST_ACTIONS,
+            channels="\n".join(channel_lines) or "(none)",
+            trends=trend_lines,
+            learnings=learnings,
+            fit=fit_lines,
+            candidates=candidate_lines,
+        )
+        resp = await asyncio.wait_for(
+            call_inference(
+                prompt,
+                provider_name="dmr",
+                db=db,
+                team_id=team.id,
+                max_tokens=1200,
+                allow_fallback=True,
+            ),
+            timeout=_LLM_DECISION_TIMEOUT,
+        )
+        text = ""
+        if isinstance(resp, dict):
+            text = str(resp.get("text") or resp.get("response") or "")
+            if not text.strip() and isinstance(resp.get("posts"), list):
+                text = json.dumps({"posts": resp["posts"]})
+        refined = _parse_llm_decisions(text, candidates)
+        if refined:
+            logger.info(
+                "central_brain llm adjust: %d -> %d post decisions",
+                len(candidates),
+                len(refined),
+            )
+        else:
+            logger.warning("central_brain llm adjust produced no usable decisions")
+        return refined
+    except Exception as exc:  # noqa: BLE001 — rules are the floor
+        logger.warning("central_brain llm adjust failed: %s", str(exc)[:160])
+        return None
+
+
 # ── run ───────────────────────────────────────────────────────────────
 
 
@@ -446,9 +645,21 @@ async def run_for_team(db: AsyncSession, team: Team, now: datetime | None = None
 
     snapshot = await collect_snapshot(db, team, now=now)
     decisions = decide(snapshot)
+
+    # LLM refinement rewrites only the post instructions — health
+    # decisions and the candidate platform set stay rule-bound.
+    health_decisions = [d for d in decisions if d.kind != "post"]
+    post_decisions = [d for d in decisions if d.kind == "post"][:MAX_POST_ACTIONS]
+    refined = await _llm_adjust(db, team, snapshot, post_decisions)
+    if refined:
+        post_decisions = refined
+    post_decisions.sort(key=lambda d: -d.priority)
+    decisions = sorted(
+        post_decisions + health_decisions,
+        key=lambda d: (d.kind != "post", -d.priority),
+    )
     await _journal_plan(db, team, snapshot, decisions)
 
-    post_decisions = [d for d in decisions if d.kind == "post"][:MAX_POST_ACTIONS]
     decision_rows = [{"platform": d.platform, "kind": d.kind, "priority": d.priority, "reason": d.reason} for d in decisions]
     if not post_decisions:
         return {
@@ -464,6 +675,11 @@ async def run_for_team(db: AsyncSession, team: Team, now: datetime | None = None
             platform=d.platform,
             instruction=d.instruction,
             format=d.format,
+            extra_meta={
+                "brain_priority": d.priority,
+                "brain_reason": d.reason[:300],
+                "brain_trend": d.trend_query,
+            },
         )
         for d in post_decisions
     ]
