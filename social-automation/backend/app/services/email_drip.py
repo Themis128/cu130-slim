@@ -72,9 +72,6 @@ WARM_SOURCES = {
     "Meta Lead Ad",
     "LinkedIn Lead Gen",
 }
-# crm_engagement bumps replied leads to "In Process" — engagement = warm.
-WARM_STATUSES = {"In Process"}
-
 # Oxford AIE-adapted 4-week course — each step is a drip_template campaign
 # ("aie_course_1"…"aie_course_4"). Step 1 unlocks EMAIL_DRIP_AIE_GAP_DAYS
 # after first_approach; each later step unlocks the same gap after the
@@ -114,12 +111,17 @@ def _mailable(email: str, name: str | None = None) -> bool:
     return email not in internal and not email.endswith(f"@{domain}")
 
 
+def _in_active_conversation(lead: dict[str, Any]) -> bool:
+    """crm_engagement bumps replied leads to "In Process" — they are in a live
+    sales conversation, so every drip lane must exit them: continuing a
+    nurture sequence mid-conversation reads as robotic."""
+    return str(lead.get("status") or "") == "In Process"
+
+
 def _lead_temperature(lead: dict[str, Any]) -> str:
-    """'warm' when the lead already knows us — replied (crm_engagement bumps
-    to "In Process") or arrived via an inbound/opt-in source. Everything else
-    is cold and keeps the outreach-first copy."""
-    if str(lead.get("status") or "") in WARM_STATUSES:
-        return "warm"
+    """'warm' when the lead already knows us — arrived via an inbound/opt-in
+    source. Everything else is cold and keeps the outreach-first copy.
+    ("In Process" leads exit entirely — see _in_active_conversation.)"""
     if str(lead.get("source") or "") in WARM_SOURCES:
         return "warm"
     return "cold"
@@ -230,7 +232,7 @@ async def _first_approach_candidates() -> list[dict[str, Any]]:
     for lead in await espocrm_client.list_leads_for_campaign():
         email = _norm_email(lead)
         name = " ".join(p for p in (lead.get("firstName"), lead.get("lastName")) if p) or lead.get("accountName")
-        if not _mailable(email, name):
+        if not _mailable(email, name) or _in_active_conversation(lead):
             continue
         out.append(
             {
@@ -389,7 +391,7 @@ async def _aie_course_candidates(
             continue  # previous step still cooling down
         lead = lead_map.get(email) or {}
         name = lead.get("_name")
-        if not _mailable(email, name):
+        if not _mailable(email, name) or _in_active_conversation(lead):
             continue
         out.append(
             {
@@ -413,6 +415,7 @@ async def _aie_lead_map() -> dict[str, dict[str, Any]]:
                 continue
             out[email] = {
                 "id": lead.get("id"),
+                "status": lead.get("status"),
                 "_name": " ".join(p for p in (lead.get("firstName"), lead.get("lastName")) if p) or lead.get("accountName"),
             }
     except Exception:  # noqa: BLE001 — CRM outage degrades notes, not the sweep

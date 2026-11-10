@@ -501,7 +501,7 @@ async def test_aie_lead_map_and_unmailable_step_candidate(monkeypatch):
 
     monkeypatch.setattr(D.espocrm_client, "list_leads_for_campaign", leads)
     m = await D._aie_lead_map()
-    assert m == {"ana@corp.io": {"id": "L1", "_name": "Ana"}}
+    assert m == {"ana@corp.io": {"id": "L1", "status": None, "_name": "Ana"}}
 
     async def boom():
         raise RuntimeError("crm down")
@@ -753,8 +753,6 @@ async def test_run_email_drip_sweep_writes_audit_artifact(monkeypatch):
 
 
 def test_lead_temperature_warm_signals():
-    # replied → In Process (crm_engagement) regardless of source
-    assert D._lead_temperature({"status": "In Process", "source": "API Ingest"}) == "warm"
     # inbound / opt-in sources
     for src in ("Web Site", "Newsletter", "Referral", "Lead Magnet",
                 "Messenger", "WhatsApp Flow", "Social Media",
@@ -763,6 +761,10 @@ def test_lead_temperature_warm_signals():
 
 
 def test_lead_temperature_cold_signals():
+    # replied leads (In Process) exit every lane — filters check
+    # _in_active_conversation before temperature
+    assert D._in_active_conversation({"status": "In Process"}) is True
+    assert D._in_active_conversation({"status": "New"}) is False
     assert D._lead_temperature({"status": "New", "source": "API Ingest"}) == "cold"
     assert D._lead_temperature({"status": "New", "source": "Campaign"}) == "cold"
     assert D._lead_temperature({"status": "Assigned"}) == "cold"
@@ -780,9 +782,9 @@ async def test_first_approach_candidates_carry_temperature(monkeypatch):
 
     monkeypatch.setattr(D.espocrm_client, "list_leads_for_campaign", fake_leads)
     out = {c["email"]: c["temp"] for c in await D._first_approach_candidates()}
+    # "In Process" (replied, live conversation) exits the lane entirely
     assert out == {
         "new@corp.io": "cold",
-        "replied@corp.io": "warm",
         "magnet@corp.io": "warm",
     }
 
