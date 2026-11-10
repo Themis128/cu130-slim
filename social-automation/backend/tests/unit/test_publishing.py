@@ -25,6 +25,16 @@ def _isolate_x_web_fallback(monkeypatch):
     monkeypatch.setattr(x_web, "is_configured", lambda: False)
 
 
+@pytest.fixture(autouse=True)
+def _media_url_probe_ok(monkeypatch):
+    """Fixture media URLs are fake — don't let the real URL preflight block."""
+    monkeypatch.setattr(
+        pub,
+        "_probe_public_media",
+        AsyncMock(return_value=[{"url": "u", "ok": True}]),
+    )
+
+
 class _FakeResponse:
     def __init__(self, status_code: int, body, headers=None):
         self.status_code = status_code

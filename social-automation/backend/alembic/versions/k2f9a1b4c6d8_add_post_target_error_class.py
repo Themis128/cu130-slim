@@ -1,6 +1,6 @@
 """add error_class to post_targets
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: k2f9a1b4c6d8
 Revises: t1u2v3w4x5y6
 Create Date: 2026-11-10
 
@@ -9,10 +9,11 @@ retry sweep can distinguish retryable failures from dead credentials
 and deterministic rejections instead of substring-guessing.
 """
 
-from alembic import op
 import sqlalchemy as sa
 
-revision = "a1b2c3d4e5f6"
+from alembic import op
+
+revision = "k2f9a1b4c6d8"
 down_revision = "t1u2v3w4x5y6"
 branch_labels = None
 depends_on = None
