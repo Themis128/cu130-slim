@@ -17,7 +17,10 @@ facets, links render as plain text and are unclickable.
 
 from __future__ import annotations
 
+import base64
+import json
 import re
+import time
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
@@ -154,6 +157,53 @@ class BlueskyClient:
         self.did = data["did"]
         return data
 
+    def set_session(self, access_jwt: str, refresh_jwt: str | None, did: str | None) -> None:
+        """Restore a previously persisted session without an API call."""
+        self._access_jwt = access_jwt
+        self._refresh_jwt = refresh_jwt
+        self.did = did
+
+    def session_state(self) -> dict[str, Any]:
+        """Serializable session snapshot for ``SocialAccount.meta_data``.
+
+        AT Protocol refresh tokens are single-use and rotate on every
+        ``refreshSession`` — the NEW pair returned must replace the stored
+        one atomically or the next refresh fails with ExpiredToken."""
+        return {
+            "access_jwt": self._access_jwt,
+            "refresh_jwt": self._refresh_jwt,
+            "did": self.did,
+            "saved_at": datetime.now(UTC).isoformat(),
+        }
+
+    @staticmethod
+    def _jwt_exp(jwt: str) -> float | None:
+        """Decode the ``exp`` claim without verification (lifetime check only)."""
+        try:
+            payload = jwt.split(".")[1]
+            payload += "=" * (-len(payload) % 4)
+            return float(json.loads(base64.urlsafe_b64decode(payload))["exp"])
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def refresh_session(self) -> dict[str, Any]:
+        """``POST com.atproto.server.refreshSession`` — exchange the stored
+        refreshJwt for a new access+refresh pair. The old refreshJwt is
+        revoked the moment this succeeds; callers MUST persist
+        ``session_state()`` afterwards."""
+        if not self._refresh_jwt:
+            raise BlueskyAPIError(0, "no refresh token — call create_session() first", self.pds_url)
+        url = self._xrpc("com.atproto.server.refreshSession")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(url, headers={"Authorization": f"Bearer {self._refresh_jwt}"})
+            if resp.status_code != 200:
+                raise BlueskyAPIError(resp.status_code, resp.text, url)
+            data = resp.json()
+        self._access_jwt = data["accessJwt"]
+        self._refresh_jwt = data.get("refreshJwt", self._refresh_jwt)
+        self.did = data.get("did", self.did)
+        return data
+
     async def get_profile(self, actor: str | None = None) -> dict[str, Any]:
         """``GET app.bsky.actor.getProfile`` — public profile + counts."""
         url = self._xrpc("app.bsky.actor.getProfile")
@@ -249,3 +299,45 @@ class BlueskyClient:
             if resp.status_code != 200:
                 raise BlueskyAPIError(resp.status_code, resp.text, url)
             return resp.json()  # {uri, cid}
+
+
+async def ensure_session(client: BlueskyClient, stored: dict[str, Any] | None) -> dict[str, Any]:
+    """Authenticate ``client`` reusing a persisted session when possible.
+
+    Order: unexpired stored accessJwt → stored refreshJwt (single-use,
+    rotates — the caller MUST persist ``client.session_state()`` into
+    ``account.meta_data["bsky_session"]`` afterwards) → fresh
+    ``createSession``. ``createSession`` is the strictest rate-limited
+    endpoint on bsky.social (observed 429s when every sync/publish
+    logged in fresh), so persisting the session keeps logins rare."""
+    stored = stored or {}
+    access_jwt = stored.get("access_jwt")
+    if access_jwt and hasattr(client, "set_session") and hasattr(client, "refresh_session"):
+        exp = BlueskyClient._jwt_exp(access_jwt)
+        if exp is not None and exp > time.time() + 60:
+            client.set_session(access_jwt, stored.get("refresh_jwt"), stored.get("did"))
+            return {"reused": True}
+    if stored.get("refresh_jwt") and hasattr(client, "refresh_session") and hasattr(client, "set_session"):
+        client.set_session("", stored["refresh_jwt"], stored.get("did"))
+        try:
+            return await client.refresh_session()
+        except BlueskyAPIError:
+            pass  # revoked/expired refresh token → fresh login below
+    return await client.create_session()
+
+
+def persist_session(account: Any, client: BlueskyClient) -> None:
+    """Write ``client.session_state()`` into ``account.meta_data``.
+
+    Refresh tokens rotate single-use — persisting the new pair is what
+    keeps ``ensure_session`` off the rate-limited ``createSession``
+    endpoint. Caller is responsible for committing the session."""
+    session_state = getattr(client, "session_state", None)
+    if session_state is None:
+        return
+    from sqlalchemy.orm.attributes import flag_modified
+
+    meta = dict(account.meta_data or {})
+    meta["bsky_session"] = session_state()
+    account.meta_data = meta
+    flag_modified(account, "meta_data")
