@@ -10,12 +10,62 @@ Every action is scored, jittered, and (for comments/reposts) human-gated.
 from __future__ import annotations
 
 import logging
+import os
 import random
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
 ACTION_WEIGHTS = {"like": 1, "repost": 3, "comment": 5}
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
+def min_engage_score() -> int:
+    """SEO+NLP floor for inbound target posts (ENGAGE_MIN_SCORE, default 80)."""
+    return _env_int("ENGAGE_MIN_SCORE", 80)
+
+
+def min_draft_score() -> int:
+    """SEO+NLP floor for generated comment drafts (DRAFT_MIN_SCORE, default 65).
+
+    Drafts are 15-45 words, so the post-oriented SEO score caps around ~70 —
+    a floor of 80 would reject every draft. 65 still filters weak copy.
+    """
+    return _env_int("DRAFT_MIN_SCORE", 65)
+
+
+def quality_gate(text: str, platform: str, floor: int | None = None) -> tuple[bool, int, int]:
+    """SEO + NLP floor for auto-engage — both scores must clear the minimum.
+
+    Returns (passed, seo_overall, nlp_score); scores are 0-100.
+    """
+    from app.services.plain_english import sofia_nlp_score
+    from app.services.seo import score_content
+
+    minimum = floor if floor is not None else min_engage_score()
+    seo = score_content(text, platform).overall
+    nlp, _issues = sofia_nlp_score(text)
+    return seo >= minimum and nlp >= minimum, seo, nlp
+
+
+def post_quality_gate(text: str, platform: str) -> tuple[bool, int]:
+    """Inbound target-post gate — SEO score only (ENGAGE_MIN_SCORE, default 80).
+
+    NLP is skipped here on purpose: sofia_nlp_score encodes OUR copy rules
+    (CTA, PS line, specifics) that strangers' posts almost never satisfy —
+    requiring it would reject ~100% of inbound candidates.
+    """
+    from app.services.seo import score_content
+
+    seo = score_content(text, platform).overall
+    return seo >= min_engage_score(), seo
+
 
 # Jitter windows per platform (seconds after target post is seen)
 JITTER_RANGE = (143, 412)
@@ -165,6 +215,10 @@ Comment:"""
 async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
     """Score + queue an engagement action (respecting daily caps)."""
     from sqlalchemy import select
+
+    q_ok, q_seo = post_quality_gate(candidate.post_text, candidate.platform)
+    if not q_ok:
+        return {"skipped": f"quality gate seo={q_seo} (min {min_engage_score()})"}
 
     plan = score_candidate(candidate)
     if plan.action is None:

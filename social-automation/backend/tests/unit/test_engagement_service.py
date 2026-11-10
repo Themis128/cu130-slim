@@ -12,6 +12,13 @@ import pytest
 from app.services import engagement as E
 
 
+@pytest.fixture(autouse=True)
+def _engage_quality_gate_off(monkeypatch):
+    """Default: disable the SEO/NLP floor so synthetic posts pass."""
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "0")
+    monkeypatch.setenv("DRAFT_MIN_SCORE", "0")
+
+
 def _cand(**kw):
     base = dict(
         platform="linkedin",
@@ -233,3 +240,48 @@ async def test_queue_non_viral_tiktok_without_meta_data():
 def test_plan_dataclass_roundtrip():
     p = E.EngagementPlan("like", 1.0, 3, None, False, "r")
     assert SimpleNamespace(**p.__dict__).action == "like"
+
+
+# ── quality_gate (SEO + NLP floor) ─────────────────────────────────────
+
+
+def test_quality_gate_blocks_below_floor(monkeypatch):
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "80")
+    ok, seo, nlp = E.quality_gate("word " * 30, "linkedin")
+    assert not ok
+    assert 0 <= seo <= 100 and 0 <= nlp <= 100
+
+
+def test_quality_gate_disabled_at_zero(monkeypatch):
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "0")
+    ok, _, _ = E.quality_gate("word " * 30, "linkedin")
+    assert ok
+
+
+@pytest.mark.asyncio
+async def test_queue_skips_on_quality_gate(monkeypatch):
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "80")
+    db = _DB()
+    out = await E.queue_engagement(_cand(post_text="word " * 30, is_followed=True, is_connection=True), db)
+    assert "quality gate" in out["skipped"]
+    assert db.added == []
+    assert db.stmts == []
+
+
+@pytest.mark.asyncio
+async def test_queue_post_gate_ignores_nlp(monkeypatch):
+    """Inbound posts gate on SEO only — a post with SEO>=80 but NLP<80
+    (strangers' copy never satisfies our CTA/PS rules) must still queue."""
+    monkeypatch.setenv("ENGAGE_MIN_SCORE", "80")
+    good_post = (
+        "We migrated our entire client onboarding stack to Cloudflare Workers "
+        "and D1 in six weeks. Cold layouts dropped from 2.1s to 180ms at p95, "
+        "and monthly infra spend fell 74%. Here is the full teardown. "
+        "#serverless #cloudflare #webdev #indiehacker #buildinpublic"
+    )
+    db = _DB(counts=[0])
+    out = await E.queue_engagement(
+        _cand(post_text=good_post, is_followed=True, is_connection=True, posted_seconds_ago=3600), db
+    )
+    assert "quality gate" not in str(out.get("skipped", ""))
+    assert out.get("queued") in ("like", "repost", "comment")
