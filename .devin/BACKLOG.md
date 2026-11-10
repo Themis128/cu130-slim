@@ -149,14 +149,31 @@ Done, all verified live:
 - Watchers stopped (wa_code_watch killed, wa_coexist_watch exited on
   VERIFIED).
 
+Post-live hardening (2026-11-10 late):
+- Templates: first submission batch REJECTED INVALID_FORMAT (missing
+  `example.body_text` for {{n}} params; rejected templates can't be
+  deleted via API but CAN be edited via POST /{template_id}). Edited all
+  4 (cloudless_followup + cloudless_alert × en_US/el) with examples →
+  resubmitted, status PENDING. Webhook already logs
+  message_template_status_update events for approval tracking.
+- Webhook signature: FACEBOOK_APP_SECRET was unset → compose now falls
+  back to FACEBOOK_CLIENT_SECRET (same Meta app secret) so
+  X-Hub-Signature-256 is enforced.
+- Token lifecycle: debug_token shows USER token, expires_at=0 but
+  data_access_expires_at≈2027-02-06. social_accounts row now carries
+  token_expires_at + meta_data.expires_at; added "whatsapp": 14d lead to
+  token_expiry sweep (_NON_REFRESHABLE → Slack escalation).
+- send-template already fails safe: Meta 4xx → HTTP 502, nothing sent.
+
 Remaining:
-- [ ] Message templates: new WABA has zero templates — utility/marketing
-  templates must be recreated + approved before business-initiated
-  sends; 24h session replies already work.
+- [ ] Template approval outcome (PENDING → APPROVED/REJECTED); if
+  rejected again, read rejected_reason and adjust copy (avoid URLs in
+  UTILITY body, keep one CTA).
 - [ ] Real inbound test: someone messages +30 697 777 7838 → should hit
-  webhook → unified inbox + auto-reply bot.
-- [ ] WHATSAPP_ACCESS_TOKEN is a user token (~60d) — mint a system-user
-  token when Business Settings allows (non-expiring).
+  webhook → whatsapp_messages + unified inbox + auto-reply bot.
+- [ ] WHATSAPP_ACCESS_TOKEN is a user token (data access ~2027-02) —
+  mint a system-user token in Business Settings → System users when
+  possible (non-expiring). Sweep will escalate 14d before expiry.
 
 ## Open — external human gates
 
@@ -1099,20 +1116,22 @@ Leftovers:
   Unverified (optional); Payment method: none — card entry remains the
   human gate for paid messaging.
 
-## 2026-11-10 (eve) — mail-outbound 401 triage (Devin)
 
-- Alert "MAIL PIPELINE FAIL — mail-outbound /send threw: HTTP Error 401"
-  triaged: worker `MAIL_OUTBOUND_TOKEN` secret was rotated
-  2026-11-08 23:52 UTC (wrangler "Secret Change" deploy, part of
-  cf-worker-bringup Gate-2 completion). Callers holding the pre-rotation
-  token 401'd until credentials converged.
-- Verified live: current token (sha256 49acfab4…) is identical across
-  Infisical prod (daily 05:30 pull source of truth), WSL + Windows
-  `cu130-slim/.env`, and all 6 compose containers (social-api + 4
-  workers + celery-beat). `POST /send` with it → 200 + real delivery;
-  `/health` → ok; wrong token → 401 `{"error":"unauthorized"}` as
-  designed. No mail-outbound errors in container logs (7d).
-- Residual: the probe script that emitted the alert was not found in any
-  repo/cron/host — if it stores its own token copy (Devin Cloud secret,
-  GitHub secret, other machine) it may still hold the OLD token and will
-  keep 401ing. All in-stack credentials are already correct.
+## 2026-11-10 (late) — recording-download fix + alembic drift self-heal
+
+- **Talk recording download bug found via synthetic E2E probe** (real mp4
+  shared into a Talk room via files_sharing shareType=10): `/index.php/f/{id}`
+  returns the HTML file-viewer, not bytes — Whisper would fail decode on the
+  first real recording. `find_recording_file` now captures
+  `messageParameters.file.path`; `download_talk_file(file_id, path=)` uses
+  WebDAV `files/{user}/{path}` first, rejects text/html. PR #1637.
+- **alembic drift self-heal automated**: `~/scripts/alembic-drift-heal.py`
+  (user cron */10m) detects social-api "Can't locate revision" crash-loops,
+  recovers down_revision from git history, restamps `alembic_version`,
+  restarts. Verified against the real k2f9a1b4c6d8 -> t1u2v3w4x5y6 case.
+- **x-recovery-ops merged** (PR #1628): supervisor relaunches daemon
+  indefinitely; Telegram alerts on DONE/oauth-fail/timeout/unknown-screen.
+  Daemon still in X account-level rate-limit wait.
+- social-api crash-looped once when DB stamp (k2f9a1b4c6d8, PR #1614-only
+  revision) outlived the mounted checkout — restamped manually; the heal
+  script now covers recurrence.
