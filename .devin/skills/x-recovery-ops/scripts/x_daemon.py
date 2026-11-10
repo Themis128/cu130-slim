@@ -44,15 +44,39 @@ def status(phase, detail=""):
     except Exception:
         pass
 
-def alert(text):
-    """Telegram alert via x_tg_alert.json ({token, chat}) — silent if absent."""
+def alert(text, pg=None):
+    """Telegram alert via x_tg_alert.json ({token, chat}) — silent if absent.
+    With a live page, attaches a screenshot so the human sees the exact
+    challenge (ID/selfie/Arkose) instead of a text description."""
     try:
         cfg = json.load(open(os.path.join(DIR, "x_tg_alert.json")))
-        url = f"https://api.telegram.org/bot{cfg['token']}/sendMessage"
-        urllib.request.urlopen(urllib.request.Request(
-            url, data=json.dumps({"chat_id": cfg["chat"],
-                                  "text": "X-recovery: " + text}).encode(),
-            headers={"Content-Type": "application/json"}), timeout=10)
+        chat, tok = cfg["chat"], cfg["token"]
+    except Exception:
+        return
+    shot = None
+    if pg is not None:
+        try:
+            r = pg.send("Page.captureScreenshot", {"format": "jpeg", "quality": 60})
+            data = r.get("result", {}).get("data")
+            if data:
+                shot = base64.b64decode(data)
+        except Exception:
+            pass
+    try:
+        if shot:
+            boundary = "----xrec" + str(int(time.time()))
+            body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat}"
+                    f"\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\nX-recovery: {text}"
+                    f"\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"x.png\"\r\n"
+                    f"Content-Type: image/jpeg\r\n\r\n").encode() + shot + f"\r\n--{boundary}--\r\n".encode()
+            urllib.request.urlopen(urllib.request.Request(
+                f"https://api.telegram.org/bot{tok}/sendPhoto", data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}), timeout=20)
+        else:
+            urllib.request.urlopen(urllib.request.Request(
+                f"https://api.telegram.org/bot{tok}/sendMessage",
+                data=json.dumps({"chat_id": chat, "text": "X-recovery: " + text}).encode(),
+                headers={"Content-Type": "application/json"}), timeout=10)
     except Exception:
         pass
 
@@ -435,7 +459,7 @@ def main():
                             log("click phone code:", click_re(pg, "^continue$|^verify$|^next$|^submit$|^confirm$"))
                             time.sleep(9)
                         else:
-                            alert("phone/SMS checkpoint — no code via phone bridge in 6min; human needed")
+                            alert("phone/SMS checkpoint — no code via phone bridge in 6min; human needed", pg)
                         continue
                     # Arkose/FunCaptcha? try paid solver if key configured
                     ark = arkose_info(pg)
@@ -451,7 +475,7 @@ def main():
                                 log("arkose inject:", res)
                                 alert(f"Arkose challenge — solver token injected ({res}); watching for advance")
                             else:
-                                alert("Arkose challenge detected — no capsolver key (x_capsolver.json) or solve failed; human needed")
+                                alert("Arkose challenge detected — no capsolver key (x_capsolver.json) or solve failed; human needed", pg)
                         time.sleep(10)
                         continue
                     # maybe logged-in landing — check
@@ -459,7 +483,7 @@ def main():
                         break
                     unknown_streak += 1
                     if unknown_streak == 3:
-                        alert(f"stuck on unrecognized X screen x3 — likely a human factor (phone/checkpoint). url={pg.url()[:100]} text={t[:150]}")
+                        alert(f"stuck on unrecognized X screen x3 — likely a human factor (phone/checkpoint). url={pg.url()[:100]} text={t[:150]}", pg)
                     time.sleep(15)
                     continue
                 unknown_streak = 0
@@ -475,7 +499,7 @@ def main():
                     alert("DONE — OAuth callback reached, tokens stored")
                     log("=== DONE ===")
                     return
-                alert("oauth did not complete — page: " + pg.url()[:120])
+                alert("oauth did not complete — page: " + pg.url()[:120], pg)
                 # if oauth didn't complete, loop back (session persists)
                 time.sleep(30)
                 continue
