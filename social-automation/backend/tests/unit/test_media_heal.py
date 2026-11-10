@@ -225,6 +225,8 @@ def test_sweep_exhausted_alerts_once(monkeypatch):
     )
     alert = AsyncMock()
     publish = Mock()
+    rewrite = AsyncMock(return_value=None)
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", rewrite)
     _wire(monkeypatch, db, publish=publish, alert=alert)
 
     out = M.run_media_heal_sweep()
@@ -334,6 +336,7 @@ def test_sweep_alert_and_sync_failures_swallowed(monkeypatch):
     tgt = _target(pid)
     db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
     alert = AsyncMock(side_effect=RuntimeError("slack down"))
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(return_value=None))
     _wire(monkeypatch, db, alert=alert)
     import app.services.db_sync as db_sync
 
@@ -587,3 +590,141 @@ def test_sweep_skips_non_single_image_posts(monkeypatch):
     assert out["healed"] == 0
     assert post.media_ids == [post.media_ids[0], post.media_ids[1]]
     publish.assert_not_called()
+
+
+# ── bounded copy-rewrite tier (semantic-QA reject class) ────────────────
+
+
+def test_sweep_exhausted_rewrite_grants_one_more_heal(monkeypatch):
+    """Exhausted media attempts -> one LLM copy rewrite -> one more heal
+    cycle on the creative path with the new copy."""
+    pid = uuid.uuid4()
+    acct = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS},
+        content="Facebook marketing tips for two platforms.",
+    )
+    tgt = _target(pid, account_id=acct)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([(acct, "facebook")]),  # republish targets in heal loop
+        ]
+    )
+    rewrite = AsyncMock(return_value="Cloud cost engineering that actually ships.")
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", rewrite)
+    publish = Mock(return_value={"success": True, "results": []})
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 1
+    rewrite.assert_called_once()
+    assert post.meta_data["media_heal_original_copy"].startswith("Facebook marketing")
+    assert post.meta_data["media_heal_rewrite_done"] is True
+    # reset to MAX-1 then the heal incremented -> back at MAX
+    assert post.meta_data["media_heal_attempts"] == M._MAX_HEAL_ATTEMPTS
+    assert post.content_text.startswith("Cloud cost")
+    publish.assert_called_once_with(str(pid), [str(acct)])
+
+
+def test_sweep_exhausted_rewrite_done_is_terminal(monkeypatch):
+    """rewrite_done already set + attempts still exhausted -> alert, no
+    second rewrite, no heal."""
+    pid = uuid.uuid4()
+    post = _post(
+        pid=pid,
+        meta={
+            "media_heal_attempts": M._MAX_HEAL_ATTEMPTS,
+            "media_heal_rewrite_done": True,
+        },
+    )
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    rewrite = AsyncMock(return_value="should not be used")
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", rewrite)
+    alert = AsyncMock()
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["exhausted"] == [str(pid)]
+    rewrite.assert_not_called()
+    publish.assert_not_called()
+    alert.assert_called_once()
+
+
+def test_sweep_exhausted_rewrite_echo_alerts(monkeypatch):
+    """Rewrite returns the original text (guard) -> treated as unavailable,
+    post alerts instead of looping."""
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS})
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    monkeypatch.setattr(M, "_rewrite_copy_for_media", AsyncMock(return_value=None))
+    alert = AsyncMock()
+    _wire(monkeypatch, db, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["exhausted"] == [str(pid)]
+    assert post.meta_data["media_heal_alerted"] is True
+    assert "media_heal_rewrite_done" not in post.meta_data
+    alert.assert_called_once()
+
+
+# ── _rewrite_copy_for_media unit guards ────────────────────────────────
+
+
+def test_rewrite_copy_short_original_skips_dmr(monkeypatch):
+    import app.services.dmr as dmr
+
+    chat = AsyncMock()
+    monkeypatch.setattr(dmr, "call_dmr_chat", chat)
+    post = _post(content="too short")
+    assert _drive(M._rewrite_copy_for_media(post)) is None
+    chat.assert_not_called()
+
+
+def test_rewrite_copy_success(monkeypatch):
+    import app.services.dmr as dmr
+
+    new = "Cloud infrastructure that actually reduces cost. " * 2
+    monkeypatch.setattr(
+        dmr, "call_dmr_chat", AsyncMock(return_value={"text": new})
+    )
+    post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
+    assert _drive(M._rewrite_copy_for_media(post)) == new.strip()
+
+
+def test_rewrite_copy_dmr_failure_returns_none(monkeypatch):
+    import app.services.dmr as dmr
+
+    monkeypatch.setattr(
+        dmr, "call_dmr_chat", AsyncMock(side_effect=RuntimeError("dmr down"))
+    )
+    post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
+    assert _drive(M._rewrite_copy_for_media(post)) is None
+
+
+def test_rewrite_copy_echo_rejected(monkeypatch):
+    import app.services.dmr as dmr
+
+    original = "Original post copy that is long enough to pass the minimum length guard."
+    monkeypatch.setattr(
+        dmr, "call_dmr_chat", AsyncMock(return_value={"text": original})
+    )
+    post = _post(content=original)
+    assert _drive(M._rewrite_copy_for_media(post)) is None
+
+
+def test_rewrite_copy_empty_result_rejected(monkeypatch):
+    import app.services.dmr as dmr
+
+    monkeypatch.setattr(dmr, "call_dmr_chat", AsyncMock(return_value={"text": ""}))
+    post = _post(content="Original post copy that is long enough to pass the minimum length guard.")
+    assert _drive(M._rewrite_copy_for_media(post)) is None

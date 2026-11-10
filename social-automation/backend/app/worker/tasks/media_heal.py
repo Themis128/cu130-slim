@@ -45,6 +45,23 @@ logger = logging.getLogger(__name__)
 _MAX_HEAL_ATTEMPTS = 2
 _MAX_POSTS_PER_RUN = 10
 
+# One bounded copy rewrite per post, granted only after media attempts are
+# exhausted — the semantic-QA-reject class where even on-topic branded
+# media can't match copy that references specifics a brand graphic can't
+# depict (e.g. "Facebook marketing", "two platforms"). The rewrite keeps
+# facts/links/CTA and the publish path's own NLP/SEO/semantic gates
+# re-verify the result, so a bad rewrite fails closed.
+_REWRITE_SYSTEM = (
+    "You repair social posts that failed an image-semantics check. The "
+    "image is a generic Cloudless cloud-technology branded graphic. Rewrite "
+    "the post so its claims and visual references are things such a graphic "
+    "CAN depict: cloud infrastructure, cost savings, engineering outcomes, "
+    "digital transformation, technology. Preserve exactly: every URL/link, "
+    "the call-to-action, all facts and numbers, hashtags, and the voice. "
+    "Do NOT invent metrics, claims, or outcomes. Return ONLY the rewritten "
+    "post text — no commentary, no quotes."
+)
+
 # Error substrings (lowercased) that mean "the media was the problem" —
 # retrying identical bytes cannot help, but new branded media can.
 _MEDIA_ERROR_MARKERS = (
@@ -82,6 +99,33 @@ def _split_copy(text: str) -> tuple[str, str]:
             title, rest = text.split(sep, 1)
             return title.strip()[:110], rest.strip()[:240]
     return text[:110], ""
+
+
+async def _rewrite_copy_for_media(post: Post) -> str | None:
+    """LLM-rewrite post copy so a branded graphic can semantically match it.
+
+    Returns the new text, or None when the rewrite is unavailable, echoes
+    the original, or is too short to be a real post. Never raises.
+    """
+    original = (post.content_text or "").strip()
+    if len(original) < 40:
+        return None
+    try:
+        from app.services.dmr import call_dmr_chat
+
+        res = await call_dmr_chat(
+            f"Rewrite this post for a generic cloud-technology branded image:\n\n{original}",
+            system=_REWRITE_SYSTEM,
+            max_tokens=600,
+            temperature=0.4,
+        )
+        text = (res.get("text") or "").strip().strip("\"'")
+    except Exception as exc:
+        logger.info("media-heal rewrite failed for %s: %s", post.id, exc)
+        return None
+    if len(text) < 40 or text == original:
+        return None
+    return text
 
 
 async def _healable_posts(db) -> tuple[list[Post], list[Post]]:
@@ -155,7 +199,30 @@ async def _heal() -> tuple[list[tuple[str, list[str]]], list[str]]:
         healable, exhausted = await _healable_posts(db)
         for post in exhausted:
             meta = dict(post.meta_data or {})
-            if not meta.get("media_heal_alerted"):
+            if meta.get("media_heal_rewrite_done") or meta.get("media_heal_alerted"):
+                # Rewrite already spent (or alert already sent) and media
+                # attempts are still exhausted — terminal, alert once.
+                if not meta.get("media_heal_alerted"):
+                    meta["media_heal_alerted"] = True
+                    post.meta_data = meta
+                    exhausted_ids.append(str(post.id))
+                continue
+            # First exhaustion → one bounded copy rewrite, then exactly one
+            # more heal cycle (attempts reset so the next heal goes straight
+            # to the creative FLUX-background path with the new copy).
+            try:
+                new_copy = await _rewrite_copy_for_media(post)
+            except Exception:
+                new_copy = None
+            if new_copy:
+                meta["media_heal_original_copy"] = post.content_text
+                meta["media_heal_rewrite_done"] = True
+                meta["media_heal_attempts"] = _MAX_HEAL_ATTEMPTS - 1
+                post.meta_data = meta
+                post.content_text = new_copy
+                healable.append(post)
+                logger.info("media-heal rewrote copy for post %s", post.id)
+            elif not meta.get("media_heal_alerted"):
                 meta["media_heal_alerted"] = True
                 post.meta_data = meta
                 exhausted_ids.append(str(post.id))
