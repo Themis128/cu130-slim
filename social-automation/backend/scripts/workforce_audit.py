@@ -138,6 +138,40 @@ WORKFORCE = [
         pending_sql="SELECT count(*) FROM posts WHERE status='scheduled' AND scheduled_at < now()",
     ),
     Worker(
+        "media-heal",
+        "app.worker.tasks.media_heal.run_media_heal_sweep",
+        "publishing",
+        21600,
+        goal="Republish posts stranded by media failures with fresh branded media",
+        guardrails=(
+            "only posts with zero published targets",
+            "never touch dedup skips or auth/terminal errors",
+            "max 2 branded-media heals per post, then alert once",
+        ),
+        fallback="post stays failed/suppressed; Slack alert after attempt cap",
+        demand_driven=True,
+        evidence=[
+            (
+                "last media heal",
+                "SELECT max((meta_data->>'media_healed_at')::timestamptz) FROM posts WHERE meta_data ? 'media_healed_at'",
+            )
+        ],
+        pending_sql=(
+            "SELECT count(DISTINCT pt.post_id) FROM post_targets pt"
+            " JOIN posts p ON p.id = pt.post_id"
+            " WHERE pt.status IN ('skipped','failed')"
+            " AND pt.error_message ~* 'media semantic qa|media incomplete|could be resolved from storage|missing media'"
+            " AND p.status IN ('failed','suppressed')"
+        ),
+        escalations=[
+            (
+                "posts exhausted media-heal attempts",
+                "SELECT count(*) FROM posts WHERE meta_data->>'media_heal_alerted' = 'true'",
+                "branded media still fails QA — copy/media mismatch needs a human rewrite",
+            )
+        ],
+    ),
+    Worker(
         "analytics-sync",
         "app.worker.tasks.analytics.sync_all_analytics",
         "default",
