@@ -1,0 +1,348 @@
+"""Unit tests for app.worker.tasks.media_heal — the media-failure republish sweep.
+
+External seams are faked: the DB session, branded-slide composer, media
+persistence, publish dispatch, Slack alert, and D1 sync. The selection and
+requeue logic runs for real.
+"""
+
+import asyncio
+import uuid
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+
+import app.worker.tasks.media_heal as M
+from app.models.content import PostStatus
+
+
+def _drive(coro):
+    return asyncio.run(coro)
+
+
+class _Rows:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def all(self):
+        return self._rows
+
+
+class _Result:
+    def __init__(self, rows):
+        self._rows = rows
+
+    def scalars(self):
+        return _Rows(self._rows)
+
+
+class _DB:
+    """execute() returns canned results in call order; records commits."""
+
+    def __init__(self, results=None):
+        self._q = list(results or [])
+        self.commits = 0
+
+    async def execute(self, _stmt):
+        return self._q.pop(0) if self._q else _Result([])
+
+    async def commit(self):
+        self.commits += 1
+
+
+class _Session:
+    def __init__(self, db):
+        self.db = db
+
+    async def __aenter__(self):
+        return self.db
+
+    async def __aexit__(self, *a):
+        return False
+
+
+class _Img:
+    def save(self, buf, format):
+        buf.write(b"PNGDATA")
+
+
+def _post(pid=None, status=PostStatus.FAILED, meta=None, content="Grow fast. We handle cloud."):
+    return SimpleNamespace(
+        id=pid or uuid.uuid4(),
+        status=status,
+        meta_data=meta if meta is not None else {},
+        content_text=content,
+        team_id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        media_ids=[],
+    )
+
+
+def _target(post_id, status="skipped", error="Media semantic QA failed — image does not match the post copy", account_id=None):
+    return SimpleNamespace(
+        post_id=post_id,
+        status=status,
+        error_message=error,
+        social_account_id=account_id or uuid.uuid4(),
+    )
+
+
+def _wire(monkeypatch, db, *, publish=None, alert=None):
+    monkeypatch.setattr(M, "run_async", _drive)
+    monkeypatch.setattr(M, "task_session", lambda: _Session(db))
+    monkeypatch.setattr(M, "compose_branded_slide", Mock(return_value=_Img()))
+    monkeypatch.setattr(
+        M,
+        "persist_generated_image",
+        AsyncMock(return_value=SimpleNamespace(id=uuid.uuid4())),
+    )
+    monkeypatch.setattr(M, "publish_post_now", publish or Mock(return_value={"success": True, "results": []}))
+    monkeypatch.setattr(M, "post_alert_to_slack", alert or AsyncMock())
+    import app.services.db_sync as db_sync
+
+    monkeypatch.setattr(db_sync, "sync_after_worker_task", AsyncMock(return_value={}))
+
+
+# ── pure helpers ────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        ("Media semantic QA failed — image does not match the post copy", True),
+        ("Post media incomplete: only 0/1 media assets could be resolved from storage", True),
+        ("media assets could be resolved from storage — refusing", True),
+        ("missing media for instagram", True),
+        ("Skipped: identical media already published to this account within the last 30d", False),
+        ("Duplicate content: matches published post d1c282d1", False),
+        ("Instagram API error 400: session has been invalidated", False),
+        ("Quality gate: seo_score 40/100 below minimum 80", False),
+        (None, False),
+        ("", False),
+    ],
+)
+def test_is_media_failure(error, expected):
+    assert M._is_media_failure(error) is expected
+
+
+@pytest.mark.parametrize(
+    "text,expected_title",
+    [
+        ("First sentence here. Second part follows.", "First sentence here"),
+        ("No punctuation at all in this copy", "No punctuation at all in this copy"),
+        ("", ""),
+        (None, ""),
+    ],
+)
+def test_split_copy(text, expected_title):
+    title, _body = M._split_copy(text)
+    assert title == expected_title[:110]
+
+
+# ── sweep ───────────────────────────────────────────────────────────────
+
+
+def test_sweep_heals_and_queues(monkeypatch):
+    pid = uuid.uuid4()
+    acct = uuid.uuid4()
+    post = _post(pid=pid)
+    tgt = _target(pid, account_id=acct)
+    db = _DB(
+        [
+            _Result([pid]),  # candidate post_ids
+            _Result([post]),  # posts
+            _Result([tgt]),  # per-post targets (eligibility)
+            _Result([tgt]),  # per-post targets (account_ids)
+        ]
+    )
+    publish = Mock(return_value={"success": True, "results": []})
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 1
+    assert out["queued"] == [str(pid)]
+    assert out["exhausted"] == []
+    publish.assert_called_once_with(str(pid), [str(acct)])
+    assert post.media_ids  # new branded asset attached
+    assert post.meta_data["media_heal_attempts"] == 1
+    assert db.commits == 1
+
+
+def test_sweep_skips_published_and_dedup(monkeypatch):
+    pid_pub = uuid.uuid4()
+    pid_dedup = uuid.uuid4()
+    post_pub = _post(pid=pid_pub)
+    post_dedup = _post(pid=pid_dedup)
+    tgt_pub = _target(pid_pub, status="published", error=None)
+    tgt_dedup = _target(
+        pid_dedup,
+        error="Skipped: identical media already published to this account within the last 30d",
+    )
+    db = _DB(
+        [
+            _Result([pid_pub, pid_dedup]),
+            _Result([post_pub, post_dedup]),
+            _Result([tgt_pub]),  # post_pub targets
+            _Result([tgt_dedup]),  # post_dedup targets
+        ]
+    )
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 0
+    assert out["queued"] == []
+    publish.assert_not_called()
+    assert post_pub.media_ids == []
+    assert post_dedup.media_ids == []
+
+
+def test_sweep_exhausted_alerts_once(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS})
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+        ]
+    )
+    alert = AsyncMock()
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish, alert=alert)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 0
+    assert out["exhausted"] == [str(pid)]
+    assert post.meta_data["media_heal_alerted"] is True
+    publish.assert_not_called()
+    alert.assert_called_once()
+
+    # Second run: already alerted -> no duplicate Slack alert.
+    db._q = [_Result([pid]), _Result([post]), _Result([tgt])]
+    out2 = M.run_media_heal_sweep()
+    assert out2["exhausted"] == []
+    assert alert.call_count == 1
+
+
+def test_sweep_per_post_failure_isolated(monkeypatch):
+    pid_ok = uuid.uuid4()
+    pid_bad = uuid.uuid4()
+    post_ok = _post(pid=pid_ok)
+    post_bad = _post(pid=pid_bad)
+    tgt_ok = _target(pid_ok)
+    tgt_bad = _target(pid_bad)
+    db = _DB(
+        [
+            _Result([pid_ok, pid_bad]),
+            _Result([post_ok, post_bad]),
+            _Result([tgt_ok]),  # eligibility: post_ok
+            _Result([tgt_bad]),  # eligibility: post_bad
+            _Result([tgt_ok]),  # account_ids: post_ok
+        ]
+    )
+    monkeypatch.setattr(M, "run_async", _drive)
+    monkeypatch.setattr(M, "task_session", lambda: _Session(db))
+    monkeypatch.setattr(M, "compose_branded_slide", Mock(return_value=_Img()))
+
+    async def _persist(db_, **kwargs):
+        if "bad" in (kwargs.get("prompt") or ""):
+            raise RuntimeError("storage down")
+        return SimpleNamespace(id=uuid.uuid4())
+
+    # make the bad post's title contain 'bad'
+    post_bad.content_text = "bad copy. more text"
+    monkeypatch.setattr(M, "persist_generated_image", _persist)
+    publish = Mock(return_value={"success": True, "results": []})
+    monkeypatch.setattr(M, "publish_post_now", publish)
+    monkeypatch.setattr(M, "post_alert_to_slack", AsyncMock())
+    import app.services.db_sync as db_sync
+
+    monkeypatch.setattr(db_sync, "sync_after_worker_task", AsyncMock(return_value={}))
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 1
+    assert out["queued"] == [str(pid_ok)]
+    assert post_ok.media_ids
+    assert post_bad.media_ids == []
+
+
+def test_sweep_publish_dispatch_failure_continues(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid)
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([tgt]),
+        ]
+    )
+    publish = Mock(side_effect=RuntimeError("celery down"))
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+
+    assert out["healed"] == 1
+    assert out["queued"] == []
+
+
+def test_sweep_skips_empty_copy_and_none_meta(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta=None, content="")
+    post.meta_data = None
+    tgt = _target(pid)
+    db = _DB(
+        [
+            _Result([pid]),
+            _Result([post]),
+            _Result([tgt]),
+            _Result([tgt]),
+        ]
+    )
+    publish = Mock()
+    _wire(monkeypatch, db, publish=publish)
+
+    out = M.run_media_heal_sweep()
+    assert out["healed"] == 0
+    publish.assert_not_called()
+
+
+def test_sweep_alert_and_sync_failures_swallowed(monkeypatch):
+    pid = uuid.uuid4()
+    post = _post(pid=pid, meta={"media_heal_attempts": M._MAX_HEAL_ATTEMPTS})
+    tgt = _target(pid)
+    db = _DB([_Result([pid]), _Result([post]), _Result([tgt])])
+    alert = AsyncMock(side_effect=RuntimeError("slack down"))
+    _wire(monkeypatch, db, alert=alert)
+    import app.services.db_sync as db_sync
+
+    monkeypatch.setattr(
+        db_sync, "sync_after_worker_task", AsyncMock(side_effect=RuntimeError("d1 down"))
+    )
+
+    out = M.run_media_heal_sweep()
+    assert out["exhausted"] == [str(pid)]
+
+
+def test_sweep_empty_queue(monkeypatch):
+    db = _DB([_Result([])])
+    _wire(monkeypatch, db)
+    out = M.run_media_heal_sweep()
+    assert out == {"healed": 0, "queued": [], "exhausted": []}
+
+
+def test_sweep_run_async_failure(monkeypatch):
+    def _boom(coro):
+        coro.close()
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(M, "run_async", _boom)
+    out = M.run_media_heal_sweep()
+    assert out == {"error": "db gone"}
