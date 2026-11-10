@@ -29,6 +29,7 @@ Read `social-content-core` first. Console/app ops → `tiktok-console-ops` skill
 <!-- PLATFORM-FIT:BEGIN tiktok -->
 ### What the TikTok audience/algorithm (FYP) favors
 - Watch-time + engagement over production quality: raw, authentic, or humorous vertical video beats slick ads; trending audio/challenges and educational micro-content (life hacks, niche explainers like #TechTok) all travel. Hook in the first second — the caption supports the video.
+- 2026 signals: the FYP is interest-graph driven — follower count is not a direct ranking factor, so a small account's great post can out-reach a big account's weak one.
 
 <!-- PLATFORM-FIT:END -->
 

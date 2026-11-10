@@ -28,6 +28,7 @@ Read `social-content-core` first.
 <!-- PLATFORM-FIT:BEGIN threads -->
 ### What the Threads audience/algorithm favors
 - Conversational micro-updates and authentic takes — short opinion hooks and human-sounding posts beat polished brand copy; reply-style conversation drives distribution.
+- 2026 signals: predicted engagement + view time; posts ending in a genuine question tend to earn the replies that feed distribution.
 
 <!-- PLATFORM-FIT:END -->
 

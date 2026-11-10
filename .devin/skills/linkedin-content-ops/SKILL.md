@@ -42,7 +42,8 @@ failure signatures, and the verified bridge fallback path in the
 ### What the LinkedIn audience/algorithm favors
 - Thought leadership & industry insights; educational/how-to content — PDF document uploads render as swipeable carousels and perform strongly.
 - Personal stories with a business lesson; contrarian takes that spark constructive comments; short hook-driven text or sub-30s vertical video.
-- Optimize for dwell time + meaningful comments. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo.
+- 2026 feed: LLM-embedding retrieval ('Profile Relevance') surfaces relevant posts beyond your network; a Generative Recommender scores predicted click/read/like/comment/share. It actively downranks engagement bait and recycled thought-leadership — original, specific, expert content wins.
+- Optimize for dwell time + meaningful comments in the first hour. Rough cadence: ~4 educational posts per 1 soft promo and 1 hard promo.
 
 <!-- PLATFORM-FIT:END -->
 
