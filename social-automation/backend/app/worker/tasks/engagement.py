@@ -112,18 +112,38 @@ async def _run(limit: int):
             cand = (await db.execute(select(EngagementCandidate).where(EngagementCandidate.post_id == a.target_post_id))).scalars().first()
             if not cand:
                 continue
-            from app.services.engagement import classify_vector
+            from app.services.engagement import classify_vector, min_draft_score, quality_gate
 
             vector, override = classify_vector(cand.author_name + " " + cand.author_handle, cand.post_text)
-            resp = await call_dmr_chat(
-                build_3c_prompt(
-                    cand.post_text, cand.author_name or cand.author_handle, voice_hints=["professional", "technical", "direct"], vector_override=override
-                ),
-                platform="linkedin",
-                temperature=0.6,
-                max_tokens=120,
+            prompt = build_3c_prompt(
+                cand.post_text, cand.author_name or cand.author_handle, voice_hints=["professional", "technical", "direct"], vector_override=override
             )
-            a.comment_draft = (resp.get("text") or "").strip().strip('"') or None
+            draft, seo, nlp = None, 0, 0
+            for attempt in range(2):
+                resp = await call_dmr_chat(
+                    prompt
+                    + (
+                        f"\nPrevious draft scored SEO {seo}/100, NLP {nlp}/100 — "
+                        "raise both well above the floor by tightening wording "
+                        "and adding one concrete detail."
+                        if attempt
+                        else ""
+                    ),
+                    platform="linkedin",
+                    temperature=0.6,
+                    max_tokens=120,
+                )
+                draft = (resp.get("text") or "").strip().strip('"') or None
+                if not draft:
+                    break
+                ok, seo, nlp = quality_gate(draft, a.platform, floor=min_draft_score())
+                if ok:
+                    break
+            a.comment_draft = draft
+            if draft and not ok:
+                logger.info("engagement draft failed quality gate: seo=%s nlp=%s post=%s", seo, nlp, a.target_post_id)
+                a.status = "quality_failed"
+                a.comment_draft = None
         await db.commit()
 
         # real-time per-item gate pings — dedicated channel webhook with
