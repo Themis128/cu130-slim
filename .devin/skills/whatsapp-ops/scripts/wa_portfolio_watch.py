@@ -169,6 +169,32 @@ def fill_app_id() -> bool:
     return bool(res and res.get("v") == APP_ID)
 
 
+def graph_shows_app() -> bool:
+    """Authoritative check: is APP_ID visible on the portfolio's app edges?"""
+    try:
+        env = {}
+        with open(os.path.expanduser("~/cu130-slim/.env")) as fh:
+            for line in fh:
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.strip().split("=", 1)
+                    env[k] = v.strip().strip('"').strip("'")
+        token = env.get("META_ACCESS_TOKEN", "")
+        if not token:
+            return False
+        for edge in ("owned_apps", "client_apps", "pending_client_apps"):
+            url = (
+                "https://graph.facebook.com/v21.0/1558125105019725/"
+                f"{edge}?fields=id&limit=50&access_token={token}"
+            )
+            with urllib.request.urlopen(url, timeout=20) as resp:
+                data = json.loads(resp.read().decode() or "{}")
+            if any(str(a.get("id")) == APP_ID for a in data.get("data", [])):
+                return True
+    except Exception as exc:  # noqa: BLE001
+        log(f"graph_shows_app error: {exc}")
+    return False
+
+
 def attempt() -> str:
     """One full add-app attempt. Returns 'restricted'|'success'|'error'|'stuck'."""
     if not sidecar_alive():
@@ -192,8 +218,10 @@ def attempt() -> str:
     add = btn_pos("Add")
     if not add:
         txt = page_text()
+        if not txt:
+            return "sidecar-down"
         if "No apps added" not in txt and RESTRICTED not in txt:
-            return "maybe-done"  # list populated or UI changed — inspect manually
+            return "success" if graph_shows_app() else "unclear"
         return "stuck:no-add-button"
     click(add["x"], add["y"])
     sleep(3)
@@ -218,6 +246,8 @@ def attempt() -> str:
     sleep(6)
 
     txt = page_text()
+    if not txt:
+        return "sidecar-down"
     if RESTRICTED in txt:
         ok = btn_pos("OK") or text_pos("OK")
         if ok:
@@ -225,7 +255,10 @@ def attempt() -> str:
         return "restricted"
     # success heuristics: dialog closed, app row present, or request-sent text
     if "No apps added" not in txt or "request" in txt.lower():
-        return "success"
+        # confirm via Graph before declaring victory — UI text alone lies
+        if graph_shows_app():
+            return "success"
+        return "unclear"
     return "unclear"
 
 
