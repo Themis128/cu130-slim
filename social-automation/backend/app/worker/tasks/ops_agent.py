@@ -28,6 +28,7 @@ def ops_agent_sweep(self):
         # dead-man heartbeat — compose-watchdog alerts if this goes stale;
         # a redis hiccup must not fail the sweep itself
         try:
+
             async def _heartbeat():
                 import redis.asyncio as aioredis
 

@@ -59,10 +59,7 @@ async def _list(args) -> None:
     async with async_session_maker() as db:
         rows = (await db.execute(q)).scalars().all()
     for r in rows:
-        print(
-            f"{r.last_seen:%Y-%m-%d %H:%M} {r.status.value:9} {r.severity.value:8} "
-            f"{r.source}/{r.kind} {r.target or '-'} :: {r.title[:90]}"
-        )
+        print(f"{r.last_seen:%Y-%m-%d %H:%M} {r.status.value:9} {r.severity.value:8} {r.source}/{r.kind} {r.target or '-'} :: {r.title[:90]}")
         if r.rca:
             print(f"    rca: {r.rca[:200]}")
         if r.action_taken or r.proposed_action:
@@ -76,10 +73,7 @@ async def _resolve(args) -> None:
 
     q = select(OpsIncident).where(OpsIncident.status != IncidentStatus.RESOLVED)
     if args.id_or_fp:
-        q = q.where(
-            (cast(OpsIncident.id, String) == args.id_or_fp)
-            | (OpsIncident.fingerprint.startswith(args.id_or_fp))
-        )
+        q = q.where((cast(OpsIncident.id, String) == args.id_or_fp) | (OpsIncident.fingerprint.startswith(args.id_or_fp)))
     async with async_session_maker() as db:
         rows = (await db.execute(q)).scalars().all()
         for r in rows:

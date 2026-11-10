@@ -28,6 +28,7 @@ max 3 consecutive failures before giving up until next day).
 Exit codes: 0 ok/nothing-to-do, 2 lane-down, 3 human-gate-needed,
             4 flow-failed.
 """
+
 import base64
 import json
 import os
@@ -105,9 +106,7 @@ _CLICK_JS = """
 
 def _req(url, data=None, headers=None, timeout=30, method=None):
     body = json.dumps(data).encode() if data is not None else None
-    r = urllib.request.Request(url, data=body, method=method,
-                               headers={"Content-Type": "application/json",
-                                        **(headers or {})})
+    r = urllib.request.Request(url, data=body, method=method, headers={"Content-Type": "application/json", **(headers or {})})
     with urllib.request.urlopen(r, timeout=timeout) as f:
         raw = f.read()
         return json.loads(raw) if raw else {}
@@ -121,13 +120,13 @@ def _get(url, headers=None, timeout=30):
 
 
 def _admin_token() -> str:
-    body = urllib.parse.urlencode({
-        "username": os.environ["SOCIAL_ADMIN_EMAIL"],
-        "password": os.environ["SOCIAL_ADMIN_PASSWORD"],
-    }).encode()
-    r = urllib.request.Request(f"{API}/api/v1/auth/login", data=body,
-                               headers={"Content-Type":
-                                        "application/x-www-form-urlencoded"})
+    body = urllib.parse.urlencode(
+        {
+            "username": os.environ["SOCIAL_ADMIN_EMAIL"],
+            "password": os.environ["SOCIAL_ADMIN_PASSWORD"],
+        }
+    ).encode()
+    r = urllib.request.Request(f"{API}/api/v1/auth/login", data=body, headers={"Content-Type": "application/x-www-form-urlencoded"})
     with urllib.request.urlopen(r, timeout=20) as f:
         return json.loads(f.read())["access_token"]
 
@@ -135,8 +134,7 @@ def _admin_token() -> str:
 def _db_url():
     """DATABASE_URL is asyncpg — rewrite to sync psycopg for a quick check."""
     url = os.environ["DATABASE_URL"]
-    for a, b in (("postgresql+asyncpg://", "postgresql://"),
-                 ("+asyncpg", "")):
+    for a, b in (("postgresql+asyncpg://", "postgresql://"), ("+asyncpg", "")):
         url = url.replace(a, b)
     return url
 
@@ -154,22 +152,20 @@ def _targets():
                WHERE platform='tiktok'
                  AND status IN ('active','expired')
                  AND (status='expired'
-                      OR token_expires_at < now() + interval '1 hour')""")
+                      OR token_expires_at < now() + interval '1 hour')"""
+        )
         for row in cur.fetchall():
-            out.append({"id": str(row[0]), "account_id": row[1] or "",
-                        "username": row[2] or ""})
+            out.append({"id": str(row[0]), "account_id": row[1] or "", "username": row[2] or ""})
     return out
 
 
 def _needs_reauth_api() -> list:
     from datetime import UTC, datetime, timedelta
+
     tok = _admin_token()
-    teams = _get(f"{API}/api/v1/teams",
-                 headers={"Authorization": f"Bearer {tok}"})
-    team_id = (teams[0] if isinstance(teams, list)
-               else teams.get("items", [{}])[0]).get("id")
-    accs = _get(f"{API}/api/v1/accounts?team_id={team_id}",
-                headers={"Authorization": f"Bearer {tok}"})
+    teams = _get(f"{API}/api/v1/teams", headers={"Authorization": f"Bearer {tok}"})
+    team_id = (teams[0] if isinstance(teams, list) else teams.get("items", [{}])[0]).get("id")
+    accs = _get(f"{API}/api/v1/accounts?team_id={team_id}", headers={"Authorization": f"Bearer {tok}"})
     items = accs if isinstance(accs, list) else accs.get("items", [])
     soon = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
     out = []
@@ -180,9 +176,7 @@ def _needs_reauth_api() -> list:
         if a.get("status") not in ("active", "expired"):
             continue
         if a.get("status") == "expired" or (exp and exp < soon):
-            out.append({"id": a.get("id", ""),
-                        "account_id": a.get("account_id", ""),
-                        "username": a.get("username") or ""})
+            out.append({"id": a.get("id", ""), "account_id": a.get("account_id", ""), "username": a.get("username") or ""})
     return out
 
 
@@ -205,8 +199,7 @@ def _throttled() -> bool:
     now = time.time()
     if now - s.get("last_attempt", 0) < 3600:
         return True
-    return s.get("consecutive_fails", 0) >= MAX_CONSECUTIVE_FAILS \
-        and now - s.get("last_attempt", 0) < 86400
+    return s.get("consecutive_fails", 0) >= MAX_CONSECUTIVE_FAILS and now - s.get("last_attempt", 0) < 86400
 
 
 def _mark(ok: bool) -> None:
@@ -217,12 +210,10 @@ def _mark(ok: bool) -> None:
     _save_state(s)
 
 
-def _sidecar(path: str, payload: dict | None = None, timeout: int = 90,
-             method: str | None = None) -> dict:
+def _sidecar(path: str, payload: dict | None = None, timeout: int = 90, method: str | None = None) -> dict:
     if payload is None:
         return _get(f"{SIDECAR}{path}", timeout=timeout)
-    return _req(f"{SIDECAR}{path}", data=payload, timeout=timeout,
-                method=method)
+    return _req(f"{SIDECAR}{path}", data=payload, timeout=timeout, method=method)
 
 
 def _eval(expr: str, timeout: int = 60) -> dict:
@@ -234,8 +225,7 @@ def _eval_str(expr: str, timeout: int = 60) -> str:
     try:
         r = _eval(expr, timeout=timeout)
         res = r.get("result")
-        return res if isinstance(res, str) else (json.dumps(res)
-                                                  if res is not None else "")
+        return res if isinstance(res, str) else (json.dumps(res) if res is not None else "")
     except Exception as e:
         print(f"eval failed: {e}")
         return ""
@@ -287,8 +277,7 @@ def _dump_diagnostics(tag: str) -> None:
             path = f"/tmp/tiktok-reauth-{int(time.time())}.png"
             with open(path, "wb") as f:
                 f.write(base64.b64decode(png))
-            print(f"SCREENSHOT {path} url={shot.get('url','')[:120]} "
-                  f"title={shot.get('title','')[:80]}")
+            print(f"SCREENSHOT {path} url={shot.get('url', '')[:120]} title={shot.get('title', '')[:80]}")
     except Exception as e:
         print(f"screenshot failed: {e}")
 
@@ -312,18 +301,17 @@ def _targets_refreshed(targets: list) -> tuple[bool, str]:
                       token_expires_at < now() + interval '1 hour' AS stale
                FROM social_accounts
                WHERE platform='tiktok' AND account_id = ANY(%s)""",
-            (ids,))
+            (ids,),
+        )
         rows = cur.fetchall()
     by_id = {r[0]: r for r in rows}
-    stale = [by_id[i] for i in ids
-             if i in by_id and (by_id[i][2] != "active" or by_id[i][3])]
+    stale = [by_id[i] for i in ids if i in by_id and (by_id[i][2] != "active" or by_id[i][3])]
     missing = [i for i in ids if i not in by_id]
     if not stale and not missing:
         return True, "all targets refreshed"
     parts = []
     if stale:
-        parts.append("still-expired:" + ",".join(
-            f"{r[1] or r[0]}({r[0][:12]}…)" for r in stale))
+        parts.append("still-expired:" + ",".join(f"{r[1] or r[0]}({r[0][:12]}…)" for r in stale))
     if missing:
         parts.append("missing:" + ",".join(m[:12] for m in missing))
     return False, "; ".join(parts)
@@ -350,7 +338,8 @@ def _foreign_refresh(targets: list) -> str | None:
                WHERE platform='tiktok'
                  AND updated_at > now() - interval '15 minutes'
                  AND account_id <> ALL(%s)""",
-            (list(target_ids),))
+            (list(target_ids),),
+        )
         rows = cur.fetchall()
     if rows:
         return f"{rows[0][1] or rows[0][0]}({rows[0][0][:12]}…)"
@@ -373,23 +362,23 @@ def main() -> int:
         return 0
 
     want = {_norm_username(t["username"]) for t in targets} - {""}
-    print(f"tiktok re-auth needed for {sorted(want) or targets} — "
-          "checking sidecar session identity")
+    print(f"tiktok re-auth needed for {sorted(want) or targets} — checking sidecar session identity")
 
     # Pre-flight: OAuth authorizes whoever the sidecar is logged into.
     ident = _sidecar_identity()
     if not ident.get("ok"):
-        print(f"sidecar identity probe failed: {ident.get('reason')} — "
-              "session likely logged out; human re-login needed")
+        print(f"sidecar identity probe failed: {ident.get('reason')} — session likely logged out; human re-login needed")
         _dump_diagnostics("preflight")
         _mark(False)
         return 3
     sid = _norm_username(ident.get("username") or "")
     print(f"sidecar logged in as @{sid} (uid {ident.get('user_id')})")
     if want and sid not in want:
-        print(f"WRONG ACCOUNT: sidecar session @{sid} != target "
-              f"{sorted(want)} — flow would refresh the wrong row; "
-              "log into the target TikTok account on the sidecar")
+        print(
+            f"WRONG ACCOUNT: sidecar session @{sid} != target "
+            f"{sorted(want)} — flow would refresh the wrong row; "
+            "log into the target TikTok account on the sidecar"
+        )
         _dump_diagnostics("wrong-account")
         _mark(False)
         return 3
@@ -397,13 +386,9 @@ def main() -> int:
     print("minting authorize URL")
     try:
         tok = _admin_token()
-        teams = _get(f"{API}/api/v1/teams",
-                     headers={"Authorization": f"Bearer {tok}"})
-        team_id = (teams[0] if isinstance(teams, list)
-                   else teams.get("items", [{}])[0]).get("id")
-        auth = _get(f"{API}/api/v1/auth/oauth/tiktok/authorize"
-                    f"?team_id={team_id}",
-                    headers={"Authorization": f"Bearer {tok}"})
+        teams = _get(f"{API}/api/v1/teams", headers={"Authorization": f"Bearer {tok}"})
+        team_id = (teams[0] if isinstance(teams, list) else teams.get("items", [{}])[0]).get("id")
+        auth = _get(f"{API}/api/v1/auth/oauth/tiktok/authorize?team_id={team_id}", headers={"Authorization": f"Bearer {tok}"})
         url = auth.get("authorization_url")
         if not url:
             print(f"no authorization_url: {auth}")
@@ -431,7 +416,7 @@ def main() -> int:
         snap = _page_snapshot()
         gate = snap.get("gate")
         if gate:
-            print(f"human gate detected: {gate} — {snap.get('text','')[:200]}")
+            print(f"human gate detected: {gate} — {snap.get('text', '')[:200]}")
             _dump_diagnostics(gate)
             _mark(False)
             return 3
@@ -472,10 +457,12 @@ def main() -> int:
                     # account_id — the target row is orphaned (dead app
                     # client_key or deleted/recreated TikTok account) and
                     # NO consent flow can ever re-authorize it.
-                    print(f"ORPHAN: OAuth resolved the session to {foreign}; "
-                          f"stale target account_id(s) "
-                          f"{[t['account_id'][:12] for t in targets]} are "
-                          "unreachable — revoke/delete the stale row(s)")
+                    print(
+                        f"ORPHAN: OAuth resolved the session to {foreign}; "
+                        f"stale target account_id(s) "
+                        f"{[t['account_id'][:12] for t in targets]} are "
+                        "unreachable — revoke/delete the stale row(s)"
+                    )
                     _dump_diagnostics("orphan")
                     _mark(False)
                     return 3

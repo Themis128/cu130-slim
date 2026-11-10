@@ -45,19 +45,13 @@ async def restore_write_owned(svc: SyncService) -> None:
                 col_str = ", ".join(columns)
                 placeholders = ", ".join(f":{c}" for c in columns)
                 pk_conflict = ", ".join(pk_cols)
-                update_str = ", ".join(
-                    f"{c} = EXCLUDED.{c}" for c in columns if c not in pk_cols
-                )
+                update_str = ", ".join(f"{c} = EXCLUDED.{c}" for c in columns if c not in pk_cols)
                 sql = (
-                    f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) "
-                    f"ON CONFLICT ({pk_conflict}) DO UPDATE SET {update_str}"
+                    f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) ON CONFLICT ({pk_conflict}) DO UPDATE SET {update_str}"
                     if update_str
-                    else f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) "
-                    f"ON CONFLICT ({pk_conflict}) DO NOTHING"
+                    else f"INSERT INTO {table} ({col_str}) VALUES ({placeholders}) ON CONFLICT ({pk_conflict}) DO NOTHING"
                 )
-                converted = [
-                    {c: svc._d1_to_pg_value(c, r[c]) for c in columns} for r in rows
-                ]
+                converted = [{c: svc._d1_to_pg_value(c, r[c]) for c in columns} for r in rows]
                 seen: dict[str, dict] = {}
                 for rd in converted:
                     seen[str([rd.get(c) for c in pk_cols])] = rd

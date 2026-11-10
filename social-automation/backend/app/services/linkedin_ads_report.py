@@ -277,11 +277,7 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
                 # flag spend as unavailable instead of fake €0 or a sidecar
                 # scrape that also fails.
                 camps0 = m.raw.get("campaigns") or []
-                m.status = (
-                    "active"
-                    if any(cp.get("status") == "active" for cp in camps0)
-                    else ("paused" if camps0 else "no-campaigns")
-                )
+                m.status = "active" if any(cp.get("status") == "active" for cp in camps0) else ("paused" if camps0 else "no-campaigns")
                 m.campaign_name = f"account rollup ({len(camps0)} campaigns)" if camps0 else "no campaigns"
                 m.raw["account_rollup"] = True
                 m.raw["spend_unavailable"] = True
@@ -322,11 +318,7 @@ async def _collect_api_metrics(db: AsyncSession, m: CampaignMetrics) -> bool:
             m.spend_eur = round(spend, 2)
             m.clicks = clicks
             m.impressions = impr
-            m.status = (
-                "active"
-                if any(cp.get("status") == "active" for cp in camps)
-                else ("paused" if camps else "no-campaigns")
-            )
+            m.status = "active" if any(cp.get("status") == "active" for cp in camps) else ("paused" if camps else "no-campaigns")
             m.campaign_name = f"account rollup ({len(camps)} campaigns)" if camps else "no campaigns"
             m.raw["account_rollup"] = True
 

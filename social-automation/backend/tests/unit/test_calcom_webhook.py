@@ -146,9 +146,7 @@ async def test_webhook_bad_sig_and_non_booking(monkeypatch):
 
         def __init__(self):
             body = b'{"triggerEvent":"PING"}'
-            self.headers = {
-                "x-cal-signature-256": hmac.new(b"sec", body, hashlib.sha256).hexdigest()
-            }
+            self.headers = {"x-cal-signature-256": hmac.new(b"sec", body, hashlib.sha256).hexdigest()}
 
         async def body(self):
             return b'{"triggerEvent":"PING"}'

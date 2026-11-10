@@ -129,9 +129,7 @@ class _Session:
 async def test_report_incident_upserts_and_returns_row():
     inc = _inc()
     db = _Session([_Result(), _Result(scalar=inc)])
-    out = await oa.report_incident(
-        db, source="s", kind="k", title="hello", target="t", severity="critical"
-    )
+    out = await oa.report_incident(db, source="s", kind="k", title="hello", target="t", severity="critical")
     assert out is inc
     assert db.flushes == 1
 
@@ -256,13 +254,16 @@ async def test_sweep_empty_table_commits_and_returns():
 @pytest.mark.asyncio
 async def test_sweep_triages_open_incident(monkeypatch):
     inc = _inc()
-    db = _Session([
-        _Result(rows=[]),               # stale
-        _Result(rows=[inc]),            # open
-    ])
+    db = _Session(
+        [
+            _Result(rows=[]),  # stale
+            _Result(rows=[inc]),  # open
+        ]
+    )
     monkeypatch.setattr(oa, "_container_states", AsyncMock(return_value={}))
     monkeypatch.setattr(
-        oa, "_llm_verdict",
+        oa,
+        "_llm_verdict",
         AsyncMock(return_value={"severity": "ops", "action": "none", "summary": "watch"}),
     )
     alerted = []
@@ -285,7 +286,8 @@ async def test_sweep_rerun_action_dispatches(monkeypatch):
     db = _Session([_Result(rows=[]), _Result(rows=[inc])])
     monkeypatch.setattr(oa, "_container_states", AsyncMock(return_value={}))
     monkeypatch.setattr(
-        oa, "_llm_verdict",
+        oa,
+        "_llm_verdict",
         AsyncMock(return_value={"action": "rerun:dmr_health", "summary": "stale"}),
     )
     dispatched = []
@@ -308,7 +310,8 @@ async def test_sweep_escalates_after_max_attempts(monkeypatch):
     db = _Session([_Result(rows=[]), _Result(rows=[inc])])
     monkeypatch.setattr(oa, "_container_states", AsyncMock(return_value={}))
     monkeypatch.setattr(
-        oa, "_llm_verdict",
+        oa,
+        "_llm_verdict",
         AsyncMock(return_value={"action": "none", "summary": "still bad"}),
     )
     monkeypatch.setattr(oa, "_alert", AsyncMock())
@@ -345,7 +348,8 @@ async def test_sweep_resolve_action(monkeypatch):
     db = _Session([_Result(rows=[]), _Result(rows=[inc])])
     monkeypatch.setattr(oa, "_container_states", AsyncMock(return_value={}))
     monkeypatch.setattr(
-        oa, "_llm_verdict",
+        oa,
+        "_llm_verdict",
         AsyncMock(return_value={"action": "resolve", "summary": "gone"}),
     )
     monkeypatch.setattr(oa, "_alert", AsyncMock())
@@ -361,7 +365,8 @@ async def test_sweep_escalate_action(monkeypatch):
     db = _Session([_Result(rows=[]), _Result(rows=[inc])])
     monkeypatch.setattr(oa, "_container_states", AsyncMock(return_value={}))
     monkeypatch.setattr(
-        oa, "_llm_verdict",
+        oa,
+        "_llm_verdict",
         AsyncMock(return_value={"action": "escalate", "summary": "needs human"}),
     )
     alerts = []
@@ -381,7 +386,7 @@ async def test_llm_verdict_list_text_and_empty_result():
     with (
         patch(
             "app.services.inference.call_inference",
-            AsyncMock(return_value={"response": ["{\"action\":\"none\"}", "noise"]}),
+            AsyncMock(return_value={"response": ['{"action":"none"}', "noise"]}),
         ),
         patch("app.core.config.get_settings") as gs,
     ):

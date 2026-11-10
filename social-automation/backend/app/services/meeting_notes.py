@@ -182,9 +182,7 @@ async def _create_consult_room(opp: dict[str, Any], email: str | None) -> str | 
     token = await talk.create_room(
         room_name,
         description=(
-            f"Cloudless consultation call.\n"
-            f"Booked via cloudless.gr — {email or 'guest'}.\n"
-            f"Recording enabled for meeting notes (ask before sharing externally)."
+            f"Cloudless consultation call.\nBooked via cloudless.gr — {email or 'guest'}.\nRecording enabled for meeting notes (ask before sharing externally)."
         ),
     )
     if not token:
@@ -250,7 +248,16 @@ async def _extract_wav(video_bytes: bytes) -> bytes | None:
     out_path = src_path + ".wav"
     try:
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-y", "-i", src_path, "-vn", "-ac", "1", "-ar", "16000", out_path,
+            "ffmpeg",
+            "-y",
+            "-i",
+            src_path,
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            out_path,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.DEVNULL,
         )
@@ -381,15 +388,11 @@ async def process_meeting_notes(*, session_factory=None) -> dict[str, Any]:
                 if not minutes:
                     stats["errors"] += 1
                     continue
-                note = (
-                    f"{NOTES_TAG} Talk recording {rec['name']} → transcript "
-                    f"({len(transcript)} chars) → minutes:\n\n{minutes}"
-                )
+                note = f"{NOTES_TAG} Talk recording {rec['name']} → transcript ({len(transcript)} chars) → minutes:\n\n{minutes}"
                 await espo.add_lead_note(oid, note[:9000], entity="Opportunity")
                 stats["minutes_written"] += 1
                 await talk.post_to_talk(
-                    f"📝 Meeting notes ready — {opp.get('name') or oid} "
-                    f"(Talk recording → transcript → EspoCRM).",
+                    f"📝 Meeting notes ready — {opp.get('name') or oid} (Talk recording → transcript → EspoCRM).",
                     purpose="digest",
                 )
             except Exception:  # noqa: BLE001
