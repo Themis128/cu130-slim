@@ -98,9 +98,11 @@ changed=$(git diff --name-only "$last" "$new" 2>/dev/null || git diff --name-onl
 
 if ! git merge --ff-only origin/master >>"$DW_LOG" 2>&1; then
   # ── auto-hold ONLY the WIP files this merge would touch, then retry ──
-  # Agents keep uncommitted work in the shared checkout; compute exactly
-  # which paths block: dirty tracked files + untracked files that
-  # incoming commits add. Stash/move just those, merge, restore after.
+  # Agents keep uncommitted work in the shared checkout; a blanket dirty
+  # check would freeze deploys forever. git itself tells us exactly which
+  # paths block: dirty tracked files + untracked files that incoming
+  # commits add. We stash/move just those, merge, then restore — the
+  # agent's work survives in a named stash / .dw-held sibling file.
   incoming=$(git diff --name-only HEAD origin/master 2>/dev/null || true)
   held=""
   stash_msg=""
@@ -129,14 +131,15 @@ fi
 
 # ── restore auto-held WIP (stash pop may conflict — stash stays safe) ──
 if [ -n "$stash_msg" ]; then
-  # stash list subjects look like "On master: dw-auto-<ts>" — match anywhere
-  if git stash list --format=%s 2>/dev/null | head -1 | grep -q "$stash_msg"; then
-    if git stash pop -q >>"$DW_LOG" 2>&1; then
-      log "auto-held stash restored"
-    else
-      ALERT "stash-pop-conflict" ":warning: master-deploy-watch: auto-held stash '$stash_msg' did not pop cleanly — work is SAFE in git stash; owning agent must resolve"
-    fi
-  fi
+  top=$(git stash list --format=%s 2>/dev/null | head -1)
+  case "$top" in
+    "$stash_msg"*)
+      if git stash pop -q >>"$DW_LOG" 2>&1; then
+        log "auto-held stash restored"
+      else
+        ALERT "stash-pop-conflict" ":warning: master-deploy-watch: auto-held stash '$stash_msg' did not pop cleanly — work is SAFE in git stash; owning agent must resolve"
+      fi ;;
+  esac
 fi
 find . -maxdepth 6 -name '*.dw-held' 2>/dev/null | while read -r h; do
   orig="${h%.dw-held}"
