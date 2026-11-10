@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # SocialAuto stack watchdog — catches the failure modes that need a
 # human today. Host-level (outside compose) so it sees stack failures.
-# Every 10 min via the Windows scheduled task (the ONLY schedule — do not
-# also add a WSL cron line, two schedulers race each other):
-#   conhost.exe --headless "C:\Program Files\Git\bin\bash.exe" -lc '~/cu130-slim/scripts/compose-watchdog.sh'
+# Every 10 min via the Windows scheduled task "SocialAuto-StackWatchdog"
+# (the ONLY schedule — do not also add a WSL cron line, two schedulers race
+# each other). The repo lives in WSL since 2026-11-04, so the task action is:
+#   C:\Windows\System32\wsl.exe  -d Ubuntu-24.04 -e bash -lc
+#     "/home/tbaltzakis/cu130-slim/scripts/compose-watchdog.sh"
 #
 # Safe-autonomy rules (see AGENTS.md "Deploy lock & auto-healers"):
 #   * This script is the SOLE owner of container/stack restarts. stack-watchers
@@ -126,7 +128,8 @@ safe_restart() {
   fi
   # keep only the last hour of restart timestamps
   if [ -f "$f" ]; then awk -v c=$((t-3600)) '$1>=c' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; fi
-  n=$(wc -l < "$f" 2>/dev/null || echo 0); n=${n// /}
+  n=0; [ -f "$f" ] && n=$(wc -l < "$f")
+  n=${n// /}
   if [ "$n" -ge "$WD_MAX_RESTARTS" ]; then
     ALERT "cap-$c" ":rotating_light: $c hit the restart cap ($n/$WD_MAX_RESTARTS in 1h, last reason: $why) — watchdog stopped restarting it; needs a human"
     return 1
@@ -208,7 +211,8 @@ fix_eacces() {
   local c="$1" path src ug f="$WD_STATE_DIR/eacces-$1" t n
   t=$(now)
   if [ -f "$f" ]; then awk -v c=$((t-3600)) '$1>=c' "$f" > "$f.tmp" && mv "$f.tmp" "$f"; fi
-  n=$(wc -l < "$f" 2>/dev/null || echo 0); n=${n// /}
+  n=0; [ -f "$f" ] && n=$(wc -l < "$f")
+  n=${n// /}
   if [ "$n" -ge 2 ]; then
     ALERT "eacces-cap-$c" ":rotating_light: $c EACCES fix attempted $n times in 1h — chown isn't holding; needs a human"
     return 1
@@ -228,6 +232,30 @@ fix_eacces() {
 # comfyui-gpu and other sleepable/on-demand containers are deliberately
 # absent; stack-ops has its own port-binding probe below.
 EXTRA="n8n n8n-task-runner infisical social-api-gateway social-frontend env-manager-backend env-manager-frontend mautic nextcloud-mcp-server facebook-browser-sidecar tiktok-browser-sidecar messenger-sidecar linkedin-browser-sidecar browser-novnc instagram-private-api flower"
+# stack-ops idle-sleep state — a managed container reporting "stopped" is
+# ASLEEP ON PURPOSE: never restart it, and never port-probe a managed
+# service (a probe counts as a wake). Proxy unreachable => empty sets =>
+# pre-stack-ops behavior (fail-open).
+STACKOPS_JSON=$(curl -sf --max-time 5 http://127.0.0.1:8787/status 2>/dev/null || true)
+so_names() { # $1 = "managed" | "stopped"
+  [ -n "$STACKOPS_JSON" ] || return 0
+  printf '%s' "$STACKOPS_JSON" | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    if sys.argv[1] == "managed":
+        print(" ".join(d.keys()))
+    else:
+        print(" ".join(k for k, v in d.items()
+                       if isinstance(v, dict) and v.get("state") == "stopped"))
+except Exception:
+    pass
+' "$1" 2>/dev/null
+}
+STACKOPS_MANAGED=""; STACKOPS_STOPPED=""
+STACKOPS_MANAGED=$(so_names managed)
+STACKOPS_STOPPED=$(so_names stopped)
+in_list() { case " $2 " in *" $1 "*) return 0;; *) return 1;; esac; }
 # 1. containers stuck in Created / Restarting, or OOM-killed and stopped
 for c in $CORE $EXTRA; do
   st=$(docker inspect -f '{{.State.Status}} {{.State.OOMKilled}}' "$c" 2>/dev/null || echo "missing false")
@@ -235,6 +263,10 @@ for c in $CORE $EXTRA; do
   oom=${st##* }
   case "$status" in
     created|restarting|exited|dead)
+      if [ "$status" = "exited" ] && in_list "$c" "$STACKOPS_STOPPED"; then
+        log "$c: asleep via stack-ops idle-sleep — not a failure, skipping"
+        continue
+      fi
       if { [ "$status" = "created" ] || [ "$status" = "exited" ] || [ "$status" = "dead" ]; } \
          && fix_tailnet_ip "$c"; then
         continue
@@ -252,7 +284,7 @@ for c in $CORE $EXTRA; do
       fi
       safe_restart "$c" "$status" && ALERT "stuck-$c" ":warning: $c was $status — restarted";;
   esac
-  if [ "$oom" = "true" ] && [ "$status" != "running" ]; then
+  if [ "$oom" = "true" ] && [ "$status" != "running" ] && ! in_list "$c" "$STACKOPS_STOPPED"; then
     safe_restart "$c" "oom" && ALERT "oom-$c" ":warning: $c was OOM-killed — restarted (check memory pressure)"
   fi
 done
@@ -355,6 +387,7 @@ fi
 PORT_PROBES="${WD_PORT_PROBES:-n8n:5678 infisical:8090 social-api:8083 social-frontend:8082 env-manager-backend:8085 mautic:8021 nextcloud-mcp-server:9231}"
 for pp in $PORT_PROBES; do
   pc=${pp%%:*}; pport=${pp##*:}
+  in_list "$pc" "$STACKOPS_MANAGED" && continue   # probing a managed port wakes it
   pst=$(docker inspect -f '{{.State.Status}}' "$pc" 2>/dev/null || echo missing)
   [ "$pst" = "running" ] || continue
   pcode=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "http://localhost:$pport/" 2>/dev/null || echo 000)

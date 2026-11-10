@@ -2507,6 +2507,10 @@ services:
       - SMTP_USERNAME=${SMTP_USER}
       - SMTP_PASSWORD=${SMTP_PASSWORD}
       - SMTP_SECURE=${SMTP_USE_TLS}
+      # postfix on omv-ha presents a cert for mail.cloudless.gr, not the
+      # LAN IP; Node's c-ares resolver bypasses /etc/hosts so the hostname
+      # trick can't work — skip cert verification on this trusted LAN hop.
+      - SMTP_TLS_REJECT_UNAUTHORIZED=${INFISICAL_SMTP_TLS_REJECT_UNAUTHORIZED:-false}
       - SMTP_FROM_ADDRESS=${SMTP_FROM}
       - SMTP_FROM_NAME=Cloudless Infisical
     networks:
