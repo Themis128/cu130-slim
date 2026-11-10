@@ -162,16 +162,23 @@ async def _already_dripped(db, team_id: uuid.UUID, key: str | tuple[str, ...], c
     return {str(e).strip().lower() for (e,) in (await db.execute(q)).all()}
 
 
-async def _dripped_with_dates(db, team_id: uuid.UUID, key: str) -> dict[str, datetime]:
+async def _dripped_with_dates(
+    db, team_id: uuid.UUID, key: str | tuple[str, ...]
+) -> dict[str, datetime]:
     """email → latest sent_at (or queue time) for a drip key — used by
-    sequence steps that unlock N days after the previous step mailed."""
+    sequence steps that unlock N days after the previous step mailed.
+
+    ``key`` may be a tuple (e.g. FIRST_APPROACH_FAMILY) so warm and cold
+    first-approach lanes both unlock aie_course_1.
+    """
+    keys = (key,) if isinstance(key, str) else key
     q = (
         select(EmailRecipient.email, EmailRecipient.sent_at, EmailRecipient.created_at)
         .join(EmailCampaign, EmailRecipient.campaign_id == EmailCampaign.id)
         .where(
             EmailRecipient.team_id == team_id,
             EmailRecipient.status.in_([RecipientStatus.pending, RecipientStatus.sent]),
-            EmailCampaign.meta_data["drip_key"].astext == key,
+            EmailCampaign.meta_data["drip_key"].astext.in_(keys),
         )
     )
     out: dict[str, datetime] = {}
@@ -377,13 +384,14 @@ async def _aie_course_candidates(
 ) -> list[dict[str, Any]]:
     """Emails due for one AIE course step.
 
-    ``aie_course_1`` unlocks ``gap`` after ``first_approach`` mailed; steps
+    ``aie_course_1`` unlocks ``gap`` after either first-approach lane mailed; steps
     2-4 unlock ``gap`` after the previous step mailed. Anyone not yet mailed
     this step (``_already_dripped`` inside ``_run_drip`` re-verifies) and
     still mailable joins the wave.
     """
     idx = DRIP_AIE_STEPS.index(step)
-    prev_key = DRIP_FIRST_APPROACH if idx == 0 else DRIP_AIE_STEPS[idx - 1]
+    # Step 1 unlocks after either first-approach lane (warm or cold).
+    prev_key = FIRST_APPROACH_FAMILY if idx == 0 else DRIP_AIE_STEPS[idx - 1]
     mailed_prev = await _dripped_with_dates(db, team_id, prev_key)
     out: list[dict[str, Any]] = []
     for email, when in mailed_prev.items():

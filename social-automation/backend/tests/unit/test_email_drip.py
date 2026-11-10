@@ -376,6 +376,30 @@ async def test_aie_course_step2_uses_previous_step_key(monkeypatch):
     assert out[0]["crm_id"] is None  # unknown CRM record → note skipped
 
 
+@pytest.mark.asyncio
+async def test_aie_course_step1_unlocks_from_warm_lane(monkeypatch):
+    """Warm first_approach_warm must unlock aie_course_1 (FIRST_APPROACH_FAMILY)."""
+    s = SimpleNamespace(
+        DIGEST_EMAIL_TO="owner@cloudless.gr",
+        SMTP_FROM="noreply@cloudless.gr",
+    )
+    monkeypatch.setattr(D, "get_settings", lambda: s)
+    calls = []
+
+    async def spy_dates(db, team_id, key):
+        calls.append(key)
+        return {"warm@corp.io": NOW - timedelta(days=8)}
+
+    monkeypatch.setattr(D, "_dripped_with_dates", spy_dates)
+    leads = {"warm@corp.io": {"id": "l-warm", "_name": "Warm Lead"}}
+    out = await D._aie_course_candidates(
+        _DB(), uuid.uuid4(), "aie_course_1", timedelta(days=7), NOW, leads
+    )
+    assert calls == [D.FIRST_APPROACH_FAMILY]
+    assert [c["email"] for c in out] == ["warm@corp.io"]
+    assert out[0]["crm_id"] == "l-warm"
+
+
 # --- remaining coverage -----------------------------------------------------
 
 
