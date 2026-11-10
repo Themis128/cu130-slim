@@ -8,7 +8,7 @@ whitelisted-action allowlist that bounds agent autonomy.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
@@ -431,3 +431,74 @@ async def test_alert_sends_telegram_and_swallows_errors(monkeypatch):
 
     monkeypatch.setattr(sn, "send_telegram_alert", _boom)
     await oa._alert(inc, "ops")  # must not raise
+
+
+# ------------------------------------------------- celery task wrapper
+
+
+def test_ops_agent_sweep_task_success_and_heartbeat(monkeypatch):
+    import app.worker.tasks.ops_agent as t
+
+    calls = []
+
+    def fake_run(coro):
+        coro.close()
+        calls.append(1)
+        return {"triaged": 1} if len(calls) == 1 else None
+
+    monkeypatch.setattr(t, "run_async", fake_run)
+    out = t.ops_agent_sweep()
+    assert out == {"triaged": 1}
+    assert len(calls) == 2  # sweep + heartbeat write
+
+
+def test_ops_agent_sweep_task_heartbeat_failure_still_returns(monkeypatch):
+    import app.worker.tasks.ops_agent as t
+
+    n = [0]
+
+    def fake_run(coro):
+        coro.close()
+        n[0] += 1
+        if n[0] == 2:
+            raise RuntimeError("redis down")
+        return {"triaged": 0}
+
+    monkeypatch.setattr(t, "run_async", fake_run)
+    assert t.ops_agent_sweep() == {"triaged": 0}
+
+
+def test_ops_agent_sweep_task_failure_retries(monkeypatch):
+    import app.worker.tasks.ops_agent as t
+
+    def boom(coro):
+        coro.close()
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(t, "run_async", boom)
+    with pytest.raises(Exception):
+        t.ops_agent_sweep()
+
+
+def test_parse_verdict_malformed_json_returns_empty():
+    # braces present but payload isn't valid JSON -> except path
+    assert oa._parse_verdict("prefix {not json at all} suffix") == {}
+
+
+def test_ops_agent_sweep_task_bodies_execute(monkeypatch):
+    """Drive the real coroutines through a real event loop with the DB
+    session and sweep mocked — covers _run + _heartbeat bodies."""
+    import asyncio
+    import contextlib
+
+    import app.services.ops_agent as svc
+    import app.worker.tasks.ops_agent as t
+
+    @contextlib.asynccontextmanager
+    async def fake_session():
+        yield MagicMock()
+
+    monkeypatch.setattr(t, "task_session", fake_session)
+    monkeypatch.setattr(svc, "sweep", AsyncMock(return_value={"triaged": 2}))
+    monkeypatch.setattr(t, "run_async", lambda coro: asyncio.run(coro))
+    assert t.ops_agent_sweep() == {"triaged": 2}
