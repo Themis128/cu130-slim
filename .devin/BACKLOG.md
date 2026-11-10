@@ -882,3 +882,21 @@ Leftovers:
 - Follow-up (watch): the `test`/coverage gate is a hair-thin margin —
   any PR adding uncovered code now blocks the treadmill until tests are
   added; master itself hovers ~99.0%.
+- Instagram RECOVERED via browser-session transplant (2026-11-10):
+  private API is hard-gated account-wide (aiograpi 2.1.9 CAA + sessionid
+  import both fail — ClientNeedsUpgradeError / redirect-loop even via
+  WARP), BUT engagement-browser holds a LIVE instagram.com session
+  (sidecar-relogin email-OTP lane). Extracted sessionid+csrftoken+
+  ds_user_id via /session/extract → wrote private_api_* meta_data +
+  status=active on account 38ddbd44. Web-API publish path
+  (_publish_instagram_via_web) now has credentials; IG api/v1 currently
+  returns transient 401 "wait a few minutes" (checkpoint throttle from
+  probing — clears itself). Sidecar db.json row "3" stores the session
+  but mobile API rejects it — private-API paths stay dead, web path
+  carries publishing. browser-novnc-adhoc REBUILT (was missing —
+  consent_healers X reauth + synigoros + mastersheet_watch all target
+  :9224): docker run cu130-slim-browser-novnc:latest, BRIDGE_PORT=9224,
+  volumes adhoc_profile/adhoc_cookies, host 127.0.0.1:9232, network
+  cu130-backend — health ok. NOTE: adhoc has FRESH profile — X reauth
+  still needs cookies (X_WEB_AUTH_TOKEN absent) or creds
+  (TWITTER_LOGIN_* absent) — human gate unchanged.
