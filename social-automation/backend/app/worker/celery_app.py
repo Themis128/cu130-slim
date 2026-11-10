@@ -97,6 +97,7 @@ celery_app = Celery(
         "app.worker.tasks.newsletter_subs",
         "app.worker.tasks.ops_agent",
         "app.worker.tasks.workforce_audit",
+        "app.worker.tasks.meeting_notes",
     ],
 )
 
@@ -241,9 +242,12 @@ celery_app.conf.update(
             "soft_time_limit": 120,
             "time_limit": 180,
         },
-        "app.worker.tasks.agency.run_agency_post_consult_sweep": {
-            "soft_time_limit": 120,
-            "time_limit": 180,
+        "app.worker.tasks.agency.run_agency_post_consult_sweep": {"soft_time_limit": 120, "time_limit": 180},
+        # Meeting notes: ffmpeg + Whisper + DMR on a recording — the
+        # longest single artifact in the sweep; still bounded.
+        "app.worker.tasks.meeting_notes.run_meeting_notes_sweep": {
+            "soft_time_limit": 900,
+            "time_limit": 1200,
         },
         "app.worker.tasks.telegram_digest.send_telegram_group_digests": {
             "soft_time_limit": 300,
@@ -335,6 +339,7 @@ celery_app.conf.update(
         "app.worker.tasks.agency.run_agency_proposal_followup_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_won_sweep": {"queue": "default"},
         "app.worker.tasks.agency.run_agency_post_consult_sweep": {"queue": "default"},
+        "app.worker.tasks.meeting_notes.run_meeting_notes_sweep": {"queue": "default"},
         "app.worker.tasks.notebooks.run_weekly_analytics": {"queue": "default"},
         "app.worker.tasks.human_gate.run_human_gate_watch": {"queue": "default"},
         "app.worker.tasks.nurture.run_nurture_sweep": {"queue": "default"},
@@ -685,6 +690,15 @@ celery_app.conf.update(
         "agency-post-consult-sweep": {
             "task": "app.worker.tasks.agency.run_agency_post_consult_sweep",
             "schedule": crontab(minute=40, hour="*/3"),
+        },
+        # Consultation → Talk room → recording → transcript → EspoCRM
+        # minutes. Every 30 min: upcoming appointmentsscheduled opps get a
+        # guest-joinable Talk room + CRM note; past ones get their shared
+        # recording transcribed (Workers AI Whisper) and summarised (DMR)
+        # into a Meeting notes: note. Marker notes are the dedupe keys.
+        "talk-meeting-notes": {
+            "task": "app.worker.tasks.meeting_notes.run_meeting_notes_sweep",
+            "schedule": crontab(minute="7,37"),
         },
         # Token expiry — refresh-ahead sweep; warns inside per-provider
         # lead times and escalates reauth_required (non-refreshable lanes)
