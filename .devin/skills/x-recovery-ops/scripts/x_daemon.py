@@ -23,6 +23,8 @@ if os.environ.get("X_OAUTH_URL_FILE"):
     AUTH_URL = open(os.environ["X_OAUTH_URL_FILE"]).read().strip()
 MAX_SECONDS = int(os.environ.get("X_MAX_SECONDS", str(12 * 3600)))
 RETRY_SLEEP = int(os.environ.get("X_RETRY_SLEEP", "1500"))  # 25 min — account-level rate limit needs a quiet window; hammering keeps it alive
+PHONE_NEED = os.path.join(DIR, "x_phone_needed.json")   # daemon → WSL bridge flag
+PHONE_CODE = os.path.join(DIR, "x_phone_code.json")     # WSL bridge → daemon {code,ts}
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 
@@ -194,6 +196,31 @@ def detect(pg):
     if "@" in t and ("email" in t or "send" in t or "recover" in t):
         return "method_step"
     return "unknown"
+
+def phone_screen(pg):
+    """X phone/SMS checkpoint — distinct from the email code_step."""
+    t = pg.txt(500).lower()
+    return any(k in t for k in (
+        "check your phone", "your phone", "phone number", "verify your phone",
+        "text message", "sms", "mobile number", "sent a text", "phone instead"))
+
+def request_phone_code(pg):
+    """Flag the WSL x_phone_bridge to fetch the SMS code; poll up to 6 min."""
+    try:
+        need = {"ts": time.time(), "url": pg.url()[:120]}
+        json.dump(need, open(PHONE_NEED, "w"))
+    except Exception:
+        pass
+    deadline = time.time() + 360
+    while time.time() < deadline:
+        try:
+            d = json.load(open(PHONE_CODE))
+            if d.get("code") and d.get("ts", 0) >= need["ts"] - 5:
+                return d["code"]
+        except Exception:
+            pass
+        time.sleep(10)
+    return None
 
 def arkose_info(pg):
     """Detect an Arkose/FunCaptcha challenge; return {pkey, blob} or None."""
@@ -392,6 +419,24 @@ def main():
                 if r == "unknown_state":
                     t = pg.txt(300)
                     log("unknown state text:", t[:200])
+                    # phone/SMS checkpoint? bridge fetches the code off the phone
+                    if phone_screen(pg):
+                        log("phone/SMS checkpoint — requesting code via bridge")
+                        status("phone_step", "waiting for SMS code")
+                        code = request_phone_code(pg)
+                        if code:
+                            log("phone code:", code)
+                            ins = str(pg.ev("JSON.stringify([...document.querySelectorAll('input')].map(i=>i.id||i.name||i.type))") or "")
+                            sel = ("input[type=tel],input[inputmode=numeric]"
+                                   if ("tel" in ins or "numeric" in ins)
+                                   else "input[type=text],input[type=number]")
+                            log("fill phone code:", fill(pg, sel, code))
+                            time.sleep(1)
+                            log("click phone code:", click_re(pg, "^continue$|^verify$|^next$|^submit$|^confirm$"))
+                            time.sleep(9)
+                        else:
+                            alert("phone/SMS checkpoint — no code via phone bridge in 6min; human needed")
+                        continue
                     # Arkose/FunCaptcha? try paid solver if key configured
                     ark = arkose_info(pg)
                     if ark:
