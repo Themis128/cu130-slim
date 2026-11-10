@@ -157,6 +157,28 @@ recreate_container() {
   log "recreating $c (compose service $svc — mount-broken)"
   docker compose up -d --no-deps --force-recreate "$svc" >/dev/null 2>&1
 }
+# Tailnet-IP drift — compose binds ${INFISICAL_TAILNET_IP:-<stale-default>}
+# for the omv/GitHub-runner path; when tailscale re-registers the node the
+# IP changes and `docker start` fails with "ports are not available"
+# (infisical stuck Created 2026-11-10, API dead until manual .env fix).
+# Detect the dead IP in the container's State.Error, point the env var at
+# the live tailscale IP, recreate.
+fix_tailnet_ip() {
+  local c="$1" err ip tip
+  err=$(docker inspect -f '{{.State.Error}}' "$c" 2>/dev/null)
+  case "$err" in *"ports are not available"*) ;; *) return 1;; esac
+  ip=$(echo "$err" | grep -oP 'TCP \K100\.\d+\.\d+\.\d+' | head -1)
+  [ -n "$ip" ] || return 1
+  tip=$(tailscale ip -4 2>/dev/null | head -1)
+  { [ -n "$tip" ] && [ "$tip" != "$ip" ]; } || return 1
+  if grep -q "^INFISICAL_TAILNET_IP=" .env 2>/dev/null; then
+    sed -i "s|^INFISICAL_TAILNET_IP=.*|INFISICAL_TAILNET_IP=$tip|" .env
+  else
+    echo "INFISICAL_TAILNET_IP=$tip" >> .env
+  fi
+  ALERT "tailnet-ip-$c" ":warning: $c port bind failed — tailnet IP drifted $ip -> $tip; updated .env and recreating"
+  recreate_container "$c"
+}
 # EACCES on a bind-mounted file — the WSL/Windows dual-checkout flips mount
 # ownership between uid 1000/1001, so the image user can't read 600-perm
 # files (n8n .n8n/config crash-looped twice on 2026-11-10). Restart can't
@@ -213,6 +235,10 @@ for c in $CORE $EXTRA; do
   oom=${st##* }
   case "$status" in
     created|restarting|exited|dead)
+      if { [ "$status" = "created" ] || [ "$status" = "exited" ] || [ "$status" = "dead" ]; } \
+         && fix_tailnet_ip "$c"; then
+        continue
+      fi
       if [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
         if is_mount_broken "$c"; then
           recreate_container "$c" && ALERT "remount-$c" ":warning: $c exited on a broken bind-mount — force-recreated"

@@ -25,6 +25,7 @@ case "$1" in
       if [ "$prev" = "-f" ] && [[ "$a" == *com.docker.compose.service* ]]; then echo "fake-svc"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Health.Status* ]]; then echo "${FAKE_HEALTH:-healthy}"; exit 0; fi
       if [ "$prev" = "-f" ] && [ "$a" = '{{.State.Status}}' ]; then echo "${FAKE_CSTATE:-running}"; exit 0; fi
+      if [ "$prev" = "-f" ] && [ "$a" = '{{.State.Error}}' ]; then printf '%s' "${FAKE_STATE_ERROR:-}"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Mounts* ]]; then printf '%s' "${FAKE_MOUNTS:-}"; exit 0; fi
       if [ "$prev" = "-f" ] && [[ "$a" == *Config.Image* ]]; then echo "fake-img"; exit 0; fi
       prev="$a"
@@ -61,6 +62,10 @@ def env(tmp_path):
     curl = bindir / "curl"
     curl.write_text('#!/usr/bin/env bash\necho "curl $*" >> "$FAKE_CALLS"\necho "${FAKE_CURL_CODE:-200}"\n')
     curl.chmod(curl.stat().st_mode | stat.S_IEXEC)
+    # tailscale fake — `tailscale ip -4` prints FAKE_TS_IP (default: none)
+    ts = bindir / "tailscale"
+    ts.write_text('#!/usr/bin/env bash\n[ -n "${FAKE_TS_IP:-}" ] && echo "$FAKE_TS_IP" || exit 1\n')
+    ts.chmod(ts.stat().st_mode | stat.S_IEXEC)
     e = {
         "PATH": f"{bindir}:{os.environ['PATH']}",
         "HOME": str(tmp_path / "home"),
@@ -245,3 +250,36 @@ def test_extra_service_exited_is_restarted(env, tmp_path):
     run(repo, e, FAKE_TARGET="n8n", FAKE_STATUS="exited false")
     c = calls(tmp)
     assert any(x.startswith("start n8n") or x.startswith("restart n8n") for x in c), c
+
+
+def test_tailnet_ip_drift_updates_env_and_recreates(env, tmp_path):
+    """Container stuck Created on 'ports are not available' + tailscale IP
+    drift → .env INFISICAL_TAILNET_IP updated + recreate."""
+    repo, e, tmp = env
+    (repo / ".env").write_text("INFISICAL_TAILNET_IP=100.83.120.93\n")
+    err = ("ports are not available: exposing port TCP "
+           "100.83.120.93:8090 -> 127.0.0.1:0: /forwards/expose returned 500")
+    run(repo, e, FAKE_TARGET="infisical", FAKE_STATUS="created false",
+        FAKE_STATE_ERROR=err, FAKE_TS_IP="100.100.186.88")
+    assert "INFISICAL_TAILNET_IP=100.100.186.88" in (repo / ".env").read_text()
+    c = calls(tmp)
+    assert any("compose up -d --no-deps --force-recreate fake-svc" in x for x in c), c
+    assert "tailnet-ip" in log(repo)
+
+
+def test_tailnet_ip_no_drift_no_action(env, tmp_path):
+    """Same IP → no .env rewrite, no recreate."""
+    repo, e, tmp = env
+    (repo / ".env").write_text("INFISICAL_TAILNET_IP=100.83.120.93\n")
+    err = "ports are not available: exposing port TCP 100.83.120.93:8090"
+    run(repo, e, FAKE_TARGET="infisical", FAKE_STATUS="created false",
+        FAKE_STATE_ERROR=err, FAKE_TS_IP="100.83.120.93")
+    assert "INFISICAL_TAILNET_IP=100.83.120.93" in (repo / ".env").read_text()
+    assert not any("compose up" in x for x in calls(tmp))
+
+
+def test_tailnet_ip_ignores_non_port_errors(env, tmp_path):
+    repo, e, tmp = env
+    run(repo, e, FAKE_TARGET="infisical", FAKE_STATUS="created false",
+        FAKE_STATE_ERROR="some other error", FAKE_TS_IP="100.100.186.88")
+    assert not any("compose up" in x for x in calls(tmp))
