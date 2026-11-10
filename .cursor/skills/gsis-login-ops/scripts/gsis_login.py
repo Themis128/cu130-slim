@@ -45,6 +45,19 @@ class Tab:
         import websocket
         self.ws = websocket.create_connection(ws_url, timeout=45, suppress_origin=True)
         self.mid = 0
+        self._deheadless()
+
+    def _deheadless(self):
+        """Strip "Headless" from the UA — portals like IDIKA HTTP-500 on
+        HeadlessChrome UAs. Per-tab override; harmless when already headed."""
+        try:
+            ua = self.eval("navigator.userAgent") or ""
+            clean = ua.replace("HeadlessChrome", "Chrome")
+            if clean != ua:
+                self.cmd("Network.enable")
+                self.cmd("Network.setUserAgentOverride", {"userAgent": clean})
+        except Exception:
+            pass
 
     def cmd(self, method, params=None):
         self.mid += 1

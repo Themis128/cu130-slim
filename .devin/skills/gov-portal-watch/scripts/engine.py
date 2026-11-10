@@ -56,6 +56,19 @@ class Tab:
         import websocket
         self.ws = websocket.create_connection(ws_url, timeout=45, suppress_origin=True)
         self.mid = 0
+        self._deheadless()
+
+    def _deheadless(self):
+        """Strip "Headless" from the UA — some portals (IDIKA) HTTP-500 on
+        HeadlessChrome UAs. Per-tab override; harmless when already headed."""
+        try:
+            ua = self.eval("navigator.userAgent") or ""
+            clean = ua.replace("HeadlessChrome", "Chrome")
+            if clean != ua:
+                self.cmd("Network.enable")
+                self.cmd("Network.setUserAgentOverride", {"userAgent": clean})
+        except Exception:
+            pass
 
     def cmd(self, method, params=None):
         self.mid += 1
@@ -140,7 +153,8 @@ def gsis_login(tab, cfg, creds, portal_url, notify=None, timeout=120):
         if tab.eval(auth_expr) == "auth":
             return True
         u = tab.eval("location.href") or ""
-        if "/Account/Login" not in u and "login" not in u.lower():
+        has_btn = bool(tab.eval("!!document.getElementById('%s')" % oauth_button))
+        if ("/Account/Login" not in u and "login" not in u.lower()) or not has_btn:
             tab.cmd("Page.navigate", {"url": login_url})
             time.sleep(5)
         tab.eval("var b=document.getElementById('%s'); if(b) b.click(); 'ok'" % oauth_button)
