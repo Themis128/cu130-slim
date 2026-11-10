@@ -534,6 +534,7 @@ async def schedule_report_actions(
             status=status,
             scheduled_at=when if status == PostStatus.SCHEDULED else None,
             meta_data={
+                **(action.extra_meta or {}),
                 "source": source,
                 dedup_field: ahash,
                 "report_date": report_date,

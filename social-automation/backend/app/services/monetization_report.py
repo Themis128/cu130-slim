@@ -53,6 +53,7 @@ class MonetizationAction:
     instruction: str
     time_athens: str = ""  # "HH:MM" local
     format: str = ""  # text | image | carousel | video | story | reel
+    extra_meta: dict | None = None  # merged into Post.meta_data (attribution)
 
 
 @dataclass
