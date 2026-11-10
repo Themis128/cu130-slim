@@ -1137,35 +1137,24 @@ Leftovers:
   script now covers recurrence.
 
 
-## 2026-11-11 — ops-automation depth pass + residual risks
+## 2026-11-10 (night) — brain-stack upgrades (PRs #1651 #1652)
 
-- **Mail pipeline fully closed-loop**: probe cron */15min green;
-  `mail_secret_rotate.py` battle-tested; Infisical push via container-local
-  API lane (public API sits behind authentik SSO).
-- **Deploy stalls auto-heal**: `pr-land-watch` now auto-unblocks dirty
-  checkouts — stash tracked WIP (>30min file-quiet only), land master,
-  pop back or leave stash + TG #ops alert; blocked >2 cycles alerts once
-  per signature. Fresh WIP (<30min) is deliberately untouched.
-- **k3s cloudless-app overlay reconciled** (OMV `5ff2006`): overlay now
-  manages only namespace/quota/limitrange/service matching live; the
-  Deployment is hostPath standalone owned by cloudless.gr deploy-pi.
-  Retired ECR/SSM manifests kept in-tree, removed from kustomization.
-  `k3s-manifest-sync` EXCLUDE emptied — applies on change + rollout check.
-- **Image drift lanes**: `stack-image-sync` */30 (GHCR :latest digests,
-  serialized pulls, targeted recreate) + Renovate PRs for third-party
-  images (cu130-slim PR #1671, `renovate.json`; runner cron Mon 05:45,
-  activates post-merge; own GHCR excluded — stack-image-sync owns it).
-- **etcd defrag evaluated and rejected**: cluster runs SQLite datastore
-  since 2026-07-22 (state.db 44MB healthy) — the bbolt fragmentation
-  landmine doesn't exist here.
-- **Docker credsStore vsock flakes fixed**: `~/.docker/config.json` now
-  carries inline `auths.ghcr.io` from GH_PAT (same exposure as .env);
-  `docker-ghcr-auth-sync.sh` */30 re-syncs on PAT rotation. credsStore
-  kept for other registries.
-- **RESIDUAL (not automatable)**: ops scripts are prod-touching — another
-  agent test-ran land-watch as "PR #9999" (00:36) which restarted the 6
-  backend services + rebuilt facebook-browser-sidecar. Consider a
-  `LAND_WATCH_DRY_RUN=1` env or requiring `.deploy.lock` ownership proof
-  before compose mutations in test contexts. Also: agents working
-  directly in `~/cu130-slim` (not worktrees) create the dirty-checkout
-  stalls this whole lane exists to absorb — prefer `~/.worktrees/*`.
+- **platform_fit.json refreshed** with verified 2026 ranking changes
+  (LinkedIn LLM-embedding retrieval + anti-engagement-bait, IG
+  sends/shares, X Grok ranker, TikTok follower-independence) — PR #1651.
+- **central_brain LLM refinement** — `_llm_adjust` rewrites post
+  instructions via DMR→CF using company-brain recall + fit lines;
+  rules stay the floor, `CENTRAL_BRAIN_LLM_ENABLED` gates it. Posts now
+  carry `brain_*` meta for outcome attribution — PR #1652.
+- **platform_fit_sync.py note-title fix** — em-dash literal mangled to
+  `???` under POSIX locale; title now rides the JSON env payload.
+- **kakkava-brain-sync `_brain` repair in flight**: the 362
+  `kakkava-sofia-*` memories were LOST (collection had only 2 docs —
+  likely a Chroma reset); manifest gate hid it. Forced re-ingest running
+  inside social-api via tar-stream copy (docker cp DrvFs ENOMEM flake);
+  ~360 chunks, idempotent upserts, ETA ~2-3h. `platform-fit-reference`
+  doc seeded into Chroma + Nextcloud note (title fixed). Watch:
+  `docker exec social-postgres psql ... SELECT count(*)` on
+  `team_10024d25_..._brain` should reach ~365+.
+- **platform-fit-refresh cron**: installed 2026-11-09, first scheduled
+  run Sun 2026-11-15 07:00 — no log yet is EXPECTED, not a failure.
