@@ -25,7 +25,6 @@ import asyncio
 import io
 import os
 import sys
-import uuid
 
 for path in ("/app", os.path.dirname(os.path.dirname(os.path.abspath(__file__)))):
     if path not in sys.path and os.path.isdir(os.path.join(path, "app")):
