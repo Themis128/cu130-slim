@@ -32,6 +32,7 @@ _RealClient = httpx.AsyncClient
 def _engage_quality_gate_off(monkeypatch):
     """Default: disable the SEO/NLP floor so fixture drafts/posts pass."""
     monkeypatch.setenv("ENGAGE_MIN_SCORE", "0")
+    monkeypatch.setenv("DRAFT_MIN_SCORE", "0")
 
 
 class _Res:
@@ -683,6 +684,7 @@ async def test_dispatch_draft_fails_quality_gate(monkeypatch):
     import app.services.dmr as DMR
 
     monkeypatch.setenv("ENGAGE_MIN_SCORE", "80")
+    monkeypatch.setenv("DRAFT_MIN_SCORE", "80")
     slack = _patch_alerts(monkeypatch)
     dmr = AsyncMock(return_value={"text": "word " * 40})
     monkeypatch.setattr(DMR, "call_dmr_chat", dmr)

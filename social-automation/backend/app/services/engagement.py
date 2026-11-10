@@ -19,14 +19,28 @@ logger = logging.getLogger(__name__)
 ACTION_WEIGHTS = {"like": 1, "repost": 3, "comment": 5}
 
 
-def _min_engage_score() -> int:
+def _env_int(name: str, default: int) -> int:
     try:
-        return int(os.environ.get("ENGAGE_MIN_SCORE", "80"))
+        return int(os.environ.get(name, str(default)))
     except ValueError:
-        return 80
+        return default
 
 
-def quality_gate(text: str, platform: str) -> tuple[bool, int, int]:
+def min_engage_score() -> int:
+    """SEO+NLP floor for inbound target posts (ENGAGE_MIN_SCORE, default 80)."""
+    return _env_int("ENGAGE_MIN_SCORE", 80)
+
+
+def min_draft_score() -> int:
+    """SEO+NLP floor for generated comment drafts (DRAFT_MIN_SCORE, default 65).
+
+    Drafts are 15-45 words, so the post-oriented SEO score caps around ~70 —
+    a floor of 80 would reject every draft. 65 still filters weak copy.
+    """
+    return _env_int("DRAFT_MIN_SCORE", 65)
+
+
+def quality_gate(text: str, platform: str, floor: int | None = None) -> tuple[bool, int, int]:
     """SEO + NLP floor for auto-engage — both scores must clear the minimum.
 
     Returns (passed, seo_overall, nlp_score); scores are 0-100.
@@ -34,9 +48,10 @@ def quality_gate(text: str, platform: str) -> tuple[bool, int, int]:
     from app.services.plain_english import sofia_nlp_score
     from app.services.seo import score_content
 
+    minimum = floor if floor is not None else min_engage_score()
     seo = score_content(text, platform).overall
     nlp, _issues = sofia_nlp_score(text)
-    return seo >= _min_engage_score() and nlp >= _min_engage_score(), seo, nlp
+    return seo >= minimum and nlp >= minimum, seo, nlp
 
 
 # Jitter windows per platform (seconds after target post is seen)
@@ -190,7 +205,7 @@ async def queue_engagement(candidate: EngagementCandidate, db) -> dict:
 
     q_ok, q_seo, q_nlp = quality_gate(candidate.post_text, candidate.platform)
     if not q_ok:
-        return {"skipped": f"quality gate seo={q_seo} nlp={q_nlp} (min {_min_engage_score()})"}
+        return {"skipped": f"quality gate seo={q_seo} nlp={q_nlp} (min {min_engage_score()})"}
 
     plan = score_candidate(candidate)
     if plan.action is None:

@@ -112,7 +112,7 @@ async def _run(limit: int):
             cand = (await db.execute(select(EngagementCandidate).where(EngagementCandidate.post_id == a.target_post_id))).scalars().first()
             if not cand:
                 continue
-            from app.services.engagement import classify_vector, quality_gate
+            from app.services.engagement import classify_vector, min_draft_score, quality_gate
 
             vector, override = classify_vector(cand.author_name + " " + cand.author_handle, cand.post_text)
             prompt = build_3c_prompt(
@@ -136,7 +136,7 @@ async def _run(limit: int):
                 draft = (resp.get("text") or "").strip().strip('"') or None
                 if not draft:
                     break
-                ok, seo, nlp = quality_gate(draft, a.platform)
+                ok, seo, nlp = quality_gate(draft, a.platform, floor=min_draft_score())
                 if ok:
                     break
             a.comment_draft = draft

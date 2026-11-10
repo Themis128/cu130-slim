@@ -16,6 +16,7 @@ from app.services import engagement as E
 def _engage_quality_gate_off(monkeypatch):
     """Default: disable the SEO/NLP floor so synthetic posts pass."""
     monkeypatch.setenv("ENGAGE_MIN_SCORE", "0")
+    monkeypatch.setenv("DRAFT_MIN_SCORE", "0")
 
 
 def _cand(**kw):
