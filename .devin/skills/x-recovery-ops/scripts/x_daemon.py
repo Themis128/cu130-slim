@@ -42,6 +42,18 @@ def status(phase, detail=""):
     except Exception:
         pass
 
+def alert(text):
+    """Telegram alert via x_tg_alert.json ({token, chat}) — silent if absent."""
+    try:
+        cfg = json.load(open(os.path.join(DIR, "x_tg_alert.json")))
+        url = f"https://api.telegram.org/bot{cfg['token']}/sendMessage"
+        urllib.request.urlopen(urllib.request.Request(
+            url, data=json.dumps({"chat_id": cfg["chat"],
+                                  "text": "X-recovery: " + text}).encode(),
+            headers={"Content-Type": "application/json"}), timeout=10)
+    except Exception:
+        pass
+
 def page_ws():
     tabs = json.loads(urllib.request.urlopen(CDP + "/json", timeout=8).read())
     pages = [t for t in tabs if t.get("type") == "page"]
@@ -262,6 +274,7 @@ def main():
     status("start", "daemon boot")
     log("=== x_daemon start ===")
     flow_start_ms = int(time.time() * 1000) - 3600000  # accept codes from last hour
+    unknown_streak = 0
     while time.time() - t0 < MAX_SECONDS:
         try:
             pg = PG()
@@ -307,8 +320,12 @@ def main():
                     # maybe logged-in landing — check
                     if logged_in(pg):
                         break
+                    unknown_streak += 1
+                    if unknown_streak == 3:
+                        alert(f"stuck on unrecognized X screen x3 — likely a human factor (Arkose/phone/checkpoint). url={pg.url()[:100]} text={t[:150]}")
                     time.sleep(15)
                     continue
+                unknown_streak = 0
                 time.sleep(3)
             else:
                 pass
@@ -318,8 +335,10 @@ def main():
                 log("LOGGED IN — oauth phase")
                 if oauth_phase(pg):
                     status("done", "oauth callback reached")
+                    alert("DONE — OAuth callback reached, tokens stored")
                     log("=== DONE ===")
                     return
+                alert("oauth did not complete — page: " + pg.url()[:120])
                 # if oauth didn't complete, loop back (session persists)
                 time.sleep(30)
                 continue
@@ -330,6 +349,7 @@ def main():
         finally:
             pg.close()
     status("timeout", "gave up after %ds" % MAX_SECONDS)
+    alert(f"daemon timed out after {MAX_SECONDS//3600}h — supervisor will relaunch")
 
 if __name__ == "__main__":
     main()
