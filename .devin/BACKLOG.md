@@ -955,3 +955,43 @@ Leftovers:
 - Still in flight at session end (armed, treadmill crons drive them):
   #1610 FB insights v26, #1611 bluesky AT-session reuse, #1614 WIP,
   #1615 bridge-sessions login-wall detection.
+
+## 2026-11-10 (late) — WhatsApp WABA created in cloudless.gr portfolio; number-conflict wall (Devin)
+
+- Drove the full "Add WhatsApp account" wizard in Business Settings
+  (business_id=1558125105019725) via facebook-browser-sidecar: debug/click
+  needs the real combobox coords — category dropdown is div[role=combobox]
+  at ~(1060,512), options virtualized (scroll listbox scrollTop then click
+  option coords). Gotchas: display-name input pre-fills "cloudless.gr" →
+  set "Cloudless" via native value setter; country combobox needs typed
+  filter ("Greece" → GR +30).
+- RESULT: new WAAC created — selected_asset_id=**1805020980543501**,
+  phone +30 697 777 7838, display name Cloudless, category Professional
+  Services, status **Unverified**. Listed under Settings → WhatsApp
+  accounts with tabs Summary/People/Partners/Linked WhatsApp accounts/
+  Messaging accounts/Conversation routing.
+- WALL (#2655122): phone verification fails — "already registered to a
+  WhatsApp account, migrate or disconnect". com.whatsapp.w4b (WhatsApp
+  Business app) IS installed+registered on the S22+ (dumpsys account shows
+  "WhatsApp Business" account; last foreground use 2026-11-08). Old WABA
+  1073707258453499 confirmed unreachable: WHATSAPP_ACCESS_TOKEN in
+  social-api env → 401 auth error; owned/client_wabas edges empty;
+  whatsapp_manager UI redirects away. Old phone asset
+  1334613883061552 was never verified (133010).
+- Meta docs (verified): app→CloudAPI paths = Coexistence (needs
+  Tech-Provider/BSP embedded signup — our app lacks capability) or full
+  migration (delete app account, irreversible). Display-name-only
+  (virtual_number radio) exists as fallback.
+- Code delivery: verification code sent twice; no SMS in inbox — likely
+  arrives inside the WA Business app chat/notification. Armed
+  `.devin/skills/whatsapp-ops/scripts/wa_code_watch.py` (polls SMS inbox
+  + dumpsys notifications for 6-digit Meta/WhatsApp code → ~/logs/
+  wa-code.txt, 24h). Same cover-open dependency as ig_link_watch.py.
+- NEXT when phone opens: read code → enter at Verify now → expect the
+  same #2655122 wall → then business decision: (a) delete WA Business
+  app account & re-verify (irreversible, loses app chats — back up
+  first), (b) BSP coexistence, (c) display-name-only WABA. Also pending:
+  Add Messaging account (templates+payment) — card entry is human gate.
+- Sidecar note: facebook-browser-sidecar sleeps via stack-ops after
+  idle_min=20 — long wizard flows lose page state on wake; keep bursts
+  short or re-navigate (state in this note is re-derivable).
